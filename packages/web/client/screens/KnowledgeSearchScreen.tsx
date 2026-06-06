@@ -1,25 +1,35 @@
 import "./knowledge-search.css";
 
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { FormEvent, KeyboardEvent, MouseEvent } from "react";
 import {
   Database,
+  ExternalLink,
   FileSearch,
   Loader2,
+  MessageSquareText,
+  RadioTower,
   Search,
 } from "lucide-react";
 
 import type { Route } from "../lib/types.ts";
+import type { SearchMode } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { SearchSubnav } from "./SearchSubnav.tsx";
 import {
   facetText,
+  firstFileRef,
   firstTranscriptRef,
   highlightParts,
   pathLabel,
+  transcriptSessionId,
+  transcriptTailQuery,
   queryTerms,
   type KnowledgeHit,
   type KnowledgeStatus,
   type SearchResponse,
+  type WorktreeIndexResponse,
 } from "../lib/knowledge-search.ts";
 
 const SAMPLE_QUERIES = [
@@ -34,6 +44,18 @@ const SAMPLE_QUERIES = [
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat("en-US").format(value || 0);
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let next = value;
+  let unitIndex = 0;
+  while (next >= 1024 && unitIndex < units.length - 1) {
+    next /= 1024;
+    unitIndex += 1;
+  }
+  return `${next >= 10 || unitIndex === 0 ? next.toFixed(0) : next.toFixed(1)} ${units[unitIndex]}`;
 }
 
 function useKnowledgeStatus() {
@@ -108,8 +130,111 @@ function displaySnippet(hit: KnowledgeHit, query: string): string {
   return after || before || compact;
 }
 
-export function KnowledgeSearchScreen({ navigate: _navigate }: { navigate: (route: Route) => void }) {
-  const { selectedKnowledgeHit, inspectKnowledgeHit, clearKnowledgeHit } = useScout();
+function activateHitFromKeyboard(event: KeyboardEvent<HTMLElement>, activate: () => void) {
+  if (event.target !== event.currentTarget) return;
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  activate();
+}
+
+function stopAndRun(event: MouseEvent<HTMLButtonElement>, action: () => void) {
+  event.stopPropagation();
+  action();
+}
+
+function SearchIndexerPanel({
+  buildIndex,
+  buildWorktreeIndex,
+  indexing,
+  status,
+}: {
+  buildIndex: (force?: boolean) => Promise<void>;
+  buildWorktreeIndex: (force?: boolean) => Promise<void>;
+  indexing: boolean;
+  status: KnowledgeStatus | null;
+}) {
+  const updatedLabel = status
+    ? new Date(status.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : "Not loaded";
+  return (
+    <section className="ks-panel ks-conversation-panel">
+      <div className="ks-panel-head">
+        <div>
+          <p className="ks-panel-eyebrow">Indexer</p>
+          <h2>Session knowledge index</h2>
+        </div>
+        <Database size={18} strokeWidth={1.7} aria-hidden="true" />
+      </div>
+      <div className="ks-indexer-panel">
+        <div className="ks-indexer-actions">
+          <button type="button" className="ks-primary-button" onClick={() => void buildIndex(false)} disabled={indexing}>
+            {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <Database size={14} aria-hidden="true" />}
+            Build 3-day index
+          </button>
+          <button type="button" className="ks-primary-button" onClick={() => void buildIndex(true)} disabled={indexing}>
+            {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <Database size={14} aria-hidden="true" />}
+            Rebuild
+          </button>
+          <button type="button" className="ks-primary-button" onClick={() => void buildWorktreeIndex(true)} disabled={indexing}>
+            {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <FileSearch size={14} aria-hidden="true" />}
+            Index worktree diffs
+          </button>
+        </div>
+        <div className="ks-indexer-metrics">
+          <div>
+            <span>Collections</span>
+            <strong>{status ? `${formatCount(status.readyCollections)} / ${formatCount(status.collections)}` : "—"}</strong>
+          </div>
+          <div>
+            <span>Chunks</span>
+            <strong>{status ? formatCount(status.chunks) : "—"}</strong>
+          </div>
+          <div>
+            <span>Jobs</span>
+            <strong>{status ? formatCount(status.activeJobs.length) : "—"}</strong>
+          </div>
+          <div>
+            <span>Store</span>
+            <strong>{status ? formatBytes(status.sqliteBytes) : "—"}</strong>
+          </div>
+        </div>
+        <div className="ks-indexer-facts">
+          <div>
+            <span>Updated</span>
+            <strong>{updatedLabel}</strong>
+          </div>
+          <div>
+            <span>QMD root</span>
+            <strong>{status ? compactPath(status.paths.qmdRoot) : "Not loaded"}</strong>
+          </div>
+          <div>
+            <span>SQLite</span>
+            <strong>{status ? compactPath(status.paths.sqlitePath) : "Not loaded"}</strong>
+          </div>
+        </div>
+        {status?.activeJobs.map((job) => (
+          <div key={job.id} className="ks-empty-state">
+            <Database size={18} strokeWidth={1.7} aria-hidden="true" />
+            <strong>{job.source} · {job.state}</strong>
+            <span>
+              {formatCount(job.progress.indexed ?? 0)} indexed,
+              {" "}{formatCount(job.progress.failed ?? 0)} failed
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function KnowledgeSearchScreen({
+  navigate,
+  mode,
+}: {
+  navigate: (route: Route) => void;
+  mode?: SearchMode;
+}) {
+  const { selectedKnowledgeHit, inspectKnowledgeHit, clearKnowledgeHit, openFilePreview } = useScout();
   const { status, setStatus, error, setError } = useKnowledgeStatus();
   const [query, setQuery] = useState("QMD search");
   const [hits, setHits] = useState<KnowledgeHit[]>([]);
@@ -168,15 +293,41 @@ export function KnowledgeSearchScreen({ navigate: _navigate }: { navigate: (rout
     }
   };
 
+  const buildWorktreeIndex = async (force = false) => {
+    setIndexing(true);
+    try {
+      setError(null);
+      const response = await api<WorktreeIndexResponse>("/api/knowledge/worktree/index", {
+        method: "POST",
+        body: JSON.stringify({ force, includeUntracked: true }),
+      });
+      setStatus(response.status);
+      await runSearch(query);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIndexing(false);
+    }
+  };
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     void runSearch(query);
   };
 
+  const activeRoute: Route = { view: "search", ...(mode ? { mode } : {}) };
+
   return (
-    <main className="ks-page">
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <SearchSubnav activeRoute={activeRoute} navigate={navigate} />
+      </div>
+      <main className="ks-page">
       <section className="ks-live-grid">
-        <section className="ks-panel ks-conversation-panel">
+        {mode === "indexer" ? (
+          <SearchIndexerPanel buildIndex={buildIndex} buildWorktreeIndex={buildWorktreeIndex} indexing={indexing} status={status} />
+        ) : (
+          <section className="ks-panel ks-conversation-panel">
           <form className="ks-search-form" onSubmit={onSubmit}>
             <Search size={16} strokeWidth={1.8} aria-hidden="true" />
             <input
@@ -234,18 +385,26 @@ export function KnowledgeSearchScreen({ navigate: _navigate }: { navigate: (rout
                 </div>
               ) : hits.map((hit) => {
                 const transcript = firstTranscriptRef(hit);
+                const fileRef = firstFileRef(hit);
                 const project = facetText(hit, "project");
                 const harness = facetText(hit, "harness");
+                const source = facetText(hit, "source");
+                const state = facetText(hit, "state");
                 const selected = selectedKnowledgeHit?.id === hit.id;
-                const sourcePath = transcript ? pathLabel(transcript.path) : "";
+                const sourcePath = transcript ? pathLabel(transcript.path) : fileRef ? pathLabel(fileRef.path) : "";
                 const resultSnippet = displaySnippet(hit, query);
+                const sessionId = transcriptSessionId(transcript);
+                const tailQuery = transcriptTailQuery(transcript);
+                const selectHit = () => inspectKnowledgeHit(hit, query);
                 return (
-                  <button
+                  <article
                     key={hit.id}
-                    type="button"
                     className={`ks-hit${selected ? " ks-hit--selected" : ""}`}
-                    aria-pressed={selected}
-                    onClick={() => inspectKnowledgeHit(hit, query)}
+                    role="button"
+                    tabIndex={0}
+                    aria-current={selected ? "true" : undefined}
+                    onClick={selectHit}
+                    onKeyDown={(event) => activateHitFromKeyboard(event, selectHit)}
                     >
                     <div className="ks-hit-title">
                       <FileSearch size={14} strokeWidth={1.8} aria-hidden="true" />
@@ -258,20 +417,58 @@ export function KnowledgeSearchScreen({ navigate: _navigate }: { navigate: (rout
                     <div className="ks-hit-meta">
                       {project && <span>{project}</span>}
                       {harness && <span>{harness}</span>}
+                      {source === "git_worktree" && <span>worktree diff</span>}
+                      {state && <span>{state}</span>}
                       {transcript?.recordRange && <span>records {transcript.recordRange[0]}..{transcript.recordRange[1]}</span>}
                     </div>
-                    {transcript && (
+                    {sourcePath && (
                       <code className="ks-hit-source" title={sourcePath}>
                         {compactPath(sourcePath)}
                       </code>
                     )}
-                  </button>
+                    {(sessionId || tailQuery || fileRef) && (
+                      <div className="ks-hit-actions" aria-label="Search result actions">
+                        {sessionId && (
+                          <button
+                            type="button"
+                            onClick={(event) => stopAndRun(event, () => navigate({ view: "sessions", sessionId }))}
+                          >
+                            <MessageSquareText size={13} aria-hidden="true" />
+                            Open session
+                          </button>
+                        )}
+                        {tailQuery && (
+                          <button
+                            type="button"
+                            onClick={(event) => stopAndRun(event, () => navigate({ view: "ops", mode: "tail", tailQuery }))}
+                          >
+                            <RadioTower size={13} aria-hidden="true" />
+                            Observe window
+                          </button>
+                        )}
+                        {!transcript && fileRef && (
+                          <button
+                            type="button"
+                            onClick={(event) => stopAndRun(event, () => {
+                              inspectKnowledgeHit(hit, query);
+                              openFilePreview(pathLabel(fileRef.path));
+                            })}
+                          >
+                            <ExternalLink size={13} aria-hidden="true" />
+                            Open file
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </article>
                 );
               })}
             </div>
           )}
-        </section>
+          </section>
+        )}
       </section>
-    </main>
+      </main>
+    </div>
   );
 }

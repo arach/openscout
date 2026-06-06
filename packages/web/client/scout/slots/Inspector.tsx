@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { Check, Copy, X } from "lucide-react";
 import { useScout } from "../Provider.tsx";
 import { openAgent } from "./openAgent.ts";
 import { openContent } from "./openContent.ts";
-import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
+import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -22,6 +24,8 @@ import { VerticalResizeHandle } from "./VerticalResizeHandle.tsx";
 import type {
   Agent,
   AgentRun,
+  BrokerDiagnostics,
+  BrokerRouteAttempt,
   FleetAsk,
   FleetAttentionItem,
   FleetState,
@@ -140,7 +144,7 @@ export function ScoutInspector() {
             onClose={clearBrokerAttempt}
           />
         )
-        : <BrokerInspectorEmpty />;
+        : <BrokerContextPanel />;
       break;
     default:
       content = null;
@@ -161,12 +165,308 @@ export function ScoutInspector() {
   );
 }
 
-function BrokerInspectorEmpty() {
+function brokerContextPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function brokerContextKindLabel(kind: BrokerRouteAttempt["kind"]): string {
+  switch (kind) {
+    case "success":
+      return "sent";
+    case "failed_query":
+      return "query";
+    case "failed_delivery":
+      return "delivery";
+    default:
+      return "attempt";
+  }
+}
+
+function brokerContextRouteLabel(route: string | null): string {
+  switch (route) {
+    case "dm":
+      return "direct";
+    case "channel":
+      return "channel";
+    case "broadcast":
+      return "broadcast";
+    case null:
+      return "no route";
+    default:
+      return route;
+  }
+}
+
+function brokerContextCounts(rows: BrokerRouteAttempt[]): Array<{ label: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const label = brokerContextRouteLabel(row.route);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .slice(0, 5);
+}
+
+function BrokerContextPanel() {
+  const { inspectBrokerAttempt } = useScout();
+  const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const next = await api<BrokerDiagnostics>("/api/broker?limit=160");
+      setBroker(next);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useBrokerEvents((event) => {
+    if (
+      event.kind === "message.posted" ||
+      event.kind === "delivery.planned" ||
+      event.kind === "delivery.attempted" ||
+      event.kind === "delivery.state.changed" ||
+      event.kind === "scout.dispatched"
+    ) {
+      void load();
+    }
+  });
+
+  const attentionRows = useMemo(
+    () => broker
+      ? [...broker.failedQueries, ...broker.failedDeliveries]
+        .sort((left, right) => right.ts - left.ts)
+        .slice(0, 4)
+      : [],
+    [broker],
+  );
+  const recentRows = useMemo(
+    () => broker
+      ? broker.attempts
+        .slice()
+        .sort((left, right) => right.ts - left.ts)
+        .slice(0, 5)
+      : [],
+    [broker],
+  );
+  const routeMix = useMemo(
+    () => broker
+      ? brokerContextCounts([...broker.attempts, ...broker.failedQueries, ...broker.failedDeliveries])
+      : [],
+    [broker],
+  );
+
+  const openAttempt = useCallback((attempt: BrokerRouteAttempt) => {
+    inspectBrokerAttempt(attempt);
+    window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
+      detail: { width: 420 },
+    }));
+  }, [inspectBrokerAttempt]);
+
+  if (!broker && !error) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        <BrokerContextSummaryCard title="Dispatch context" status="Loading broker ledger..." />
+      </div>
+    );
+  }
+
+  if (!broker) {
+    return (
+      <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        <BrokerContextSummaryCard title="Dispatch context" status="Broker diagnostics unavailable" />
+        <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5 text-[11px] leading-relaxed text-[var(--scout-chrome-ink-soft)]">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  const failedDeliveries = broker.totals.failedDeliveries + broker.totals.failedDeliveryAttempts;
+  const routeTotal = broker.totals.successfulDispatches + broker.totals.failedQueries + failedDeliveries;
+
   return (
-    <div className="sys-broker-right-empty">
-      <div className="sys-kicker">Broker</div>
-      <p>Select any broker ledger row to inspect route metadata here.</p>
+    <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <BrokerContextSummaryCard
+        title="Dispatch context"
+        status={`${routeTotal} routes in window`}
+      >
+        <div className="mt-2 grid grid-cols-3 gap-1">
+          <BrokerMiniStat label="Sent" value={`${broker.totals.successfulDispatches}`} />
+          <BrokerMiniStat label="Query" value={`${broker.totals.failedQueries}`} />
+          <BrokerMiniStat label="Delivery" value={`${failedDeliveries}`} />
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          <span>{brokerContextPercent(broker.rates.failureRate)} failed</span>
+          <span>{timeAgo(broker.generatedAt)}</span>
+        </div>
+      </BrokerContextSummaryCard>
+
+      <BrokerContextSection label="Route mix">
+        <BrokerPillList items={routeMix} empty="No route records visible" />
+      </BrokerContextSection>
+
+      <BrokerContextSection label="Needs attention">
+        {attentionRows.length === 0 ? (
+          <BrokerEmptyLine>No failed routes in this window.</BrokerEmptyLine>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {attentionRows.map((attempt) => (
+              <BrokerContextAttemptButton
+                key={attempt.id}
+                attempt={attempt}
+                onOpen={openAttempt}
+              />
+            ))}
+          </div>
+        )}
+      </BrokerContextSection>
+
+      <BrokerContextSection label="Recent dispatch">
+        {recentRows.length === 0 ? (
+          <BrokerEmptyLine>No recent dispatch rows.</BrokerEmptyLine>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {recentRows.map((attempt) => (
+              <BrokerContextAttemptButton
+                key={attempt.id}
+                attempt={attempt}
+                onOpen={openAttempt}
+                compact
+              />
+            ))}
+          </div>
+        )}
+      </BrokerContextSection>
     </div>
+  );
+}
+
+function BrokerContextSummaryCard({
+  title,
+  status,
+  children,
+}: {
+  title: string;
+  status: string;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
+      <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        {title}
+      </div>
+      <div className="mt-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-soft)]">
+        {status}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function BrokerMiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function BrokerContextSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col">
+      <div className="mb-1.5 text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function BrokerPillList({
+  items,
+  empty,
+}: {
+  items: Array<{ label: string; count: number }>;
+  empty: string;
+}) {
+  if (items.length === 0) return <BrokerEmptyLine>{empty}</BrokerEmptyLine>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {items.map((item) => (
+        <span
+          key={item.label}
+          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          title={`${item.count} ${item.label}`}
+        >
+          {item.label} {item.count}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function BrokerEmptyLine({ children }: { children: ReactNode }) {
+  return (
+    <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+      {children}
+    </div>
+  );
+}
+
+function BrokerContextAttemptButton({
+  attempt,
+  onOpen,
+  compact = false,
+}: {
+  attempt: BrokerRouteAttempt;
+  onOpen: (attempt: BrokerRouteAttempt) => void;
+  compact?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5 text-left transition-colors hover:border-[var(--scout-chrome-border)]"
+      onClick={() => onOpen(attempt)}
+    >
+      <div className="flex items-center gap-2">
+        <span className="shrink-0 rounded-sm bg-[var(--scout-chrome-bg)] px-1 py-0.5 font-mono text-[8px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+          {brokerContextKindLabel(attempt.kind)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+          {attempt.detail}
+        </span>
+        <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+          {timeAgo(attempt.ts)}
+        </span>
+      </div>
+      {!compact && (
+        <div className="mt-0.5 flex items-center gap-2 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+          <span className="truncate">{attempt.actorName ?? "unknown"}</span>
+          <span className="shrink-0">-&gt;</span>
+          <span className="truncate">{attempt.target ?? "none"}</span>
+        </div>
+      )}
+    </button>
   );
 }
 
@@ -484,15 +784,18 @@ const OPS_MODE_LABELS: Record<OpsMode, string> = {
   plan: "Plans",
   issues: "Alerts",
   tail: "Tail",
-  atop: "Atop",
+  atop: "Runtime",
   agents: "Agents",
 };
 
 type OpsDetailSnapshot = {
+  source?: "tail" | "generic";
   focus: "flow" | "item";
   title: string;
   meta: string;
   body: string;
+  metadata?: Array<{ label: string; value: string }>;
+  copy?: Array<{ label: string; value: string }>;
   action: { label: string; route: Route } | null;
 };
 
@@ -725,10 +1028,20 @@ function OpsInspectorPanel({
     return <PlanContextInspectorPanel navigate={navigate} returnRoute={returnRoute} />;
   }
 
+  if (mode === "tail" || mode === "issues") {
+    return (
+      <OpsTailInspectorPanel
+        detail={detail?.source === "tail" ? detail : null}
+        mode={mode}
+        navigate={navigate}
+      />
+    );
+  }
+
   const activeAsks = (fleet?.activeAsks ?? []).filter((ask) => ask.status !== "needs_attention");
   const needsAttention = fleet?.needsAttention ?? [];
   const workingAgents = agents.filter((agent) => normalizeAgentState(agent.state) === "working");
-  const onlineAgents = agents.filter((agent) => normalizeAgentState(agent.state) !== "offline");
+  const onlineAgents = agents.filter((agent) => normalizeAgentState(agent.state) !== "not_ready");
   const recentAgents = [...agents]
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     .slice(0, 7);
@@ -814,7 +1127,7 @@ function OpsInspectorPanel({
               className="ctx-panel-pulse-row"
               onClick={() => openAgent(navigate, agent, { from: "inspector", returnTo: returnRoute })}
             >
-              <span className={`ctx-panel-pulse-dot ctx-panel-pulse-dot--${normalizeAgentState(agent.state)}`} />
+              <span className={`ctx-panel-pulse-dot ctx-panel-pulse-dot--${agentStateCssToken(agent.state)}`} />
               <span>{agent.name}</span>
               <small>{agentStateLabel(agent.state)} · {agent.updatedAt ? timeAgo(agent.updatedAt) : "unknown"}</small>
             </button>
@@ -822,6 +1135,130 @@ function OpsInspectorPanel({
         </div>
       </section>
     </div>
+  );
+}
+
+function clearOpsDetailSnapshot() {
+  if (typeof window === "undefined") return;
+  const target = window as typeof window & { scoutOpsDetailSnapshot?: unknown };
+  target.scoutOpsDetailSnapshot = null;
+  window.dispatchEvent(new CustomEvent("scout:ops-detail", { detail: null }));
+}
+
+function OpsTailInspectorPanel({
+  detail,
+  mode,
+  navigate,
+}: {
+  detail: OpsDetailSnapshot | null;
+  mode: OpsMode;
+  navigate: (route: Route) => void;
+}) {
+  const label = mode === "issues" ? "Alert detail" : "Tail detail";
+  const messageCopy = detail?.copy?.find((action) => action.label === "Copy message")?.value ?? detail?.body ?? "";
+  const metadataCopy = detail?.copy?.find((action) => action.label === "Copy metadata")?.value
+    ?? detail?.metadata?.map((row) => `${row.label}: ${row.value}`).join("\n")
+    ?? "";
+
+  return (
+    <div className="ctx-panel ctx-panel--ops-inspector ctx-panel--tail-inspector">
+      <section className="ctx-panel-section ctx-panel-tail-detail">
+        <div className="ctx-panel-section-label ctx-panel-tail-detail-label">
+          <span>{label}</span>
+          {detail && (
+            <button
+              type="button"
+              className="ctx-panel-tail-icon-button"
+              onClick={clearOpsDetailSnapshot}
+              aria-label="Clear Tail detail"
+              title="Clear"
+            >
+              <X size={13} strokeWidth={2} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+
+        {detail ? (
+          <div className="ctx-panel-tail-card">
+            <div className="ctx-panel-tail-card-head">
+              <div className="ctx-panel-tail-card-title">{detail.title}</div>
+              <div className="ctx-panel-tail-card-meta">{detail.meta}</div>
+            </div>
+
+            {detail.metadata && detail.metadata.length > 0 && (
+              <div className="ctx-panel-tail-copy-scope">
+                <dl className="ctx-panel-tail-metadata">
+                  {detail.metadata.map((row) => (
+                    <div key={row.label} className="ctx-panel-tail-metadata-row">
+                      <dt>{row.label}</dt>
+                      <dd title={row.value}>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {metadataCopy && <OpsHoverCopyButton label="Copy metadata" value={metadataCopy} />}
+              </div>
+            )}
+
+            {detail.action && (
+              <div className="ctx-panel-tail-actions">
+                <button
+                  type="button"
+                  className="ctx-panel-tail-action-button"
+                  onClick={() => navigate(detail.action!.route)}
+                >
+                  {detail.action.label}
+                </button>
+              </div>
+            )}
+
+            <div className="ctx-panel-tail-copy-scope ctx-panel-tail-copy-scope--message">
+              <div className="ctx-panel-tail-message">{detail.body}</div>
+              {messageCopy && <OpsHoverCopyButton label="Copy message" value={messageCopy} />}
+            </div>
+          </div>
+        ) : (
+          <div className="ctx-panel-tail-empty-card">
+            <span>Tail</span>
+            <strong>No log selected</strong>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function OpsHoverCopyButton({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current != null) window.clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const onCopy = useCallback(async () => {
+    const ok = await copyTextToClipboard(value);
+    if (!ok) return;
+    setCopied(true);
+    if (timeoutRef.current != null) window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = window.setTimeout(() => setCopied(false), 1200);
+  }, [value]);
+
+  return (
+    <button
+      type="button"
+      className={`ctx-panel-tail-hover-copy${copied ? " ctx-panel-tail-hover-copy--copied" : ""}`}
+      onClick={() => void onCopy()}
+      title={label}
+    >
+      {copied ? (
+        <Check size={13} strokeWidth={2} aria-hidden="true" />
+      ) : (
+        <Copy size={13} strokeWidth={1.9} aria-hidden="true" />
+      )}
+      <span>{copied ? "Copied" : label}</span>
+    </button>
   );
 }
 
@@ -1107,11 +1544,30 @@ function parseOpsDetailSnapshot(value: unknown): OpsDetailSnapshot | null {
   ) {
     return null;
   }
+  const metadata = Array.isArray(record.metadata)
+    ? record.metadata.filter((item): item is { label: string; value: string } => (
+        item != null &&
+        typeof item === "object" &&
+        typeof (item as { label?: unknown }).label === "string" &&
+        typeof (item as { value?: unknown }).value === "string"
+      ))
+    : undefined;
+  const copy = Array.isArray(record.copy)
+    ? record.copy.filter((item): item is { label: string; value: string } => (
+        item != null &&
+        typeof item === "object" &&
+        typeof (item as { label?: unknown }).label === "string" &&
+        typeof (item as { value?: unknown }).value === "string"
+      ))
+    : undefined;
   return {
+    source: record.source === "tail" ? "tail" : "generic",
     focus: record.focus,
     title: record.title,
     meta: record.meta,
     body: record.body,
+    metadata,
+    copy,
     action: record.action && typeof record.action === "object" ? record.action : null,
   };
 }

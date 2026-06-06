@@ -65,7 +65,7 @@ type AgentOpsColumnKey =
   | "errors"
   | "lastActive";
 
-const STATE_RANK: Record<AgentOpsRow["state"], number> = { working: 0, available: 1, offline: 2 };
+const STATE_RANK: Record<AgentOpsRow["state"], number> = { working: 0, ready: 1, not_ready: 2 };
 
 const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
   {
@@ -481,7 +481,7 @@ export function OpsAgentsView({
     dir: -1,
   });
 
-  // Status promotion: working > available > offline, applied as a tiebreaker so
+  // Status promotion: working > ready > not ready, applied as a tiebreaker so
   // user-chosen sort always wins within a tier but busy agents stay near the top.
   const secondarySort = useMemo(
     () => (sort?.key === "agent"
@@ -500,7 +500,7 @@ export function OpsAgentsView({
   });
 
   const running = rows.filter((row) => row.state === "working").length;
-  const online = rows.filter((row) => row.state !== "offline").length;
+  const online = rows.filter((row) => row.state !== "not_ready").length;
   const tokens = rows.reduce((sum, row) => sum + (row.usage.total ?? 0), 0);
   const apiCost = rows.some((row) => row.cost.totalUsd != null)
     ? rows.reduce((sum, row) => sum + (row.cost.totalUsd ?? 0), 0)
@@ -517,7 +517,7 @@ export function OpsAgentsView({
     <div className="s-ops-agents">
       <main className="s-ops-agents-main">
         <div className="s-ops-agents-toolbar">
-          <div className="s-ops-agents-breadcrumb">Fleet <span>/</span> Agents</div>
+          <div className="s-ops-agents-breadcrumb">Agents <span>/</span> Directory</div>
           <div className="s-ops-agents-live">
             <span className="s-ops-agents-live-dot" />
             {online} active
@@ -577,7 +577,7 @@ export function OpsAgentsView({
               rowState={(id) => hover.getState(id)}
               empty={{ title: "No agents match", body: "Adjust the search to find a different slice of the fleet." }}
               className="s-ops-agents-data-table"
-              ariaLabel="Fleet agents"
+              ariaLabel="Agents directory"
             />
           </div>
         </section>

@@ -170,6 +170,15 @@ describe("agents route parsing", () => {
       view: "search",
     });
     expect(routePath({ view: "search" })).toBe("/search");
+    expect(routeFromUrl("http://127.0.0.1:3200/search/knowledge")).toEqual({
+      view: "search",
+    });
+    expect(routeFromUrl("http://127.0.0.1:3200/search/indexer")).toEqual({
+      view: "search",
+      mode: "indexer",
+    });
+    expect(routePath({ view: "search", mode: "knowledge" })).toBe("/search");
+    expect(routePath({ view: "search", mode: "indexer" })).toBe("/search/indexer");
   });
 
   test("messages route preserves conversationId, filter, and sort", () => {

@@ -86,7 +86,7 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
       <RecentAgentsSection
         agents={recentAgents}
         totalCount={scopedAgents.length}
-        onlineCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
+        readyCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents" })}
       />
@@ -114,13 +114,13 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
 function RecentAgentsSection({
   agents,
   totalCount,
-  onlineCount,
+  readyCount,
   onSelect,
   onSeeAll,
 }: {
   agents: Agent[];
   totalCount: number;
-  onlineCount: number;
+  readyCount: number;
   onSelect: (agent: Agent) => void;
   onSeeAll: () => void;
 }) {
@@ -128,7 +128,7 @@ function RecentAgentsSection({
     <section className="ctx-panel-section base-rail-section">
       <SectionLabel
         title="Recent agents"
-        meta={totalCount > 0 ? `${onlineCount} on · ${totalCount}` : undefined}
+        meta={totalCount > 0 ? `${readyCount} ready · ${totalCount}` : undefined}
         onSeeAll={totalCount > 0 ? onSeeAll : undefined}
       />
       {agents.length === 0 ? (

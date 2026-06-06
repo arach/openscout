@@ -1,6 +1,6 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { WorkList } from "../components/WorkList.tsx";
-import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
 import { copyTextToClipboard } from "../lib/clipboard.ts";
@@ -36,6 +36,7 @@ import type {
 } from "../lib/types.ts";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
+import { AgentsSubnav } from "./AgentsSubnav.tsx";
 import "./agents-screen.css";
 import "./ops-atop.css";
 import "./ops-screen.css";
@@ -110,7 +111,7 @@ function shouldPreferDirectSession(candidate: SessionEntry & { agentId: string }
   return candidate.id < existing.id;
 }
 
-type AgentInventoryStatus = "working" | "available" | "offline";
+type AgentInventoryStatus = "working" | "ready" | "not_ready";
 
 type AgentInventoryRow = {
   agent: Agent;
@@ -141,6 +142,8 @@ type AgentsLibraryViewMode = "cards" | "tree";
 type TimeHorizonKey = "1h" | "24h" | "7d" | "all";
 
 const DEFAULT_TIME_HORIZON: TimeHorizonKey = "24h";
+const PROJECT_OVERVIEW_AGENT_LIMIT = 8;
+const PROJECT_OVERVIEW_SESSION_LIMIT = 3;
 
 const TIME_HORIZON_OPTIONS: Array<{ key: TimeHorizonKey; label: string }> = [
   { key: "1h", label: "1h" },
@@ -236,9 +239,31 @@ type ProjectTreeColumn = {
 
 const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
   working: 0,
-  available: 1,
-  offline: 2,
+  ready: 1,
+  not_ready: 2,
 };
+
+function agentInventoryStatusClass(status: AgentInventoryStatus): string {
+  switch (status) {
+    case "working":
+      return "working";
+    case "ready":
+      return "available";
+    case "not_ready":
+      return "offline";
+  }
+}
+
+function agentInventoryStatusLabel(status: AgentInventoryStatus): string {
+  switch (status) {
+    case "working":
+      return "working";
+    case "ready":
+      return "ready";
+    case "not_ready":
+      return "not ready";
+  }
+}
 
 const PROJECT_TREE_DEFAULT_SORT: ProjectTreeSort = { key: "target", dir: 1 };
 
@@ -623,7 +648,7 @@ function emptyProjectSlice(identity: ProjectIdentity): ProjectSlice {
     scoutSessions: [],
     nativeSessions: [],
     workflows: [],
-    status: "offline",
+    status: "not_ready",
     lastActivityAt: null,
   };
 }
@@ -651,12 +676,12 @@ function updateProjectSliceSummary(project: ProjectSlice): void {
   const hasWorkingAgent = project.agents.some((row) => row.status === "working");
   const hasActiveNativeSession = project.nativeSessions.some((row) => row.status === "active");
   const hasActiveWorkflow = project.workflows.some((row) => row.activeTaskCount > 0 || row.status === "running");
-  const hasAvailableAgent = project.agents.some((row) => row.status === "available");
+  const hasReadyAgent = project.agents.some((row) => row.status === "ready");
   project.status = hasWorkingAgent || hasActiveNativeSession || hasActiveWorkflow
     ? "working"
-    : hasAvailableAgent
-      ? "available"
-      : "offline";
+    : hasReadyAgent
+      ? "ready"
+      : "not_ready";
 
   const agentActivity = project.agents.map((row) => row.lastActivityAt ?? 0);
   const scoutActivity = project.scoutSessions.map((session) => session.lastMessageAt ?? 0);
@@ -1059,7 +1084,7 @@ function writeCollapsedProjectTreeRows(storageKey: string, rows: Set<string>): v
 
 function AgentInventoryStatusCell({ row }: { row: AgentInventoryRow }) {
   return (
-    <span className={`s-agents-inventory-status s-agents-inventory-status--${row.status}`}>
+    <span className={`s-agents-inventory-status s-agents-inventory-status--${agentInventoryStatusClass(row.status)}`}>
       <span className="s-agents-inventory-status-dot" />
       {row.stateLabel.toLowerCase()}
     </span>
@@ -1846,7 +1871,7 @@ function AgentDetailWithRail({
   const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
   const currentTaskStatus = currentWork
     ? currentWorkIsStale
-      ? `stale · ${timeAgo(currentWork.lastMeaningfulAt)}`
+      ? `no recent signal · ${timeAgo(currentWork.lastMeaningfulAt)}`
       : `${taskProgress}% · live`
     : "";
 
@@ -1963,7 +1988,7 @@ function AgentDetailWithRail({
                 {agent.name[0].toUpperCase()}
               </div>
               <span
-                className={`s-profile-identity-pulse s-profile-identity-pulse--${state}`}
+                className={`s-profile-identity-pulse s-profile-identity-pulse--${agentStateCssToken(state)}`}
                 style={{ background: stateColor(agent.state) }}
               />
             </div>
@@ -2002,7 +2027,7 @@ function AgentDetailWithRail({
                   )}
                   {agent.staleLocalRegistration && (
                     <span className="s-profile-identity-state-detail">
-                      stale hint
+                      superseded registration
                     </span>
                   )}
                 </span>
@@ -2279,11 +2304,13 @@ export function AgentsScreen({
   selectedAgentId,
   conversationId: activeConversationId,
   tab: activeTab,
+  activeRoute,
 }: {
   navigate: (r: Route) => void;
   selectedAgentId?: string;
   conversationId?: string;
   tab?: AgentTab;
+  activeRoute?: Route;
 }) {
   const { agents, route } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
@@ -2360,28 +2387,51 @@ export function AgentsScreen({
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (
-      <AgentDetailWithRail
-        agent={selectedAgent}
-        allAgents={scopedAgents}
-        session={sessionByAgentId.get(selectedAgent.id) ?? null}
-        conversationId={resolvedConversationId}
-        navigate={navigate}
-        activeTab={resolvedTab}
-      />
+      <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
+        <AgentDetailWithRail
+          agent={selectedAgent}
+          allAgents={scopedAgents}
+          session={sessionByAgentId.get(selectedAgent.id) ?? null}
+          conversationId={resolvedConversationId}
+          navigate={navigate}
+          activeTab={resolvedTab}
+        />
+      </AgentsRouteFrame>
     );
   }
 
   return (
-    <AgentsLibrary
-      agents={scopedAgents}
-      fleet={fleet}
-      sessionByAgentId={sessionByAgentId}
-      conversationByAgentId={conversationByAgentId}
-      sessions={sessions}
-      discovery={discovery}
-      topologySnapshot={topologySnapshot}
-      navigate={navigate}
-    />
+    <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
+      <AgentsLibrary
+        agents={scopedAgents}
+        fleet={fleet}
+        sessionByAgentId={sessionByAgentId}
+        conversationByAgentId={conversationByAgentId}
+        sessions={sessions}
+        discovery={discovery}
+        topologySnapshot={topologySnapshot}
+        navigate={navigate}
+      />
+    </AgentsRouteFrame>
+  );
+}
+
+function AgentsRouteFrame({
+  activeRoute,
+  children,
+  navigate,
+}: {
+  activeRoute: Route;
+  children: ReactNode;
+  navigate: (r: Route) => void;
+}) {
+  return (
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body">{children}</div>
+    </div>
   );
 }
 
@@ -2489,10 +2539,10 @@ function AgentsLibrary({
   const summary = useMemo(
     () => ({
       total: horizonRows.length,
-      online: horizonRows.filter((row) => row.status !== "offline").length,
+      online: horizonRows.filter((row) => row.status !== "not_ready").length,
       working: horizonRows.filter((row) => row.status === "working").length,
-      available: horizonRows.filter((row) => row.status === "available").length,
-      offline: horizonRows.filter((row) => row.status === "offline").length,
+      ready: horizonRows.filter((row) => row.status === "ready").length,
+      notReady: horizonRows.filter((row) => row.status === "not_ready").length,
       projects: allProjects.length,
       scoutSessions: allProjects.reduce((sum, project) => sum + project.scoutSessions.length, 0),
       nativeSessions: horizonNativeSessions.length,
@@ -2515,7 +2565,7 @@ function AgentsLibrary({
 
   const statusOptions = useMemo(() => {
     const present = new Set(horizonRows.map((row) => row.status));
-    return (["working", "available", "offline"] as AgentInventoryStatus[])
+    return (["working", "ready", "not_ready"] as AgentInventoryStatus[])
       .filter((status) => present.has(status));
   }, [horizonRows]);
 
@@ -2615,54 +2665,6 @@ function AgentsLibrary({
   return (
     <div className="s-agents-library s-agents-library--inventory">
       <div className="s-agents-inventory">
-        <div className="s-atop-summary">
-          <div className="s-atop-summary-cell s-atop-summary-cell--primary">
-            <div className="s-atop-summary-num">
-              <strong>{summary.online}</strong>
-              <span className="s-atop-summary-of">/ {summary.total}</span>
-            </div>
-            <span className="s-atop-summary-lbl">active</span>
-          </div>
-          <div className="s-atop-summary-cell">
-            <div className="s-atop-summary-num">
-              <strong>{summary.projects}</strong>
-            </div>
-            <span className="s-atop-summary-lbl">projects</span>
-          </div>
-          <div className="s-atop-summary-cell">
-            <div className="s-atop-summary-num">
-              <strong>{summary.activeNativeSessions}</strong>
-              <span className="s-atop-summary-of">/ {summary.nativeSessions}</span>
-            </div>
-            <span className="s-atop-summary-lbl">harness sessions</span>
-          </div>
-          <div className="s-atop-summary-cell">
-            <div className="s-atop-summary-num">
-              <strong>{summary.scoutSessions}</strong>
-            </div>
-            <span className="s-atop-summary-lbl">scout sessions</span>
-          </div>
-          <div className="s-atop-summary-cell s-atop-summary-cell--breakdown">
-            <span className="s-atop-summary-lbl">harness</span>
-            <div className="s-atop-summary-row">
-              {harnessOptions.length === 0 ? (
-                <span className="s-atop-chip s-atop-chip--mute">none</span>
-              ) : harnessOptions.slice(0, 6).map(([harness, count]) => (
-                <span key={harness} className={harnessChipClass(harness)}>
-                  {harness} {count}
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="s-atop-summary-spacer" />
-          <div className="s-atop-summary-cell s-atop-summary-cell--rate">
-            <div className="s-atop-summary-num">
-              <strong>{summary.working}</strong>
-            </div>
-            <span className="s-atop-summary-lbl">working</span>
-          </div>
-        </div>
-
         <div className="s-atop-fbar">
           <div className="s-atop-search">
             <span className="s-atop-search-prompt">▸</span>
@@ -2748,10 +2750,10 @@ function AgentsLibrary({
                   <button
                     key={status}
                     type="button"
-                    className={`s-atop-pill s-agents-inventory-pill--status-${status}${on ? " s-atop-pill--on" : ""}`}
+                    className={`s-atop-pill s-agents-inventory-pill--status-${agentInventoryStatusClass(status)}${on ? " s-atop-pill--on" : ""}`}
                     onClick={() => toggleStatus(status)}
                   >
-                    {status}
+                    {agentInventoryStatusLabel(status)}
                     <span className="s-atop-pill-ct">{count}</span>
                   </button>
                 );
@@ -2814,7 +2816,7 @@ function AgentsLibrary({
           </span>
           <span className="s-atop-keys-spacer" />
           <span>{timeHorizon === "all" ? "all time" : `last ${timeHorizon}`}</span>
-          <span>{summary.offline} offline</span>
+          <span>{summary.notReady} not ready</span>
           <span>{summary.nativeSessions} harness session{summary.nativeSessions === 1 ? "" : "s"}</span>
         </div>
       </div>
@@ -2907,7 +2909,7 @@ function ProjectSection({
   onSelectProject: (project: ProjectSlice) => void;
   mode: AgentsLibraryViewMode;
 }) {
-  const onlineAgents = project.agents.filter((row) => row.status !== "offline").length;
+  const onlineAgents = project.agents.filter((row) => row.status !== "not_ready").length;
   const activeWork = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
   const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
   const workflowTotal = project.workflows.length;
@@ -2920,7 +2922,7 @@ function ProjectSection({
   ].filter((part): part is string => Boolean(part));
 
   return (
-    <section className={`s-agent-project s-agent-project--${project.status}${selected ? " s-agent-project--selected" : ""}`}>
+    <section className={`s-agent-project s-agent-project--${agentInventoryStatusClass(project.status)}${selected ? " s-agent-project--selected" : ""}`}>
       <div className="s-agent-project-head">
         <button
           type="button"
@@ -2955,6 +2957,7 @@ function ProjectSection({
           navigate={navigate}
           route={route}
           openAgent={openAgent}
+          onOpenProject={() => onSelectProject(project)}
         />
       )}
     </section>
@@ -2966,13 +2969,17 @@ function ProjectLabeledAgentCards({
   navigate,
   route,
   openAgent,
+  onOpenProject,
 }: {
   project: ProjectSlice;
   navigate: (r: Route) => void;
   route: Route;
   openAgent: (row: AgentInventoryRow) => void;
+  onOpenProject: () => void;
 }) {
   const tree = useMemo(() => buildProjectTree(project), [project]);
+  const visibleAgentNodes = tree.agents.slice(0, PROJECT_OVERVIEW_AGENT_LIMIT);
+  const hiddenAgentCount = tree.agents.length - visibleAgentNodes.length;
   const sessionNodes = useMemo(
     () => sortProjectTreeSessions([
       ...project.workflows.map(workflowSessionNode),
@@ -2981,6 +2988,8 @@ function ProjectLabeledAgentCards({
     [project.workflows, tree.unassignedSessions],
   );
   const workflowCount = project.workflows.length;
+  const visibleSessionNodes = sessionNodes.slice(0, PROJECT_OVERVIEW_SESSION_LIMIT);
+  const hiddenSessionCount = sessionNodes.length - visibleSessionNodes.length;
 
   if (project.agents.length === 0 && sessionNodes.length === 0) {
     return (
@@ -2992,39 +3001,63 @@ function ProjectLabeledAgentCards({
 
   return (
     <div className="s-agent-project-labeled-list">
-      <section className={`s-agent-project-labeled s-agent-project-labeled--${project.status}`}>
+      <section className={`s-agent-project-labeled s-agent-project-labeled--${agentInventoryStatusClass(project.status)}`}>
         <div className="s-agent-project-labeled-body">
           <div className="s-agent-project-labeled-pane">
             <div className="s-agent-project-section-head">
               <span>Agents</span>
-              <strong>{project.agents.length}</strong>
+              <strong>
+                {hiddenAgentCount > 0 ? `${visibleAgentNodes.length}/${tree.agents.length}` : tree.agents.length}
+              </strong>
             </div>
             {project.agents.length === 0 ? (
               <div className="s-agent-project-empty-inline">No agent cards registered.</div>
             ) : (
-              <div className="s-agent-project-card-grid s-agent-project-card-grid--compact">
-                {tree.agents.map((node) => (
-                  <ProjectAgentCard
-                    key={node.row.agent.id}
-                    row={node.row}
-                    attachedSessionCount={node.sessions.length}
-                    onOpen={() => openAgent(node.row)}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="s-agent-project-card-grid s-agent-project-card-grid--compact">
+                  {visibleAgentNodes.map((node) => (
+                    <ProjectAgentCard
+                      key={node.row.agent.id}
+                      row={node.row}
+                      attachedSessionCount={node.sessions.length}
+                      onOpen={() => openAgent(node.row)}
+                    />
+                  ))}
+                </div>
+                {hiddenAgentCount > 0 && (
+                  <button
+                    type="button"
+                    className="s-agent-project-more"
+                    onClick={onOpenProject}
+                  >
+                    show {hiddenAgentCount} more in tree
+                  </button>
+                )}
+              </>
             )}
           </div>
 
           <div className="s-agent-project-labeled-pane">
             <div className="s-agent-project-section-head">
               <span>{workflowCount > 0 ? "Workflows + unattached" : "Unattached sessions"}</span>
-              <strong>{sessionNodes.length}</strong>
+              <strong>
+                {hiddenSessionCount > 0 ? `${visibleSessionNodes.length}/${sessionNodes.length}` : sessionNodes.length}
+              </strong>
             </div>
             <ProjectLabeledAgentSessionList
-              sessions={sessionNodes}
+              sessions={visibleSessionNodes}
               navigate={navigate}
               route={route}
             />
+            {hiddenSessionCount > 0 && (
+              <button
+                type="button"
+                className="s-agent-project-more"
+                onClick={onOpenProject}
+              >
+                show {hiddenSessionCount} more in tree
+              </button>
+            )}
           </div>
         </div>
       </section>
@@ -3104,7 +3137,7 @@ function ProjectLabeledAgentTree({
           const attachedSessions = node.sessions.length;
           return (
             <Fragment key={node.key}>
-              <div className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--${row.status}`} role="row">
+              <div className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--${agentInventoryStatusClass(row.status)}`} role="row">
                 <div className="s-agent-project-tree-target">
                   <span className="s-agent-project-tree-branch" aria-hidden />
                   <button
@@ -3124,7 +3157,7 @@ function ProjectLabeledAgentTree({
                     <span className="s-agent-project-tree-secondary">{row.activeTask ?? row.session?.preview ?? row.agent.id}</span>
                   </button>
                 </div>
-                <span className={`s-agent-project-tree-state s-agent-project-tree-state--${row.status}`}>
+                <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
                   {row.stateLabel.toLowerCase()}
                 </span>
                 <span className="s-agent-project-tree-mono" title={row.agent.cwd ?? row.agent.projectRoot ?? undefined}>
@@ -3243,8 +3276,8 @@ function ProjectTreeTable({
               <span className="s-agent-project-tree-secondary">{project.root ?? "Project root unknown"}</span>
             </span>
           </div>
-          <span className={`s-agent-project-tree-state s-agent-project-tree-state--${project.status}`}>
-            {project.status}
+          <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(project.status)}`}>
+            {agentInventoryStatusLabel(project.status)}
           </span>
           <span className="s-agent-project-tree-muted">mixed</span>
           <span className="s-agent-project-tree-mono">{basename(project.root) ?? "—"}</span>
@@ -3295,7 +3328,7 @@ function ProjectTreeTable({
           const row = node.row;
           return (
             <Fragment key={node.key}>
-              <div className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--${row.status}`} role="row">
+              <div className={`s-agent-project-tree-row s-agent-project-tree-row--agent s-agent-project-tree-row--${agentInventoryStatusClass(row.status)}`} role="row">
                 <div className="s-agent-project-tree-target">
                   <button
                     type="button"
@@ -3324,7 +3357,7 @@ function ProjectTreeTable({
                     <span className="s-agent-project-tree-secondary">{row.activeTask ?? row.session?.preview ?? row.agent.id}</span>
                   </button>
                 </div>
-                <span className={`s-agent-project-tree-state s-agent-project-tree-state--${row.status}`}>
+                <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
                   {row.stateLabel.toLowerCase()}
                 </span>
                 <span className={harnessChipClass(row.harness)}>{row.harness}</span>
@@ -3456,7 +3489,7 @@ function ProjectAgentCard({
     <button
       type="button"
       className="s-agent-project-card"
-      data-state={row.status}
+      data-state={agentInventoryStatusClass(row.status)}
       onClick={onOpen}
       title={selector ?? row.agent.id}
     >

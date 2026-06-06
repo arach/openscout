@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import "./agents-detail-redesign.css";
-import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel } from "../lib/agent-state.ts";
 import {
   compactAgentId,
   minimalAgentHandle,
@@ -168,7 +168,12 @@ export function AgentInfoScreen({
     { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
     ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
     ...(agent.staleLocalRegistration
-      ? [{ label: "Registration", value: agent.replacedByAgentId ? `Stale hint, superseded by ${agent.replacedByAgentId}` : "Stale hint" }]
+      ? [{
+        label: "Registration",
+        value: agent.replacedByAgentId
+          ? `Superseded by ${agent.replacedByAgentId}`
+          : "Historical registration",
+      }]
       : []),
     ...(agent.retiredFromFleet ? [{ label: "Fleet state", value: "Retired" }] : []),
   ];
@@ -236,13 +241,13 @@ export function AgentInfoScreen({
                 <span className="s-agent-casefile-record">
                   {primarySelector ?? shortHandle ?? compactAgentId(agent.id) ?? agent.id}
                 </span>
-                <span className={`s-agent-state-chip s-agent-state-chip-${normalizeAgentState(agent.state)}`}>
+                <span className={`s-agent-state-chip s-agent-state-chip-${agentStateCssToken(agent.state)}`}>
                   <span className="s-dot" style={{ background: stateColor(agent.state) }} />
                   {agentStateLabel(agent.state)}
                 </span>
                 {agent.staleLocalRegistration && (
                   <span className="s-agent-state-chip s-agent-state-chip-offline">
-                    Stale hint
+                    Superseded registration
                   </span>
                 )}
               </div>

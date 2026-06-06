@@ -33,8 +33,8 @@ ask({ projectPath: "../talkie", body: "Review this." })
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
 when the caller intentionally wants to continue one concrete prior harness
-session. Stale session records are diagnostics for that explicit session path,
-not fallback candidates for normal card routing.
+session. Historical session records and reachability diagnostics are for that
+explicit session path, not fallback candidates for normal card routing.
 
 Specialized profiles may become first-class over time. For example,
 `@scout.profile:investigator` could name a profile with a dedicated tool set

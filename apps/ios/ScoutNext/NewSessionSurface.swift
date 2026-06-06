@@ -1,14 +1,15 @@
 import SwiftUI
 import HudsonUI
+import HudsonVoice
 import ScoutCapabilities
 
 /// New Session — a composer that builds a project-modality
 /// `SessionInitiationSpec` (target.projectPath set, execution.session = .new,
 /// seed.instructions) and dispatches it through the broker client, then shows
 /// the returned ids. The reading order is the operator's: pick the **project**,
-/// write the **instructions**, then confirm/adjust the **agent** (harness,
-/// model, target) — which leads with a sensible default and stays calm and
-/// value-like until you engage it.
+/// confirm/adjust the **agent** (harness · model · target — leads with a sensible
+/// default and stays calm until engaged), write the **prompt** (typed or
+/// dictated), then **Start**.
 struct NewSessionSurface: View {
     let client: any ScoutBrokerClient
     /// Friendly name of the Mac the live bridge is connected to, shown as the
@@ -16,6 +17,10 @@ struct NewSessionSurface: View {
     /// nil when unconnected. A live target *picker* (choosing among paired
     /// machines) waits on multi-machine routing; today the bridge is one link.
     var targetMachineName: String? = nil
+    /// Bumps when the bridge becomes ready (data loaded) — re-runs the workspace
+    /// load so the machine-backed harness list fills in once connected, not just
+    /// on first appear (which can land before the connection is up).
+    var reloadToken: Int = 0
 
     @State private var projectPath: String = "/Users/arach/dev/openscout"
     @State private var instructions: String = "Stand up the ScoutNext shell and get it running in the simulator."
@@ -23,12 +28,22 @@ struct NewSessionSurface: View {
     /// Model is scoped to the harness, so changing harness resets it to Default.
     @State private var harnessId: String = HarnessOption.catalog[0].id
     @State private var modelId: String = ModelOption.defaultId
+    /// Machine-backed workspaces from the connected Mac (`mobile/workspaces`),
+    /// each carrying the harnesses actually installed there. Empty until loaded /
+    /// when offline, in which case the harness menu falls back to the curated
+    /// catalog below.
+    @State private var workspaces: [WorkspaceSummary] = []
     @State private var showProjectPicker = false
     @State private var isSubmitting = false
     @State private var result: SessionInitiationResult?
     @State private var errorText: String?
     @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
+
+    /// Shared on-device dictation (Parakeet via Vox + Apple fallback), injected at
+    /// the app root — the same controller the Comms composer and Settings use.
+    @Environment(HudDictation.self) private var voice
+    @State private var micPulse = false
 
     /// A Hashable navigation target — contract models stay transport-pure.
     private struct ConversationRoute: Hashable, Identifiable {
@@ -72,20 +87,63 @@ struct NewSessionSurface: View {
         static let defaultOption = ModelOption(id: defaultId, label: "Default", value: nil)
     }
 
-    private var selectedHarness: HarnessOption {
-        HarnessOption.catalog.first { $0.id == harnessId } ?? HarnessOption.catalog[0]
+    /// One selectable harness in the menu — sourced from the connected machine
+    /// when known, else the curated fallback.
+    private struct HarnessChoice: Identifiable, Hashable {
+        let id: String
+        let label: String
+        let readiness: WorkspaceSummary.Harness.Readiness?
+    }
+
+    /// The workspace whose root matches the chosen project, if the machine knows it.
+    private var selectedWorkspace: WorkspaceSummary? {
+        workspaces.first { $0.root == trimmedProjectPath }
+    }
+
+    /// Harness menu options: the machine's installed harnesses for the selected
+    /// project when available, otherwise the curated catalog (e.g. while offline).
+    private var harnessChoices: [HarnessChoice] {
+        // The machine's full harness set — the union of every usable harness across
+        // its known workspaces — so the menu reflects what's actually installed on
+        // that Mac, not just one project's default. Curated fallback when offline.
+        let live = workspaces.flatMap(\.harnesses).filter(\.isUsable)
+        if !live.isEmpty {
+            var seen = Set<String>()
+            return live
+                .filter { seen.insert($0.harness).inserted }
+                .map { HarnessChoice(id: $0.harness, label: harnessLabel($0.harness), readiness: $0.readiness) }
+                .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        }
+        return HarnessOption.catalog.map { HarnessChoice(id: $0.id, label: $0.label, readiness: nil) }
+    }
+
+    /// Friendly label for a harness id — the curated label when we have one, else
+    /// a capitalized form of the raw id (for harnesses we don't curate models for).
+    private func harnessLabel(_ id: String) -> String {
+        if let curated = HarnessOption.catalog.first(where: { $0.id == id }) { return curated.label }
+        return id.isEmpty ? id : id.prefix(1).uppercased() + id.dropFirst()
+    }
+
+    /// Model menu for a harness — the curated list when we have one, else just
+    /// "Default" (models are free-form CLI strings, not machine-cataloged).
+    private func modelChoices(_ harness: String) -> [ModelOption] {
+        HarnessOption.catalog.first(where: { $0.id == harness })?.models ?? [.defaultOption]
+    }
+
+    private var selectedHarnessLabel: String {
+        harnessChoices.first(where: { $0.id == harnessId })?.label ?? harnessLabel(harnessId)
     }
 
     private var selectedModel: ModelOption {
-        selectedHarness.models.first { $0.id == modelId } ?? ModelOption.defaultOption
+        modelChoices(harnessId).first { $0.id == modelId } ?? ModelOption.defaultOption
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: HudSpacing.xxl) {
                 projectSection
-                instructionsSection
                 agentSection
+                instructionsSection
                 if let errorText {
                     Text(errorText)
                         .font(HudFont.mono(HudTextSize.xs))
@@ -110,6 +168,39 @@ struct NewSessionSurface: View {
         .sheet(isPresented: $showProjectPicker) {
             ProjectPickerSheet(client: client, projectPath: $projectPath)
         }
+        .task(id: reloadToken) { await loadWorkspaces() }
+        // When the project changes, adopt that machine workspace's harnesses.
+        .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
+    }
+
+    // MARK: - Machine-backed harnesses
+
+    private func loadWorkspaces() async {
+        // Don't clobber the current list (or the curated fallback) on a failed
+        // fetch — only a successful load replaces it.
+        guard let loaded = try? await client.listWorkspaces(query: nil, limit: 200) else { return }
+        workspaces = loaded
+        applyWorkspaceDefault()
+    }
+
+    /// Adopt the machine's recommended harness for the selected project — its
+    /// `defaultHarness` when usable, else the first usable one — but only when the
+    /// current choice isn't valid for this workspace. No-op when the project isn't
+    /// a known workspace, so the curated fallback selection stays put.
+    private func applyWorkspaceDefault() {
+        let valid = harnessChoices.map(\.id)
+        guard !valid.isEmpty else { return }
+        // Prefer the selected project's recommended harness; otherwise keep the
+        // current choice if it's still valid, else fall back to the first.
+        if let preferred = selectedWorkspace?.defaultHarness, valid.contains(preferred) {
+            guard harnessId != preferred else { return }
+            harnessId = preferred
+        } else if valid.contains(harnessId) {
+            return
+        } else {
+            harnessId = valid[0]
+        }
+        modelId = ModelOption.defaultId
     }
 
     // MARK: - Project
@@ -123,8 +214,7 @@ struct NewSessionSurface: View {
                 showProjectPicker = true
             } label: {
                 HStack(spacing: HudSpacing.md) {
-                    Image(systemName: "folder")
-                        .font(HudFont.ui(HudTextSize.md))
+                    Glyphic(kind: .folder, size: 18)
                         .foregroundStyle(HudPalette.muted)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
@@ -140,17 +230,12 @@ struct NewSessionSurface: View {
                         }
                     }
                     Spacer(minLength: HudSpacing.md)
-                    Image(systemName: "chevron.right")
-                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    Glyphic.chevron(.trailing, size: 14)
                         .foregroundStyle(HudPalette.muted)
                 }
                 .padding(HudSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-                )
+                .scoutCard(cornerRadius: HudRadius.standard)
             }
             .buttonStyle(.plain)
         }
@@ -173,19 +258,81 @@ struct NewSessionSurface: View {
 
     private var instructionsSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
-            HudSectionLabel("Instructions")
-            TextEditor(text: $instructions)
-                .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(HudPalette.ink)
-                .scrollContentBackground(.hidden)
-                .focused($instructionsFocused)
-                .frame(minHeight: 120)
-                .padding(HudSpacing.lg)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-                )
+            HudSectionLabel("Prompt")
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                TextEditor(text: $instructions)
+                    .font(HudFont.ui(HudTextSize.base))
+                    .foregroundStyle(HudPalette.ink)
+                    .scrollContentBackground(.hidden)
+                    .focused($instructionsFocused)
+                    .frame(minHeight: 168)
+                // Floating dictation mic, centered along the bottom of the box —
+                // the live partial transcript surfaces just above it while active.
+                VStack(spacing: HudSpacing.xs) {
+                    if voice.isListening, !voice.partialText.isEmpty {
+                        Text(voice.partialText)
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(HudPalette.muted)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    micButton
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .padding(HudSpacing.lg)
+            .scoutCard(cornerRadius: HudRadius.standard)
+        }
+    }
+
+    // MARK: - Dictation
+
+    /// Dictation toggle, mirroring the Comms composer: tap to start/stop, a pulsing
+    /// accent ring while listening, transcribed text appended to the prompt.
+    private var micButton: some View {
+        Button {
+            voice.toggle()
+        } label: {
+            ZStack {
+                // A persistent inset disc so the mic reads as a floating control,
+                // not a stray glyph; it warms to the accent + a pulse while active.
+                Circle()
+                    .fill(voice.isListening ? HudPalette.accent.opacity(micPulse ? 0.24 : 0.12) : HudSurface.inset)
+                Circle()
+                    .stroke(voice.isListening ? HudPalette.accent.opacity(0.45) : HudHairline.standard,
+                            lineWidth: HudStrokeWidth.thin)
+                MicGlyph()
+                    .stroke(micColor, style: StrokeStyle(lineWidth: voice.isListening ? 1.8 : 1.3, lineCap: .round, lineJoin: .round))
+                    .frame(width: 17, height: 17)
+            }
+            .frame(width: 38, height: 38)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onChange(of: voice.state) { _, newState in updatePulse(for: newState) }
+        .onChange(of: voice.finalCount) { _, _ in
+            let text = voice.finalText
+            if !text.isEmpty { appendDictation(text) }
+        }
+    }
+
+    private var micColor: Color {
+        switch voice.state {
+        case .listening: return HudPalette.accent
+        case .transcribing, .preparing: return HudPalette.muted
+        case .unavailable: return HudPalette.dim.opacity(0.5)
+        case .idle: return HudPalette.muted
+        }
+    }
+
+    private func appendDictation(_ text: String) {
+        instructions = instructions.isEmpty ? text : instructions + " " + text
+    }
+
+    private func updatePulse(for state: HudDictation.State) {
+        micPulse = false
+        if case .listening = state {
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
         }
     }
 
@@ -199,10 +346,10 @@ struct NewSessionSurface: View {
         VStack(alignment: .leading, spacing: HudSpacing.lg) {
             HudSectionLabel("Agent")
             HStack(spacing: HudSpacing.md) {
-                choiceMenu(value: selectedHarness.label) {
+                choiceMenu(value: selectedHarnessLabel) {
                     Picker("Harness", selection: $harnessId) {
-                        ForEach(HarnessOption.catalog) { harness in
-                            Text(harness.label).tag(harness.id)
+                        ForEach(harnessChoices) { choice in
+                            Text(choice.label).tag(choice.id)
                         }
                     }
                     .pickerStyle(.inline)
@@ -210,7 +357,7 @@ struct NewSessionSurface: View {
                 tokenSeparator
                 choiceMenu(value: selectedModel.label) {
                     Picker("Model", selection: $modelId) {
-                        ForEach(selectedHarness.models) { model in
+                        ForEach(modelChoices(harnessId)) { model in
                             Text(model.label).tag(model.id)
                         }
                     }
@@ -221,11 +368,7 @@ struct NewSessionSurface: View {
             }
             .padding(HudSpacing.lg)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
-            )
+            .scoutCard(cornerRadius: HudRadius.standard)
             // The menus inherit the system blue tint by default; pull them onto
             // the cockpit accent so the open menu reads with the rest of the app.
             .tint(HudPalette.accent)
@@ -244,8 +387,7 @@ struct NewSessionSurface: View {
                 Text(value)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.ink)
-                Image(systemName: "chevron.down")
-                    .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                Glyphic.chevron(.bottom, size: 12)
                     .foregroundStyle(HudPalette.muted)
             }
         }
@@ -476,8 +618,7 @@ private struct ProjectPickerSheet: View {
             commit(project.path)
         } label: {
             HStack(spacing: HudSpacing.md) {
-                Image(systemName: "folder.fill")
-                    .font(HudFont.ui(HudTextSize.sm))
+                Glyphic(kind: .folder, size: 16)
                     .foregroundStyle(HudPalette.dim)
                 Text(project.name)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
@@ -485,8 +626,7 @@ private struct ProjectPickerSheet: View {
                     .lineLimit(1)
                 Spacer(minLength: HudSpacing.md)
                 if project.path == projectPath.trimmingCharacters(in: .whitespacesAndNewlines) {
-                    Image(systemName: "checkmark")
-                        .font(HudFont.ui(HudTextSize.xs, weight: .bold))
+                    Glyphic(kind: .check, size: 14)
                         .foregroundStyle(HudPalette.accent)
                 }
             }

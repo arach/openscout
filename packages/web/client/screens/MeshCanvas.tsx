@@ -96,7 +96,7 @@ function groupAgentsByName(agents: Agent[]): AgentCluster[] {
     cluster.instances.push(agent);
   }
   // Stable order: alphabetical by label, total instance count as tiebreaker.
-  // Working/available state never reorders clusters, so the map doesn't reshuffle on refresh.
+  // Working/ready state never reorders clusters, so the map doesn't reshuffle on refresh.
   return Array.from(byKey.values())
     .map((c) => {
       c.instances.sort((a, b) => {
@@ -390,9 +390,12 @@ function ClusterRegion({
 }) {
   const { cluster, x, y, width, height, cols } = layout;
   const counts = useMemo(() => {
-    const acc = { working: 0, available: 0, offline: 0 };
+    const acc = { working: 0, ready: 0, notReady: 0 };
     for (const agent of cluster.instances) {
-      acc[normalizeAgentState(agent.state)] += 1;
+      const state = normalizeAgentState(agent.state);
+      if (state === "working") acc.working += 1;
+      else if (state === "ready") acc.ready += 1;
+      else acc.notReady += 1;
     }
     return acc;
   }, [cluster.instances]);
@@ -418,16 +421,16 @@ function ClusterRegion({
               {counts.working}
             </span>
           )}
-          {counts.available > 0 && (
+          {counts.ready > 0 && (
             <span className="mesh-cluster-state mesh-cluster-state--available">
               <span className="mesh-cluster-state-dot" />
-              {counts.available}
+              {counts.ready}
             </span>
           )}
-          {counts.offline > 0 && (
+          {counts.notReady > 0 && (
             <span className="mesh-cluster-state mesh-cluster-state--offline">
               <span className="mesh-cluster-state-dot" />
-              {counts.offline}
+              {counts.notReady}
             </span>
           )}
         </span>
@@ -550,7 +553,7 @@ function packMachineSections(
     for (const a of bucket.agents) {
       const s = normalizeAgentState(a.state);
       if (s === "working") workingCount += 1;
-      else if (s === "available") availableCount += 1;
+      else if (s === "ready") availableCount += 1;
       else offlineCount += 1;
     }
     const dominantState: "working" | "available" | "offline" =
@@ -591,7 +594,7 @@ function packMachineSections(
     const innerLayouts = collapsed ? [] : packClusters(clusters, m, viewportAspect);
 
     // Spec sheet is the MINIMIZED view: visible only when the section is collapsed.
-    // Structure: state strip (3 cells: working / available / offline) above param rows.
+    // Structure: state strip (3 cells: working / ready / total) above param rows.
     const specBucket: MachineBucket = bucket;
     const rowCount = collapsed ? countSpecRows(specBucket, workingCount, availableCount, offlineCount) : 0;
     const specBlockHeight = collapsed
@@ -809,7 +812,7 @@ function MachineSectionView({
             </div>
             <div className="mesh-machine-state-cell">
               <span className="mesh-machine-state-num">{section.availableCount}</span>
-              <span className="mesh-machine-state-label">available</span>
+              <span className="mesh-machine-state-label">ready</span>
             </div>
             <div className="mesh-machine-state-cell">
               <span className="mesh-machine-state-num">{section.agentCount}</span>
@@ -922,7 +925,7 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
     const needle = query.trim().toLowerCase();
     return agents.filter((a) => {
       const state = normalizeAgentState(a.state);
-      const token = state === "working" || state === "available" ? state : "offline";
+      const token = state;
       if (!agentStateFilters.has(token)) return false;
       if (!needle) return true;
       const hay = `${a.name ?? ""} ${a.handle ?? ""} ${a.harness ?? ""} ${a.project ?? ""} ${a.branch ?? ""}`.toLowerCase();

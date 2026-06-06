@@ -18,7 +18,7 @@ import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFen
 import { ScoutbotMarkdown } from "../../lib/scoutbot-markdown.tsx";
 import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
-import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult, type VoxSpeechTimingCueRequest } from "../../lib/vox.ts";
+import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, shouldAutoProbeVoxBridge, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult, type VoxSpeechTimingCueRequest } from "../../lib/vox.ts";
 import { VOICE_FX_PRESETS, type VoiceFxParams } from "@voxd/client/fx";
 
 // Default voice mood + clean-dispatch overrides specific to Chill Dispatcher.
@@ -685,6 +685,11 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   }, []);
 
   useEffect(() => {
+    if (!shouldAutoProbeVoxBridge()) {
+      setVoiceProbeState("idle");
+      return;
+    }
+
     void probeVoice();
     const onFocus = () => { void probeVoice(); };
     const onVisibility = () => {

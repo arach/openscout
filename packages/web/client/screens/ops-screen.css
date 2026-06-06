@@ -8,6 +8,7 @@
 }
 
 .s-ops-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -15,18 +16,34 @@
   padding: 0 var(--space-3xl);
   height: 44px;
   flex: none;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 34%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 94%, black);
+}
+
+.s-ops-header::after {
+  content: "";
+  position: absolute;
+  left: var(--space-xl);
+  right: var(--space-xl);
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
+  pointer-events: none;
 }
 
 .s-ops-tabs {
   display: flex;
   gap: 0;
+  max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .s-ops-tab {
+  flex: none;
   padding: var(--space-2xs) var(--space-xl);
   font-family: var(--font-mono);
   font-size: var(--text-sm);

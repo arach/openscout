@@ -27,7 +27,7 @@ import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "./RailRow.tsx";
 import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
 
-const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
+const STATE_RANK: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
 
 type ConversationGroup = {
   key: string;
@@ -377,7 +377,7 @@ function buildConversationGroups(
         label,
         isChannel: channel,
         conversations: [],
-        bestState: "offline",
+        bestState: "not_ready",
         latestUpdate: 0,
         unreadCount: 0,
       };

@@ -56,6 +56,24 @@ describe("buildPiProcessEnv", () => {
     expect(env).not.toHaveProperty("MINIMAX_TOKEN");
   });
 
+  test("forwards XAI_API_KEY for Grok models", () => {
+    const env = buildPiProcessEnv(
+      {
+        env: {
+          XAI_API_KEY: "adapter-xai-key",
+        },
+        options: {
+          model: "grok-4.3",
+        },
+      },
+      {
+        XAI_API_KEY: "source-xai-key",
+      },
+    );
+
+    expect(env.XAI_API_KEY).toBe("adapter-xai-key");
+  });
+
   test("does not forward provider credentials when no provider can be inferred", () => {
     const env = buildPiProcessEnv(
       {

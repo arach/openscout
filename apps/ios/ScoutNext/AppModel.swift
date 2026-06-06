@@ -42,8 +42,14 @@ final class AppModel {
     /// used by every conversation composer and reflected/controlled in Settings.
     let dictation = HudDictation()
 
+    var lanRoutingEnabled: Bool
     var tailnetRoutingEnabled: Bool
     var openScoutNetworkRoutingEnabled: Bool
+
+    /// Fleet rollup for the bottom status bar (`N agents · Y active`). Polled
+    /// while connected; the machine count comes straight from `pairedMachines`.
+    var agentCount: Int = 0
+    var activeAgentCount: Int = 0
 
     private static let voicePrefKey = "scoutnext.voicePreference"
 
@@ -51,6 +57,7 @@ final class AppModel {
         let log = ConnectionLog()
         connectionLog = log
         bridge = BridgeBrokerClient(connection: BridgeConnection(connectionLog: ConnectionLogHandle(log)))
+        lanRoutingEnabled = BridgeRoutePreferences.lanRoutingEnabled()
         tailnetRoutingEnabled = BridgeRoutePreferences.tailnetRoutingEnabled()
         openScoutNetworkRoutingEnabled = BridgeRoutePreferences.openScoutNetworkRoutingEnabled()
         if let raw = UserDefaults.standard.string(forKey: Self.voicePrefKey),
@@ -63,6 +70,18 @@ final class AppModel {
     func setVoicePreference(_ pref: HudDictation.Preference) {
         dictation.preference = pref
         UserDefaults.standard.set(pref.rawValue, forKey: Self.voicePrefKey)
+    }
+
+    func setLANRoutingEnabled(_ enabled: Bool) {
+        guard lanRoutingEnabled != enabled else { return }
+        lanRoutingEnabled = enabled
+        BridgeRoutePreferences.setLanRoutingEnabled(enabled)
+        connectionLog.log(
+            "LAN routing \(enabled ? "enabled" : "skipped")",
+            event: enabled ? .lifecycle : .routeDisabled,
+            route: .lan
+        )
+        reconnectIfCurrentRouteWasDisabled(.lan, enabled: enabled)
     }
 
     func setTailnetRoutingEnabled(_ enabled: Bool) {
@@ -96,6 +115,17 @@ final class AppModel {
 
     /// The client every surface consumes.
     var client: any ScoutBrokerClient { bridge }
+
+    /// Refresh the fleet rollup shown in the status bar. A cheap directory read;
+    /// callers poll it while the shell is up so `active` stays roughly live.
+    func refreshFleetStats() async {
+        // Keep the last good rollup on a transient failure — a dropped poll
+        // shouldn't blink the status bar to "0 agents". Only a successful fetch
+        // (even an empty fleet) updates the counts. Mirrors HomeSurface.load().
+        guard let agents = try? await client.listAgents(query: nil, limit: 200) else { return }
+        agentCount = agents.count
+        activeAgentCount = agents.filter { $0.state == .live }.count
+    }
 
     /// Saved route inventory for the active pairing. This is route metadata, not
     /// a network probe.
@@ -284,12 +314,19 @@ final class AppModel {
             }
     }
 
-    /// Turn a relay host / stored hostname into a friendly machine label:
-    /// "Arachs-Mac-mini.local" → "Arachs Mac mini". A plain name passes through.
+    /// Turn a relay host / stored hostname into a friendly machine label by
+    /// keeping just the machine's own hostname label — the first dotted
+    /// component — and humanizing the separators:
+    ///   "Arachs-Mac-mini.local"                 → "Arachs Mac mini"
+    ///   "arachs-mac-mini.tail1e8e67.ts.net"     → "arachs mac mini"
+    /// This drops every network suffix (.local, the Tailscale MagicDNS tail, the
+    /// OpenScout front door) in one move, so a long Tailnet host can never bleed
+    /// into the chrome. An IP address has no friendly label to extract — it's
+    /// shown verbatim. A plain name (no dots) passes straight through.
     static func prettyMachineName(_ raw: String) -> String {
-        var name = raw
-        if name.hasSuffix(".local") { name = String(name.dropLast(6)) }
-        return name.replacingOccurrences(of: "-", with: " ")
+        let isIP = raw.contains(".") && raw.split(separator: ".").allSatisfy { UInt($0) != nil }
+        let label = isIP ? raw : (raw.split(separator: ".").first.map(String.init) ?? raw)
+        return label.replacingOccurrences(of: "-", with: " ")
     }
 
     /// Heuristic for "which trusted bridge are we connected to": the most-recently

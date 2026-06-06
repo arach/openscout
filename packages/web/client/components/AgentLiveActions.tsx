@@ -1,5 +1,6 @@
 import "./agent-live-actions.css";
 
+import { Eye, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
@@ -78,14 +79,15 @@ export function AgentLiveActions({
     ? activeSessionId
       ? `Live ${shortSession(activeSessionId)}`
       : "Working"
-    : state === "available"
-      ? "Available"
+    : state === "ready"
+      ? "Ready"
       : "No live turn";
   const statusDetail = activeSession?.startedAt
     ? timeAgo(activeSession.startedAt)
     : agent.updatedAt
       ? timeAgo(agent.updatedAt)
       : null;
+  const observeLabel = canObserveTerminal ? "Observe terminal" : "Observe trace";
 
   const openTerminal = (mode: "observe" | "takeover") => {
     onNavigate?.();
@@ -142,8 +144,10 @@ export function AgentLiveActions({
           className="agent-live-actions-button agent-live-actions-button--primary"
           onClick={() => canObserveTerminal ? openTerminal("observe") : openTrace()}
           title={canObserveTerminal ? "Observe the live tmux terminal" : "Open the web observe trace"}
+          aria-label={observeLabel}
         >
-          Observe
+          <Eye size={13} strokeWidth={1.9} aria-hidden="true" />
+          <span>{observeLabel}</span>
         </button>
         {canObserveTerminal && (
           <button
@@ -152,7 +156,7 @@ export function AgentLiveActions({
             onClick={openTrace}
             title="Open the web observe trace"
           >
-            Trace
+            <span>Trace</span>
           </button>
         )}
         {canTakeover && (
@@ -162,7 +166,8 @@ export function AgentLiveActions({
             onClick={runTakeover}
             title={resolvedCatalog?.resumeCommand ?? "Open interactive terminal takeover"}
           >
-            {takeoverSent ? "Going..." : "Takeover"}
+            <Terminal size={13} strokeWidth={1.9} aria-hidden="true" />
+            <span>{takeoverSent ? "Going..." : "Takeover"}</span>
           </button>
         )}
       </div>

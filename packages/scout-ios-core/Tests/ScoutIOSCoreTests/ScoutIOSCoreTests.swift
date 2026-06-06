@@ -9,6 +9,8 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(classifyTransport(host: "bridge.tailnet.ts.net"), .tailnet)
         XCTAssertEqual(classifyTransport(host: "oscout.net"), .oscout)
         XCTAssertEqual(classifyTransport(host: "localhost"), .loopback)
+        XCTAssertEqual(classifyTransport(host: "127.0.0.1"), .loopback)
+        XCTAssertEqual(classifyTransport(host: "::1"), .loopback)
         XCTAssertEqual(transportKind(forRelayURL: "ws://10.0.0.5:8080").label, "LAN")
     }
 
@@ -17,6 +19,31 @@ final class ScoutIOSCoreTests: XCTestCase {
 
         XCTAssertTrue(BridgeRoutePreferences.tailnetRoutingEnabled(userDefaults: defaults))
         XCTAssertTrue(relayURLAllowedByRouteSettings("wss://mac.tailnet.ts.net:7889", userDefaults: defaults))
+    }
+
+    func testLANRoutingDefaultsEnabledWhenUnset() {
+        let defaults = makeDefaults()
+
+        XCTAssertTrue(BridgeRoutePreferences.lanRoutingEnabled(userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://192.168.1.10:7889", userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://mac.local:7889", userDefaults: defaults))
+    }
+
+    func testDisabledLANRoutingFiltersLANRelayUrls() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setLanRoutingEnabled(false, userDefaults: defaults)
+
+        XCTAssertEqual(
+            relayURLsAllowedByRouteSettings(
+                [
+                    "ws://192.168.1.10:7889",
+                    "ws://mac.local:7889",
+                    "wss://mac.tailnet.ts.net:7889",
+                ],
+                userDefaults: defaults
+            ),
+            ["wss://mac.tailnet.ts.net:7889"]
+        )
     }
 
     func testDisabledTailnetRoutingFiltersTailnetRelayUrls() {
@@ -60,6 +87,30 @@ final class ScoutIOSCoreTests: XCTestCase {
         )
     }
 
+    func testRelayCandidatesSkipDiscoveredLanWhenLANRoutingDisabled() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setLanRoutingEnabled(false, userDefaults: defaults)
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true, userDefaults: defaults)
+
+        XCTAssertEqual(
+            orderedRelayCandidates(
+                discoveredRelayURLs: [
+                    "ws://mac.local:7889",
+                    "ws://192.168.1.10:7889",
+                ],
+                storedRelayURLs: [
+                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mesh.oscout.net",
+                ],
+                userDefaults: defaults
+            ),
+            [
+                "wss://mac.tailnet.ts.net:7889",
+                "wss://mesh.oscout.net",
+            ]
+        )
+    }
+
     func testRelayCandidatesHonorRoutePreferencesAcrossCascade() {
         let defaults = makeDefaults()
         BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
@@ -89,10 +140,19 @@ final class ScoutIOSCoreTests: XCTestCase {
         var summary = BridgeRouteSummary(relayURLs: relays, userDefaults: defaults)
 
         XCTAssertEqual(summary.routeCounts[.tailnet], 1)
+        XCTAssertEqual(summary.routeCounts[.lan], 1)
+        XCTAssertTrue(summary.hasLANRelay)
+        XCTAssertTrue(summary.hasAllowedLANRelay)
         XCTAssertTrue(summary.hasTailnetRelay)
         XCTAssertTrue(summary.hasAllowedTailnetRelay)
         XCTAssertEqual(summary.routeCounts[.oscout], 1)
         XCTAssertFalse(summary.hasAllowedOpenScoutNetworkRelay)
+
+        BridgeRoutePreferences.setLanRoutingEnabled(false, userDefaults: defaults)
+        summary = BridgeRouteSummary(relayURLs: relays, userDefaults: defaults)
+
+        XCTAssertTrue(summary.hasLANRelay)
+        XCTAssertFalse(summary.hasAllowedLANRelay)
 
         BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
         summary = BridgeRouteSummary(relayURLs: relays, userDefaults: defaults)

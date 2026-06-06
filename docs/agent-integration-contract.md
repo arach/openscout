@@ -54,9 +54,11 @@ sessions or machines while retaining a stable identity.
 
 Endpoint state should describe the attachment, not a specific task. Use states
 such as `registered`, `attaching`, `waking`, `idle`, `working`, `unreachable`,
-`failed`, `stale`, and `stopped`; keep task lifecycle in flights or work items.
-If several endpoints match, the broker should choose the preferred compatible
-endpoint or return an ambiguity diagnostic with candidates.
+`failed`, `superseded`, and `stopped`; keep task lifecycle in flights or work
+items. `superseded` is diagnostic runtime state for endpoint rows replaced by a
+newer route, not a durable card state. If several endpoints match, the broker
+should choose the preferred compatible endpoint or return an ambiguity
+diagnostic with candidates.
 
 ### 3. Runtime Session
 

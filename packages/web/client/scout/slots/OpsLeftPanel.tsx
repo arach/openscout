@@ -1,12 +1,47 @@
 import { useCallback, useEffect, useState } from "react";
 import "./ctx-panel.css";
 import { api } from "../../lib/api.ts";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../Provider.tsx";
 import { openContent } from "./openContent.ts";
 import { RailRow } from "./RailRow.tsx";
-import type { FleetAsk, FleetAttentionItem, FleetState } from "../../lib/types.ts";
+import type { FleetAsk, FleetAttentionItem, FleetState, Route } from "../../lib/types.ts";
+
+type OpsSurface = {
+  name: string;
+  route: Route;
+  active: (route: Route) => boolean;
+};
+
+const OPS_SURFACES: OpsSurface[] = [
+  {
+    name: "Control",
+    route: { view: "ops", mode: "mission" },
+    active: (route) => route.view === "ops" && (route.mode === undefined || route.mode === "mission"),
+  },
+  {
+    name: "Dispatch",
+    route: { view: "broker" },
+    active: (route) => route.view === "broker",
+  },
+  {
+    name: "Mesh",
+    route: { view: "mesh" },
+    active: (route) => route.view === "mesh",
+  },
+  {
+    name: "Tail",
+    route: { view: "ops", mode: "tail" },
+    active: (route) => route.view === "ops" && route.mode === "tail",
+  },
+  {
+    name: "Runtime",
+    route: { view: "ops", mode: "atop" },
+    active: (route) => route.view === "ops" && route.mode === "atop",
+  },
+];
 
 export function ScoutOpsLeftPanel() {
   const { navigate, route } = useScout();
@@ -53,6 +88,19 @@ export function ScoutOpsLeftPanel() {
   return (
     <div className="ctx-panel ctx-panel--ops">
       <section className="ctx-panel-section">
+        <div className="ctx-panel-section-label">Surfaces</div>
+        {OPS_SURFACES.map((surface) => (
+          <RailRow
+            key={surface.name}
+            name={surface.name}
+            tone="neutral"
+            active={surface.active(route)}
+            onClick={() => navigate(surface.route)}
+          />
+        ))}
+      </section>
+
+      <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">
           Needs you
           {needs.length > 0 && <span className="ctx-panel-count">{needs.length}</span>}
@@ -90,7 +138,7 @@ export function ScoutOpsLeftPanel() {
               key={ask.invocationId}
               name={ask.task}
               meta={timeAgo(ask.updatedAt)}
-              tone={ask.agentState}
+              tone={normalizeAgentState(ask.agentState)}
               title={`${ask.agentName ?? ask.agentId} · ${ask.statusLabel}`}
               onClick={() => openAsk(ask)}
             />

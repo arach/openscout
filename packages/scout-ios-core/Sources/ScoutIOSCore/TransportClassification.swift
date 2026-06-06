@@ -46,8 +46,20 @@ public enum TransportKind: String, Hashable, Sendable {
 // MARK: - Route preferences
 
 public enum BridgeRoutePreferences {
+    public static let lanUserDefaultsKey = "scout.lan.enabled"
     public static let tailnetUserDefaultsKey = "scout.tsn.enabled"
     public static let openScoutNetworkUserDefaultsKey = "scout.osn.enabled"
+
+    public static func lanRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+        if userDefaults.object(forKey: lanUserDefaultsKey) == nil {
+            return true
+        }
+        return userDefaults.bool(forKey: lanUserDefaultsKey)
+    }
+
+    public static func setLanRoutingEnabled(_ enabled: Bool, userDefaults: UserDefaults = .standard) {
+        userDefaults.set(enabled, forKey: lanUserDefaultsKey)
+    }
 
     public static func tailnetRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
         if userDefaults.object(forKey: tailnetUserDefaultsKey) == nil {
@@ -75,6 +87,8 @@ public struct BridgeRouteSummary: Equatable, Sendable {
     public let routeCounts: [TransportKind: Int]
     public let allowedRouteCounts: [TransportKind: Int]
 
+    public var hasLANRelay: Bool { (routeCounts[.lan] ?? 0) > 0 }
+    public var hasAllowedLANRelay: Bool { (allowedRouteCounts[.lan] ?? 0) > 0 }
     public var hasTailnetRelay: Bool { (routeCounts[.tailnet] ?? 0) > 0 }
     public var hasAllowedTailnetRelay: Bool { (allowedRouteCounts[.tailnet] ?? 0) > 0 }
     public var hasOpenScoutNetworkRelay: Bool { (routeCounts[.oscout] ?? 0) > 0 }
@@ -99,7 +113,10 @@ public struct BridgeRouteSummary: Equatable, Sendable {
 
 public func classifyTransport(host: String) -> TransportKind {
     let lower = host.lowercased()
-    if lower == "localhost" {
+    // `localhost` and IPv6 loopback `::1` are local-only — the `a == 127` IPv4
+    // check below never sees `::1` (it has no dotted quads), so name it here to
+    // stay consistent with `isLocalOnlyRelayHost`.
+    if lower == "localhost" || lower == "::1" {
         return .loopback
     }
     // Tailscale MagicDNS hostnames look like `<machine>.<tailnet>.ts.net`.
@@ -170,14 +187,21 @@ public func openScoutNetworkRoutingEnabled(userDefaults: UserDefaults = .standar
     BridgeRoutePreferences.openScoutNetworkRoutingEnabled(userDefaults: userDefaults)
 }
 
+public func lanRoutingEnabled(userDefaults: UserDefaults = .standard) -> Bool {
+    BridgeRoutePreferences.lanRoutingEnabled(userDefaults: userDefaults)
+}
+
 func relayURLAllowedByRouteSettings(_ rawValue: String, userDefaults: UserDefaults = .standard) -> Bool {
-    if relayURLUsesTailnetRoute(rawValue) {
+    switch transportKind(forRelayURL: rawValue) {
+    case .lan:
+        return lanRoutingEnabled(userDefaults: userDefaults)
+    case .tailnet:
         return tailnetRoutingEnabled(userDefaults: userDefaults)
-    }
-    if relayURLUsesOpenScoutNetworkRoute(rawValue) {
+    case .oscout:
         return openScoutNetworkRoutingEnabled(userDefaults: userDefaults)
+    case .remote, .loopback, .none:
+        return true
     }
-    return true
 }
 
 public func relayURLsAllowedByRouteSettings(_ rawValues: [String], userDefaults: UserDefaults = .standard) -> [String] {

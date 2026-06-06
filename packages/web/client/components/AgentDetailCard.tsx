@@ -2,7 +2,7 @@ import "./agent-detail-card.css";
 
 import { forwardRef } from "react";
 import type { Agent } from "../lib/types.ts";
-import { normalizeAgentState } from "../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
 import { AgentLiveActions } from "./AgentLiveActions.tsx";
@@ -25,14 +25,14 @@ export type AgentDetailCardProps = {
 export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
   function AgentDetailCard({ agent, pinned, onOpen, onClose, onAction, style, className }, ref) {
     const state = normalizeAgentState(agent.state);
+    const stateClass = agentStateCssToken(agent.state);
     const cwd = homify(agent.cwd) ?? homify(agent.projectRoot);
     const name = agent.handle ?? agent.name;
     const machine = agent.authorityNodeName
       ?? agent.homeNodeName
       ?? agent.authorityNodeId
       ?? agent.homeNodeId;
-    const stateLabel =
-      state === "working" ? "Working" : state === "available" ? "Available" : "Offline";
+    const stateLabel = agentStateLabel(state);
 
     return (
       <div
@@ -46,10 +46,10 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
           <div className="agent-card-name">{name}</div>
           <div className="agent-card-meta">
             <span
-              className={`agent-card-dot agent-card-dot--${state}`}
+              className={`agent-card-dot agent-card-dot--${stateClass}`}
               style={state === "working" ? { background: stateColor(agent.state) } : undefined}
             />
-            <span className={`agent-card-state agent-card-state--${state}`}>{stateLabel}</span>
+            <span className={`agent-card-state agent-card-state--${stateClass}`}>{stateLabel}</span>
             {agent.updatedAt && (
               <>
                 <span className="agent-card-sep">·</span>

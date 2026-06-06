@@ -242,7 +242,7 @@ function agentSubject(
   agent: Agent,
   activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
 ): CanvasSubject {
-  const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
+  const stateOrder: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
   const state = normalizeAgentState(agent.state);
   const activityState = activity?.current ? "active" : activity?.recent ? "recent" : "idle";
   return {
@@ -341,7 +341,7 @@ function compareAgentsByActivity(
 ): number {
   const activity = compareActivity(activityByAgent.get(a.id), activityByAgent.get(b.id));
   if (activity !== 0) return activity;
-  const stateOrder: Record<string, number> = { working: 0, available: 1, offline: 2 };
+  const stateOrder: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
   const state = (stateOrder[normalizeAgentState(a.state)] ?? 1)
     - (stateOrder[normalizeAgentState(b.state)] ?? 1);
   if (state !== 0) return state;
@@ -455,7 +455,7 @@ function nativeSessionAgent(
     handle: shortId(transcript.sessionId),
     agentClass: "native-session",
     harness: transcript.source,
-    state: current ? "working" : "available",
+    state: current ? "working" : "ready",
     projectRoot: transcript.cwd,
     cwd: transcript.cwd,
     updatedAt: lastActiveAt,
@@ -1419,7 +1419,7 @@ function ObserveTile({
             <div className="s-mission-evt">
               <span className="s-mission-evt-bead" style={{ background: "var(--dim)" }} />
               <span className="s-mission-evt-text" style={{ color: "var(--dim)" }}>
-                {state === "offline" ? "No session data" : "Waiting for events…"}
+                {state === "not_ready" ? "No session data" : "Waiting for events…"}
               </span>
             </div>
           </div>
@@ -2117,7 +2117,7 @@ function Minimap({
 function stateChipColor(state: string): string {
   switch (state) {
     case "working": return "var(--green)";
-    case "available": return "var(--accent)";
+    case "ready": return "var(--accent)";
     default: return "var(--dim)";
   }
 }

@@ -100,7 +100,7 @@ pending.
 | `working` | attached session has claimed at least one active flight or work item |
 | `unreachable` | endpoint is known, but the broker cannot currently contact it |
 | `failed` | endpoint setup or wake failed with a recorded reason |
-| `stale` | session reference exists, but the broker believes the harness process or provider thread is no longer current |
+| `superseded` | endpoint row was replaced by a newer registration or route and should only appear in diagnostics |
 | `stopped` | endpoint was intentionally detached or stopped |
 
 Allowed transitions should be explicit in protocol/runtime code. The expected
@@ -131,14 +131,17 @@ Session records survive broker restarts as coordination metadata, but that does
 not mean the underlying harness is still alive.
 
 - `resumable`: provider metadata says Scout can reattach or resume
-- `observed_stale`: a prior session exists but the broker has not confirmed it
-  is reachable
-- `terminal`: the session was stopped, failed permanently, or belongs to an
-  incompatible harness/profile
+- `reachability_unknown`: a prior session exists but the broker has not
+  confirmed it is reachable
+- `not_attachable`: the session reference cannot be loaded, parsed, or matched
+  to a compatible harness/profile
+- `terminal`: the harness or provider explicitly reported stopped, closed,
+  cancelled, completed, or another terminal state
 
-After restart, Scout should mark uncertain sessions as `stale` or
-`observed_stale` until an endpoint health check, attach, or wake operation
-confirms reachability.
+After restart, Scout should mark uncertain sessions as `reachability_unknown`
+until an endpoint health check, attach, or wake operation confirms reachability.
+User-facing copy should render that as "session not currently reachable"; failed
+attach resolution should render as "session reference not attachable".
 
 ## Token And Coordination Accounting
 
@@ -285,7 +288,7 @@ the lightest usable fresh session for the request.
 Agent cards and labels are fresh-session targets by default. A card carries
 identity, harness/profile/model hints, project root, and return-address
 metadata; it does not mean "reuse whatever thread was last attached." Scout
-should consult stale session metadata only when the request names an exact
+should consult session reachability diagnostics only when the request names an exact
 `targetSessionId`/`session:<id>` and that session cannot be reached.
 
 `session: "new"` may also target an existing agent card. In that shape, the card

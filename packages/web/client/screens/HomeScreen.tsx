@@ -80,13 +80,13 @@ const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
-const STALE_MOTION_INACTIVE_KEY = "openscout.home.staleMotionInactive.v1";
-const STALE_MOTION_INACTIVE_LIMIT = 200;
+const NO_RECENT_SIGNAL_INACTIVE_KEY = "openscout.home.noRecentSignalInactive.v1";
+const NO_RECENT_SIGNAL_INACTIVE_LIMIT = 200;
 const LOCAL_TAIL_RECENT_LIMIT = 1000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
 
-type StaleMotionItem = {
+type NoRecentSignalItem = {
   agentId: string;
   agentName: string;
   updatedAtMs: number;
@@ -243,7 +243,7 @@ function isFreshMovingTimestamp(
   return timestampMs !== null && nowMs - timestampMs <= MOVING_ACTIVE_WINDOW_MS;
 }
 
-function parseStaleMotionInactive(raw: string): Record<string, number> {
+function parseNoRecentSignalInactive(raw: string): Record<string, number> {
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -262,11 +262,11 @@ function parseStaleMotionInactive(raw: string): Record<string, number> {
   }
 }
 
-function encodeStaleMotionInactive(inactive: Record<string, number>): string {
+function encodeNoRecentSignalInactive(inactive: Record<string, number>): string {
   const trimmed = Object.entries(inactive)
     .filter((entry): entry is [string, number] => Number.isFinite(entry[1]))
     .sort((a, b) => b[1] - a[1])
-    .slice(0, STALE_MOTION_INACTIVE_LIMIT);
+    .slice(0, NO_RECENT_SIGNAL_INACTIVE_LIMIT);
   return JSON.stringify(Object.fromEntries(trimmed));
 }
 
@@ -431,13 +431,13 @@ function workingCardLiveLabel(card: AgentWorkingCardData, nowMs: number): string
   return age ? `live · ${age}` : "live";
 }
 
-function staleMotionSourceLabel(item: StaleMotionItem): string {
+function noRecentSignalSourceLabel(item: NoRecentSignalItem): string {
   const parts: string[] = [];
   if (item.hasAgentState) parts.push("agent state");
   if (item.askCount > 0) {
     parts.push(`${item.askCount} ask${item.askCount === 1 ? "" : "s"}`);
   }
-  return parts.join(" + ") || "stale state";
+  return parts.join(" + ") || "no recent signal";
 }
 
 type HeartrateBucketView = {
@@ -504,6 +504,12 @@ export function HomeScreen({
   useEffect(() => {
     fleetRef.current = fleet;
   }, [fleet]);
+
+  const fetchServiceGauges = useCallback(async (forceRefresh = false): Promise<ServiceGauge[]> => {
+    const suffix = forceRefresh ? "?refresh=1" : "";
+    const result = await api<{ gauges: ServiceGauge[] }>(`/api/service-budgets${suffix}`);
+    return result.gauges ?? [];
+  }, []);
 
   const scopedFleet = useMemo(
     () => filterFleetByMachineScope(fleet, scopedAgentIds),
@@ -598,8 +604,8 @@ export function HomeScreen({
     let cancelled = false;
     const fetchBudgets = async () => {
       try {
-        const result = await api<{ gauges: ServiceGauge[] }>("/api/service-budgets");
-        if (!cancelled) setServiceGauges(result.gauges ?? []);
+        const gauges = await fetchServiceGauges();
+        if (!cancelled) setServiceGauges(gauges);
       } catch {
         // Silent: gauges are best-effort. If the endpoint fails, we just hide them.
       }
@@ -610,7 +616,7 @@ export function HomeScreen({
       cancelled = true;
       clearInterval(id);
     };
-  }, []);
+  }, [fetchServiceGauges]);
 
   const loadLocalTailSnapshot = useCallback(async () => {
     try {
@@ -663,13 +669,13 @@ export function HomeScreen({
   }, [load]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [staleMotionInactiveRaw, setStaleMotionInactiveRaw] = usePersistentString(
-    STALE_MOTION_INACTIVE_KEY,
+  const [noRecentSignalInactiveRaw, setNoRecentSignalInactiveRaw] = usePersistentString(
+    NO_RECENT_SIGNAL_INACTIVE_KEY,
     "{}",
   );
-  const staleMotionInactive = useMemo(
-    () => parseStaleMotionInactive(staleMotionInactiveRaw),
-    [staleMotionInactiveRaw],
+  const noRecentSignalInactive = useMemo(
+    () => parseNoRecentSignalInactive(noRecentSignalInactiveRaw),
+    [noRecentSignalInactiveRaw],
   );
 
   useEffect(() => {
@@ -681,12 +687,8 @@ export function HomeScreen({
     () =>
       agents.filter((a) => {
         const s = normalizeAgentState(a.state);
-        return s === "available";
+        return s === "ready";
       }),
-    [agents],
-  );
-  const offline = useMemo(
-    () => agents.filter((a) => normalizeAgentState(a.state) === "offline"),
     [agents],
   );
 
@@ -775,20 +777,20 @@ export function HomeScreen({
       clearInterval(timer);
     };
   }, [activeIdsKey]);
-  const staleWorkingAgents = useMemo(
+  const workingAgentsWithoutRecentSignal = useMemo(
     () =>
       agents.filter((agent) =>
         normalizeAgentState(agent.state) === "working" && !activeIds.has(agent.id)
       ),
     [activeIds, agents],
   );
-  const staleMovingAsks = useMemo(
+  const movingAsksWithoutRecentSignal = useMemo(
     () => movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs)),
     [movingAsks, nowMs],
   );
-  const staleMotionItems = useMemo<StaleMotionItem[]>(() => {
-    const byAgent = new Map<string, StaleMotionItem>();
-    const upsert = (item: StaleMotionItem) => {
+  const noRecentSignalItems = useMemo<NoRecentSignalItem[]>(() => {
+    const byAgent = new Map<string, NoRecentSignalItem>();
+    const upsert = (item: NoRecentSignalItem) => {
       const current = byAgent.get(item.agentId);
       if (!current) {
         byAgent.set(item.agentId, item);
@@ -806,7 +808,7 @@ export function HomeScreen({
       });
     };
 
-    for (const agent of staleWorkingAgents) {
+    for (const agent of workingAgentsWithoutRecentSignal) {
       upsert({
         agentId: agent.id,
         agentName: agent.name,
@@ -818,7 +820,7 @@ export function HomeScreen({
       });
     }
 
-    for (const ask of staleMovingAsks) {
+    for (const ask of movingAsksWithoutRecentSignal) {
       upsert({
         agentId: ask.agentId,
         agentName: ask.agentName ?? ask.agentId,
@@ -831,13 +833,13 @@ export function HomeScreen({
     }
 
     return [...byAgent.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
-  }, [staleMovingAsks, staleWorkingAgents]);
-  const visibleStaleMotionItems = useMemo(
+  }, [movingAsksWithoutRecentSignal, workingAgentsWithoutRecentSignal]);
+  const visibleNoRecentSignalItems = useMemo(
     () =>
-      staleMotionItems.filter(
-        (item) => (staleMotionInactive[item.agentId] ?? -1) < item.updatedAtMs,
+      noRecentSignalItems.filter(
+        (item) => (noRecentSignalInactive[item.agentId] ?? -1) < item.updatedAtMs,
       ),
-    [staleMotionInactive, staleMotionItems],
+    [noRecentSignalInactive, noRecentSignalItems],
   );
   const movingAsksWithoutActiveAgent = useMemo(
     () =>
@@ -936,27 +938,27 @@ export function HomeScreen({
     );
   }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
-  const markStaleMotionInactive = useCallback((item: StaleMotionItem) => {
-    setStaleMotionInactiveRaw(encodeStaleMotionInactive({
-      ...staleMotionInactive,
+  const markNoRecentSignalInactive = useCallback((item: NoRecentSignalItem) => {
+    setNoRecentSignalInactiveRaw(encodeNoRecentSignalInactive({
+      ...noRecentSignalInactive,
       [item.agentId]: item.updatedAtMs,
     }));
-  }, [setStaleMotionInactiveRaw, staleMotionInactive]);
+  }, [setNoRecentSignalInactiveRaw, noRecentSignalInactive]);
 
-  const markAllStaleMotionInactive = useCallback(() => {
-    const next = { ...staleMotionInactive };
-    for (const item of visibleStaleMotionItems) {
+  const markAllNoRecentSignalInactive = useCallback(() => {
+    const next = { ...noRecentSignalInactive };
+    for (const item of visibleNoRecentSignalItems) {
       next[item.agentId] = item.updatedAtMs;
     }
-    setStaleMotionInactiveRaw(encodeStaleMotionInactive(next));
-  }, [setStaleMotionInactiveRaw, staleMotionInactive, visibleStaleMotionItems]);
+    setNoRecentSignalInactiveRaw(encodeNoRecentSignalInactive(next));
+  }, [setNoRecentSignalInactiveRaw, noRecentSignalInactive, visibleNoRecentSignalItems]);
 
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
     if (active.length > 0)
       parts.push(`${active.length} agent${active.length === 1 ? " is" : "s are"} working now`);
     if (waiting.length > 0)
-      parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} available`);
+      parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} ready`);
     if (totalOperatorQueue > 0)
       parts.push(`${totalOperatorQueue} thing${totalOperatorQueue === 1 ? "" : "s"} need${totalOperatorQueue === 1 ? "s" : ""} you`);
     if (parts.length === 0 && agents.length > 0)
@@ -972,6 +974,12 @@ export function HomeScreen({
       : lastLoadedAt
         ? `updated ${timeAgo(lastLoadedAt)}`
         : "waiting";
+  const handleRefresh = useCallback(() => {
+    void load("manual");
+    void fetchServiceGauges(true)
+      .then((gauges) => setServiceGauges(gauges))
+      .catch(() => {});
+  }, [fetchServiceGauges, load]);
 
   const heroProps = {
     now,
@@ -981,7 +989,7 @@ export function HomeScreen({
     error,
     loading,
     refreshing,
-    onRefresh: () => void load("manual"),
+    onRefresh: handleRefresh,
     totalOperatorQueue,
     narrativeParts,
     navigate,
@@ -1072,28 +1080,28 @@ export function HomeScreen({
           </div>
         )}
 
-        {/* ── Stale motion review ────────────────────────────────── */}
-        {visibleStaleMotionItems.length > 0 && (
-          <div className="s-fleet-section" id="home-stale-motion">
+        {/* ── No recent signal review ─────────────────────────────── */}
+        {visibleNoRecentSignalItems.length > 0 && (
+          <div className="s-fleet-section" id="home-no-recent-signal">
             <SectionRule
-              label={`Stale motion · ${visibleStaleMotionItems.length}`}
+              label={`No recent signal · ${visibleNoRecentSignalItems.length}`}
               right={
                 <button
                   type="button"
                   className="s-link-btn"
-                  onClick={markAllStaleMotionInactive}
+                  onClick={markAllNoRecentSignalInactive}
                 >
                   mark all inactive
                 </button>
               }
             />
-            <div className="s-stale-motion-list">
-              {visibleStaleMotionItems.map((item) => (
-                <StaleMotionRow
+            <div className="s-no-recent-signal-list">
+              {visibleNoRecentSignalItems.map((item) => (
+                <NoRecentSignalRow
                   key={item.agentId}
                   item={item}
                   navigate={navigate}
-                  onMarkInactive={() => markStaleMotionInactive(item)}
+                  onMarkInactive={() => markNoRecentSignalInactive(item)}
                 />
               ))}
             </div>
@@ -1853,24 +1861,24 @@ function MovingAskRow({
   );
 }
 
-function StaleMotionRow({
+function NoRecentSignalRow({
   item,
   navigate,
   onMarkInactive,
 }: {
-  item: StaleMotionItem;
+  item: NoRecentSignalItem;
   navigate: (r: Route) => void;
   onMarkInactive: () => void;
 }) {
   const age = item.updatedAtMs > 0 ? timeAgo(item.updatedAtMs) : "unknown";
-  const source = staleMotionSourceLabel(item);
+  const source = noRecentSignalSourceLabel(item);
   const summary = summarize(item.summary, 180);
 
   return (
-    <div className="s-stale-motion-row">
+    <div className="s-no-recent-signal-row">
       <button
         type="button"
-        className="s-stale-motion-main"
+        className="s-no-recent-signal-main"
         onClick={() => navigate(item.route)}
       >
         <span
@@ -1879,21 +1887,21 @@ function StaleMotionRow({
         >
           {item.agentName[0]?.toUpperCase() ?? "?"}
         </span>
-        <span className="s-stale-motion-copy">
-          <span className="s-stale-motion-name">{item.agentName}</span>
-          <span className="s-stale-motion-meta">
+        <span className="s-no-recent-signal-copy">
+          <span className="s-no-recent-signal-name">{item.agentName}</span>
+          <span className="s-no-recent-signal-meta">
             <span>last signal {age}</span>
             <span>{source}</span>
             <span>hidden after {formatLookback(MOVING_ACTIVE_WINDOW_MS)} idle</span>
           </span>
-          {summary && <span className="s-stale-motion-summary">{summary}</span>}
+          {summary && <span className="s-no-recent-signal-summary">{summary}</span>}
         </span>
       </button>
-      <div className="s-stale-motion-actions">
+      <div className="s-no-recent-signal-actions">
         <button
           type="button"
           className="s-icon-btn"
-          title="Open stale source"
+          title="Open source"
           onClick={() => navigate(item.route)}
         >
           <ExternalLink size={14} aria-hidden="true" />
@@ -2023,8 +2031,8 @@ function sortedCatchupAgents(agents: Agent[]): Agent[] {
   return [...agents].sort((a, b) => {
     const aState = normalizeAgentState(a.state);
     const bState = normalizeAgentState(b.state);
-    const aRank = aState === "available" ? 0 : aState === "working" ? 1 : 2;
-    const bRank = bState === "available" ? 0 : bState === "working" ? 1 : 2;
+    const aRank = aState === "ready" ? 0 : aState === "working" ? 1 : 2;
+    const bRank = bState === "ready" ? 0 : bState === "working" ? 1 : 2;
     return aRank - bRank || a.name.localeCompare(b.name);
   });
 }

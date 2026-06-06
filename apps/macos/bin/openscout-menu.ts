@@ -254,13 +254,26 @@ function buildIconIfPossible(): void {
 }
 
 function releaseBinaryPath(): string {
+  const hudsonSource = process.env.OPENSCOUT_HUDSON_SOURCE ?? "path";
+  const defaultSpeechEngineSource = process.env.HUDSON_SPEECH_ENGINE_PATH
+    ? "path"
+    : hudsonSource === "git"
+      ? "git"
+      : "path";
+  const env = {
+    ...process.env,
+    HUDSONKIT_WITH_VOICE: "1",
+    HUDSON_SPEECH_ENGINE_SOURCE: process.env.HUDSON_SPEECH_ENGINE_SOURCE ?? defaultSpeechEngineSource,
+  };
   execSync("swift build -c release", {
     cwd: appDir,
+    env,
     stdio: "inherit",
   });
 
   const binPath = execSync("swift build -c release --show-bin-path", {
     cwd: appDir,
+    env,
     stdio: ["ignore", "pipe", "inherit"],
   }).toString("utf8").trim();
 

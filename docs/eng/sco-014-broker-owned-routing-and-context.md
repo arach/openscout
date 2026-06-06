@@ -15,7 +15,7 @@ before a message can move. A sender often has to determine:
 
 - who it is speaking as
 - which project or workspace it is in
-- which agents are known, online, wakeable, stale, or offline
+- which agents are known, online, wakeable, reachability-expired, or offline
 - whether a label is an address, product alias, harness hint, or prose
 - whether to send, ask, wake, queue, fan out, or ask the user to disambiguate
 - how to recover when routing fails
@@ -151,6 +151,8 @@ export type ScoutRouteAmbiguousPolicy = "reject" | "ask";
 export interface ScoutRoutePolicy {
   preferLocalNodeId?: ScoutId;
   ambiguous?: ScoutRouteAmbiguousPolicy;
+  allowHistoricalDirectId?: boolean;
+  /** @deprecated use allowHistoricalDirectId */
   allowStaleDirectId?: boolean;
 }
 
@@ -264,7 +266,8 @@ reference and preserve continuity without making future unrelated sends inherit
 that session's context. In other words, references are handles to interaction
 sessions, while agent names are handles to durable identities. A reference must
 point to exactly one binding; if it is missing, expired, or ambiguous, the
-broker should reject it with a choose-target or stale-reference action.
+broker should reject it with a choose-target or session-reference-not-attachable
+action.
 
 CLI continuations should pass the ref as a route target:
 
@@ -430,7 +433,7 @@ Entries include:
 - endpoint state
 - routable
 - wakeable
-- stale/retired flags
+- superseded/retired flags
 - last activity
 - suggested actions
 

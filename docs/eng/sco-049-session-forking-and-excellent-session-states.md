@@ -50,7 +50,8 @@ At the same time, there are real cases where prior context matters:
 - Reuse a warm local session for cheap latency when prior context is harmless.
 - Start fresh work but seed it from a prior session's excellent state, summary,
   or chosen turn.
-- Ask another project worker to branch off from a failed or stale attempt.
+- Ask another project worker to branch off from a failed attempt or a prior
+  attempt with no recent signal.
 
 Those are different user intents and should not all be encoded as
 `targetSessionId`.
@@ -75,7 +76,7 @@ The caller should choose the work, not the worker plumbing.
 
 Scout's routing modality is valuable because it lets the operator or another
 agent say "review this repo," "continue that exact thread," or "branch from
-that prior work" without manually inspecting stale sessions, agent labels,
+that prior work" without manually inspecting historical sessions, agent labels,
 transport types, or endpoint state.
 
 Forking is the missing middle between "fresh" and "continue," but the source is
@@ -137,7 +138,7 @@ Scout should expose four caller-facing policies.
 | --- | --- | --- |
 | `new` | Run in fresh model context. | Route by project/agent and create a fresh compatible worker if needed. Existing same-project sessions must not force user-visible ambiguity. |
 | `reuse` | Prefer a compatible existing session, but start fresh if none is suitable. | Broker chooses the best warm compatible session as an optimization; user did not request exact continuity. |
-| `existing` | Continue one exact session. | `targetSessionId` is required and resolves to the session owner. Failure is actionable if the session is stale or unavailable. |
+| `existing` | Continue one exact session. | `targetSessionId` is required and resolves to the session owner. Failure is actionable if the session reference is not attachable or not currently reachable. |
 | `fork` | Start a new execution session from a specified source state. | `forkFromStateId` or `forkFromSessionId` identifies source context. Work target remains project/agent unless explicitly inferred. |
 
 Current protocol uses `session: "any"` internally for what the MCP surface calls
@@ -203,7 +204,7 @@ Example:
 The broker resolves work by project or agent identity. If existing candidates
 are ambiguous and no exact target was requested, the broker should create a
 fresh one-time project card/session rather than ask the caller to pick between
-stale or equally plausible workers.
+unreachable or equally plausible workers.
 
 ### `reuse`
 
@@ -211,7 +212,7 @@ The broker may choose an existing compatible session by policy:
 
 1. exact project root match
 2. requested harness/profile match
-3. local and reachable before remote or stale
+3. local and reachable before remote or not-currently-reachable
 4. idle/waiting before active
 5. most recently healthy endpoint
 
@@ -220,9 +221,9 @@ If no compatible session exists, start fresh. A `reuse` miss is not an error.
 ### `existing`
 
 The broker resolves the target session directly. If the session cannot be
-found, belongs to an incompatible harness, or is stale, the response should
-fail with remediation such as "start a new ask," "fork instead," or "wake this
-session."
+found, belongs to an incompatible harness, or is not currently reachable, the
+response should fail with remediation such as "start a new ask," "fork instead,"
+or "wake this session."
 
 ### `fork`
 
@@ -395,9 +396,9 @@ fresh rather than block the caller.
 
 ### `existing` is strict
 
-Rationale: exact continuation is high intent. If the target session is missing
-or stale, silently falling back to a different worker would corrupt the user's
-mental model.
+Rationale: exact continuation is high intent. If the target session is missing,
+not attachable, or not currently reachable, silently falling back to a different
+worker would corrupt the user's mental model.
 
 ### Synthesized forks are acceptable V1
 

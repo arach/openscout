@@ -8,7 +8,7 @@ import UIKit
 
 /// App Settings — HudsonKit's `HudInspectorSettings` vertical-rail inspector.
 /// The rail switches panels (CONNECTION / ROUTES / IDENTITY / ALERTS /
-/// APPEARANCE / ADVANCED / ABOUT). Connection actions are live; other values
+/// APPEARANCE / ADVANCED). Connection actions are live; other values
 /// are scaffolded. Presented as a full page (fullScreenCover), so it carries
 /// its own close via `onClose`.
 struct AppSettingsView: View {
@@ -17,8 +17,9 @@ struct AppSettingsView: View {
 
     @State private var tab = "CONNECTION"
     @State private var approvalsAlert = true
+    @State private var copiedLogs = false
 
-    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED", "ABOUT"]
+    private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED"]
 
     var body: some View {
         HudInspectorSettings(
@@ -36,7 +37,7 @@ struct AppSettingsView: View {
             case "ALERTS":     alertsPanel
             case "APPEARANCE": appearancePanel
             case "ADVANCED":   advancedPanel
-            default:           aboutPanel
+            default:           connectionPanel
             }
         }
     }
@@ -51,13 +52,13 @@ struct AppSettingsView: View {
             HudInspectorMetricStrip([
                 .init("Route", value: routeLabel),
                 .init("Status", value: statusShort),
-                .init("Log", value: "\(model.connectionLog.entries.count)")
+                .init("Last", value: latestLogMetric)
             ])
             HudInspectorSection("Actions") {
                 HudInspectorActionRow("Reconnect", value: "Run", tone: .accent) { Task { await model.reconnect() } }
                 HudInspectorActionRow("Pair with a Mac", value: "Scan", tone: .accent) { dismiss(); model.showPairing = true }
-                HudInspectorActionRow("Forget this Mac", value: "Reset", tone: .warn) {}
             }
+            connectionLogSection
         }
     }
 
@@ -72,6 +73,7 @@ struct AppSettingsView: View {
                 HudInspectorFieldRow("OpenScout Net", value: routeStatus(.oscout), hint: "managed relay")
             }
             HudInspectorSection("Transports") {
+                HudInspectorToggleRow("LAN", isOn: lanBinding, valueOn: "Use", valueOff: "Skip", hint: "skip nearby relay")
                 HudInspectorToggleRow("Tailscale", isOn: tailnetBinding, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
                 HudInspectorToggleRow("OpenScout Net", isOn: osnBinding, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
             }
@@ -108,20 +110,19 @@ struct AppSettingsView: View {
     private var advancedPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Diagnostics") {
-                HudInspectorFieldRow("Connection log", value: "\(model.connectionLog.entries.count)", hint: "route attempts")
-                HudInspectorNavRow("Diagnostics") {}
+                HudInspectorFieldRow("Connection log", value: latestLogMetric, hint: "\(model.connectionLog.entries.count) entries")
+                #if canImport(UIKit)
+                HudInspectorActionRow("Copy connection log", value: copiedLogs ? "Copied" : "Copy", tone: .accent) {
+                    copyConnectionLog()
+                }
+                #endif
+                HudInspectorActionRow("Clear connection log", value: "Clear", tone: .warn) {
+                    model.connectionLog.clear()
+                    copiedLogs = false
+                }
             }
-            HudInspectorSection("Danger") {
-                HudInspectorActionRow("Reset all data", value: "Reset", tone: .warn) {}
-            }
-        }
-    }
-
-    private var aboutPanel: some View {
-        VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Build") {
                 HudInspectorFieldRow("Version", value: "0.1.0", hint: "ScoutNext")
-                HudInspectorNavRow("Acknowledgements") {}
             }
         }
     }
@@ -192,6 +193,149 @@ struct AppSettingsView: View {
         return model.dictation.preference == .apple ? "Off" : "Not downloaded"
     }
 
+    // MARK: - Logs
+
+    private var connectionLogSection: some View {
+        HudInspectorSection("Connection log") {
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                // A contained, terminal-style block rather than a stack of loud
+                // inspector rows: dark recessed fill, hairline border, dense mono
+                // lines (time · event · message), color-coded by level.
+                VStack(alignment: .leading, spacing: 0) {
+                    if recentConnectionLogEntries.isEmpty {
+                        Text("No route attempts yet")
+                            .font(HudFont.mono(HudTextSize.micro))
+                            .foregroundStyle(HudPalette.dim)
+                            .padding(.vertical, 4)
+                    } else {
+                        ForEach(recentConnectionLogEntries) { entry in
+                            logLine(entry)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, HudSpacing.sm)
+                .padding(.horizontal, HudSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .fill(Color.black.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .strokeBorder(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                )
+
+                #if canImport(UIKit)
+                if !model.connectionLog.entries.isEmpty {
+                    Button { copyConnectionLog() } label: {
+                        Text(copiedLogs ? "COPIED" : "COPY LOG")
+                            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                            .tracking(0.8)
+                            .foregroundStyle(HudPalette.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                #endif
+            }
+            .padding(.vertical, HudSpacing.md)
+        }
+    }
+
+    /// One terminal-style log line: `12:03:38  CONNECTED  Connected via TSN`.
+    /// Time is quiet, the event is color-coded by level, the message tail-truncates.
+    private func logLine(_ entry: ConnectionLogEntry) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text(logTime(entry))
+                .foregroundStyle(HudPalette.dim)
+            Text(entry.event.label)
+                .foregroundStyle(logEventColor(entry))
+                .frame(width: 68, alignment: .leading)
+            Text(compactLogMessage(entry))
+                .foregroundStyle(HudPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(HudFont.mono(HudTextSize.micro))
+        .padding(.vertical, 3)
+    }
+
+    /// Color the event token by severity — error/warn pop, a fresh connect reads
+    /// accent, routine lifecycle chatter recedes to dim.
+    private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
+        // Route enable/disable is logged at .info level, so color by level alone
+        // would render it muted — make those events read as a warning regardless,
+        // matching ConnectionView's event-aware coloring.
+        switch entry.event {
+        case .routeDisabled, .routeUnavailable: return HudPalette.statusWarn
+        default: break
+        }
+        switch entry.level {
+        case .error:   return HudPalette.statusError
+        case .warning: return HudPalette.statusWarn
+        case .success: return HudPalette.accent
+        case .info:    return entry.event == .lifecycle ? HudPalette.dim : HudPalette.muted
+        }
+    }
+
+    private var recentConnectionLogEntries: [ConnectionLogEntry] {
+        Array(model.connectionLog.entries.suffix(8).reversed())
+    }
+
+    private var latestLogMetric: String {
+        guard let entry = model.connectionLog.entries.last else { return "—" }
+        return entry.event.label
+    }
+
+    private func logEntryTitle(_ entry: ConnectionLogEntry) -> String {
+        "\(routeToken(entry.route)) \(entry.event.label)"
+    }
+
+    /// Inspector field rows are fixed-width and put the title and value on one
+    /// line — a full relay URL in a log message ("Connected via TSN wss://arachs
+    /// -mac-mini.tail1e8e67.ts.net:7889") would force the row, and the whole
+    /// panel, wider than the screen. Drop the embedded ws(s):// URL entirely (the
+    /// title's route token already says how we connected; the full URL lives in
+    /// the Connection log and Copy log), then cap the length as a backstop.
+    private func compactLogMessage(_ entry: ConnectionLogEntry) -> String {
+        let compact = entry.message
+            .split(separator: " ", omittingEmptySubsequences: false)
+            .filter { !$0.hasPrefix("ws://") && !$0.hasPrefix("wss://") }
+            .joined(separator: " ")
+            .trimmingCharacters(in: CharacterSet(charactersIn: " :"))
+        return compact.count > 32 ? String(compact.prefix(31)) + "…" : compact
+    }
+
+    private func logEntryHint(_ entry: ConnectionLogEntry) -> String {
+        logTime(entry)
+    }
+
+    private func logTime(_ entry: ConnectionLogEntry) -> String {
+        Date(timeIntervalSince1970: Double(entry.tsMs) / 1000)
+            .formatted(.dateTime.hour().minute().second())
+    }
+
+    private func routeToken(_ route: TransportKind?) -> String {
+        guard let route, !route.label.isEmpty else { return "SYS" }
+        return route.label
+    }
+
+    private var connectionLogText: String {
+        model.connectionLog.entries
+            .map { entry in
+                "[\(logTime(entry))] \(routeToken(entry.route)) \(entry.event.label) \(entry.message)"
+            }
+            .joined(separator: "\n")
+    }
+
+    private func copyConnectionLog() {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = connectionLogText
+        copiedLogs = true
+        #endif
+    }
+
     private var routeLabel: String {
         if case .connected(let route) = model.connectionState { return route.label }
         return "—"
@@ -214,6 +358,13 @@ struct AppSettingsView: View {
         #endif
     }
 
+    private var lanBinding: Binding<Bool> {
+        Binding(
+            get: { model.lanRoutingEnabled },
+            set: { model.setLANRoutingEnabled($0) }
+        )
+    }
+
     private var tailnetBinding: Binding<Bool> {
         Binding(
             get: { model.tailnetRoutingEnabled },
@@ -229,10 +380,11 @@ struct AppSettingsView: View {
     }
 
     private var routeOrderLabel: String {
-        var labels = ["LAN"]
+        var labels: [String] = []
+        if model.lanRoutingEnabled { labels.append("LAN") }
         if model.tailnetRoutingEnabled { labels.append("TSN") }
         if model.openScoutNetworkRoutingEnabled { labels.append("OSN") }
-        return labels.joined(separator: " → ")
+        return labels.isEmpty ? "WAN only" : labels.joined(separator: " → ")
     }
 
     private func routeStatus(_ kind: TransportKind) -> String {

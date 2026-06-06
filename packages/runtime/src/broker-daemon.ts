@@ -219,6 +219,31 @@ function readRequestBody<T>(request: IncomingMessage): Promise<T> {
   });
 }
 
+function requestAbortSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(new Error("Broker request aborted by caller"));
+    }
+  };
+  request.on("aborted", abort);
+  request.on("error", abort);
+  response.on("close", () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  });
+  return controller.signal;
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Broker request aborted");
+  }
+}
+
 function json(response: ServerResponse, status: number, payload: unknown): void {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(payload, null, 2));
@@ -2054,7 +2079,7 @@ function staleLocalEndpointReason(endpoint: AgentEndpoint | null): string | null
   const replacement = typeof replacementAgentId === "string" && replacementAgentId.trim().length > 0
     ? `; replacement agent is ${replacementAgentId.trim()}`
     : "";
-  return `endpoint ${endpoint.id} is a stale local registration superseded by current setup${replacement}`;
+  return `endpoint ${endpoint.id} is a superseded local registration replaced by current setup${replacement}`;
 }
 
 function staleLocalAgentReason(
@@ -2082,7 +2107,7 @@ function staleLocalAgentReason(
   const replacement = replacementAgentId
     ? `; replacement agent is ${replacementAgentId}`
     : "";
-  return `agent ${agent.id} is a stale local registration superseded by current setup${replacement}`;
+  return `agent ${agent.id} is a superseded local registration replaced by current setup${replacement}`;
 }
 
 function flightDispatchEndpointId(flight: FlightRecord): string | null {
@@ -2553,19 +2578,19 @@ function describeUnavailableDeliveryTarget(
   agent: AgentDefinition,
   targetSessionId?: string,
 ): ScoutDispatchUnavailableTarget | null {
-  const staleReason = targetSessionId
+  const supersededReason = targetSessionId
     ? staleLocalAgentReason(snapshot, agent)
     : agent.metadata?.staleLocalRegistration === true
     ? staleLocalAgentReason(snapshot, agent)
     : null;
-  if (staleReason) {
+  if (supersededReason) {
     const endpoint = latestEndpointForAgent(snapshot, agent.id);
     const projectRoot = brokerTargetProjectRoot(agent, endpoint);
     return {
       agentId: agent.id,
       displayName: agent.displayName ?? agent.id,
-      reason: "stale_registration",
-      detail: staleReason,
+      reason: targetSessionId ? "session_reference_not_attachable" : "superseded_registration",
+      detail: supersededReason,
       wakePolicy: agent.wakePolicy,
       endpointState: endpoint?.state === "active" || endpoint?.state === "idle" || endpoint?.state === "waiting"
         ? "online"
@@ -2796,7 +2821,7 @@ function staleWorkingFlightReason(
   }
   if (agent?.metadata?.staleLocalRegistration === true) {
     return staleLocalEndpointReason(latestEndpointForAgent(snapshot, flight.targetAgentId))
-      ?? `target agent ${flight.targetAgentId} is a stale local registration superseded by current setup`;
+      ?? `target agent ${flight.targetAgentId} is a superseded local registration replaced by current setup`;
   }
 
   const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
@@ -3404,11 +3429,11 @@ async function archiveStaleRegisteredLocalAgents(bindings: Awaited<ReturnType<ty
       state: "offline",
       metadata: {
         ...staleLocalRegistrationMetadata(endpoint.metadata, staleAt, replacementAgentId),
-        lastError: "stale local agent registration superseded by current setup",
+        lastError: "superseded local agent registration replaced by current setup",
         lastFailedAt: staleAt,
       },
     });
-    console.log(`[openscout-runtime] archived stale local endpoint ${endpoint.id}`);
+    console.log(`[openscout-runtime] archived superseded local endpoint ${endpoint.id}`);
   }
 }
 
@@ -3982,7 +4007,7 @@ function describeRemoteAuthorityIssue(
   const projectRoot = brokerTargetProjectRoot(agent, endpoint);
   const detail = unavailable
     ? `${displayName} belongs to peer node ${nodeLabel}, but that peer has no reachable broker URL or mesh entrypoint.`
-    : `${displayName} belongs to peer node ${nodeLabel}, but that peer is stale (${formatMeshNodeLastSeen(authorityNode)}).`;
+    : `${displayName} belongs to peer node ${nodeLabel}, but that peer has not been seen recently (${formatMeshNodeLastSeen(authorityNode)}).`;
 
   return {
     agentId: agent.id,
@@ -6714,17 +6739,22 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "POST" && url.pathname === "/v1/deliver") {
+    const signal = requestAbortSignal(request, response);
     try {
       const payload = await readRequestBody<ScoutDeliverRequest>(request);
       const result = brokerService.deliver
-        ? await brokerService.deliver(payload)
-        : await acceptBrokerDelivery(payload);
+        ? await brokerService.deliver(payload, { signal })
+        : await acceptBrokerDelivery(payload, { signal });
+      throwIfAborted(signal);
       json(
         response,
         result.kind === "delivery" ? 202 : result.kind === "question" ? 409 : 422,
         result,
       );
     } catch (error) {
+      if (signal.aborted || response.destroyed || response.writableEnded) {
+        return;
+      }
       badRequest(response, error);
     }
     return;
@@ -7025,8 +7055,10 @@ function remediationForDispatch(
     return {
       kind: dispatch.target?.reason === "manual_wake_required"
         ? "wake_target"
-        : dispatch.target?.reason === "stale_registration"
-        ? "stale_reference"
+        : dispatch.target?.reason === "session_reference_not_attachable"
+        ? "session_reference_not_attachable"
+        : dispatch.target?.reason === "superseded_registration" || dispatch.target?.reason === "stale_registration"
+        ? "use_current_registration"
         : "retry_later",
       detail: dispatch.target?.detail ?? dispatch.detail,
       targetAgentId: dispatch.target?.agentId,
@@ -7513,8 +7545,11 @@ async function recordOperatorDeliveryIssue(input: {
 
 async function acceptBrokerDelivery(
   payload: ScoutDeliverRequest,
+  options: { signal?: AbortSignal } = {},
 ): Promise<ScoutDeliverResponse> {
+  throwIfAborted(options.signal);
   await syncRegisteredLocalAgentsIfChanged("delivery");
+  throwIfAborted(options.signal);
   const requestId = payload.id?.trim() || createRuntimeId("deliver");
   const createdAt = typeof payload.createdAt === "number" && Number.isFinite(payload.createdAt)
     ? payload.createdAt
@@ -7547,6 +7582,7 @@ async function acceptBrokerDelivery(
 
   const messageRef = messageRefCandidateForRouteTarget(payload);
   const replyTarget = messageRef ? resolveBrokerMessageRef(runtime.snapshot(), messageRef) : null;
+  throwIfAborted(options.signal);
   if (replyTarget) {
     await ensureBrokerActorForDelivery(requesterId);
     await ensureBrokerActorForDelivery(replyTarget.actorId);
@@ -7587,6 +7623,7 @@ async function acceptBrokerDelivery(
         },
       };
       await postConversationMessage(message);
+      throwIfAborted(options.signal);
       return {
         kind: "delivery",
         accepted: true,
@@ -7650,6 +7687,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     return {
       kind: "delivery",
       accepted: true,
@@ -7713,6 +7751,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "unassigned_scout",
       requestId,
@@ -7782,6 +7821,7 @@ async function acceptBrokerDelivery(
       },
     };
     await postConversationMessage(message);
+    throwIfAborted(options.signal);
     return {
       kind: "delivery",
       accepted: true,
@@ -7808,6 +7848,7 @@ async function acceptBrokerDelivery(
     currentDirectory: projectPathRouteTarget(payload),
     reason: "implicit project delivery card",
   });
+  throwIfAborted(options.signal);
 
   if (resolved.kind !== "resolved") {
     const { record } = await recordScoutDispatchDurably(
@@ -7822,6 +7863,7 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "rejected",
       requestId,
@@ -7853,6 +7895,7 @@ async function acceptBrokerDelivery(
         requesterId,
       },
     );
+    throwIfAborted(options.signal);
     queueOperatorDeliveryIssue({
       kind: "unavailable",
       requestId,
@@ -7885,6 +7928,7 @@ async function acceptBrokerDelivery(
         createdAt,
       })
     : deliveryWorkItemResolutionForTell(payload);
+  throwIfAborted(options.signal);
   const workRecord = workResolution.record;
   const collaborationRecordId = workResolution.collaborationRecordId;
   const snapshot = runtime.snapshot();
@@ -7925,6 +7969,7 @@ async function acceptBrokerDelivery(
     },
   };
   await postConversationMessage(message);
+  throwIfAborted(options.signal);
 
   const shouldDispatchTargetTurn =
     payload.intent === "consult"
@@ -8003,6 +8048,7 @@ async function acceptBrokerDelivery(
     },
   };
   const flight = await acceptInvocationDurably(invocation);
+  throwIfAborted(options.signal);
   const bindingRef = flight.id.slice(-8);
   dispatchAcceptedInvocation(invocation).catch((error) => {
     console.error(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);

@@ -16,8 +16,8 @@ records.
 
 The operator-facing fleet count should answer "how many durable agent
 identities can I address or manage?" It should not report every stored agent
-row, stale local registration, node mirror, or runtime session as a separate
-agent.
+row, superseded local registration, node mirror, or runtime session as a
+separate agent.
 
 ## Context
 
@@ -46,7 +46,7 @@ currently mixing several layers:
 - sessions and harness processes
 - endpoints and delivery attachments
 - node mirrors and routing qualifiers
-- stale and historical storage rows
+- superseded and historical storage rows
 
 Those layers must remain visible to engineers and diagnostics, but the product
 needs a sharper top-level noun.
@@ -85,11 +85,12 @@ default.
 Endpoints route to sessions. Endpoints do not become new top-level agents by
 default.
 
-Agent cards are durable settings, not cached sessions. A card may become
-**invalid** when its setting is no longer true, for example the project path is
-gone, the configured harness or model is unavailable, or the permission/profile
-configuration cannot run. A stale or superseded session/endpoint does not make
-the card stale. It only means the broker must choose, start, attach, resume, or
+Agent cards are durable settings, not cached sessions. A card may have an
+**invalid configuration** when its setting is no longer true, for example the
+project path is gone or the permission/profile configuration cannot run. A valid
+card may be **unavailable** when the configured harness, model, provider, or
+machine cannot currently run it. A superseded session/endpoint does not make the
+card stale. It only means the broker must choose, start, attach, resume, or
 diagnose a runtime context for that still-valid identity.
 
 Node, harness, model, workspace, and profile qualifiers disambiguate and route
@@ -151,10 +152,10 @@ Scout SHOULD expose separate counts for separate questions:
 
 | Count | Answers | Includes | Excludes |
 | --- | --- | --- | --- |
-| **Projects indexed** | "How much of my workspace has Scout found?" | Distinct indexed project roots. | Harness sessions, endpoints, stale rows. |
-| **Configured agents** | "How many durable agents have I admitted?" | Registry entries, persistent cards, explicit Scout-managed registrations. | One-time cards, stale registrations, node mirrors, runtime-only sessions. |
+| **Projects indexed** | "How much of my workspace has Scout found?" | Distinct indexed project roots. | Harness sessions, endpoints, historical rows. |
+| **Configured agents** | "How many durable agents have I admitted?" | Registry entries, persistent cards, explicit Scout-managed registrations. | One-time cards, superseded registrations, node mirrors, runtime-only sessions. |
 | **Active now** | "Who can act or is acting right now?" | Agents with fresh live endpoints or active/waiting work. | Offline historical rows. |
-| **Current registrations** | "What does the broker currently know how to route or wake?" | Non-stale agent rows and endpoint-backed records useful for routing. | Retired and stale records. |
+| **Current registrations** | "What does the broker currently know how to route or wake?" | Non-superseded agent rows and endpoint-backed records useful for routing. | Retired and superseded records. |
 | **Raw records** | "What is stored for audit/debug?" | Every persisted row. | Nothing; this is a diagnostic count only. |
 
 The default product headline SHOULD be **configured agents across indexed
@@ -185,7 +186,7 @@ Diagnostic and engineering surfaces SHOULD still expose those records with
 clear labels:
 
 - **raw agent records**
-- **stale registrations**
+- **superseded registrations**
 - **current routable registrations**
 - **node mirrors**
 - **endpoint attachments**
@@ -221,8 +222,8 @@ Recommended headline labels:
 - **Current Registrations** for diagnostics
 - **Raw Records** for diagnostics
 
-Avoid labels such as "597 agents" when that number includes stale registrations
-or storage rows that the operator cannot naturally address.
+Avoid labels such as "597 agents" when that number includes superseded
+registrations or storage rows that the operator cannot naturally address.
 
 ## Implementation Plan
 
@@ -239,7 +240,7 @@ It should derive at least:
 - `fleetVisibility`: `top_level` | `grouped` | `diagnostic`
 - `admissionSource`: `registry` | `agent_card` | `scout_managed` | `observed` | `historical`
 - `registrationSource`: `manual` | `manifest` | `generated` | `unknown`
-- `recordKind`: `agent_identity` | `session_instance` | `endpoint_attachment` | `node_mirror` | `stale_registration`
+- `recordKind`: `agent_identity` | `session_instance` | `endpoint_attachment` | `node_mirror` | `superseded_registration`
 - `cardLifecycle`: `persistent` | `one_time` | `none`
 - `cardValidity`: `valid` | `invalid_configuration` | `unavailable` | `unknown`
 - `nodeRole`: `local_authority` | `remote_authority` | `mirrored` | `unknown`
@@ -256,8 +257,8 @@ between product visibility and storage existence should be explicit.
 `activeAgentMetadataPredicate` currently filters `retiredFromFleet` but does
 not filter `staleLocalRegistration`.
 
-Update DB-backed agent readers so stale local registrations are excluded from
-normal agent lists unless the caller explicitly requests diagnostic records.
+Update DB-backed agent readers so superseded local registrations are excluded
+from normal agent lists unless the caller explicitly requests diagnostic records.
 
 ### 3. Split Broker Health Counts
 
@@ -268,7 +269,7 @@ diagnostic value, but add separate fields for:
 - indexed projects
 - current registrations
 - active or idle agents
-- stale registrations
+- superseded registrations
 - raw agent records
 - one-time cards
 
@@ -301,17 +302,17 @@ understandable. It should show:
 - active or idle agents
 - waiting or wakeable registrations
 - remote-authority identities
-- stale and replaced registrations
+- superseded and replaced registrations
 - raw stored records
 - registry entries compared to SQLite rows
-- stale rows that still have messages, invocations, flights, or endpoints
+- superseded rows that still have messages, invocations, flights, or endpoints
 
 This report is the safety rail. It lets Scout clean presentation first, then
 consider compaction without guessing which rows still anchor history.
 
 ### 6. Preserve Diagnostics
 
-Add a deliberate diagnostic affordance for raw rows and stale registrations.
+Add a deliberate diagnostic affordance for raw rows and superseded registrations.
 This keeps the engineering data visible without forcing every operator-facing
 view to explain historical storage rows.
 
@@ -319,13 +320,12 @@ Diagnostics should use runtime language for runtime rows. Prefer labels such as
 "superseded endpoint", "historical registration", "session reference not
 attachable", or "session not currently reachable". Use terminal session language
 only when a harness or provider reports an explicit stopped, closed, cancelled,
-or completed state. Do not label a durable card as stale unless the card
-settings themselves are invalid, and in that case prefer "invalid
-configuration".
+or completed state. Never label a durable card as stale. Use "invalid
+configuration" or "unavailable" according to the failed layer.
 
-### 7. Backfill Or Retire Stale Rows Deliberately
+### 7. Backfill Or Retire Superseded Rows Deliberately
 
-Do not bulk-delete stale local registrations as the first fix.
+Do not bulk-delete superseded local registrations as the first fix.
 
 After readers are corrected, add a lifecycle pass that can safely mark old
 `staleLocalRegistration` rows as `retiredFromFleet` when a newer durable
@@ -349,9 +349,9 @@ attach a live session, or fork from a saved state.
 
 - The primary web fleet/agents surface no longer reports raw stored agent rows
   as the fleet size.
-- A local setup with many stale registrations presents a headline closer to
+- A local setup with many superseded registrations presents a headline closer to
   configured agents plus indexed projects.
-- Stale local registrations are hidden from normal agent lists by default.
+- Superseded local registrations are hidden from normal agent lists by default.
 - Current registrations and raw records remain available in diagnostics.
 - One-time cards are visible as reply/session helpers, not counted as
   configured top-level agents unless promoted.
@@ -367,7 +367,7 @@ attach a live session, or fork from a saved state.
 - Exact session continuation uses explicit session ids and fails in session
   language when the reference cannot be loaded or the requested context cannot
   be reached.
-- Tests cover at least one fixture with configured agents, stale registrations,
+- Tests cover at least one fixture with configured agents, superseded registrations,
   endpoint-backed sessions, one-time cards, persistent cards, remote-authority
   rows, and node mirror rows.
 - The glossary and identity docs use the same agent/session/endpoint/project

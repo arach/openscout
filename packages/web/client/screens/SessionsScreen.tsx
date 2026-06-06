@@ -9,11 +9,11 @@ import {
 } from "react";
 
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
-import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import { api } from "../lib/api.ts";
 import { useTailEvents } from "../lib/tail-events.ts";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { AgentsSubnav } from "./AgentsSubnav.tsx";
 import type {
   Route,
   TailDiscoveredProcess,
@@ -387,8 +387,6 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [filtered, selectedIdx, openSelected]);
 
-  const activeCount = rows.filter((row) => row.status === "run").length;
-  const transcriptCount = discovery?.totals.transcripts ?? discovery?.transcripts?.length ?? 0;
   const visibleRows = error ? [] : filtered;
   const rowId = useCallback((row: RawSessionRow) => `${row.source}:${row.transcriptPath}`, []);
   const indexById = useMemo(
@@ -397,52 +395,12 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   );
 
   return (
-    <div className="s-atop">
-      <div className="s-atop-summary">
-        <div className="s-atop-summary-cell">
-          <div className="s-atop-summary-num">
-            <strong>{rows.length}</strong>
-            <span className="s-atop-summary-of">of {transcriptCount}</span>
-          </div>
-          <div className="s-atop-summary-lbl">raw sessions</div>
-        </div>
-        <div className="s-atop-summary-cell">
-          <div className="s-atop-summary-num">
-            <strong>{activeCount}</strong>
-          </div>
-          <div className="s-atop-summary-lbl">active</div>
-        </div>
-        <div className="s-atop-summary-cell s-atop-summary-cell--breakdown">
-          <div className="s-atop-summary-row">
-            {sources.length === 0 ? (
-              <span className="s-atop-chip s-atop-chip--mute">no sources</span>
-            ) : sources.map((source) => (
-              <span
-                key={source}
-                className={`s-atop-chip s-atop-chip--harness s-atop-chip--harness-${classPart(source)}`}
-              >
-                {source}
-              </span>
-            ))}
-          </div>
-          <div className="s-atop-summary-lbl">sources</div>
-        </div>
-        <div className="s-atop-summary-cell s-atop-summary-cell--rate">
-          <div className="s-atop-summary-num">
-            <strong>{filtered.length}</strong>
-          </div>
-          <div className="s-atop-summary-lbl">visible</div>
-        </div>
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <AgentsSubnav activeRoute={route} navigate={navigate} />
       </div>
-
-      <ObservedTopologyPanel
-        title="Observed harness families"
-        size="compact"
-        maxAgents={8}
-        maxTasks={4}
-        showEmpty
-      />
-
+      <div className="s-secondary-nav-body">
+        <div className="s-atop s-atop--sessions">
       <div className="s-atop-fbar">
         <label className="s-atop-search">
           <span className="s-atop-search-prompt">/</span>
@@ -516,6 +474,8 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
         <span className="s-atop-keys-count">
           <strong>{filtered.length}</strong> sessions
         </span>
+      </div>
+        </div>
       </div>
     </div>
   );

@@ -378,6 +378,14 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
       "OPENSCOUT_TAILSCALE_BIN",
       "OPENSCOUT_TAILSCALE_STATUS_JSON",
       "OPENSCOUT_SSE_KEEPALIVE_MS",
+      "OPENSCOUT_WEB_EDGE_SCHEME",
+      "OPENSCOUT_WEB_PUBLIC_ORIGIN",
+      "OPENSCOUT_WEB_PORTAL_HOST",
+      "OPENSCOUT_WEB_LOCAL_NAME",
+      "OPENSCOUT_WEB_ADVERTISED_HOST",
+      "OPENSCOUT_WEB_TRUSTED_HOSTS",
+      "OPENSCOUT_WEB_TRUSTED_ORIGINS",
+      "OPENSCOUT_WEB_PORT",
     ]),
   };
   if (coreAgentsValue) {

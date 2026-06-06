@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
 import "./rail-row.css";
 import { stateColor } from "../../lib/colors.ts";
-import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
+import { agentStateCssToken, type AgentDisplayState } from "../../lib/agent-state.ts";
 import { Avatar, PresenceDot, type AvatarKind } from "../../components/Avatar.tsx";
 
 type Tone = AgentDisplayState | "channel" | "dm" | "neutral";
@@ -196,5 +196,5 @@ function Chevron({ open }: { open: boolean }) {
 
 function normalizeAgentTone(tone: Tone): string {
   if (tone === "channel" || tone === "dm" || tone === "neutral") return tone;
-  return normalizeAgentState(tone);
+  return agentStateCssToken(tone);
 }

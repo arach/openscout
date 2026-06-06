@@ -379,20 +379,26 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
+  const leftInset = leftCollapsed ? 0 : leftWidth;
   const rightInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
     bottom: 28,
-    left: leftCollapsed ? 0 : leftWidth,
+    left: leftInset,
     right: rightInset,
     overflow: "auto",
     transition: "left 200ms ease, right 200ms ease",
   } : {};
+  const shellChromeStyle = {
+    display: "contents",
+    "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
+    "--scout-shell-right-inset": `${layoutMode === "panel" ? rightInset : 0}px`,
+  } as React.CSSProperties;
 
   return (
     <>
-      <div ref={backgroundRef} aria-hidden={takeoverActive ? true : undefined} style={{ display: "contents" }}>
+      <div ref={backgroundRef} aria-hidden={takeoverActive ? true : undefined} style={shellChromeStyle}>
         <Frame
           mode={frameMode}
           panOffset={panOffset}

@@ -60,7 +60,7 @@ type ParentGroup = {
   latestUpdate: number;
 };
 
-const STATE_RANK: Record<string, number> = { working: 0, available: 1, offline: 2 };
+const STATE_RANK: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
 
 function pathBasename(path: string | null | undefined): string | null {
   const cleaned = path?.trim().replace(/\/+$/, "");
@@ -113,7 +113,7 @@ function buildGroups(agents: Agent[]): ParentGroup[] {
     const bestState = list.reduce<AgentDisplayState>((best, a) => {
       const s = normalizeAgentState(a.state);
       return (STATE_RANK[s] ?? 9) < (STATE_RANK[best] ?? 9) ? s : best;
-    }, "offline");
+    }, "not_ready");
 
     const latestUpdate = Math.max(...list.map((a) => a.updatedAt ?? 0));
 
@@ -354,8 +354,8 @@ function ScoutPlanDocumentsLeftPanel() {
 
 const DEFAULT_STATE_FILTERS: ReadonlySet<FleetStateToken> = new Set([
   "working",
-  "available",
-  "offline",
+  "ready",
+  "not_ready",
 ]);
 
 function ScoutAgentsLeftPanel() {
@@ -388,8 +388,7 @@ function ScoutAgentsLeftPanel() {
     () =>
       scopedAgents.filter((agent) => {
         const s = normalizeAgentState(agent.state);
-        const token: FleetStateToken =
-          s === "working" || s === "available" ? s : "offline";
+        const token: FleetStateToken = s;
         if (!stateFilters.has(token)) return false;
         return agentMatchesQuery(agent, normalizedQuery);
       }),
@@ -570,18 +569,18 @@ function agentRowTooltip(
 
 function groupRollup(agents: Agent[]): string {
   let working = 0;
-  let available = 0;
-  let offline = 0;
+  let ready = 0;
+  let notReady = 0;
   for (const agent of agents) {
     const s = normalizeAgentState(agent.state);
     if (s === "working") working += 1;
-    else if (s === "available") available += 1;
-    else offline += 1;
+    else if (s === "ready") ready += 1;
+    else notReady += 1;
   }
   const parts: string[] = [];
   if (working) parts.push(`${working}w`);
-  if (available) parts.push(`${available}a`);
-  if (offline && !working && !available) parts.push(`${offline}o`);
+  if (ready) parts.push(`${ready}r`);
+  if (notReady && !working && !ready) parts.push(`${notReady}nr`);
   if (parts.length === 0) return `${agents.length}`;
   return parts.join(" · ");
 }

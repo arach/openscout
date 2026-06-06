@@ -5,6 +5,7 @@ import type {
   HarnessTopologyObservation,
   HarnessTopologySnapshot,
   ObservedHarnessAgent,
+  ObservedHarnessGroup,
   ObservedHarnessRelationship,
   ObservedHarnessTask,
   ObservedHarnessTopology,
@@ -27,6 +28,22 @@ type TopologySourceModel = {
   source: string;
   observedAt: number | null;
   topology: ObservedHarnessTopology;
+};
+
+type WorkflowSummaryModel = {
+  id: string;
+  label: string;
+  description: string | null;
+  runId: string;
+  parentSessionId: string | null;
+  status: string;
+  workerCount: number;
+  taskCount: number;
+  activeTaskCount: number;
+  completedTaskCount: number;
+  eventCount: number;
+  latestAt: number | null;
+  taskPreview: ObservedHarnessTask[];
 };
 
 function observedAtMs(value: string | undefined): number | null {
@@ -65,6 +82,20 @@ function agentStatus(agent: ObservedHarnessAgent): string {
   return agent.status ?? agent.role ?? agent.type ?? "observed";
 }
 
+function stringMeta(meta: Record<string, unknown> | undefined, key: string): string | null {
+  const value = meta?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberMeta(meta: Record<string, unknown> | undefined, key: string): number | null {
+  const value = meta?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function workflowRunIdFromMeta(meta: Record<string, unknown> | undefined): string | null {
+  return stringMeta(meta, "claudeWorkflowRunId") ?? stringMeta(meta, "workflowRunId");
+}
+
 function findSpawnParents(
   agent: ObservedHarnessAgent,
   relationships: ObservedHarnessRelationship[],
@@ -82,6 +113,80 @@ function taskForAgent(
   tasks: ObservedHarnessTask[],
 ): ObservedHarnessTask | null {
   return tasks.find((task) => task.assigneeId === agent.id) ?? null;
+}
+
+function taskMatchesWorkflow(task: ObservedHarnessTask, runId: string): boolean {
+  return workflowRunIdFromMeta(task.providerMeta) === runId || task.id.includes(runId);
+}
+
+function agentMatchesWorkflow(agent: ObservedHarnessAgent, runId: string): boolean {
+  return workflowRunIdFromMeta(agent.providerMeta) === runId || agent.id.includes(runId);
+}
+
+function latestAgentTimestamp(agent: ObservedHarnessAgent): number | null {
+  const value = stringMeta(agent.providerMeta, "latestTimestamp");
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function workflowStatus(tasks: ObservedHarnessTask[], workers: ObservedHarnessAgent[]): string {
+  if (tasks.some((task) => task.state && statusRank(task.state) === 0)) return "running";
+  if (workers.some((worker) => worker.status && statusRank(worker.status) === 0)) return "running";
+  if (tasks.some((task) => task.state === "failed" || task.state === "error")) return "failed";
+  if (workers.some((worker) => worker.status === "failed" || worker.status === "error")) return "failed";
+  if (tasks.length > 0 && tasks.every((task) => task.state === "completed" || task.state === "done")) return "completed";
+  if (workers.length > 0 && workers.every((worker) => worker.status === "completed" || worker.status === "done")) return "completed";
+  if (tasks.length > 0) return "observed";
+  return "workflow";
+}
+
+function buildWorkflowSummaries(
+  topology: ObservedHarnessTopology,
+  observedAt: number | null,
+): WorkflowSummaryModel[] {
+  const workflowGroups = topology.groups.filter((group) => group.kind === "workflow");
+  return workflowGroups
+    .map((group: ObservedHarnessGroup): WorkflowSummaryModel => {
+      const runId = workflowRunIdFromMeta(group.providerMeta) ?? group.id;
+      const tasks = topology.tasks.filter((task) => taskMatchesWorkflow(task, runId));
+      const workers = topology.agents.filter((agent) =>
+        agent.role !== "lead" && agentMatchesWorkflow(agent, runId)
+      );
+      const activeTasks = tasks.filter((task) => task.state !== "completed" && task.state !== "done");
+      const completedTasks = tasks.filter((task) => task.state === "completed" || task.state === "done");
+      const latestWorkerAt = workers
+        .map(latestAgentTimestamp)
+        .filter((value): value is number => Boolean(value))
+        .sort((left, right) => right - left)[0] ?? null;
+      const eventCount = workers.reduce(
+        (total, worker) => total + (numberMeta(worker.providerMeta, "eventCount") ?? 0),
+        0,
+      );
+      const taskPreview = (activeTasks.length > 0 ? activeTasks : tasks).slice(0, 3);
+
+      return {
+        id: group.id,
+        label: group.name ?? runId,
+        description: stringMeta(group.providerMeta, "description"),
+        runId,
+        parentSessionId: stringMeta(group.providerMeta, "parentSessionId"),
+        status: workflowStatus(tasks, workers),
+        workerCount: workers.length,
+        taskCount: tasks.length,
+        activeTaskCount: activeTasks.length,
+        completedTaskCount: completedTasks.length,
+        eventCount,
+        latestAt: latestWorkerAt ?? observedAt,
+        taskPreview,
+      };
+    })
+    .sort((left, right) => {
+      const activeDelta = (right.activeTaskCount > 0 ? 1 : 0) - (left.activeTaskCount > 0 ? 1 : 0);
+      if (activeDelta !== 0) return activeDelta;
+      return (right.latestAt ?? 0) - (left.latestAt ?? 0)
+        || left.label.localeCompare(right.label);
+    });
 }
 
 function statusRank(status: string | undefined): number {
@@ -216,6 +321,9 @@ function TopologySource({
 }) {
   const { topology } = source;
   const agentById = new Map(topology.agents.map((agent) => [agent.id, agent]));
+  const workflows = buildWorkflowSummaries(topology, source.observedAt);
+  const visibleWorkflows = workflows.slice(0, maxAgents);
+  const hiddenWorkflowCount = workflows.length - visibleWorkflows.length;
   const byStatus = (left: ObservedHarnessAgent, right: ObservedHarnessAgent) =>
     statusRank(left.status) - statusRank(right.status) || displayAgentName(left).localeCompare(displayAgentName(right));
   const subagents = topology.agents.filter((agent) => agent.role === "subagent").sort(byStatus);
@@ -234,31 +342,76 @@ function TopologySource({
         <span>{timeAgo(source.observedAt) ?? "observed"}</span>
       </div>
 
-      <div className="s-observed-topology-agent-list">
-        {visibleAgents.map((agent) => {
-          const parents = findSpawnParents(agent, topology.relationships, agentById);
-          const task = taskForAgent(agent, topology.tasks);
-          return (
-            <div key={agent.id} className="s-observed-topology-agent">
-              <div className="s-observed-topology-agent-main">
-                <span className={`s-observed-topology-agent-role s-observed-topology-agent-role--${agent.role ?? "observed"}`}>
-                  {agent.role ?? "observed"}
+      {workflows.length > 0 ? (
+        <div className="s-observed-topology-workflow-list">
+          {visibleWorkflows.map((workflow) => (
+            <div key={workflow.id} className="s-observed-topology-workflow">
+              <div className="s-observed-topology-workflow-main">
+                <span className={`s-observed-topology-workflow-state s-observed-topology-workflow-state--${workflow.status}`}>
+                  {workflow.status}
                 </span>
-                <span className="s-observed-topology-agent-name">{displayAgentName(agent)}</span>
-                <span className="s-observed-topology-agent-status">{agentStatus(agent)}</span>
+                <span className="s-observed-topology-workflow-name" title={workflow.label}>
+                  {workflow.label}
+                </span>
+                <span className="s-observed-topology-workflow-age">
+                  {timeAgo(workflow.latestAt) ?? "observed"}
+                </span>
               </div>
-              {(parents.length > 0 || task?.title) && (
-                <div className="s-observed-topology-agent-detail">
-                  {parents.length > 0 && <span>spawned by {parents.join(", ")}</span>}
-                  {task?.title && <span>{task.title}</span>}
+              <div className="s-observed-topology-workflow-meta">
+                <span>{workflow.workerCount} workers</span>
+                {workflow.taskCount > 0 && (
+                  <span>{workflow.completedTaskCount}/{workflow.taskCount} tasks</span>
+                )}
+                {workflow.eventCount > 0 && <span>{workflow.eventCount} events</span>}
+                {workflow.parentSessionId && <span>parent {shortId(workflow.parentSessionId)}</span>}
+              </div>
+              {workflow.description && (
+                <div className="s-observed-topology-workflow-description">
+                  {workflow.description}
+                </div>
+              )}
+              {workflow.taskPreview.length > 0 && (
+                <div className="s-observed-topology-workflow-tasks">
+                  {workflow.taskPreview.map((task) => (
+                    <span key={task.id}>{task.title ?? task.id.replace(/^.*:/, "")}</span>
+                  ))}
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
+          ))}
+          {hiddenWorkflowCount > 0 && (
+            <div className="s-observed-topology-more">
+              {hiddenWorkflowCount} more workflow{hiddenWorkflowCount === 1 ? "" : "s"} in project rows
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="s-observed-topology-agent-list">
+          {visibleAgents.map((agent) => {
+            const parents = findSpawnParents(agent, topology.relationships, agentById);
+            const task = taskForAgent(agent, topology.tasks);
+            return (
+              <div key={agent.id} className="s-observed-topology-agent">
+                <div className="s-observed-topology-agent-main">
+                  <span className={`s-observed-topology-agent-role s-observed-topology-agent-role--${agent.role ?? "observed"}`}>
+                    {agent.role ?? "observed"}
+                  </span>
+                  <span className="s-observed-topology-agent-name">{displayAgentName(agent)}</span>
+                  <span className="s-observed-topology-agent-status">{agentStatus(agent)}</span>
+                </div>
+                {(parents.length > 0 || task?.title) && (
+                  <div className="s-observed-topology-agent-detail">
+                    {parents.length > 0 && <span>spawned by {parents.join(", ")}</span>}
+                    {task?.title && <span>{task.title}</span>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-      {activeTasks.length > 0 && (
+      {workflows.length === 0 && activeTasks.length > 0 && (
         <div className="s-observed-topology-task-list">
           {activeTasks.map((task) => (
             <div key={task.id} className="s-observed-topology-task">

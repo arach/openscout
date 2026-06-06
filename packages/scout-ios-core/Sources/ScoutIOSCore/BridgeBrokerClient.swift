@@ -100,6 +100,12 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return wire.map { $0.toSummary() }
     }
 
+    public func listWorkspaces(query: String?, limit: Int) async throws -> [WorkspaceSummary] {
+        let params = MobileListParams(query: query, limit: limit)
+        let wire: [MobileWorkspaceSummary] = try await connection.rpc("mobile/workspaces", params: params)
+        return wire.map { $0.toSummary() }
+    }
+
     // MARK: - ConversationCapability
 
     public func snapshot(conversationId: String) async throws -> SessionState {
@@ -447,6 +453,42 @@ struct MobileAgentSummary: Codable, Sendable {
             state: mappedState,
             sessionId: sessionId,
             lastActiveAt: lastActiveAt.map { Date(timeIntervalSince1970: Double(scoutEpochMilliseconds($0)) / 1000.0) }
+        )
+    }
+}
+
+struct MobileWorkspaceSummary: Codable, Sendable {
+    let id: String
+    let title: String?
+    let projectName: String?
+    let root: String?
+    let defaultHarness: String?
+    let harnesses: [WireHarness]?
+
+    struct WireHarness: Codable, Sendable {
+        let harness: String
+        let source: String?
+        let detail: String?
+        let readinessState: String?
+        let readinessDetail: String?
+    }
+
+    func toSummary() -> WorkspaceSummary {
+        let resolvedRoot = root?.trimmedNonEmpty ?? ""
+        let leaf = resolvedRoot.isEmpty ? id : URL(fileURLWithPath: resolvedRoot).lastPathComponent
+        return WorkspaceSummary(
+            id: id,
+            title: title?.trimmedNonEmpty ?? projectName?.trimmedNonEmpty ?? leaf,
+            projectName: projectName?.trimmedNonEmpty ?? leaf,
+            root: resolvedRoot,
+            defaultHarness: defaultHarness?.trimmedNonEmpty,
+            harnesses: (harnesses ?? []).map { wire in
+                WorkspaceSummary.Harness(
+                    harness: wire.harness,
+                    readiness: WorkspaceSummary.Harness.Readiness(rawValue: wire.readinessState ?? "") ?? .unknown,
+                    detail: wire.readinessDetail?.trimmedNonEmpty ?? wire.detail?.trimmedNonEmpty
+                )
+            }
         )
     }
 }

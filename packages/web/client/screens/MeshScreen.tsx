@@ -20,6 +20,7 @@ import {
   type MeshDensity,
   type MeshStateFilter,
 } from "../lib/mesh-view-store.ts";
+import { OpsSubnav } from "./OpsSubnav.tsx";
 import "./system-surfaces-redesign.css";
 import "./mesh-screen.css";
 
@@ -50,7 +51,6 @@ function MeshHud({
   return (
     <div className={`mesh-hud mesh-hud--${mode}`}>
       <div className="mesh-hud-left">
-        <span className="mesh-hud-title">Mesh</span>
         <div className="mesh-mode-toggle">
           <button
             type="button"
@@ -134,10 +134,10 @@ function MeshHud({
             </button>
             <button
               type="button"
-              className={`mesh-mode-btn${stateFilter === "available" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshStateFilter("available")}
+              className={`mesh-mode-btn${stateFilter === "ready" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("ready")}
             >
-              Available
+              Ready
             </button>
           </div>
         </div>
@@ -147,7 +147,7 @@ function MeshHud({
           {loading
             ? "Loading…"
             : error && hasMesh
-              ? `Stale — ${lastLoadedAt ? timeAgo(lastLoadedAt) : "unknown"}`
+              ? `Last sync old — ${lastLoadedAt ? timeAgo(lastLoadedAt) : "unknown"}`
               : lastLoadedAt
                 ? timeAgo(lastLoadedAt)
                 : "—"}
@@ -160,7 +160,7 @@ function MeshHud({
   );
 }
 
-export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => void }) {
+export function MeshScreen({ navigate }: { navigate: (r: Route) => void }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,9 +230,8 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
     onRefresh: () => void load("manual"),
   };
 
-  // ── MAP MODE: full-bleed canvas ──
-  if (mode === "map") {
-    return (
+  const content = mode === "map"
+    ? (
       <div className="mesh-map-canvas">
         {mesh && <MeshCanvas mesh={mesh} agents={filteredAgents} />}
 
@@ -251,55 +250,63 @@ export function MeshScreen({ navigate: _navigate }: { navigate: (r: Route) => vo
 
         <MeshHud {...hudProps} />
       </div>
+    )
+    : (
+      <div className="mesh-tree-page">
+        <MeshHud {...hudProps} />
+
+        {loading && !mesh && (
+          <div className="sys-panel sys-state-card mesh-tree-state">
+            <h3 className="sys-state-title">Loading mesh status</h3>
+            <p className="sys-state-body">Inspecting broker reachability and peer discovery inputs.</p>
+          </div>
+        )}
+
+        {!loading && !mesh && error && (
+          <div className="sys-panel sys-state-card sys-state-card-error mesh-tree-state">
+            <h3 className="sys-state-title">Mesh status is unavailable</h3>
+            <p className="sys-state-body">{error}</p>
+            <div className="sys-inline-actions">
+              <button type="button" className="s-btn" onClick={() => void load("manual")}>Try again</button>
+            </div>
+          </div>
+        )}
+
+        {mesh && (
+          <section className="mesh-tree-panel">
+            <div className="mesh-tree-hint" aria-hidden>
+              <kbd>↑</kbd><kbd>↓</kbd>
+              <span>navigate</span>
+              <span className="mesh-tree-hint-sep">·</span>
+              <kbd>enter</kbd>
+              <span>pin</span>
+              <span className="mesh-tree-hint-sep">·</span>
+              <kbd>o</kbd>
+              <span>open</span>
+              <span className="mesh-tree-hint-sep">·</span>
+              <kbd>esc</kbd>
+              <span>clear</span>
+            </div>
+            <AgentTree
+              agents={filteredAgents}
+              emptyTitle={scopedAgents.length === 0 ? (machineId ? "No agents on this machine" : "No agents registered") : "No agents match your filter"}
+              emptyBody={scopedAgents.length === 0
+                ? "Agents connected to this broker will appear here."
+                : "Try clearing the search or switching the state pill back to All."}
+            />
+          </section>
+        )}
+      </div>
     );
-  }
 
-  // ── TREE MODE: full-width panel layout under the same HUD ──
   return (
-    <div className="mesh-tree-page">
-      <MeshHud {...hudProps} />
-
-      {loading && !mesh && (
-        <div className="sys-panel sys-state-card mesh-tree-state">
-          <h3 className="sys-state-title">Loading mesh status</h3>
-          <p className="sys-state-body">Inspecting broker reachability and peer discovery inputs.</p>
-        </div>
-      )}
-
-      {!loading && !mesh && error && (
-        <div className="sys-panel sys-state-card sys-state-card-error mesh-tree-state">
-          <h3 className="sys-state-title">Mesh status is unavailable</h3>
-          <p className="sys-state-body">{error}</p>
-          <div className="sys-inline-actions">
-            <button type="button" className="s-btn" onClick={() => void load("manual")}>Try again</button>
-          </div>
-        </div>
-      )}
-
-      {mesh && (
-        <section className="mesh-tree-panel">
-          <div className="mesh-tree-hint" aria-hidden>
-            <kbd>↑</kbd><kbd>↓</kbd>
-            <span>navigate</span>
-            <span className="mesh-tree-hint-sep">·</span>
-            <kbd>enter</kbd>
-            <span>pin</span>
-            <span className="mesh-tree-hint-sep">·</span>
-            <kbd>o</kbd>
-            <span>open</span>
-            <span className="mesh-tree-hint-sep">·</span>
-            <kbd>esc</kbd>
-            <span>clear</span>
-          </div>
-          <AgentTree
-            agents={filteredAgents}
-            emptyTitle={scopedAgents.length === 0 ? (machineId ? "No agents on this machine" : "No agents registered") : "No agents match your filter"}
-            emptyBody={scopedAgents.length === 0
-              ? "Agents connected to this broker will appear here."
-              : "Try clearing the search or switching the state pill back to All."}
-          />
-        </section>
-      )}
+    <div className="s-ops">
+      <div className="s-ops-header">
+        <OpsSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-ops-body">
+        {content}
+      </div>
     </div>
   );
 }

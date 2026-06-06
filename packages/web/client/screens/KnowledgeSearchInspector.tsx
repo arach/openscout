@@ -9,6 +9,7 @@ import {
   FileJson,
   Loader2,
   MessageSquareText,
+  RadioTower,
   RefreshCw,
   Waypoints,
   X,
@@ -17,14 +18,18 @@ import {
 import { api } from "../lib/api.ts";
 import {
   facetText,
+  firstFileRef,
   firstTranscriptRef,
   highlightParts,
   pathLabel,
   queryTerms,
+  transcriptSessionId,
+  transcriptTailQuery,
   type IndexResponse,
   type KnowledgeSourcePreview,
   type KnowledgeSourcePreviewRecord,
   type KnowledgeStatus,
+  type WorktreeIndexResponse,
 } from "../lib/knowledge-search.ts";
 import { useScout } from "../scout/Provider.tsx";
 
@@ -129,6 +134,7 @@ export function KnowledgeSearchInspector() {
     selectedKnowledgeQuery,
     clearKnowledgeHit,
     openFilePreview,
+    navigate,
   } = useScout();
   const [tab, setTab] = useState<InspectorTab>("preview");
   const [status, setStatus] = useState<KnowledgeStatus | null>(null);
@@ -139,6 +145,7 @@ export function KnowledgeSearchInspector() {
   const [error, setError] = useState<string | null>(null);
 
   const transcript = selectedKnowledgeHit ? firstTranscriptRef(selectedKnowledgeHit) : null;
+  const fileRef = selectedKnowledgeHit ? firstFileRef(selectedKnowledgeHit) : null;
   const project = selectedKnowledgeHit ? facetText(selectedKnowledgeHit, "project") : "";
   const harness = selectedKnowledgeHit ? facetText(selectedKnowledgeHit, "harness") : "";
   const activeQuery = selectedKnowledgeQuery.trim();
@@ -164,6 +171,8 @@ export function KnowledgeSearchInspector() {
     : [];
   const queryTermLabels = queryTerms(activeQuery);
   const firstOpenRecord = preview?.records.find((record) => record.matched)?.index ?? transcript?.recordRange?.[0];
+  const sessionId = transcriptSessionId(transcript);
+  const tailQuery = transcriptTailQuery(transcript);
 
   const metrics = useMemo(() => [
     { label: "Collections", value: formatCount(status?.readyCollections ?? 0) },
@@ -243,9 +252,43 @@ export function KnowledgeSearchInspector() {
     }
   };
 
+  const buildWorktreeIndex = async (force = false) => {
+    setIndexing(true);
+    try {
+      setError(null);
+      const response = await api<WorktreeIndexResponse>("/api/knowledge/worktree/index", {
+        method: "POST",
+        body: JSON.stringify({ force, includeUntracked: true }),
+      });
+      setLastRun(null);
+      setStatus(response.status);
+      setTab("indexer");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIndexing(false);
+    }
+  };
+
   const openTranscript = () => {
     if (!transcript) return;
     openFilePreview(pathLabel(transcript.path));
+  };
+
+  const openSourceFile = () => {
+    const source = transcript ?? fileRef;
+    if (!source) return;
+    openFilePreview(pathLabel(source.path));
+  };
+
+  const openSession = () => {
+    if (!sessionId) return;
+    navigate({ view: "sessions", sessionId });
+  };
+
+  const openObserveWindow = () => {
+    if (!tailQuery) return;
+    navigate({ view: "ops", mode: "tail", tailQuery });
   };
 
   return (
@@ -298,8 +341,33 @@ export function KnowledgeSearchInspector() {
               <div className="ks-preview-meta">
                 {project && <span>{project}</span>}
                 {harness && <span>{harness}</span>}
+                {facetText(selectedKnowledgeHit, "source") === "git_worktree" && <span>worktree diff</span>}
+                {facetText(selectedKnowledgeHit, "state") && <span>{facetText(selectedKnowledgeHit, "state")}</span>}
                 {transcript?.recordRange && <span>records {transcript.recordRange[0]}..{transcript.recordRange[1]}</span>}
               </div>
+
+              {(sessionId || tailQuery || transcript || fileRef) && (
+                <div className="ks-preview-actions" aria-label="Selected result actions">
+                  {sessionId && (
+                    <button type="button" onClick={openSession}>
+                      <MessageSquareText size={13} aria-hidden="true" />
+                      Open session
+                    </button>
+                  )}
+                  {tailQuery && (
+                    <button type="button" onClick={openObserveWindow}>
+                      <RadioTower size={13} aria-hidden="true" />
+                      Observe window
+                    </button>
+                  )}
+                  {(transcript || fileRef) && (
+                    <button type="button" onClick={openSourceFile}>
+                      <ExternalLink size={13} aria-hidden="true" />
+                      Open file
+                    </button>
+                  )}
+                </div>
+              )}
 
               {matchedRecords.length > 0 && (
                 <section className="ks-rendered-matches" aria-label="Rendered message matches">
@@ -361,6 +429,17 @@ export function KnowledgeSearchInspector() {
                 </div>
               )}
 
+              {!transcript && fileRef && (
+                <div className="ks-preview-source">
+                  <span>Source file</span>
+                  <code>{pathLabel(fileRef.path)}</code>
+                  <button type="button" onClick={openSourceFile}>
+                    <ExternalLink size={13} aria-hidden="true" />
+                    Open file
+                  </button>
+                </div>
+              )}
+
               {loadingPreview ? (
                 <div className="ks-preview-loading">
                   <Loader2 size={15} className="ks-spin" aria-hidden="true" />
@@ -415,6 +494,10 @@ export function KnowledgeSearchInspector() {
             <button type="button" className="ks-primary-button" onClick={() => void buildIndex(false)} disabled={indexing}>
               {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <Database size={14} aria-hidden="true" />}
               Build 3-day index
+            </button>
+            <button type="button" className="ks-primary-button" onClick={() => void buildWorktreeIndex(true)} disabled={indexing}>
+              {indexing ? <Loader2 size={14} className="ks-spin" aria-hidden="true" /> : <FileJson size={14} aria-hidden="true" />}
+              Index worktree diffs
             </button>
             <button type="button" className="ks-icon-button" onClick={() => void buildIndex(true)} disabled={indexing}>
               <RefreshCw size={14} aria-hidden="true" />
