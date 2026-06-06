@@ -58,5 +58,7 @@
 	<string>Scout uses the microphone to dictate messages to your agents.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Scout transcribes your dictation on-device.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>

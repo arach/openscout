@@ -318,8 +318,7 @@ private struct ProjectHeaderRow: View {
                 Text("\(project.agents.count)")
                     .font(HudFont.mono(HudTextSize.xs)).monospacedDigit()
                     .foregroundStyle(HudPalette.muted)
-                Image(systemName: "chevron.right")
-                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                Glyphic.chevron(.trailing, size: 13)
                     .foregroundStyle(HudPalette.dim)
             }
             .padding(.horizontal, HudSpacing.xxl)
@@ -486,7 +485,7 @@ private struct ProjectDetailSheet: View {
                         Spacer(minLength: HudSpacing.sm)
                         if let h = agent.harness { Text(h.lowercased()).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted) }
                         if agent.sessionId != nil {
-                            Image(systemName: "chevron.right").font(HudFont.ui(HudTextSize.xxs, weight: .semibold)).foregroundStyle(HudPalette.dim)
+                            Glyphic.chevron(.trailing, size: 13).foregroundStyle(HudPalette.dim)
                         }
                     }
                     .padding(.vertical, HudSpacing.sm)

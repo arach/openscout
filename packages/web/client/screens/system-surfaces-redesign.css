@@ -1133,6 +1133,16 @@
   text-overflow: ellipsis;
 }
 
+.sys-settings-link {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.sys-settings-link:hover code {
+  color: var(--accent);
+}
+
 .sys-settings-kv-nowrap {
   white-space: nowrap;
   overflow: hidden;

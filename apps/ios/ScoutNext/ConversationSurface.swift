@@ -81,8 +81,7 @@ struct ConversationSurface: View {
                 .padding(.vertical, HudSpacing.xs)
 
             Button(action: send) {
-                Image(systemName: "arrow.up")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .bold))
+                Glyphic.arrow(.top, size: 17)
                     .foregroundStyle(canSend ? HudPalette.bg : HudPalette.muted)
                     .frame(width: 28, height: 28)
                     .background(
@@ -207,8 +206,7 @@ struct ConversationSurface: View {
     private var header: some View {
         HStack(spacing: HudSpacing.md) {
             Button { onClose() } label: {
-                Image(systemName: "chevron.left")
-                    .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                Glyphic.chevron(.leading, size: 17)
                     .foregroundStyle(HudPalette.ink)
                     .frame(width: 32, height: 32)
                     .background(Circle().fill(HudSurface.inset))
@@ -235,8 +233,7 @@ struct ConversationSurface: View {
                 HudBadge("streaming", tint: HudPalette.statusOk, dot: true)
             }
             Button { showSettings = true } label: {
-                Image(systemName: "gearshape")
-                    .font(HudFont.ui(HudTextSize.md, weight: .regular))
+                Glyphic(kind: .gear, size: 18)
                     .foregroundStyle(HudPalette.muted)
             }
             .buttonStyle(.plain)
