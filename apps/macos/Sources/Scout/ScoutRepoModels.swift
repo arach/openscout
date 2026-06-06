@@ -205,12 +205,13 @@ struct RepoWorktree: Decodable, Identifiable, Sendable {
     let sessions: [RepoSessionRef]
     let hints: [RepoHint]
     let lastCommitAt: Double?       // epoch ms; nil unless includeLastCommit=1
+    let lastTouchedAt: Double?      // epoch ms; newest working-tree file mtime
     let scannedAt: Double
     let error: String?
 
     enum CodingKeys: String, CodingKey {
         case id, path, name, isBare, branch, status, diff, attention, attentionReasons
-        case agents, sessions, hints, lastCommitAt, scannedAt, error
+        case agents, sessions, hints, lastCommitAt, lastTouchedAt, scannedAt, error
     }
 
     init(from decoder: Decoder) throws {
@@ -228,6 +229,7 @@ struct RepoWorktree: Decodable, Identifiable, Sendable {
         sessions = try c.decodeIfPresent([RepoSessionRef].self, forKey: .sessions) ?? []
         hints = try c.decodeIfPresent([RepoHint].self, forKey: .hints) ?? []
         lastCommitAt = try c.decodeIfPresent(Double.self, forKey: .lastCommitAt)
+        lastTouchedAt = try c.decodeIfPresent(Double.self, forKey: .lastTouchedAt)
         scannedAt = try c.decodeIfPresent(Double.self, forKey: .scannedAt) ?? 0
         error = try c.decodeIfPresent(String.self, forKey: .error)
     }
@@ -513,6 +515,13 @@ extension RepoWorktree {
     /// (deterministic — no wall clock; web `agoFromMillis()`).
     func lastCommitAgo(generatedAt: Double) -> String? {
         guard let ts = lastCommitAt else { return nil }
+        return RepoRelativeTime.ago(fromMillis: ts, now: generatedAt)
+    }
+
+    /// Relative time since the worktree was last *touched* (newest working-tree
+    /// file mtime) — "when did I last work here", distinct from the last commit.
+    func lastTouchedAgo(generatedAt: Double) -> String? {
+        guard let ts = lastTouchedAt else { return nil }
         return RepoRelativeTime.ago(fromMillis: ts, now: generatedAt)
     }
 

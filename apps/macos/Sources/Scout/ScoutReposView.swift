@@ -24,13 +24,18 @@ private enum ScoutReposMetrics {
     static let indentStep: CGFloat = 16
     static let chevronSlot: CGFloat = 12
 
-    // Driftline columns — fixed widths so POSITION · WORK · LAST align across
-    // rows regardless of branch-name length (the branch column flexes).
+    // Table columns — fixed widths so CHURN · FILES · DRIFT · AGENTS align down
+    // the list (the name column flexes), mirroring the web grid.
     static let gaugeWidth: CGFloat = 56
     static let positionCellWidth: CGFloat = 104
-    static let workCellWidth: CGFloat = 92
-    static let lastCellWidth: CGFloat = 44
     static let secondLineInset: CGFloat = 34
+
+    static let rowHeight: CGFloat = 30
+    static let churnColWidth: CGFloat = 104
+    static let filesColWidth: CGFloat = 44
+    static let driftColWidth: CGFloat = 104
+    static let agentsColWidth: CGFloat = 132
+    static let touchedColWidth: CGFloat = 56
 }
 
 // MARK: - Severity → tone (one vocabulary, shared by tree + inspector)
@@ -68,6 +73,29 @@ func reposDriftTint(_ flag: String) -> Color {
     return ScoutPalette.muted
 }
 
+// MARK: - Sort (mirrors the web table)
+
+enum ReposSortKey: String, CaseIterable, Sendable {
+    case attention, name, churn, files, drift, agents, touched
+
+    var defaultDir: ReposSortDir { self == .name ? .asc : .desc }
+
+    /// Column header label (the `name` column carries the repo/branch spine).
+    var label: String {
+        switch self {
+        case .attention: return "ATTN"
+        case .name: return "REPO / BRANCH · WORKTREE"
+        case .churn: return "CHURN"
+        case .files: return "FILES"
+        case .drift: return "DRIFT"
+        case .agents: return "AGENTS"
+        case .touched: return "TOUCHED"
+        }
+    }
+}
+
+enum ReposSortDir: Sendable { case asc, desc }
+
 // MARK: - Tree model (repo → worktree)
 
 @MainActor
@@ -79,6 +107,78 @@ final class ScoutReposTreeModel: ObservableObject {
     @Published private(set) var selectedID: String?
     @Published private(set) var selectedProjectID: String?
     @Published private(set) var selectedWorktreeID: String?
+
+    /// Sort key + direction, default attention/desc (worst-first). Clicking a
+    /// column header toggles direction or switches key — mirrors the web table.
+    @Published private(set) var sortKey: ReposSortKey = .attention
+    @Published private(set) var sortDir: ReposSortDir = .desc
+
+    func toggleSort(_ key: ReposSortKey) {
+        if key == sortKey {
+            sortDir = sortDir == .asc ? .desc : .asc
+        } else {
+            sortKey = key
+            sortDir = key.defaultDir
+        }
+    }
+
+    // MARK: Sort scoring (the web `sortRows` twin)
+
+    private var sortSign: Double { sortDir == .asc ? 1 : -1 }
+
+    /// Per-worktree score for the active key (higher = more significant); the
+    /// sign of `sortDir` flips it. `name` is handled by a string compare.
+    private func score(_ wt: RepoWorktree) -> Double {
+        switch sortKey {
+        case .attention: return Double(-wt.attention.rank)
+        case .churn: return Double(wt.churn.total)
+        case .files: return Double(wt.status.changedFiles)
+        case .drift: return Double(wt.branch.ahead + wt.branch.behind)
+        case .agents:
+            let live = wt.uniqueAgents.contains { $0.live } ? 1.0 : 0.0
+            return live * 1_000_000 + Double(wt.uniqueAgents.count)
+        case .touched: return wt.lastTouchedAt ?? 0
+        case .name: return 0
+        }
+    }
+
+    private func projectScore(_ project: RepoProject) -> Double {
+        project.worktrees.map { score($0) }.max() ?? -.greatestFiniteMagnitude
+    }
+
+    private func compareNames(_ a: String, _ b: String) -> Double {
+        switch a.localizedCaseInsensitiveCompare(b) {
+        case .orderedAscending: return -1
+        case .orderedDescending: return 1
+        default: return 0
+        }
+    }
+
+    private func cmpWorktree(_ a: RepoWorktree, _ b: RepoWorktree) -> Double {
+        if sortKey == .name {
+            return compareNames(a.branchParts.leaf, b.branchParts.leaf) * sortSign
+        }
+        let d = (score(a) - score(b)) * sortSign
+        if d != 0 { return d }
+        let ar = Double(a.attention.rank - b.attention.rank)
+        if ar != 0 { return ar }
+        return compareNames(a.name, b.name)
+    }
+
+    private func cmpProject(_ a: RepoProject, _ b: RepoProject) -> Double {
+        if sortKey == .name {
+            return compareNames(a.name, b.name) * sortSign
+        }
+        let d = (projectScore(a) - projectScore(b)) * sortSign
+        if d != 0 { return d }
+        return compareNames(a.name, b.name)
+    }
+
+    /// Projects ordered by the active sort (project score = its worst worktree),
+    /// keeping each repo's worktrees adjacent — the web grouping rule.
+    func sortedProjects(_ projects: [RepoProject]) -> [RepoProject] {
+        projects.sorted { cmpProject($0, $1) < 0 }
+    }
 
     struct Row: Identifiable, Equatable {
         enum Kind: Equatable {
@@ -114,21 +214,16 @@ final class ScoutReposTreeModel: ObservableObject {
         }
     }
 
-    /// Worktrees worst-first then alphabetical, with clean-&-idle folded out
-    /// unless `showClean`.
+    /// Worktrees ordered by the active sort, with clean-&-idle folded out unless
+    /// `showClean`.
     func visibleWorktrees(_ project: RepoProject, showClean: Bool) -> [RepoWorktree] {
-        let sorted = project.worktrees.sorted { lhs, rhs in
-            if lhs.attention.rank != rhs.attention.rank {
-                return lhs.attention.rank < rhs.attention.rank
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
+        let sorted = project.worktrees.sorted { cmpWorktree($0, $1) < 0 }
         return showClean ? sorted : sorted.filter { $0.hasActivity }
     }
 
     func rows(_ projects: [RepoProject], showClean: Bool) -> [Row] {
         var out: [Row] = []
-        for project in projects {
+        for project in sortedProjects(projects) {
             out.append(Row(kind: .project(project.id), depth: 0))
             if collapsedProjects.contains(project.id) { continue }
             for worktree in visibleWorktrees(project, showClean: showClean) {
@@ -228,9 +323,62 @@ struct ScoutReposContent: View {
             if let error = repos.lastError {
                 errorBanner(error)
             }
+            columnHeader
             treeScroll
         }
         .background(ScoutDesign.bg)
+    }
+
+    // MARK: Sortable column header
+
+    private var columnHeader: some View {
+        HStack(spacing: 0) {
+            sortButton(.name, edge: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            sortButton(.churn, edge: .trailing)
+                .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
+            sortButton(.files, edge: .center)
+                .frame(width: ScoutReposMetrics.filesColWidth, alignment: .center)
+            sortButton(.drift, edge: .center)
+                .frame(width: ScoutReposMetrics.driftColWidth, alignment: .center)
+            sortButton(.agents, edge: .leading)
+                .frame(width: ScoutReposMetrics.agentsColWidth, alignment: .leading)
+            sortButton(.touched, edge: .trailing)
+                .frame(width: ScoutReposMetrics.touchedColWidth, alignment: .trailing)
+        }
+        .padding(.horizontal, ScoutReposMetrics.pageGutter)
+        .frame(height: 26)
+        .background(ScoutDesign.bg)
+        .overlay(alignment: .top) { HudDivider(color: ScoutDesign.hairline) }
+        .overlay(alignment: .bottom) { HudDivider(color: ScoutDesign.hairlineStrong) }
+    }
+
+    private enum SortEdge { case leading, center, trailing }
+
+    private func sortButton(_ key: ReposSortKey, edge: SortEdge) -> some View {
+        let on = tree.sortKey == key
+        return Button {
+            withAnimation(.easeOut(duration: 0.14)) { tree.toggleSort(key) }
+        } label: {
+            HStack(spacing: 4) {
+                if edge == .trailing { caret(on: on) }
+                Text(key.label)
+                    .font(HudFont.mono(HudTextSize.micro, weight: on ? .bold : .medium))
+                    .tracking(0.7)
+                    .foregroundStyle(on ? ScoutPalette.ink : ScoutPalette.dim)
+                if edge != .trailing { caret(on: on) }
+            }
+        }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+    }
+
+    @ViewBuilder
+    private func caret(on: Bool) -> some View {
+        Image(systemName: tree.sortDir == .asc ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+            .font(.system(size: 6))
+            .foregroundStyle(ScoutPalette.muted)
+            .opacity(on ? 1 : 0)
     }
 
     // MARK: Header
@@ -457,7 +605,6 @@ struct ScoutReposTree: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, HudSpacing.sm)
         .animation(moveAnimation, value: model.selectedID)
     }
 
@@ -465,13 +612,13 @@ struct ScoutReposTree: View {
     private func rowView(_ row: ScoutReposTreeModel.Row) -> some View {
         let selected = row.id == model.selectedID
         let hovered = row.id == hoveredID
+        let isProject = row.worktreeID == nil
 
-        HStack(spacing: HudSpacing.md) {
+        HStack(spacing: 0) {
             content(for: row)
         }
-        .padding(.vertical, 8)
-        .padding(.trailing, HudSpacing.lg)
-        .padding(.leading, ScoutReposMetrics.rowLeadingBase + CGFloat(row.depth) * ScoutReposMetrics.indentStep)
+        .padding(.horizontal, ScoutReposMetrics.pageGutter)
+        .frame(height: ScoutReposMetrics.rowHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .leading) {
             if selected {
@@ -482,7 +629,12 @@ struct ScoutReposTree: View {
                 .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
             } else if hovered {
                 ScoutPalette.surface
+            } else if isProject {
+                ScoutPalette.chrome.opacity(0.4)
             }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(ScoutPalette.hairline).frame(height: 1)
         }
         .contentShape(Rectangle())
         .onHover { inside in hoveredID = inside ? row.id : (hoveredID == row.id ? nil : hoveredID) }
@@ -490,19 +642,61 @@ struct ScoutReposTree: View {
         .onTapGesture { select(row) }
     }
 
+    /// One grid row: a flexible name cell + the four fixed columns (CHURN ·
+    /// FILES · DRIFT · AGENTS), so they align down the list and under the
+    /// sortable header. Project rows aggregate; worktree rows are per-tree.
     @ViewBuilder
     private func content(for row: ScoutReposTreeModel.Row) -> some View {
         switch row.kind {
         case .project(let id):
-            projectRow(projectsByID[id])
+            if let project = projectsByID[id] {
+                projectNameCell(project)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                projectChurnCol(project)
+                Color.clear.frame(width: ScoutReposMetrics.filesColWidth)
+                Color.clear.frame(width: ScoutReposMetrics.driftColWidth)
+                projectAgentsCol(project)
+                projectTouchedCol(project)
+            }
         case .worktree(let projectID, let worktreeID):
-            worktreeRow(row, worktree: projectsByID[projectID]?.worktrees.first(where: { $0.id == worktreeID }))
+            if let project = projectsByID[projectID],
+               let wt = project.worktrees.first(where: { $0.id == worktreeID }) {
+                worktreeNameCell(wt, isLast: isLastWorktree(wt, in: project))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                churnCol(wt)
+                filesCol(wt)
+                positionCell(wt)
+                agentsCol(wt)
+                touchedCol(wt)
+            }
         }
     }
 
+    /// TOUCHED column — relative time since the worktree was last edited
+    /// (working-tree mtime), so you can sort the fleet by recency of work.
+    private func touchedCol(_ wt: RepoWorktree) -> some View {
+        Text(wt.lastTouchedAgo(generatedAt: generatedAt) ?? "—")
+            .font(HudFont.mono(HudTextSize.xxs))
+            .foregroundStyle(ScoutPalette.dim)
+            .contentTransition(.numericText())
+            .frame(width: ScoutReposMetrics.touchedColWidth, alignment: .trailing)
+    }
+
+    private func projectTouchedCol(_ project: RepoProject) -> some View {
+        let newest = project.worktrees.compactMap { $0.lastTouchedAt }.max()
+        return Text(newest.map { RepoRelativeTime.ago(fromMillis: $0, now: generatedAt) } ?? "—")
+            .font(HudFont.mono(HudTextSize.xxs))
+            .foregroundStyle(ScoutPalette.dim)
+            .frame(width: ScoutReposMetrics.touchedColWidth, alignment: .trailing)
+    }
+
+    private func isLastWorktree(_ wt: RepoWorktree, in project: RepoProject) -> Bool {
+        model.visibleWorktrees(project, showClean: showClean).last?.id == wt.id
+    }
+
     @ViewBuilder
-    private func projectRow(_ project: RepoProject?) -> some View {
-        if let project {
+    private func projectNameCell(_ project: RepoProject) -> some View {
+        HStack(spacing: HudSpacing.sm) {
             chevron(for: ScoutReposTreeModel.Row(kind: .project(project.id), depth: 0))
             ScoutRepoStateDot(
                 color: reposAttentionColor(project.attention),
@@ -513,49 +707,89 @@ struct ScoutReposTree: View {
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
-            Text(repoShortPath(project.root))
+            Text(repoShortPath(project.root, segments: 3))
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
                 .lineLimit(1)
                 .truncationMode(.middle)
+            repoTag("\(project.worktrees.count) wt", tint: ScoutPalette.muted)
             Spacer(minLength: HudSpacing.sm)
+        }
+    }
 
-            // The attention dot already encodes severity — keep the header to a
-            // worktree count and a single live indicator; per-state counts live
-            // in the project's Context pane.
-            Text("\(project.worktrees.count) wt")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-            if project.stats.attachedAgents > 0 {
-                ScoutRepoStateDot(color: ScoutPalette.accent, live: true, size: 6)
+    @ViewBuilder
+    private func projectChurnCol(_ project: RepoProject) -> some View {
+        let add = project.worktrees.reduce(0) { $0 + $1.churn.add }
+        let del = project.worktrees.reduce(0) { $0 + $1.churn.del }
+        Group {
+            if add > 0 || del > 0 {
+                HStack(spacing: 3) {
+                    Text("+\(add)").foregroundStyle(ScoutPalette.statusOk.opacity(0.85))
+                    Text("−\(del)").foregroundStyle(ScoutPalette.statusError.opacity(0.85))
+                }
+                .monospacedDigit()
+            } else {
+                Text("—").foregroundStyle(ScoutPalette.dim)
             }
         }
+        .font(HudFont.mono(HudTextSize.micro))
+        .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
+    }
+
+    @ViewBuilder
+    private func projectAgentsCol(_ project: RepoProject) -> some View {
+        let live = project.worktrees.reduce(0) { $0 + $1.uniqueAgents.filter { $0.live }.count }
+        Group {
+            if live > 0 {
+                Text("\(live) live").foregroundStyle(ScoutPalette.accent)
+            } else if project.stats.attachedAgents > 0 {
+                Text("\(project.stats.attachedAgents) idle").foregroundStyle(ScoutPalette.dim)
+            } else {
+                Text("")
+            }
+        }
+        .font(HudFont.mono(HudTextSize.micro))
+        .frame(width: ScoutReposMetrics.agentsColWidth, alignment: .leading)
     }
 
     /// Driftline worktree row — identity (state dot + branch) on the left, then
     /// three fixed-width columns (POSITION gauge · WORK · LAST) so they align
     /// down the list. Active worktrees gain a quiet second line: upstream, a
     /// descriptive position phrase, and any agents — never a harsh verdict pill.
+    /// Worktree name cell — tree guide, state dot, branch label, and any quiet
+    /// tags (SCAN ERR / DETACHED / LOCAL). The four columns to its right carry
+    /// churn, files, the drift gauge, and agents.
     @ViewBuilder
-    private func worktreeRow(_ row: ScoutReposTreeModel.Row, worktree: RepoWorktree?) -> some View {
-        if let wt = worktree {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: HudSpacing.md) {
-                    Color.clear.frame(width: ScoutReposMetrics.chevronSlot, height: ScoutReposMetrics.chevronSlot)
-                    ScoutRepoStateDot(color: reposStateColor(wt.state), live: wt.state == .live, size: 7)
-                    branchLabel(wt.branchParts)
-                    Spacer(minLength: HudSpacing.sm)
-                    positionCell(wt)
-                    workCell(wt)
-                    lastCell(wt)
-                }
-                .frame(maxWidth: .infinity)
-                if wt.hasActivity || lens == .drift {
-                    secondLine(wt)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func worktreeNameCell(_ wt: RepoWorktree, isLast: Bool) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            RepoTreeGuide(isLast: isLast)
+            ScoutRepoStateDot(color: reposStateColor(wt.state), live: wt.state == .live, size: 7)
+            branchLabel(wt.branchParts)
+            tags(wt)
+            Spacer(minLength: HudSpacing.sm)
         }
+    }
+
+    @ViewBuilder
+    private func tags(_ wt: RepoWorktree) -> some View {
+        if wt.error != nil {
+            repoTag("SCAN ERR", tint: ScoutPalette.statusError)
+        }
+        if wt.branch.detached {
+            repoTag("DETACHED", tint: ScoutPalette.muted)
+        } else if wt.branch.upstream == nil && !wt.branch.isMain {
+            repoTag("LOCAL", tint: ScoutPalette.dim)
+        }
+    }
+
+    private func repoTag(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+            .tracking(0.4)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(RoundedRectangle(cornerRadius: HudRadius.tight).fill(tint.opacity(0.12)))
     }
 
     @ViewBuilder
@@ -606,83 +840,74 @@ struct ScoutReposTree: View {
         .frame(width: ScoutReposMetrics.positionCellWidth, alignment: .center)
     }
 
-    /// WORK column — churn when there is any, else a quiet file summary, else
-    /// "clean". Muted throughout; the full breakdown lives in the inspector.
+    /// CHURN column — +adds/−dels with a proportional split bar (web `Churn`).
     @ViewBuilder
-    private func workCell(_ wt: RepoWorktree) -> some View {
+    private func churnCol(_ wt: RepoWorktree) -> some View {
         Group {
-            if wt.error != nil {
+            if wt.churn.has {
+                HStack(spacing: HudSpacing.xs) {
+                    HStack(spacing: 3) {
+                        Text("+\(wt.churn.add)").foregroundStyle(ScoutPalette.statusOk)
+                        Text("−\(wt.churn.del)").foregroundStyle(ScoutPalette.statusError)
+                    }
+                    .monospacedDigit()
+                    RepoChurnBar(add: wt.churn.add, del: wt.churn.del, width: 38)
+                }
+            } else {
                 Text("—").foregroundStyle(ScoutPalette.dim)
-            } else if wt.churn.has {
-                HStack(spacing: 4) {
-                    Text("+\(wt.churn.add)").foregroundStyle(ScoutPalette.statusOk)
-                    Text("−\(wt.churn.del)").foregroundStyle(ScoutPalette.statusError)
+            }
+        }
+        .font(HudFont.mono(HudTextSize.micro))
+        .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
+    }
+
+    /// FILES column — changed-file count with a conflict warning when present.
+    @ViewBuilder
+    private func filesCol(_ wt: RepoWorktree) -> some View {
+        Group {
+            if wt.status.changedFiles > 0 {
+                HStack(spacing: 2) {
+                    Text("\(wt.status.changedFiles)").foregroundStyle(ScoutPalette.muted)
+                    if wt.status.conflicts > 0 {
+                        Text("⚠\(wt.status.conflicts)").foregroundStyle(ScoutPalette.statusWarn)
+                    }
                 }
                 .monospacedDigit()
-            } else if !wt.status.clean {
-                Text(workSummary(wt)).foregroundStyle(ScoutPalette.muted)
             } else {
-                Text("clean").foregroundStyle(ScoutPalette.dim)
+                Text("—").foregroundStyle(ScoutPalette.dim)
             }
         }
         .font(HudFont.mono(HudTextSize.xxs))
-        .frame(width: ScoutReposMetrics.workCellWidth, alignment: .trailing)
+        .frame(width: ScoutReposMetrics.filesColWidth, alignment: .center)
     }
 
-    private func workSummary(_ wt: RepoWorktree) -> String {
-        let s = wt.status
-        if s.conflicts > 0 { return "\(s.conflicts) conflict\(s.conflicts == 1 ? "" : "s")" }
-        if s.staged == 0 && s.unstaged == 0 && s.untracked > 0 { return "\(s.untracked) untracked" }
-        let n = s.changedFiles > 0 ? s.changedFiles : (s.staged + s.unstaged + s.untracked)
-        return "\(n) changed"
-    }
-
-    private func lastCell(_ wt: RepoWorktree) -> some View {
-        Text(wt.lastCommitAgo(generatedAt: generatedAt) ?? "—")
-            .font(HudFont.mono(HudTextSize.xxs))
-            .foregroundStyle(ScoutPalette.dim)
-            .contentTransition(.numericText())
-            .frame(width: ScoutReposMetrics.lastCellWidth, alignment: .trailing)
-    }
-
-    /// Quiet second line for active worktrees — upstream, a descriptive position
-    /// phrase, and live agents. Calm by construction: dim/muted ink, no pills.
+    /// AGENTS column — a live badge + up to two handles + overflow (web `Agents`).
     @ViewBuilder
-    private func secondLine(_ wt: RepoWorktree) -> some View {
-        HStack(spacing: HudSpacing.sm) {
-            Text("↳").foregroundStyle(ScoutPalette.dim)
-            if wt.error != nil {
-                Text("couldn't read this worktree — moved, deleted, or not a git repo")
-                    .foregroundStyle(ScoutPalette.muted)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+    private func agentsCol(_ wt: RepoWorktree) -> some View {
+        Group {
+            if wt.uniqueAgents.isEmpty {
+                Text("—").foregroundStyle(ScoutPalette.dim)
             } else {
-                if let upstream = wt.branch.upstream {
-                    Text(upstream).foregroundStyle(ScoutPalette.dim).lineLimit(1).truncationMode(.middle)
-                    Text("·").foregroundStyle(ScoutPalette.dim)
-                } else if wt.branch.detached {
-                    Text("detached").foregroundStyle(ScoutPalette.dim)
-                    Text("·").foregroundStyle(ScoutPalette.dim)
-                } else {
-                    Text("local only").foregroundStyle(ScoutPalette.dim)
-                    Text("·").foregroundStyle(ScoutPalette.dim)
-                }
-                Text(repoPositionPhrase(wt)).foregroundStyle(ScoutPalette.muted)
-                ForEach(Array(wt.uniqueAgents.prefix(2))) { agent in
-                    Text("·").foregroundStyle(ScoutPalette.dim)
-                    HStack(spacing: 3) {
-                        ScoutRepoStateDot(color: agent.live ? ScoutPalette.accent : ScoutPalette.dim, live: agent.live, size: 5)
-                        Text("\(agent.handle) \(agent.live ? "working" : agent.stateWord.lowercased())")
-                            .foregroundStyle(agent.live ? ScoutPalette.muted : ScoutPalette.dim)
-                            .lineLimit(1)
+                let liveCount = wt.uniqueAgents.filter { $0.live }.count
+                HStack(spacing: HudSpacing.xs) {
+                    if liveCount > 0 {
+                        HStack(spacing: 2) {
+                            Circle().fill(ScoutPalette.accent).frame(width: 5, height: 5)
+                            Text("\(liveCount)").foregroundStyle(ScoutPalette.accent)
+                        }
+                    }
+                    Text(wt.uniqueAgents.prefix(2).map { $0.handle }.joined(separator: " "))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if wt.uniqueAgents.count > 2 {
+                        Text("+\(wt.uniqueAgents.count - 2)").foregroundStyle(ScoutPalette.dim)
                     }
                 }
             }
-            Spacer(minLength: 0)
         }
         .font(HudFont.mono(HudTextSize.micro))
-        .padding(.leading, ScoutReposMetrics.secondLineInset)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(width: ScoutReposMetrics.agentsColWidth, alignment: .leading)
     }
 
     private func chevron(for row: ScoutReposTreeModel.Row) -> some View {
@@ -769,6 +994,46 @@ struct RepoDriftGauge: View {
                 .offset(x: center + aheadLen - 2.5)
         }
         .frame(width: width, height: barHeight + 4)
+    }
+}
+
+/// Tree connector for an indented worktree — a faint vertical spine + an L-stub
+/// into the row. The spine stops at the row's middle for the last worktree.
+struct RepoTreeGuide: View {
+    var isLast: Bool = false
+    private let guideWidth: CGFloat = 16
+
+    var body: some View {
+        let h = ScoutReposMetrics.rowHeight
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(ScoutPalette.hairlineStrong)
+                .frame(width: 1, height: isLast ? h / 2 : h)
+                .offset(x: 6)
+            Rectangle()
+                .fill(ScoutPalette.hairlineStrong)
+                .frame(width: 7, height: 1)
+                .offset(x: 6, y: h / 2)
+        }
+        .frame(width: guideWidth, height: h)
+    }
+}
+
+/// Proportional churn split bar — accent adds / error dels (web `.cbar`).
+struct RepoChurnBar: View {
+    let add: Int
+    let del: Int
+    var width: CGFloat = 38
+
+    var body: some View {
+        let tot = CGFloat(max(add + del, 1))
+        HStack(spacing: 0) {
+            Rectangle().fill(ScoutPalette.statusOk).frame(width: width * CGFloat(add) / tot)
+            Rectangle().fill(ScoutPalette.statusError).frame(width: width * CGFloat(del) / tot)
+        }
+        .frame(width: width, height: 3)
+        .clipShape(Capsule())
+        .background(Capsule().fill(ScoutPalette.hairlineStrong))
     }
 }
 
@@ -918,8 +1183,9 @@ struct ScoutReposInspector: View {
                     }
                 }
 
-                section("Last commit") {
-                    keyValue("Committed", worktree.lastCommitAgo(generatedAt: repos.generatedAt).map { "\($0) ago" } ?? "—")
+                section("Activity") {
+                    keyValue("Last touched", worktree.lastTouchedAgo(generatedAt: repos.generatedAt).map { "\($0) ago" } ?? "—")
+                    keyValue("Last commit", worktree.lastCommitAgo(generatedAt: repos.generatedAt).map { "\($0) ago" } ?? "—")
                 }
 
                 if !worktree.uniqueAgents.isEmpty {
