@@ -181,6 +181,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The Agents view as a project · agent · session tree — keyboard-first (j/k/h/l), inspector follows the cursor.",
   },
   {
+    href: "/studies/agent-work-preview",
+    label: "Agent Work In Progress",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-work-preview/page.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb: "Live activity below the inspector card while an agent works — NOW (Observe), TAIL (this agent), FILES — no drill-down.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",
