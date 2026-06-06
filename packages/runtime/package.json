@@ -13,6 +13,11 @@
       "bun": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./repo-watch": {
+      "types": "./src/repo-watch/index.ts",
+      "bun": "./src/repo-watch/index.ts",
+      "default": "./dist/repo-watch/index.js"
+    },
     "./setup": {
       "types": "./src/setup.ts",
       "bun": "./src/setup.ts",
