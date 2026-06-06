@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
@@ -20,8 +21,12 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var observeAgentId: String?
     @Published private(set) var isObserveLoading = false
     @Published private(set) var observeError: String?
+    /// cIds that appeared in the latest channels fetch but weren't in the prior
+    /// one — drives the list's one-shot "new conversation" reveal.
+    @Published private(set) var newChannelIds: Set<String> = []
 
     private let decoder = JSONDecoder()
+    private var knownChannelIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var channelsTask: Task<Void, Never>?
     private var messagesTask: Task<Void, Never>?
@@ -64,6 +69,12 @@ final class ScoutCommsStore: ObservableObject {
 
     var activeAgentCount: Int {
         agents.filter { $0.state == .working || $0.state == .needsAttention || $0.state == .available }.count
+    }
+
+    /// Agents actually doing work right now — drives the Conversations list's
+    /// quiet "something's happening" pulse.
+    var workingAgentCount: Int {
+        agents.filter { $0.state == .working }.count
     }
 
     func start() {
@@ -238,7 +249,20 @@ final class ScoutCommsStore: ObservableObject {
                 .appending(path: "api/conversations")
                 .appending(queryItems: [URLQueryItem(name: "limit", value: "160")])
             let next = try await fetchWithFallback([ScoutChannel].self, primary: commsURL, fallback: fallbackURL)
-            channels = next
+            let incomingIds = Set(next.map(\.cId))
+            // The first successful population shouldn't flash every row as "new".
+            newChannelIds = knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds)
+            knownChannelIds = incomingIds
+            // Animate only when the visible order actually changes (inserts,
+            // removals, bumps). Steady-state polls that merely refresh previews
+            // and ages must not churn the list.
+            if next.map(\.cId) != channels.map(\.cId) {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                    channels = next
+                }
+            } else {
+                channels = next
+            }
             if selectedCId == nil || !next.contains(where: { $0.cId == selectedCId }) {
                 selectedCId = next.first?.cId
                 selectedAgentId = next.first?.agentId
