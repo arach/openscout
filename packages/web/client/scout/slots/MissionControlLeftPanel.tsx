@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import "./ctx-panel.css";
 import "./mission-left.css";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import {
   MISSION_RECENT_WINDOWS,
   clearMissionSelection,
@@ -207,7 +207,7 @@ function AgentRow({
       <dl className="rr-spec-list">
         <SpecLine label="MODEL" value={[agent.harness, agent.model].filter(Boolean).join("/") || "—"} />
         <SpecLine label="AT" value={[agent.project, agent.branch].filter(Boolean).join("/") || "—"} />
-        <SpecLine label="STATE" value={state} />
+        <SpecLine label="STATE" value={agentStateLabel(state)} />
         <SpecLine label="ACTIVITY" value={agent.activity} />
         <SpecLine label="SOURCE" value={agent.source} />
       </dl>

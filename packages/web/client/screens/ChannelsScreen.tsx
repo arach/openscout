@@ -24,6 +24,7 @@ import { DictationMic } from "../components/DictationMic.tsx";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
 import { useAgentHovercard } from "../components/AgentHoverCard.tsx";
 import type { Agent, Message, Route, SessionEntry } from "../lib/types.ts";
+import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import "./conversation-screen.css";
 import "./channel-screen.css";
@@ -113,7 +114,7 @@ function MembersHeaderControl({
     return Array.from(collected.values());
   }, [formalMemberIds, extraActors, agents]);
 
-  const onlineCount = members.filter((m) => m.state !== "offline").length;
+  const onlineCount = members.filter((m) => m.state !== "not_ready").length;
   const guestCount = members.filter((m) => !m.isMember).length;
 
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -721,16 +722,25 @@ export function ChannelsScreen({
   });
 
   if (channelId) {
-    return (
+    const content = (
       <ConversationScreen
         conversationId={channelId}
         navigate={navigate}
         showBackNav={false}
       />
     );
+
+    return (
+      <div className="s-secondary-nav-shell">
+        <div className="s-secondary-nav-bar">
+          <ChatSubnav activeRoute={route} navigate={navigate} />
+        </div>
+        <div className="s-secondary-nav-body">{content}</div>
+      </div>
+    );
   }
 
-  return (
+  const content = (
     <div className="ch-screen">
       {selectedChannel ? (
         <>
@@ -764,6 +774,15 @@ export function ChannelsScreen({
       ) : (
         <NoChannelSelected count={channels.length} />
       )}
+    </div>
+  );
+
+  return (
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <ChatSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body">{content}</div>
     </div>
   );
 }

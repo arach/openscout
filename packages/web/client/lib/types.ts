@@ -1078,6 +1078,7 @@ export type PlanDocumentsResponse = {
 
 export type MessagesFilter = "all" | "dm" | "channel";
 export type MessagesSort = "recent" | "name" | "unread";
+export type SearchMode = "knowledge" | "indexer";
 export type MachineScopedRoute = {
   machineId?: string;
 };
@@ -1107,7 +1108,7 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
-  | { view: "search" }
+  | { view: "search"; mode?: SearchMode }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)
   | { view: "broker" }

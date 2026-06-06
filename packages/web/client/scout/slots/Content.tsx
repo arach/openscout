@@ -77,6 +77,7 @@ function renderScreen(
           selectedAgentId={route.agentId}
           conversationId={route.conversationId}
           tab={route.tab}
+          activeRoute={route}
         />
       );
     case "fleet":
@@ -101,7 +102,7 @@ function renderScreen(
       }
       return <SessionsScreen navigate={navigate} />;
     case "search":
-      return <KnowledgeSearchScreen navigate={navigate} />;
+      return <KnowledgeSearchScreen navigate={navigate} mode={route.mode} />;
     case "channels":
       return <ChannelsScreen channelId={route.channelId} navigate={navigate} />;
     case "mesh":

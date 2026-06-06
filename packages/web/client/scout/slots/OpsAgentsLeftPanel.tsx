@@ -4,6 +4,7 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { useScout } from "../Provider.tsx";
 import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
+import { isAgentOnline } from "../../lib/agent-state.ts";
 import { RailRow } from "./RailRow.tsx";
 import type { Agent, SessionEntry } from "../../lib/types.ts";
 
@@ -56,7 +57,7 @@ export function ScoutOpsAgentsLeftPanel() {
     }
   });
 
-  const online = useMemo(() => agents.filter((a) => a.state !== "offline").length, [agents]);
+  const online = useMemo(() => agents.filter((a) => isAgentOnline(a.state)).length, [agents]);
   const errored = useMemo(() => {
     let count = 0;
     for (const ask of asksByAgent.values()) {
@@ -86,7 +87,7 @@ export function ScoutOpsAgentsLeftPanel() {
   return (
     <div className="ctx-panel">
       <section className="ctx-panel-section">
-        <div className="ctx-panel-section-label">Fleet</div>
+        <div className="ctx-panel-section-label">Agents</div>
         <RailRow
           name="Overview"
           meta={`${agents.length}`}
@@ -96,7 +97,7 @@ export function ScoutOpsAgentsLeftPanel() {
         <RailRow
           name="Agents"
           meta={`${online}`}
-          tone="available"
+          tone="ready"
           active
           onClick={() => navigate({ view: "ops", mode: "agents" })}
         />

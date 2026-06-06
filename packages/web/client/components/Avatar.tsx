@@ -125,7 +125,7 @@ export function PresenceDot({ state, className, style }: PresenceDotProps) {
   const colorInput =
     normalized === "working"
       ? "working"
-      : normalized === "available"
+      : normalized === "ready"
         ? "available"
         : null;
   return (

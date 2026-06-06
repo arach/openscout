@@ -17,10 +17,13 @@
   gap: var(--space-md);
   row-gap: var(--space-xs);
   flex-wrap: wrap;
-  padding: var(--space-sm) var(--space-xl);
+  min-height: 42px;
+  padding: var(--space-xs) var(--space-xl);
   flex: none;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 30%, transparent), transparent),
+    color-mix(in srgb, var(--bg) 96%, black);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   letter-spacing: var(--tracking-sm);
@@ -62,6 +65,8 @@
   align-items: baseline;
   gap: var(--space-xs);
   flex: none;
+  min-height: 24px;
+  padding: 0 var(--space-2xs);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -87,6 +92,10 @@
   min-width: 0;
   max-width: min(32vw, 320px);
   overflow: hidden;
+  padding: var(--space-3xs) var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--border) 38%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 28%, transparent);
   white-space: nowrap;
 }
 

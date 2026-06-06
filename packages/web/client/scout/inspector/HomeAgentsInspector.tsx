@@ -19,21 +19,21 @@ export function HomeAgentsInspector() {
     );
   }
 
-  const online = agents.filter((a) => isAgentOnline(a.state));
-  const offline = agents.filter((a) => !isAgentOnline(a.state));
+  const ready = agents.filter((a) => isAgentOnline(a.state));
+  const notReady = agents.filter((a) => !isAgentOnline(a.state));
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      {online.length > 0 && (
-        <Section label="Online" count={online.length}>
-          {online.map((agent) => (
+      {ready.length > 0 && (
+        <Section label="Ready" count={ready.length}>
+          {ready.map((agent) => (
             <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
           ))}
         </Section>
       )}
-      {offline.length > 0 && (
-        <Section label="Standby" count={offline.length}>
-          {offline.map((agent) => (
+      {notReady.length > 0 && (
+        <Section label="Not ready" count={notReady.length}>
+          {notReady.map((agent) => (
             <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim />
           ))}
         </Section>

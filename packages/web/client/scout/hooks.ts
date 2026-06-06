@@ -5,8 +5,13 @@ import { api } from "../lib/api.ts";
 import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
-import type { MeshStatus, Route } from "../lib/types.ts";
+import type { MeshStatus } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
+import {
+  topNavBreadcrumbForRoute,
+  topNavItems,
+  topNavKeyForRoute,
+} from "./topNavConfig.ts";
 
 export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
@@ -60,57 +65,59 @@ export function useScoutCommands(): CommandOption[] {
       },
       {
         id: "nav:fleet",
-        label: "Go to Fleet",
+        label: "Open Home Overview",
         action: () => navigate({ view: "fleet" }),
-        shortcut: "Cmd+3",
       },
       {
         id: "nav:messages",
-        label: "Go to Conversations",
+        label: "Go to Chat",
         action: () => navigate({ view: "messages" }),
-        shortcut: "Cmd+4",
+        shortcut: "Cmd+3",
       },
       {
         id: "nav:messages-dms",
-        label: "Go to Conversations — Private",
+        label: "Go to Chat — Private",
         action: () => navigate({ view: "messages", filter: "dm" }),
       },
       {
         id: "nav:messages-channels",
-        label: "Go to Conversations — Shared",
+        label: "Go to Chat — Shared",
         action: () => navigate({ view: "messages", filter: "channel" }),
-        shortcut: "Cmd+5",
       },
       {
         id: "nav:sessions",
-        label: "Go to Sessions",
+        label: "Open Sessions",
         action: () => navigate({ view: "sessions" }),
       },
       {
         id: "nav:search",
         label: "Go to Search",
         action: () => navigate({ view: "search" }),
+        shortcut: "Cmd+4",
       },
       {
         id: "nav:activity",
-        label: "Go to Activity",
+        label: "Open Activity",
         action: () => navigate({ view: "activity" }),
-        shortcut: "Cmd+6",
       },
       {
         id: "nav:mesh",
-        label: "Go to Mesh",
+        label: "Open Mesh",
         action: () => navigate({ view: "mesh" }),
-        shortcut: "Cmd+7",
+      },
+      {
+        id: "nav:dispatch",
+        label: "Open Dispatch",
+        action: () => navigate({ view: "broker" }),
       },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",
         action: () => navigate({ view: "ops" }),
-        shortcut: "Cmd+8",
+        shortcut: "Cmd+5",
       }, {
         id: "nav:ops-atop",
-        label: "Open Atop",
+        label: "Open Runtime",
         action: () => navigate({ view: "ops", mode: "atop" }),
       }, {
         id: "nav:workflow-topology",
@@ -280,58 +287,18 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 }
 
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
-const VIEW_LABELS: Record<string, string> = {
-  inbox: "Fleet",
-  conversation: "Conversation",
-  "agent-info": "Agent",
-  agents: "Agents",
-  fleet: "Fleet",
-  conversations: "Conversations",
-  messages: "Conversations",
-  sessions: "Sessions",
-  search: "Search",
-  channels: "Conversations",
-  activity: "Activity",
-  mesh: "Mesh",
-  broker: "Broker",
-  settings: "Settings",
-  work: "Work",
-  ops: "Ops",
-};
-
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = isOpsEnabled();
-  const tabItems: { label: string; view: Route["view"] }[] = [
-    { label: "Fleet", view: "inbox" },
-    { label: "Agents", view: "agents" },
-    { label: "Conversations", view: "messages" },
-    { label: "Sessions", view: "sessions" },
-    { label: "Search", view: "search" },
-    { label: "Mesh", view: "mesh" },
-    { label: "Broker", view: "broker" },
-    ...(opsEnabled ? [{ label: "Ops" as const, view: "ops" as Route["view"] }] : []),
-  ];
-
-  const activeView = route.view === "fleet" ? "inbox"
-    : route.view === "activity" ? "inbox"
-    : route.view === "conversation" ? "messages"
-    : route.view === "agent-info" ? "agents"
-    : route.view === "conversations" ? "messages"
-    : route.view === "channels" ? "messages"
-    : route.view === "work" ? (opsEnabled ? "ops" : "inbox")
-    : route.view;
-
-  const breadcrumb = route.view === "conversation" || route.view === "agent-info" || route.view === "work"
-    ? VIEW_LABELS[route.view] ?? route.view
-    : null;
+  const activeKey = topNavKeyForRoute(route, opsEnabled);
+  const breadcrumb = topNavBreadcrumbForRoute(route);
 
   return createElement("div", { className: "scout-nav-tabs" },
-    tabItems.map(({ label, view }) =>
+    topNavItems(opsEnabled).map(({ key, label, route: tabRoute }) =>
       createElement("button", {
-        key: view,
-        className: `scout-nav-tab${activeView === view ? " active" : ""}`,
-        onClick: () => navigate({ view } as Route),
+        key,
+        className: `scout-nav-tab${activeKey === key ? " active" : ""}`,
+        onClick: () => navigate(tabRoute),
       }, label),
     ),
     breadcrumb && createElement("span", { className: "scout-nav-slash" }, "/"),

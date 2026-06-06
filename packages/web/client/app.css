@@ -110,6 +110,34 @@
   border-color: var(--hud-chrome-border) !important;
 }
 
+[data-scout-theme] [data-frame-panel="manifest"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child,
+[data-scout-theme] [data-frame-panel="inspector"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child {
+  height: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-md) !important;
+  border-bottom-color: color-mix(in srgb, var(--hud-chrome-border) 74%, transparent) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hud-surface) 74%, transparent), transparent),
+    color-mix(in srgb, var(--hud-bg) 72%, transparent);
+}
+
+[data-scout-theme] [data-frame-panel="manifest"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child span,
+[data-scout-theme] [data-frame-panel="inspector"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child span {
+  letter-spacing: var(--tracking-xl) !important;
+}
+
+[data-scout-theme] [data-frame-panel="manifest"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child button,
+[data-scout-theme] [data-frame-panel="inspector"] > div[class*="flex-1"][class*="overflow-hidden"] > div:first-child button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
 /* Lift small chrome glyphs (status dots, clock icon) toward the visual middle
  * of the mono text instead of the line-box center, which makes them read
  * "dropped". Applies inside the status bar only. The Scoutbot chip's Bot icon
@@ -158,21 +186,25 @@ body { margin: 0; }
 .scout-nav-tabs {
   display: flex;
   align-items: center;
-  gap: var(--space-3xs);
+  gap: var(--space-2xs);
+  transform: translateX(calc((var(--scout-shell-left-inset, 0px) - var(--scout-shell-right-inset, 0px)) / 2));
+  transition: transform 200ms ease;
 }
 
 .scout-nav-tab {
-  padding: var(--space-xs) var(--space-lg);
+  min-height: 28px;
+  padding: var(--space-xs) var(--space-md);
   font-family: var(--hud-font-mono);
   font-size: var(--text-sm);
   letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--scout-chrome-ink-faint);
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: color 0.15s, border-color 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
   line-height: var(--leading-none);
 }
 
@@ -181,6 +213,7 @@ body { margin: 0; }
 }
 
 .scout-nav-tab.active {
+  background: transparent;
   color: var(--scout-chrome-ink-strong);
   border-bottom-color: var(--hud-accent, #22d3ee);
 }

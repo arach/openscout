@@ -13,6 +13,7 @@ import {
   type ActiveScoutBrokerService,
 } from "@openscout/runtime/broker-api";
 import { createRuntimeRegistrySnapshot } from "@openscout/runtime/registry";
+import { SUPPORTED_LOCAL_AGENT_HARNESSES } from "@openscout/runtime/local-agents";
 
 import {
   askScoutAgentById,
@@ -382,7 +383,7 @@ describe("parseScoutHarness", () => {
 
   test("keeps managed local launch harnesses explicit", () => {
     expect(() => parseScoutLocalHarness("flue")).toThrow(
-      'Unsupported local agent harness "flue". Use one of: claude, codex, cursor, pi',
+      `Unsupported local agent harness "flue". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`,
     );
     expect(parseScoutLocalHarness("pi")).toBe("pi");
   });

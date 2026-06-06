@@ -75,6 +75,32 @@ function pathLeaf(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+function agentProjectLabel(agent: Agent): string {
+  return agent.project?.trim()
+    || (agent.projectRoot ? pathLeaf(agent.projectRoot) : null)
+    || (agent.cwd ? pathLeaf(agent.cwd) : null)
+    || "unassigned";
+}
+
+function agentHarnessLabel(agent: Agent): string {
+  return agent.harness?.trim()
+    || agent.transport?.trim()
+    || agent.agentClass?.trim()
+    || "unknown";
+}
+
+function topCounts(values: string[], limit = 4): Array<{ label: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const label = value.trim() || "unknown";
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
+    .slice(0, limit);
+}
+
 async function revealLocalPath(input: {
   path: string;
   basePath?: string | null;
@@ -123,16 +149,12 @@ export function AgentsInspector() {
     : null;
 
   if (!agent) {
-    const working = agents.filter((a) => isAgentOnline(a.state)).length;
     return (
-      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-        <Row label="Total" value={`${agents.length}`} />
-        <Row label="Working" value={`${working}`} />
-        <Row label="Available" value={`${agents.length - working}`} />
-        <div className="mt-2 text-[10px] font-mono uppercase tracking-[0.15em] leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
-          Select an agent from the roster to see its context here.
-        </div>
-      </div>
+      <AgentsDirectoryContextPanel
+        agents={agents}
+        navigate={navigate}
+        route={route}
+      />
     );
   }
 
@@ -144,6 +166,181 @@ export function AgentsInspector() {
       route={route}
       observeMode={route.tab === "observe"}
     />
+  );
+}
+
+function AgentsDirectoryContextPanel({
+  agents,
+  navigate,
+  route,
+}: {
+  agents: Agent[];
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const working = useMemo(
+    () => agents.filter((agent) => normalizeAgentState(agent.state) === "working"),
+    [agents],
+  );
+  const online = useMemo(
+    () => agents.filter((agent) => isAgentOnline(agent.state)),
+    [agents],
+  );
+  const readyCount = Math.max(0, online.length - working.length);
+  const projectMix = useMemo(
+    () => topCounts(agents.map(agentProjectLabel), 5),
+    [agents],
+  );
+  const harnessMix = useMemo(
+    () => topCounts(agents.map(agentHarnessLabel), 5),
+    [agents],
+  );
+  const recentAgents = useMemo(
+    () => agents
+      .filter((agent) => agent.updatedAt)
+      .slice()
+      .sort((left, right) => compareTimestampsDesc(left.updatedAt, right.updatedAt))
+      .slice(0, 5),
+    [agents],
+  );
+  const activeNow = working.slice(0, 5);
+  const projectCount = new Set(agents.map(agentProjectLabel)).size;
+  const surfaceLabel = working.length > 0 ? "Live routing surface" : "Quiet routing surface";
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
+        <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
+          Directory context
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-1">
+          <MiniStat label="Agents" value={`${agents.length}`} />
+          <MiniStat label="Projects" value={`${projectCount}`} />
+          <MiniStat label="Working" value={`${working.length}`} />
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          <span>{surfaceLabel}</span>
+          <span>{readyCount} ready</span>
+        </div>
+      </div>
+
+      <Section label="Project mix">
+        <PillList items={projectMix} empty="No projects visible" />
+      </Section>
+
+      <Section label="Harness mix">
+        <PillList items={harnessMix} empty="No harnesses visible" />
+      </Section>
+
+      <Section label="Active now">
+        {activeNow.length === 0 ? (
+          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+            No agents are currently marked working.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {activeNow.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5 text-left transition-colors hover:border-[var(--scout-chrome-border)]"
+                onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ background: stateColor(candidate.state) }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+                    {candidate.name}
+                  </span>
+                  {candidate.updatedAt && (
+                    <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                      {timeAgo(candidate.updatedAt)}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-0.5 truncate pl-3.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                  {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <Section label="Recent">
+        {recentAgents.length === 0 ? (
+          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+            No recent agent activity in this scope.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {recentAgents.map((candidate) => (
+              <button
+                key={candidate.id}
+                type="button"
+                className="flex items-center gap-2 bg-transparent px-0 py-0.5 text-left"
+                onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
+              >
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: stateColor(candidate.state), opacity: isAgentOnline(candidate.state) ? 1 : 0.45 }}
+                />
+                <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink-soft)]">
+                  {candidate.name}
+                </span>
+                <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                  {candidate.updatedAt ? timeAgo(candidate.updatedAt) : "-"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Section>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
+      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function PillList({
+  items,
+  empty,
+}: {
+  items: Array<{ label: string; count: number }>;
+  empty: string;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+        {empty}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {items.map((item) => (
+        <span
+          key={item.label}
+          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          title={`${item.count} ${item.label}`}
+        >
+          {item.label} {item.count}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -784,7 +981,7 @@ function InspectorMesh({
     const stateRank = (s: string) => {
       const n = normalizeAgentState(s);
       if (n === "working") return 0;
-      if (n === "available") return 1;
+      if (n === "ready") return 1;
       return 2;
     };
     return peers
@@ -865,7 +1062,7 @@ function InspectorMesh({
 
       {nodes.map((n) => {
         const nState = normalizeAgentState(n.agent.state);
-        const isActive = nState === "working" || nState === "available";
+        const isActive = nState === "working" || nState === "ready";
         const r = n.focused ? 14 : 9;
         return (
           <g

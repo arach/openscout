@@ -11,6 +11,7 @@ import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import type { ConversationEntry, Route } from "../lib/types.ts";
+import { ChatSubnav } from "./ChatSubnav.tsx";
 import "./conversations-screen.css";
 
 type ConversationSection = {
@@ -124,7 +125,7 @@ export function ConversationsScreen({
       }));
   }, [filtered]);
 
-  return (
+  const content = (
     <div className="s-conversations">
       <div className="s-conversations__hero">
         <div>
@@ -203,6 +204,15 @@ export function ConversationsScreen({
           </section>
         ))}
       </div>
+    </div>
+  );
+
+  return (
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <ChatSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body s-secondary-nav-body--scroll">{content}</div>
     </div>
   );
 }

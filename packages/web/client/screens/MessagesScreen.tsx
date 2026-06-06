@@ -1,4 +1,6 @@
 import type { Route } from "../lib/types.ts";
+import { useScout } from "../scout/Provider.tsx";
+import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
 
 export function MessagesScreen({
@@ -8,16 +10,24 @@ export function MessagesScreen({
   conversationId?: string;
   navigate: (route: Route) => void;
 }) {
-  if (!conversationId) {
-    return <MessagesEmptyState />;
-  }
-
-  return (
+  const { route } = useScout();
+  const content = !conversationId ? (
+    <MessagesEmptyState />
+  ) : (
     <ConversationScreen
       conversationId={conversationId}
       navigate={navigate}
       showBackNav={false}
     />
+  );
+
+  return (
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <ChatSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body">{content}</div>
+    </div>
   );
 }
 

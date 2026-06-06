@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useMeshViewStore, setMeshSelection, setMeshSnapshot } from "../../lib/mesh-view-store.ts";
 import { useLocalAgents } from "../../lib/local-agents.ts";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateCssToken, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, MeshStatus } from "../../lib/types.ts";
@@ -151,10 +151,12 @@ export function MeshInspectorPanel() {
   }, []);
 
   const totals = useMemo(() => {
-    const acc = { total: agents.length, working: 0, available: 0, offline: 0 };
+    const acc = { total: agents.length, working: 0, ready: 0, notReady: 0 };
     for (const a of agents) {
       const state = normalizeAgentState(a.state);
-      acc[state] += 1;
+      if (state === "working") acc.working += 1;
+      else if (state === "ready") acc.ready += 1;
+      else acc.notReady += 1;
     }
     return acc;
   }, [agents]);
@@ -250,9 +252,7 @@ export function MeshInspectorPanel() {
             ) : (
               <div className="mesh-agent-table" style={{ marginTop: 4 }}>
                 {entry.result.home.agents.map((agent) => {
-                  const state = agent.state === "working" ? "working"
-                    : agent.state === "available" ? "available"
-                    : "offline";
+                  const state = agentStateCssToken(agent.state);
                   return (
                     <div key={agent.id} className="mesh-detail-agent" style={{ padding: "4px 0" }}>
                       <span className={`mesh-detail-dot mesh-detail-dot--${state}`} />
@@ -402,12 +402,12 @@ export function MeshInspectorPanel() {
             <span className="mesh-summary-count-label">working</span>
           </div>
           <div className="mesh-summary-count">
-            <span className="mesh-summary-count-value">{totals.available}</span>
-            <span className="mesh-summary-count-label">available</span>
+            <span className="mesh-summary-count-value">{totals.ready}</span>
+            <span className="mesh-summary-count-label">ready</span>
           </div>
           <div className="mesh-summary-count mesh-summary-count--offline">
-            <span className="mesh-summary-count-value">{totals.offline}</span>
-            <span className="mesh-summary-count-label">offline</span>
+            <span className="mesh-summary-count-value">{totals.notReady}</span>
+            <span className="mesh-summary-count-label">not ready</span>
           </div>
         </div>
       </section>

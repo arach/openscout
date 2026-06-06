@@ -17,6 +17,10 @@
   font-family: var(--font-sans);
 }
 
+.s-atop--sessions {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
 /* ── Summary strip ── */
 
 .s-atop-summary {
