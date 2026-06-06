@@ -62,7 +62,8 @@ the projection layer.
 5. Preserve lossy projection warnings.
 6. Do not claim full A2A implementation until Scout actually supports the wire
    behavior required by that protocol.
-7. Make card freshness and signature/trust state visible.
+7. Make card refresh and signature/trust state visible without treating the
+   durable card itself as stale.
 
 ## Projection Record
 
@@ -75,7 +76,7 @@ export interface ScoutAgentCardProjection {
   targetFormat: ScoutAgentCardProjectionFormat;
   projectedAt: number;
   expiresAt?: number;
-  status: "current" | "stale" | "failed" | "unsupported";
+  status: "current" | "refresh_required" | "failed" | "unsupported";
   url?: string;
   trust: ScoutAgentCardTrust;
   lossyFields: string[];

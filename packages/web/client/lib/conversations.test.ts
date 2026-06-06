@@ -3,8 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
   isActiveConversationFlight,
-  isStaleConversationWorkingTurn,
-  isStaleConversationWorkingTurnAnswered,
+  isConversationWorkingTurnWithoutRecentUpdate,
+  isConversationWorkingTurnWithoutRecentUpdateAnswered,
   shouldClearConversationWorkingStateForAgentMessage,
   shouldShowConversationWorkingTurn,
 } from "./conversations.ts";
@@ -46,31 +46,31 @@ describe("conversation flight presence", () => {
     expect(shouldClearConversationWorkingStateForAgentMessage(null)).toBe(true);
   });
 
-  test("marks unresolved working turns stale after the active window", () => {
+  test("marks unresolved working turns as having no recent update after the active window", () => {
     const nowMs = 2_000_000_000_000;
     const freshFlight = {
       state: "running",
       startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
     };
-    const staleFlight = {
+    const quietFlight = {
       state: "running",
       startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS - 1,
     };
 
-    expect(isStaleConversationWorkingTurn(freshFlight, nowMs)).toBe(false);
-    expect(isStaleConversationWorkingTurn(staleFlight, nowMs)).toBe(true);
+    expect(isConversationWorkingTurnWithoutRecentUpdate(freshFlight, nowMs)).toBe(false);
+    expect(isConversationWorkingTurnWithoutRecentUpdate(quietFlight, nowMs)).toBe(true);
   });
 
-  test("does not stale terminal flights", () => {
+  test("does not mark terminal flights as having no recent update", () => {
     const flight = {
       state: "completed",
       startedAt: 1,
     };
 
-    expect(isStaleConversationWorkingTurn(flight, 1_000_000)).toBe(false);
+    expect(isConversationWorkingTurnWithoutRecentUpdate(flight, 1_000_000)).toBe(false);
   });
 
-  test("treats a stale working turn as answered after a newer agent reply", () => {
+  test("treats a no-recent-update working turn as answered after a newer agent reply", () => {
     const nowMs = 2_000_000_000_000;
     const flight = {
       state: "running",
@@ -78,14 +78,14 @@ describe("conversation flight presence", () => {
     };
 
     expect(
-      isStaleConversationWorkingTurnAnswered(
+      isConversationWorkingTurnWithoutRecentUpdateAnswered(
         flight,
         flight.startedAt - 1,
         nowMs,
       ),
     ).toBe(false);
     expect(
-      isStaleConversationWorkingTurnAnswered(
+      isConversationWorkingTurnWithoutRecentUpdateAnswered(
         flight,
         flight.startedAt + 1,
         nowMs,

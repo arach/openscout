@@ -53,7 +53,7 @@ OpenScout SHOULD adopt a five-state vocabulary keyed on signals we already have 
 
 | State       | When                                                             | Tone   |
 | ----------- | ---------------------------------------------------------------- | ------ |
-| `offline`   | No endpoint, or last endpoint heartbeat older than the stale TTL and no `on_demand` wake policy | neutral / dim |
+| `offline`   | No endpoint, or last endpoint heartbeat older than the reachability expiry TTL and no `on_demand` wake policy | neutral / dim |
 | `wakeable`  | No live endpoint, but `wake_policy` says we can summon one      | neutral / faint accent |
 | `idle`      | Live endpoint (heartbeat ≤ fresh TTL), no in-flight work, capacity remaining | ready / muted accent |
 | `engaged`   | Live endpoint, no in-flight work, but listening on at least one channel/DM or has unread pings | ready / accent |
@@ -68,7 +68,7 @@ Two additional modifiers ride on top of the base state (not separate states; the
 
 All available in the schema today:
 
-- **Endpoint heartbeat** — `agent_endpoints.updated_at`. Define `FRESH_HEARTBEAT_TTL_MS = 90s` (one std broker tick + slack) and `STALE_HEARTBEAT_TTL_MS = 10m`.
+- **Endpoint heartbeat** — `agent_endpoints.updated_at`. Define `FRESH_HEARTBEAT_TTL_MS = 90s` (one std broker tick + slack) and `REACHABILITY_EXPIRY_TTL_MS = 10m`.
 - **Wake policy** — `agents.wake_policy`. `on_demand` agents can come back from offline via a wake; show `wakeable` rather than `offline`.
 - **In-flight flights** — `flights.state IN ('running', 'waking', 'waiting', 'queued')` per `ACTIVE_FLIGHT_STATES_SQL` in `sql-helpers.ts:102`. `ACTIVE_FLIGHT_MAX_AGE_MS = 24h` caps lookback.
 - **Channel membership / pings** — `conversation_participants` join + recent `messages` with audience.notify or mentions targeting this agent.

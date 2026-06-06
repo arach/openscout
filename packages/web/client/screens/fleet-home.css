@@ -717,16 +717,16 @@
   text-align: right;
 }
 
-/* ── Stale motion review ──────────────────────────────────────────── */
+/* ── No recent signal review ───────────────────────────────────────── */
 
-.s-stale-motion-list {
+.s-no-recent-signal-list {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--surface) 84%, var(--bg));
   overflow: hidden;
 }
 
-.s-stale-motion-row {
+.s-no-recent-signal-row {
   min-height: 60px;
   padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border);
@@ -736,15 +736,15 @@
   align-items: center;
 }
 
-.s-stale-motion-row:last-child {
+.s-no-recent-signal-row:last-child {
   border-bottom: 0;
 }
 
-.s-stale-motion-row:hover {
+.s-no-recent-signal-row:hover {
   background: color-mix(in srgb, var(--amber) 4%, transparent);
 }
 
-.s-stale-motion-main {
+.s-no-recent-signal-main {
   min-width: 0;
   padding: 0;
   border: 0;
@@ -757,20 +757,20 @@
   cursor: pointer;
 }
 
-.s-stale-motion-copy {
+.s-no-recent-signal-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3xs);
 }
 
-.s-stale-motion-name {
+.s-no-recent-signal-name {
   color: var(--ink);
   font-size: var(--text-lg);
   font-weight: 600;
 }
 
-.s-stale-motion-meta {
+.s-no-recent-signal-meta {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-md);
@@ -780,7 +780,7 @@
   letter-spacing: var(--tracking-sm);
 }
 
-.s-stale-motion-summary {
+.s-no-recent-signal-summary {
   max-width: 860px;
   color: var(--muted);
   font-size: var(--text-md);
@@ -790,7 +790,7 @@
   white-space: nowrap;
 }
 
-.s-stale-motion-actions {
+.s-no-recent-signal-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -798,15 +798,15 @@
 }
 
 @media (max-width: 760px) {
-  .s-stale-motion-row {
+  .s-no-recent-signal-row {
     grid-template-columns: 1fr;
   }
 
-  .s-stale-motion-actions {
+  .s-no-recent-signal-actions {
     justify-content: flex-start;
   }
 
-  .s-stale-motion-summary {
+  .s-no-recent-signal-summary {
     white-space: normal;
   }
 }

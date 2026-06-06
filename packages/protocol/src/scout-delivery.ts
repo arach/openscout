@@ -31,6 +31,9 @@ export type ScoutDeliveryRemediationKind =
   | "register_target"
   | "wake_target"
   | "retry_later"
+  | "use_current_registration"
+  | "session_reference_not_attachable"
+  /** @deprecated use use_current_registration or session_reference_not_attachable */
   | "stale_reference";
 
 export type ScoutDeliverRejectReason =

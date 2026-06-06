@@ -168,7 +168,12 @@ export function AgentInfoScreen({
     { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
     ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
     ...(agent.staleLocalRegistration
-      ? [{ label: "Registration", value: agent.replacedByAgentId ? `Stale hint, superseded by ${agent.replacedByAgentId}` : "Stale hint" }]
+      ? [{
+        label: "Registration",
+        value: agent.replacedByAgentId
+          ? `Superseded by ${agent.replacedByAgentId}`
+          : "Historical registration",
+      }]
       : []),
     ...(agent.retiredFromFleet ? [{ label: "Fleet state", value: "Retired" }] : []),
   ];
@@ -242,7 +247,7 @@ export function AgentInfoScreen({
                 </span>
                 {agent.staleLocalRegistration && (
                   <span className="s-agent-state-chip s-agent-state-chip-offline">
-                    Stale hint
+                    Superseded registration
                   </span>
                 )}
               </div>

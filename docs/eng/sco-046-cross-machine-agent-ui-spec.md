@@ -51,7 +51,7 @@ make node authority visible whenever it affects what the operator can do:
 - Which machine owns this agent?
 - Is that machine reachable now?
 - Which actions can be sent through the broker route?
-- Is this state live, stale, cached, or observed from a remote harness?
+- Is this state live, last-seen-expired, cached, or observed from a remote harness?
 - If a route fails, what can the operator do right now?
 
 `Mesh` should remain the reachability and topology surface. `Fleet`, `Agents`,
@@ -235,7 +235,7 @@ The default sort should prioritize active and actionable work over topology:
 1. needs attention
 2. working
 3. reachable with available agents
-4. stale or unreachable
+4. last-seen-expired or unreachable
 5. empty discovered machines
 
 ### Open A Remote Agent
@@ -326,7 +326,7 @@ Required controls:
 
 - search across agent, task, project, branch, machine, harness, and selector
 - machine scope control with all-machines and one-machine states
-- machine filter with local, remote, reachable, stale, and unreachable states
+- machine filter with local, remote, reachable, last-seen-expired, and unreachable states
 - status filters for working, available, offline, waiting, and failed
 - grouping toggle: by machine, by project, by harness, by active work
 - sort controls for attention, activity, route health, and last seen
@@ -363,7 +363,7 @@ It should answer:
 - Which entrypoints are available?
 - Which transports are reachable?
 - What does this machine advertise?
-- Why is a node stale, loopback-only, local-only, or unreachable?
+- Why is a node last-seen-expired, loopback-only, local-only, or unreachable?
 
 Mesh should link into Fleet and Agent detail for operation. For example, a node
 selection can show "Open agents on this machine" and "Open active work on this
@@ -460,7 +460,7 @@ export interface NodeOperationalSummary {
   name: string;
   displayName: string;
   isLocal: boolean;
-  authorityState: "local" | "reachable" | "stale" | "unreachable" | "unknown";
+  authorityState: "local" | "reachable" | "last_seen_expired" | "unreachable" | "unknown";
   lastSeenAt: number | null;
   lastRouteCheckAt: number | null;
   brokerUrl: string | null;
@@ -507,7 +507,7 @@ export interface AgentRouteSummary {
     | "routable"
     | "peer_handoff"
     | "queued"
-    | "stale"
+    | "last_seen_expired"
     | "unreachable"
     | "ambiguous"
     | "unsupported";
@@ -579,7 +579,7 @@ Surfaces should share these remote route states:
 | `routable` | Remote authority has a known reachable route. | Send note or ask. |
 | `peer_handoff` | Local broker handed authority to a peer broker. | Follow flight or delivery. |
 | `queued` | Delivery is pending retry or worker claim. | Follow, retry now, or cancel if supported. |
-| `stale` | Node was known but has exceeded freshness TTL. | Discover peers or retry route. |
+| `last_seen_expired` | Node was known but has exceeded freshness TTL. | Discover peers or retry route. |
 | `unreachable` | No known current entrypoint can be reached. | Open Mesh diagnostics, retry, copy selector. |
 | `ambiguous` | The selector maps to multiple candidates. | Choose a candidate. |
 | `unsupported` | The requested action needs a missing route capability. | Show the supported alternatives. |
@@ -654,7 +654,7 @@ Tasks:
 - include authority node, machine label, route state, and capabilities in Fleet
   and Agent views
 - show machine chips in agent rows, hover cards, thread headers, and work rows
-- add shared route status components for local, routable, stale, unreachable,
+- add shared route status components for local, routable, last-seen-expired, unreachable,
   and unsupported
 
 Exit criteria:
@@ -751,7 +751,7 @@ Exit criteria:
   acknowledgement, active work, and terminal result as distinct states.
 - Steering active remote work attaches to the active work or flight context
   instead of creating an unrelated thread.
-- Unreachable, stale, unsupported, and ambiguous remote states all provide an
+- Unreachable, last-seen-expired, unsupported, and ambiguous remote states all provide an
   actionable next step or dismiss.
 - Mesh remains useful as diagnostics, but it is not required for routine remote
   agent operation.
@@ -770,7 +770,7 @@ bun test packages/web/server/create-openscout-web-server.test.ts
 
 New or expanded tests should cover:
 
-- node and agent route projection for local, remote, stale, and unreachable
+- node and agent route projection for local, remote, last-seen-expired, and unreachable
   states
 - Fleet grouping by machine
 - route-level machine scope behavior across reload and navigation
@@ -798,7 +798,7 @@ Then verify in the web UI on machine A:
 - the remote agent page shows machine and route state
 - the thread shows the message or ask receipt
 - peer handoff and target acknowledgement are visible when available
-- disabling the remote broker changes the route state to stale or unreachable
+- disabling the remote broker changes the route state to last-seen-expired or unreachable
   with recovery actions
 
 ## Decision Trace
@@ -882,7 +882,7 @@ Rationale:
 
 V1 remote wake should be limited to capability-advertised, broker-mediated wake
 attempts for already registered remote agents. It should report accepted,
-peer-handoff, target-acknowledged, failed, stale, or unsupported states. Process
+peer-handoff, target-acknowledged, failed, last-seen-expired, or unsupported states. Process
 control, terminal takeover, host file actions, and anything requiring new host
 permission should wait for an explicit host permission capture path.
 

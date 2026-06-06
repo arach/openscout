@@ -390,7 +390,7 @@ export function resolveBrokerRouteTarget(
 
   if (directId) {
     const agent = snapshot.agents[directId];
-    if (agent && (policy?.allowStaleDirectId ?? true)) {
+    if (agent && (policy?.allowHistoricalDirectId ?? policy?.allowStaleDirectId ?? true)) {
       return { kind: "resolved", agent };
     }
     if (agent && !options.helpers.isStale(agent)) {

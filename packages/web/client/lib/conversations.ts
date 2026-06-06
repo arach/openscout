@@ -64,7 +64,7 @@ export function isRequesterWaitTimeoutConversationFlight(
   );
 }
 
-export function isStaleConversationWorkingTurn(
+export function isConversationWorkingTurnWithoutRecentUpdate(
   flight: Pick<Flight, "state" | "startedAt"> | null | undefined,
   nowMs = Date.now(),
   activeWindowMs = CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
@@ -76,12 +76,12 @@ export function isStaleConversationWorkingTurn(
   return startedAt !== null && nowMs - startedAt > activeWindowMs;
 }
 
-export function isStaleConversationWorkingTurnAnswered(
+export function isConversationWorkingTurnWithoutRecentUpdateAnswered(
   flight: Pick<Flight, "state" | "startedAt"> | null | undefined,
   lastAgentReplyAt: number | null | undefined,
   nowMs = Date.now(),
 ): boolean {
-  if (!isStaleConversationWorkingTurn(flight, nowMs)) {
+  if (!isConversationWorkingTurnWithoutRecentUpdate(flight, nowMs)) {
     return false;
   }
   const startedAt = normalizeTimestampMs(flight?.startedAt);

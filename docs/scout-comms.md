@@ -395,11 +395,11 @@ completion, look for the reply message, flight update, work item transition, or
 collaboration event that matches the workflow.
 
 For local harness-backed agents, a receipt may be followed by session wake or
-attachment. Agent-card targets are fresh-session requests; stale or previous
-session records are not candidates for ordinary card routing. If the caller
-names `session:<id>`/`targetSessionId`, Scout should continue that exact session
-or return a dispatch/lifecycle failure that names the missing session and
-harness.
+attachment. Agent-card targets are fresh-session requests; historical session
+records and superseded endpoint records are not candidates for ordinary card
+routing. If the caller names `session:<id>`/`targetSessionId`, Scout should
+continue that exact session or return a dispatch/lifecycle failure that says
+"session reference not attachable" or "session not currently reachable".
 
 ## Coordination Cost
 
@@ -492,7 +492,8 @@ When building a Scout client or plugin:
 - preserve `conversationId`, `messageId`, `replyToMessageId`, and `flightId`
   across replies and status views
 - distinguish message receipts from invocation/work lifecycles
-- show stale, waiting, failed, and cancelled states explicitly
+- show waiting, failed, cancelled, no-recent-signal, superseded-registration,
+  and session-reachability states explicitly
 - distinguish broker acceptance, peer acknowledgement, agent completion, and
   requester acceptance
 - expose session ids and harness mismatch diagnostics when runtime wake fails
