@@ -12,6 +12,7 @@ import type {
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { AgentsSubnav } from "./AgentsSubnav.tsx";
+import { PageHeader } from "../components/PageHeader.tsx";
 import "./system-surfaces-redesign.css";
 
 function chipTone(value: string): string {
@@ -275,30 +276,26 @@ export function AgentConfigurationScreen({
       </div>
       <div className="s-secondary-nav-body s-secondary-nav-body--scroll">
         <div className="sys-surface-page sys-surface-page-wide">
-          <div className="sys-page-head">
-        <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Agent Configuration</h2>
-          <p className="sys-page-subtitle">
-            Runtimes, agents, project inventory, delivery bridges, and the missing tool/provider surfaces in one control plane.
-          </p>
-        </div>
-        <div className="sys-page-actions">
-          {snapshot && (
-            <div className="sys-sync-note">
-              Updated {new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-            </div>
-          )}
-          <button
-            type="button"
-            className="s-btn"
-            disabled={loading || refreshing}
-            onClick={() => void load("manual")}
-          >
-            <RefreshCw size={13} />
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </button>
-        </div>
-      </div>
+          <PageHeader
+            title="Agent Configuration"
+            subtitle="Runtimes, agents, project inventory, delivery bridges, and the missing tool/provider surfaces in one control plane."
+            syncNote={
+              snapshot
+                ? `Updated ${new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                : undefined
+            }
+            actions={
+              <button
+                type="button"
+                className="s-btn"
+                disabled={loading || refreshing}
+                onClick={() => void load("manual")}
+              >
+                <RefreshCw size={13} />
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            }
+          />
 
       {snapshot && (
         <div className="sys-stat-grid">

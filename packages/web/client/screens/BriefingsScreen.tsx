@@ -3,6 +3,7 @@ import { EmptyState } from "../components/EmptyState.tsx";
 import { api } from "../lib/api.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { Route } from "../lib/types.ts";
+import { PageHeader } from "../components/PageHeader.tsx";
 import "./system-surfaces-redesign.css";
 import "./briefings.css";
 
@@ -51,15 +52,10 @@ export function BriefingsScreen({ navigate }: { navigate: (r: Route) => void }) 
 
   return (
     <div className="sys-surface-page sys-surface-page-wide">
-      <div className="sys-page-head">
-        <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Briefings</h2>
-          <p className="sys-page-subtitle">
-            Scoutbot's archived fleet briefs — what it told you, when, and what
-            it saw. Rolling 100.
-          </p>
-        </div>
-        <div className="sys-page-actions">
+      <PageHeader
+        title="Briefings"
+        subtitle="Scoutbot's archived fleet briefs — what it told you, when, and what it saw. Rolling 100."
+        actions={
           <button
             type="button"
             className="s-btn"
@@ -68,8 +64,8 @@ export function BriefingsScreen({ navigate }: { navigate: (r: Route) => void }) 
           >
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {error ? (
         <EmptyState title="Couldn't load briefings" body={error} />

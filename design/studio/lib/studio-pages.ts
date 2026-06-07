@@ -16,6 +16,8 @@
  *  - meta        — about / conventions.
  */
 
+import { createRegistry, type StudioPage as SharedStudioPage } from "studio/registry";
+
 export type StudioBucket =
   | "plans"
   | "eng"
@@ -31,30 +33,12 @@ export type StudioStatus =
   | "shelved"
   | "concept";
 
-export interface StudioPage {
-  /** Route. `/path` form, no trailing slash. */
-  href: string;
-  /** Sidebar label. */
-  label: string;
-  /** Drives sidebar group. */
-  bucket: StudioBucket;
-  /**
-   * Family — same logical surface, different variants. Variants get
-   * collapsed under one entry in the sidebar.
-   */
-  family?: string;
-  /** Surface — sub-grouping inside `studies`. */
-  surface?: StudioSurface;
-  /** Status pill rendered in the page strip + status dot in sidebar. */
-  status?: StudioStatus;
-  /** Linked source file(s), relative to repo root. */
-  source?: string[];
-  /** Subtitle shown in the page strip. */
-  blurb?: string;
-  /** ISO mtime — used to sort entries by recency (e.g. the eng bucket's
-   *  "Recent 5" sidebar slice). Optional; static registry pages omit it. */
-  updatedAt?: string;
-}
+/**
+ * A studio page — now the shared generic from `studio/registry`, bound to
+ * this app's Bucket/Surface/Status unions. Same fields as before (href,
+ * label, bucket, family?, surface?, status?, source?, blurb?, updatedAt?).
+ */
+export type StudioPage = SharedStudioPage<StudioBucket, StudioSurface, StudioStatus>;
 
 /** Static pages. Plans are merged in at render time from the
  *  filesystem (see `lib/plans.ts`). */
@@ -262,19 +246,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Result-experience redesign: session cards, conversation-first inspector, rendered vs raw, ranking, next actions.",
   },
   {
-    href: "/studies/navigation-taxonomy",
-    label: "Navigation Taxonomy",
+    href: "/studies/web-taxonomy",
+    label: "Web Taxonomy",
     bucket: "studies",
     surface: "web",
     family: "navigation",
-    status: "concept",
+    status: "shipped",
     source: [
-      "design/studio/app/studies/navigation-taxonomy/page.tsx",
+      "design/studio/app/studies/web-taxonomy/page.tsx",
+      "design/studio/lib/web-taxonomy.ts",
       "packages/web/client/scout/topNavConfig.ts",
-      "packages/web/client/components/SecondaryNav.tsx",
-      "packages/web/client/lib/router.ts",
+      "packages/web/client/scout/secondaryNavConfig.ts",
     ],
-    blurb: "Before/after header model: primary intent, secondary surfaces, and route coverage.",
+    blurb:
+      "Interactive map of packages/web/client (66 surfaces, 6 areas): a live main-nav → sub-nav header, global search, and a pin board for side-by-side comparison + the agent-lens overlap deep-dive. Data from the web-taxonomy agent workflow.",
   },
   {
     href: "/studies/tree-viewer",
@@ -567,93 +552,33 @@ export const STUDIO_PAGES: StudioPage[] = [
   },
 ];
 
-/** Find the registry entry for a route. */
-export function pageForPath(
-  pathname: string | null,
-  extra: StudioPage[] = [],
-): StudioPage | undefined {
-  if (!pathname) return undefined;
-  const all = [...STUDIO_PAGES, ...extra];
-  return all.find((p) => p.href === pathname);
-}
+/**
+ * Shared registry bound to this app's taxonomy — provides pageForPath /
+ * pagesIn / pagesBySurface / familyGroups / bucketLabel / surfaceLabel
+ * (see `studio/registry`; behaviour is identical to the hand-written
+ * helpers it replaces). The standalone exports below delegate to it so
+ * existing call sites keep working unchanged.
+ */
+export const registry = createRegistry<StudioBucket, StudioSurface, StudioStatus>({
+  pages: STUDIO_PAGES,
+  surfaceOrder: ["web", "ios", "macos", "shell", "cross"],
+  defaultSurface: "cross",
+  bucketLabel: (b) =>
+    ({
+      plans: "Plans",
+      eng: "Engineering",
+      foundations: "Foundations",
+      studies: "Studies",
+      atoms: "Atoms",
+      meta: "Meta",
+    })[b],
+  surfaceLabel: (s) =>
+    ({ web: "Web", ios: "iOS", macos: "macOS", shell: "Shell", cross: "Cross" })[s],
+});
 
-/** All pages in a bucket. */
-export function pagesIn(
-  bucket: StudioBucket,
-  extra: StudioPage[] = [],
-): StudioPage[] {
-  return [...STUDIO_PAGES, ...extra].filter((p) => p.bucket === bucket);
-}
-
-/** Pages within a bucket grouped by surface; surfaces appear in
- *  web → ios → macos → shell → cross order regardless of registry
- *  order. */
-export function pagesBySurface(
-  bucket: StudioBucket,
-  extra: StudioPage[] = [],
-): Array<{ surface: StudioSurface; pages: StudioPage[] }> {
-  const order: StudioSurface[] = ["web", "ios", "macos", "shell", "cross"];
-  const bySurface = new Map<StudioSurface, StudioPage[]>();
-  for (const p of pagesIn(bucket, extra)) {
-    const s = (p.surface ?? "cross") as StudioSurface;
-    const list = bySurface.get(s) ?? [];
-    list.push(p);
-    bySurface.set(s, list);
-  }
-  return order
-    .map((surface) => ({ surface, pages: bySurface.get(surface) ?? [] }))
-    .filter((g) => g.pages.length > 0);
-}
-
-/** Family grouping — primary first, variants nested. The first page
- *  added to a family is the primary; the rest become variants. */
-export function familyGroups(pages: StudioPage[]): Array<{
-  primary: StudioPage;
-  variants: StudioPage[];
-}> {
-  const groups: Array<{ primary: StudioPage; variants: StudioPage[] }> = [];
-  const byFamily = new Map<string, number>();
-  for (const p of pages) {
-    const fam = p.family ?? p.label;
-    const existing = byFamily.get(fam);
-    if (existing === undefined) {
-      groups.push({ primary: p, variants: [] });
-      byFamily.set(fam, groups.length - 1);
-    } else {
-      groups[existing].variants.push(p);
-    }
-  }
-  return groups;
-}
-
-export function surfaceLabel(surface: StudioSurface): string {
-  switch (surface) {
-    case "web":
-      return "Web";
-    case "ios":
-      return "iOS";
-    case "macos":
-      return "macOS";
-    case "shell":
-      return "Shell";
-    case "cross":
-      return "Cross";
-  }
-}
-
-export function bucketLabel(bucket: StudioBucket): string {
-  switch (bucket) {
-    case "plans":
-      return "Plans";
-    case "eng":
-      return "Engineering";
-    case "foundations":
-      return "Foundations";
-    case "studies":
-      return "Studies";
-    case "atoms":
-      return "Atoms";
-    case "meta":
-      return "Meta";
-  }
-}
+export const pageForPath = registry.pageForPath;
+export const pagesIn = registry.pagesIn;
+export const pagesBySurface = registry.pagesBySurface;
+export const familyGroups = registry.familyGroups;
+export const surfaceLabel = registry.surfaceLabel;
+export const bucketLabel = registry.bucketLabel;

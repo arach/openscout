@@ -69,6 +69,7 @@ export type BrokerHealthSnapshot = {
     persistentAgentCards?: number;
     conversations: number;
     messages: number;
+    assets?: number;
     flights: number;
     collaborationRecords: number;
   };

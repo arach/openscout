@@ -24,6 +24,7 @@ export * from "./setup.js";
 export * from "./managed-installs.js";
 export * from "./onboarding.js";
 export * from "./support-paths.js";
+export * from "./asset-store.js";
 export * from "./scout-agent-cards.js";
 export * from "./user-config.js";
 export * from "./local-config.js";

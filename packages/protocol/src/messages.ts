@@ -16,12 +16,31 @@ export interface MessageSpeechDirective {
 
 export interface MessageAttachment {
   id: ScoutId;
+  assetId?: ScoutId;
+  role?: AttachmentRole;
+  display?: AttachmentDisplay;
+  label?: string;
   mediaType: string;
   fileName?: string;
   blobKey?: string;
   url?: string;
   metadata?: MetadataMap;
 }
+
+export type AttachmentRole =
+  | "input_image"
+  | "input_audio"
+  | "input_file"
+  | "screen_capture"
+  | "reference"
+  | "artifact"
+  | "link_preview";
+
+export type AttachmentDisplay =
+  | "inline"
+  | "collapsed"
+  | "hidden"
+  | "link";
 
 export interface MessageMention {
   actorId: ScoutId;

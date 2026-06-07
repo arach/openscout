@@ -69,9 +69,13 @@ function emptySnapshot(): RuntimeRegistrySnapshot {
     endpoints: {},
     conversations: {},
     bindings: {},
+    assets: {},
     messages: {},
+    readCursors: {},
+    invocations: {},
     flights: {},
     collaborationRecords: {},
+    unblockRequests: {},
   };
 }
 

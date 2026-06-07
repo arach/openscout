@@ -9,6 +9,8 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  AssetDerivativeRef,
+  AssetRecord,
   BudgetQuotaWindowSnapshot,
   BudgetUsageRecord,
   CollaborationEvent,
@@ -462,11 +464,44 @@ interface MentionRow {
 interface AttachmentRow {
   id: string;
   message_id: string;
+  asset_id: string | null;
+  role: MessageAttachment["role"] | null;
+  display: MessageAttachment["display"] | null;
+  label: string | null;
   media_type: string;
   file_name: string | null;
   blob_key: string | null;
   url: string | null;
   metadata_json: string | null;
+}
+
+interface AssetRow {
+  id: string;
+  media_type: string;
+  byte_size: number | null;
+  sha256: string | null;
+  storage_key: string | null;
+  file_name: string | null;
+  title: string | null;
+  source: AssetRecord["source"];
+  actor_id: string;
+  origin_node_id: string;
+  retention_json: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number | null;
+}
+
+interface AssetDerivativeRow {
+  id: string;
+  asset_id: string;
+  position: number;
+  kind: AssetDerivativeRef["kind"];
+  derivative_asset_id: string | null;
+  text: string | null;
+  media_type: string | null;
+  metadata_json: string | null;
+  created_at: number;
 }
 
 interface ReadCursorRow {
@@ -912,6 +947,18 @@ export class SQLiteControlPlaneStore {
     if (!this.hasColumn("flights", "labels_json")) {
       this.db.exec("ALTER TABLE flights ADD COLUMN labels_json TEXT");
     }
+    if (!this.hasColumn("message_attachments", "asset_id")) {
+      this.db.exec("ALTER TABLE message_attachments ADD COLUMN asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL");
+    }
+    if (!this.hasColumn("message_attachments", "role")) {
+      this.db.exec("ALTER TABLE message_attachments ADD COLUMN role TEXT");
+    }
+    if (!this.hasColumn("message_attachments", "display")) {
+      this.db.exec("ALTER TABLE message_attachments ADD COLUMN display TEXT");
+    }
+    if (!this.hasColumn("message_attachments", "label")) {
+      this.db.exec("ALTER TABLE message_attachments ADD COLUMN label TEXT");
+    }
 
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_invocations_collaboration_record_id_created_at ON invocations(collaboration_record_id, created_at)",
@@ -927,6 +974,15 @@ export class SQLiteControlPlaneStore {
     );
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_assets_origin_node_created_at ON assets(origin_node_id, created_at DESC)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_asset_derivatives_asset_position ON asset_derivatives(asset_id, position)",
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_message_attachments_asset_id ON message_attachments(asset_id)",
     );
   }
 
@@ -1086,6 +1142,47 @@ export class SQLiteControlPlaneStore {
       };
     }
 
+    const derivativeRows = queryAll<AssetDerivativeRow>(
+      this.readDb,
+      "SELECT * FROM asset_derivatives ORDER BY asset_id ASC, position ASC",
+    );
+    const derivativesByAsset = new Map<string, AssetDerivativeRef[]>();
+    for (const row of derivativeRows) {
+      const list = derivativesByAsset.get(row.asset_id) ?? [];
+      list.push({
+        id: row.id,
+        kind: row.kind,
+        assetId: row.derivative_asset_id ?? undefined,
+        text: row.text ?? undefined,
+        mediaType: row.media_type ?? undefined,
+        createdAt: row.created_at,
+        metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+      });
+      derivativesByAsset.set(row.asset_id, list);
+    }
+
+    const assets = queryAll<AssetRow>(this.readDb, "SELECT * FROM assets");
+    for (const row of assets) {
+      const derivatives = derivativesByAsset.get(row.id);
+      snapshot.assets[row.id] = {
+        id: row.id,
+        mediaType: row.media_type,
+        byteSize: row.byte_size ?? undefined,
+        sha256: row.sha256 ?? undefined,
+        storageKey: row.storage_key ?? undefined,
+        fileName: row.file_name ?? undefined,
+        title: row.title ?? undefined,
+        source: row.source,
+        actorId: row.actor_id,
+        originNodeId: row.origin_node_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at ?? undefined,
+        retention: parseJson<AssetRecord["retention"]>(row.retention_json, undefined),
+        metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+        derivatives: derivatives && derivatives.length > 0 ? derivatives : undefined,
+      };
+    }
+
     const messages = queryAll<MessageRow>(this.readDb, "SELECT * FROM messages");
     const mentionRows = queryAll<MentionRow>(this.readDb, "SELECT * FROM message_mentions");
     const attachmentRows = queryAll<AttachmentRow>(this.readDb, "SELECT * FROM message_attachments");
@@ -1101,6 +1198,10 @@ export class SQLiteControlPlaneStore {
       const list = attachmentsByMessage.get(row.message_id) ?? [];
       list.push({
         id: row.id,
+        assetId: row.asset_id ?? undefined,
+        role: row.role ?? undefined,
+        display: row.display ?? undefined,
+        label: row.label ?? undefined,
         mediaType: row.media_type,
         fileName: row.file_name ?? undefined,
         blobKey: row.blob_key ?? undefined,
@@ -1730,6 +1831,64 @@ export class SQLiteControlPlaneStore {
     );
   }
 
+  recordAsset(asset: AssetRecord): void {
+    (this.db as SQLiteTransactionalDatabase).transaction((nextAsset: AssetRecord) => {
+      this.db.query(
+        `INSERT INTO assets (
+          id, media_type, byte_size, sha256, storage_key, file_name, title, source,
+          actor_id, origin_node_id, retention_json, metadata_json, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        ON CONFLICT(id) DO UPDATE SET
+          media_type = excluded.media_type,
+          byte_size = excluded.byte_size,
+          sha256 = excluded.sha256,
+          storage_key = excluded.storage_key,
+          file_name = excluded.file_name,
+          title = excluded.title,
+          source = excluded.source,
+          actor_id = excluded.actor_id,
+          origin_node_id = excluded.origin_node_id,
+          retention_json = excluded.retention_json,
+          metadata_json = excluded.metadata_json,
+          created_at = excluded.created_at,
+          updated_at = excluded.updated_at`,
+      ).run(
+        nextAsset.id,
+        nextAsset.mediaType,
+        nextAsset.byteSize ?? null,
+        nextAsset.sha256 ?? null,
+        nextAsset.storageKey ?? null,
+        nextAsset.fileName ?? null,
+        nextAsset.title ?? null,
+        nextAsset.source,
+        nextAsset.actorId,
+        nextAsset.originNodeId,
+        stringify(nextAsset.retention),
+        stringify(nextAsset.metadata),
+        nextAsset.createdAt,
+        nextAsset.updatedAt ?? null,
+      );
+      this.db.query("DELETE FROM asset_derivatives WHERE asset_id = ?1").run(nextAsset.id);
+      for (const [position, derivative] of (nextAsset.derivatives ?? []).entries()) {
+        this.db.query(
+          `INSERT OR REPLACE INTO asset_derivatives (
+            id, asset_id, position, kind, derivative_asset_id, text, media_type, metadata_json, created_at
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ).run(
+          derivative.id ?? `${nextAsset.id}:derivative:${position}`,
+          nextAsset.id,
+          position,
+          derivative.kind,
+          derivative.assetId ?? null,
+          derivative.text ?? null,
+          derivative.mediaType ?? null,
+          stringify(derivative.metadata),
+          derivative.createdAt ?? nextAsset.createdAt,
+        );
+      }
+    })(asset);
+  }
+
   recordMessage(message: MessageRecord): ThreadEventEnvelope[] {
     const activityItem = this.projectMessageActivity(message);
     const threadMessageEvent = this.buildThreadMessageEvent(message, this.readDb);
@@ -1784,11 +1943,15 @@ export class SQLiteControlPlaneStore {
       for (const attachment of nextMessage.attachments ?? []) {
         this.db.query(
           `INSERT OR REPLACE INTO message_attachments (
-            id, message_id, media_type, file_name, blob_key, url, metadata_json
-          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+            id, message_id, asset_id, role, display, label, media_type, file_name, blob_key, url, metadata_json
+          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
         ).run(
           attachment.id,
           nextMessage.id,
+          attachment.assetId ?? null,
+          attachment.role ?? null,
+          attachment.display ?? null,
+          attachment.label ?? null,
           attachment.mediaType,
           attachment.fileName ?? null,
           attachment.blobKey ?? null,

@@ -14,6 +14,7 @@ import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { useScout } from "../scout/Provider.tsx";
 import type { ActivityItem, Route } from "../lib/types.ts";
+import { PageHeader } from "../components/PageHeader.tsx";
 import "./system-surfaces-redesign.css";
 
 const KIND_LABELS: Record<string, string> = {
@@ -198,23 +199,19 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
 
   return (
     <div className="sys-surface-page">
-      <div className="sys-page-head">
-        <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Activity</h2>
-          <p className="sys-page-subtitle">
-            Broker events, task execution, and collaboration handoffs.
-          </p>
-        </div>
-        <div className="sys-page-actions">
-          <div className="sys-sync-note">
-            {loading
-              ? "Loading audit ledger..."
-              : error && visibleActivity.length > 0
-                ? `Showing last confirmed snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
-                : lastLoadedAt
-                  ? `Updated ${timeAgo(lastLoadedAt)}`
-                  : "Waiting for first snapshot"}
-          </div>
+      <PageHeader
+        title="Activity"
+        subtitle="Broker events, task execution, and collaboration handoffs."
+        syncNote={
+          loading
+            ? "Loading audit ledger..."
+            : error && visibleActivity.length > 0
+              ? `Showing last confirmed snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
+              : lastLoadedAt
+                ? `Updated ${timeAgo(lastLoadedAt)}`
+                : "Waiting for first snapshot"
+        }
+        actions={
           <button
             type="button"
             className="s-btn"
@@ -223,8 +220,8 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
           >
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="sys-stat-grid">
         {metrics.map((metric) => (

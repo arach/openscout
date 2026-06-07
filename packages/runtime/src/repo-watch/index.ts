@@ -666,17 +666,11 @@ function classifyWorktree(input: {
     reasons.push(`${input.status.conflicts} conflicted file${input.status.conflicts === 1 ? "" : "s"}`);
     return { attention: "critical", reasons };
   }
-  if (input.branch.isMain && !input.status.clean) {
-    reasons.push(`Dirty ${input.branch.name}`);
+  if (!input.status.clean) {
+    reasons.push(`${input.status.changedFiles} changed file${input.status.changedFiles === 1 ? "" : "s"}`);
   }
   if (input.branch.diverged) {
     reasons.push(`Diverged from ${input.branch.upstream ?? "upstream"}`);
-  }
-  if (reasons.length > 0) {
-    return { attention: "attention", reasons };
-  }
-  if (!input.status.clean) {
-    reasons.push(`${input.status.changedFiles} changed file${input.status.changedFiles === 1 ? "" : "s"}`);
   }
   if (input.branch.ahead > 0) {
     reasons.push(`${input.branch.ahead} ahead`);

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
+import { NextRouterProvider } from "studio/router/next";
 import { StudioShell } from "@/components/StudioShell";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/components/ThemeToggle";
 import { listPlans, plansToStudioPages } from "@/lib/plans";
@@ -54,7 +55,9 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <StudioShell extraPages={extraPages}>{children}</StudioShell>
+        <NextRouterProvider>
+          <StudioShell extraPages={extraPages}>{children}</StudioShell>
+        </NextRouterProvider>
       </body>
     </html>
   );

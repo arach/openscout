@@ -2,6 +2,7 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  AssetRecord,
   CollaborationEvent,
   CollaborationRecord,
   ControlCommand,
@@ -179,6 +180,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       endpoints: { ...this.registry.endpoints },
       conversations: { ...this.registry.conversations },
       bindings: { ...this.registry.bindings },
+      assets: { ...this.registry.assets },
       messages: { ...this.registry.messages },
       readCursors: { ...this.registry.readCursors },
       invocations: { ...this.registry.invocations },
@@ -207,6 +209,10 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
   message(messageId: ScoutId): MessageRecord | undefined {
     return this.registry.messages[messageId];
+  }
+
+  asset(assetId: ScoutId): AssetRecord | undefined {
+    return this.registry.assets[assetId];
   }
 
   readCursor(conversationId: ScoutId, actorId: ScoutId) {
@@ -299,6 +305,9 @@ export class InMemoryControlRuntime implements ControlRuntime {
         return;
       case "binding.upsert":
         await this.upsertBinding(command.binding);
+        return;
+      case "asset.record":
+        await this.recordAsset(command.asset);
         return;
       case "collaboration.upsert":
         await this.upsertCollaboration(command.record);
@@ -507,6 +516,18 @@ export class InMemoryControlRuntime implements ControlRuntime {
       actorId: "system",
       nodeId: this.localNodeId,
       payload: { binding },
+    });
+  }
+
+  async recordAsset(asset: AssetRecord): Promise<void> {
+    this.registry.assets[asset.id] = asset;
+    this.emit({
+      id: createRuntimeId("evt"),
+      kind: "asset.recorded",
+      ts: Date.now(),
+      actorId: asset.actorId,
+      nodeId: asset.originNodeId,
+      payload: { asset },
     });
   }
 

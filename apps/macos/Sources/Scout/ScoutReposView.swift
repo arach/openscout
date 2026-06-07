@@ -113,7 +113,27 @@ final class ScoutReposTreeModel: ObservableObject {
     @Published private(set) var sortKey: ReposSortKey = .attention
     @Published private(set) var sortDir: ReposSortDir = .desc
 
+    // MARK: Stable display order
+    //
+    // Repo Watch polls every few seconds and the canonical order is
+    // attention-first — the single most volatile axis in the model (the backend
+    // recomputes attention from churn / dirty state / live agents on every
+    // scan). Re-sorting on each poll made the list feel "shifty": rows flipped
+    // tiers and snapped to new slots while you worked. So the canonical order is
+    // captured once (worst-first on load), then *held* — live data updates in
+    // place and rows keep their slots. We only re-triage on explicit intent
+    // (sort, quiet toggle, manual refresh) or to absorb membership changes (a
+    // repo/worktree appearing or disappearing splices in next to its canonical
+    // neighbour; survivors never reshuffle).
+    @Published private(set) var orderedProjectIDs: [String] = []
+    @Published private(set) var orderedWorktreeIDsByProject: [String: [String]] = [:]
+    /// Set by gestures that should re-rank worst-first on the next reconcile.
+    private var pendingForceRerank = true
+
+    func requestRerank() { pendingForceRerank = true }
+
     func toggleSort(_ key: ReposSortKey) {
+        pendingForceRerank = true
         if key == sortKey {
             sortDir = sortDir == .asc ? .desc : .asc
         } else {
@@ -174,10 +194,65 @@ final class ScoutReposTreeModel: ObservableObject {
         return compareNames(a.name, b.name)
     }
 
-    /// Projects ordered by the active sort (project score = its worst worktree),
-    /// keeping each repo's worktrees adjacent — the web grouping rule.
+    /// Canonical worst-first project order (project score = its worst worktree) —
+    /// the ideal triage order before stability is applied.
     func sortedProjects(_ projects: [RepoProject]) -> [RepoProject] {
         projects.sorted { cmpProject($0, $1) < 0 }
+    }
+
+    /// Projects in *stable display* order — the remembered order, with newcomers
+    /// spliced into their canonical slot. Holds still across polls.
+    func displayProjects(_ projects: [RepoProject]) -> [RepoProject] {
+        let canon = sortedProjects(projects)
+        guard !orderedProjectIDs.isEmpty else { return canon }
+        let byID = Dictionary(canon.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return stableMerge(canonical: canon.map(\.id), previous: orderedProjectIDs).compactMap { byID[$0] }
+    }
+
+    /// Merge a freshly-computed canonical order into a remembered one: surviving
+    /// ids keep their previous slots, vanished ids drop out, and new ids splice
+    /// in next to their canonical predecessor. This is the heart of the list's
+    /// stability — equal membership ⇒ identical order, so polls never reshuffle.
+    private func stableMerge(canonical: [String], previous: [String]) -> [String] {
+        let canonicalSet = Set(canonical)
+        let previousSet = Set(previous)
+        var result = previous.filter { canonicalSet.contains($0) }
+        if result.count == canonical.count { return result }
+        for (idx, id) in canonical.enumerated() where !previousSet.contains(id) {
+            var insertAt = 0
+            if idx > 0 {
+                for back in stride(from: idx - 1, through: 0, by: -1) {
+                    if let pos = result.firstIndex(of: canonical[back]) { insertAt = pos + 1; break }
+                }
+            }
+            result.insert(id, at: insertAt)
+        }
+        return result
+    }
+
+    /// Recompute the stable display order. Runs on every snapshot to absorb
+    /// membership changes without reshuffling survivors, and is *forced* (a full
+    /// re-triage to canonical worst-first) after explicit intent — a sort change,
+    /// the quiet toggle, or a manual refresh.
+    func reconcileOrder(projects: [RepoProject], showClean: Bool) {
+        let force = pendingForceRerank
+        pendingForceRerank = false
+
+        let canonProjectIDs = sortedProjects(projects).map(\.id)
+        orderedProjectIDs = force
+            ? canonProjectIDs
+            : stableMerge(canonical: canonProjectIDs, previous: orderedProjectIDs)
+
+        let live = Set(canonProjectIDs)
+        let byID = Dictionary(projects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var next: [String: [String]] = [:]
+        for pid in canonProjectIDs {
+            guard let project = byID[pid] else { continue }
+            let canon = canonicalWorktrees(project, showClean: showClean).map(\.id)
+            let previous = orderedWorktreeIDsByProject[pid] ?? []
+            next[pid] = force ? canon : stableMerge(canonical: canon, previous: previous)
+        }
+        orderedWorktreeIDsByProject = next.filter { live.contains($0.key) }
     }
 
     struct Row: Identifiable, Equatable {
@@ -214,16 +289,25 @@ final class ScoutReposTreeModel: ObservableObject {
         }
     }
 
-    /// Worktrees ordered by the active sort, with clean-&-idle folded out unless
-    /// `showClean`.
-    func visibleWorktrees(_ project: RepoProject, showClean: Bool) -> [RepoWorktree] {
+    /// Worktrees in canonical sort order, with clean-&-idle folded out unless
+    /// `showClean` — the ideal order before stability is applied.
+    func canonicalWorktrees(_ project: RepoProject, showClean: Bool) -> [RepoWorktree] {
         let sorted = project.worktrees.sorted { cmpWorktree($0, $1) < 0 }
         return showClean ? sorted : sorted.filter { $0.hasActivity }
     }
 
+    /// Worktrees in *stable display* order (the remembered order for this repo,
+    /// newcomers spliced into place). Used by the tree rows and the tree-guide.
+    func visibleWorktrees(_ project: RepoProject, showClean: Bool) -> [RepoWorktree] {
+        let canon = canonicalWorktrees(project, showClean: showClean)
+        guard let remembered = orderedWorktreeIDsByProject[project.id] else { return canon }
+        let byID = Dictionary(canon.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return stableMerge(canonical: canon.map(\.id), previous: remembered).compactMap { byID[$0] }
+    }
+
     func rows(_ projects: [RepoProject], showClean: Bool) -> [Row] {
         var out: [Row] = []
-        for project in sortedProjects(projects) {
+        for project in displayProjects(projects) {
             out.append(Row(kind: .project(project.id), depth: 0))
             if collapsedProjects.contains(project.id) { continue }
             for worktree in visibleWorktrees(project, showClean: showClean) {
@@ -473,6 +557,7 @@ struct ScoutReposContent: View {
         HStack(spacing: HudSpacing.md) {
             if repos.quietWorktreeCount > 0 || repos.showCleanIdle {
                 Button {
+                    tree.requestRerank()
                     withAnimation(.easeOut(duration: 0.16)) { repos.showCleanIdle.toggle() }
                 } label: {
                     HStack(spacing: HudSpacing.xxs) {
@@ -488,6 +573,7 @@ struct ScoutReposContent: View {
             }
 
             Button {
+                tree.requestRerank()
                 repos.refresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
@@ -496,7 +582,7 @@ struct ScoutReposContent: View {
             }
             .buttonStyle(.plain)
             .scoutPointerCursor()
-            .help("Rescan repositories")
+            .help("Rescan & re-rank repositories")
         }
     }
 
@@ -544,12 +630,21 @@ struct ScoutReposContent: View {
                 withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id) }
             }
             .onAppear {
+                tree.reconcileOrder(projects: repos.projects, showClean: repos.showCleanIdle)
                 tree.ensureSelection(projects: repos.projects, showClean: repos.showCleanIdle)
             }
-            .onChange(of: repos.projects.count) { _, _ in
+            .onChange(of: repos.generatedAt) { _, _ in
+                tree.reconcileOrder(projects: repos.projects, showClean: repos.showCleanIdle)
                 tree.ensureSelection(projects: repos.projects, showClean: repos.showCleanIdle)
+            }
+            .onChange(of: tree.sortKey) { _, _ in
+                tree.reconcileOrder(projects: repos.projects, showClean: repos.showCleanIdle)
+            }
+            .onChange(of: tree.sortDir) { _, _ in
+                tree.reconcileOrder(projects: repos.projects, showClean: repos.showCleanIdle)
             }
             .onChange(of: repos.showCleanIdle) { _, _ in
+                tree.reconcileOrder(projects: repos.projects, showClean: repos.showCleanIdle)
                 tree.ensureSelection(projects: repos.projects, showClean: repos.showCleanIdle)
             }
         }
@@ -606,6 +701,7 @@ struct ScoutReposTree: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(moveAnimation, value: model.selectedID)
+        .animation(moveAnimation, value: rows.map(\.id))
     }
 
     @ViewBuilder

@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 9;
+export const CONTROL_PLANE_SCHEMA_VERSION = 10;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -109,9 +109,42 @@ CREATE TABLE IF NOT EXISTS message_mentions (
   PRIMARY KEY (message_id, actor_id)
 );
 
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  media_type TEXT NOT NULL,
+  byte_size INTEGER,
+  sha256 TEXT,
+  storage_key TEXT,
+  file_name TEXT,
+  title TEXT,
+  source TEXT NOT NULL,
+  actor_id TEXT NOT NULL REFERENCES actors(id) ON DELETE RESTRICT,
+  origin_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  retention_json TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS asset_derivatives (
+  id TEXT PRIMARY KEY,
+  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  derivative_asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL,
+  text TEXT,
+  media_type TEXT,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS message_attachments (
   id TEXT PRIMARY KEY,
   message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+  asset_id TEXT REFERENCES assets(id) ON DELETE SET NULL,
+  role TEXT,
+  display TEXT,
+  label TEXT,
   media_type TEXT NOT NULL,
   file_name TEXT,
   blob_key TEXT,

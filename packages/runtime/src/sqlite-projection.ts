@@ -1,5 +1,6 @@
 import type {
   ActorIdentity,
+  AssetRecord,
   ConversationDefinition,
   ControlEvent,
   DeliveryIntent,
@@ -36,6 +37,7 @@ const REPLAY_TIER: Record<string, number> = {
   "agent.endpoint.upsert": 2,
   "conversation.upsert": 2,
   "binding.upsert": 3,
+  "asset.record": 3,
   "message.record": 4,
   "conversation.read_cursor.upsert": 5,
   "invocation.record": 4,
@@ -71,10 +73,17 @@ function insertStubsForOrphanedFkTargets(
   const providedNodes = new Set<string>();
   const providedActors = new Set<string>();
   const providedConversations = new Set<string>();
+  const providedAssets = new Set<string>();
 
   const referencedNodes = new Set<string>();
   const referencedActors = new Set<string>();
   const referencedConversations = new Set<string>();
+  const referencedAssets = new Map<string, {
+    mediaType: string;
+    actorId: string;
+    originNodeId: string;
+    createdAt: number;
+  }>();
 
   // Older / partial journal entries occasionally lack fields like
   // `homeNodeId` or `originNodeId`. Don't propagate those undefineds
@@ -104,11 +113,26 @@ function insertStubsForOrphanedFkTargets(
         providedConversations.add(entry.conversation.id);
         addRef(referencedNodes, entry.conversation.authorityNodeId);
         break;
+      case "asset.record":
+        providedAssets.add(entry.asset.id);
+        addRef(referencedNodes, entry.asset.originNodeId);
+        addRef(referencedActors, entry.asset.actorId);
+        break;
       case "message.record":
         addRef(referencedNodes, entry.message.originNodeId);
         addRef(referencedActors, entry.message.actorId);
         addRef(referencedConversations, entry.message.conversationId);
         addRef(referencedConversations, entry.message.threadConversationId);
+        for (const attachment of entry.message.attachments ?? []) {
+          if (attachment.assetId) {
+            referencedAssets.set(attachment.assetId, {
+              mediaType: attachment.mediaType,
+              actorId: entry.message.actorId,
+              originNodeId: entry.message.originNodeId,
+              createdAt: entry.message.createdAt,
+            });
+          }
+        }
         break;
       case "conversation.read_cursor.upsert":
         addRef(referencedNodes, entry.cursor.readerNodeId);
@@ -190,6 +214,21 @@ function insertStubsForOrphanedFkTargets(
       } as ConversationDefinition);
     }
   }
+
+  for (const [id, fallback] of referencedAssets) {
+    if (!providedAssets.has(id)) {
+      store.recordAsset({
+        id,
+        mediaType: fallback.mediaType,
+        source: "import",
+        actorId: fallback.actorId,
+        originNodeId: fallback.originNodeId,
+        createdAt: fallback.createdAt,
+        metadata: { projectionStub: true },
+        retention: { class: "conversation" },
+      } as AssetRecord);
+    }
+  }
 }
 
 function applyJournalEntryToStore(
@@ -214,6 +253,9 @@ function applyJournalEntryToStore(
       return [];
     case "binding.upsert":
       store.upsertBinding(entry.binding);
+      return [];
+    case "asset.record":
+      store.recordAsset(entry.asset);
       return [];
     case "message.record":
       return store.recordMessage(entry.message);

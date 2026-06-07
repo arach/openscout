@@ -9,6 +9,7 @@ import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js"
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 import type { UnblockRequestEvent, UnblockRequestRecord } from "./unblock-requests.js";
 import type { ScoutDispatchRecord } from "./scout-dispatch.js";
+import type { AssetRecord } from "./assets.js";
 
 export interface ControlEventBase<K extends string, P> {
   id: ScoutId;
@@ -45,6 +46,10 @@ export type ConversationUpsertedEvent = ControlEventBase<"conversation.upserted"
 
 export type BindingUpsertedEvent = ControlEventBase<"binding.upserted", {
   binding: ConversationBinding;
+}>;
+
+export type AssetRecordedEvent = ControlEventBase<"asset.recorded", {
+  asset: AssetRecord;
 }>;
 
 export type MessagePostedEvent = ControlEventBase<"message.posted", {
@@ -104,6 +109,7 @@ export type ControlEvent =
   | AgentEndpointDeletedEvent
   | ConversationUpsertedEvent
   | BindingUpsertedEvent
+  | AssetRecordedEvent
   | MessagePostedEvent
   | ConversationReadCursorUpdatedEvent
   | InvocationRequestedEvent

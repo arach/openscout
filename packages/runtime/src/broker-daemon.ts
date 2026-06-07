@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { createReadStream, existsSync, mkdirSync, openSync } from "node:fs";
 import { lstat, mkdir, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
@@ -18,6 +18,7 @@ import {
   assertValidCollaborationRecord,
   assertValidUnblockRequestEvent,
   assertValidUnblockRequestRecord,
+  type AssetRecord,
   buildScoutReturnAddress,
   namedChannelNaturalKey,
   channelNaturalKeyFromMetadata,
@@ -32,6 +33,8 @@ import {
   type ConversationBinding,
   type ConversationDefinition,
   type ConversationReadCursor,
+  type CreateAssetRequest,
+  type CreateAssetResponse,
   type DeliveryIntent,
   type DeliveryReason,
   type DeliveryStatus,
@@ -146,6 +149,11 @@ import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 import { isDispatchStalledError } from "./dispatch-stalled.js";
 import { isCodexAppServerExitError } from "./codex-app-server.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import {
+  createLocalAsset,
+  resolveAssetContentPath,
+  sweepAssetStoreTemps,
+} from "./asset-store.js";
 import {
   requestScoutBrokerJson,
   registerActiveScoutBrokerService,
@@ -273,6 +281,16 @@ function badRequest(response: ServerResponse, error: unknown): void {
   });
 }
 
+function isTrustedLocalRequest(request: IncomingMessage): boolean {
+  const address = request.socket.remoteAddress;
+  if (!address) {
+    return true;
+  }
+  return isLoopbackHost(address)
+    || address === "::ffff:127.0.0.1"
+    || address.startsWith("::ffff:127.");
+}
+
 function conflict(response: ServerResponse, detail: string): void {
   json(response, 409, {
     error: "conflict",
@@ -293,8 +311,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 const controlHome = resolveControlPlaneHome();
+const supportPaths = resolveOpenScoutSupportPaths();
 const dbPath = join(controlHome, "control-plane.sqlite");
 const journalPath = join(controlHome, "broker-journal.jsonl");
+const assetsDirectory = supportPaths.assetsDirectory;
 const port = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
 const advertiseScope = resolveAdvertiseScope();
 const host = resolveBrokerHost(advertiseScope);
@@ -1245,6 +1265,21 @@ async function appendUnblockRequestEventDurably(
       options,
     );
   });
+}
+
+async function recordAssetDurably(
+  asset: AssetRecord,
+  options: { enqueueProjection?: boolean } = {},
+): Promise<BrokerJournalEntry[]> {
+  return runDurableWrite(async () =>
+    commitDurableEntries(
+      { kind: "asset.record", asset },
+      async () => {
+        await runtime.recordAsset(asset);
+      },
+      options,
+    )
+  );
 }
 
 async function recordMessageDurably(
@@ -5233,6 +5268,14 @@ async function handleCommand(command: ControlCommand): Promise<unknown> {
     case "binding.upsert":
       await upsertBindingDurably(command.binding);
       return { ok: true };
+    case "asset.record": {
+      const entries = await recordAssetDurably(command.asset);
+      return {
+        ok: true,
+        assetId: command.asset.id,
+        entries: entries.length,
+      };
+    }
     case "collaboration.upsert": {
       if (command.record.conversationId) {
         const authority = authorityNodeForConversation(command.record.conversationId);
@@ -5516,6 +5559,12 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     : null;
   const threadWatchStreamMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
+    : null;
+  const assetContentMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/assets\/([^/]+)\/content$/)
+    : null;
+  const assetRecordMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/assets\/([^/]+)$/)
     : null;
   if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start") && method === "OPTIONS") {
     response.writeHead(204, scoutWebSupervisorCorsHeaders(request));
@@ -6086,6 +6135,99 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       const command = await readRequestBody<ControlCommand>(request);
       const result = await brokerService.executeCommand(command);
       json(response, 200, result);
+    } catch (error) {
+      badRequest(response, error);
+    }
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/assets") {
+    const limit = parseLimit(url);
+    const assets = Object.values(runtime.snapshot().assets)
+      .sort((left, right) => right.createdAt - left.createdAt)
+      .slice(0, limit);
+    json(response, 200, assets);
+    return;
+  }
+
+  if (assetRecordMatch) {
+    const assetId = decodeURIComponent(assetRecordMatch[1] ?? "");
+    const asset = runtime.snapshot().assets[assetId];
+    if (!asset) {
+      notFound(response);
+      return;
+    }
+    json(response, 200, asset);
+    return;
+  }
+
+  if (assetContentMatch) {
+    try {
+      const assetId = decodeURIComponent(assetContentMatch[1] ?? "");
+      const asset = runtime.snapshot().assets[assetId];
+      if (!asset) {
+        notFound(response);
+        return;
+      }
+      if (!asset.storageKey) {
+        json(response, 404, {
+          error: "asset_content_unavailable",
+          detail: "asset has no local storage key",
+        });
+        return;
+      }
+      const contentPath = resolveAssetContentPath(assetsDirectory, asset.storageKey);
+      const contentStat = await stat(contentPath);
+      if (!contentStat.isFile()) {
+        throw new Error("asset content path is not a file");
+      }
+      response.writeHead(200, {
+        "content-type": asset.mediaType,
+        "content-length": String(asset.byteSize ?? contentStat.size),
+        "cache-control": "private, max-age=3600",
+        "x-openscout-asset-id": asset.id,
+      });
+      createReadStream(contentPath)
+        .on("error", (error) => response.destroy(error))
+        .pipe(response);
+    } catch (error) {
+      if (!response.headersSent) {
+        badRequest(response, error);
+      } else {
+        response.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/v1/assets") {
+    try {
+      const body = await readRequestBody<CreateAssetRequest>(request);
+      await sweepAssetStoreTemps(assetsDirectory).catch((error) => {
+        console.warn(
+          "[openscout-runtime] asset temp sweep failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+      const asset = await createLocalAsset({ ...body, originNodeId: nodeId }, {
+        assetsDirectory,
+        nodeId,
+        defaultActorId: operatorActorId,
+        allowTrustedLocalPath: isTrustedLocalRequest(request),
+      });
+      if (!runtime.snapshot().actors[asset.actorId] && !runtime.snapshot().agents[asset.actorId]) {
+        await upsertActorDurably({
+          id: asset.actorId,
+          kind: asset.actorId === operatorActorId ? "person" : "agent",
+          displayName: titleCaseName(asset.actorId),
+          handle: asset.actorId,
+          labels: ["scout"],
+          metadata: { source: "asset-store" },
+        });
+      }
+      await brokerService.executeCommand({ kind: "asset.record", asset });
+      const payload: CreateAssetResponse = { ok: true, asset };
+      json(response, 200, payload);
     } catch (error) {
       badRequest(response, error);
     }

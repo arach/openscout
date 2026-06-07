@@ -123,13 +123,14 @@ describe("repo-watch", () => {
       projects: 1,
       worktrees: 1,
       dirtyWorktrees: 1,
+      attentionWorktrees: 0,
       attachedAgents: 1,
       attachedSessions: 1,
     });
     const worktree = snapshot.projects[0]!.worktrees[0]!;
     expect(worktree.branch.name).toBe("main");
-    expect(worktree.attention).toBe("attention");
-    expect(worktree.attentionReasons).toContain("Dirty main");
+    expect(worktree.attention).toBe("active");
+    expect(worktree.attentionReasons).toContain("2 changed files");
     expect(worktree.status.unstaged).toBe(1);
     expect(worktree.status.untracked).toBe(1);
     expect(worktree.agents[0]?.id).toBe("agent.codex");

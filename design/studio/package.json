@@ -4,12 +4,17 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Internal design + planning studio for OpenScout. Renders the plans/ tree, hosts inline UI studies, and exposes a live atom gallery.",
+  "workspaces": [
+    "../../../studio",
+    "../../../hudson/packages/web/hudsonkit"
+  ],
   "scripts": {
     "dev": "next dev --port 3030",
     "build": "next build",
     "start": "next start --port 3030"
   },
   "dependencies": {
+    "studio": "workspace:*",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.11",
     "@codemirror/lang-javascript": "^6.2.5",

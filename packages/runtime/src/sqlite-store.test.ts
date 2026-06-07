@@ -121,6 +121,117 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
+  test("persists asset records and message attachment asset references", () => {
+    const store = createStore();
+
+    try {
+      store.upsertNode({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "Test node",
+        advertiseScope: "local",
+        registeredAt: 100,
+      });
+      store.upsertActor({
+        id: "operator",
+        kind: "person",
+        displayName: "Operator",
+      });
+      store.upsertConversation({
+        id: "conv-1",
+        kind: "direct",
+        title: "Direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator"],
+      });
+
+      store.recordAsset({
+        id: "asset-1",
+        mediaType: "image/png",
+        byteSize: 68,
+        sha256: "abc123",
+        storageKey: "objects/ab/c1/abc123",
+        fileName: "screen.png",
+        title: "Screen",
+        source: "screenshot",
+        actorId: "operator",
+        originNodeId: "node-1",
+        createdAt: 123,
+        retention: { class: "conversation" },
+        metadata: { capture: true },
+        derivatives: [
+          {
+            id: "derivative-1",
+            kind: "ocr_text",
+            text: "hello",
+            createdAt: 124,
+            metadata: { untrustedPromptContext: true },
+          },
+        ],
+      });
+
+      store.recordMessage({
+        id: "msg-1",
+        conversationId: "conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "see attached",
+        visibility: "private",
+        policy: "durable",
+        createdAt: 125,
+        attachments: [
+          {
+            id: "att-1",
+            assetId: "asset-1",
+            role: "screen_capture",
+            display: "inline",
+            label: "Screenshot",
+            mediaType: "image/png",
+            fileName: "screen.png",
+          },
+        ],
+      });
+
+      const snapshot = store.loadSnapshot();
+      expect(snapshot.assets["asset-1"]).toMatchObject({
+        id: "asset-1",
+        mediaType: "image/png",
+        byteSize: 68,
+        sha256: "abc123",
+        storageKey: "objects/ab/c1/abc123",
+        fileName: "screen.png",
+        title: "Screen",
+        source: "screenshot",
+        actorId: "operator",
+        originNodeId: "node-1",
+        createdAt: 123,
+        retention: { class: "conversation" },
+        metadata: { capture: true },
+      });
+      expect(snapshot.assets["asset-1"]?.derivatives?.[0]).toMatchObject({
+        id: "derivative-1",
+        kind: "ocr_text",
+        text: "hello",
+        createdAt: 124,
+        metadata: { untrustedPromptContext: true },
+      });
+      expect(snapshot.messages["msg-1"]?.attachments?.[0]).toMatchObject({
+        id: "att-1",
+        assetId: "asset-1",
+        role: "screen_capture",
+        display: "inline",
+        label: "Screenshot",
+        mediaType: "image/png",
+        fileName: "screen.png",
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   test("derives replayable thread events and summary snapshots for summary conversations", () => {
     const store = createStore();
 

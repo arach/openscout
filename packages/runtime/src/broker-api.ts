@@ -5,6 +5,7 @@ import type {
   AgentBrokerFeed,
   AgentDefinition,
   AgentEndpoint,
+  AssetRecord,
   CollaborationEvent,
   CollaborationRecord,
   ControlCommand,
@@ -52,6 +53,7 @@ export type ScoutBrokerHealthPayload = {
     persistentAgentCards?: number;
     conversations: number;
     messages: number;
+    assets?: number;
     flights: number;
     collaborationRecords: number;
   } | null;
@@ -128,6 +130,10 @@ export type ScoutBrokerInvocationLifecycleQuery = {
   invocationId: string;
 };
 
+export type ScoutBrokerAssetQuery = {
+  limit?: number;
+};
+
 export type ActiveScoutBrokerService = {
   baseUrl: string;
   matchesBaseUrl?: (baseUrl: string) => boolean;
@@ -138,6 +144,10 @@ export type ActiveScoutBrokerService = {
   readMessages?: (
     query: ScoutBrokerMessageQuery,
   ) => Promise<MessageRecord[]>;
+  readAssets?: (
+    query: ScoutBrokerAssetQuery,
+  ) => Promise<AssetRecord[]>;
+  readAsset?: (assetId: string) => Promise<AssetRecord | null>;
   readAgentBrokerFeed?: (
     query: ScoutBrokerAgentFeedQuery,
   ) => Promise<AgentBrokerFeed>;
@@ -575,6 +585,25 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
       since: parsePositiveInt(url.searchParams.get("since")) ?? null,
       limit: parseLimit(url.searchParams.get("limit")),
     }) as T);
+  }
+
+  if (url.pathname === "/v1/assets") {
+    if (!service.readAssets) {
+      return unhandled();
+    }
+    return handled(await service.readAssets({
+      limit: parseLimit(url.searchParams.get("limit")),
+    }) as T);
+  }
+
+  const assetMatch = url.pathname.match(/^\/v1\/assets\/([^/]+)$/);
+  if (assetMatch) {
+    if (!service.readAsset) {
+      return unhandled();
+    }
+    return handled(await service.readAsset(
+      decodeURIComponent(assetMatch[1] ?? ""),
+    ) as T);
   }
 
   if (url.pathname === "/v1/broker/messages") {

@@ -2,6 +2,7 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  AssetRecord,
   CollaborationRecord,
   ConversationBinding,
   ConversationDefinition,
@@ -20,6 +21,7 @@ export interface RuntimeRegistrySnapshot {
   endpoints: Record<string, AgentEndpoint>;
   conversations: Record<string, ConversationDefinition>;
   bindings: Record<string, ConversationBinding>;
+  assets: Record<string, AssetRecord>;
   messages: Record<string, MessageRecord>;
   readCursors: Record<string, ConversationReadCursor>;
   invocations: Record<string, InvocationRequest>;
@@ -38,6 +40,7 @@ export function createRuntimeRegistrySnapshot(
     endpoints: value.endpoints ?? {},
     conversations: value.conversations ?? {},
     bindings: value.bindings ?? {},
+    assets: value.assets ?? {},
     messages: value.messages ?? {},
     readCursors: value.readCursors ?? {},
     invocations: value.invocations ?? {},

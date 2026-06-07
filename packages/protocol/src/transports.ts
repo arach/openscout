@@ -6,6 +6,7 @@ import type { NodeDefinition } from "./mesh.js";
 import type { MessageRecord } from "./messages.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
 import type { UnblockRequestEvent, UnblockRequestRecord } from "./unblock-requests.js";
+import type { AssetRecord } from "./assets.js";
 
 export interface SubscriptionRequest {
   actorId: ScoutId;
@@ -68,6 +69,11 @@ export interface BindingUpsertCommand {
   binding: ConversationBinding;
 }
 
+export interface AssetRecordCommand {
+  kind: "asset.record";
+  asset: AssetRecord;
+}
+
 export interface CollaborationUpsertCommand {
   kind: "collaboration.upsert";
   record: CollaborationRecord;
@@ -95,6 +101,7 @@ export type ControlCommand =
   | AgentEndpointUpsertCommand
   | ConversationUpsertCommand
   | BindingUpsertCommand
+  | AssetRecordCommand
   | CollaborationUpsertCommand
   | CollaborationEventAppendCommand
   | UnblockRequestUpsertCommand

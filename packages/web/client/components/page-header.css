@@ -1,0 +1,100 @@
+/* App Page Header — the reusable top-of-page band for OpenScout web screens.
+ *
+ * Calm, dense, operational. This is the canonical replacement for the
+ * per-screen `.sys-page-head` / `.s-*-hero` / `.s-*-toolbar` blocks. Values
+ * mirror the established `.sys-page-*` treatment so screens migrating from it
+ * stay pixel-identical; new screens get the same look without depending on
+ * `system-surfaces-redesign.css`.
+ *
+ * Anatomy (all regions optional except the title):
+ *   [lead] [eyebrow / title / subtitle / meta]      [status · syncNote · actions]
+ */
+
+.s-page-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.s-page-header-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2xl);
+}
+
+.s-page-header-lead {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.s-page-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  min-width: 0;
+}
+
+.s-page-header-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+  opacity: 0.7;
+}
+
+.s-page-header-title {
+  font-family: var(--font-accent-title);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: var(--leading-none);
+  letter-spacing: -0.025em;
+  color: var(--ink);
+}
+
+.s-page-header-subtitle {
+  max-width: 520px;
+  font-size: var(--text-md);
+  color: var(--dim);
+  line-height: var(--leading-snug);
+}
+
+.s-page-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-3xs);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.s-page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.s-page-header-sync {
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* Stack the bands on narrow viewports, matching the legacy collapse. */
+@media (max-width: 780px) {
+  .s-page-header-bar,
+  .s-page-header-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .s-page-header-actions {
+    justify-content: flex-start;
+  }
+}

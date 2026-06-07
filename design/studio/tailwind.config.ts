@@ -17,6 +17,9 @@ const config: Config = {
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
+    // Shared studio package source (bun workspace sibling) — so Tailwind
+    // emits classes that only appear inside studio's components.
+    "../../../studio/src/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {

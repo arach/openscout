@@ -5,6 +5,7 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  AssetRecord,
   CollaborationEvent,
   CollaborationRecord,
   ConversationBinding,
@@ -38,6 +39,7 @@ export type BrokerJournalEntry =
   | { kind: "agent.endpoint.upsert"; endpoint: AgentEndpoint }
   | { kind: "conversation.upsert"; conversation: ConversationDefinition }
   | { kind: "binding.upsert"; binding: ConversationBinding }
+  | { kind: "asset.record"; asset: AssetRecord }
   | { kind: "message.record"; message: MessageRecord }
   | { kind: "conversation.read_cursor.upsert"; cursor: ConversationReadCursor }
   | { kind: "invocation.record"; invocation: InvocationRequest }
@@ -79,7 +81,8 @@ type DedupableJournalEntry =
   | BrokerJournalEntry & { kind: "agent.upsert" }
   | BrokerJournalEntry & { kind: "agent.endpoint.upsert" }
   | BrokerJournalEntry & { kind: "conversation.upsert" }
-  | BrokerJournalEntry & { kind: "binding.upsert" };
+  | BrokerJournalEntry & { kind: "binding.upsert" }
+  | BrokerJournalEntry & { kind: "asset.record" };
 
 function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapshot {
   return createRuntimeRegistrySnapshot({
@@ -89,6 +92,7 @@ function cloneSnapshot(snapshot: RuntimeRegistrySnapshot): RuntimeRegistrySnapsh
     endpoints: { ...snapshot.endpoints },
     conversations: { ...snapshot.conversations },
     bindings: { ...snapshot.bindings },
+    assets: { ...snapshot.assets },
     messages: { ...snapshot.messages },
     readCursors: { ...snapshot.readCursors },
     invocations: { ...snapshot.invocations },
@@ -164,6 +168,8 @@ function dedupeKey(entry: BrokerJournalEntry): string | null {
       return `${entry.kind}:${entry.conversation.id}`;
     case "binding.upsert":
       return `${entry.kind}:${entry.binding.id}`;
+    case "asset.record":
+      return `${entry.kind}:${entry.asset.id}`;
     default:
       return null;
   }
@@ -424,6 +430,8 @@ export class FileBackedBrokerJournal {
         return !sameValue(snapshot.conversations[entry.conversation.id], entry.conversation);
       case "binding.upsert":
         return !sameValue(snapshot.bindings[entry.binding.id], entry.binding);
+      case "asset.record":
+        return !sameValue(snapshot.assets[entry.asset.id], entry.asset);
       default:
         return true;
     }
@@ -459,6 +467,9 @@ export class FileBackedBrokerJournal {
       case "binding.upsert":
         snapshot.bindings[entry.binding.id] = entry.binding;
         return;
+      case "asset.record":
+        snapshot.assets[entry.asset.id] = entry.asset;
+        return;
       default:
         return;
     }
@@ -493,6 +504,9 @@ export class FileBackedBrokerJournal {
         return;
       case "binding.upsert":
         this.state.snapshot.bindings[entry.binding.id] = entry.binding;
+        return;
+      case "asset.record":
+        this.state.snapshot.assets[entry.asset.id] = entry.asset;
         return;
       case "message.record":
         this.state.snapshot.messages[entry.message.id] = entry.message;

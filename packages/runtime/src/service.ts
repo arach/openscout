@@ -2,6 +2,7 @@ import type {
   ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
+  AssetRecord,
   CollaborationEvent,
   CollaborationRecord,
   ConversationBinding,
@@ -28,6 +29,7 @@ export interface ControlRuntime {
   upsertEndpoint(endpoint: AgentEndpoint): Promise<void>;
   upsertConversation(conversation: ConversationDefinition): Promise<void>;
   upsertBinding(binding: ConversationBinding): Promise<void>;
+  recordAsset(asset: AssetRecord): Promise<void>;
   upsertFlight(flight: FlightRecord): Promise<void>;
   upsertCollaboration(record: CollaborationRecord): Promise<void>;
   appendCollaborationEvent(event: CollaborationEvent): Promise<void>;

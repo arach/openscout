@@ -8,6 +8,7 @@ export type OpenScoutSupportPaths = {
   appLogsDirectory: string;
   brokerLogsDirectory: string;
   runtimeDirectory: string;
+  assetsDirectory: string;
   catalogDirectory: string;
   relayAgentsDirectory: string;
   settingsPath: string;
@@ -43,6 +44,7 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
     appLogsDirectory: join(logsDirectory, "app"),
     brokerLogsDirectory: join(logsDirectory, "broker"),
     runtimeDirectory,
+    assetsDirectory: join(supportDirectory, "assets"),
     catalogDirectory,
     relayAgentsDirectory: join(runtimeDirectory, "agents"),
     settingsPath: join(supportDirectory, "settings.json"),

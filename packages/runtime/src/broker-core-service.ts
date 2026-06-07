@@ -5,6 +5,7 @@ import type {
   AgentBrokerFeedItem,
   AgentBrokerFeedSeverity,
   AgentDefinition,
+  AssetRecord,
   CollaborationRecord,
   ControlCommand,
   DeliveryAttempt,
@@ -32,6 +33,7 @@ import type {
   ScoutBrokerActivityQuery,
   ScoutBrokerCollaborationEventQuery,
   ScoutBrokerCollaborationRecordQuery,
+  ScoutBrokerAssetQuery,
   ScoutBrokerAgentFeedQuery,
   ScoutBrokerMessageQuery,
   ScoutBrokerUnblockRequestEventQuery,
@@ -176,6 +178,16 @@ function listBrokerMessages(
     .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
     .slice(0, limit)
     .reverse();
+}
+
+function listBrokerAssets(
+  runtime: BrokerCoreRuntime,
+  input: ScoutBrokerAssetQuery = {},
+): AssetRecord[] {
+  const limit = normalizeLimit(input.limit);
+  return Object.values(runtime.snapshot().assets)
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, limit);
 }
 
 function isBrokerRequesterWaitTimeoutStatusMessage(message: MessageRecord): boolean {
@@ -936,6 +948,7 @@ export function createBrokerCoreService(
           persistentAgentCards: agentCounts.persistentAgentCards,
           conversations: Object.keys(snapshot.conversations).length,
           messages: Object.keys(snapshot.messages).length,
+          assets: Object.keys(snapshot.assets).length,
           flights: Object.keys(snapshot.flights).length,
           collaborationRecords: Object.keys(snapshot.collaborationRecords)
             .length,
@@ -946,6 +959,8 @@ export function createBrokerCoreService(
     readNode: async () => deps.localNode,
     readSnapshot: async () => deps.runtime.snapshot(),
     readMessages: async (query) => listBrokerMessages(deps.runtime, query),
+    readAssets: async (query) => listBrokerAssets(deps.runtime, query),
+    readAsset: async (assetId) => deps.runtime.snapshot().assets[assetId] ?? null,
     readActivity: async (query) =>
       await listBrokerActivity(
         deps.projection,

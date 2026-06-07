@@ -7,6 +7,7 @@ import { pairingTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { PairingState, Route } from "../lib/types.ts";
 import { AgentConfigurationScreen } from "./AgentConfigurationScreen.tsx";
+import { PageHeader } from "../components/PageHeader.tsx";
 import "./system-surfaces-redesign.css";
 
 function relayHostLabel(input: string | null): string | null {
@@ -245,24 +246,20 @@ function PairingSettingsScreen() {
 
   return (
     <div className="sys-surface-page sys-settings-page">
-      <div className="sys-page-head">
-        <div className="sys-page-title-group">
-          <h2 className="sys-page-title">Settings</h2>
-          <p className="sys-page-subtitle">
-            Identity, pairing, and trusted devices.
-          </p>
-        </div>
-        <div className="sys-page-actions">
-          {pairing && <StatusPill tone={tone}>{pairing.statusLabel}</StatusPill>}
-          <div className="sys-sync-note">
-            {loading
-              ? "Loading..."
-              : pairingError && pairing
-                ? `Snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
-                : lastLoadedAt
-                  ? `Updated ${timeAgo(lastLoadedAt)}`
-                  : ""}
-          </div>
+      <PageHeader
+        title="Settings"
+        subtitle="Identity, pairing, and trusted devices."
+        status={pairing ? <StatusPill tone={tone}>{pairing.statusLabel}</StatusPill> : undefined}
+        syncNote={
+          loading
+            ? "Loading..."
+            : pairingError && pairing
+              ? `Snapshot from ${lastLoadedAt ? timeAgo(lastLoadedAt) : "earlier"}`
+              : lastLoadedAt
+                ? `Updated ${timeAgo(lastLoadedAt)}`
+                : ""
+        }
+        actions={
           <button
             type="button"
             className="s-btn"
@@ -271,8 +268,8 @@ function PairingSettingsScreen() {
           >
             {refreshing ? "Refreshing..." : "Refresh"}
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {pairingError && pairing && (
         <div className="sys-banner sys-banner-warning">
