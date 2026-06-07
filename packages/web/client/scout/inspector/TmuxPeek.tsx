@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { api } from "../../lib/api.ts";
-import { timeAgo } from "../../lib/time.ts";
+import { formatAbsoluteTimestamp } from "../../lib/time.ts";
 import type { TmuxPeekPayload } from "../../lib/types.ts";
 
 const TMUX_PEEK_LINES = 44;
@@ -8,7 +8,7 @@ const TMUX_PEEK_COLUMNS = 132;
 const TMUX_PEEK_POLL_MS = 3_500;
 const TMUX_PEEK_IDLE_POLL_MS = 7_000;
 
-function samePeek(left: TmuxPeekPayload | null, right: TmuxPeekPayload): boolean {
+function sameTerminalFrame(left: TmuxPeekPayload | null, right: TmuxPeekPayload): boolean {
   return Boolean(
     left &&
     left.available === right.available &&
@@ -20,6 +20,13 @@ function samePeek(left: TmuxPeekPayload | null, right: TmuxPeekPayload): boolean
     left.reason === right.reason,
   );
 }
+
+type TmuxPeekFrame = {
+  payload: TmuxPeekPayload;
+  observedAt: number;
+  changedAt: number | null;
+  steady: boolean;
+};
 
 export function TmuxPeekPanel({
   agentId,
@@ -34,12 +41,12 @@ export function TmuxPeekPanel({
   columns?: number;
   className?: string;
 }) {
-  const [peek, setPeek] = useState<TmuxPeekPayload | null>(null);
+  const [frame, setFrame] = useState<TmuxPeekFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setPeek(null);
+    setFrame(null);
     setError(null);
     if (!enabled || !agentId) {
       setLoading(false);
@@ -76,7 +83,17 @@ export function TmuxPeekPanel({
         );
         if (cancelled) return;
         setError(null);
-        setPeek((previous) => samePeek(previous, next) ? previous : next);
+        setFrame((previous) => {
+          if (previous && sameTerminalFrame(previous.payload, next)) {
+            return previous.steady ? previous : { ...previous, steady: true };
+          }
+          return {
+            payload: next,
+            observedAt: previous?.observedAt ?? next.capturedAt,
+            changedAt: previous ? next.capturedAt : null,
+            steady: false,
+          };
+        });
         nextDelay = next.available ? TMUX_PEEK_POLL_MS : TMUX_PEEK_IDLE_POLL_MS;
       } catch (loadError) {
         if (cancelled) return;
@@ -84,8 +101,8 @@ export function TmuxPeekPanel({
         nextDelay = TMUX_PEEK_IDLE_POLL_MS;
       } finally {
         if (!cancelled) {
+          if (firstLoad) setLoading(false);
           firstLoad = false;
-          setLoading(false);
           schedule(nextDelay);
         }
       }
@@ -109,6 +126,7 @@ export function TmuxPeekPanel({
 
   if (!enabled || !agentId) return null;
 
+  const peek = frame?.payload ?? null;
   const body = peek?.body ?? "";
   const lineCount = peek?.lineCount ?? lines;
   const columnCount = peek?.columnCount ?? columns;
@@ -124,7 +142,7 @@ export function TmuxPeekPanel({
   const hasScreen = Boolean(peek?.available && body);
   const status = error
     ? error
-    : loading && !peek
+    : loading && !frame
       ? "Sampling tmux..."
       : peek?.available === false
         ? peek.reason ?? "No tmux pane is available."
@@ -133,6 +151,21 @@ export function TmuxPeekPanel({
           : peek?.available
             ? "Pane is empty."
             : "Sampling tmux...";
+  const frameStatusLabel = frame
+    ? frame.changedAt && !frame.steady
+      ? "Changed"
+      : frame.steady
+        ? "At rest"
+        : "Sampled"
+    : null;
+  const frameStatusAt = frame?.changedAt ?? frame?.observedAt ?? null;
+  const frameStatusTitle = frame
+    ? frame.changedAt
+      ? frame.steady
+        ? `No terminal content change since ${formatAbsoluteTimestamp(frame.changedAt)}`
+        : `Terminal content changed ${formatAbsoluteTimestamp(frame.changedAt)}`
+      : `First terminal sample observed ${formatAbsoluteTimestamp(frame.observedAt)}`
+    : undefined;
 
   return (
     <div
@@ -149,24 +182,28 @@ export function TmuxPeekPanel({
             {peek.sessionId.length > 12 ? peek.sessionId.slice(0, 10) : peek.sessionId}
           </span>
         )}
-        {peek?.capturedAt && (
-          <time dateTime={new Date(peek.capturedAt).toISOString()}>
-            {timeAgo(peek.capturedAt)}
+        {frameStatusLabel && frameStatusAt && (
+          <time
+            className="ctx-panel-tmux-peek-state"
+            dateTime={new Date(frameStatusAt).toISOString()}
+            title={frameStatusTitle}
+          >
+            {frameStatusLabel}
           </time>
         )}
       </div>
       {hasScreen ? (
-        <pre className="ctx-panel-tmux-peek-screen" aria-live="polite">
+        <pre className="ctx-panel-tmux-peek-screen">
           {body}
         </pre>
       ) : (
-        <div className="ctx-panel-tmux-peek-empty" aria-live="polite">
+        <div className="ctx-panel-tmux-peek-empty">
           {status}
         </div>
       )}
       {peek?.truncated && body && (
         <div className="ctx-panel-tmux-peek-foot">
-          Last {lineCount} rows from live tmux pane
+          Last {lineCount} rows from tmux pane
         </div>
       )}
     </div>

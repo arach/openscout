@@ -1,3 +1,4 @@
+import { UserPlus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ScoutDispatchRecord,
@@ -34,7 +35,7 @@ import {
   shouldShowConversationWorkingTurn,
 } from "../lib/conversations.ts";
 import { MessageMarkup } from "../lib/message-markup.tsx";
-import { queueTakeover } from "../lib/terminal-takeover.ts";
+import { isNoisyConversationStatusMessage } from "../lib/message-visibility.ts";
 import {
   agentIdFromConversation,
   conversationForAgent,
@@ -53,7 +54,6 @@ import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { DictationMic } from "../components/DictationMic.tsx";
 import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { MessageEmbeds } from "../components/MessageEmbeds.tsx";
-import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
 import type {
   Agent,
   Flight,
@@ -63,17 +63,9 @@ import type {
   Message,
   Route,
   SessionEntry,
-  SessionCatalogWithResume,
 } from "../lib/types.ts";
 import "./conversation-screen.css";
 import "./ops-screen.css";
-
-const KIND_LABELS: Record<string, string> = {
-  direct: "Conversation",
-  channel: "Conversation",
-  group_direct: "Conversation",
-  thread: "Thread",
-};
 
 type SlashCommand = {
   command: string;
@@ -201,9 +193,9 @@ type ConversationPresence = {
 
 type TurnSnapshot = {
   latest: string;
-  signalsLabel: string;
+  activityLabel: string;
   elapsedLabel: string;
-  lastSignalLabel: string;
+  lastActivityLabel: string;
 };
 
 function pathLeaf(path: string | null | undefined): string | null {
@@ -249,6 +241,22 @@ function selectCurrentFlight(flights: Flight[]): Flight | null {
         compareTimestampsDesc(left.startedAt, right.startedAt),
       )[0] ?? null
   );
+}
+
+function keepPreviousIfJsonEqual<T>(previous: T, next: T): T {
+  try {
+    return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+  } catch {
+    return next;
+  }
+}
+
+function keepPreviousSetIfEqual<T>(previous: Set<T>, next: Set<T>): Set<T> {
+  if (previous.size !== next.size) return next;
+  for (const item of next) {
+    if (!previous.has(item)) return next;
+  }
+  return previous;
 }
 
 function mapEventFlight(
@@ -352,8 +360,8 @@ function turnActivityText(item: FleetActivity): string | null {
   return null;
 }
 
-function pluralizeSignal(count: number): string {
-  return count === 1 ? "1 signal" : `${count} signals`;
+function pluralizeActivityUpdate(count: number): string {
+  return count === 1 ? "1 update" : `${count} updates`;
 }
 
 function buildTurnSnapshot(input: {
@@ -373,11 +381,11 @@ function buildTurnSnapshot(input: {
   const startedAt =
     normalizeTimestampMs(currentFlight?.startedAt) ??
     normalizeTimestampMs(turnAsk?.startedAt);
-  const lastSignalAt =
+  const lastActivityAt =
     normalizeTimestampMs(latestActivity?.ts) ??
     normalizeTimestampMs(turnAsk?.updatedAt) ??
     startedAt;
-  const signalCount = Math.max(
+  const activityCount = Math.max(
     turnActivity.length,
     turnAsk?.acknowledgedAt ? 1 : 0,
     currentFlight ? 1 : 0,
@@ -385,9 +393,9 @@ function buildTurnSnapshot(input: {
 
   return {
     latest,
-    signalsLabel: pluralizeSignal(signalCount),
+    activityLabel: pluralizeActivityUpdate(activityCount),
     elapsedLabel: startedAt ? timeAgo(startedAt, nowMs) : "now",
-    lastSignalLabel: lastSignalAt ? timeAgo(lastSignalAt, nowMs) : "now",
+    lastActivityLabel: lastActivityAt ? timeAgo(lastActivityAt, nowMs) : "now",
   };
 }
 
@@ -698,20 +706,6 @@ function DismissIcon() {
   );
 }
 
-function participantListLabel(session: SessionEntry | null): string | null {
-  if (!session) return null;
-  if (session.kind === "direct") {
-    return session.agentName ?? compactAgentId(session.agentId) ?? null;
-  }
-  const participants = session.participantIds.filter(
-    (participant) => participant !== "operator",
-  );
-  if (participants.length === 0) return null;
-  return participants
-    .map((participant) => compactAgentId(participant) ?? participant)
-    .join(", ");
-}
-
 function shortConversationIdentity(id: string): string {
   if (id.startsWith("conv.")) {
     return `conv.${id.slice("conv.".length, "conv.".length + 8)}`;
@@ -803,7 +797,7 @@ function ChannelRail({
       <div className="s-thread-rail-scroll">
         {needsYouSessions.length > 0 && (
           <div className="s-thread-rail-section s-thread-rail-section--needs-you">
-            <div className="s-thread-rail-section-label">Signals</div>
+            <div className="s-thread-rail-section-label">Needs you</div>
             {needsYouSessions.map((session) => (
               <RailItem
                 key={`needs-${session.id}`}
@@ -1148,6 +1142,7 @@ export function ConversationScreen({
   const currentFlightRef = useRef<Flight | null>(null);
   const lastForegroundRefreshAtRef = useRef(0);
   const appliedInitialDraftKeyRef = useRef<string | null>(null);
+  const lastPostedReadCursorMessageIdRef = useRef<string | null>(null);
 
   const legacyAgentId = agentIdFromConversation(conversationId);
   const agentId = sessionMeta ? sessionMeta.agentId : legacyAgentId;
@@ -1164,7 +1159,10 @@ export function ConversationScreen({
   useEffect(() => {
     api<FleetState>("/api/fleet")
       .then((fleet) => {
-        setNeedsYouIds(fleetAttentionIds(fleet));
+        const nextNeedsYouIds = fleetAttentionIds(fleet);
+        setNeedsYouIds((previous) =>
+          keepPreviousSetIfEqual(previous, nextNeedsYouIds),
+        );
       })
       .catch(() => {});
   }, []);
@@ -1176,7 +1174,7 @@ export function ConversationScreen({
         `/api/session/${encodeURIComponent(conversationId)}`,
       ).catch(() => null);
 
-      setSessionMeta(meta);
+      setSessionMeta((previous) => keepPreviousIfJsonEqual(previous, meta));
       const resolvedAgentId = meta?.agentId ?? legacyAgentId;
 
       const canonicalConversationId =
@@ -1210,39 +1208,55 @@ export function ConversationScreen({
       ]);
 
       const sortedMessages = sortMessages(conversationMessages);
-      setMessages(sortedMessages);
+      const visibleMessages = sortedMessages.filter(
+        (message) => !isNoisyConversationStatusMessage(message),
+      );
+      setMessages((previous) => keepPreviousIfJsonEqual(previous, visibleMessages));
       saveLastViewed(canonicalConversationId);
       const lastMessage = sortedMessages.at(-1);
-      if (lastMessage) {
+      if (
+        lastMessage &&
+        lastPostedReadCursorMessageIdRef.current !== lastMessage.id
+      ) {
+        lastPostedReadCursorMessageIdRef.current = lastMessage.id;
         void api(`/api/conversations/${encodeURIComponent(canonicalConversationId)}/read-cursor`, {
           method: "POST",
           body: JSON.stringify({ lastReadMessageId: lastMessage.id }),
-        }).catch(() => {});
+        }).catch(() => {
+          if (lastPostedReadCursorMessageIdRef.current === lastMessage.id) {
+            lastPostedReadCursorMessageIdRef.current = null;
+          }
+        });
       }
-      setAllFlights(activeFlights);
+      setAllFlights((previous) => keepPreviousIfJsonEqual(previous, activeFlights));
       trackedInvocationIdsRef.current = new Set(
         activeFlights.map((flight) => flight.invocationId),
       );
       const nextCurrentFlight = selectCurrentFlight(activeFlights);
       const turnAgentId = nextCurrentFlight?.agentId ?? resolvedAgentId ?? null;
-      setCurrentFlight(nextCurrentFlight);
-      setTurnActivity(
-        selectTurnActivity(
-          fleet.activity,
-          nextCurrentFlight,
-          canonicalConversationId,
-          turnAgentId,
-        ),
+      const nextTurnActivity = selectTurnActivity(
+        fleet.activity,
+        nextCurrentFlight,
+        canonicalConversationId,
+        turnAgentId,
       );
-      setTurnAsk(
-        selectTurnAsk(
-          fleet.activeAsks,
-          nextCurrentFlight,
-          canonicalConversationId,
-          turnAgentId,
-        ),
+      const nextTurnAsk = selectTurnAsk(
+        fleet.activeAsks,
+        nextCurrentFlight,
+        canonicalConversationId,
+        turnAgentId,
       );
-      setNeedsYouIds(fleetAttentionIds(fleet));
+      setCurrentFlight((previous) =>
+        keepPreviousIfJsonEqual(previous, nextCurrentFlight),
+      );
+      setTurnActivity((previous) =>
+        keepPreviousIfJsonEqual(previous, nextTurnActivity),
+      );
+      setTurnAsk((previous) => keepPreviousIfJsonEqual(previous, nextTurnAsk));
+      const nextNeedsYouIds = fleetAttentionIds(fleet);
+      setNeedsYouIds((previous) =>
+        keepPreviousSetIfEqual(previous, nextNeedsYouIds),
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -1252,16 +1266,9 @@ export function ConversationScreen({
     void load();
   }, [load]);
 
-  const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
-  const [takeoverSent, setTakeoverSent] = useState(false);
   useEffect(() => {
-    if (!agentId) return;
-    let cancelled = false;
-    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
-      .then((result) => { if (!cancelled) setSessionCatalog(result); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [agentId]);
+    lastPostedReadCursorMessageIdRef.current = null;
+  }, [conversationId]);
 
   useEffect(() => {
     currentFlightRef.current = currentFlight;
@@ -1617,37 +1624,44 @@ export function ConversationScreen({
   const threadTitle = sessionMeta ? deriveDisplayTitle(sessionMeta) : agentName;
   const canonicalConversationId = sessionMeta?.id ?? conversationId;
   const conversationAlias = sessionMeta?.alias?.trim() || null;
-  const kindLabel = sessionMeta?.kind
-    ? (KIND_LABELS[sessionMeta.kind] ?? sessionMeta.kind)
-    : "Conversation";
-  const participantLabel = participantListLabel(sessionMeta) ?? conversationId;
   const workspaceName = pathLeaf(sessionMeta?.workspaceRoot);
-  const threadUpdatedAt =
-    sessionMeta?.lastMessageAt ??
-    messages[messages.length - 1]?.createdAt ??
-    null;
-  const threadChips = [
-    workspaceName
-      ? { label: workspaceName, title: sessionMeta?.workspaceRoot ?? undefined }
-      : null,
-    sessionMeta?.currentBranch
-      ? { label: sessionMeta.currentBranch, title: sessionMeta.currentBranch }
-      : null,
-    (agent?.harness ?? sessionMeta?.harness)
-      ? {
-          label: agent?.harness ?? sessionMeta?.harness ?? "",
-          title: undefined,
-        }
-      : null,
-  ].filter((value): value is { label: string; title: string | undefined } =>
-    Boolean(value),
+  const headerParticipants = useMemo(() => {
+    const participants: Array<{
+      id: string;
+      name: string;
+      title: string;
+      agent: Agent | null;
+      operator?: boolean;
+    }> = [
+      {
+        id: "operator",
+        name: "You",
+        title: operatorName,
+        agent: null,
+        operator: true,
+      },
+    ];
+    const participantIds = sessionMeta
+      ? sessionMeta.participantIds.filter((id) => id !== "operator")
+      : agentId
+        ? [agentId]
+        : [];
+    for (const id of participantIds) {
+      const participantAgent = resolveAgentByIdentity(scopedAgents, [id]);
+      participants.push({
+        id,
+        name: participantAgent?.name ?? compactAgentId(id) ?? id,
+        title: participantAgent?.id ?? id,
+        agent: participantAgent,
+      });
+    }
+    return participants;
+  }, [agentId, operatorName, scopedAgents, sessionMeta]);
+  const visibleHeaderParticipants = headerParticipants.slice(0, 4);
+  const hiddenHeaderParticipantCount = Math.max(
+    headerParticipants.length - visibleHeaderParticipants.length,
+    0,
   );
-
-  const participantCount = sessionMeta
-    ? sessionMeta.participantIds.length
-    : isDm
-      ? 2
-      : 1;
 
   const pinnedAsk = useMemo<FleetAsk | null>(() => {
     if (!needsYouIds.has(conversationId) && !(agentId && needsYouIds.has(agentId)))
@@ -1679,6 +1693,7 @@ export function ConversationScreen({
             attachments: message.attachments,
             metadata: message.metadata,
           };
+          if (isNoisyConversationStatusMessage(nextMessage)) return;
 
           setMessages((previous) => {
             if (previous.some((candidate) => candidate.id === message.id))
@@ -2004,17 +2019,6 @@ export function ConversationScreen({
     void record;
   };
 
-  const stackedAvatarAgents = useMemo(() => {
-    if (!sessionMeta) return [];
-    return sessionMeta.participantIds
-      .filter((id) => id !== "operator")
-      .slice(0, 4)
-      .map((id) => {
-        const a = resolveAgentByIdentity(scopedAgents, [id]);
-        return { id, name: a?.name ?? id, agent: a ?? null };
-      });
-  }, [sessionMeta, scopedAgents]);
-
   const addableParticipantAgents = useMemo(() => {
     if (!sessionMeta) return [];
     const currentParticipants = new Set(sessionMeta.participantIds);
@@ -2087,24 +2091,18 @@ export function ConversationScreen({
   return (
     <div className={`s-thread-layout${embedded ? " s-thread-layout--embedded" : ""}`}>
       <div className="s-thread-center">
-        {!embedded && showBackNav && (
-          <BackToPicker
-            slot="conversation"
-            fallback={{ view: "inbox" }}
-            navigate={navigate}
-          />
-        )}
         {!embedded && <div
           className="s-thread-center-header"
-          onClick={() =>
-            isDm
-              ? openContent(
-                  navigate,
-                  { view: "agent-info", conversationId: canonicalConversationId },
-                  { returnTo: route },
-                )
-              : undefined
-          }
+          onClick={(event) => {
+            const target = event.target as HTMLElement | null;
+            if (target?.closest("button,a,input,select,textarea")) return;
+            if (!isDm) return;
+            openContent(
+              navigate,
+              { view: "agent-info", conversationId: canonicalConversationId },
+              { returnTo: route },
+            );
+          }}
           style={isDm ? { cursor: "pointer" } : undefined}
           onContextMenu={(e) => {
             const items: MenuItem[] = [
@@ -2135,91 +2133,92 @@ export function ConversationScreen({
             showContextMenu(e, items);
           }}
         >
+          {showBackNav && (
+            <BackToPicker
+              slot="conversation"
+              fallback={{ view: "inbox" }}
+              navigate={navigate}
+              label="Back"
+              className="s-thread-header-back"
+            />
+          )}
           <div className="s-thread-center-header-info">
             <span className="s-thread-center-header-name">{threadTitle}</span>
-            <div className="s-thread-center-header-eyebrow">
-              <span className="s-thread-center-header-kicker">
-                {kindLabel}
-              </span>
-              {threadUpdatedAt && (
-                <span
-                  className="s-thread-center-header-time"
-                  title={formatAbsoluteTimestamp(threadUpdatedAt)}
-                >
-                  {timeAgo(threadUpdatedAt)}
-                </span>
-              )}
-            </div>
           </div>
 
           <div className="s-thread-center-header-right">
-            {threadChips.length > 0 && (
-              <div className="s-thread-center-header-chips">
-                {threadChips.map((chip, index) => (
-                  <span
-                    key={`${chip.label}-${index}`}
-                    className="s-thread-center-chip"
-                    title={chip.title}
-                  >
-                    {chip.label}
+            {visibleHeaderParticipants.length > 0 && (
+              <div className="s-thread-participants" aria-label="Conversation participants">
+                {visibleHeaderParticipants.map((participant) => {
+                  const participantStyle = {
+                    background: actorColor(participant.name),
+                  } as React.CSSProperties;
+                  const content = (
+                    <>
+                      <span
+                        className="s-thread-participant-avatar"
+                        style={participantStyle}
+                        aria-hidden="true"
+                      >
+                        {participant.name[0]?.toUpperCase() ?? "?"}
+                      </span>
+                      <span className="s-thread-participant-name">
+                        {participant.name}
+                      </span>
+                    </>
+                  );
+                  if (participant.agent) {
+                    return (
+                      <button
+                        key={participant.id}
+                        type="button"
+                        className="s-thread-participant-pill s-thread-participant-pill--button"
+                        title={`Open ${participant.name} profile`}
+                        onClick={() =>
+                          openContent(
+                            navigate,
+                            {
+                              view: "agent-info",
+                              conversationId: conversationForAgent(participant.agent!.id),
+                            },
+                            { returnTo: route },
+                          )
+                        }
+                      >
+                        {content}
+                      </button>
+                    );
+                  }
+                  return (
+                    <span
+                      key={participant.id}
+                      className="s-thread-participant-pill"
+                      title={participant.title}
+                    >
+                      {content}
+                    </span>
+                  );
+                })}
+                {hiddenHeaderParticipantCount > 0 && (
+                  <span className="s-thread-participant-overflow">
+                    +{hiddenHeaderParticipantCount}
                   </span>
-                ))}
+                )}
               </div>
             )}
             {!embedded && canAddParticipants && (
               <button
                 type="button"
-                className="s-btn s-btn-sm s-thread-add-participant-trigger"
-                onClick={(event) => {
-                  event.stopPropagation();
+                className="s-thread-add-participant-trigger"
+                onClick={() => {
                   setAddParticipantError(null);
                   setAddParticipantOpen((open) => !open);
                 }}
+                title="Add participant"
+                aria-label="Add participant"
               >
-                Add participant
+                <UserPlus size={14} strokeWidth={1.9} aria-hidden="true" />
               </button>
-            )}
-            {stackedAvatarAgents.length > 0 && (
-              <div className="s-thread-center-avatars">
-                {stackedAvatarAgents.map((a) => {
-                  const avatarStyle = {
-                    "--size": "22px",
-                    background: actorColor(a.name),
-                  } as React.CSSProperties;
-                  return a.agent ? (
-                    <button
-                      key={a.id}
-                      type="button"
-                      className="s-ops-avatar s-thread-center-avatar-button"
-                      style={avatarStyle}
-                      title={`Open ${a.name} profile`}
-                      aria-label={`Open ${a.name} profile`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openContent(
-                          navigate,
-                          { view: "agent-info", conversationId: conversationForAgent(a.agent!.id) },
-                          { returnTo: route },
-                        );
-                      }}
-                    >
-                      {a.name[0]?.toUpperCase() ?? "?"}
-                    </button>
-                  ) : (
-                    <div
-                      key={a.id}
-                      className="s-ops-avatar"
-                      style={avatarStyle}
-                      title={a.name}
-                    >
-                      {a.name[0]?.toUpperCase() ?? "?"}
-                    </div>
-                  );
-                })}
-                <span className="s-thread-center-participant-count">
-                  {participantCount}
-                </span>
-              </div>
             )}
           </div>
         </div>}
@@ -2359,84 +2358,6 @@ export function ConversationScreen({
           </div>
         )}
 
-        {!embedded && isDm && agent && (agent.harnessSessionId || agent.harnessLogPath || sessionCatalog?.activeSessionId) && (
-          <details className="s-thread-meta-disclosure">
-            <summary className="s-thread-meta-toggle">
-              Session details
-            </summary>
-            <div className="s-thread-meta-block">
-              {sessionCatalog?.activeSessionId && (
-                <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">Session ID</span>
-                  <span className="s-thread-meta-row-value s-thread-meta-row-value--accent" title={sessionCatalog.activeSessionId}>
-                    {sessionCatalog.activeSessionId.slice(0, 8)}
-                  </span>
-                </div>
-              )}
-              {sessionCatalog?.resumeCommand && (
-                <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">Takeover</span>
-                  <span className="s-thread-meta-row-value">
-                    <button
-                      type="button"
-                      className="s-thread-meta-takeover-btn"
-                      title={sessionCatalog.resumeCommand}
-                      onClick={() => {
-                        void queueTakeover({
-                          command: sessionCatalog.resumeCommand!,
-                          cwd: sessionCatalog.resumeCwd,
-                          agentId,
-                        }).then(() =>
-                          openContent(
-                            navigate,
-                            { view: "terminal", agentId: agentId ?? undefined },
-                            { returnTo: route },
-                          ),
-                        );
-                        setTakeoverSent(true);
-                      }}
-                    >
-                      {takeoverSent ? "Going…" : `Takeover — ${sessionCatalog.resumeCommand}`}
-                    </button>
-                  </span>
-                </div>
-              )}
-              {sessionCatalog?.activeSessionId && (
-                <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">Vantage</span>
-                  <span className="s-thread-meta-row-value s-thread-meta-actions">
-                    <VantageHandoffButton
-                      agentId={agentId}
-                      className="s-thread-meta-vantage-btn"
-                      statusClassName="s-thread-meta-vantage-status"
-                      label="Open in Vantage"
-                      openingLabel="Opening…"
-                    />
-                  </span>
-                </div>
-              )}
-              {agent.harnessSessionId && (
-                <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">
-                    Harness Session
-                  </span>
-                  <span className="s-thread-meta-row-value">
-                    {agent.harnessSessionId}
-                  </span>
-                </div>
-              )}
-              {agent.harnessLogPath && (
-                <div className="s-thread-meta-row">
-                  <span className="s-thread-meta-row-label">Harness Log</span>
-                  <span className="s-thread-meta-row-value">
-                    {agent.harnessLogPath}
-                  </span>
-                </div>
-              )}
-            </div>
-          </details>
-        )}
-
         {error && <p className="s-thread-error">{error}</p>}
 
         <div className="s-thread-feed">
@@ -2521,49 +2442,49 @@ export function ConversationScreen({
                     data-class={rowClass}
                     onContextMenu={(e) => onMessageContextMenu(e, message)}
                   >
-                    <div className="s-thread-msg-card s-thread-msg-card--avatar-row">
-                      {(() => {
-                        const profileNav = !isYou && messageAgent
-                          ? () =>
-                              openContent(
-                                navigate,
-                                {
-                                  view: "agent-info",
-                                  conversationId: conversationForAgent(messageAgent.id),
-                                },
-                                { returnTo: route },
-                              )
-                          : null;
-                        const avatarLabel = (isYou
-                          ? operatorName[0]
-                          : message.actorName?.[0] ?? "?"
-                        ).toUpperCase();
-                        const avatarStyle = {
-                          "--size": "28px",
-                          background: actorColor(
-                            isYou ? operatorName : (message.actorName ?? "?"),
-                          ),
-                        } as React.CSSProperties;
-                        return profileNav ? (
-                          <button
-                            type="button"
-                            className="s-ops-avatar s-thread-msg-avatar s-thread-msg-avatar--nav"
-                            style={avatarStyle}
-                            onClick={profileNav}
-                            aria-label={`View profile for ${message.actorName ?? "agent"}`}
-                            title={`View profile for ${message.actorName ?? "agent"}`}
-                          >
-                            {avatarLabel}
-                          </button>
-                        ) : (
-                          <div className="s-ops-avatar s-thread-msg-avatar" style={avatarStyle}>
-                            {avatarLabel}
-                          </div>
-                        );
-                      })()}
+                    <div className="s-thread-msg-card">
                       <div className="s-thread-msg-card-content">
                         <div className="s-thread-msg-header">
                           <div className="s-thread-msg-meta">
+                            {(() => {
+                              const profileNav = !isYou && messageAgent
+                                ? () =>
+                                    openContent(
+                                      navigate,
+                                      {
+                                        view: "agent-info",
+                                        conversationId: conversationForAgent(messageAgent.id),
+                                      },
+                                      { returnTo: route },
+                                    )
+                                : null;
+                              const avatarLabel = (isYou
+                                ? operatorName[0]
+                                : message.actorName?.[0] ?? "?"
+                              ).toUpperCase();
+                              const avatarStyle = {
+                                "--size": "24px",
+                                background: actorColor(
+                                  isYou ? operatorName : (message.actorName ?? "?"),
+                                ),
+                              } as React.CSSProperties;
+                              return profileNav ? (
+                                <button
+                                  type="button"
+                                  className="s-ops-avatar s-thread-msg-avatar s-thread-msg-avatar--nav"
+                                  style={avatarStyle}
+                                  onClick={profileNav}
+                                  aria-label={`View profile for ${message.actorName ?? "agent"}`}
+                                  title={`View profile for ${message.actorName ?? "agent"}`}
+                                >
+                                  {avatarLabel}
+                                </button>
+                              ) : (
+                                <div className="s-ops-avatar s-thread-msg-avatar" style={avatarStyle}>
+                                  {avatarLabel}
+                                </div>
+                              );
+                            })()}
                             {!isYou && messageAgent ? (
                               <button
                                 type="button"
@@ -2744,8 +2665,8 @@ export function ConversationScreen({
                       </div>
                       <dl className="s-thread-turn-snapshot-stats">
                         <div className="s-thread-turn-snapshot-stat">
-                          <dt>Signals</dt>
-                          <dd>{workingTurnSnapshot.signalsLabel}</dd>
+                          <dt>Activity</dt>
+                          <dd>{workingTurnSnapshot.activityLabel}</dd>
                         </div>
                         <div className="s-thread-turn-snapshot-stat">
                           <dt>Elapsed</dt>
@@ -2753,7 +2674,7 @@ export function ConversationScreen({
                         </div>
                         <div className="s-thread-turn-snapshot-stat">
                           <dt>Last</dt>
-                          <dd>{workingTurnSnapshot.lastSignalLabel}</dd>
+                          <dd>{workingTurnSnapshot.lastActivityLabel}</dd>
                         </div>
                       </dl>
                     </div>

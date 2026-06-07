@@ -74,7 +74,7 @@ export function AgentLiveActions({
   const state = normalizeAgentState(agent.state);
   const canObserveTerminal = agent.transport === "tmux" && Boolean(activeSessionId);
   const canTakeover = canObserveTerminal || Boolean(resolvedCatalog?.resumeCommand);
-  const hasLiveTurn = Boolean(activeSessionId) || state === "working";
+  const hasLiveTurn = state === "working";
   const isCompact = variant === "compact";
   const status = hasLiveTurn
     ? activeSessionId
@@ -82,6 +82,10 @@ export function AgentLiveActions({
         ? canObserveTerminal ? "Live terminal" : "Live trace"
         : `Live ${shortSession(activeSessionId)}`
       : "Working"
+    : activeSessionId
+      ? isCompact
+        ? canObserveTerminal ? "Terminal" : "Trace"
+        : `${canObserveTerminal ? "Terminal" : "Trace"} ${shortSession(activeSessionId)}`
     : state === "ready"
       ? "Ready"
       : "No live turn";
@@ -94,7 +98,7 @@ export function AgentLiveActions({
     ? isCompact ? "Observe" : "Observe terminal"
     : isCompact ? "Trace" : "Observe trace";
   const observeTitle = canObserveTerminal
-    ? "Observe the live tmux terminal"
+    ? "Observe the tmux terminal"
     : "Open the web observe trace";
 
   const openTerminal = (mode: "observe" | "takeover") => {

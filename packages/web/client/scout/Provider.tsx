@@ -108,6 +108,14 @@ const AGENT_REFRESH_POLL_MS = 15_000;
 
 type ThemeVars = CSSProperties & Record<`--${string}`, string>;
 
+function keepPreviousIfJsonEqual<T>(previous: T, next: T): T {
+  try {
+    return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+  } catch {
+    return next;
+  }
+}
+
 const DARK_THEME_VARS: ThemeVars = {
   "--hud-bg": "oklch(0.14 0.008 80)",
   "--hud-surface": "oklch(0.18 0.009 80)",
@@ -240,7 +248,7 @@ export function ScoutProvider({
     const request = (async () => {
       const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
       if (agentsResult) {
-        setAgents(agentsResult);
+        setAgents((previous) => keepPreviousIfJsonEqual(previous, agentsResult));
       }
     })();
 
