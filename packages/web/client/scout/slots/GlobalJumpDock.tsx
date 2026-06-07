@@ -89,11 +89,12 @@ export function GlobalJumpDock() {
 
 const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
   { id: "sessions", label: "Sessions", icon: <MessageSquare size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
+  { id: "repos", label: "Repos", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "repos" } },
   { id: "search", label: "Search", icon: <Database size={13} strokeWidth={1.6} />, route: { view: "search" } },
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
   { id: "ops", label: "Ops", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
   { id: "home", label: "Home", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "inbox" } },
-  { id: "dispatch", label: "Dispatch", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "broker" } },
+  { id: "dispatch", label: "Dispatch", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "broker" } },
 ];
 
 function JumpPanel({ navigate }: { navigate: (route: Route) => void }) {

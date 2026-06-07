@@ -2269,6 +2269,49 @@ describe("createOpenScoutWebServer", () => {
     expect(fetchCalls).toEqual([{ authorization: "Bearer sk-relay-test" }]);
   });
 
+  test("proxies repo-watch snapshots through the web API", async () => {
+    const fetchCalls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      fetchCalls.push(String(input));
+      return new Response(JSON.stringify({
+        generatedAt: 1_780_760_000_000,
+        projects: [],
+        totals: {
+          projects: 0,
+          worktrees: 0,
+          dirtyWorktrees: 0,
+          conflictedWorktrees: 0,
+          attentionWorktrees: 0,
+          attachedAgents: 0,
+          attachedSessions: 0,
+        },
+        warnings: [],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-watch?force=1&includeTail=true&includeDiff=true&includeLastCommit=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000&ignored=true",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      generatedAt: 1_780_760_000_000,
+      totals: { projects: 0, worktrees: 0 },
+    });
+    expect(fetchCalls).toEqual([
+      "http://broker.test/v1/repo-watch/snapshot?force=1&includeTail=1&includeDiff=1&includeLastCommit=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000",
+    ]);
+  });
+
   test("proxies UI routes to the configured Vite dev server", async () => {
     const fetchCalls: Array<{
       input: string;

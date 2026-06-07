@@ -25,6 +25,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   conversations: "Chat",
   messages: "Chat",
   sessions: "Sessions",
+  repos: "Repos",
   search: "Search",
   channels: "Channels",
   activity: "Activity",
@@ -60,6 +61,7 @@ export function topNavKeyForRoute(route: Route, opsEnabled: boolean): TopNavKey 
       return "search";
     case "mesh":
     case "broker":
+    case "repos":
     case "ops":
     case "work":
     case "follow":
@@ -80,6 +82,7 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
     case "conversation":
     case "agent-info":
     case "sessions":
+    case "repos":
     case "channels":
     case "mesh":
     case "broker":

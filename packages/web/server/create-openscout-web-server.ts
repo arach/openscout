@@ -4595,6 +4595,27 @@ export async function createOpenScoutWebServer(
     return c.json(await res.json());
   });
 
+  app.get("/api/repo-watch", async (c) => {
+    const url = new URL(scoutBrokerPaths.v1.repoWatchSnapshot, resolveScoutBrokerUrl());
+    for (const key of ["force", "includeTail", "includeDiff", "includeLastCommit"]) {
+      const value = c.req.query(key);
+      if (value === "1" || value === "true") url.searchParams.set(key, "1");
+    }
+    for (const key of ["maxRoots", "maxWorktrees", "maxFilesPerWorktree", "scanBudgetMs"]) {
+      const value = parseOptionalPositiveInt(c.req.query(key));
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+    try {
+      const res = await fetch(url, { signal: c.req.raw.signal });
+      if (!res.ok) {
+        return c.json({ error: `broker repo-watch unavailable (${res.status})` }, 502);
+      }
+      return c.json(await res.json());
+    } catch {
+      return c.json({ error: "broker repo-watch unavailable" }, 502);
+    }
+  });
+
   app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
     const url = new URL(scoutBrokerPaths.v1.tailRecent, resolveScoutBrokerUrl());

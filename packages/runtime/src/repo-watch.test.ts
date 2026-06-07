@@ -219,6 +219,64 @@ describe("repo-watch", () => {
     expect(worktree.lastCommitAt).toBe(1_780_460_000_000);
   });
 
+  test("does not reuse cached snapshots across enrichment options", async () => {
+    const repo = join(tempRoot, "cache-shape");
+    mkdirSync(repo, { recursive: true });
+    const calls: string[] = [];
+
+    const fakeGit = async (_cwd: string, args: string[]) => {
+      const command = args.join(" ");
+      calls.push(command);
+      if (command === "rev-parse --show-toplevel") return `${repo}\n`;
+      if (command === "rev-parse --git-common-dir") return ".git\n";
+      if (command === "worktree list --porcelain") {
+        return [
+          `worktree ${repo}`,
+          "HEAD abc123",
+          "branch refs/heads/feature",
+          "",
+        ].join("\n");
+      }
+      if (command === "status --porcelain=v2 --branch -unormal") {
+        return [
+          "# branch.oid abc123",
+          "# branch.head feature",
+          "",
+        ].join("\n");
+      }
+      if (command === "diff --shortstat") return " 1 file changed, 3 insertions(+)\n";
+      if (command === "diff --cached --shortstat") return "";
+      if (command === "log -1 --format=%ct") return "1780460000\n";
+      return "";
+    };
+
+    const baseOptions = {
+      cacheTtlMs: 10_000,
+      hints: [{ path: repo, source: "environment" as const }],
+      git: fakeGit,
+      now: () => 1_780_760_000_000,
+    };
+
+    const fastSnapshot = await getRepoWatchSnapshot({
+      ...baseOptions,
+      force: true,
+    });
+    expect(fastSnapshot.projects[0]!.worktrees[0]!.diff.unstagedShortstat).toBeNull();
+    expect(fastSnapshot.projects[0]!.worktrees[0]!.lastCommitAt).toBeNull();
+
+    calls.length = 0;
+    const enrichedSnapshot = await getRepoWatchSnapshot({
+      ...baseOptions,
+      includeDiff: true,
+      includeLastCommit: true,
+    });
+    const worktree = enrichedSnapshot.projects[0]!.worktrees[0]!;
+    expect(worktree.diff.unstagedShortstat).toBe("1 file changed, 3 insertions(+)");
+    expect(worktree.lastCommitAt).toBe(1_780_460_000_000);
+    expect(calls).toContain("diff --shortstat");
+    expect(calls).toContain("log -1 --format=%ct");
+  });
+
   test("creates hints from broker and tail snapshots", () => {
     const brokerHints = repoWatchHintsFromBrokerSnapshot({
       agents: {
