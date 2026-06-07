@@ -22,8 +22,11 @@ final class ScoutRepoStore: ObservableObject {
     @Published var lens: ReposLens = .table
 
     private let decoder = JSONDecoder()
-    /// Calmer than Tail's 1.4s: a snapshot shells out to git per worktree.
-    private let pollInterval: TimeInterval = 4.0
+    /// Deliberately relaxed: a snapshot shells out to git for every worktree, so
+    /// it is far heavier than the tail feed. Auto-refresh sits at a quiet 30-min
+    /// cadence — the Repos command strip's refresh button drives on-demand updates
+    /// whenever the user actually wants the latest state.
+    private let pollInterval: TimeInterval = 1800.0  // 30 minutes
     private var pollTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
 
