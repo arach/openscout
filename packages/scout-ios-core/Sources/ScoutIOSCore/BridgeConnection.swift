@@ -62,6 +62,10 @@ public enum BridgeConnectionError: Error, LocalizedError, Sendable {
 /// bridge. Ported verbatim from the donor (the bridge's trust record — its
 /// public key — lives in `ScoutIdentity` / Keychain, not here).
 struct BridgeConnectionInfo: Codable, Sendable {
+    private static let connectionInfosKey = "scout.connectionInfos"
+    private static let legacyConnectionInfoKey = "scout.connectionInfo"
+    private static let activeConnectionPublicKeyHexKey = "scout.activeConnectionPublicKeyHex"
+
     let relayURL: String
     var roomId: String      // Mutable — updated when room is resolved after bridge restart
     let publicKeyHex: String
@@ -124,8 +128,8 @@ struct BridgeConnectionInfo: Codable, Sendable {
     /// single-record `scout.connectionInfo`.
     static func loadActive(userDefaults: UserDefaults = .standard) -> BridgeConnectionInfo? {
         let infos = loadConnectionInfos(userDefaults: userDefaults)
-        if let activeKey = userDefaults.string(forKey: "scout.activeConnectionPublicKeyHex")?.lowercased(),
-           let info = infos.first(where: { $0.publicKeyHex.lowercased() == activeKey }) {
+        if let activeKey = activePublicKeyHex(userDefaults: userDefaults),
+           let info = load(publicKeyHex: activeKey, userDefaults: userDefaults) {
             return info
         }
         if let info = infos.first {
@@ -134,8 +138,31 @@ struct BridgeConnectionInfo: Codable, Sendable {
         return loadLegacy(userDefaults: userDefaults)
     }
 
+    /// Load the connection info for one bridge key. Pinned bridge clients use this
+    /// directly so they never depend on the global active-key UI preference.
+    static func load(publicKeyHex: String, userDefaults: UserDefaults = .standard) -> BridgeConnectionInfo? {
+        let key = publicKeyHex.lowercased()
+        return loadConnectionInfos(userDefaults: userDefaults)
+            .first { $0.publicKeyHex.lowercased() == key }
+    }
+
+    static func activePublicKeyHex(userDefaults: UserDefaults = .standard) -> String? {
+        userDefaults.string(forKey: activeConnectionPublicKeyHexKey)?.lowercased()
+    }
+
+    /// Persist the active-key preference without touching any per-bridge route
+    /// records. This is UI state only; pinned connections must not read or mutate it.
+    static func setActivePublicKeyHex(_ publicKeyHex: String?, userDefaults: UserDefaults = .standard) {
+        guard let key = publicKeyHex?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !key.isEmpty else {
+            userDefaults.removeObject(forKey: activeConnectionPublicKeyHexKey)
+            return
+        }
+        userDefaults.set(key, forKey: activeConnectionPublicKeyHexKey)
+    }
+
     private static func loadConnectionInfos(userDefaults: UserDefaults) -> [BridgeConnectionInfo] {
-        guard let data = userDefaults.data(forKey: "scout.connectionInfos"),
+        guard let data = userDefaults.data(forKey: connectionInfosKey),
               let infos = try? JSONDecoder().decode([BridgeConnectionInfo].self, from: data) else {
             return loadLegacy(userDefaults: userDefaults).map { [$0] } ?? []
         }
@@ -144,7 +171,7 @@ struct BridgeConnectionInfo: Codable, Sendable {
     }
 
     private static func loadLegacy(userDefaults: UserDefaults) -> BridgeConnectionInfo? {
-        guard let data = userDefaults.data(forKey: "scout.connectionInfo") else { return nil }
+        guard let data = userDefaults.data(forKey: legacyConnectionInfoKey) else { return nil }
         return try? JSONDecoder().decode(BridgeConnectionInfo.self, from: data)
     }
 
@@ -154,9 +181,11 @@ struct BridgeConnectionInfo: Codable, Sendable {
     /// does so a later IK `connect()` reads it back via `loadActive`:
     ///   - append/replace in `scout.connectionInfos` (JSON `[BridgeConnectionInfo]`,
     ///     deduped by lowercased `publicKeyHex`);
-    ///   - set `scout.activeConnectionPublicKeyHex` to this info's lowercased key;
-    ///   - mirror into the legacy single-record `scout.connectionInfo`.
-    func save(userDefaults: UserDefaults = .standard) {
+    ///   - optionally set `scout.activeConnectionPublicKeyHex` to this info's
+    ///     lowercased key (legacy single-link UI preference only);
+    ///   - when promoted, mirror into the legacy single-record
+    ///     `scout.connectionInfo` for old single-link readers.
+    func save(userDefaults: UserDefaults = .standard, promoteActive: Bool = true) {
         let key = publicKeyHex.lowercased()
         var infos = Self.loadConnectionInfos(userDefaults: userDefaults)
         if let index = infos.firstIndex(where: { $0.publicKeyHex.lowercased() == key }) {
@@ -167,12 +196,49 @@ struct BridgeConnectionInfo: Codable, Sendable {
         var seen = Set<String>()
         let deduped = infos.filter { seen.insert($0.publicKeyHex.lowercased()).inserted }
         if let data = try? JSONEncoder().encode(deduped) {
-            userDefaults.set(data, forKey: "scout.connectionInfos")
+            userDefaults.set(data, forKey: Self.connectionInfosKey)
         }
-        userDefaults.set(key, forKey: "scout.activeConnectionPublicKeyHex")
-        if let data = try? JSONEncoder().encode(self) {
-            userDefaults.set(data, forKey: "scout.connectionInfo")
+        if promoteActive {
+            Self.setActivePublicKeyHex(key, userDefaults: userDefaults)
         }
+        if promoteActive, let data = try? JSONEncoder().encode(self) {
+            userDefaults.set(data, forKey: Self.legacyConnectionInfoKey)
+        }
+    }
+
+    static func remove(publicKeyHex: String, userDefaults: UserDefaults = .standard) {
+        let key = publicKeyHex.lowercased()
+        let remaining = loadConnectionInfos(userDefaults: userDefaults)
+            .filter { $0.publicKeyHex.lowercased() != key }
+
+        if let data = try? JSONEncoder().encode(remaining) {
+            userDefaults.set(data, forKey: connectionInfosKey)
+        }
+
+        if activePublicKeyHex(userDefaults: userDefaults) == key {
+            setActivePublicKeyHex(remaining.first?.publicKeyHex, userDefaults: userDefaults)
+        }
+
+        if let legacy = loadLegacy(userDefaults: userDefaults),
+           legacy.publicKeyHex.lowercased() == key {
+            if let next = remaining.first,
+               let data = try? JSONEncoder().encode(next) {
+                userDefaults.set(data, forKey: legacyConnectionInfoKey)
+            } else {
+                userDefaults.removeObject(forKey: legacyConnectionInfoKey)
+            }
+        }
+    }
+}
+
+/// Optional pin for a bridge connection. A nil target preserves the legacy
+/// single-bridge behavior (read the UI's active-key preference); a non-nil target
+/// makes this connection immutable to one trusted bridge public key.
+public struct BridgeConnectionTarget: Hashable, Sendable {
+    public let publicKeyHex: String
+
+    public init(publicKeyHex: String) {
+        self.publicKeyHex = publicKeyHex.lowercased()
     }
 }
 
@@ -211,6 +277,7 @@ public final class BridgeConnection: @unchecked Sendable {
     private let connectionLogHandle: ConnectionLogHandle
     private let userDefaults: UserDefaults
     private let urlSession: URLSession
+    private let target: BridgeConnectionTarget?
 
     // MARK: Timeouts (donor values)
 
@@ -258,10 +325,22 @@ public final class BridgeConnection: @unchecked Sendable {
         return _currentHost
     }
 
-    /// Snapshot the stored relay routes for the active trusted bridge. This is a
-    /// synchronous summary for settings/status UI; it does not probe reachability.
+    /// Public-key hex of the bridge this connection is pinned to, if any.
+    public var targetPublicKeyHex: String? { target?.publicKeyHex }
+
+    /// Public-key hex of the bridge backing the current or most-recent successful
+    /// connection on this instance.
+    public var currentPublicKeyHex: String? {
+        lock.lock(); defer { lock.unlock() }
+        return connectionInfo?.publicKeyHex
+    }
+
+    /// Snapshot the stored relay routes for this connection's target bridge. This
+    /// is a synchronous summary for settings/status UI; it does not probe
+    /// reachability. Pinned connections read only their key's routes. Unpinned
+    /// connections read the active-key UI preference for legacy single-link mode.
     public func savedRouteSummary() -> BridgeRouteSummary {
-        guard let info = BridgeConnectionInfo.loadActive(userDefaults: userDefaults) else {
+        guard let info = savedConnectionInfoForTarget() else {
             return BridgeRouteSummary(relayURLs: [], userDefaults: userDefaults)
         }
         return BridgeRouteSummary(relayURLs: info.relayURLs, userDefaults: userDefaults)
@@ -270,10 +349,12 @@ public final class BridgeConnection: @unchecked Sendable {
     // MARK: Init
 
     public init(
+        target: BridgeConnectionTarget? = nil,
         connectionLog: ConnectionLogHandle,
         userDefaults: UserDefaults = .standard,
         urlSession: URLSession? = nil
     ) {
+        self.target = target
         self.connectionLogHandle = connectionLog
         self.userDefaults = userDefaults
         if let urlSession {
@@ -303,7 +384,7 @@ public final class BridgeConnection: @unchecked Sendable {
             throw BridgeConnectionError.identityError(error.localizedDescription)
         }
 
-        let savedInfo = BridgeConnectionInfo.loadActive(userDefaults: userDefaults)
+        let savedInfo = savedConnectionInfoForTarget()
         let discoveredInfo: BridgeConnectionInfo?
         if savedInfo == nil {
             discoveredInfo = await discoveredConnectionInfoFromTrustedBridge()
@@ -312,7 +393,7 @@ public final class BridgeConnection: @unchecked Sendable {
         }
 
         guard let info = savedInfo ?? discoveredInfo else {
-            if currentTrustedBridge(preferredPublicKeyHex: nil) == nil {
+            if currentTrustedBridge() == nil {
                 await connectionLogHandle.log("No trusted bridge paired", event: .trust, level: .error)
                 throw BridgeConnectionError.noTrustedBridge
             }
@@ -321,7 +402,7 @@ public final class BridgeConnection: @unchecked Sendable {
         }
 
         if savedInfo == nil {
-            info.save(userDefaults: userDefaults)
+            info.save(userDefaults: userDefaults, promoteActive: target == nil)
             await connectionLogHandle.log(
                 "Recovered relay routes from trusted Bonjour bridge",
                 event: .discover,
@@ -360,7 +441,7 @@ public final class BridgeConnection: @unchecked Sendable {
             publicKeyHex: info.publicKeyHex,
             fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
         )
-        updated.save(userDefaults: userDefaults)
+        updated.save(userDefaults: userDefaults, promoteActive: target == nil)
         lock.withLockVoid {
             connectionInfo = updated
             _isConnected = true
@@ -451,7 +532,7 @@ public final class BridgeConnection: @unchecked Sendable {
             publicKeyHex: publicKeyHex,
             fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
         )
-        info.save(userDefaults: userDefaults)
+        info.save(userDefaults: userDefaults, promoteActive: true)
 
         let route = transportKind(forRelayURL: attempt.relayURL)
         lock.withLockVoid {
@@ -508,8 +589,15 @@ public final class BridgeConnection: @unchecked Sendable {
         )
     }
 
+    private func savedConnectionInfoForTarget() -> BridgeConnectionInfo? {
+        if let target {
+            return BridgeConnectionInfo.load(publicKeyHex: target.publicKeyHex, userDefaults: userDefaults)
+        }
+        return BridgeConnectionInfo.loadActive(userDefaults: userDefaults)
+    }
+
     private func discoveredConnectionInfoFromTrustedBridge() async -> BridgeConnectionInfo? {
-        guard let bridge = currentTrustedBridge(preferredPublicKeyHex: nil) else {
+        guard let bridge = currentTrustedBridge() else {
             return nil
         }
 
@@ -526,13 +614,19 @@ public final class BridgeConnection: @unchecked Sendable {
         )
     }
 
-    private func currentTrustedBridge(preferredPublicKeyHex: String?) -> TrustedBridge? {
+    private func currentTrustedBridge() -> TrustedBridge? {
         let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
         guard !bridges.isEmpty else { return nil }
 
-        if let expectedKey = preferredPublicKeyHex?.lowercased(),
+        let preferredKey = target?.publicKeyHex
+            ?? BridgeConnectionInfo.activePublicKeyHex(userDefaults: userDefaults)
+        if let expectedKey = preferredKey?.lowercased(),
            let matched = bridges.first(where: { $0.publicKeyHex.lowercased() == expectedKey }) {
             return matched
+        }
+
+        if target != nil {
+            return nil
         }
 
         return bridges.sorted { lhs, rhs in

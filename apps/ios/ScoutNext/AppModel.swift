@@ -35,7 +35,7 @@ final class AppModel {
     var connectionState: ConnectionState = .idle
     var showPairing = false
 
-    let bridge: BridgeBrokerClient
+    var bridge: BridgeBrokerClient
     let connectionLog: ConnectionLog
 
     /// Shared on-device dictation controller (Parakeet via Vox + Apple fallback),
@@ -61,7 +61,7 @@ final class AppModel {
     init() {
         let log = ConnectionLog()
         connectionLog = log
-        bridge = BridgeBrokerClient(connection: BridgeConnection(connectionLog: ConnectionLogHandle(log)))
+        bridge = Self.makeBridge(connectionLog: log)
         lanRoutingEnabled = BridgeRoutePreferences.lanRoutingEnabled()
         tailnetRoutingEnabled = BridgeRoutePreferences.tailnetRoutingEnabled()
         openScoutNetworkRoutingEnabled = BridgeRoutePreferences.openScoutNetworkRoutingEnabled()
@@ -69,6 +69,13 @@ final class AppModel {
            let pref = HudDictation.Preference(rawValue: raw) {
             dictation.preference = pref
         }
+    }
+
+    private static func makeBridge(connectionLog: ConnectionLog, preferredPublicKeyHex: String? = nil) -> BridgeBrokerClient {
+        BridgeBrokerClient(
+            connectionLog: ConnectionLogHandle(connectionLog),
+            preferredPublicKeyHex: preferredPublicKeyHex
+        )
     }
 
     /// Persist + apply the user's transcription-engine choice.
@@ -219,6 +226,27 @@ final class AppModel {
         await connectIfNeeded()
     }
 
+    /// Switch the single live bridge to one explicit paired Mac. This is PR-0's
+    /// root-cause pinning path: the new bridge is immutable to the requested
+    /// public key, while the legacy active-key UserDefaults value is only a UI
+    /// preference for the next unpinned launch.
+    func connect(toMachineId hex: String) async {
+        guard hasTrustedMachine(id: hex) else {
+            connectionState = .failed("Mac is no longer paired")
+            connectionLog.log("Selected Mac is no longer paired", event: .trust, level: .error)
+            machinesRevision += 1
+            return
+        }
+
+        bridge.disconnect()
+        connectionState = .idle
+        BridgeBrokerClient.setActiveConnectionPublicKeyHex(hex)
+        bridge = Self.makeBridge(connectionLog: connectionLog, preferredPublicKeyHex: hex)
+        machinesRevision += 1
+        connectionLog.log("Switching to paired Mac…", event: .lifecycle, level: .info)
+        await connectIfNeeded()
+    }
+
     /// Pair from a scanned QR string, then stay connected. Returns true on success.
     @discardableResult
     func pair(scanned: String) async -> Bool {
@@ -240,6 +268,10 @@ final class AppModel {
         connectionState = .connecting
         connectionLog.log("Pairing from \(channel)…", event: .pairing, level: .info)
         do {
+            if bridge.targetPublicKeyHex != nil {
+                bridge.disconnect()
+                bridge = Self.makeBridge(connectionLog: connectionLog)
+            }
             let payload = try makePayload()
             try await bridge.pair(qrPayload: payload, primaryName: deviceName)
             let route = bridge.currentRoute
@@ -336,6 +368,7 @@ final class AppModel {
         guard let record = ((try? ScoutIdentity.getTrustedBridges()) ?? [])
             .first(where: { $0.publicKeyHex == hex }) else { return }
         try? ScoutIdentity.removeTrustedBridge(publicKey: record.publicKey)
+        BridgeBrokerClient.removeSavedConnectionInfo(publicKeyHex: hex)
         machinesRevision += 1
     }
 
@@ -359,7 +392,13 @@ final class AppModel {
     /// bridge by key; fine while there's a single active connection.
     private var activeMachineHex: String? {
         guard case .connected = connectionState else { return nil }
+        if let current = bridge.currentPublicKeyHex { return current }
         let bridges = (try? ScoutIdentity.getTrustedBridges()) ?? []
         return bridges.max { ($0.lastSeen ?? $0.pairedAt) < ($1.lastSeen ?? $1.pairedAt) }?.publicKeyHex
+    }
+
+    private func hasTrustedMachine(id hex: String) -> Bool {
+        ((try? ScoutIdentity.getTrustedBridges()) ?? [])
+            .contains { $0.publicKeyHex.lowercased() == hex.lowercased() }
     }
 }

@@ -60,6 +60,11 @@ struct AppSettingsView: View {
                                 model.forgetMachine(id: machine.id)
                             }
                         )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            Task { await model.connect(toMachineId: machine.id) }
+                        }
+                        .accessibilityAddTraits(.isButton)
                     }
                 }
                 HudInspectorActionRow("Add a Mac", value: "Scan", tone: .accent) {
