@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,26 +39,18 @@ if (!(command in sourceMain)) {
 const processName = processNames[command] ?? "scout-runtime";
 process.title = processName;
 
-function runEntrypoint(entry, entryArgs) {
-  const captureOutput = command === "service";
-  const result = spawnSync(process.execPath, [entry, ...entryArgs], captureOutput
-    ? {
-        encoding: "utf8",
-        argv0: processName,
-        stdio: ["inherit", "pipe", "pipe"],
-      }
-    : {
-        argv0: processName,
-        stdio: "inherit",
-      });
+function runServiceEntrypoint(entry, entryArgs) {
+  const result = spawnSync(process.execPath, [entry, ...entryArgs], {
+    encoding: "utf8",
+    argv0: processName,
+    stdio: ["inherit", "pipe", "pipe"],
+  });
 
-  if (captureOutput) {
-    if (result.stdout) {
-      process.stdout.write(result.stdout);
-    }
-    if (result.stderr) {
-      process.stderr.write(result.stderr);
-    }
+  if (result.stdout) {
+    process.stdout.write(result.stdout);
+  }
+  if (result.stderr) {
+    process.stderr.write(result.stderr);
   }
 
   if (result.error) {
@@ -72,6 +64,50 @@ function runEntrypoint(entry, entryArgs) {
   }
 
   process.exit(result.status ?? 0);
+}
+
+function runLongLivedEntrypoint(entry, entryArgs) {
+  const child = spawn(process.execPath, [entry, ...entryArgs], {
+    argv0: processName,
+    stdio: "inherit",
+  });
+
+  let forwardingSignal = false;
+  let childExited = false;
+  for (const signal of ["SIGINT", "SIGTERM"]) {
+    process.once(signal, () => {
+      forwardingSignal = true;
+      if (!child.killed) {
+        child.kill(signal);
+      }
+      setTimeout(() => {
+        if (!childExited) {
+          child.kill("SIGKILL");
+        }
+      }, 10_000).unref();
+    });
+  }
+
+  child.on("error", (error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
+  child.on("exit", (code, signal) => {
+    childExited = true;
+    if (signal && !forwardingSignal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exit(code ?? (signal ? 0 : 1));
+  });
+}
+
+function runEntrypoint(entry, entryArgs) {
+  if (command === "service") {
+    runServiceEntrypoint(entry, entryArgs);
+    return;
+  }
+  runLongLivedEntrypoint(entry, entryArgs);
 }
 
 function canRunTypeScriptSource() {
@@ -93,9 +129,7 @@ const distEntry = distMain[command];
 const sourceEntry = sourceMain[command];
 if (canRunTypeScriptSource() && shouldPreferSourceEntry() && existsSync(sourceEntry)) {
   runEntrypoint(sourceEntry, args);
-}
-
-if (existsSync(distEntry)) {
+} else if (existsSync(distEntry)) {
   runEntrypoint(distEntry, args);
 } else {
   const buildResult = spawnSync(npmCommand, ["run", "build"], {

@@ -4,9 +4,12 @@ on:
   pull_request:
     paths:
       - ".github/workflows/*.yml"
+      - "Cargo.lock"
+      - "Cargo.toml"
       - "apps/cloud/**"
       - "apps/desktop/**"
       - "apps/mesh-front-door/**"
+      - "crates/**"
       - "packages/agent-sessions/**"
       - "packages/cli/**"
       - "packages/protocol/**"
@@ -14,6 +17,8 @@ on:
       - "packages/session-trace/**"
       - "packages/session-trace-react/**"
       - "packages/web/**"
+      - "scripts/cargo.sh"
+      - "scripts/supervisor-smoke.sh"
       - "scripts/**"
       - "package.json"
       - "bun.lock"
@@ -69,3 +74,18 @@ jobs:
             bun run --cwd packages/web test:happy
             bun test packages/session-trace/src/*.test.ts packages/session-trace-react/src/*.test.tsx
           fi
+
+  rust-supervisor:
+    name: Rust supervisor
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Smoke
+        run: bash scripts/supervisor-smoke.sh

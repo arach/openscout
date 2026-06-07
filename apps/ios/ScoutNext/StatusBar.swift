@@ -57,18 +57,15 @@ struct StatusReadout: View, Identifiable {
 struct ScoutStatusBar: View {
     var leading: [StatusReadout] = []
     var trailing: [StatusReadout] = []
-
-    /// Insets the runs to where the rounded bottom corners straighten out, so the
-    /// first/last readout sits on the flat edge rather than riding the curve.
-    private let sideInset: CGFloat = 42
+    @Environment(\.scoutNextLayout) private var layout
 
     var body: some View {
         HStack(spacing: HudSpacing.md) {
             run(leading)
-            Spacer(minLength: HudSpacing.lg)
+            Spacer(minLength: layout.statusCenterGap)
             run(trailing)
         }
-        .padding(.horizontal, sideInset)
+        .padding(.horizontal, layout.statusSideInset)
         .padding(.vertical, HudSpacing.sm)
         .frame(maxWidth: .infinity, minHeight: HudLayout.statusBarHeight)
         // A slightly recessed strip with a top hairline so it reads as a status

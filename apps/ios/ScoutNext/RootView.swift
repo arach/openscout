@@ -59,13 +59,13 @@ struct RootView: View {
 
     var body: some View {
         HudPhoneAppShell {
-            // Author every surface at the standard-iPhone reference width; the
-            // frame fills fluidly on larger screens and gracefully scales the
-            // whole UI down to fit the 13 mini. See `DesignFrame`.
-            DesignFrame {
+            // Author every surface through ScoutNext's phone layout frame. The
+            // 13 mini gets native sizing with compact metrics; only narrower
+            // widths scale down. See `DesignFrame`.
+            DesignFrame { layout in
                 ZStack(alignment: .bottom) {
                     VStack(spacing: 0) {
-                        titleBar
+                        titleBar(layout)
 
                         Group {
                             switch surface {
@@ -83,7 +83,7 @@ struct RootView: View {
                     // the surfaces' scroll content above it, and the material masks
                     // anything that scrolls behind it — the conventional iOS pattern.
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        dockedTabBar
+                        dockedTabBar(layout)
                     }
 
                     // Read-only connection readout pinned flush to the true screen
@@ -92,7 +92,7 @@ struct RootView: View {
                     // boundary: fill down + bottom-align the content, THEN ignore the
                     // bottom safe area. Safe to sit on the swipe-up gesture —
                     // hit-testing is off, it's a pure readout.
-                    ScoutStatusBar(leading: appReadouts, trailing: statsReadouts)
+                    ScoutStatusBar(leading: appReadouts(layout), trailing: statsReadouts(layout))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .ignoresSafeArea(edges: .bottom)
                         // The nav stack leaves a residual inset; push the last bit so
@@ -138,13 +138,13 @@ struct RootView: View {
     /// indicator. App-local on purpose — it renders the unified hand-drawn glyph
     /// set, which the shared `HudLiquidBarTabRow` can't (it takes SF Symbol
     /// strings only). Selection chrome mirrors the shared component exactly.
-    private var dockedTabBar: some View {
+    private func dockedTabBar(_ layout: ScoutNextLayoutMetrics) -> some View {
         HStack(spacing: HudSpacing.sm) {
-            ForEach(Surface.allCases) { tabButton($0) }
+            ForEach(Surface.allCases) { tabButton($0, layout: layout) }
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, HudSpacing.sm)
-        .padding(.horizontal, HudSpacing.lg)
+        .padding(.top, layout.tabBarTopPadding)
+        .padding(.horizontal, layout.tabBarHorizontalPadding)
         .background(alignment: .top) {
             Rectangle()
                 // Light, glassy translucency — frosted blur that lets the
@@ -163,7 +163,7 @@ struct RootView: View {
     /// Leading run of the bottom status bar: how and where we're connected — the
     /// route (LAN / TSN / OSN, with a wi-fi glyph) or current state, then the Mac
     /// it lands on.
-    private var appReadouts: [StatusReadout] {
+    private func appReadouts(_ layout: ScoutNextLayoutMetrics) -> [StatusReadout] {
         let stateLabel: String
         if case .connected(let route) = model.connectionState, !route.label.isEmpty {
             stateLabel = route.label.uppercased()
@@ -175,22 +175,25 @@ struct RootView: View {
             // Cap only the machine readout: a long hostname truncates here instead
             // of shoving the fleet stats — and every surface — off the screen. The
             // route + stat readouts stay intrinsic, so none of them truncate.
-            items.append(StatusReadout(label: machine, tint: HudPalette.muted, maxLabelWidth: 120))
+            items.append(StatusReadout(label: machine, tint: HudPalette.muted, maxLabelWidth: layout.statusMachineMaxLabelWidth))
         }
         return items
     }
 
     /// Trailing run: the fleet rollup — total agents, paired machines, and how
     /// many are active right now (accent when something's running).
-    private var statsReadouts: [StatusReadout] {
-        [
+    private func statsReadouts(_ layout: ScoutNextLayoutMetrics) -> [StatusReadout] {
+        var items = [
             StatusReadout(label: pluralized(model.agentCount, "agent"), tint: HudPalette.muted),
-            StatusReadout(label: pluralized(model.pairedMachines.count, "machine"), tint: HudPalette.muted),
             StatusReadout(
                 label: "\(model.activeAgentCount) active",
                 tint: model.activeAgentCount > 0 ? HudPalette.accent : HudPalette.dim
             ),
         ]
+        if !layout.isMiniPhone {
+            items.insert(StatusReadout(label: pluralized(model.pairedMachines.count, "machine"), tint: HudPalette.muted), at: 1)
+        }
+        return items
     }
 
     private func pluralized(_ count: Int, _ noun: String) -> String {
@@ -198,7 +201,7 @@ struct RootView: View {
     }
 
     @ViewBuilder
-    private func tabButton(_ s: Surface) -> some View {
+    private func tabButton(_ s: Surface, layout: ScoutNextLayoutMetrics) -> some View {
         let isSelected = surface == s
         Button {
             guard surface != s else { return }
@@ -208,14 +211,14 @@ struct RootView: View {
             withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) { surface = s }
         } label: {
             VStack(spacing: HudSpacing.xxs) {
-                Glyphic(kind: s.glyph, size: 21)
+                Glyphic(kind: s.glyph, size: layout.tabGlyphSize)
                 Text(s.rawValue)
-                    .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                    .font(HudFont.mono(layout.tabLabelSize, weight: .medium))
                     .lineLimit(1)
             }
             .foregroundStyle(isSelected ? HudPalette.ink : HudPalette.muted)
             .frame(maxWidth: .infinity)
-            .frame(height: 48)
+            .frame(height: layout.tabButtonHeight)
             .background {
                 if isSelected {
                     Capsule()
@@ -233,26 +236,26 @@ struct RootView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private var titleBar: some View {
+    private func titleBar(_ layout: ScoutNextLayoutMetrics) -> some View {
         // Center-aligned so the trailing complications (status pill + gear button)
         // sit on one axis. The wordmark keeps its own baseline alignment inside a
         // nested group so "Scout"/"Next" stay typographically locked.
         HStack(spacing: HudSpacing.md) {
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                 Text("Scout")
-                    .font(HudFont.ui(HudTextSize.xxl, weight: .semibold))
+                    .font(HudFont.ui(layout.wordmarkSize, weight: .semibold))
                     .foregroundStyle(HudPalette.ink)
                 Text("Next")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .bold))
-                    .tracking(2)
+                    .font(HudFont.mono(layout.nextBadgeSize, weight: .bold))
+                    .tracking(layout.nextBadgeTracking)
                     .foregroundStyle(ScoutCanvas.accentGradient)
             }
             Spacer()
             settingsButton
         }
-        .padding(.horizontal, HudSpacing.xxl)
-        .padding(.top, HudSpacing.lg)
-        .padding(.bottom, HudSpacing.xl)
+        .padding(.horizontal, layout.titleHorizontalPadding)
+        .padding(.top, layout.titleTopPadding)
+        .padding(.bottom, layout.titleBottomPadding)
     }
 
     /// Settings as a contained icon complication — an inset circular button so it
