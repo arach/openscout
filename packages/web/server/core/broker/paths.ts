@@ -9,6 +9,7 @@ export const scoutBrokerPaths = {
     topologySnapshot: "/v1/topology/snapshot",
     tailDiscover: "/v1/tail/discover",
     tailRecent: "/v1/tail/recent",
+    repoWatchSnapshot: "/v1/repo-watch/snapshot",
     messages: "/v1/messages",
     eventsStream: "/v1/events/stream",
     actors: "/v1/actors",

@@ -4,5 +4,6 @@
  * utilities used in Scout components are generated.
  */
 @import "tailwindcss";
+@import "./scout/repo-watch/repo-watch.css";
 @source "../node_modules/@arach/arc/lib/arc.es.js";
 @source "./**/*.{ts,tsx}";

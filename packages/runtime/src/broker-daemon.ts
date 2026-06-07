@@ -5143,6 +5143,12 @@ function parseTailLimit(url: URL): number {
   return Math.min(limit, 1_000);
 }
 
+function parsePositiveIntParam(url: URL, key: string, cap: number): number | undefined {
+  const value = Number.parseInt(url.searchParams.get(key) ?? "", 10);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.min(value, cap);
+}
+
 async function readTailRecentPayload(url: URL): Promise<{
   generatedAt: number;
   limit: number;
@@ -5660,6 +5666,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const includeDiff = url.searchParams.get("includeDiff") === "1" || url.searchParams.get("includeDiff") === "true";
     const includeLastCommit = url.searchParams.get("includeLastCommit") === "1"
       || url.searchParams.get("includeLastCommit") === "true";
+    const maxRoots = parsePositiveIntParam(url, "maxRoots", 128);
+    const maxWorktrees = parsePositiveIntParam(url, "maxWorktrees", 32);
+    const maxFilesPerWorktree = parsePositiveIntParam(url, "maxFilesPerWorktree", 100);
+    const scanBudgetMs = parsePositiveIntParam(url, "scanBudgetMs", 30_000);
     const snapshot = await brokerService.readSnapshot();
     const tailHints = includeTail
       ? repoWatchHintsFromTailDiscovery(await getTailDiscovery(false))
@@ -5668,6 +5678,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       force,
       includeDiff,
       includeLastCommit,
+      maxRoots,
+      maxWorktrees,
+      maxFilesPerWorktree,
+      scanBudgetMs,
       hints: [
         ...repoWatchHintsFromBrokerSnapshot(snapshot),
         ...tailHints,

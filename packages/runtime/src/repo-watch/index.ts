@@ -939,8 +939,25 @@ function totalsForProjects(projects: RepoWatchProject[]): RepoWatchSnapshot["tot
   };
 }
 
-function snapshotSignature(hints: NormalizedHint[]): string {
-  return hints
+type RepoWatchSnapshotCacheShape = {
+  includeDiff: boolean;
+  includeLastCommit: boolean;
+  maxFiles: number;
+  maxRoots: number;
+  maxWorktrees: number;
+  scanBudgetMs: number;
+};
+
+function snapshotSignature(hints: NormalizedHint[], shape: RepoWatchSnapshotCacheShape): string {
+  const shapeSignature = [
+    shape.includeDiff ? "diff:1" : "diff:0",
+    shape.includeLastCommit ? "commit:1" : "commit:0",
+    `maxFiles:${shape.maxFiles}`,
+    `maxRoots:${shape.maxRoots}`,
+    `maxWorktrees:${shape.maxWorktrees}`,
+    `scanBudgetMs:${shape.scanBudgetMs}`,
+  ].join("\u0000");
+  const hintSignature = hints
     .map((hint) => [
       hint.path,
       hint.source,
@@ -950,6 +967,7 @@ function snapshotSignature(hints: NormalizedHint[]): string {
     ].join("\u0000"))
     .sort()
     .join("\u0001");
+  return `${shapeSignature}\u0002${hintSignature}`;
 }
 
 export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {}): Promise<RepoWatchSnapshot> {
@@ -971,7 +989,16 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
     ...environmentHints(),
     ...(options.hints ?? []),
   ]);
-  const signature = snapshotSignature(hints);
+  const includeDiff = options.includeDiff ?? false;
+  const includeLastCommit = options.includeLastCommit ?? false;
+  const signature = snapshotSignature(hints, {
+    includeDiff,
+    includeLastCommit,
+    maxFiles,
+    maxRoots,
+    maxWorktrees,
+    scanBudgetMs,
+  });
 
   if (!options.force
     && cachedSnapshot
@@ -990,8 +1017,8 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
     }
     const result = await scanProject(root, git, now, maxWorktrees, {
       maxFiles,
-      includeDiff: options.includeDiff ?? false,
-      includeLastCommit: options.includeLastCommit ?? false,
+      includeDiff,
+      includeLastCommit,
       deadlineMs,
     });
     // A project whose only worktrees were unreadable (all skipped) is itself

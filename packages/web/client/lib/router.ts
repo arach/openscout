@@ -105,6 +105,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "conversations",
   "messages",
   "sessions",
+  "repos",
   "channels",
   "mesh",
   "activity",
@@ -244,6 +245,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped(base);
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
+  if (parts[0] === "repos") return scoped({ view: "repos" });
   if (parts[0] === "search") {
     const mode = parseSearchMode(parts[1]);
     return { view: "search", ...(mode && mode !== "knowledge" ? { mode } : {}) };
@@ -391,6 +393,8 @@ export function routePath(r: Route): string {
       return pathWithMachineScope(r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
         : "/sessions", r);
+    case "repos":
+      return pathWithMachineScope("/repos", r);
     case "search":
       return r.mode === "indexer" ? "/search/indexer" : "/search";
     case "channels":
