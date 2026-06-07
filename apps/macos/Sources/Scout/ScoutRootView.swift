@@ -8,9 +8,24 @@ import AppKit
 import UniformTypeIdentifiers
 #endif
 
+/// Non-publishing owner for the high-churn tail feed. It never fires
+/// `objectWillChange`, so a view holding it as `@StateObject` is NOT invalidated
+/// when `tail` publishes — only views that observe `tail` directly re-render.
+/// This is the fix for the whole-window relayout storm the tail feed used to
+/// trigger on every ~1.4s poll (and continuously while agents stream).
+@MainActor
+final class ScoutFeeds: ObservableObject {
+    let tail = ScoutTailStore()
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
-    @StateObject private var tail = ScoutTailStore()
+    /// Tail is reached through `feeds` (a non-publishing box) instead of being
+    /// observed directly, so its frequent updates only re-render the leaf views
+    /// that read it (status-bar count, tail inspector, Live/Paused badge) rather
+    /// than the entire window. Repos stays a normal @StateObject (calm 4s poll).
+    @StateObject private var feeds = ScoutFeeds()
+    private var tail: ScoutTailStore { feeds.tail }
     @StateObject private var repos = ScoutRepoStore()
     @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var section: ScoutSection = .comms
@@ -1427,7 +1442,7 @@ struct ScoutRootView: View {
     @ViewBuilder
     private func inspectorHeaderBadge(multiAgent: Bool) -> some View {
         if section == .tail {
-            HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
+            ScoutTailFollowBadge(tail: tail)
         } else if section == .repos {
             // No verdict pill for a worktree — the inspector's Position block
             // carries current state calmly. Keep a project-level attention
@@ -1854,13 +1869,7 @@ struct ScoutRootView: View {
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.muted)
 
-            Text("·")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-
-            Text("\(tail.events.count) tail")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
+            ScoutTailCountItem(tail: tail)
 
             Text("·")
                 .font(HudFont.mono(HudTextSize.xxs))
@@ -1890,15 +1899,7 @@ struct ScoutRootView: View {
                     .lineLimit(1)
             }
 
-            if let error = tail.lastError {
-                Text("·")
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
-                Text(error)
-                    .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.statusError)
-                    .lineLimit(1)
-            }
+            ScoutTailErrorItem(tail: tail)
 
             if let error = repos.lastError {
                 Text("·")
@@ -2178,6 +2179,51 @@ private struct ScoutConversationListBar: View {
             }
             .scrollIndicators(.visible)
         }
+    }
+}
+
+/// Status-bar tail counter — observes the tail store directly so its ~1.4s
+/// updates re-render only this label, not the whole window. (The root reaches
+/// tail through a non-publishing box precisely so this stays scoped.)
+private struct ScoutTailCountItem: View {
+    @ObservedObject var tail: ScoutTailStore
+    var body: some View {
+        HStack(spacing: HudSpacing.xl) {
+            Text("·")
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.dim)
+            Text("\(tail.events.count) tail")
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutPalette.muted)
+        }
+    }
+}
+
+/// Status-bar tail error — isolated so a tail error toggling on/off doesn't
+/// relayout the window.
+private struct ScoutTailErrorItem: View {
+    @ObservedObject var tail: ScoutTailStore
+    var body: some View {
+        if let error = tail.lastError {
+            HStack(spacing: HudSpacing.xl) {
+                Text("·")
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.dim)
+                Text(error)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.statusError)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+/// The tail inspector's Live/Paused badge — observes the tail store so the
+/// follow state flips without the root having to observe tail.
+private struct ScoutTailFollowBadge: View {
+    @ObservedObject var tail: ScoutTailStore
+    var body: some View {
+        HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
     }
 }
 
