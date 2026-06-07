@@ -58,6 +58,14 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args
+        .iter()
+        .any(|arg| arg == "-h" || arg == "--help" || arg == "help")
+    {
+        print_help();
+        return Ok(());
+    }
+
     let json = args.iter().any(|arg| arg == "--json");
     let command = args
         .iter()
@@ -94,10 +102,6 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         "supervise" | "daemon" => supervise_service(&config),
-        "-h" | "--help" | "help" => {
-            print_help();
-            Ok(())
-        }
         other => Err(format!("unknown command: {other}")),
     }
 }
@@ -156,28 +160,31 @@ impl Config {
         let runtime_directory = support_directory.join("runtime");
         let logs_directory = support_directory.join("logs/broker");
         let control_home = non_tmp_path_or_default(
-            env_nonempty("OPENSCOUT_CONTROL_HOME")
-                .map(PathBuf::from),
+            env_nonempty("OPENSCOUT_CONTROL_HOME").map(PathBuf::from),
             home.join(".openscout/control-plane"),
         );
         let runtime_package_dir = match env_nonempty("OPENSCOUT_RUNTIME_PACKAGE_DIR") {
             Some(value) => PathBuf::from(value),
-            None => find_workspace_runtime_dir(&env::current_dir().map_err(|error| error.to_string())?)
-                .ok_or_else(|| "unable to resolve runtime package dir; set OPENSCOUT_RUNTIME_PACKAGE_DIR".to_string())?,
+            None => {
+                find_workspace_runtime_dir(&env::current_dir().map_err(|error| error.to_string())?)
+                    .ok_or_else(|| {
+                        "unable to resolve runtime package dir; set OPENSCOUT_RUNTIME_PACKAGE_DIR"
+                            .to_string()
+                    })?
+            }
         };
         let supervisor_executable = match env_nonempty("OPENSCOUT_SUPERVISOR_BIN") {
             Some(value) => PathBuf::from(value),
             None => env::current_exe().map_err(|error| error.to_string())?,
         };
-        let bun_executable = env_nonempty("OPENSCOUT_BUN_BIN")
-            .unwrap_or_else(|| {
-                let home_bun = home.join(".bun/bin/bun");
-                if home_bun.exists() {
-                    home_bun.to_string_lossy().to_string()
-                } else {
-                    "bun".to_string()
-                }
-            });
+        let bun_executable = env_nonempty("OPENSCOUT_BUN_BIN").unwrap_or_else(|| {
+            let home_bun = home.join(".bun/bin/bun");
+            if home_bun.exists() {
+                home_bun.to_string_lossy().to_string()
+            } else {
+                "bun".to_string()
+            }
+        });
         let advertise_scope = match env_nonempty("OPENSCOUT_ADVERTISE_SCOPE").as_deref() {
             Some("mesh") => "mesh".to_string(),
             _ => "local".to_string(),
@@ -187,15 +194,20 @@ impl Config {
         } else {
             DEFAULT_BROKER_HOST
         };
-        let broker_host = env_nonempty("OPENSCOUT_BROKER_HOST").unwrap_or_else(|| default_broker_host.to_string());
+        let broker_host = env_nonempty("OPENSCOUT_BROKER_HOST")
+            .unwrap_or_else(|| default_broker_host.to_string());
         let broker_port = env_nonempty("OPENSCOUT_BROKER_PORT")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(DEFAULT_BROKER_PORT);
         let broker_url = env_nonempty("OPENSCOUT_BROKER_URL")
             .unwrap_or_else(|| format!("http://{broker_host}:{broker_port}"));
         let broker_socket_path = PathBuf::from(
-            env_nonempty("OPENSCOUT_BROKER_SOCKET_PATH")
-                .unwrap_or_else(|| runtime_directory.join("broker.sock").to_string_lossy().to_string()),
+            env_nonempty("OPENSCOUT_BROKER_SOCKET_PATH").unwrap_or_else(|| {
+                runtime_directory
+                    .join("broker.sock")
+                    .to_string_lossy()
+                    .to_string()
+            }),
         );
         let supervisor_state_path = runtime_directory.join("supervisor-state.json");
 
@@ -234,7 +246,6 @@ struct LaunchctlStatus {
     pid: Option<u32>,
     launchd_state: Option<String>,
     last_exit_status: Option<i32>,
-    raw: String,
 }
 
 #[derive(Clone, Debug)]
@@ -276,8 +287,18 @@ fn start_service(config: &Config) -> Result<ServiceStatus, String> {
     ensure_launch_agent(config)?;
     let _ = run_command("/bin/launchctl", &["bootout", &config.service_target]);
     let _ = wait_for_stopped(config);
-    run_command_checked("/bin/launchctl", &["bootstrap", &config.domain_target, path_str(&config.launch_agent_path)?])?;
-    let _ = run_command("/bin/launchctl", &["kickstart", "-k", &config.service_target]);
+    run_command_checked(
+        "/bin/launchctl",
+        &[
+            "bootstrap",
+            &config.domain_target,
+            path_str(&config.launch_agent_path)?,
+        ],
+    )?;
+    let _ = run_command(
+        "/bin/launchctl",
+        &["kickstart", "-k", &config.service_target],
+    );
     wait_for_healthy(config)
 }
 
@@ -298,7 +319,13 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let mut restart_count = 0_u32;
     let mut restart_delay = RESTART_MIN_DELAY;
     let mut child = spawn_base_process(config)?;
-    write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+    write_supervisor_state(
+        config,
+        started_at_ms,
+        Some(child.id()),
+        "running",
+        restart_count,
+    )?;
     let mut next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
 
     while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
@@ -313,12 +340,24 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                 }
                 restart_delay = doubled_delay(restart_delay);
                 child = spawn_base_process(config)?;
-                write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+                write_supervisor_state(
+                    config,
+                    started_at_ms,
+                    Some(child.id()),
+                    "running",
+                    restart_count,
+                )?;
                 next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
             }
             None => {
                 if Instant::now() >= next_state_write {
-                    write_supervisor_state(config, started_at_ms, Some(child.id()), "running", restart_count)?;
+                    write_supervisor_state(
+                        config,
+                        started_at_ms,
+                        Some(child.id()),
+                        "running",
+                        restart_count,
+                    )?;
                     next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
                 }
                 thread::sleep(POLL_INTERVAL);
@@ -326,7 +365,13 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         }
     }
 
-    write_supervisor_state(config, started_at_ms, Some(child.id()), "stopping", restart_count)?;
+    write_supervisor_state(
+        config,
+        started_at_ms,
+        Some(child.id()),
+        "stopping",
+        restart_count,
+    )?;
     terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
     write_supervisor_state(config, started_at_ms, None, "stopped", restart_count)?;
     Ok(())
@@ -346,13 +391,25 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .arg("base")
         .current_dir(&config.runtime_package_dir)
         .env("OPENSCOUT_PARENT_PID", std::process::id().to_string())
-        .env("OPENSCOUT_SUPPORT_DIRECTORY", config.support_directory.to_string_lossy().to_string())
-        .env("OPENSCOUT_RUNTIME_PACKAGE_DIR", config.runtime_package_dir.to_string_lossy().to_string())
+        .env(
+            "OPENSCOUT_SUPPORT_DIRECTORY",
+            config.support_directory.to_string_lossy().to_string(),
+        )
+        .env(
+            "OPENSCOUT_RUNTIME_PACKAGE_DIR",
+            config.runtime_package_dir.to_string_lossy().to_string(),
+        )
         .env("OPENSCOUT_BROKER_HOST", &config.broker_host)
         .env("OPENSCOUT_BROKER_PORT", config.broker_port.to_string())
         .env("OPENSCOUT_BROKER_URL", &config.broker_url)
-        .env("OPENSCOUT_BROKER_SOCKET_PATH", config.broker_socket_path.to_string_lossy().to_string())
-        .env("OPENSCOUT_CONTROL_HOME", config.control_home.to_string_lossy().to_string())
+        .env(
+            "OPENSCOUT_BROKER_SOCKET_PATH",
+            config.broker_socket_path.to_string_lossy().to_string(),
+        )
+        .env(
+            "OPENSCOUT_CONTROL_HOME",
+            config.control_home.to_string_lossy().to_string(),
+        )
         .env("OPENSCOUT_BROKER_SERVICE_MODE", &config.service_mode)
         .env("OPENSCOUT_BROKER_SERVICE_LABEL", &config.label)
         .env("OPENSCOUT_SERVICE_LABEL", &config.label)
@@ -369,7 +426,9 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         command.env("OPENSCOUT_CORE_AGENTS", core_agents);
     }
 
-    command.spawn().map_err(|error| format!("failed to start Bun base: {error}"))
+    command
+        .spawn()
+        .map_err(|error| format!("failed to start Bun base: {error}"))
 }
 
 fn sleep_until_or_shutdown(deadline: Instant) {
@@ -384,14 +443,22 @@ fn doubled_delay(delay: Duration) -> Duration {
 }
 
 fn terminate_child(child: &mut Child, label: &str, timeout: Duration) -> Result<(), String> {
-    if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+    if child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
         return Ok(());
     }
 
     let _ = send_process_signal(child.id(), "TERM");
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
-        if child.try_wait().map_err(|error| error.to_string())?.is_some() {
+        if child
+            .try_wait()
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
             return Ok(());
         }
         thread::sleep(POLL_INTERVAL);
@@ -437,7 +504,10 @@ fn wait_for_healthy(config: &Config) -> Result<ServiceStatus, String> {
     }
     Err(format!(
         "broker did not become healthy: {}",
-        last.health.error.clone().unwrap_or_else(|| "health check failed".to_string()),
+        last.health
+            .error
+            .clone()
+            .unwrap_or_else(|| "health check failed".to_string()),
     ))
 }
 
@@ -460,13 +530,12 @@ fn wait_for_stopped(config: &Config) -> Result<ServiceStatus, String> {
 fn inspect_launchctl(config: &Config) -> LaunchctlStatus {
     let output = match run_command("/bin/launchctl", &["print", &config.service_target]) {
         Ok(output) => output,
-        Err(error) => {
+        Err(_) => {
             return LaunchctlStatus {
                 loaded: false,
                 pid: None,
                 launchd_state: None,
                 last_exit_status: None,
-                raw: error,
             };
         }
     };
@@ -477,7 +546,6 @@ fn inspect_launchctl(config: &Config) -> LaunchctlStatus {
             pid: None,
             launchd_state: None,
             last_exit_status: None,
-            raw: first_nonempty(&output.stderr, &output.stdout),
         };
     }
 
@@ -487,7 +555,6 @@ fn inspect_launchctl(config: &Config) -> LaunchctlStatus {
         launchd_state: parse_launchctl_string(&output.stdout, "state ="),
         last_exit_status: parse_launchctl_i32(&output.stdout, "last exit code =")
             .or_else(|| parse_launchctl_i32(&output.stdout, "last exit status =")),
-        raw: output.stdout,
     }
 }
 
@@ -561,15 +628,29 @@ fn parse_health_response(response: &str) -> Result<HealthStatus, String> {
         .split_once("\r\n\r\n")
         .map(|(_, body)| body.to_string())
         .unwrap_or_default();
-    let ok = status_code == Some(200) && body.contains("\"ok\":true");
+    let ok = status_code == Some(200) && health_body_reports_ok(&body);
     Ok(HealthStatus {
         reachable: status_code.is_some(),
         ok,
         transport: None,
         status_code,
         body: if body.is_empty() { None } else { Some(body) },
-        error: if status_code.is_some() { None } else { Some("missing HTTP status".to_string()) },
+        error: if status_code.is_some() {
+            None
+        } else {
+            Some("missing HTTP status".to_string())
+        },
     })
+}
+
+fn health_body_reports_ok(body: &str) -> bool {
+    let Some((_, after_key)) = body.split_once("\"ok\"") else {
+        return false;
+    };
+    let Some((_, after_colon)) = after_key.split_once(':') else {
+        return false;
+    };
+    after_colon.trim_start().starts_with("true")
 }
 
 fn doctor_report(config: &Config) -> DoctorReport {
@@ -578,10 +659,16 @@ fn doctor_report(config: &Config) -> DoctorReport {
     let mut warnings = Vec::new();
 
     if !config.runtime_entrypoint().exists() {
-        warnings.push(format!("runtime entrypoint is missing: {}", config.runtime_entrypoint().display()));
+        warnings.push(format!(
+            "runtime entrypoint is missing: {}",
+            config.runtime_entrypoint().display()
+        ));
     }
     if !command_available(&config.bun_executable) {
-        warnings.push(format!("bun executable is not available: {}", config.bun_executable));
+        warnings.push(format!(
+            "bun executable is not available: {}",
+            config.bun_executable
+        ));
     }
     if !status.health.reachable {
         warnings.push("broker health is unreachable".to_string());
@@ -601,14 +688,20 @@ fn doctor_report(config: &Config) -> DoctorReport {
 
     let supervisor_processes: Vec<&ProcessInfo> = processes
         .iter()
-        .filter(|process| command_references_process(&process.command, "openscout-supervisor"))
+        .filter(|process| command_invokes_supervisor_daemon(&process.command))
         .collect();
     if supervisor_processes.len() > 1 {
-        warnings.push(format!("multiple openscout-supervisor processes found: {}", supervisor_processes.len()));
+        warnings.push(format!(
+            "multiple openscout-supervisor processes found: {}",
+            supervisor_processes.len()
+        ));
     }
     for process in supervisor_processes {
         if process.ppid == 1 && status.launchctl.pid != Some(process.pid) {
-            warnings.push(format!("orphaned openscout-supervisor process: pid {}", process.pid));
+            warnings.push(format!(
+                "orphaned openscout-supervisor process: pid {}",
+                process.pid
+            ));
         }
     }
     let broker_processes: Vec<&ProcessInfo> = processes
@@ -616,11 +709,17 @@ fn doctor_report(config: &Config) -> DoctorReport {
         .filter(|process| command_references_process(&process.command, "scout-broker"))
         .collect();
     if broker_processes.len() > 1 {
-        warnings.push(format!("multiple scout-broker processes found: {}", broker_processes.len()));
+        warnings.push(format!(
+            "multiple scout-broker processes found: {}",
+            broker_processes.len()
+        ));
     }
     for process in broker_processes {
         if process.ppid == 1 {
-            warnings.push(format!("orphaned scout-broker process: pid {}", process.pid));
+            warnings.push(format!(
+                "orphaned scout-broker process: pid {}",
+                process.pid
+            ));
         }
     }
     for process in processes
@@ -632,14 +731,15 @@ fn doctor_report(config: &Config) -> DoctorReport {
         }
     }
 
-    DoctorReport { status, processes, warnings }
+    DoctorReport {
+        status,
+        processes,
+        warnings,
+    }
 }
 
 fn process_snapshot() -> Vec<ProcessInfo> {
-    let output = match run_command(
-        "ps",
-        &["-axo", "pid=,ppid=,pcpu=,pmem=,etime=,command="],
-    ) {
+    let output = match run_command("ps", &["-axo", "pid=,ppid=,pcpu=,pmem=,etime=,command="]) {
         Ok(output) if output.status == 0 => output.stdout,
         _ => return Vec::new(),
     };
@@ -659,9 +759,20 @@ fn process_snapshot() -> Vec<ProcessInfo> {
 }
 
 fn command_references_process(command: &str, process_name: &str) -> bool {
-    command.split_whitespace().any(|part| {
-        part == process_name || part.rsplit('/').next() == Some(process_name)
-    })
+    command
+        .split_whitespace()
+        .any(|part| part == process_name || part.rsplit('/').next() == Some(process_name))
+}
+
+fn command_invokes_supervisor_daemon(command: &str) -> bool {
+    let mut parts = command.split_whitespace();
+    while let Some(part) = parts.next() {
+        if part == "openscout-supervisor" || part.rsplit('/').next() == Some("openscout-supervisor")
+        {
+            return matches!(parts.next(), Some("supervise" | "daemon"));
+        }
+    }
+    false
 }
 
 fn parse_process_line(line: &str) -> Option<ProcessInfo> {
@@ -685,9 +796,12 @@ fn parse_process_line(line: &str) -> Option<ProcessInfo> {
 fn ensure_launch_agent(config: &Config) -> Result<(), String> {
     ensure_supervisor_directories(config)?;
     let plist = render_launch_agent_plist(config);
-    if fs::read_to_string(&config.launch_agent_path).ok().as_deref() != Some(plist.as_str()) {
-        fs::write(&config.launch_agent_path, plist)
-            .map_err(|error| error.to_string())?;
+    if fs::read_to_string(&config.launch_agent_path)
+        .ok()
+        .as_deref()
+        != Some(plist.as_str())
+    {
+        fs::write(&config.launch_agent_path, plist).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -712,14 +826,28 @@ fn render_launch_agent_plist(config: &Config) -> String {
             "OPENSCOUT_BROKER_SOCKET_PATH",
             config.broker_socket_path.to_string_lossy().to_string(),
         ),
-        ("OPENSCOUT_SUPPORT_DIRECTORY", config.support_directory.to_string_lossy().to_string()),
-        ("OPENSCOUT_RUNTIME_PACKAGE_DIR", config.runtime_package_dir.to_string_lossy().to_string()),
-        ("OPENSCOUT_CONTROL_HOME", config.control_home.to_string_lossy().to_string()),
+        (
+            "OPENSCOUT_SUPPORT_DIRECTORY",
+            config.support_directory.to_string_lossy().to_string(),
+        ),
+        (
+            "OPENSCOUT_RUNTIME_PACKAGE_DIR",
+            config.runtime_package_dir.to_string_lossy().to_string(),
+        ),
+        (
+            "OPENSCOUT_CONTROL_HOME",
+            config.control_home.to_string_lossy().to_string(),
+        ),
         ("OPENSCOUT_BROKER_SERVICE_MODE", config.service_mode.clone()),
         ("OPENSCOUT_BROKER_SERVICE_LABEL", config.label.clone()),
         ("OPENSCOUT_SERVICE_LABEL", config.label.clone()),
         ("OPENSCOUT_ADVERTISE_SCOPE", config.advertise_scope.clone()),
-        ("HOME", home_dir().map(|path| path.to_string_lossy().to_string()).unwrap_or_default()),
+        (
+            "HOME",
+            home_dir()
+                .map(|path| path.to_string_lossy().to_string())
+                .unwrap_or_default(),
+        ),
         ("PATH", launch_agent_path_env()),
     ];
     for &key in OPTIONAL_LAUNCH_ENV_KEYS {
@@ -864,26 +992,35 @@ fn parse_launchctl_i32(raw: &str, prefix: &str) -> Option<i32> {
 }
 
 fn parse_launchctl_string(raw: &str, prefix: &str) -> Option<String> {
-    raw.lines()
-        .map(str::trim)
-        .find_map(|line| line.strip_prefix(prefix).map(|value| value.trim().to_string()))
+    raw.lines().map(str::trim).find_map(|line| {
+        line.strip_prefix(prefix)
+            .map(|value| value.trim().to_string())
+    })
 }
 
 fn command_available(command: &str) -> bool {
     if command.contains('/') {
         Path::new(command).exists()
     } else {
-        run_command("which", &[command]).map(|output| output.status == 0).unwrap_or(false)
+        run_command("which", &[command])
+            .map(|output| output.status == 0)
+            .unwrap_or(false)
     }
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
-    env::var(name).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn is_tmp_path(path: &Path) -> bool {
     let value = path.to_string_lossy();
-    value == "/tmp" || value == "/private/tmp" || value.starts_with("/tmp/") || value.starts_with("/private/tmp/")
+    value == "/tmp"
+        || value == "/private/tmp"
+        || value.starts_with("/tmp/")
+        || value.starts_with("/private/tmp/")
 }
 
 fn non_tmp_path_or_default(value: Option<PathBuf>, fallback: PathBuf) -> PathBuf {
@@ -898,7 +1035,12 @@ fn launch_agent_path_env() -> String {
     if let Ok(home) = home_dir() {
         entries.push(home.join(".bun/bin").to_string_lossy().to_string());
     }
-    entries.extend(env::var("PATH").unwrap_or_default().split(':').map(str::to_string));
+    entries.extend(
+        env::var("PATH")
+            .unwrap_or_default()
+            .split(':')
+            .map(str::to_string),
+    );
     entries.extend([
         "/opt/homebrew/bin".to_string(),
         "/usr/local/bin".to_string(),
@@ -918,7 +1060,9 @@ fn launch_agent_path_env() -> String {
 }
 
 fn home_dir() -> Result<PathBuf, String> {
-    env_nonempty("HOME").map(PathBuf::from).ok_or_else(|| "HOME is not set".to_string())
+    env_nonempty("HOME")
+        .map(PathBuf::from)
+        .ok_or_else(|| "HOME is not set".to_string())
 }
 
 fn user_id() -> Result<u32, String> {
@@ -926,14 +1070,19 @@ fn user_id() -> Result<u32, String> {
         return Ok(uid);
     }
     let output = run_command_checked("id", &["-u"])?;
-    output.stdout.parse::<u32>().map_err(|error| error.to_string())
+    output
+        .stdout
+        .parse::<u32>()
+        .map_err(|error| error.to_string())
 }
 
 fn find_workspace_runtime_dir(start: &Path) -> Option<PathBuf> {
     let mut current = start.to_path_buf();
     loop {
         let candidate = current.join("packages/runtime");
-        if candidate.join("package.json").exists() && candidate.join("bin/openscout-runtime.mjs").exists() {
+        if candidate.join("package.json").exists()
+            && candidate.join("bin/openscout-runtime.mjs").exists()
+        {
             return Some(candidate);
         }
         if !current.pop() {
@@ -943,7 +1092,8 @@ fn find_workspace_runtime_dir(start: &Path) -> Option<PathBuf> {
 }
 
 fn path_str(path: &Path) -> Result<&str, String> {
-    path.to_str().ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
+    path.to_str()
+        .ok_or_else(|| format!("path is not valid UTF-8: {}", path.display()))
 }
 
 fn first_nonempty(first: &str, second: &str) -> String {
@@ -967,13 +1117,36 @@ fn print_status(status: &ServiceStatus, json: bool) {
     } else {
         println!("label: {}", status.config.label);
         println!("loaded: {}", yes_no(status.launchctl.loaded));
-        println!("pid: {}", status.launchctl.pid.map(|pid| pid.to_string()).unwrap_or_else(|| "-".to_string()));
-        println!("launchd state: {}", status.launchctl.launchd_state.as_deref().unwrap_or("-"));
-        println!("supervisor state: {}", if status.supervisor_state.is_some() { "recorded" } else { "missing" });
+        println!(
+            "pid: {}",
+            status
+                .launchctl
+                .pid
+                .map(|pid| pid.to_string())
+                .unwrap_or_else(|| "-".to_string())
+        );
+        println!(
+            "launchd state: {}",
+            status.launchctl.launchd_state.as_deref().unwrap_or("-")
+        );
+        println!(
+            "supervisor state: {}",
+            if status.supervisor_state.is_some() {
+                "recorded"
+            } else {
+                "missing"
+            }
+        );
         println!("broker url: {}", status.config.broker_url);
-        println!("broker socket: {}", status.config.broker_socket_path.display());
+        println!(
+            "broker socket: {}",
+            status.config.broker_socket_path.display()
+        );
         println!("reachable: {}", yes_no(status.health.reachable));
-        println!("health: {}", if status.health.ok { "ok" } else { "unhealthy" });
+        println!(
+            "health: {}",
+            if status.health.ok { "ok" } else { "unhealthy" }
+        );
     }
 }
 
@@ -1069,7 +1242,11 @@ fn process_json(process: &ProcessInfo) -> String {
 }
 
 fn yes_no(value: bool) -> &'static str {
-    if value { "yes" } else { "no" }
+    if value {
+        "yes"
+    } else {
+        "no"
+    }
 }
 
 fn json_opt_str(value: Option<&str>) -> String {
@@ -1077,15 +1254,21 @@ fn json_opt_str(value: Option<&str>) -> String {
 }
 
 fn json_opt_u16(value: Option<u16>) -> String {
-    value.map(|number| number.to_string()).unwrap_or_else(|| "null".to_string())
+    value
+        .map(|number| number.to_string())
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn json_opt_u32(value: Option<u32>) -> String {
-    value.map(|number| number.to_string()).unwrap_or_else(|| "null".to_string())
+    value
+        .map(|number| number.to_string())
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn json_opt_i32(value: Option<i32>) -> String {
-    value.map(|number| number.to_string()).unwrap_or_else(|| "null".to_string())
+    value
+        .map(|number| number.to_string())
+        .unwrap_or_else(|| "null".to_string())
 }
 
 fn json_string(value: &str) -> String {
@@ -1101,7 +1284,9 @@ fn json_escape(value: &str) -> String {
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
             '\t' => escaped.push_str("\\t"),
-            character if character.is_control() => escaped.push_str(&format!("\\u{:04x}", character as u32)),
+            character if character.is_control() => {
+                escaped.push_str(&format!("\\u{:04x}", character as u32))
+            }
             character => escaped.push(character),
         }
     }
@@ -1115,4 +1300,53 @@ fn xml_escape(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{command_invokes_supervisor_daemon, health_body_reports_ok, parse_health_response};
+
+    #[test]
+    fn health_body_reports_ok_accepts_compact_and_pretty_json() {
+        assert!(health_body_reports_ok(r#"{"ok":true}"#));
+        assert!(health_body_reports_ok(
+            r#"{
+  "ok": true,
+  "status": "ready"
+}"#
+        ));
+    }
+
+    #[test]
+    fn health_body_reports_ok_rejects_missing_or_false_values() {
+        assert!(!health_body_reports_ok(r#"{"ok":false}"#));
+        assert!(!health_body_reports_ok(r#"{"status":"ready"}"#));
+    }
+
+    #[test]
+    fn parse_health_response_marks_pretty_ok_body_healthy() {
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\n  \"ok\": true\n}";
+        let health = parse_health_response(response).expect("health response parses");
+
+        assert!(health.reachable);
+        assert!(health.ok);
+        assert_eq!(health.status_code, Some(200));
+    }
+
+    #[test]
+    fn command_invokes_supervisor_daemon_only_matches_daemon_commands() {
+        assert!(command_invokes_supervisor_daemon(
+            "/Users/arach/dev/openscout/target/debug/openscout-supervisor supervise"
+        ));
+        assert!(command_invokes_supervisor_daemon(
+            "target/debug/openscout-supervisor daemon"
+        ));
+        assert!(!command_invokes_supervisor_daemon(
+            "target/debug/openscout-supervisor doctor --json"
+        ));
+        assert!(!command_invokes_supervisor_daemon(
+            "target/debug/openscout-supervisor status --json"
+        ));
+    }
 }

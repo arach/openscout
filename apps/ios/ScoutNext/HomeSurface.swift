@@ -15,6 +15,7 @@ import ScoutIOSCore
 ///     then drill to its agents. The flat agent list still lives on the Agents tab.
 struct HomeSurface: View {
     let model: AppModel
+    @Environment(\.scoutNextLayout) private var layout
     /// Opens the connection detail for a tapped machine — switching / probing
     /// lives there, not on the rail itself.
     var onSelectMachine: (AppModel.PairedMachine) -> Void = { _ in }
@@ -41,7 +42,7 @@ struct HomeSurface: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: HudSpacing.xxl) {
+            VStack(alignment: .leading, spacing: layout.surfaceSectionSpacing) {
                 if isLoading {
                     HudEmptyState(title: "Loading fleet", subtitle: "Reading agents from the broker.", icon: "antenna.radiowaves.left.and.right")
                 } else if isFleetEmpty {
@@ -54,8 +55,9 @@ struct HomeSurface: View {
                     if !recentActivity.isEmpty { activitySection }
                 }
             }
-            .padding(.horizontal, HudSpacing.xxl)
-            .padding(.vertical, HudSpacing.xxl)
+            .padding(.horizontal, layout.surfacePadding)
+            .padding(.top, layout.surfaceTopPadding)
+            .padding(.bottom, layout.surfaceBottomPadding)
         }
         .refreshable { await load() }
         .task(id: reloadToken) { await load() }
@@ -552,29 +554,35 @@ private struct ProjectRow: View {
     let group: ProjectGroup
     let isExpanded: Bool
     let onToggle: () -> Void
+    @Environment(\.scoutNextLayout) private var layout
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: HudSpacing.md) {
+            HStack(alignment: layout.isMiniPhone ? .top : .center, spacing: HudSpacing.md) {
                 Glyphic.chevron(isExpanded ? .bottom : .trailing, size: 13)
                     .foregroundStyle(HudPalette.muted)
                     .frame(width: 12)
-                Text(group.name)
-                    .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                    .foregroundStyle(HudPalette.ink)
-                    .lineLimit(1)
-                if group.liveCount > 0 {
-                    HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
-                }
-                Spacer(minLength: HudSpacing.md)
-                Text("\(group.agents.count) agents")
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.muted)
-                if let age = relativeAgeString(group.lastActiveAt) {
-                    Text(age)
-                        .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
-                        .monospacedDigit()
+                    .padding(.top, layout.isMiniPhone ? 2 : 0)
+                if layout.isMiniPhone {
+                    VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+                        HStack(spacing: HudSpacing.sm) {
+                            projectName
+                            if group.liveCount > 0 { liveDot }
+                        }
+                        HStack(spacing: HudSpacing.sm) {
+                            agentCount
+                            if let age = lastActiveAge { ageText(age) }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    projectName
+                    if group.liveCount > 0 { liveDot }
+                    Spacer(minLength: HudSpacing.md)
+                    agentCount
+                    if let age = lastActiveAge {
+                        ageText(age)
+                    }
                 }
             }
             .padding(.horizontal, HudSpacing.xl)
@@ -582,6 +590,35 @@ private struct ProjectRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    private var projectName: some View {
+        Text(group.name)
+            .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+            .foregroundStyle(HudPalette.ink)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var liveDot: some View {
+        HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
+    }
+
+    private var agentCount: some View {
+        Text("\(group.agents.count) agents")
+            .font(HudFont.mono(HudTextSize.xs))
+            .foregroundStyle(HudPalette.muted)
+    }
+
+    private var lastActiveAge: String? {
+        relativeAgeString(group.lastActiveAt)
+    }
+
+    private func ageText(_ age: String) -> some View {
+        Text(age)
+            .font(HudFont.mono(HudTextSize.xs))
+            .foregroundStyle(HudPalette.muted)
+            .monospacedDigit()
     }
 }
 
@@ -600,6 +637,7 @@ private struct AgentFleetRow: View {
     /// its name aligns with the expandable projects around it.
     var leadingLeaf: Bool = false
     let onTap: (() -> Void)?
+    @Environment(\.scoutNextLayout) private var layout
 
     var body: some View {
         Button(action: { onTap?() }) {
@@ -642,7 +680,7 @@ private struct AgentFleetRow: View {
                 .foregroundStyle(HudPalette.ink)
                 .lineLimit(1)
                 .layoutPriority(1)
-            if let locator = locator, !leadingLeaf {
+            if let locator = locator, !leadingLeaf, !layout.isMiniPhone {
                 Text(locator)
                     .font(HudFont.mono(HudTextSize.xs))
                     // Subordinate to the name: the mono locator was reading at full
