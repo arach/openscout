@@ -1,7 +1,7 @@
 import "./terminal-screen.css";
 
 import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { useScout } from "../scout/Provider.tsx";
 import { api } from "../lib/api.ts";
 import { actorColor } from "../lib/colors.ts";
@@ -37,6 +37,10 @@ function terminalRelayUrlForAgent(url: string, agentId: string | undefined): str
 function shouldBootstrapTakeover(agent: Agent | null, mode: "observe" | "takeover" | undefined): agent is Agent {
   return mode === "takeover" && Boolean(agent) && agent?.transport !== "tmux";
 }
+
+const SCOUT_TERMINAL_INITIAL_COLS = 132;
+const SCOUT_TERMINAL_INITIAL_ROWS = 44;
+const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export function TerminalScreen({
   agentId,
@@ -259,6 +263,11 @@ function TerminalRelayScreen({
     ...(cwd ? { cwd } : {}),
     ...(relayAgent ? { agent: relayAgent } : {}),
   });
+
+  useBrowserLayoutEffect(() => {
+    relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);
+  }, [relay.resize]);
+
   const terminalRelay = useMemo(() => {
     if (!readOnly) return relay;
     return {

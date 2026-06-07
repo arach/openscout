@@ -15,6 +15,7 @@ import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
+import { TmuxPeekPanel } from "./TmuxPeek.tsx";
 import type {
   Agent,
   AgentObservePayload,
@@ -513,6 +514,10 @@ function AgentContextPanel({
         returnTo={route}
         variant="compact"
       />
+
+      {agent.transport === "tmux" && (
+        <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+      )}
 
       {/* State */}
       <Section label="State">

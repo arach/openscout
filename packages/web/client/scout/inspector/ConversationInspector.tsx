@@ -1,5 +1,5 @@
 import { ScrollText } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useScout } from "../Provider.tsx";
 import { openContent } from "../slots/openContent.ts";
 import { api } from "../../lib/api.ts";
@@ -25,6 +25,7 @@ import {
   tailKindLabel,
   tailSummary,
 } from "../../lib/tail-preview.ts";
+import { TmuxPeekPanel } from "./TmuxPeek.tsx";
 import type {
   Flight,
   Message,
@@ -39,6 +40,10 @@ const KIND_LABELS: Record<string, string> = {
   group_direct: "Conversation",
   thread: "Thread",
 };
+
+const TAIL_PREVIEW_INITIAL_FRAME_SIZE = 6;
+const TAIL_PREVIEW_PLAYBACK_BATCH_SIZE = 3;
+const TAIL_PREVIEW_PLAYBACK_MS = 420;
 
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -126,6 +131,10 @@ export function ConversationInspector() {
   );
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
   const [tailPreviewEvents, setTailPreviewEvents] = useState<TailEvent[]>([]);
+  const [visibleTailPreviewEvents, setVisibleTailPreviewEvents] = useState<TailEvent[]>([]);
+  const visibleTailPreviewEventsRef = useRef<TailEvent[]>([]);
+  const tailPlaybackPendingRef = useRef<TailEvent[]>([]);
+  const tailPlaybackTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setCatalog(null);
@@ -164,13 +173,50 @@ export function ConversationInspector() {
     () => buildTailPreviewContext({ activeSessionId, agent, sessionMeta: meta }),
     [activeSessionId, agent, meta],
   );
+  const tailPreviewScopeKey = JSON.stringify({
+    sessionIds: tailPreviewContext.sessionIds,
+    paths: tailPreviewContext.paths,
+    projects: tailPreviewContext.projects,
+  });
   const hasTailPreviewScope =
     tailPreviewContext.sessionIds.length > 0 ||
     tailPreviewContext.paths.length > 0 ||
     tailPreviewContext.projects.length > 0;
 
+  const stopTailPlayback = useCallback(() => {
+    if (tailPlaybackTimerRef.current !== null) {
+      window.clearInterval(tailPlaybackTimerRef.current);
+      tailPlaybackTimerRef.current = null;
+    }
+    tailPlaybackPendingRef.current = [];
+  }, []);
+
+  const scheduleTailPlayback = useCallback(() => {
+    if (tailPlaybackTimerRef.current !== null) return;
+    tailPlaybackTimerRef.current = window.setInterval(() => {
+      const nextBatch = tailPlaybackPendingRef.current.slice(0, TAIL_PREVIEW_PLAYBACK_BATCH_SIZE);
+      tailPlaybackPendingRef.current = tailPlaybackPendingRef.current.slice(TAIL_PREVIEW_PLAYBACK_BATCH_SIZE);
+      if (nextBatch.length === 0) {
+        stopTailPlayback();
+        return;
+      }
+      setVisibleTailPreviewEvents((previous) => mergeTailPreviewEvents(previous, nextBatch));
+    }, TAIL_PREVIEW_PLAYBACK_MS);
+  }, [stopTailPlayback]);
+
   useEffect(() => {
+    visibleTailPreviewEventsRef.current = visibleTailPreviewEvents;
+  }, [visibleTailPreviewEvents]);
+
+  useEffect(() => stopTailPlayback, [stopTailPlayback]);
+
+  useEffect(() => {
+    stopTailPlayback();
     setTailPreviewEvents([]);
+    setVisibleTailPreviewEvents([]);
+  }, [stopTailPlayback, tailPreviewScopeKey]);
+
+  useEffect(() => {
     if (!hasTailPreviewScope) return;
     let cancelled = false;
     const params = new URLSearchParams({ limit: "180", transcripts: "true" });
@@ -186,7 +232,7 @@ export function ConversationInspector() {
     return () => {
       cancelled = true;
     };
-  }, [hasTailPreviewScope, tailPreviewContext]);
+  }, [hasTailPreviewScope, tailPreviewScopeKey]);
 
   useTailEvents(
     useCallback(
@@ -195,9 +241,44 @@ export function ConversationInspector() {
         if (!tailEventMatchesContext(event, tailPreviewContext)) return;
         setTailPreviewEvents((previous) => mergeTailPreviewEvents(previous, [event]));
       },
-      [hasTailPreviewScope, tailPreviewContext],
+      [hasTailPreviewScope, tailPreviewScopeKey],
     ),
   );
+
+  useEffect(() => {
+    if (tailPreviewEvents.length === 0) {
+      stopTailPlayback();
+      setVisibleTailPreviewEvents([]);
+      return;
+    }
+
+    const visible = visibleTailPreviewEventsRef.current;
+    const knownIds = new Set([
+      ...visible.map((event) => event.id),
+      ...tailPlaybackPendingRef.current.map((event) => event.id),
+    ]);
+    const incoming = tailPreviewEvents.filter((event) => !knownIds.has(event.id));
+    if (incoming.length === 0) return;
+
+    if (visible.length === 0) {
+      const immediate = incoming.slice(0, TAIL_PREVIEW_INITIAL_FRAME_SIZE);
+      const deferred = incoming.slice(TAIL_PREVIEW_INITIAL_FRAME_SIZE);
+      setVisibleTailPreviewEvents(mergeTailPreviewEvents([], immediate));
+      tailPlaybackPendingRef.current = mergeTailPreviewEvents(
+        tailPlaybackPendingRef.current,
+        deferred,
+      );
+    } else {
+      tailPlaybackPendingRef.current = mergeTailPreviewEvents(
+        tailPlaybackPendingRef.current,
+        incoming,
+      );
+    }
+
+    if (tailPlaybackPendingRef.current.length > 0) {
+      scheduleTailPlayback();
+    }
+  }, [scheduleTailPlayback, stopTailPlayback, tailPreviewEvents]);
 
   if (!conversationId) return null;
 
@@ -226,14 +307,16 @@ export function ConversationInspector() {
     latestMessage?.body?.trim() || meta?.preview?.trim() || null;
   const previewActor = latestMessage?.actorName ?? null;
   const liveSessionLabel = compactSessionId(activeSessionId);
+  const showTmuxPeek = Boolean(agent && agent.transport === "tmux");
   const liveSummary = activeFlight?.summary?.trim()
-    ?? (activeSessionId
+    ?? (activeSessionId && !showTmuxPeek
       ? "Terminal session is live."
-      : tailPreviewEvents.length > 0
+      : visibleTailPreviewEvents.length > 0 && !showTmuxPeek
         ? "Streaming matching Tail events."
         : null);
   const tailRouteQuery = buildTailRouteQuery(tailPreviewContext, tailPreviewEvents);
-  const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0));
+  const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0 || showTmuxPeek));
+  const showTailStream = visibleTailPreviewEvents.length > 0 || !showTmuxPeek;
 
   const goToAgentProfile = () => {
     if (!agentId) return;
@@ -371,32 +454,37 @@ export function ConversationInspector() {
             {liveSummary && (
               <div className="ctx-panel-live-summary">{liveSummary}</div>
             )}
-            <div className="ctx-panel-live-stream" aria-live="polite">
-              {tailPreviewEvents.length > 0 ? (
-                <ol className="ctx-panel-live-events">
-                  {tailPreviewEvents.map((event) => (
-                    <li key={event.id} className="ctx-panel-live-event">
-                      <span className="ctx-panel-live-event-kind">
-                        {tailKindLabel(event.kind)}
-                      </span>
-                      <span className="ctx-panel-live-event-summary">
-                        {tailSummary(event.summary)}
-                      </span>
-                      <span
-                        className="ctx-panel-live-event-time"
-                        title={formatAbsoluteTimestamp(event.ts)}
-                      >
-                        {timeAgo(event.ts)}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="ctx-panel-live-stream-empty">
-                  Waiting for matching Tail events
-                </div>
-              )}
-            </div>
+            {showTmuxPeek && (
+              <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+            )}
+            {showTailStream && (
+              <div className="ctx-panel-live-stream" aria-live="polite">
+                {visibleTailPreviewEvents.length > 0 ? (
+                  <ol className="ctx-panel-live-events">
+                    {visibleTailPreviewEvents.map((event) => (
+                      <li key={event.id} className="ctx-panel-live-event">
+                        <span className="ctx-panel-live-event-kind">
+                          {tailKindLabel(event.kind)}
+                        </span>
+                        <span className="ctx-panel-live-event-summary">
+                          {tailSummary(event.summary)}
+                        </span>
+                        <span
+                          className="ctx-panel-live-event-time"
+                          title={formatAbsoluteTimestamp(event.ts)}
+                        >
+                          {timeAgo(event.ts)}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="ctx-panel-live-stream-empty">
+                    Waiting for matching Tail events
+                  </div>
+                )}
+              </div>
+            )}
             {hasTailPreviewScope && (
               <button
                 type="button"

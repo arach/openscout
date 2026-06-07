@@ -1284,9 +1284,112 @@
   margin: 0;
 }
 
+.ctx-panel-tmux-peek {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-2xs);
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 82%, black);
+}
+
+.ctx-panel-tmux-peek-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.ctx-panel-tmux-peek-head span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
+.ctx-panel-tmux-peek-head time,
+.ctx-panel-tmux-peek-grid,
+.ctx-panel-tmux-peek-session {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-panel-tmux-peek-grid {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--ink) 55%, var(--dim));
+}
+
+.ctx-panel-tmux-peek-session {
+  max-width: 34%;
+  color: color-mix(in srgb, var(--ink) 44%, var(--dim));
+}
+
+.ctx-panel-tmux-peek-screen,
+.ctx-panel-tmux-peek-empty {
+  min-width: 0;
+  height: var(--tmux-peek-height, 335px);
+  margin: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 56%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, black 42%, var(--bg));
+  color: color-mix(in srgb, var(--ink) 78%, var(--muted));
+  font-family: var(--font-mono);
+  font-size: var(--tmux-peek-font-size, 6px);
+  line-height: var(--tmux-peek-line-height, 1.32);
+}
+
+.ctx-panel-tmux-peek-screen {
+  overflow: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  tab-size: 2;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 18%, transparent) transparent;
+}
+
+.ctx-panel-tmux-peek-screen::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.ctx-panel-tmux-peek-screen::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ctx-panel-tmux-peek-screen::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.ctx-panel-tmux-peek-empty {
+  display: grid;
+  place-items: center;
+  color: var(--dim);
+  letter-spacing: var(--tracking-sm);
+  text-align: center;
+}
+
+.ctx-panel-tmux-peek-foot {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
+  text-transform: uppercase;
+}
+
 .ctx-panel-live-summary {
-  min-height: 48px;
-  max-height: 48px;
+  min-height: 0;
+  max-height: 4.6em;
   padding: var(--space-2xs) var(--space-xs);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
@@ -1305,6 +1408,7 @@
   max-height: 104px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: var(--space-2xs) var(--space-xs);
   border: 1px solid color-mix(in srgb, var(--border) 36%, transparent);
   border-radius: var(--radius-md);
@@ -1353,6 +1457,25 @@
   gap: var(--space-xs);
   min-height: 20px;
   font-size: var(--text-xs);
+  animation: ctx-panel-live-event-enter 160ms ease-out both;
+}
+
+@keyframes ctx-panel-live-event-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ctx-panel-live-event {
+    animation: none;
+  }
 }
 
 .ctx-panel-live-event-kind {
