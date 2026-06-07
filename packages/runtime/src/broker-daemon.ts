@@ -5666,6 +5666,10 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const includeDiff = url.searchParams.get("includeDiff") === "1" || url.searchParams.get("includeDiff") === "true";
     const includeLastCommit = url.searchParams.get("includeLastCommit") === "1"
       || url.searchParams.get("includeLastCommit") === "true";
+    const nativeParam = url.searchParams.get("native");
+    const useNativeRepoService = nativeParam == null
+      ? undefined
+      : nativeParam === "1" || nativeParam === "true";
     const maxRoots = parsePositiveIntParam(url, "maxRoots", 128);
     const maxWorktrees = parsePositiveIntParam(url, "maxWorktrees", 32);
     const maxFilesPerWorktree = parsePositiveIntParam(url, "maxFilesPerWorktree", 100);
@@ -5678,6 +5682,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       force,
       includeDiff,
       includeLastCommit,
+      useNativeRepoService,
       maxRoots,
       maxWorktrees,
       maxFilesPerWorktree,

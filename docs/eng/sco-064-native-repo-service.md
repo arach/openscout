@@ -82,10 +82,28 @@ Add `crates/openscout-repo-service` with:
    `git status --porcelain=v2 --branch -unormal`.
 6. Unit tests for parsers and a real temporary Git repository scan.
 
-This first slice does not replace the TypeScript scanner yet. It creates the
-native contract that the TypeScript wrapper can call behind a fallback.
+This first slice does not fully replace the TypeScript scanner yet. It creates
+the native contract and a TypeScript wrapper path that can call Rust behind a
+fallback.
 
-## 5. Replacement Contract
+## 5. Server Adapter
+
+`packages/runtime/src/repo-watch/index.ts` can launch the Rust scanner and keep
+the existing UI-facing `RepoWatchSnapshot` contract:
+
+- `OPENSCOUT_REPO_WATCH_NATIVE=1` enables the native scanner by default.
+- `/v1/repo-watch/snapshot?native=1` enables it for one broker request.
+- `OPENSCOUT_REPO_SERVICE_BIN=/path/to/openscout-repo-service` points at a
+  prebuilt binary.
+- In a repo checkout, the wrapper can run the crate with `cargo run
+  --manifest-path crates/openscout-repo-service/Cargo.toml -- scan`.
+- If native launch or parsing fails, the broker adds a warning and falls back to
+  the TypeScript scanner.
+
+Rust returns raw scan facts. TypeScript still attaches Scout hints, agents, and
+sessions; classifies attention; builds stats/totals; and owns cache behavior.
+
+## 6. Replacement Contract
 
 The TypeScript wrapper should eventually do:
 
@@ -100,7 +118,7 @@ broker snapshot
 
 The TS scanner remains the fallback until parity is proven.
 
-## 6. Acceptance Criteria
+## 7. Acceptance Criteria
 
 - `npm run repo-service:test` passes.
 - `npm run repo-service:check` passes.
@@ -109,13 +127,11 @@ The TS scanner remains the fallback until parity is proven.
   semantics.
 - The scanner can include or omit diff/last-commit enrichment by request.
 - The crate can be built independently of the supervisor crate.
-- Existing TypeScript Repo Watch API remains unchanged until the wrapper is
-  explicitly enabled.
+- Existing TypeScript Repo Watch API remains unchanged whether the wrapper is
+  disabled, enabled by env, or enabled per request.
 
-## 7. Follow-Ups
+## 8. Follow-Ups
 
-- Add a TypeScript `native-repo-scan` adapter with Rust-first / TS-fallback
-  behavior.
 - Add fixture parity tests comparing Rust raw scans to current TS parser output.
 - Add a long-running `observe` mode that watches hinted roots and streams raw
   repo change events.
