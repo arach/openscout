@@ -51,6 +51,11 @@ final class AppModel {
     var agentCount: Int = 0
     var activeAgentCount: Int = 0
 
+    /// Bumped whenever the trusted-bridge set changes (forgetting a Mac). The
+    /// `pairedMachines` list is computed straight off the keychain and reads no
+    /// other observed state, so without this nudge a forget wouldn't re-render.
+    private var machinesRevision = 0
+
     private static let voicePrefKey = "scoutnext.voicePreference"
 
     init() {
@@ -161,6 +166,15 @@ final class AppModel {
     /// shell (connecting in the background); otherwise we land on the Connect
     /// screen. This is the only place that decides the opening surface.
     func start() async {
+        #if DEBUG
+        // Sim-verification hook (sibling to SCOUTNEXT_TAB / SCOUTNEXT_OPEN_SETTINGS):
+        // enter the shell unpaired so Settings and the empty surfaces are reachable
+        // on a fresh simulator that has no trusted bridge. Never affects release.
+        if ProcessInfo.processInfo.environment["SCOUTNEXT_SKIP_PAIRING"] != nil {
+            phase = .shell
+            return
+        }
+        #endif
         if hasTrustedBridge {
             phase = .shell
             await connectIfNeeded()
@@ -292,6 +306,7 @@ final class AppModel {
     /// each machine / connect to several at once, only the active one reports a
     /// live route — the others carry last-seen, not a fabricated reachability.
     var pairedMachines: [PairedMachine] {
+        _ = machinesRevision   // participate in observation (see machinesRevision)
         let records = (try? ScoutIdentity.getTrustedBridges()) ?? []
         let activeHex = activeMachineHex
         return records
@@ -312,6 +327,16 @@ final class AppModel {
                     route: route
                 )
             }
+    }
+
+    /// Forget a paired Mac: drop its trusted-bridge record from the keychain. If
+    /// it's the one we're connected to, the live bridge stays up until the next
+    /// reconnect — the row just leaves the list. No-op if the id doesn't match.
+    func forgetMachine(id hex: String) {
+        guard let record = ((try? ScoutIdentity.getTrustedBridges()) ?? [])
+            .first(where: { $0.publicKeyHex == hex }) else { return }
+        try? ScoutIdentity.removeTrustedBridge(publicKey: record.publicKey)
+        machinesRevision += 1
     }
 
     /// Turn a relay host / stored hostname into a friendly machine label by

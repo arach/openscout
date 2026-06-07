@@ -44,8 +44,29 @@ struct AppSettingsView: View {
 
     private var connectionPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The Macs you've paired, then the clear way to add another. This is
+            // the "add a Mac" entry point — a labeled list + a prominent CTA,
+            // not a lone Scan action buried under Reconnect.
+            HudInspectorSection("Macs") {
+                if model.pairedMachines.isEmpty {
+                    HudInspectorFieldRow("No Macs paired", value: "—", hint: "pair to begin")
+                } else {
+                    ForEach(model.pairedMachines) { machine in
+                        HudInspectorFieldRow(
+                            machine.name,
+                            value: machineState(machine),
+                            hint: machineHint(machine),
+                            inlineAction: HudInspectorInlineAction("Forget") {
+                                model.forgetMachine(id: machine.id)
+                            }
+                        )
+                    }
+                }
+                HudInspectorActionRow("Add a Mac", value: "Scan", tone: .accent) {
+                    dismiss(); model.showPairing = true
+                }
+            }
             HudInspectorSection("Link") {
-                HudInspectorFieldRow("Paired Mac", value: model.statusLabel, hint: "encrypted bridge")
                 HudInspectorFieldRow("Transport", value: routeLabel, hint: "live route")
                 HudInspectorFieldRow("Identity", value: model.hasTrustedBridge ? "Paired" : "None", hint: "trusted")
             }
@@ -56,10 +77,24 @@ struct AppSettingsView: View {
             ])
             HudInspectorSection("Actions") {
                 HudInspectorActionRow("Reconnect", value: "Run", tone: .accent) { Task { await model.reconnect() } }
-                HudInspectorActionRow("Pair with a Mac", value: "Scan", tone: .accent) { dismiss(); model.showPairing = true }
             }
             connectionLogSection
         }
+    }
+
+    /// Trailing value for a paired-Mac row — kept to a short token (route label /
+    /// "Live" / "Paired") so it never widens the fixed-size trailing run; the
+    /// variable-length last-seen lives in the left hint, which truncates.
+    private func machineState(_ machine: AppModel.PairedMachine) -> String {
+        machine.isActive ? (machine.route?.label.isEmpty == false ? machine.route!.label : "Live") : "Paired"
+    }
+
+    /// Quiet hint under the Mac name: the active one is the live link; the rest
+    /// carry a relative last-seen.
+    private func machineHint(_ machine: AppModel.PairedMachine) -> String {
+        if machine.isActive { return "active link" }
+        guard let seen = machine.lastSeen else { return "paired" }
+        return "seen \(seen.formatted(.relative(presentation: .named)))"
     }
 
     private var routesPanel: some View {
