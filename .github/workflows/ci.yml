@@ -18,7 +18,7 @@ on:
       - "packages/session-trace-react/**"
       - "packages/web/**"
       - "scripts/cargo.sh"
-      - "scripts/supervisor-smoke.sh"
+      - "scripts/supervisor-verify.sh"
       - "scripts/**"
       - "package.json"
       - "bun.lock"
@@ -76,7 +76,7 @@ jobs:
           fi
 
   rust-supervisor:
-    name: Rust supervisor
+    name: Supervisor verification
     runs-on: macos-latest
     timeout-minutes: 10
 
@@ -87,5 +87,5 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Smoke
-        run: bash scripts/supervisor-smoke.sh
+      - name: Verify
+        run: bash scripts/supervisor-verify.sh
