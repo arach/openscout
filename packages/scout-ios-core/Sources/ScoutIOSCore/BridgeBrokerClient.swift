@@ -64,6 +64,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         BridgeConnectionInfo.setActivePublicKeyHex(publicKeyHex, userDefaults: userDefaults)
     }
 
+    public static func activeConnectionPublicKeyHex(userDefaults: UserDefaults = .standard) -> String? {
+        BridgeConnectionInfo.activePublicKeyHex(userDefaults: userDefaults)
+    }
+
     public static func removeSavedConnectionInfo(
         publicKeyHex: String,
         userDefaults: UserDefaults = .standard

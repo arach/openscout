@@ -91,13 +91,26 @@ struct AppSettingsView: View {
     /// "Live" / "Paired") so it never widens the fixed-size trailing run; the
     /// variable-length last-seen lives in the left hint, which truncates.
     private func machineState(_ machine: AppModel.PairedMachine) -> String {
-        machine.isActive ? (machine.route?.label.isEmpty == false ? machine.route!.label : "Live") : "Paired"
+        switch machine.connectionState {
+        case .connected(let route):
+            return route.label.isEmpty ? "Live" : route.label
+        case .connecting:
+            return "…"
+        case .failed:
+            return "Off"
+        case .idle:
+            return "Paired"
+        }
     }
 
-    /// Quiet hint under the Mac name: the active one is the live link; the rest
-    /// carry a relative last-seen.
+    /// Quiet hint under the Mac name: focused says what surfaces route through;
+    /// online says the keyed bridge client is live.
     private func machineHint(_ machine: AppModel.PairedMachine) -> String {
-        if machine.isActive { return "active link" }
+        if machine.isActive, machine.isOnline { return "active link" }
+        if machine.isActive { return "focused" }
+        if machine.isOnline { return "connected" }
+        if case .failed = machine.connectionState { return "unreachable" }
+        if case .connecting = machine.connectionState { return "connecting" }
         guard let seen = machine.lastSeen else { return "paired" }
         return "seen \(seen.formatted(.relative(presentation: .named)))"
     }
