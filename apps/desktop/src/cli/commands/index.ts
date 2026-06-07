@@ -25,6 +25,7 @@ export type ScoutCommandName =
   | "restart"
   | "runtimes"
   | "send"
+  | "session"
   | "server"
   | "setup"
   | "speak"
@@ -83,6 +84,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./runtimes.ts")).runRuntimesCommand;
     case "send":
       return (await import("./send.ts")).runSendCommand;
+    case "session":
+      return (await import("./session.ts")).runSessionCommand;
     case "server":
       return (await import("./server.ts")).runServerCommand;
     case "setup":

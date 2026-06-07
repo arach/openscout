@@ -168,6 +168,38 @@ final class ScoutIOSCoreTests: XCTestCase {
     }
 
     @MainActor
+    func testPinnedConnectionReadsOnlyItsBridgeConnectionInfo() {
+        let defaults = makeDefaults()
+        let keyA = String(repeating: "a", count: 64)
+        let keyB = String(repeating: "b", count: 64)
+        BridgeConnectionInfo(
+            relayURL: "wss://mac-a.tailnet.ts.net:7889",
+            roomId: "room-a",
+            publicKeyHex: keyA
+        ).save(userDefaults: defaults, promoteActive: true)
+        BridgeConnectionInfo(
+            relayURL: "ws://192.168.55.10:7889",
+            roomId: "room-b",
+            publicKeyHex: keyB
+        ).save(userDefaults: defaults, promoteActive: false)
+
+        XCTAssertEqual(BridgeConnectionInfo.loadActive(userDefaults: defaults)?.publicKeyHex, keyA)
+        XCTAssertEqual(BridgeConnectionInfo.activePublicKeyHex(userDefaults: defaults), keyA)
+
+        let log = ConnectionLog()
+        let pinnedToB = BridgeConnection(
+            target: BridgeConnectionTarget(publicKeyHex: keyB),
+            connectionLog: ConnectionLogHandle(log),
+            userDefaults: defaults
+        )
+
+        let summary = pinnedToB.savedRouteSummary()
+        XCTAssertEqual(summary.relayCount, 1)
+        XCTAssertTrue(summary.hasLANRelay)
+        XCTAssertFalse(summary.hasTailnetRelay)
+    }
+
+    @MainActor
     func testConnectionLogStoresEventKind() {
         let log = ConnectionLog()
 

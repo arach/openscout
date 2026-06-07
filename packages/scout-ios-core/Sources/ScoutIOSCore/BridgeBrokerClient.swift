@@ -36,12 +36,43 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
 
     public var isConnected: Bool { connection.isConnected }
 
+    /// Public-key hex this client is pinned to, if any.
+    public var targetPublicKeyHex: String? { connection.targetPublicKeyHex }
+
+    /// Public-key hex of the bridge backing this client's current connection.
+    public var currentPublicKeyHex: String? { connection.currentPublicKeyHex }
+
     public init(connection: BridgeConnection) {
         self.connection = connection
     }
 
-    public convenience init(connectionLog: ConnectionLogHandle, userDefaults: UserDefaults = .standard) {
-        self.init(connection: BridgeConnection(connectionLog: connectionLog, userDefaults: userDefaults))
+    public convenience init(
+        connectionLog: ConnectionLogHandle,
+        userDefaults: UserDefaults = .standard,
+        preferredPublicKeyHex: String? = nil
+    ) {
+        let target = preferredPublicKeyHex.map { BridgeConnectionTarget(publicKeyHex: $0) }
+        self.init(connection: BridgeConnection(target: target, connectionLog: connectionLog, userDefaults: userDefaults))
+    }
+
+    /// Select the legacy single-link active bridge. This is UI preference only;
+    /// pinned connections do not read or mutate it during reconnect.
+    public static func setActiveConnectionPublicKeyHex(
+        _ publicKeyHex: String?,
+        userDefaults: UserDefaults = .standard
+    ) {
+        BridgeConnectionInfo.setActivePublicKeyHex(publicKeyHex, userDefaults: userDefaults)
+    }
+
+    public static func activeConnectionPublicKeyHex(userDefaults: UserDefaults = .standard) -> String? {
+        BridgeConnectionInfo.activePublicKeyHex(userDefaults: userDefaults)
+    }
+
+    public static func removeSavedConnectionInfo(
+        publicKeyHex: String,
+        userDefaults: UserDefaults = .standard
+    ) {
+        BridgeConnectionInfo.remove(publicKeyHex: publicKeyHex, userDefaults: userDefaults)
     }
 
     /// Establish the encrypted connection (load identity + trusted bridge,
