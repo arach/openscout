@@ -33,6 +33,7 @@ let readUnblockRequestsResult: Array<Record<string, unknown>> = [];
 let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
+let queryAgentsResult: Array<Record<string, unknown>> = [];
 let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
@@ -88,11 +89,11 @@ mock.module("./db-queries.ts", () => ({
     db.exec("PRAGMA busy_timeout = 250");
     db.exec("PRAGMA query_only = ON");
   },
-  queryAgentById: () => null,
-  queryAgents: () => [],
+  queryAgentById: (agentId: string) =>
+    queryAgentsResult.find((agent) => agent.id === agentId) ?? null,
+  queryAgents: () => queryAgentsResult,
   queryActivity: () => [],
   queryBrokerDiagnostics: () => brokerDiagnosticsResult,
-  queryAgentById: () => null,
   queryConversationDefinitionById: (conversationId: string) =>
     queryConversationDefinitionByIdImpl(conversationId),
   queryHeartrate: () => [],
@@ -440,6 +441,7 @@ beforeEach(() => {
   };
   scoutRelayConfigResult = {};
   brokerDiagnosticsResult = makeBrokerDiagnostics();
+  queryAgentsResult = [];
   readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
@@ -687,6 +689,84 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
+  });
+
+  test("serves a bounded tmux peek for a broker-backed agent", async () => {
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Claude Relay",
+        harness: "claude",
+        transport: "tmux",
+        harnessSessionId: "fallback-session",
+        cwd: "/tmp/project",
+        projectRoot: "/tmp/project",
+      },
+    ];
+    scoutBrokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "active",
+            sessionId: "tmux-session",
+            pane: "%3",
+            cwd: "/tmp/project",
+            metadata: {
+              tmuxSession: "tmux-session",
+            },
+          },
+        },
+      },
+    };
+    const captureCalls: Array<Record<string, unknown>> = [];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      captureTmuxPane: (request) => {
+        captureCalls.push(request);
+        return { body: "\x1B[32mWorking\x1B[0m\nDone\n\n" };
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents/agent-1/tmux-peek?lines=12&cols=60",
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
+      available: true,
+      agentId: "agent-1",
+      sessionId: "tmux-session",
+      lineCount: 12,
+      columnCount: 60,
+      truncated: false,
+      reason: null,
+    });
+    const rows = String(body.body).split("\n");
+    expect(rows).toHaveLength(12);
+    expect(rows.every((row) => Array.from(row).length === 60)).toBe(true);
+    expect(rows.slice(0, 9).every((row) => row === " ".repeat(60))).toBe(true);
+    expect(rows.at(-3)?.trimEnd()).toBe("Working");
+    expect(rows.at(-2)?.trimEnd()).toBe("Done");
+    expect(rows.at(-1)?.trimEnd()).toBe("");
+    expect(typeof body.capturedAt).toBe("number");
+    expect(captureCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
+        sessionId: "tmux-session",
+        paneTarget: "%3",
+        cwd: "/tmp/project",
+        lines: 12,
+        columns: 60,
+      }),
+    ]);
   });
 
   test("serves broker diagnostics", async () => {

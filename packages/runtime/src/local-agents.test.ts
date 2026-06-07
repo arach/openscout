@@ -16,6 +16,7 @@ import {
   clearEndpointFailureMetadata,
   endpointStateAfterSuccessfulSessionWarmup,
   areHarnessBinariesAvailable,
+  brokerSnapshotMessages,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
@@ -492,5 +493,41 @@ describe("local agent reply cleanup", () => {
     );
 
     expect(cleaned).toBe("SHAPER_BROKER_OK");
+  });
+});
+
+describe("local agent broker snapshots", () => {
+  test("treats missing or malformed broker snapshot messages as empty", () => {
+    expect(brokerSnapshotMessages(undefined)).toEqual([]);
+    expect(brokerSnapshotMessages({})).toEqual([]);
+    expect(brokerSnapshotMessages({ messages: null })).toEqual([]);
+    expect(brokerSnapshotMessages({ messages: [] })).toEqual([]);
+  });
+
+  test("filters malformed broker snapshot messages", () => {
+    expect(brokerSnapshotMessages({
+      messages: {
+        valid: {
+          actorId: "agent-1",
+          body: "ready",
+          createdAt: 123,
+        },
+        missingBody: {
+          actorId: "agent-2",
+          createdAt: 124,
+        },
+        badTimestamp: {
+          actorId: "agent-3",
+          body: "bad",
+          createdAt: "124",
+        },
+      },
+    })).toEqual([
+      {
+        actorId: "agent-1",
+        body: "ready",
+        createdAt: 123,
+      },
+    ]);
   });
 });

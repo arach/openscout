@@ -16,14 +16,16 @@
 }
 
 .agent-live-actions--compact {
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0 0;
+  gap: var(--space-xs);
+  padding: 0;
   border: 0;
-  border-top: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
   border-radius: 0;
   background: transparent;
+}
+
+.agent-live-actions--compact .agent-live-actions-status {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .agent-live-actions-status {
@@ -126,18 +128,22 @@
 }
 
 .agent-live-actions--compact .agent-live-actions-buttons {
-  justify-content: flex-start;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: var(--space-2xs);
 }
 
 .agent-live-actions--compact .agent-live-actions-button {
-  min-height: 26px;
-  padding: 0 var(--space-sm);
+  min-height: 24px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
   font-size: var(--text-2xs);
 }
 
 .agent-live-actions--compact .agent-live-actions-button--primary {
-  flex: 1 1 100%;
-  min-height: 30px;
+  flex: 0 0 auto;
+  min-height: 24px;
 }
 
 @media (max-width: 720px) {
@@ -148,5 +154,14 @@
 
   .agent-live-actions-buttons {
     justify-content: flex-start;
+  }
+
+  .agent-live-actions--compact {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .agent-live-actions--compact .agent-live-actions-buttons {
+    justify-content: flex-end;
   }
 }

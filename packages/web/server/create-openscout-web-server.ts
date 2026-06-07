@@ -314,6 +314,21 @@ export type TerminalRunRequest = {
   agentId?: string | null;
 };
 
+export type TmuxPanePeekRequest = {
+  agentId: string;
+  sessionId: string;
+  paneTarget: string;
+  cwd: string | null;
+  lines: number;
+  columns: number;
+};
+
+export type TmuxPanePeekCapture = {
+  body: string;
+  lineCount?: number;
+  truncated?: boolean;
+};
+
 export type CreateOpenScoutWebServerOptions = {
   currentDirectory: string;
   shellStateCacheTtlMs?: number;
@@ -329,6 +344,7 @@ export type CreateOpenScoutWebServerOptions = {
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
+  captureTmuxPane?: (request: TmuxPanePeekRequest) => Promise<TmuxPanePeekCapture | null> | TmuxPanePeekCapture | null;
   scoutbotAssistant?: {
     invokeCodex?: ScoutbotCodexAssistantInvoker;
   };
@@ -981,6 +997,140 @@ function activeEndpointForAgent(
     }
   };
   return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
+const TMUX_PEEK_DEFAULT_LINES = 44;
+const TMUX_PEEK_MIN_LINES = 10;
+const TMUX_PEEK_MAX_LINES = 80;
+const TMUX_PEEK_DEFAULT_COLUMNS = 132;
+const TMUX_PEEK_MIN_COLUMNS = 60;
+const TMUX_PEEK_MAX_COLUMNS = 200;
+const TMUX_PEEK_CAPTURE_MIN_LINES = 60;
+const TMUX_PEEK_MAX_BYTES = 48 * 1024;
+
+type TmuxPeekTarget = {
+  sessionId: string;
+  paneTarget: string;
+  cwd: string | null;
+};
+
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = value ? Number.parseInt(value, 10) : NaN;
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(maximum, Math.max(minimum, parsed));
+}
+
+function parseTmuxPeekLineCount(value: string | undefined): number {
+  return parseBoundedInteger(
+    value,
+    TMUX_PEEK_DEFAULT_LINES,
+    TMUX_PEEK_MIN_LINES,
+    TMUX_PEEK_MAX_LINES,
+  );
+}
+
+function parseTmuxPeekColumnCount(value: string | undefined): number {
+  return parseBoundedInteger(
+    value,
+    TMUX_PEEK_DEFAULT_COLUMNS,
+    TMUX_PEEK_MIN_COLUMNS,
+    TMUX_PEEK_MAX_COLUMNS,
+  );
+}
+
+function stripTerminalControlSequences(value: string): string {
+  return value.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, "");
+}
+
+function normalizeTmuxPeekLine(line: string, columns: number): string {
+  const chars = Array.from(line);
+  const clipped = chars.length > columns ? chars.slice(0, columns).join("") : line;
+  const clippedLength = Array.from(clipped).length;
+  return `${clipped}${" ".repeat(Math.max(0, columns - clippedLength))}`;
+}
+
+function normalizeTmuxPeekBody(body: string, lines: number, columns: number): {
+  body: string;
+  lineCount: number;
+  columnCount: number;
+  truncated: boolean;
+} {
+  const cleaned = stripTerminalControlSequences(body)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+  const split = cleaned.endsWith("\n") ? cleaned.slice(0, -1).split("\n") : cleaned.split("\n");
+  const sourceRows = split.length === 1 && split[0] === "" ? [] : split;
+  const visible = sourceRows.length > lines ? sourceRows.slice(-lines) : sourceRows;
+  const rows = [...visible];
+  while (rows.length < lines) {
+    rows.unshift("");
+  }
+  return {
+    body: rows.map((line) => normalizeTmuxPeekLine(line, columns)).join("\n"),
+    lineCount: rows.length,
+    columnCount: columns,
+    truncated: sourceRows.length > lines,
+  };
+}
+
+function resolveTmuxPeekTarget(agent: ReturnType<typeof queryAgents>[number], endpoint: AgentEndpoint | null): TmuxPeekTarget | null {
+  const endpointMetadata = agentEndpointMetadata(endpoint);
+  const tmuxSession = firstMetadataString(
+    endpointMetadata.tmuxSession,
+    endpoint?.sessionId,
+    agent.harnessSessionId,
+    endpointMetadata.runtimeInstanceId,
+  );
+  const paneTarget = firstMetadataString(
+    endpoint?.pane,
+    endpointMetadata.paneTarget,
+    endpointMetadata.tmuxPane,
+    tmuxSession,
+  );
+  const tmuxBacked = agent.transport === "tmux"
+    || endpoint?.transport === "tmux"
+    || Boolean(firstMetadataString(endpointMetadata.tmuxSession));
+
+  if (!tmuxBacked || !tmuxSession || !paneTarget) {
+    return null;
+  }
+
+  return {
+    sessionId: tmuxSession,
+    paneTarget,
+    cwd: endpoint?.cwd ?? endpoint?.projectRoot ?? agent.cwd ?? agent.projectRoot ?? null,
+  };
+}
+
+function defaultCaptureTmuxPane(request: TmuxPanePeekRequest): TmuxPanePeekCapture | null {
+  try {
+    const body = execFileSync("tmux", [
+      "capture-pane",
+      "-p",
+      "-J",
+      "-t",
+      request.paneTarget,
+      "-S",
+      `-${Math.max(request.lines, TMUX_PEEK_CAPTURE_MIN_LINES)}`,
+      "-E",
+      "-",
+    ], {
+      encoding: "utf8",
+      maxBuffer: TMUX_PEEK_MAX_BYTES,
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 1_500,
+    });
+    return { body };
+  } catch {
+    return null;
+  }
 }
 
 function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | null | undefined {
@@ -3285,6 +3435,67 @@ export async function createOpenScoutWebServer(
         endpoint,
       }),
     );
+  });
+  app.get("/api/agents/:agentId/tmux-peek", async (c) => {
+    const agentId = c.req.param("agentId");
+    const agent = queryAgents(200).find((candidate) => candidate.id === agentId)
+      ?? queryAgentById(agentId);
+    if (!agent) return c.json({ error: "agent not found" }, 404);
+
+    const broker = await loadScoutBrokerContext().catch(() => null);
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
+    const target = resolveTmuxPeekTarget(agent, endpoint);
+    const capturedAt = Date.now();
+    const lines = parseTmuxPeekLineCount(c.req.query("lines"));
+    const columns = parseTmuxPeekColumnCount(c.req.query("cols") ?? c.req.query("columns"));
+    if (!target) {
+      return c.json({
+        available: false,
+        agentId,
+        sessionId: null,
+        capturedAt,
+        body: "",
+        lineCount: 0,
+        columnCount: columns,
+        truncated: false,
+        reason: "No tmux-backed session is registered for this agent.",
+      });
+    }
+
+    const capture = await (options.captureTmuxPane ?? defaultCaptureTmuxPane)({
+      agentId,
+      sessionId: target.sessionId,
+      paneTarget: target.paneTarget,
+      cwd: target.cwd,
+      lines,
+      columns,
+    });
+    if (!capture) {
+      return c.json({
+        available: false,
+        agentId,
+        sessionId: target.sessionId,
+        capturedAt,
+        body: "",
+        lineCount: 0,
+        columnCount: columns,
+        truncated: false,
+        reason: "The tmux pane is not available right now.",
+      });
+    }
+
+    const normalized = normalizeTmuxPeekBody(capture.body, lines, columns);
+    return c.json({
+      available: true,
+      agentId,
+      sessionId: target.sessionId,
+      capturedAt,
+      body: normalized.body,
+      lineCount: capture.lineCount ?? normalized.lineCount,
+      columnCount: normalized.columnCount,
+      truncated: capture.truncated ?? normalized.truncated,
+      reason: null,
+    });
   });
   app.get("/api/agents/:agentId/session/context", async (c) => {
     const agentId = c.req.param("agentId");

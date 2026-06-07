@@ -698,6 +698,18 @@ export type AgentObservePayload = {
   data: ObserveData;
 };
 
+export type TmuxPeekPayload = {
+  available: boolean;
+  agentId: string;
+  sessionId: string | null;
+  capturedAt: number;
+  body: string;
+  lineCount: number;
+  columnCount: number;
+  truncated: boolean;
+  reason: string | null;
+};
+
 export type SessionCatalogEntry = {
   id: string;
   startedAt: number;

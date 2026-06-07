@@ -234,6 +234,21 @@ interface BrokerSnapshot {
   messages: Record<string, BrokerSnapshotMessage>;
 }
 
+function isBrokerSnapshotMessage(value: unknown): value is BrokerSnapshotMessage {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<BrokerSnapshotMessage>;
+  return typeof candidate.actorId === "string"
+    && typeof candidate.body === "string"
+    && typeof candidate.createdAt === "number";
+}
+
+export function brokerSnapshotMessages(value: unknown): BrokerSnapshotMessage[] {
+  if (!value || typeof value !== "object") return [];
+  const messages = (value as { messages?: unknown }).messages;
+  if (!messages || typeof messages !== "object" || Array.isArray(messages)) return [];
+  return Object.values(messages).filter(isBrokerSnapshotMessage);
+}
+
 const DEFAULT_LOCAL_AGENT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
 const DEFAULT_LOCAL_AGENT_HARNESS: AgentHarness = "claude";
 const DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -2420,7 +2435,7 @@ async function readBrokerMessagesSince(sinceSeconds: number): Promise<BrokerSnap
   const snapshot = await requestScoutBrokerJson<BrokerSnapshot>(baseUrl, "/v1/snapshot", {
     socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
   });
-  return Object.values(snapshot.messages)
+  return brokerSnapshotMessages(snapshot)
     .filter((message) => normalizeBrokerTimestamp(message.createdAt) >= sinceSeconds)
     .sort((lhs, rhs) => normalizeBrokerTimestamp(lhs.createdAt) - normalizeBrokerTimestamp(rhs.createdAt));
 }
