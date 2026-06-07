@@ -83,8 +83,8 @@ Add `crates/openscout-repo-service` with:
 6. Unit tests for parsers and a real temporary Git repository scan.
 
 This first slice does not fully replace the TypeScript scanner yet. It creates
-the native contract and a TypeScript wrapper path that can call Rust behind a
-fallback.
+the native contract and a TypeScript wrapper path that can call Rust in
+rust-or-bust validation mode.
 
 ## 5. Server Adapter
 
@@ -97,8 +97,9 @@ the existing UI-facing `RepoWatchSnapshot` contract:
   prebuilt binary.
 - In a repo checkout, the wrapper can run the crate with `cargo run
   --manifest-path crates/openscout-repo-service/Cargo.toml -- scan`.
-- If native launch or parsing fails, the broker adds a warning and falls back to
-  the TypeScript scanner.
+- If native launch or parsing fails while native mode is enabled, the request
+  fails. The TypeScript fallback path is intentionally commented out while Rust
+  parity is being validated.
 
 Rust returns raw scan facts. TypeScript still attaches Scout hints, agents, and
 sessions; classifies attention; builds stats/totals; and owns cache behavior.
@@ -116,7 +117,7 @@ broker snapshot
   -> RepoWatchSnapshot
 ```
 
-The TS scanner remains the fallback until parity is proven.
+The TS scanner remains available only when native mode is not requested.
 
 ## 7. Acceptance Criteria
 

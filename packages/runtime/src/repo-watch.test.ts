@@ -231,43 +231,18 @@ describe("repo-watch", () => {
     expect(worktree.sessions[0]?.id).toBe("session-1");
   });
 
-  test("falls back to the TypeScript scanner when native repo-service launch fails", async () => {
-    const repo = join(tempRoot, "native-fallback");
+  test("surfaces native repo-service failures when native mode is enabled", async () => {
+    const repo = join(tempRoot, "native-failure");
     mkdirSync(repo, { recursive: true });
 
-    const snapshot = await getRepoWatchSnapshot({
+    await expect(getRepoWatchSnapshot({
       force: true,
       cacheTtlMs: 0,
       hints: [{ path: repo, source: "endpoint", agentId: "agent.codex" }],
       nativeScan: async () => {
         throw new Error("native unavailable");
       },
-      git: async (_cwd, args) => {
-        const command = args.join(" ");
-        if (command === "rev-parse --show-toplevel") return `${repo}\n`;
-        if (command === "rev-parse --git-common-dir") return ".git\n";
-        if (command === "worktree list --porcelain") {
-          return [
-            `worktree ${repo}`,
-            "HEAD abc123",
-            "branch refs/heads/feature",
-            "",
-          ].join("\n");
-        }
-        if (command === "status --porcelain=v2 --branch -unormal") {
-          return [
-            "# branch.oid abc123",
-            "# branch.head feature",
-            "",
-          ].join("\n");
-        }
-        return "";
-      },
-    });
-
-    expect(snapshot.projects).toHaveLength(1);
-    expect(snapshot.warnings[0]).toContain("Repo Watch native scan failed");
-    expect(snapshot.warnings[0]).toContain("native unavailable");
+    })).rejects.toThrow("native unavailable");
   });
 
   test("deduplicates Git root probes for repeated path hints", async () => {

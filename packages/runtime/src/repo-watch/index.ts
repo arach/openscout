@@ -1324,47 +1324,40 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
     return cachedSnapshot.snapshot;
   }
 
-  const nativeFallbackWarnings: string[] = [];
   if (useNativeRepoService) {
     const nativeScan = options.nativeScan ?? defaultNativeRepoScan;
-    try {
-      const native = await nativeScan({
-        hints: hints.map((hint) => ({
-          path: hint.path,
-          source: hint.source,
-          hintId: hint.sourceLabel ?? hint.agentId ?? hint.sessionId,
-        })),
-        limits: {
-          maxRoots,
-          maxWorktrees,
-          maxFilesPerWorktree: maxFiles,
-          scanBudgetMs,
-          includeDiff,
-          includeLastCommit,
-        },
-      });
-      const converted = projectsFromNativeScan(native, hints);
-      const generatedAt = converted.generatedAt || now;
-      const snapshot: RepoWatchSnapshot = {
-        generatedAt,
-        projects: converted.projects,
-        totals: totalsForProjects(converted.projects),
-        warnings: converted.warnings,
-      };
-      cachedSnapshot = { signature, generatedAt, snapshot };
-      return snapshot;
-    } catch (error) {
-      nativeFallbackWarnings.push(
-        `Repo Watch native scan failed; using TypeScript scanner. ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    }
+    // Native mode is intentionally rust-or-bust while the repo service is being validated.
+    // The previous TypeScript fallback is commented out by design so launch/scan failures surface.
+    const native = await nativeScan({
+      hints: hints.map((hint) => ({
+        path: hint.path,
+        source: hint.source,
+        hintId: hint.sourceLabel ?? hint.agentId ?? hint.sessionId,
+      })),
+      limits: {
+        maxRoots,
+        maxWorktrees,
+        maxFilesPerWorktree: maxFiles,
+        scanBudgetMs,
+        includeDiff,
+        includeLastCommit,
+      },
+    });
+    const converted = projectsFromNativeScan(native, hints);
+    const generatedAt = converted.generatedAt || now;
+    const snapshot: RepoWatchSnapshot = {
+      generatedAt,
+      projects: converted.projects,
+      totals: totalsForProjects(converted.projects),
+      warnings: converted.warnings,
+    };
+    cachedSnapshot = { signature, generatedAt, snapshot };
+    return snapshot;
   }
 
   const discovered = await discoverGitRoots(hints, git, maxRoots, deadlineMs);
   const projects: RepoWatchProject[] = [];
-  const warnings = [...nativeFallbackWarnings, ...discovered.warnings];
+  const warnings = [...discovered.warnings];
   for (const root of discovered.roots) {
     if (budgetExceeded(deadlineMs)) {
       warnings.push("Repo Watch stopped scanning repositories after reaching the scan budget.");
