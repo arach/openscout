@@ -796,7 +796,20 @@ struct ScoutRootView: View {
         }
         .coordinateSpace(name: "scoutComposer")
         .onPreferenceChange(ScoutComposerInputFrameKey.self) { frame in
-            composerInputFrame = frame
+            // Snap to whole points and skip no-op writes. The measured frame can
+            // ping-pong by sub-points while the multiline TextField settles its
+            // intrinsic height; since this value flows back into layout, an
+            // unguarded assignment becomes a self-sustaining relayout loop
+            // (preference → state → relayout → preference …) that pins the CPU.
+            let snapped = CGRect(
+                x: frame.origin.x.rounded(),
+                y: frame.origin.y.rounded(),
+                width: frame.size.width.rounded(),
+                height: frame.size.height.rounded()
+            )
+            if snapped != composerInputFrame {
+                composerInputFrame = snapped
+            }
         }
         .animation(.easeOut(duration: 0.12), value: suggestions.count)
         .onChange(of: draft) { _, _ in refreshSuggestions() }
