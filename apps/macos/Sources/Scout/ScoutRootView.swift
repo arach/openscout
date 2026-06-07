@@ -562,7 +562,6 @@ struct ScoutRootView: View {
                 channels: commsListChannels,
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
-                hasActivity: store.workingAgentCount > 0,
                 width: conversationListResizePreviewWidth ?? CGFloat(conversationListWidth),
                 searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() },
@@ -2065,7 +2064,6 @@ private struct ScoutConversationListBar: View {
     let channels: [ScoutChannel]
     let selectedCId: String?
     let newChannelIds: Set<String>
-    let hasActivity: Bool
     let width: CGFloat
     let searchFocused: FocusState<Bool>.Binding
     let onNewConversation: () -> Void
@@ -2098,8 +2096,6 @@ private struct ScoutConversationListBar: View {
                 .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
-
-            ScoutListLiveDot(active: hasActivity)
 
             Spacer(minLength: 0)
 
@@ -2178,31 +2174,6 @@ private struct ScoutConversationListBar: View {
             }
             .scrollIndicators(.visible)
         }
-    }
-}
-
-/// A quiet live pulse beside the Conversations title — breathes only while
-/// agents are actively working. No label; the motion is the whole message.
-private struct ScoutListLiveDot: View {
-    let active: Bool
-    @State private var pulse = false
-
-    var body: some View {
-        Circle()
-            .fill(ScoutPalette.statusOk)
-            .frame(width: 6, height: 6)
-            .opacity(active ? (pulse ? 0.95 : 0.4) : 0)
-            .scaleEffect(active && pulse ? 1.0 : 0.78)
-            .shadow(color: ScoutPalette.statusOk.opacity(active && pulse ? 0.7 : 0), radius: 3)
-            .animation(.easeInOut(duration: 0.3), value: active)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
-                    pulse = true
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .help("Live — agents working")
     }
 }
 
