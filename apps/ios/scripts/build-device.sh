@@ -15,14 +15,14 @@ fi
 
 APP_PATH="$DERIVED_DATA_PATH/Build/Products/${CONFIG}-iphoneos/Scout.app"
 
-echo "Building ScoutApp ($CONFIG) for device $DEVICE_ID..."
+echo "Building Scout ($CONFIG) for device $DEVICE_ID..."
 echo "DerivedData: $DERIVED_DATA_PATH"
 echo "Output: $APP_PATH"
 echo ""
 
 xcodebuild \
   -project Scout.xcodeproj \
-  -scheme ScoutApp \
+  -scheme Scout \
   -destination "id=$DEVICE_ID" \
   -configuration "$CONFIG" \
   -derivedDataPath "$DERIVED_DATA_PATH" \

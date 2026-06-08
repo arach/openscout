@@ -242,6 +242,27 @@ public struct BridgeConnectionTarget: Hashable, Sendable {
     }
 }
 
+public struct BridgeConnectionDisconnectEvent: Sendable {
+    public let publicKeyHex: String?
+    public let route: TransportKind
+    public let host: String?
+    public let reason: String
+
+    public init(
+        publicKeyHex: String?,
+        route: TransportKind,
+        host: String?,
+        reason: String
+    ) {
+        self.publicKeyHex = publicKeyHex
+        self.route = route
+        self.host = host
+        self.reason = reason
+    }
+}
+
+public typealias BridgeConnectionDisconnectHandler = @MainActor @Sendable (BridgeConnectionDisconnectEvent) -> Void
+
 // MARK: - Room resolution result
 
 private enum ResolveRoomResult: Sendable {
@@ -291,6 +312,8 @@ public final class BridgeConnection: @unchecked Sendable {
     private var webSocket: URLSessionWebSocketTask?
     private var connectionInfo: BridgeConnectionInfo?
     private var receiveTask: Task<Void, Never>?
+    private var connectionGeneration = 0
+    private var disconnectHandler: BridgeConnectionDisconnectHandler?
     private var nextRequestId = 1
     private var pendingRequests: [Int: PendingRequest] = [:]
     private var _isConnected = false
@@ -346,6 +369,12 @@ public final class BridgeConnection: @unchecked Sendable {
         return BridgeRouteSummary(relayURLs: info.relayURLs, userDefaults: userDefaults)
     }
 
+    public func setUnexpectedDisconnectHandler(_ handler: BridgeConnectionDisconnectHandler?) {
+        lock.withLockVoid {
+            disconnectHandler = handler
+        }
+    }
+
     // MARK: Init
 
     public init(
@@ -377,6 +406,7 @@ public final class BridgeConnection: @unchecked Sendable {
     /// room, run the Noise IK handshake, and verify the remote static key matches
     /// the trusted bridge key. Logs each attempt and the winning route.
     public func connect() async throws {
+        let generation = nextConnectionGeneration()
         let keyPair: NoiseKeyPair
         do {
             keyPair = try ScoutIdentity.loadOrCreateIdentity()
@@ -458,7 +488,7 @@ public final class BridgeConnection: @unchecked Sendable {
             route: transportKind(forRelayURL: attempt.relayURL)
         )
 
-        startMessageLoop()
+        startMessageLoop(generation: generation)
     }
 
     /// First-time pair to a bridge via a scanned QR payload (Noise XX handshake).
@@ -470,6 +500,7 @@ public final class BridgeConnection: @unchecked Sendable {
     /// local pairing works. The QR's room is used directly (the `/resolve`
     /// endpoint isn't valid before pairing).
     public func pair(qrPayload: QRPayload, primaryName: String?) async throws {
+        let generation = nextConnectionGeneration()
         let keyPair: NoiseKeyPair
         do {
             keyPair = try ScoutIdentity.loadOrCreateIdentity()
@@ -549,12 +580,13 @@ public final class BridgeConnection: @unchecked Sendable {
             route: route
         )
 
-        startMessageLoop()
+        startMessageLoop(generation: generation)
     }
 
     /// Tear down the connection and all streams.
     public func disconnect() {
         lock.lock()
+        connectionGeneration += 1
         let activeTransport = transport
         let activeWebSocket = webSocket
         let activeReceive = receiveTask
@@ -780,6 +812,13 @@ public final class BridgeConnection: @unchecked Sendable {
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
     }
 
+    private func nextConnectionGeneration() -> Int {
+        lock.withLockReturning {
+            connectionGeneration += 1
+            return connectionGeneration
+        }
+    }
+
     // MARK: - Room resolution (distilled from resolveRoom)
 
     private func resolveRoom(relayURL: String, publicKeyHex: String) async -> ResolveRoomResult {
@@ -866,7 +905,7 @@ public final class BridgeConnection: @unchecked Sendable {
 
     // MARK: - Message loop + routing (distilled from startMessageLoop / handleDecryptedMessage)
 
-    private func startMessageLoop() {
+    private func startMessageLoop(generation: Int) {
         lock.lock()
         let activeTransport = transport
         receiveTask?.cancel()
@@ -877,19 +916,53 @@ public final class BridgeConnection: @unchecked Sendable {
             for await message in activeTransport.receive() {
                 self?.handleDecryptedMessage(message)
             }
-            // Stream ended — connection lost. (No auto-reconnect in this distill.)
-            self?.markDisconnected()
+            self?.markDisconnected(generation: generation, reason: "transport stream ended")
         }
         lock.lock()
         receiveTask = task
         lock.unlock()
     }
 
-    private func markDisconnected() {
-        lock.lock()
-        _isConnected = false
-        _currentRoute = .none
-        lock.unlock()
+    private func markDisconnected(generation: Int, reason: String) {
+        let result = lock.withLockReturning { () -> (BridgeConnectionDisconnectEvent?, SecureTransport?, URLSessionWebSocketTask?, BridgeConnectionDisconnectHandler?) in
+            guard generation == connectionGeneration, _isConnected else {
+                return (nil, nil, nil, nil)
+            }
+            let event = BridgeConnectionDisconnectEvent(
+                publicKeyHex: connectionInfo?.publicKeyHex,
+                route: _currentRoute,
+                host: _currentHost,
+                reason: reason
+            )
+            let activeTransport = transport
+            let activeWebSocket = webSocket
+            transport = nil
+            webSocket = nil
+            receiveTask = nil
+            _isConnected = false
+            _currentRoute = .none
+            _currentHost = nil
+            return (event, activeTransport, activeWebSocket, disconnectHandler)
+        }
+
+        guard let event = result.0 else {
+            return
+        }
+        result.1?.shutdown()
+        result.2?.cancel(with: .goingAway, reason: nil)
+        Task {
+            await connectionLogHandle.log(
+                "Connection dropped: \(event.reason)",
+                event: .reconnect,
+                level: .warning,
+                route: event.route == .none ? nil : event.route
+            )
+        }
+        if let handler = result.3 {
+            Task { @MainActor in
+                handler(event)
+            }
+        }
         cancelAllPendingRequests(with: BridgeConnectionError.notConnected)
     }
 
@@ -1009,7 +1082,7 @@ public final class BridgeConnection: @unchecked Sendable {
     }
 
     private func sendRPC(method: String, params: (any Encodable & Sendable)?) async throws -> Data {
-        let activeTransport = lock.withLockReturning { transport }
+        let (activeTransport, generation) = lock.withLockReturning { (transport, connectionGeneration) }
         guard let activeTransport, activeTransport.isReady else {
             throw BridgeConnectionError.notConnected
         }
@@ -1050,6 +1123,7 @@ public final class BridgeConnection: @unchecked Sendable {
                         timeoutTask.cancel()
                         continuation.resume(throwing: error)
                     }
+                    self.markDisconnected(generation: generation, reason: "send failed: \(error.localizedDescription)")
                 }
             }
         }

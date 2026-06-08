@@ -43,7 +43,7 @@ final class BridgeBrokerClientTests: XCTestCase {
     func testRouteMapCoversCapabilityMethods() {
         for method in [
             "mobile/sessions", "mobile/agents", "mobile/session/snapshot",
-            "mobile/message/send", "mobile/session/create",
+            "mobile/message/send", "mobile/comms/send", "mobile/session/create",
             "question/answer", "action/decide", "turn/interrupt",
         ] {
             XCTAssertNotNil(trpcRouteMap[method], "missing route for \(method)")
@@ -110,5 +110,22 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertEqual(params.model, "opus")
         XCTAssertEqual(params.agentName, "vox")
         XCTAssertEqual(params.forceNew, true)
+    }
+
+    func testPromptSendKeepsOpaqueConversationIdOutOfAgentTarget() throws {
+        let params = mobilePromptSendParams(
+            PromptSpec(
+                conversationId: "c.b2929f46-9b0c-4609-beb6-466e5cc2eae3",
+                text: "continue"
+            ),
+            clientMessageId: "client-1"
+        )
+        let data = try JSONEncoder().encode(params)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(json["conversationId"] as? String, "c.b2929f46-9b0c-4609-beb6-466e5cc2eae3")
+        XCTAssertNil(json["agentId"])
+        XCTAssertEqual(json["body"] as? String, "continue")
+        XCTAssertEqual(json["clientMessageId"] as? String, "client-1")
     }
 }

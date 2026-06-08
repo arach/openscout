@@ -9,6 +9,7 @@ import {
   trustedPeerCount,
   loadOrCreateIdentity,
   bytesToHex,
+  PAIRING_QR_TTL_MS,
   type PairingPaths,
   type PairingQrPayload,
   type PairingRuntimeSnapshot,
@@ -79,6 +80,7 @@ export async function startScoutPairingSession(input: {
 
   if (existingRuntimeRunning) {
     const pairing = existingSnapshot.pairing;
+    const payload = freshPairingPayload(pairing);
     const currentStatus: ScoutPairingStatusEvent["status"] = existingSnapshot.status === "paired"
       ? "paired"
       : existingSnapshot.status === "connected"
@@ -90,15 +92,8 @@ export async function startScoutPairingSession(input: {
             : "connecting";
     input.onEvent({
       type: "pairing_ready",
-      payload: {
-        v: 1,
-        relay: pairing.relay,
-        ...(pairing.fallbackRelays?.length ? { fallbackRelays: pairing.fallbackRelays } : {}),
-        room: pairing.room,
-        publicKey: pairing.publicKey,
-        expiresAt: pairing.expiresAt,
-      },
-      qrArt: pairing.qrArt,
+      payload,
+      qrArt: renderQRCode(payload),
       relay: pairing.relay,
       identityFingerprint: existingSnapshot.identityFingerprint ?? pairing.publicKey.slice(0, 16),
       trustedPeerCount: existingSnapshot.trustedPeerCount,
@@ -223,4 +218,15 @@ export async function startScoutPairingSession(input: {
     relay?.stop();
     throw error;
   }
+}
+
+function freshPairingPayload(pairing: NonNullable<PairingRuntimeSnapshot["pairing"]>): PairingQrPayload {
+  return {
+    v: 1,
+    relay: pairing.relay,
+    ...(pairing.fallbackRelays?.length ? { fallbackRelays: pairing.fallbackRelays } : {}),
+    room: pairing.room,
+    publicKey: pairing.publicKey,
+    expiresAt: Date.now() + PAIRING_QR_TTL_MS,
+  };
 }

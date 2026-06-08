@@ -23,7 +23,7 @@
 			<string>com.openscout.scout</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>openscout</string>
+				<string>scout</string>
 			</array>
 		</dict>
 	</array>
@@ -50,7 +50,15 @@
 	<array>
 		<string>_scout-pair._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Scout uses the camera to scan the pairing QR code shown on your Mac.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Scout connects to your Mac over your local network when both devices are nearby.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Scout uses the microphone to dictate messages to your agents.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Scout transcribes your dictation on-device.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 </dict>
 </plist>
