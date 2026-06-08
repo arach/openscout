@@ -316,6 +316,10 @@ struct ScoutReposContent: View {
     @ObservedObject var tree: ScoutReposTreeModel
     /// Enter / double-click on the focused row (reveal the path in Finder).
     let onActivate: () -> Void
+    /// SCO-065 — open the repo-diff sheet for a specific worktree (the row's
+    /// visible "diff" button). Web parity: the web Repo Watch row exposes the
+    /// same affordance; native previously only had the hidden double-click/⌘↩.
+    let onOpenDiff: (RepoWorktree) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -534,7 +538,8 @@ struct ScoutReposContent: View {
                         generatedAt: repos.generatedAt,
                         showClean: repos.showCleanIdle,
                         lens: repos.lens,
-                        onActivate: onActivate
+                        onActivate: onActivate,
+                        onOpenDiff: onOpenDiff
                     )
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
@@ -582,6 +587,7 @@ struct ScoutReposTree: View {
     let showClean: Bool
     let lens: ReposLens
     let onActivate: () -> Void
+    let onOpenDiff: (RepoWorktree) -> Void
 
     @Namespace private var selectionNamespace
     private static let selectionMatchID = "repos.selection"
@@ -639,7 +645,19 @@ struct ScoutReposTree: View {
         .contentShape(Rectangle())
         .onHover { inside in hoveredID = inside ? row.id : (hoveredID == row.id ? nil : hoveredID) }
         .onTapGesture(count: 2) { activate(row) }
-        .onTapGesture { select(row) }
+        .onTapGesture {
+            select(row)
+            // Clicking a worktree row raises its diff sheet directly (project
+            // rows just select / toggle). Keyboard nav goes through select()
+            // only, so it never triggers this.
+            if let wt = worktree(for: row), !wt.path.isEmpty { onOpenDiff(wt) }
+        }
+    }
+
+    /// Resolve the `RepoWorktree` backing a worktree row (nil for project rows).
+    private func worktree(for row: ScoutReposTreeModel.Row) -> RepoWorktree? {
+        guard case .worktree(let projectID, let worktreeID) = row.kind else { return nil }
+        return projectsByID[projectID]?.worktrees.first { $0.id == worktreeID }
     }
 
     /// One grid row: a flexible name cell + the four fixed columns (CHURN ·
@@ -767,7 +785,35 @@ struct ScoutReposTree: View {
             branchLabel(wt.branchParts)
             tags(wt)
             Spacer(minLength: HudSpacing.sm)
+            if !wt.path.isEmpty {
+                diffButton(wt)
+            }
         }
+    }
+
+    /// SCO-065 — the per-worktree "diff" affordance. A plain "diff" chip (no
+    /// icon) visible on every worktree row so the repo-diff sheet is
+    /// discoverable; clicking it — or anywhere on the row — opens the sheet for
+    /// this worktree.
+    private func diffButton(_ wt: RepoWorktree) -> some View {
+        Button {
+            onOpenDiff(wt)
+        } label: {
+            Text("diff")
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .tracking(0.4)
+                .foregroundStyle(ScoutPalette.accent)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: HudRadius.tight).fill(ScoutPalette.accentSoft))
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.tight)
+                        .stroke(ScoutPalette.accent.opacity(0.25), lineWidth: HudStrokeWidth.thin)
+                )
+        }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+        .help("Open diff")
     }
 
     @ViewBuilder

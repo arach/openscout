@@ -102,6 +102,7 @@ export default function RepoWatchTable({
   snapshot,
   selectedId,
   onSelect,
+  onViewDiff,
   scanDepth,
   scanMorePending,
   onScanMore,
@@ -109,6 +110,8 @@ export default function RepoWatchTable({
   snapshot: RepoWatchSnapshot;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Open the SCO-065 diff viewer for a worktree path (per-row affordance). */
+  onViewDiff?: (path: string) => void;
   scanDepth: "standard" | "expanded";
   scanMorePending: boolean;
   onScanMore: () => void;
@@ -216,6 +219,7 @@ export default function RepoWatchTable({
                 group={group}
                 selectedId={selectedId}
                 onSelect={onSelect}
+                onViewDiff={onViewDiff}
               />
             ) : (
               <WorktreeRow
@@ -224,6 +228,7 @@ export default function RepoWatchTable({
                 top
                 selected={selectedId === group[0].wt.id}
                 onSelect={() => onSelect(group[0].wt.id)}
+                onViewDiff={onViewDiff}
               />
             ),
           )
@@ -243,6 +248,7 @@ export default function RepoWatchTable({
                 clean
                 selected={selectedId === row.wt.id}
                 onSelect={() => onSelect(row.wt.id)}
+                onViewDiff={onViewDiff}
               />
             ))}
           </>
@@ -361,10 +367,12 @@ function RepoGroup({
   group,
   selectedId,
   onSelect,
+  onViewDiff,
 }: {
   group: Row[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onViewDiff?: (path: string) => void;
 }) {
   const project = group[0].project;
   const attn = group.some((r) => r.state === "error");
@@ -410,6 +418,7 @@ function RepoGroup({
           last={i === group.length - 1}
           selected={selectedId === row.wt.id}
           onSelect={() => onSelect(row.wt.id)}
+          onViewDiff={onViewDiff}
         />
       ))}
     </div>
@@ -425,6 +434,7 @@ function WorktreeRow({
   clean,
   selected,
   onSelect,
+  onViewDiff,
 }: {
   row: Row;
   top?: boolean;
@@ -433,9 +443,12 @@ function WorktreeRow({
   clean?: boolean;
   selected?: boolean;
   onSelect?: () => void;
+  onViewDiff?: (path: string) => void;
 }) {
   const { wt, project } = row;
   const b = wt.branch;
+  // A row only has something to diff when it has staged/unstaged churn.
+  const canDiff = !!onViewDiff && wt.status.changedFiles > 0;
 
   return (
     <>
@@ -493,8 +506,26 @@ function WorktreeRow({
         {/* drift */}
         <Drift ahead={b.ahead} behind={b.behind} />
 
-        {/* agents */}
-        <Agents row={row} />
+        {/* agents + per-row diff affordance */}
+        <div className="agents-cell">
+          <Agents row={row} />
+          {canDiff ? (
+            <button
+              type="button"
+              className="wt-diff"
+              title={`View diff · ${wt.status.changedFiles} changed file${wt.status.changedFiles === 1 ? "" : "s"}`}
+              aria-label="View diff"
+              onClick={(e) => {
+                // Don't let the row's onSelect fire — opening the diff is a
+                // distinct action from selecting the row.
+                e.stopPropagation();
+                onViewDiff?.(wt.path);
+              }}
+            >
+              diff
+            </button>
+          ) : null}
+        </div>
       </div>
     </>
   );

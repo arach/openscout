@@ -100,8 +100,12 @@ import {
 } from "@openscout/runtime/knowledge";
 import type { ScoutVantageNativeSession } from "@openscout/runtime/vantage-plan";
 import {
+  getRepoDiffSnapshot,
   projectSessionsAttention,
   sessionApprovalAttentionId,
+  type RepoDiffLayerKind,
+  type RepoDiffSnapshotOptions,
+  type ScoutRepoDiffSnapshot,
   type SessionAttentionItem,
 } from "@openscout/runtime";
 import {
@@ -352,6 +356,13 @@ export type CreateOpenScoutWebServerOptions = {
     enabled?: boolean;
     brokerBaseUrl?: string;
   };
+  // Injectable for tests; defaults to the runtime native diff producer.
+  repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
+};
+
+const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
+  timeoutMs: 15_000,
+  includeBinaryPatch: false,
 };
 
 type FleetHomeBrief = {
@@ -4597,7 +4608,7 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/repo-watch", async (c) => {
     const url = new URL(scoutBrokerPaths.v1.repoWatchSnapshot, resolveScoutBrokerUrl());
-    for (const key of ["force", "includeTail", "includeDiff", "includeLastCommit"]) {
+    for (const key of ["force", "includeTail", "includeDiff", "includeLastCommit", "native"]) {
       const value = c.req.query(key);
       if (value === "1" || value === "true") url.searchParams.set(key, "1");
     }
@@ -4613,6 +4624,38 @@ export async function createOpenScoutWebServer(
       return c.json(await res.json());
     } catch {
       return c.json({ error: "broker repo-watch unavailable" }, 502);
+    }
+  });
+
+  app.get("/api/repo-diff/worktree", async (c) => {
+    const path = c.req.query("path");
+    if (!path || !path.trim()) {
+      return c.json({ error: "repo-diff requires a worktree path" }, 400);
+    }
+    const layers = (c.req.queries("layer") ?? []).filter(
+      (value): value is RepoDiffLayerKind =>
+        value === "unstaged" || value === "staged" || value === "branch",
+    );
+    const baseRef = c.req.query("baseRef");
+    const compareRef = c.req.query("compareRef");
+    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
+    try {
+      // A diff is a local read — run the native producer in-process. The broker
+      // (fleet coordination) is intentionally NOT in this path; agent/session
+      // annotations (SCO-065 §15) can enrich later without coupling here.
+      const snapshot = await runRepoDiff({
+        worktreePath: path,
+        layers: layers.length > 0 ? layers : undefined,
+        baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
+        compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
+        limits: REPO_DIFF_VIEWER_LIMITS,
+      });
+      return c.json(snapshot);
+    } catch (error) {
+      return c.json(
+        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
+        502,
+      );
     }
   });
 
@@ -4695,6 +4738,8 @@ export async function createOpenScoutWebServer(
       },
     });
   });
+
+  app.all("/api/*", (c) => c.json({ error: `unknown api route: ${c.req.path}` }, 404));
 
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,

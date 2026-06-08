@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import type { DiscoverySnapshot } from "../tail/index.js";
+import {
+  resolveRepoServiceCommand,
+  runRepoServiceJson,
+} from "../repo-service/process.js";
 
 export type RepoWatchHintSource =
   | "agent"
@@ -225,7 +227,6 @@ const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
 const DEFAULT_SCAN_BUDGET_MS = 4_000;
 const GIT_TIMEOUT_MS = 650;
 const GIT_MAX_BUFFER = 1024 * 1024;
-const REPO_SERVICE_MAX_BUFFER = 2 * 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;
 
@@ -249,7 +250,7 @@ function expandHome(input: string): string {
   return input;
 }
 
-function normalizePath(input: string): string {
+export function normalizePath(input: string): string {
   return resolve(expandHome(input.trim()));
 }
 
@@ -312,7 +313,7 @@ function hashId(input: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function pathContains(parent: string, child: string): boolean {
+export function pathContains(parent: string, child: string): boolean {
   const rel = relative(parent, child);
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
@@ -400,121 +401,13 @@ function readBooleanEnv(name: string): boolean {
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
 }
 
-type RepoServiceCommand = {
-  command: string;
-  args: string[];
-  cwd?: string;
-};
-
-function resolveRepoServiceCommand(): RepoServiceCommand | null {
-  const explicit = process.env.OPENSCOUT_REPO_SERVICE_BIN?.trim();
-  if (explicit) {
-    return { command: explicit, args: ["scan"] };
-  }
-
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const candidateRoots = uniqueBy([
-    resolve(moduleDir, "../../../.."),
-    process.cwd(),
-  ], (path) => path);
-
-  for (const root of candidateRoots) {
-    const manifestPath = resolve(root, "crates", "openscout-repo-service", "Cargo.toml");
-    if (!existsSync(manifestPath)) continue;
-    return {
-      command: process.env.CARGO?.trim() || "cargo",
-      args: ["run", "--quiet", "--manifest-path", manifestPath, "--", "scan"],
-      cwd: root,
-    };
-  }
-
-  return null;
-}
-
-async function runProcessJson(
-  command: RepoServiceCommand,
-  input: unknown,
-  timeoutMs: number,
-): Promise<unknown> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command.command, command.args, {
-      cwd: command.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const killTimer = setTimeout(() => {
-      terminate();
-      fail(new Error(`${command.command} timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    killTimer.unref?.();
-
-    function terminate(): void {
-      child.kill("SIGTERM");
-      const hardKillTimer = setTimeout(() => child.kill("SIGKILL"), 250);
-      hardKillTimer.unref?.();
-    }
-
-    function cleanup(): void {
-      clearTimeout(killTimer);
-    }
-
-    function fail(error: Error): void {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(error);
-    }
-
-    function succeed(output: unknown): void {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolvePromise(output);
-    }
-
-    function append(kind: "stdout" | "stderr", chunk: unknown): void {
-      const text = typeof chunk === "string" ? chunk : String(chunk);
-      if (kind === "stdout") stdout += text;
-      else stderr += text;
-      if (stdout.length + stderr.length > REPO_SERVICE_MAX_BUFFER) {
-        terminate();
-        fail(new Error(`${command.command} exceeded output limit`));
-      }
-    }
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => append("stdout", chunk));
-    child.stderr.on("data", (chunk) => append("stderr", chunk));
-    child.on("error", (error) => fail(error));
-    child.on("close", (code, signal) => {
-      if (settled) return;
-      if (code !== 0) {
-        const detail = (stderr || `${command.command} exited with ${signal ?? code ?? "unknown status"}`).trim();
-        fail(new Error(detail));
-        return;
-      }
-      try {
-        succeed(JSON.parse(stdout));
-      } catch (error) {
-        fail(new Error(`Repo service returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`));
-      }
-    });
-
-    child.stdin.end(JSON.stringify(input));
-  });
-}
-
 async function defaultNativeRepoScan(request: RepoWatchNativeScanRequest): Promise<RepoWatchNativeScanResponse> {
-  const command = resolveRepoServiceCommand();
+  const command = resolveRepoServiceCommand("scan");
   if (!command) {
     throw new Error("Repo service binary was not found.");
   }
 
-  const output = await runProcessJson(
+  const output = await runRepoServiceJson(
     command,
     request,
     Math.max(2_000, request.limits.scanBudgetMs + 1_500),
@@ -555,7 +448,7 @@ function environmentHints(): RepoWatchPathHint[] {
     }));
 }
 
-function normalizeHints(hints: RepoWatchPathHint[]): NormalizedHint[] {
+export function normalizeHints(hints: RepoWatchPathHint[]): NormalizedHint[] {
   const normalized = uniqueBy(
     hints
       .filter((hint) => hint.path.trim())
@@ -887,7 +780,7 @@ async function safeGit(git: GitExec, cwd: string, args: string[]): Promise<strin
   }
 }
 
-function refsForHints(hints: NormalizedHint[]): {
+export function refsForHints(hints: NormalizedHint[]): {
   agents: RepoWatchAgentRef[];
   sessions: RepoWatchSessionRef[];
 } {

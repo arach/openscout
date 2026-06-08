@@ -61,6 +61,7 @@
     "@openscout/agent-sessions": "workspace:*",
     "@openscout/protocol": "workspace:*",
     "@openscout/runtime": "workspace:*",
+    "@pierre/diffs": "1.2.7",
     "@tailwindcss/vite": "^4.1.18",
     "@trpc/client": "^11.16.0",
     "@trpc/server": "^11.16.0",

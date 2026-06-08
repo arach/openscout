@@ -246,6 +246,23 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
   if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "repo-diff") {
+    const path = url.searchParams.get("path")?.trim();
+    if (path) {
+      const layers = url.searchParams
+        .getAll("layer")
+        .filter(
+          (v): v is "unstaged" | "staged" | "branch" =>
+            v === "unstaged" || v === "staged" || v === "branch",
+        );
+      return {
+        view: "repo-diff",
+        path,
+        ...(layers.length > 0 ? { layers } : {}),
+      };
+    }
+    // No path → fall through to the default route below.
+  }
   if (parts[0] === "search") {
     const mode = parseSearchMode(parts[1]);
     return { view: "search", ...(mode && mode !== "knowledge" ? { mode } : {}) };
@@ -395,6 +412,12 @@ export function routePath(r: Route): string {
         : "/sessions", r);
     case "repos":
       return pathWithMachineScope("/repos", r);
+    case "repo-diff": {
+      const params = new URLSearchParams();
+      params.set("path", r.path);
+      for (const layer of r.layers ?? []) params.append("layer", layer);
+      return `/repo-diff${searchSuffix(params)}`;
+    }
     case "search":
       return r.mode === "indexer" ? "/search/indexer" : "/search";
     case "channels":
@@ -484,6 +507,8 @@ function routeKey(r: Route): string {
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
       return `terminal:${r.agentId ?? ""}:${r.mode ?? "takeover"}`;
+    case "repo-diff":
+      return `repo-diff:${r.path}`;
     default:
       return `${r.view}${scope}`;
   }

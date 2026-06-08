@@ -1,0 +1,428 @@
+/* ─────────────────────────────────────────────────────────────────────
+ * Repo Diff Viewer (SCO-065) — scoped stylesheet.
+ *
+ * Matches the `design/studio/.../branch-diff-sheet` visual language (files
+ * rail with status glyphs + churn, layer header, hunk tinting) but rendered
+ * with the WEB client's own tokens (--ink / --bg / --surface / --muted /
+ * --accent / --green / --amber / --red / --border / --font-mono), so it
+ * inherits the active Scout theme rather than the studio's palette.
+ *
+ * Everything is scoped to `.rd-viewer`. The Pierre `CodeView` body paints
+ * itself (Shiki theme via `render.preferredTheme`); these rules style the
+ * chrome around it.
+ * ───────────────────────────────────────────────────────────────────── */
+
+.rd-viewer {
+  --rd-mono: var(--font-mono, ui-monospace, monospace);
+  --rd-line: color-mix(in srgb, var(--ink) 9%, transparent);
+  --rd-line-strong: color-mix(in srgb, var(--ink) 16%, transparent);
+  --rd-rail-bg: color-mix(in srgb, var(--bg) 80%, black);
+  --rd-sel: color-mix(in srgb, var(--accent) 12%, transparent);
+  --rd-add: var(--green);
+  --rd-del: var(--red);
+  --rd-mod: var(--amber);
+
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-sm);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────── */
+.rd-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-2xl);
+  border-bottom: 1px solid var(--rd-line);
+  background: color-mix(in srgb, var(--bg) 94%, black);
+}
+.rd-header-id {
+  min-width: 0;
+}
+.rd-header-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.rd-header-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--ink);
+}
+.rd-header-dir {
+  color: var(--muted);
+  font-weight: 400;
+}
+.rd-header-sub {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.rd-freshness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+  color: color-mix(in srgb, var(--muted) 86%, transparent);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.rd-freshness span + span {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
+.rd-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-left: auto;
+}
+
+/* ── Layer tabs ──────────────────────────────────────────────────────── */
+.rd-layers {
+  display: flex;
+  gap: var(--space-xs);
+}
+.rd-layer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-md);
+  border: 1px solid var(--rd-line);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--rd-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 80ms ease, background 80ms ease, border-color 80ms ease;
+}
+.rd-layer-tab:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.rd-layer-tab.on {
+  color: var(--ink);
+  background: var(--rd-sel);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.rd-layer-tab .rd-layer-stat {
+  color: var(--muted);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.rd-layer-tab.on .rd-layer-stat {
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
+}
+
+/* ── Segmented control (unified / split) ─────────────────────────────── */
+.rd-segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--rd-line);
+  border-radius: var(--radius-sm);
+}
+.rd-segmented button {
+  padding: var(--space-2xs) var(--space-md);
+  border: 0;
+  border-left: 1px solid var(--rd-line);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--rd-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  cursor: pointer;
+}
+.rd-segmented button:first-child {
+  border-left: 0;
+}
+.rd-segmented button.on {
+  background: var(--rd-sel);
+  color: var(--ink);
+}
+
+.rd-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rd-close:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+/* ── Body: files rail + diff surface ─────────────────────────────────── */
+.rd-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.rd-rail {
+  display: flex;
+  flex-direction: column;
+  width: 248px;
+  flex: none;
+  border-right: 1px solid var(--rd-line);
+  background: var(--rd-rail-bg);
+}
+.rd-rail-head {
+  padding: var(--space-xs) var(--space-lg);
+  border-bottom: 1px solid var(--rd-line);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-lg);
+}
+.rd-rail-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2xs) 0;
+}
+.rd-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-xs) var(--space-lg);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.rd-file-row:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.rd-file-row.on {
+  background: var(--rd-sel);
+  border-left-color: var(--accent);
+}
+.rd-file-glyph {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  border-radius: var(--radius-xs);
+  font-size: 9px;
+  font-weight: 700;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+}
+.rd-file-glyph.added {
+  color: var(--rd-add);
+}
+.rd-file-glyph.modified,
+.rd-file-glyph.renamed,
+.rd-file-glyph.copied,
+.rd-file-glyph.typechange {
+  color: var(--rd-mod);
+}
+.rd-file-glyph.deleted {
+  color: var(--rd-del);
+}
+.rd-file-glyph.conflict {
+  color: var(--rd-del);
+}
+.rd-file-glyph.unknown {
+  color: var(--muted);
+}
+.rd-file-id {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.rd-file-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+.rd-file-dir {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+.rd-file-churn {
+  flex: none;
+  text-align: right;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.rd-file-churn .add {
+  display: block;
+  color: var(--rd-add);
+}
+.rd-file-churn .del {
+  display: block;
+  color: var(--rd-del);
+}
+.rd-file-tags {
+  display: flex;
+  gap: var(--space-3xs);
+  margin-top: 1px;
+}
+.rd-file-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--rd-line);
+  border-radius: var(--radius-xs);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-sm);
+  color: var(--muted);
+}
+
+/* ── Diff surface (Pierre CodeView lives here) ───────────────────────── */
+.rd-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.rd-surface-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.rd-codeview {
+  font-size: var(--text-sm);
+  /* Pierre's CodeView root IS the element it virtualizes and `scrollTo`s, so it
+     must be the bounded scroll container (otherwise an ancestor scrolls and
+     scroll-to-file has nothing to move). */
+  height: 100%;
+  overflow: auto;
+}
+/* Host element for Pierre's isolated React root (see mountPierreDiff). */
+.rd-codeview-host {
+  height: 100%;
+  min-height: 0;
+}
+
+/* ── Banners (truncation / diagnostics / binary — spec §14) ──────────── */
+.rd-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-2xl);
+  border-bottom: 1px solid var(--rd-line);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+.rd-banner.warning {
+  background: color-mix(in srgb, var(--amber) 12%, transparent);
+  color: color-mix(in srgb, var(--amber) 80%, var(--ink));
+}
+.rd-banner.info {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--muted);
+}
+.rd-banner-dot {
+  margin-top: 3px;
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+}
+
+/* ── Centered states (empty / binary / loading / error) ──────────────── */
+.rd-center {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--space-6xl);
+  text-align: center;
+}
+.rd-center-card {
+  max-width: 420px;
+}
+.rd-center-title {
+  font-size: var(--text-lg);
+  color: var(--ink);
+}
+.rd-center-body {
+  margin-top: var(--space-sm);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  word-break: break-word;
+}
+.rd-center-action {
+  margin-top: var(--space-lg);
+}
+.rd-btn {
+  padding: var(--space-2xs) var(--space-lg);
+  border: 1px solid var(--rd-line-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.rd-btn:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.rd-spinner {
+  width: 22px;
+  height: 22px;
+  margin: 0 auto var(--space-lg);
+  border: 2px solid var(--rd-line-strong);
+  border-top-color: var(--accent);
+  border-radius: var(--radius-pill);
+  animation: rd-spin 0.7s linear infinite;
+}
+@keyframes rd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rd-spinner {
+    animation: none;
+  }
+}
+
+/* ── Embed (macOS WKWebView, chrome-free, full-bleed) ────────────────── */
+.rd-embed {
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}

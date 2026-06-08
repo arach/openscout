@@ -573,6 +573,42 @@
   flex: 0 0 auto;
 }
 
+/* agents cell wraps the agent handles + the per-row diff affordance (SCO-065) */
+.agents-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.agents-cell .agents {
+  flex: 1 1 auto;
+}
+.wt-diff {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--copy);
+  background: color-mix(in oklab, var(--ink) 6%, transparent);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 2px 7px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 90ms ease, color 90ms ease, border-color 90ms ease;
+}
+.wt:hover .wt-diff,
+.wt.sel .wt-diff,
+.wt-diff:focus-visible {
+  opacity: 1;
+}
+.wt-diff:hover {
+  color: var(--ink);
+  border-color: var(--line-3);
+  background: color-mix(in oklab, var(--cobalt) 14%, transparent);
+}
+
 /* scan coverage footer */
 .scan-coverage {
   border-top: 1px solid var(--line);

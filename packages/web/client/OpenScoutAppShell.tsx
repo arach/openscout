@@ -25,6 +25,7 @@ const SIDE_PANEL_MAX_WIDTH_HARD_CAP = 900;
 const SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO = 0.45;
 const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
 const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
+const CENTER_CONTENT_MIN_WIDTH = 560;
 
 // Cap at 45% of viewport, floored at 500 so small screens still get usable inspector.
 function computeSidePanelMaxWidth(viewportWidth: number) {
@@ -109,13 +110,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const [leftWidth, setLeftWidth] = usePersistentState(`appshell.${app.id}.leftW`, 260);
   const [rightWidth, setRightWidth] = usePersistentState(`appshell.${app.id}.rightW`, 280);
   const [minimapCollapsed, setMinimapCollapsed] = usePersistentState("openscout.ops.minimap.collapsed", false);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 1280,
+  );
   const [sidePanelMaxWidth, setSidePanelMaxWidth] = useState(() =>
     computeSidePanelMaxWidth(typeof window !== "undefined" ? window.innerWidth : 1280),
   );
   const isSearchRoute = typeof window !== "undefined" && window.location.pathname === "/search";
 
   useEffect(() => {
-    const update = () => setSidePanelMaxWidth(computeSidePanelMaxWidth(window.innerWidth));
+    const update = () => {
+      setViewportWidth(window.innerWidth);
+      setSidePanelMaxWidth(computeSidePanelMaxWidth(window.innerWidth));
+    };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
@@ -379,8 +386,22 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
-  const leftInset = leftCollapsed ? 0 : leftWidth;
-  const rightInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
+  const leftPushInset = leftCollapsed ? 0 : leftWidth;
+  const rightPushInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
+  const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
+  const shouldAutoOverlayPanels =
+    layoutMode === "panel" &&
+    pushedContentWidth < CENTER_CONTENT_MIN_WIDTH &&
+    (leftPushInset > 0 || rightPushInset > 0);
+  const autoOverlayRight = shouldAutoOverlayPanels && rightPushInset > 0;
+  const autoOverlayLeft =
+    shouldAutoOverlayPanels &&
+    leftPushInset > 0 &&
+    viewportWidth - leftPushInset < CENTER_CONTENT_MIN_WIDTH;
+  const leftPanelOverlaysContent = autoOverlayLeft;
+  const rightPanelOverlaysContent = rightOverlay || autoOverlayRight;
+  const leftInset = leftPanelOverlaysContent ? 0 : leftPushInset;
+  const rightInset = rightPanelOverlaysContent ? 0 : rightPushInset;
   const contentStyle: React.CSSProperties = layoutMode === "panel" ? {
     position: "absolute",
     top: navTotalHeight,
@@ -395,6 +416,19 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     "--scout-shell-left-inset": `${layoutMode === "panel" ? leftInset : 0}px`,
     "--scout-shell-right-inset": `${layoutMode === "panel" ? rightInset : 0}px`,
   } as React.CSSProperties;
+  const rightOverlayControlTitle = rightOverlay
+    ? "Pin inspector (push content)"
+    : autoOverlayRight
+      ? "Keep inspector floating when there is room"
+      : "Float inspector (overlay content)";
+  const panelOverlayStyle = useCallback((side: "left" | "right"): React.CSSProperties => ({
+    backgroundColor: "rgba(13, 14, 16, 0.72)",
+    backdropFilter: "blur(24px) saturate(140%)",
+    WebkitBackdropFilter: "blur(24px) saturate(140%)",
+    boxShadow: side === "left"
+      ? "18px 0 48px -12px rgba(0,0,0,0.7), inset -1px 0 0 0 rgba(255,255,255,0.06)"
+      : "-18px 0 48px -12px rgba(0,0,0,0.7), inset 1px 0 0 0 rgba(255,255,255,0.06)",
+  }), []);
 
   return (
     <>
@@ -422,6 +456,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}
                 width={leftWidth}
                 onResizeStart={handleResizeStart("left")}
+                style={leftPanelOverlaysContent ? panelOverlayStyle("left") : undefined}
                 footer={!leftCollapsed ? canvasMinimapNode : undefined}
                 headerActions={app.leftPanel?.headerActions && <app.leftPanel.headerActions />}
               >
@@ -440,23 +475,18 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
                 width={rightWidth}
                 onResizeStart={handleResizeStart("right")}
-                style={rightOverlay ? {
-                  backgroundColor: "rgba(13, 14, 16, 0.72)",
-                  backdropFilter: "blur(24px) saturate(140%)",
-                  WebkitBackdropFilter: "blur(24px) saturate(140%)",
-                  boxShadow: "-18px 0 48px -12px rgba(0,0,0,0.7), inset 1px 0 0 0 rgba(255,255,255,0.06)",
-                } : undefined}
+                style={rightPanelOverlaysContent ? panelOverlayStyle("right") : undefined}
                 footer={rightFooter}
                 headerActions={
                   <>
                     <button
                       type="button"
-                      onClick={() => setRightOverlay((o) => !o)}
-                      title={rightOverlay ? "Pin inspector (push content)" : "Float inspector (overlay content)"}
-                      aria-label={rightOverlay ? "Pin inspector" : "Float inspector"}
+                      onClick={() => setRightOverlay((o) => (autoOverlayRight && !o ? true : !o))}
+                      title={rightOverlayControlTitle}
+                      aria-label={rightOverlayControlTitle}
                       className="p-1 hover:bg-accent/10 rounded transition-colors text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     >
-                      {rightOverlay ? <PinOff size={12} /> : <Pin size={12} />}
+                      {rightPanelOverlaysContent ? <PinOff size={12} /> : <Pin size={12} />}
                     </button>
                     {app.rightPanel?.headerActions && <app.rightPanel.headerActions />}
                   </>
@@ -479,7 +509,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 className="pointer-events-none"
                 style={{
                   position: "fixed",
-                  left: leftCollapsed ? 0 : leftWidth,
+                  left: leftInset,
                   right: rightInset,
                   bottom: 0,
                   top: 0,

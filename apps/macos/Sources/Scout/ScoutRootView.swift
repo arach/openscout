@@ -100,6 +100,16 @@ struct ScoutRootView: View {
     /// inspector reads its selection directly.
     @StateObject private var reposTree = ScoutReposTreeModel()
 
+    /// SCO-065 — the worktree whose diff is presented in the slide-out
+    /// `ScoutBranchDiffSheet`. Non-nil while the sheet is up; activating a
+    /// worktree row (Enter / double-click) sets it.
+    @State private var diffSheetWorktree: RepoWorktree?
+
+    /// The tail event whose full session is presented in the slide-out
+    /// `ScoutTailSessionSheet` (embedded web session viewer). Non-nil while the
+    /// sheet is up; "Open session" on a tail row sets it.
+    @State private var tailSessionEvent: ScoutTailEvent?
+
     private var manifest: HudAppManifest {
         HudAppManifest(
             name: "Scout",
@@ -234,6 +244,24 @@ struct ScoutRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: showCheatsheet)
+        .overlay {
+            // SCO-065 — repo-diff sheet, presented at the app root so it sticks
+            // across section changes (open in Repos, wander to Comms/Tail, it
+            // stays). Its scrim is non-blocking, so the rail stays navigable;
+            // dismissal is explicit only (close chevron or Escape).
+            if let worktree = diffSheetWorktree {
+                ScoutBranchDiffSheet(
+                    worktreePath: worktree.path,
+                    branchParts: worktree.branchParts,
+                    edge: .bottom,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = nil }
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: diffSheetWorktree?.id)
         .onReceive(NotificationCenter.default.publisher(for: .scoutAppCommand)) { notification in
             guard let command = ScoutAppCommand(notification: notification) else { return }
             handleAppCommand(command)
@@ -338,7 +366,7 @@ struct ScoutRootView: View {
 
     /// A modal overlay is up and should own the keyboard.
     private var modalPresented: Bool {
-        sessionDraft != nil || previewImage != nil || showSettings
+        sessionDraft != nil || previewImage != nil || showSettings || diffSheetWorktree != nil || tailSessionEvent != nil
     }
 
     /// Bare (unmodified) keys may drive navigation/help only when nothing is
@@ -480,7 +508,7 @@ struct ScoutRootView: View {
     /// session if a session row is selected, else the agent's channel.
     private func openSelectedAgentChannel() {
         if section == .repos {
-            revealSelectedRepoInFinder()
+            activateSelectedRepoRow()
             return
         }
         guard section == .agents else { return }
@@ -494,8 +522,25 @@ struct ScoutRootView: View {
         section = .comms
     }
 
-    /// ⌘↩ / double-click on the Repos page — reveal the focused worktree (or
-    /// project root) in Finder.
+    /// ⌘↩ / double-click on the Repos page — activate the focused row.
+    ///
+    /// SCO-065: a **worktree** row opens the repo-diff slide-out sheet
+    /// (`ScoutBranchDiffSheet`) for that worktree's path. A **project** row has
+    /// no diff of its own, so it keeps the prior behavior and reveals the repo
+    /// root in Finder.
+    private func activateSelectedRepoRow() {
+        if let worktree = repos.worktree(id: reposTree.selectedWorktreeID),
+           !worktree.path.isEmpty {
+            withAnimation(.easeOut(duration: 0.14)) {
+                diffSheetWorktree = worktree
+            }
+            return
+        }
+        revealSelectedRepoInFinder()
+    }
+
+    /// Reveal the focused worktree (or project root) in Finder — the fallback
+    /// activation for project rows and the explicit "show in Finder" path.
     private func revealSelectedRepoInFinder() {
         let path: String?
         if let worktree = repos.worktree(id: reposTree.selectedWorktreeID) {
@@ -1490,11 +1535,47 @@ struct ScoutRootView: View {
     }
 
     private var tailContent: some View {
-        ScoutTailContent(tail: tail)
+        ScoutTailContent(
+            tail: tail,
+            onOpenSession: { event in
+                guard !event.sessionId.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.14)) { tailSessionEvent = event }
+            }
+        )
+        .overlay {
+            // Tail "load session" — the slide-out session viewer (embedded web
+            // viewer), scoped to the Tail content so it sheets only this surface.
+            if let event = tailSessionEvent {
+                ScoutTailSessionSheet(
+                    sessionRef: event.sessionId,
+                    title: event.projectLabel,
+                    subtitle: "\(event.sourceLabel) · \(event.sessionShortLabel)",
+                    edge: .bottom,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            tailSessionEvent = nil
+                        }
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: tailSessionEvent?.id)
     }
 
     private var reposContent: some View {
-        ScoutReposContent(repos: repos, tree: reposTree, onActivate: { revealSelectedRepoInFinder() })
+        // The repo-diff sheet (SCO-065) is presented at the app root (see `body`)
+        // rather than here, so it sticks across section changes — open a diff in
+        // Repos, switch to Comms/Tail, and it stays up until explicitly dismissed.
+        ScoutReposContent(
+            repos: repos,
+            tree: reposTree,
+            onActivate: { activateSelectedRepoRow() },
+            onOpenDiff: { worktree in
+                guard !worktree.path.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = worktree }
+            }
+        )
     }
 
     private var inspectorHeader: some View {
