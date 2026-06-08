@@ -17,12 +17,12 @@ The menu app is intentionally thin:
 
 ```bash
 cd apps/macos
-HUDSONKIT_WITH_VOICE=1 HUDSON_SPEECH_ENGINE_SOURCE=path swift run
+HUDSONKIT_WITH_VOICE=1 swift run
 ```
 
 ```bash
 cd apps/macos
-HUDSONKIT_WITH_VOICE=1 HUDSON_SPEECH_ENGINE_SOURCE=path swift build
+HUDSONKIT_WITH_VOICE=1 swift build
 ```
 
 You can also open `Package.swift` directly in Xcode.
@@ -84,7 +84,10 @@ apps/macos/scripts/build-dmg.sh
 ```
 
 The DMG script expects the local Hudson checkout at `../hudson` by default and
-uses `apps/macos/hudson-package.json` as the packaging contract. Override with:
+uses `apps/macos/hudson-package.json` as the packaging contract. The manifest
+declares optional Hudson build features by name, such as `"features": ["voice"]`;
+Hudson's `hkit` resolves those to the SwiftPM build environment. Override the
+local Hudson checkout with:
 
 - `HUDSON_DIR`
 - `HKIT_BIN`
