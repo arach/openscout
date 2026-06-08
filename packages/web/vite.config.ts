@@ -101,6 +101,7 @@ export default defineConfig({
       "@hudsonkit/controls": hudsonKitAlias("controls.ts", "hudsonkit/controls"),
       "@hudsonkit/canvas": hudsonKitAlias("canvas.ts", "hudsonkit/canvas"),
       "@hudsonkit/overlays": hudsonKitAlias("overlays.ts", "hudsonkit/overlays"),
+      "hudsonkit/flags": hudsonKitAlias("flags/index.ts", "hudsonkit/flags"),
       "@hudsonkit/styles": hudsonKitAlias("styles/bundle.css", "hudsonkit/styles"),
       "@hudsonkit": hudsonKitAlias("index.ts", "hudsonkit"),
       "@xterm/addon-fit": resolveHudsonKitModule("@xterm/addon-fit"),

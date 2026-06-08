@@ -1,8 +1,8 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Settings } from "lucide-react";
-import type { CommandOption, StatusColor, TakeoverState } from "@hudsonkit";
+import { type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
-import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import type { MeshStatus } from "../lib/types.ts";
@@ -31,7 +31,7 @@ type BuildInfo = {
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
   const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
-  const opsEnabled = isOpsEnabled();
+  const opsEnabled = useOptionalFlag("ops.control", true);
 
   const askScoutbotForState = useCallback(() => {
     applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
@@ -289,12 +289,13 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
-  const opsEnabled = isOpsEnabled();
-  const activeKey = topNavKeyForRoute(route, opsEnabled);
+  const opsEnabled = useOptionalFlag("ops.control", true);
+  const cleanNav = useOptionalFlag("nav.clean", false);
+  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
   const breadcrumb = topNavBreadcrumbForRoute(route);
 
   return createElement("div", { className: "scout-nav-tabs" },
-    topNavItems(opsEnabled).map(({ key, label, route: tabRoute }) =>
+    topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
       createElement("button", {
         key,
         className: `scout-nav-tab${activeKey === key ? " active" : ""}`,

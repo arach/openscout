@@ -4,12 +4,20 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
 import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
 import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudsonkit/chrome";
+import { FeatureFlagsProvider, FeatureFlagPanel } from "hudsonkit/flags";
 import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {
   CanvasMinimapProvider,
   useCanvasMinimap,
 } from "./lib/canvas-minimap.tsx";
+import {
+  SCOUT_AUDIENCE_ORDER,
+  SCOUT_DEFAULT_AUDIENCE,
+  SCOUT_FLAG_STORAGE_KEY,
+  scoutFlagInitialLayers,
+  scoutFlags,
+} from "./lib/scout-flags.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
@@ -37,11 +45,19 @@ function computeSidePanelMaxWidth(viewportWidth: number) {
 
 export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellProps) {
   return (
-    <app.Provider>
-      <CanvasMinimapProvider>
-        <OpenScoutAppShellInner app={app} assistantEnabled={assistant} />
-      </CanvasMinimapProvider>
-    </app.Provider>
+    <FeatureFlagsProvider
+      registry={scoutFlags}
+      audience={SCOUT_DEFAULT_AUDIENCE}
+      audienceOrder={SCOUT_AUDIENCE_ORDER}
+      storageKey={SCOUT_FLAG_STORAGE_KEY}
+      initialLayers={scoutFlagInitialLayers()}
+    >
+      <app.Provider>
+        <CanvasMinimapProvider>
+          <OpenScoutAppShellInner app={app} assistantEnabled={assistant} />
+        </CanvasMinimapProvider>
+      </app.Provider>
+    </FeatureFlagsProvider>
   );
 }
 
@@ -168,6 +184,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const resolvedTab: DrawerTab = drawerTabs.includes(activeTab) ? activeTab : defaultTab;
 
   const [showCommandPalette, setShowCommandPalette] = useState(false);
+  const [showFlagPanel, setShowFlagPanel] = useState(false);
   const [openTools, setOpenTools] = useState<Set<string>>(new Set());
 
   const toggleTool = useCallback((id: string) => {
@@ -224,6 +241,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         shortcut: "Ctrl+`",
         action: () => setShowTerminal((visible) => !visible),
       },
+      {
+        id: "shell:feature-flags",
+        label: "Feature Flags",
+        action: () => setShowFlagPanel(true),
+      },
     ];
     if (assistantEnabled) {
       commands.push({
@@ -237,7 +259,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       });
     }
     return commands;
-  }, [assistantEnabled, activeTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay]);
+  }, [assistantEnabled, activeTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel]);
 
   const allCommands = useMemo(() => [...appCommands, ...shellCommands], [appCommands, shellCommands]);
 
@@ -575,6 +597,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       <KeyboardHelpOverlay
         open={keyboardHelp.open}
         onClose={() => keyboardHelp.setOpen(false)}
+      />
+      <FeatureFlagPanel
+        isOpen={showFlagPanel}
+        onClose={() => setShowFlagPanel(false)}
+        audienceOptions={SCOUT_AUDIENCE_ORDER}
       />
     </>
   );

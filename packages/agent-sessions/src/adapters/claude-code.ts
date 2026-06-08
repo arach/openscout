@@ -37,6 +37,10 @@ import type {
   Turn,
   TurnStatus,
 } from "../protocol/primitives.js";
+import {
+  isClaudeCodeQuotaEvent,
+  readClaudeCodeQuotaObservation,
+} from "./claude-code/quota.js";
 import { readClaudeAgentTeamTopology } from "./claude-code/team-topology.js";
 import type { Subprocess } from "bun";
 
@@ -206,10 +210,18 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   async shutdown(): Promise<void> {
-    if (this.process && !this.process.killed) {
-      this.process.kill();
-    }
+    const child = this.process;
     this.process = null;
+    if (child) {
+      if (!child.killed) {
+        child.kill("SIGTERM");
+      }
+      const exited = await waitForSubprocessExit(child, 1_000);
+      if (!exited) {
+        child.kill("SIGKILL");
+        await waitForSubprocessExit(child, 250);
+      }
+    }
     this.setStatus("closed");
   }
 
@@ -292,6 +304,15 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         break;
       }
 
+      case "rate_limit_event":
+      case "rate_limits.updated":
+      case "rate_limit":
+      case "quota_event":
+      case "usage_limit_event": {
+        this.handleQuotaEvent(event);
+        break;
+      }
+
       case "result": {
         this.completeOpenStreamBlocks();
 
@@ -334,7 +355,8 @@ export class ClaudeCodeAdapter extends BaseAdapter {
         break;
       }
 
-      // rate_limit_event, etc. — ignore for now.
+      // Other harness-specific events are ignored until Scout has a semantic use
+      // for them.
     }
   }
 
@@ -369,10 +391,15 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   private handleStreamEvent(event: any): void {
-    if (!this.currentTurn) return;
-
     const streamEvent = event.event;
     if (!streamEvent || typeof streamEvent !== "object") return;
+
+    if (isClaudeCodeQuotaEvent(streamEvent)) {
+      this.handleQuotaEvent(streamEvent);
+      return;
+    }
+
+    if (!this.currentTurn) return;
 
     const streamType = typeof streamEvent.type === "string" ? streamEvent.type : "";
     if (streamType === "message_start") {
@@ -433,6 +460,27 @@ export class ClaudeCodeAdapter extends BaseAdapter {
       this.emitBlockEnd(this.currentTurn, block, "completed");
       this.activeStreamBlocks.delete(index);
     }
+  }
+
+  private handleQuotaEvent(event: any): void {
+    const observation = readClaudeCodeQuotaObservation(event);
+    if (!observation) return;
+
+    const providerMeta = { ...(this.session.providerMeta ?? {}) };
+    providerMeta.provider = "anthropic";
+
+    const observeQuota: Record<string, unknown> = {
+      provider: observation.provider,
+      capturedAt: observation.capturedAt,
+      windows: observation.windows.map((window) => ({ ...window })),
+    };
+    if (observation.planType) observeQuota.planType = observation.planType;
+    if (observation.userId) observeQuota.userId = observation.userId;
+    if (observation.accountId) observeQuota.accountId = observation.accountId;
+
+    providerMeta.observeQuota = observeQuota;
+    this.session.providerMeta = providerMeta;
+    this.emitSessionUpdate();
   }
 
   private handleToolUse(event: any): void {
@@ -666,7 +714,11 @@ export class ClaudeCodeAdapter extends BaseAdapter {
   }
 
   private refreshObservedTopology(): void {
+    const homeDir = typeof this.config.env?.HOME === "string" && this.config.env.HOME.trim()
+      ? this.config.env.HOME
+      : process.env.HOME;
     const topology = readClaudeAgentTeamTopology({
+      homeDir,
       cwd: this.session.cwd ?? this.config.cwd,
       claudeSessionId: this.claudeSessionId,
     });
@@ -705,6 +757,13 @@ export class ClaudeCodeAdapter extends BaseAdapter {
 // ---------------------------------------------------------------------------
 
 export const createAdapter = (config: AdapterConfig) => new ClaudeCodeAdapter(config);
+
+async function waitForSubprocessExit(child: Subprocess, timeoutMs: number): Promise<boolean> {
+  return await Promise.race([
+    child.exited.then(() => true, () => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
+  ]);
+}
 
 function resolveClaudeResumeContext(config: AdapterConfig): ClaudeResumeContext | null {
   const rawResumeId = config.options?.["resume"];

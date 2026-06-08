@@ -94,6 +94,65 @@ describe("adapter budget observations", () => {
     expect(observations.quotaWindows).toHaveLength(0);
   });
 
+  test("reads Claude Code provider-reported quota windows", () => {
+    const observations = readAdapterBudgetObservations({
+      id: "endpoint-claude",
+      harness: "claude",
+      transport: "claude_stream_json",
+      model: "claude-sonnet-4.5",
+      sessionId: "claude-session",
+      providerMeta: {
+        provider: "anthropic",
+        observeQuota: {
+          capturedAt: 5000,
+          planType: "max",
+          windows: [
+            {
+              label: "5h",
+              windowKind: "primary",
+              usedPercent: 25,
+              resetAt: 6000,
+            },
+            {
+              label: "weekly",
+              windowKind: "secondary",
+              percentRemaining: 70,
+              resetAt: 7000,
+            },
+          ],
+        },
+      },
+    }, 5500);
+
+    expect(observations.usage).toHaveLength(0);
+    expect(observations.quotaWindows).toEqual([
+      expect.objectContaining({
+        source: "provider_reported",
+        provider: "anthropic",
+        label: "5h",
+        windowKind: "primary",
+        usedPercent: 25,
+        percentRemaining: 75,
+        capturedAt: 5000,
+        metadata: expect.objectContaining({
+          source: "claude-code.providerMeta.observeQuota",
+        }),
+      }),
+      expect.objectContaining({
+        source: "provider_reported",
+        provider: "anthropic",
+        label: "weekly",
+        windowKind: "secondary",
+        usedPercent: undefined,
+        percentRemaining: 70,
+        capturedAt: 5000,
+        metadata: expect.objectContaining({
+          source: "claude-code.providerMeta.observeQuota",
+        }),
+      }),
+    ]);
+  });
+
   test("does not interpret unknown adapter metadata", () => {
     const observations = readAdapterBudgetObservations({
       id: "endpoint-unknown",

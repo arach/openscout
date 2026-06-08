@@ -371,10 +371,20 @@ describe("SQLiteControlPlaneStore", () => {
         source: "codex.providerMeta.observeUsage",
       }));
 
-      const quotaWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "codex-session" })
+      const quotaWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "codex-session" });
+      const currentQuotaWindows = quotaWindows
+        .filter((window) => !window.id.startsWith("budget:quota:history:"))
         .sort((a, b) => a.label.localeCompare(b.label));
-      expect(quotaWindows).toHaveLength(2);
-      expect(quotaWindows[0]).toEqual(expect.objectContaining({
+      const historicalQuotaWindows = quotaWindows
+        .filter((window) => window.id.startsWith("budget:quota:history:"))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      expect(quotaWindows).toHaveLength(4);
+      expect(currentQuotaWindows).toHaveLength(2);
+      expect(historicalQuotaWindows).toHaveLength(2);
+      expect(historicalQuotaWindows[0]?.metadata).toEqual(expect.objectContaining({
+        historyBucketMs: 60 * 60 * 1000,
+      }));
+      expect(currentQuotaWindows[0]).toEqual(expect.objectContaining({
         source: "provider_reported",
         provider: "openai",
         label: "5h",
@@ -383,7 +393,7 @@ describe("SQLiteControlPlaneStore", () => {
         percentRemaining: 40,
         resetAt: 3000,
       }));
-      expect(quotaWindows[1]).toEqual(expect.objectContaining({
+      expect(currentQuotaWindows[1]).toEqual(expect.objectContaining({
         source: "provider_reported",
         provider: "openai",
         label: "weekly",
@@ -437,7 +447,7 @@ describe("SQLiteControlPlaneStore", () => {
       const updatedWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "codex-session" });
       expect(updatedUsage).toHaveLength(1);
       expect(updatedUsage[0]?.inputTokens).toBe(2200);
-      expect(updatedWindows).toHaveLength(2);
+      expect(updatedWindows).toHaveLength(4);
       expect(updatedWindows.find((window) => window.label === "5h")?.usedPercent).toBe(65);
 
       store.upsertEndpoint({
@@ -461,6 +471,26 @@ describe("SQLiteControlPlaneStore", () => {
               cacheCreationInputTokens: 60,
               webSearchRequests: 1,
             },
+            observeQuota: {
+              planType: "max",
+              capturedAt: 3000,
+              windows: [
+                {
+                  label: "5h",
+                  windowKind: "primary",
+                  usedPercent: 25,
+                  resetAt: 3600,
+                  windowMs: 300 * 60 * 1000,
+                },
+                {
+                  label: "weekly",
+                  windowKind: "secondary",
+                  percentRemaining: 64,
+                  resetAt: 4000,
+                  windowMs: 7 * 24 * 60 * 60 * 1000,
+                },
+              ],
+            },
           },
         },
       });
@@ -483,7 +513,42 @@ describe("SQLiteControlPlaneStore", () => {
         billingMode: "subscription",
         source: "claude-code.providerMeta.observeUsage",
       }));
-      expect(store.listBudgetQuotaWindowSnapshots({ sessionId: "claude-session" })).toHaveLength(0);
+      const claudeQuotaWindows = store.listBudgetQuotaWindowSnapshots({ sessionId: "claude-session" });
+      const currentClaudeQuotaWindows = claudeQuotaWindows
+        .filter((window) => !window.id.startsWith("budget:quota:history:"))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      const historicalClaudeQuotaWindows = claudeQuotaWindows
+        .filter((window) => window.id.startsWith("budget:quota:history:"));
+      expect(claudeQuotaWindows).toHaveLength(4);
+      expect(currentClaudeQuotaWindows).toHaveLength(2);
+      expect(historicalClaudeQuotaWindows).toHaveLength(2);
+      expect(currentClaudeQuotaWindows[0]).toEqual(expect.objectContaining({
+        source: "provider_reported",
+        provider: "anthropic",
+        harness: "claude",
+        transport: "claude_stream_json",
+        label: "5h",
+        windowKind: "primary",
+        usedPercent: 25,
+        percentRemaining: 75,
+        resetAt: 3600,
+        planType: "max",
+      }));
+      expect(currentClaudeQuotaWindows[0]?.metadata).toEqual(expect.objectContaining({
+        source: "claude-code.providerMeta.observeQuota",
+      }));
+      expect(historicalClaudeQuotaWindows[0]?.metadata).toEqual(expect.objectContaining({
+        historyBucketMs: 60 * 60 * 1000,
+      }));
+      expect(currentClaudeQuotaWindows[1]).toEqual(expect.objectContaining({
+        source: "provider_reported",
+        provider: "anthropic",
+        label: "weekly",
+        windowKind: "secondary",
+        percentRemaining: 64,
+        resetAt: 4000,
+        planType: "max",
+      }));
     } finally {
       store.close();
     }

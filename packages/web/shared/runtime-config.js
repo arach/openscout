@@ -9,6 +9,20 @@ export const DEFAULT_TERMINAL_RELAY_PATH = "/ws/terminal";
 export const DEFAULT_TERMINAL_RELAY_HEALTH_PATH = `${DEFAULT_TERMINAL_RELAY_PATH}/health`;
 export const DEFAULT_VITE_HMR_PATH = "/ws/hmr";
 
+const OPENSCOUT_WEB_FLAG_BUNDLE_ALIASES = {
+  a: "light-prod",
+  control: "light-prod",
+  light: "light-prod",
+  "light-prod": "light-prod",
+  prod: "light-prod",
+  production: "light-prod",
+  b: "max-pro",
+  max: "max-pro",
+  "max-pro": "max-pro",
+  pro: "max-pro",
+  treatment: "max-pro",
+};
+
 export function normalizeRoutePath(value, fallback) {
   if (typeof value !== "string") {
     return fallback;
@@ -57,8 +71,27 @@ export function resolveOpenScoutWebRoutes(env = process.env) {
   };
 }
 
+export function normalizeOpenScoutWebFlagBundle(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  return OPENSCOUT_WEB_FLAG_BUNDLE_ALIASES[value.trim().toLowerCase()] ?? null;
+}
+
+export function resolveOpenScoutWebFeatureFlags(env = process.env) {
+  const bundle = normalizeOpenScoutWebFlagBundle(
+    env.OPENSCOUT_WEB_FLAG_BUNDLE ??
+      env.OPENSCOUT_WEB_EXPERIENCE ??
+      env.OPENSCOUT_WEB_AB_VARIANT,
+  );
+
+  return bundle ? { bundle } : {};
+}
+
 export function createOpenScoutWebBootstrap(env = process.env) {
   return {
+    featureFlags: resolveOpenScoutWebFeatureFlags(env),
     routes: resolveOpenScoutWebRoutes(env),
   };
 }
