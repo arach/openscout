@@ -2,8 +2,9 @@
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
-import { Assistant, FeatureFlagsProvider, FeatureFlagPanel, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
+import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
 import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudsonkit/chrome";
+import { FeatureFlagsProvider, FeatureFlagPanel } from "hudsonkit/flags";
 import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {

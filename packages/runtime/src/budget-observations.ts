@@ -6,11 +6,14 @@ import type {
   BudgetQuotaWindowSnapshot,
   BudgetUsageRecord,
 } from "@openscout/protocol";
+import type { AdapterBudgetQuotaWindowObservation } from "@openscout/agent-sessions";
 
 type BudgetEndpointObservations = {
   usage: BudgetUsageRecord[];
   quotaWindows: BudgetQuotaWindowSnapshot[];
 };
+
+const QUOTA_HISTORY_BUCKET_MS = 60 * 60 * 1000;
 
 function stableHash(value: unknown): string {
   return createHash("sha256")
@@ -35,6 +38,53 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? value
     : undefined;
+}
+
+function quotaWindowDedupKey(
+  endpoint: AgentEndpoint,
+  observation: AdapterBudgetQuotaWindowObservation,
+): string {
+  return [
+    "endpoint",
+    endpoint.id,
+    "session",
+    observation.sessionId ?? "",
+    "quota",
+    observation.windowKind ?? observation.label,
+  ].join(":");
+}
+
+function quotaWindowSnapshotFromObservation(input: {
+  endpoint: AgentEndpoint;
+  observation: AdapterBudgetQuotaWindowObservation;
+  id: string;
+  metadata?: Record<string, unknown>;
+}): BudgetQuotaWindowSnapshot {
+  const { endpoint, observation } = input;
+  return {
+    id: input.id,
+    source: observation.source,
+    provider: observation.provider,
+    harness: endpoint.harness,
+    transport: endpoint.transport,
+    model: observation.model,
+    agentId: endpoint.agentId,
+    endpointId: endpoint.id,
+    sessionId: observation.sessionId,
+    userId: observation.userId,
+    accountId: observation.accountId,
+    planType: observation.planType,
+    label: observation.label,
+    windowKind: observation.windowKind,
+    usedPercent: observation.usedPercent,
+    percentRemaining: observation.percentRemaining,
+    used: observation.used,
+    limit: observation.limit,
+    resetAt: observation.resetAt,
+    windowMs: observation.windowMs,
+    capturedAt: observation.capturedAt,
+    metadata: input.metadata ?? observation.metadata,
+  };
 }
 
 export function budgetObservationsFromEndpoint(
@@ -91,40 +141,26 @@ export function budgetObservationsFromEndpoint(
         metadata: observation.metadata,
       };
     }),
-    quotaWindows: adapterObservations.quotaWindows.map((observation) => {
-      const dedupKey = [
-        "endpoint",
-        endpoint.id,
-        "session",
-        observation.sessionId ?? "",
-        "quota",
-        observation.windowKind ?? observation.label,
-      ].join(":");
-
-      return {
+    quotaWindows: adapterObservations.quotaWindows.flatMap((observation) => {
+      const dedupKey = quotaWindowDedupKey(endpoint, observation);
+      const historyBucket = Math.floor(observation.capturedAt / QUOTA_HISTORY_BUCKET_MS);
+      const current = quotaWindowSnapshotFromObservation({
+        endpoint,
+        observation,
         id: `budget:quota:${stableHash(dedupKey)}`,
-        source: observation.source,
-        provider: observation.provider,
-        harness: endpoint.harness,
-        transport: endpoint.transport,
-        model: observation.model,
-        agentId: endpoint.agentId,
-        endpointId: endpoint.id,
-        sessionId: observation.sessionId,
-        userId: observation.userId,
-        accountId: observation.accountId,
-        planType: observation.planType,
-        label: observation.label,
-        windowKind: observation.windowKind,
-        usedPercent: observation.usedPercent,
-        percentRemaining: observation.percentRemaining,
-        used: observation.used,
-        limit: observation.limit,
-        resetAt: observation.resetAt,
-        windowMs: observation.windowMs,
-        capturedAt: observation.capturedAt,
-        metadata: observation.metadata,
-      };
+      });
+      const history = quotaWindowSnapshotFromObservation({
+        endpoint,
+        observation,
+        id: `budget:quota:history:${stableHash(`${dedupKey}:history:${historyBucket}`)}`,
+        metadata: {
+          ...observation.metadata,
+          historyBucketMs: QUOTA_HISTORY_BUCKET_MS,
+          historyBucketStartAt: historyBucket * QUOTA_HISTORY_BUCKET_MS,
+        },
+      });
+
+      return [current, history];
     }),
   };
 }

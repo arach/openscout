@@ -15,7 +15,7 @@ import {
   timeAgo,
 } from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
-import { useOptionalFlag } from "@hudsonkit";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { usePersistentNumber, usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";

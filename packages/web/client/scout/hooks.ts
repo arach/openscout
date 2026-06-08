@@ -1,6 +1,7 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Settings } from "lucide-react";
-import { useOptionalFlag, type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
+import { type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
@@ -289,11 +290,12 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
-  const activeKey = topNavKeyForRoute(route, opsEnabled);
+  const cleanNav = useOptionalFlag("nav.clean", false);
+  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
   const breadcrumb = topNavBreadcrumbForRoute(route);
 
   return createElement("div", { className: "scout-nav-tabs" },
-    topNavItems(opsEnabled).map(({ key, label, route: tabRoute }) =>
+    topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
       createElement("button", {
         key,
         className: `scout-nav-tab${activeKey === key ? " active" : ""}`,

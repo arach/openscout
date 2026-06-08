@@ -197,19 +197,13 @@ struct ScoutRootView: View {
             // them into a different conversation.
             pendingImages = []
         }
-        .onChange(of: section) { _, _ in
+        .onChange(of: section) { _, newSection in
+            if newSection != .tail {
+                tailSessionEvent = nil
+            }
             syncScopedStoreLifecycles()
         }
-        .onChange(of: inspectorCollapsed) { _, _ in
-            syncScopedStoreLifecycles()
-        }
-        .onChange(of: store.selectedCId) { _, _ in
-            syncScopedStoreLifecycles()
-        }
-        .onChange(of: store.selectedAgentId) { _, _ in
-            syncScopedStoreLifecycles()
-        }
-        .onChange(of: store.workingAgentCount) { _, _ in
+        .onChange(of: modalPresented) { _, _ in
             syncScopedStoreLifecycles()
         }
         .overlay {
@@ -262,6 +256,26 @@ struct ScoutRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.14), value: diffSheetWorktree?.id)
+        .overlay {
+            // Tail "load session" — present at the app root so the embedded
+            // web viewer does not relayout the Tail table and cannot become a
+            // hidden modal if the user changes sections while it is open.
+            if section == .tail, let event = tailSessionEvent {
+                ScoutTailSessionSheet(
+                    sessionRef: event.sessionId,
+                    title: event.projectLabel,
+                    subtitle: "\(event.sourceLabel) · \(event.sessionShortLabel)",
+                    edge: .bottom,
+                    onClose: {
+                        withAnimation(.easeOut(duration: 0.14)) {
+                            tailSessionEvent = nil
+                        }
+                    }
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: tailSessionEvent?.id)
         .onReceive(NotificationCenter.default.publisher(for: .scoutAppCommand)) { notification in
             guard let command = ScoutAppCommand(notification: notification) else { return }
             handleAppCommand(command)
@@ -288,11 +302,7 @@ struct ScoutRootView: View {
     }
 
     private var tailShouldPoll: Bool {
-        if section == .tail { return true }
-        guard section == .comms, !inspectorCollapsed, let agent = store.selectedAgent else {
-            return false
-        }
-        return agent.state == .working || agent.state == .needsAttention
+        section == .tail && !modalPresented
     }
 
     private func handleAppCommand(_ command: ScoutAppCommand) {
@@ -1542,25 +1552,6 @@ struct ScoutRootView: View {
                 withAnimation(.easeOut(duration: 0.14)) { tailSessionEvent = event }
             }
         )
-        .overlay {
-            // Tail "load session" — the slide-out session viewer (embedded web
-            // viewer), scoped to the Tail content so it sheets only this surface.
-            if let event = tailSessionEvent {
-                ScoutTailSessionSheet(
-                    sessionRef: event.sessionId,
-                    title: event.projectLabel,
-                    subtitle: "\(event.sourceLabel) · \(event.sessionShortLabel)",
-                    edge: .bottom,
-                    onClose: {
-                        withAnimation(.easeOut(duration: 0.14)) {
-                            tailSessionEvent = nil
-                        }
-                    }
-                )
-                .transition(.opacity)
-            }
-        }
-        .animation(.easeOut(duration: 0.14), value: tailSessionEvent?.id)
     }
 
     private var reposContent: some View {

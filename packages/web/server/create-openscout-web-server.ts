@@ -3550,7 +3550,10 @@ export async function createOpenScoutWebServer(
     ),
   );
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
-  app.get("/api/service-budgets", async (c) => c.json(await loadServiceBudgets()));
+  app.get("/api/service-budgets", async (c) => {
+    const refresh = c.req.query("refresh");
+    return c.json(await loadServiceBudgets(refresh === "1" || refresh === "true"));
+  });
   app.get("/api/fleet/brief", async (c) => {
     try {
       const refresh = c.req.query("refresh");

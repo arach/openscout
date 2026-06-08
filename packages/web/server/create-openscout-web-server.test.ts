@@ -1260,6 +1260,45 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
 
+  test("serves site-level feature flag bundle config for the client", async () => {
+    const originalBundle = process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
+    const originalExperience = process.env.OPENSCOUT_WEB_EXPERIENCE;
+    const originalVariant = process.env.OPENSCOUT_WEB_AB_VARIANT;
+    process.env.OPENSCOUT_WEB_FLAG_BUNDLE = "B";
+    delete process.env.OPENSCOUT_WEB_EXPERIENCE;
+    delete process.env.OPENSCOUT_WEB_AB_VARIANT;
+
+    try {
+      const server = await createOpenScoutWebServer({
+        currentDirectory: "/tmp/openscout",
+        assetMode: "static",
+        staticRoot: makeStaticRoot(),
+      });
+
+      const response = await server.app.request("http://localhost/api/bootstrap.js");
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(body).toContain('"featureFlags":{"bundle":"max-pro"}');
+    } finally {
+      if (originalBundle === undefined) {
+        delete process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
+      } else {
+        process.env.OPENSCOUT_WEB_FLAG_BUNDLE = originalBundle;
+      }
+      if (originalExperience === undefined) {
+        delete process.env.OPENSCOUT_WEB_EXPERIENCE;
+      } else {
+        process.env.OPENSCOUT_WEB_EXPERIENCE = originalExperience;
+      }
+      if (originalVariant === undefined) {
+        delete process.env.OPENSCOUT_WEB_AB_VARIANT;
+      } else {
+        process.env.OPENSCOUT_WEB_AB_VARIANT = originalVariant;
+      }
+    }
+  });
+
   test("adds mixed-content protection only for HTTPS edge requests", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

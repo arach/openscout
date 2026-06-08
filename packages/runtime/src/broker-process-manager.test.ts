@@ -58,9 +58,11 @@ describe("broker launch agent config", () => {
   test("preserves optional web edge environment overrides", () => {
     const originalEdgeScheme = process.env.OPENSCOUT_WEB_EDGE_SCHEME;
     const originalPublicOrigin = process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
+    const originalFlagBundle = process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
     try {
       process.env.OPENSCOUT_WEB_EDGE_SCHEME = "both";
       process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = "https://scout.local";
+      process.env.OPENSCOUT_WEB_FLAG_BUNDLE = "light-prod";
 
       const plist = renderLaunchAgentPlist(config);
 
@@ -68,6 +70,8 @@ describe("broker launch agent config", () => {
       expect(plist).toContain("<string>both</string>");
       expect(plist).toContain("<key>OPENSCOUT_WEB_PUBLIC_ORIGIN</key>");
       expect(plist).toContain("<string>https://scout.local</string>");
+      expect(plist).toContain("<key>OPENSCOUT_WEB_FLAG_BUNDLE</key>");
+      expect(plist).toContain("<string>light-prod</string>");
     } finally {
       if (originalEdgeScheme === undefined) {
         delete process.env.OPENSCOUT_WEB_EDGE_SCHEME;
@@ -78,6 +82,11 @@ describe("broker launch agent config", () => {
         delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
       } else {
         process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = originalPublicOrigin;
+      }
+      if (originalFlagBundle === undefined) {
+        delete process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
+      } else {
+        process.env.OPENSCOUT_WEB_FLAG_BUNDLE = originalFlagBundle;
       }
     }
   });
