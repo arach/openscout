@@ -15,7 +15,7 @@ import {
   timeAgo,
 } from "../lib/time.ts";
 import { actorColor } from "../lib/colors.ts";
-import { isOpsEnabled } from "../lib/feature-flags.ts";
+import { useOptionalFlag } from "@hudsonkit";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { usePersistentNumber, usePersistentString } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -891,7 +891,7 @@ export function HomeScreen({
 
   const now = new Date();
   const greeting = greetingFor(now.getHours());
-  const opsEnabled = isOpsEnabled();
+  const opsEnabled = useOptionalFlag("ops.control", true);
   const operatorName =
     onboarding?.operatorName?.trim()
     || onboarding?.operatorNameSuggestion?.trim()
