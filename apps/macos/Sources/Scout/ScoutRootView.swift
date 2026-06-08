@@ -1516,7 +1516,15 @@ struct ScoutRootView: View {
     }
 
     private var reposContent: some View {
-        ScoutReposContent(repos: repos, tree: reposTree, onActivate: { activateSelectedRepoRow() })
+        ScoutReposContent(
+            repos: repos,
+            tree: reposTree,
+            onActivate: { activateSelectedRepoRow() },
+            onOpenDiff: { worktree in
+                guard !worktree.path.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = worktree }
+            }
+        )
             .overlay {
                 // SCO-065 — the repo-diff slide-out sheet (embedded web viewer).
                 // Scoped to the Repos content so it dims/sheets only this
