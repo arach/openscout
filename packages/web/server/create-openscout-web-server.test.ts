@@ -2338,7 +2338,12 @@ describe("createOpenScoutWebServer", () => {
   }
 
   test("serves repo-diff snapshots from the web server (no broker hop)", async () => {
-    let captured: { worktreePath?: string; layers?: string[]; baseRef?: string } | null = null;
+    let captured: {
+      worktreePath?: string;
+      layers?: string[];
+      baseRef?: string;
+      limits?: { timeoutMs?: number; includeBinaryPatch?: boolean };
+    } | null = null;
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
@@ -2348,6 +2353,7 @@ describe("createOpenScoutWebServer", () => {
           worktreePath: opts.worktreePath,
           layers: opts.layers,
           baseRef: opts.baseRef ?? undefined,
+          limits: opts.limits,
         };
         return stubDiffSnapshot(opts.worktreePath);
       },
@@ -2363,6 +2369,10 @@ describe("createOpenScoutWebServer", () => {
     // Layer order follows the request (the client controls tab order).
     expect(captured?.layers).toEqual(["staged", "unstaged"]);
     expect(captured?.baseRef).toBe("main");
+    expect(captured?.limits).toMatchObject({
+      timeoutMs: 15_000,
+      includeBinaryPatch: false,
+    });
   });
 
   test("rejects repo-diff requests without a worktree path", async () => {
@@ -2380,6 +2390,22 @@ describe("createOpenScoutWebServer", () => {
     const response = await server.app.request("http://localhost/api/repo-diff/worktree");
     expect(response.status).toBe(400);
     expect(called).toBe(false);
+  });
+
+  test("returns JSON for unknown API routes instead of the app shell", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/repo-diff/missing");
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({
+      error: "unknown api route: /api/repo-diff/missing",
+    });
   });
 
   test("proxies UI routes to the configured Vite dev server", async () => {

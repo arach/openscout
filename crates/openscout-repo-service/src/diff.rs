@@ -18,7 +18,7 @@ const DEFAULT_MAX_PATCH_BYTES: usize = 2_000_000;
 const DEFAULT_MAX_FILES: usize = 500;
 const DEFAULT_MAX_HUNKS_PER_FILE: usize = 300;
 const DEFAULT_MAX_LINES_PER_HUNK: usize = 5_000;
-const DEFAULT_TIMEOUT_MS: u64 = 5_000;
+const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 const CONTEXT_FLAG: &str = "-U3";
 
 // ── Request ──────────────────────────────────────────────────────────────

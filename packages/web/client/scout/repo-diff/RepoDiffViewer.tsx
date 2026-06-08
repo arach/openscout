@@ -29,7 +29,13 @@ import type { ParsedPatch } from "@pierre/diffs";
 import type { CodeViewItem } from "@pierre/diffs/react";
 
 import "./repo-diff.css";
-import { api } from "../../lib/api.ts";
+import {
+  fetchRepoDiffSnapshot,
+  readRepoDiffCache,
+  repoDiffCacheAgeLabel,
+  type RepoDiffCacheRecord,
+  type RepoDiffCacheRead,
+} from "./cache.ts";
 import {
   loadPierre,
   mountPierreDiff,
@@ -52,6 +58,9 @@ export type RepoDiffViewerProps = {
   layers?: RepoDiffLayerKind[];
   /** Optional close affordance (rendered in the header when present). */
   onClose?: () => void;
+  /** Optional "open as page" affordance (promotes the panel to the
+   *  /repo-diff route). Rendered in the header only when present. */
+  onOpenAsPage?: () => void;
   /** Extra className on the root (e.g. for the chrome-free embed). */
   className?: string;
   /** Heading shown in the header (defaults to the worktree leaf name). */
@@ -102,21 +111,21 @@ function leafName(path: string): string {
 
 // ── Layer / fetch state ─────────────────────────────────────────────────────
 
-function buildUrl(path: string, layers: RepoDiffLayerKind[]): string {
-  const params = new URLSearchParams();
-  params.set("path", path);
-  for (const layer of layers) params.append("layer", layer);
-  return `/api/repo-diff/worktree?${params.toString()}`;
-}
-
 type FetchPhase = "loading" | "ready" | "error";
 type PierrePhase = "loading" | "ready" | "error";
 type DiffLayout = "unified" | "split";
+type SnapshotFreshness = {
+  fetchedAt: number;
+  cacheHit: boolean;
+  refreshing: boolean;
+  refreshError: string | null;
+};
 
 export function RepoDiffViewer({
   path,
   layers = DEFAULT_LAYERS,
   onClose,
+  onOpenAsPage,
   className,
   title,
 }: RepoDiffViewerProps) {
@@ -132,6 +141,7 @@ export function RepoDiffViewer({
   const [snapshot, setSnapshot] = useState<ScoutRepoDiffSnapshot | null>(null);
   const [fetchPhase, setFetchPhase] = useState<FetchPhase>("loading");
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
 
   const [pierre, setPierre] = useState<PierreRuntime | null>(null);
   const [pierrePhase, setPierrePhase] = useState<PierrePhase>("loading");
@@ -143,17 +153,32 @@ export function RepoDiffViewer({
 
   // ── Fetch the snapshot ────────────────────────────────────────────────────
   const loadSnapshot = useCallback(async () => {
-    setFetchPhase("loading");
+    const cached = readRepoDiffCache(path, requestedLayers);
     setFetchError(null);
+    if (cached) {
+      setSnapshot(cached.snapshot);
+      setFreshness(freshnessFromCache(cached, true));
+      setFetchPhase("ready");
+    } else {
+      setFetchPhase("loading");
+      setFreshness(null);
+    }
     try {
-      const data = await api<ScoutRepoDiffSnapshot>(
-        buildUrl(path, requestedLayers),
-      );
-      setSnapshot(data);
+      const record = await fetchRepoDiffSnapshot(path, requestedLayers, {
+        force: cached != null,
+      });
+      setSnapshot(record.snapshot);
+      setFreshness(freshnessFromRecord(record, false));
       setFetchPhase("ready");
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : String(err));
-      setFetchPhase("error");
+      const message = err instanceof Error ? err.message : String(err);
+      if (cached) {
+        setFreshness(freshnessFromCache(cached, false, message));
+        setFetchPhase("ready");
+      } else {
+        setFetchError(message);
+        setFetchPhase("error");
+      }
     }
   }, [path, requestedLayers]);
 
@@ -283,11 +308,13 @@ export function RepoDiffViewer({
         heading={heading}
         worktreePath={snapshot.worktreePath}
         snapshot={snapshot}
+        freshness={freshness}
         activeLayer={activeLayer}
         onLayer={setActiveLayer}
         layout={layout}
         onLayout={setLayout}
         onClose={onClose}
+        onOpenAsPage={onOpenAsPage}
       />
 
       <SnapshotDiagnostics snapshot={snapshot} />
@@ -403,20 +430,24 @@ function Header({
   heading,
   worktreePath,
   snapshot,
+  freshness,
   activeLayer,
   onLayer,
   layout,
   onLayout,
   onClose,
+  onOpenAsPage,
 }: {
   heading: string;
   worktreePath: string;
   snapshot: ScoutRepoDiffSnapshot;
+  freshness: SnapshotFreshness | null;
   activeLayer: RepoDiffLayerKind | null;
   onLayer: (layer: RepoDiffLayerKind) => void;
   layout: DiffLayout;
   onLayout: (layout: DiffLayout) => void;
   onClose?: () => void;
+  onOpenAsPage?: () => void;
 }) {
   const { dir } = splitPath(worktreePath);
   return (
@@ -435,6 +466,7 @@ function Header({
             onLayer={onLayer}
           />
         </div>
+        <DiffFreshness freshness={freshness} generatedAt={snapshot.generatedAt} />
       </div>
       <div className="rd-header-actions">
         <div className="rd-segmented" role="group" aria-label="Diff layout">
@@ -455,12 +487,69 @@ function Header({
             Split
           </button>
         </div>
+        {onOpenAsPage ? (
+          <button
+            type="button"
+            className="rd-close"
+            aria-label="Open diff as page"
+            title="Open as full page"
+            onClick={onOpenAsPage}
+          >
+            ↗
+          </button>
+        ) : null}
         {onClose ? (
           <button type="button" className="rd-close" aria-label="Close" onClick={onClose}>
             ✕
           </button>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function freshnessFromCache(
+  cached: RepoDiffCacheRead,
+  refreshing: boolean,
+  refreshError: string | null = null,
+): SnapshotFreshness {
+  return {
+    fetchedAt: cached.fetchedAt,
+    cacheHit: true,
+    refreshing,
+    refreshError,
+  };
+}
+
+function freshnessFromRecord(
+  record: RepoDiffCacheRecord,
+  refreshing: boolean,
+): SnapshotFreshness {
+  return {
+    fetchedAt: record.fetchedAt,
+    cacheHit: record.cacheHit,
+    refreshing,
+    refreshError: null,
+  };
+}
+
+function DiffFreshness({
+  freshness,
+  generatedAt,
+}: {
+  freshness: SnapshotFreshness | null;
+  generatedAt: number;
+}) {
+  const fetchedAt = freshness?.fetchedAt ?? generatedAt;
+  const ageMs = Math.max(0, Date.now() - fetchedAt);
+  const label = freshness?.cacheHit
+    ? `Prefetched ${repoDiffCacheAgeLabel(ageMs)}`
+    : `Updated ${repoDiffCacheAgeLabel(ageMs)}`;
+  return (
+    <div className="rd-freshness" title={new Date(fetchedAt).toLocaleString()}>
+      <span>{label}</span>
+      {freshness?.refreshing ? <span>Refreshing…</span> : null}
+      {freshness?.refreshError ? <span>Refresh failed</span> : null}
     </div>
   );
 }

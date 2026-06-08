@@ -15,6 +15,7 @@ import { KnowledgeSearchScreen } from "../../screens/KnowledgeSearchScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { MessagesScreen } from "../../screens/MessagesScreen.tsx";
 import { ReposScreen } from "../../screens/ReposScreen.tsx";
+import { RepoDiffPageScreen } from "../../screens/RepoDiffPageScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
 import { SessionRefScreen } from "../../screens/SessionRefScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
@@ -112,6 +113,14 @@ function renderScreen(
       return <BrokerScreen navigate={navigate} />;
     case "repos":
       return <ReposScreen navigate={navigate} />;
+    case "repo-diff":
+      return (
+        <RepoDiffPageScreen
+          path={route.path}
+          layers={route.layers}
+          navigate={navigate}
+        />
+      );
     case "briefings":
       return route.briefingId
         ? <BriefingDetailScreen briefingId={route.briefingId} navigate={navigate} />

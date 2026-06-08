@@ -69,6 +69,18 @@
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
+.rd-freshness {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-2xs);
+  color: color-mix(in srgb, var(--muted) 86%, transparent);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.rd-freshness span + span {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+}
 .rd-header-actions {
   display: flex;
   align-items: center;

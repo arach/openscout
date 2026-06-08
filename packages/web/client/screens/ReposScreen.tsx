@@ -13,6 +13,7 @@ import RepoWatchContext from "../scout/repo-watch/RepoWatchContext.tsx";
 import { attentionRank, type Tone } from "../scout/repo-watch/ui.ts";
 import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../scout/repo-diff/RepoDiffViewerLazy.tsx";
+import { prefetchRepoDiffSnapshots } from "../scout/repo-diff/cache.ts";
 
 /**
  * Repo Watch / State of Repos (SCO-061) — the live web view.
@@ -118,7 +119,39 @@ function findById(
   return { worktree: null, project: null };
 }
 
-export function ReposScreen(_props: { navigate: (route: Route) => void }) {
+function prefetchWorktreePaths(
+  snapshot: RepoWatchSnapshot,
+  selectedId: string | null,
+): string[] {
+  const scored: Array<{ path: string; score: number }> = [];
+  for (const project of snapshot.projects) {
+    for (const wt of project.worktrees) {
+      const dirty =
+        wt.status.staged +
+        wt.status.unstaged +
+        wt.status.untracked +
+        wt.status.conflicts;
+      const liveAgents = wt.agents.filter(
+        (a) => (a.state ?? "").toLowerCase() === "active",
+      ).length;
+      if (dirty === 0 && liveAgents === 0) continue;
+      scored.push({
+        path: wt.path,
+        score:
+          (wt.id === selectedId ? 10_000_000 : 0) +
+          (4 - attentionRank(wt.attention)) * 100_000 +
+          liveAgents * 10_000 +
+          dirty * 100 +
+          wt.status.changedFiles,
+      });
+    }
+  }
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .map((item) => item.path);
+}
+
+export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -189,6 +222,11 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
     if (!stillThere) {
       setSelectedId(pickDefaultWorktree(snapshot)?.id ?? null);
     }
+  }, [snapshot, selectedId]);
+
+  useEffect(() => {
+    if (!snapshot || snapshot.projects.length === 0) return;
+    prefetchRepoDiffSnapshots(prefetchWorktreePaths(snapshot, selectedId));
   }, [snapshot, selectedId]);
 
   const selection = useMemo(
@@ -336,6 +374,12 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
             key={diffPath}
             path={diffPath}
             onClose={() => setDiffPath(null)}
+            onOpenAsPage={() => {
+              if (diffPath) {
+                navigate({ view: "repo-diff", path: diffPath });
+                setDiffPath(null);
+              }
+            }}
           />
         ) : null}
       </SlidePanel>

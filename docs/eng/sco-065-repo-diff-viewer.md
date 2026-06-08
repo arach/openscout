@@ -85,6 +85,13 @@ First surface:
 
 The first version is read-only.
 
+Repo Watch should prefetch diff snapshots best-effort while the operator is on
+the Repos page. Prefetch priority should favor the selected worktree, dirty
+worktrees, and worktrees with live agents. Opening the viewer should use a
+cached snapshot immediately when available, then perform a quick background
+refetch so the operator can see whether the diff is current or slightly stale.
+If no cached snapshot exists, the viewer fetches normally.
+
 ## 6. Ownership Boundary
 
 The Rust repo service may know:
@@ -192,6 +199,11 @@ Rationale:
 - `--full-index` and `--binary` preserve enough metadata for future apply or
   deeper review features.
 - `--raw -z` and `--numstat -z` avoid quoted-path parsing traps.
+
+The read-only web viewer may request `includeBinaryPatch: false` so large binary
+payloads do not make Git patch generation dominate first paint. Binary files
+still appear from `--raw -z` / `--numstat -z` summaries with explicit binary
+markers.
 
 ## 9. Native Response
 
@@ -474,6 +486,15 @@ The initial annotation model is read-only:
 Annotations should be supplied from TypeScript as UI metadata, not embedded into
 the Git patch. This keeps raw patches reusable by ordinary Git tooling.
 
+The next interactive slice should make the diff a first-class review workspace:
+
+- full-page diff route in addition to the slide-out and macOS embed,
+- file-level and line/hunk-level comments,
+- comment draft state that is local until explicitly sent,
+- a "send to agent" action that packages the selected file/hunk/comment context
+  into a Scout ask or message without mutating Git state,
+- visible provenance showing which cached diff revision a comment refers to.
+
 ## 16. First Implementation Slice
 
 1. Add `openscout-repo-service diff` with staged and unstaged layers.
@@ -482,9 +503,11 @@ the Git patch. This keeps raw patches reusable by ordinary Git tooling.
 4. Add a web proxy endpoint.
 5. Add `@pierre/diffs` to `packages/web`.
 6. Add a repo diff route opened from Repo Watch.
-7. Preload Shiki themes/languages locally.
-8. Use Pierre `CodeView` with worker pool and stable cache keys.
-9. Add local SSR/render cache only if first-paint latency is visible.
+7. Prefetch high-priority worktree diffs from the Repo Watch page.
+8. Show cached diff freshness and quick-refetch in the viewer.
+9. Preload Shiki themes/languages locally.
+10. Use Pierre `CodeView` with worker pool and stable cache keys.
+11. Add local SSR/render cache only if first-paint latency is visible.
 
 Branch diff can follow after staged/unstaged are reliable.
 
@@ -528,4 +551,3 @@ Branch diff can follow after staged/unstaged are reliable.
 - How should native macOS reuse this viewer: embedded web view, Swift wrapper,
   or separate native renderer later?
 - Should local diff render cache be operator-visible in settings from day one?
-

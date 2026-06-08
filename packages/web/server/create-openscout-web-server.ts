@@ -360,6 +360,11 @@ export type CreateOpenScoutWebServerOptions = {
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
 };
 
+const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
+  timeoutMs: 15_000,
+  includeBinaryPatch: false,
+};
+
 type FleetHomeBrief = {
   id: string;
   statement: string;
@@ -4643,6 +4648,7 @@ export async function createOpenScoutWebServer(
         layers: layers.length > 0 ? layers : undefined,
         baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
         compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
+        limits: REPO_DIFF_VIEWER_LIMITS,
       });
       return c.json(snapshot);
     } catch (error) {
@@ -4732,6 +4738,8 @@ export async function createOpenScoutWebServer(
       },
     });
   });
+
+  app.all("/api/*", (c) => c.json({ error: `unknown api route: ${c.req.path}` }, 404));
 
   await registerScoutWebAssets(app, {
     assetMode: options.assetMode,

@@ -91,6 +91,22 @@ enum ScoutBranchDiffMetrics {
     static let scrimOpacity: CGFloat = 0.42
 }
 
+/// Resize bounds, persistence keys, and divider hit width for the **diff sheet
+/// only**. Kept separate from `ScoutBranchDiffMetrics` (which `ScoutTailSessionSheet`
+/// also reads for its fixed geometry) so the diff sheet's new resizing can never
+/// regress the Tail sheet.
+enum ScoutBranchDiffResize {
+    /// Min/max fraction of the host the drawer/column may cover, per edge.
+    static let bottomRange: ClosedRange<CGFloat> = 0.40...0.95
+    static let rightRange: ClosedRange<CGFloat> = 0.40...0.92
+    /// Comfortable drag target for the trailing-column divider.
+    static let dividerHitWidth: CGFloat = 8
+    /// @AppStorage keys (`.v1` matches the repo's width-persistence convention,
+    /// e.g. `scout.conversationList.width.v2`).
+    static let bottomKey = "scout.repoDiff.bottomHeightFraction.v1"
+    static let rightKey = "scout.repoDiff.rightWidthFraction.v1"
+}
+
 // MARK: - Sheet container
 
 /// The bottom slide-out sheet that hosts the embedded repo-diff web viewer for a
@@ -123,12 +139,22 @@ struct ScoutBranchDiffSheet: View {
     /// Bumped to force a fresh load (retry button after a failed/unreachable load).
     @State private var reloadToken = UUID()
 
+    /// Persisted resize fractions (per edge). Defaults track the fixed values the
+    /// sheet shipped with, so behavior is unchanged until the user drags.
+    @AppStorage(ScoutBranchDiffResize.bottomKey)
+    private var storedBottomFraction = Double(ScoutBranchDiffMetrics.bottomHeightFraction)
+    @AppStorage(ScoutBranchDiffResize.rightKey)
+    private var storedRightFraction = Double(ScoutBranchDiffMetrics.rightWidthFraction)
+    /// Non-nil only while dragging the bottom grab handle; the panel prefers it
+    /// over the stored fraction so a drag doesn't write UserDefaults per frame.
+    @State private var dragPreviewFraction: CGFloat?
+
     private var theme: ScoutBranchDiffTheme { ScoutBranchDiffTheme(colorScheme: colorScheme) }
     private var url: URL { repoDiffEmbedURL(worktreePath: worktreePath, theme: theme) }
 
     private var drawerAnimation: Animation? {
-        // HudMotion's drawer spring, locally: a snappy slide that settles fast.
-        reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.86)
+        // HudMotion's drawer spring (nil under Reduce Motion → no slide).
+        HudMotion.ifAllowed(HudMotion.drawerSpring, reduceMotion: reduceMotion)
     }
 
     var body: some View {
@@ -161,18 +187,20 @@ struct ScoutBranchDiffSheet: View {
     }
 
     private var scrim: some View {
+        // Sticky sheet: the scrim is a soft dim only — it neither dismisses on
+        // tap (close chevron / Escape are the only dismissals) nor blocks the
+        // canvas, so the nav rail stays clickable and the diff persists while you
+        // move between sections.
         Color.black
             .opacity(shown ? ScoutBranchDiffMetrics.scrimOpacity : 0)
             .ignoresSafeArea()
-            .contentShape(Rectangle())
-            .onTapGesture { dismiss() }
-            .allowsHitTesting(shown)
+            .allowsHitTesting(false)
     }
 
     private var panel: some View {
         GeometryReader { geo in
             let size = panelSize(in: geo.size)
-            sheetSurface
+            sheetSurface(host: geo.size)
                 .frame(width: size.width, height: size.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
                 .offset(panelOffset(for: size))
@@ -180,9 +208,9 @@ struct ScoutBranchDiffSheet: View {
         .ignoresSafeArea()
     }
 
-    private var sheetSurface: some View {
+    private func sheetSurface(host: CGSize) -> some View {
         VStack(spacing: 0) {
-            if edge == .bottom { grabHandle }
+            if edge == .bottom { grabHandle(hostHeight: host.height) }
             header
             HudDivider(color: ScoutDesign.hairline)
             ScoutBranchDiffWebHost(url: url, reloadToken: reloadToken, onRetry: { reloadToken = UUID() })
@@ -191,15 +219,43 @@ struct ScoutBranchDiffSheet: View {
         .background(ScoutDesign.bg)
         .clipShape(panelShape)
         .overlay(panelShape.stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
+        // The trailing (right-column) variant resizes width via the shared
+        // HudsonKit divider on its inner edge; it brings `NSCursor.resizeLeftRight`.
+        // The bottom drawer resizes height via the grab handle below
+        // (HudResizableDivider is horizontal-only).
+        .overlay(alignment: .leading) {
+            if edge != .bottom {
+                HudResizableDivider(
+                    width: rightWidthBinding(host: host),
+                    placement: .leading,
+                    range: rightWidthRange(host: host),
+                    hitWidth: ScoutBranchDiffResize.dividerHitWidth
+                )
+            }
+        }
         .shadow(color: Color.black.opacity(0.45), radius: 40, x: 0, y: edge == .bottom ? -8 : 0)
     }
 
-    private var grabHandle: some View {
-        Capsule()
-            .fill(ScoutDesign.hairlineStrong)
-            .frame(width: ScoutBranchDiffMetrics.grabHandleWidth, height: 4)
-            .padding(.top, HudSpacing.sm)
-            .frame(maxWidth: .infinity)
+    /// The bottom drawer's resize affordance. The actual drag is an AppKit
+    /// `NSView` (`ScoutDrawerResizeHandle`) — same smooth, precise mouse-tracking
+    /// the conversation-list / sidebar resizers use — driving a live preview
+    /// fraction and committing on mouse-up. The capsule is just the visual.
+    private func grabHandle(hostHeight: CGFloat) -> some View {
+        ZStack {
+            ScoutDrawerResizeHandle(
+                fraction: $storedBottomFraction,
+                previewFraction: $dragPreviewFraction,
+                range: ScoutBranchDiffResize.bottomRange,
+                hostHeight: hostHeight
+            )
+            Capsule()
+                .fill(dragPreviewFraction != nil ? ScoutPalette.accent : ScoutDesign.hairlineStrong)
+                .frame(width: ScoutBranchDiffMetrics.grabHandleWidth, height: 4)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 16)
+        .padding(.top, HudSpacing.xs)
     }
 
     private var header: some View {
@@ -252,14 +308,51 @@ struct ScoutBranchDiffSheet: View {
         RoundedRectangle(cornerRadius: ScoutBranchDiffMetrics.cornerRadius, style: .continuous)
     }
 
+    private func clampFraction(_ value: CGFloat) -> CGFloat {
+        let range = edge == .bottom
+            ? ScoutBranchDiffResize.bottomRange
+            : ScoutBranchDiffResize.rightRange
+        return min(range.upperBound, max(range.lowerBound, value))
+    }
+
+    /// The live size fraction for the active edge — the drag preview while
+    /// dragging, else the persisted value — always clamped to the edge's range.
+    private var activeFraction: CGFloat {
+        let stored: CGFloat = edge == .bottom
+            ? CGFloat(storedBottomFraction)
+            : CGFloat(storedRightFraction)
+        return clampFraction(dragPreviewFraction ?? stored)
+    }
+
+    /// The trailing-column divider's clamp range, expressed in points for the
+    /// current host width (kept on one line — a split `...` operator reads as a
+    /// separate call argument).
+    private func rightWidthRange(host: CGSize) -> ClosedRange<CGFloat> {
+        let w = max(host.width, 1)
+        return (ScoutBranchDiffResize.rightRange.lowerBound * w)...(ScoutBranchDiffResize.rightRange.upperBound * w)
+    }
+
+    /// Bridges `HudResizableDivider`'s absolute-width binding to our persisted
+    /// fraction (trailing/right-column variant only). Writes go straight to
+    /// `@AppStorage`; the divider drag is an occasional, non-production path.
+    private func rightWidthBinding(host: CGSize) -> Binding<CGFloat> {
+        Binding(
+            get: { clampFraction(CGFloat(storedRightFraction)) * host.width },
+            set: { newWidth in
+                storedRightFraction = Double(clampFraction(newWidth / max(host.width, 1)))
+            }
+        )
+    }
+
     private func panelSize(in host: CGSize) -> CGSize {
+        let fraction = activeFraction
         switch edge {
         case .bottom:
-            return CGSize(width: host.width, height: host.height * ScoutBranchDiffMetrics.bottomHeightFraction)
+            return CGSize(width: host.width, height: host.height * fraction)
         case .trailing, .leading, .top:
             // The spec ships bottom; trailing is the study's alternate. Other
             // edges fall back to the trailing geometry so `edge` stays total.
-            return CGSize(width: host.width * ScoutBranchDiffMetrics.rightWidthFraction, height: host.height)
+            return CGSize(width: host.width * fraction, height: host.height)
         }
     }
 
@@ -525,6 +618,104 @@ private struct ScoutBranchDiffEscapeMonitor: NSViewRepresentable {
 #else
 private struct ScoutBranchDiffEscapeMonitor: View {
     let onEscape: () -> Void
+    var body: some View { Color.clear }
+}
+#endif
+
+// MARK: - Vertical resize handle (bottom drawer)
+
+#if os(macOS)
+/// Smooth bottom-drawer resize, in the house style of `ScoutConversationResizeHandle`:
+/// an AppKit `NSView` that tracks the mouse directly (no SwiftUI `DragGesture`),
+/// updates a live preview fraction on every `mouseDragged`, and commits to the
+/// persisted fraction on `mouseUp`. Vertical + fraction-based: a pixel drag is
+/// scaled by the host height into a 0…1 fraction so the stored size is
+/// resolution-independent.
+private struct ScoutDrawerResizeHandle: NSViewRepresentable {
+    @Binding var fraction: Double          // persisted height fraction
+    @Binding var previewFraction: CGFloat? // live during a drag
+    let range: ClosedRange<CGFloat>
+    let hostHeight: CGFloat
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: HandleView) {
+        view.range = range
+        view.hostHeight = hostHeight
+        view.getFraction = { CGFloat(fraction) }
+        view.setPreview = { previewFraction = $0 }
+        view.commit = { fraction = Double($0) }
+        view.clearPreview = { previewFraction = nil }
+    }
+
+    final class HandleView: NSView {
+        var range: ClosedRange<CGFloat> = 0.4...0.95
+        var hostHeight: CGFloat = 1
+        var getFraction: () -> CGFloat = { 0.76 }
+        var setPreview: (CGFloat) -> Void = { _ in }
+        var commit: (CGFloat) -> Void = { _ in }
+        var clearPreview: () -> Void = {}
+
+        private var startY: CGFloat = 0
+        private var startFraction: CGFloat = 0
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+        }
+
+        override var acceptsFirstResponder: Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeUpDown)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder(self)
+            startY = event.locationInWindow.y
+            startFraction = getFraction()
+            setPreview(startFraction)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            // Drawer is bottom-anchored, handle is on its top edge: dragging up
+            // (window y increases) grows it.
+            let dy = event.locationInWindow.y - startY
+            setPreview(clamp(startFraction + dy / max(hostHeight, 1)))
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let dy = event.locationInWindow.y - startY
+            commit(clamp(startFraction + dy / max(hostHeight, 1)))
+            clearPreview()
+        }
+
+        private func clamp(_ value: CGFloat) -> CGFloat {
+            min(max(value, range.lowerBound), range.upperBound)
+        }
+    }
+}
+#else
+private struct ScoutDrawerResizeHandle: View {
+    @Binding var fraction: Double
+    @Binding var previewFraction: CGFloat?
+    let range: ClosedRange<CGFloat>
+    let hostHeight: CGFloat
     var body: some View { Color.clear }
 }
 #endif
