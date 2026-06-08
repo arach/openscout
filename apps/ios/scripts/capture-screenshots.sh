@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PROJECT="Scout.xcodeproj"
-SCHEME="ScoutApp"
+SCHEME="Scout"
 BUNDLE_ID="com.openscout.scout"
 CONFIGURATION="${OPENSCOUT_IOS_SCREENSHOT_CONFIGURATION:-Release}"
 DERIVED_DATA_PATH="${OPENSCOUT_IOS_SCREENSHOT_DERIVED_DATA_PATH:-$(pwd)/.deriveddata/screenshots}"
@@ -99,7 +99,7 @@ require_cmd xcodebuild
 require_cmd xcrun
 require_cmd asc-at-125
 
-echo "Building ScoutApp ($CONFIGURATION) for Simulator..."
+echo "Building Scout ($CONFIGURATION) for Simulator..."
 echo "DerivedData: $DERIVED_DATA_PATH"
 echo "Output root: $OUTPUT_ROOT"
 echo ""

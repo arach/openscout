@@ -1,4 +1,4 @@
-# SCO-061 — ScoutNext Navigation Blueprint
+# SCO-061 — Scout iOS Navigation Blueprint
 
 The full navigation map for the next-gen iOS app, designed to lean on HudsonKit's
 current surface area. Status legend: ✅ built · 🟡 partial · ⬜ planned. We map it
@@ -22,7 +22,7 @@ Cross-cutting: capability-first (every surface consumes `ScoutBrokerClient`, so 
 
 What we adopt from the system, and where:
 
-| HudsonKit | Where ScoutNext uses it |
+| HudsonKit | Where Scout uses it |
 | --- | --- |
 | `HudPhoneAppShell` complications (5-zone) | Ambient chrome: top-left identity, top-right connection chip, (center reserved for Inbox badge) |
 | `HudLiquidBar(tabs:)` | Primary tab bar: Home · New · Tail |
@@ -38,11 +38,11 @@ What we adopt from the system, and where:
 ```
 App
 ├─ [unpaired]  Connect (phase gate)                                  ✅
-│     └─ Pairing  — QR scan · paste link · scoutnext:// deep link    ✅  (→ HudTakeover ⬜)
+│     └─ Pairing  — QR scan · paste link · scout:// deep link    ✅  (→ HudTakeover ⬜)
 │
 └─ [paired]  Shell  (HudPhoneAppShell)                               ✅
       ├─ complications (ambient chrome)
-      │     top-left:   Scout·NEXT identity            🟡 (title bar today → complication ⬜)
+      │     top-left:   Scout identity                 🟡 (title bar today → complication ⬜)
       │     top-right:  ● connection chip → Connection 🟡 (title bar today → complication ⬜)
       │     center:     Inbox badge (approvals count)  ⬜
       │

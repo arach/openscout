@@ -10,7 +10,7 @@ Proposed.
 
 ## Intent
 
-Let ScoutNext (iOS) stay connected to **N paired Macs at once** and present them as **one
+Let Scout (iOS) stay connected to **N paired Macs at once** and present them as **one
 fleet** — "talk to each, coalesce" — with a top filter that scopes the view to All or a single
 Mac. Do this entirely in the **iOS client layer**, with no change to the bridge transport or the
 broker.
@@ -24,7 +24,7 @@ The primary target is not "connect to a different Mac." It is:
 
 ## Problem
 
-ScoutNext is **single-connection by construction.** There is one `AppModel.bridge:
+Scout is **single-connection by construction.** There is one `AppModel.bridge:
 BridgeBrokerClient`, and `var client { bridge }` (`AppModel.swift:122`). On connect,
 `BridgeConnection.connect()` resolves exactly one Mac via
 `currentTrustedBridge(preferredPublicKeyHex: nil)` — the most-recently-seen trusted bridge
@@ -40,7 +40,7 @@ and no way to ask "what's running everywhere right now."
 
 **The unit of multiplicity is the client, not the bridge.** `ScoutBrokerClient` is already a
 *composition* of small capability protocols (`BrokerClient.swift:15`: SessionInitiation, Listing,
-Tail, Conversation, Control, Comms), and every ScoutNext surface consumes exactly one value —
+Tail, Conversation, Control, Comms), and every Scout surface consumes exactly one value —
 `model.client`, handed in as `client:` in `RootView`. The bridge (Noise + WebSocket to one Mac) is
 just the transport *under* a client.
 

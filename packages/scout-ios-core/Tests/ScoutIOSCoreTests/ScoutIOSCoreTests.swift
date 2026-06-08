@@ -208,6 +208,8 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(log.entries.first?.event, .resolve)
         XCTAssertEqual(log.entries.first?.event.label, "RESOLVE")
         XCTAssertEqual(log.entries.first?.route, .tailnet)
+        XCTAssertEqual(ConnectionLogEvent.reconnect.label, "RECONNECT")
+        XCTAssertEqual(ConnectionLogEvent.network.label, "NETWORK")
     }
 
     private func makeDefaults() -> UserDefaults {

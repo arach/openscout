@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Camera-free pairing for the iOS Simulator (which has no camera).
 #
-# The simulator can't scan a QR, so this hands ScoutNext the Mac's live pairing
+# The simulator can't scan a QR, so this hands Scout the Mac's live pairing
 # payload two ways: it copies the payload to the sim clipboard (tap "Paste
-# pairing link" in the app) and prints the scoutnext:// deep link.
+# pairing link" in the app) and prints the scout:// deep link.
 #
 # Prereq: click "Start pairing" in Scout on your Mac so a fresh, non-expired
 # room exists. Then:  apps/ios/scripts/pair-sim.sh ["iPhone 17 Pro Max"]
@@ -29,8 +29,8 @@ PY
 )"
 
 printf '%s' "$QV" | xcrun simctl pbcopy "$DEVICE"
-echo "✅ payload copied to \"$DEVICE\" clipboard — tap 'Paste pairing link' in ScoutNext"
+echo "✅ payload copied to \"$DEVICE\" clipboard — tap 'Paste pairing link' in Scout"
 
-LINK="$(QV="$QV" python3 -c 'import os,urllib.parse; print("scoutnext://pair?payload="+urllib.parse.quote(os.environ["QV"],safe=""))')"
+LINK="$(QV="$QV" python3 -c 'import os,urllib.parse; print("scout://pair?payload="+urllib.parse.quote(os.environ["QV"],safe=""))')"
 echo "🔗 deep link (or: xcrun simctl openurl \"$DEVICE\" '<link>'):"
 echo "   $LINK"

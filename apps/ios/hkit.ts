@@ -18,7 +18,7 @@
  * and the emit step change; every app's hkit.json stays identical.
  *
  * Catalog note: this lives in openscout for now to prove the tool on its one
- * real consumer (ScoutNext). It's meant to graduate into HudsonKit so hudson
+ * real consumer (Scout). It's meant to graduate into HudsonKit so hudson
  * owns the feature truth and ships `hkit` as an offering.
  */
 
@@ -29,7 +29,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 // --- Feature catalog: feature name -> build env HudsonKit gates on ------------
 // HudsonTerminal (Termini/Ghostty SSH+PTY) and HudsonVoice (Vox/Parakeet) are
 // optional backends wired as local-path deps; HudsonKit only declares them when
-// these are set at manifest-eval time. See reference_scoutnext_device_build.
+// these are set at manifest-eval time. See reference_scout_device_build.
 const FEATURE_CATALOG: Record<string, { env: Record<string, string>; note: string }> = {
   terminal: { env: { HUDSONKIT_WITH_TERMINAL: "1" }, note: "HudsonTerminal — Termini SSH/PTY (Ghostty)" },
   voice: { env: { HUDSONKIT_WITH_VOICE: "1" }, note: "HudsonVoice — Vox/Parakeet dictation" },

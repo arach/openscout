@@ -153,7 +153,6 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
           emitStatus("connected", `Relay room ${room} is ready`);
         },
         onPaired({ remotePublicKey }) {
-          clearRefreshTimer(state);
           emitStatus("paired", `Secure peer connected (${bytesToHex(remotePublicKey).slice(0, 16)}...)`, {
             connectedPeerFingerprint: bytesToHex(remotePublicKey).slice(0, 16),
           });
@@ -247,10 +246,44 @@ function schedulePairingRefresh(state: SupervisorState, payload: PairingQrPayloa
   state.refreshTimer = setTimeout(() => {
     state.refreshTimer = null;
     if (state.current.status === "paired") {
+      refreshPairedPairingPayload(state);
       return;
     }
     void startSupervisorRuntime(state);
   }, Math.min(delayMs, PAIRING_QR_TTL_MS));
+}
+
+function refreshPairedPairingPayload(state: SupervisorState): void {
+  const pairing = state.current.pairing;
+  if (!pairing) {
+    void startSupervisorRuntime(state);
+    return;
+  }
+
+  const payload = refreshedPairingPayload(pairing);
+  writeCurrent(state, {
+    pairing: {
+      relay: payload.relay,
+      ...(payload.fallbackRelays?.length ? { fallbackRelays: payload.fallbackRelays } : {}),
+      room: payload.room,
+      publicKey: payload.publicKey,
+      expiresAt: payload.expiresAt,
+      qrArt: renderQRCode(payload),
+      qrValue: JSON.stringify(payload),
+    },
+  });
+  schedulePairingRefresh(state, payload);
+}
+
+function refreshedPairingPayload(pairing: NonNullable<PairingRuntimeSnapshot["pairing"]>): PairingQrPayload {
+  return {
+    v: 1,
+    relay: pairing.relay,
+    ...(pairing.fallbackRelays?.length ? { fallbackRelays: pairing.fallbackRelays } : {}),
+    room: pairing.room,
+    publicKey: pairing.publicKey,
+    expiresAt: Date.now() + PAIRING_QR_TTL_MS,
+  };
 }
 
 function clearSupervisorTimers(state: SupervisorState): void {

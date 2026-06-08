@@ -6,19 +6,16 @@ exists, this app is where a human reaches, reads, and responds to their agents
 without treating mobile as a separate product.
 
 Status:
-- restored intact first to preserve behavior
-- product identity is now Scout
-- deeper internal renames will land in-place as the mobile surface is aligned
-- human-facing copy should describe the app as part of the Scout product, not a sidecar
-
-Expected migration order:
-1. user-facing copy and product identity
-2. product semantics such as partner surface and inbox/work-state flows
-3. deeper internal renames once behavior is stable in Scout
+- the HudsonKit-first implementation is the active Scout iOS app
+- the legacy ScoutApp target has been removed
+- `apps/ios/Scout` is the source root for new mobile-facing work
+- Scout owns `scout://` pairing links
 
 Project notes:
 - XcodeGen project definition: [project.yml](./project.yml)
 - source root: [Scout](./Scout)
+- scheme: `Scout`
+- bundle id: `com.openscout.scout`
 
 ## Local commands
 

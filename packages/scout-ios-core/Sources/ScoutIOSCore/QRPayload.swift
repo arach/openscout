@@ -126,7 +126,7 @@ extension QRPayload {
     }
 
     /// Parse from a camera-free channel: either the raw JSON (pasted directly)
-    /// or a `scoutnext://pair?…` deep link. The link may carry the whole payload
+    /// or a `scout://pair?…` deep link. The link may carry the whole payload
     /// in a single percent-encoded `payload` query item, or the individual
     /// `relay` / `room` / `publicKey` (+ optional `v`, `expiresAt`,
     /// `fallbackRelay`) fields. Same bytes as the QR — no shared secret.

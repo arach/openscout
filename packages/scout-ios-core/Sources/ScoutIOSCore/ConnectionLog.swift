@@ -9,6 +9,8 @@ public enum ConnectionLogEvent: String, CaseIterable, Sendable {
     case resolve
     case handshake
     case connected
+    case reconnect
+    case network
     case fallback
     case routeDisabled
     case routeUnavailable
@@ -22,6 +24,8 @@ public enum ConnectionLogEvent: String, CaseIterable, Sendable {
         case .resolve: return "RESOLVE"
         case .handshake: return "HANDSHAKE"
         case .connected: return "CONNECTED"
+        case .reconnect: return "RECONNECT"
+        case .network: return "NETWORK"
         case .fallback: return "FALLBACK"
         case .routeDisabled: return "ROUTE-OFF"
         case .routeUnavailable: return "UNAVAIL"

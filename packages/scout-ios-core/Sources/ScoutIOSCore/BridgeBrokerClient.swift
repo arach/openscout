@@ -75,6 +75,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         BridgeConnectionInfo.remove(publicKeyHex: publicKeyHex, userDefaults: userDefaults)
     }
 
+    public func setUnexpectedDisconnectHandler(_ handler: BridgeConnectionDisconnectHandler?) {
+        connection.setUnexpectedDisconnectHandler(handler)
+    }
+
     /// Establish the encrypted connection (load identity + trusted bridge,
     /// assemble + iterate relay candidates, Noise IK handshake, start streams).
     public func connect() async throws {
@@ -163,17 +167,8 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     // MARK: - ControlCapability
 
     public func send(_ prompt: PromptSpec) async throws -> ControlResult {
-        // The bridge routes prompts by agentId; the conversation id is its proxy
-        // here (the donor resolves agentId from its session store, which this
-        // distill does not carry). Callers that need agent-id routing should pass
-        // it via conversationId, matching the donor sendDirectMessage contract.
-        let params = MobileSendMessageParams(
-            agentId: prompt.conversationId,
-            body: prompt.text,
-            clientMessageId: UUID().uuidString,
-            harness: nil
-        )
-        let result: MobileSendMessageResult = try await connection.rpc("mobile/message/send", params: params)
+        let params = mobilePromptSendParams(prompt, clientMessageId: UUID().uuidString)
+        let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
         return ControlResult(ok: true, turnId: nil, messageId: result.messageId)
     }
 
@@ -279,6 +274,15 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             hostKeyFingerprint: wire.hostKeyFingerprint
         )
     }
+}
+
+func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String) -> MobileCommsSendParams {
+    MobileCommsSendParams(
+        conversationId: prompt.conversationId,
+        body: prompt.text,
+        replyToMessageId: nil,
+        clientMessageId: clientMessageId
+    )
 }
 
 // MARK: - Event → conversation filtering

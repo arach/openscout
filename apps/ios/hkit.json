@@ -1,9 +1,9 @@
 {
-  "app": "ScoutNext",
-  "bundleId": "com.openscout.scoutnext",
+  "app": "Scout",
+  "bundleId": "com.openscout.scout",
   "xcodeproj": "Scout.xcodeproj",
   "xcodegen": "project.yml",
-  "scheme": "ScoutNext",
+  "scheme": "Scout",
   "configuration": "Debug",
   "features": ["terminal", "voice"],
   "derivedData": ".deriveddata/devphone",
