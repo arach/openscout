@@ -19,15 +19,6 @@ struct ScoutKeyboardCheatsheet: View {
             card
                 .frame(maxWidth: 520)
                 .padding(HudSpacing.xxl)
-
-            // Esc / ⌘/ to close — kept live regardless of focus.
-            Group {
-                Button("", action: onDismiss).keyboardShortcut(.cancelAction)
-                Button("", action: onDismiss).keyboardShortcut("/", modifiers: .command)
-            }
-            .opacity(0)
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
         }
     }
 

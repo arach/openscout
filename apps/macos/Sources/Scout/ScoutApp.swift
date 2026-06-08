@@ -22,6 +22,7 @@ struct ScoutApp: App {
         .hudChromeWindow()
         .commands {
             CommandGroup(replacing: .newItem) {}
+            ScoutCommands()
         }
     }
 }

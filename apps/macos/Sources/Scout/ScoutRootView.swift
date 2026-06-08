@@ -10,9 +10,10 @@ import UniformTypeIdentifiers
 
 /// Non-publishing owner for the high-churn tail feed. It never fires
 /// `objectWillChange`, so a view holding it as `@StateObject` is NOT invalidated
-/// when `tail` publishes — only views that observe `tail` directly re-render.
-/// This is the fix for the whole-window relayout storm the tail feed used to
-/// trigger on every ~1.4s poll (and continuously while agents stream).
+    /// when `tail` publishes — only views that observe `tail` directly re-render.
+    /// The root also starts the tail poller only when a visible surface needs it,
+    /// so the full event stream is live where it belongs instead of becoming a
+    /// window-lifetime idle cost.
 @MainActor
 final class ScoutFeeds: ObservableObject {
     let tail = ScoutTailStore()
@@ -23,7 +24,7 @@ struct ScoutRootView: View {
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
     /// observed directly, so its frequent updates only re-render the leaf views
     /// that read it (status-bar count, tail inspector, Live/Paused badge) rather
-    /// than the entire window. Repos stays a normal @StateObject (calm 4s poll).
+    /// than the entire window. Repos is started only by the Repos surface.
     @StateObject private var feeds = ScoutFeeds()
     private var tail: ScoutTailStore { feeds.tail }
     @StateObject private var repos = ScoutRepoStore()
@@ -170,8 +171,7 @@ struct ScoutRootView: View {
         .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity, themeMode: appearance.themeMode))
         .onAppear {
             store.start()
-            tail.start()
-            repos.start()
+            syncScopedStoreLifecycles()
         }
         .onDisappear {
             store.stop()
@@ -186,6 +186,21 @@ struct ScoutRootView: View {
             // Staged images are tied to the chat that was open; don't carry
             // them into a different conversation.
             pendingImages = []
+        }
+        .onChange(of: section) { _, _ in
+            syncScopedStoreLifecycles()
+        }
+        .onChange(of: inspectorCollapsed) { _, _ in
+            syncScopedStoreLifecycles()
+        }
+        .onChange(of: store.selectedCId) { _, _ in
+            syncScopedStoreLifecycles()
+        }
+        .onChange(of: store.selectedAgentId) { _, _ in
+            syncScopedStoreLifecycles()
+        }
+        .onChange(of: store.workingAgentCount) { _, _ in
+            syncScopedStoreLifecycles()
         }
         .overlay {
             if let sessionDraft {
@@ -219,59 +234,111 @@ struct ScoutRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: showCheatsheet)
-        .background(keyboardCommands)
+        .onReceive(NotificationCenter.default.publisher(for: .scoutAppCommand)) { notification in
+            guard let command = ScoutAppCommand(notification: notification) else { return }
+            handleAppCommand(command)
+        }
+        .background(
+            ScoutKeyboardEventMonitor(isActive: true, handler: handleKeyboardEvent)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        )
     }
 
-    // Invisible buttons that register window-level shortcuts. Kept active
-    // (opacity 0, not .hidden/.disabled) so the chords stay live regardless of
-    // which control holds focus. Mirrors OpenScoutMenu's CommsWindow. ⌘-modified
-    // so they never collide with typing in the composer or search field.
-    private var keyboardCommands: some View {
-        Group {
-            // Silenced while a modal overlay (new-session composer, image
-            // lightbox) owns the screen — otherwise these would reach through
-            // and steer the page behind the modal.
-            if !modalPresented {
-                Group {
-                    Button("") { moveSelection(1) }.keyboardShortcut(.downArrow, modifiers: .command)
-                    Button("") { moveSelection(-1) }.keyboardShortcut(.upArrow, modifiers: .command)
-                    Button("") { focusSearch() }.keyboardShortcut("k", modifiers: .command)
-                    Button("") { focusComposer() }.keyboardShortcut("l", modifiers: .command)
-                    Button("") { store.refresh(force: true) }.keyboardShortcut("r", modifiers: .command)
-                }
-                Group {
-                    Button("") { channelFilter = .all }.keyboardShortcut("1", modifiers: .command)
-                    Button("") { channelFilter = .direct }.keyboardShortcut("2", modifiers: .command)
-                    Button("") { channelFilter = .shared }.keyboardShortcut("3", modifiers: .command)
-                    Button("") { observeSelectedAgent() }.keyboardShortcut("o", modifiers: .command)
-                    Button("") { openSelectedAgentChannel() }.keyboardShortcut(.return, modifiers: .command)
-                }
-                Button("") { showCheatsheet.toggle() }.keyboardShortcut("/", modifiers: .command)
-                Button("") { showDesignPreview.toggle() }.keyboardShortcut("d", modifiers: [.command, .shift])
-                // Bare vim keys + `?` — only live when no text field is capturing
-                // input, so typing j/k/?/etc. into a message or search field still
-                // inserts the character instead of stealing the key.
-                if bareKeysAvailable {
-                    Group {
-                        Button("") { showCheatsheet.toggle() }.keyboardShortcut("?", modifiers: [])
-                        Button("") { moveSelection(1) }.keyboardShortcut("j", modifiers: [])
-                        Button("") { moveSelection(-1) }.keyboardShortcut("k", modifiers: [])
-                        Button("") { moveRight() }.keyboardShortcut("l", modifiers: [])
-                        Button("") { moveLeft() }.keyboardShortcut("h", modifiers: [])
-                        Button("") { moveSelectionToEdge(last: false) }.keyboardShortcut("g", modifiers: [])
-                        Button("") { moveSelectionToEdge(last: true) }.keyboardShortcut("g", modifiers: .shift)
-                    }
-                }
-            }
+    private func syncScopedStoreLifecycles() {
+        if tailShouldPoll {
+            tail.start()
+        } else {
+            tail.stop()
         }
-        .opacity(0)
-        .frame(width: 0, height: 0)
-        .accessibilityHidden(true)
+
+        if section == .repos {
+            repos.start()
+        } else {
+            repos.stop()
+        }
+    }
+
+    private var tailShouldPoll: Bool {
+        if section == .tail { return true }
+        guard section == .comms, !inspectorCollapsed, let agent = store.selectedAgent else {
+            return false
+        }
+        return agent.state == .working || agent.state == .needsAttention
+    }
+
+    private func handleAppCommand(_ command: ScoutAppCommand) {
+        guard !modalPresented else { return }
+        switch command {
+        case .moveDown:
+            moveSelection(1)
+        case .moveUp:
+            moveSelection(-1)
+        case .focusSearch:
+            focusSearch()
+        case .focusComposer:
+            focusComposer()
+        case .refresh:
+            store.refresh(force: true)
+        case .filterAll:
+            channelFilter = .all
+        case .filterDirect:
+            channelFilter = .direct
+        case .filterShared:
+            channelFilter = .shared
+        case .observeSelectedAgent:
+            observeSelectedAgent()
+        case .openSelectedAgentChannel:
+            openSelectedAgentChannel()
+        case .toggleCheatsheet:
+            showCheatsheet.toggle()
+        case .toggleDesignPreview:
+            showDesignPreview.toggle()
+        }
+    }
+
+    private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+        if showCheatsheet, event.keyCode == 53 {
+            showCheatsheet = false
+            return true
+        }
+        guard !modalPresented, bareKeysAvailable else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let disallowed: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+        guard flags.intersection(disallowed).isEmpty else { return false }
+        let hasShift = flags.contains(.shift)
+        let key = event.charactersIgnoringModifiers?.lowercased()
+
+        if event.characters == "?" || (hasShift && key == "/") {
+            showCheatsheet.toggle()
+            return true
+        }
+        guard let key else { return false }
+        if hasShift {
+            guard key == "g" else { return false }
+            moveSelectionToEdge(last: true)
+            return true
+        }
+        switch key {
+        case "j":
+            moveSelection(1)
+        case "k":
+            moveSelection(-1)
+        case "l":
+            moveRight()
+        case "h":
+            moveLeft()
+        case "g":
+            moveSelectionToEdge(last: false)
+        default:
+            return false
+        }
+        return true
     }
 
     /// A modal overlay is up and should own the keyboard.
     private var modalPresented: Bool {
-        sessionDraft != nil || previewImage != nil
+        sessionDraft != nil || previewImage != nil || showSettings
     }
 
     /// Bare (unmodified) keys may drive navigation/help only when nothing is
@@ -2180,10 +2247,6 @@ private struct ScoutConversationListBar: View {
                         ) {
                             select(channel)
                         }
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .top).combined(with: .opacity),
-                            removal: .opacity
-                        ))
                     }
                 }
                 .padding(.vertical, HudSpacing.sm)
@@ -2244,24 +2307,42 @@ private struct ScoutTailFollowBadge: View {
 /// agents are actively working. No label; the motion is the whole message.
 private struct ScoutListLiveDot: View {
     let active: Bool
+
+    var body: some View {
+        ZStack {
+            if active {
+                ScoutListLivePulse()
+            } else {
+                Circle()
+                    .fill(ScoutPalette.statusOk)
+                    .frame(width: 6, height: 6)
+                    .opacity(0)
+            }
+        }
+        .frame(width: 10, height: 10)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .help("Live — agents working")
+    }
+}
+
+private struct ScoutListLivePulse: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulse = false
 
     var body: some View {
         Circle()
             .fill(ScoutPalette.statusOk)
             .frame(width: 6, height: 6)
-            .opacity(active ? (pulse ? 0.95 : 0.4) : 0)
-            .scaleEffect(active && pulse ? 1.0 : 0.78)
-            .shadow(color: ScoutPalette.statusOk.opacity(active && pulse ? 0.7 : 0), radius: 3)
-            .animation(.easeInOut(duration: 0.3), value: active)
+            .opacity(reduceMotion ? 0.78 : (pulse ? 0.78 : 0.34))
+            .scaleEffect(reduceMotion ? 1.0 : (pulse ? 1.0 : 0.78))
+            .shadow(color: ScoutPalette.statusOk.opacity(reduceMotion ? 0.28 : (pulse ? 0.38 : 0.1)), radius: 3)
             .onAppear {
-                withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                     pulse = true
                 }
             }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .help("Live — agents working")
     }
 }
 
