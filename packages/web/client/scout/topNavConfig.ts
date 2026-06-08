@@ -50,6 +50,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   messages: "Chat",
   sessions: "Sessions",
   repos: "Repos",
+  harnesses: "Harnesses",
   search: "Search",
   channels: "Channels",
   activity: "Activity",
@@ -96,6 +97,8 @@ export function topNavKeyForRoute(
       return cleanNav ? "dispatch" : opsEnabled ? "ops" : "home";
     case "repos":
       return cleanNav ? "repos" : opsEnabled ? "ops" : "home";
+    case "harnesses":
+      return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "ops":
       // In clean nav only Tail (ops?mode=tail) has its own primary tab; the
       // other Ops modes (Control/Runtime/Plans) live under the Tail subnav.
@@ -122,6 +125,7 @@ export function topNavBreadcrumbForRoute(route: Route): string | null {
     case "agent-info":
     case "sessions":
     case "repos":
+    case "harnesses":
     case "channels":
     case "mesh":
     case "broker":

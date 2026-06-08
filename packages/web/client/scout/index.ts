@@ -96,6 +96,13 @@ const intents: AppIntent[] = [
     keywords: ["dispatch", "broker", "routing", "delivery", "messages"],
   },
   {
+    commandId: "nav:harnesses",
+    title: "Open Harnesses",
+    description: "Open the central view for registered harnesses, observed topology, and budget feeds",
+    category: "navigation",
+    keywords: ["harness", "harnesses", "providers", "claude", "codex", "budget", "usage", "topology"],
+  },
+  {
     commandId: "nav:ops",
     title: "Go to Ops",
     description: "Navigate to the operator workspace for dispatch, mesh, tail, runtime, alerts, and agent operations",

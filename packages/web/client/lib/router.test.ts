@@ -47,6 +47,12 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "work", workId: "work-1", machineId: "node-b" })).toBe(
       "/work/work-1?machineId=node-b",
     );
+
+    expect(routeFromUrl("http://127.0.0.1:3200/harnesses?machineId=node-b")).toEqual({
+      view: "harnesses",
+      machineId: "node-b",
+    });
+    expect(routePath({ view: "harnesses", machineId: "node-b" })).toBe("/harnesses?machineId=node-b");
   });
 
   test("machine scope composes with existing route query params", () => {

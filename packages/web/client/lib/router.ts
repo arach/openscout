@@ -106,6 +106,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "messages",
   "sessions",
   "repos",
+  "harnesses",
   "channels",
   "mesh",
   "activity",
@@ -246,6 +247,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
   if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
     if (path) {
@@ -412,6 +414,8 @@ export function routePath(r: Route): string {
         : "/sessions", r);
     case "repos":
       return pathWithMachineScope("/repos", r);
+    case "harnesses":
+      return pathWithMachineScope("/harnesses", r);
     case "repo-diff": {
       const params = new URLSearchParams();
       params.set("path", r.path);

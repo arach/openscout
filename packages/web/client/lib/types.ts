@@ -1121,6 +1121,7 @@ export type Route =
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
   | ({ view: "repos" } & MachineScopedRoute)
+  | ({ view: "harnesses" } & MachineScopedRoute)
   // A diff path is absolute + machine-local, so this is intentionally not
   // machine-scoped. Reached by drilling in / "open as page" from the Repos
   // diff panel; deep-linkable as /repo-diff?path=<abs>&layer=…

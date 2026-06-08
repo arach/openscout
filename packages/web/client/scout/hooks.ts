@@ -110,6 +110,11 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Dispatch",
         action: () => navigate({ view: "broker" }),
       },
+      {
+        id: "nav:harnesses",
+        label: "Open Harnesses",
+        action: () => navigate({ view: "harnesses" }),
+      },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",

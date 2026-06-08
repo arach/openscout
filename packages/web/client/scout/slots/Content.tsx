@@ -10,6 +10,7 @@ import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
+import { HarnessesScreen } from "../../screens/HarnessesScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { KnowledgeSearchScreen } from "../../screens/KnowledgeSearchScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
@@ -113,6 +114,8 @@ function renderScreen(
       return <BrokerScreen navigate={navigate} />;
     case "repos":
       return <ReposScreen navigate={navigate} />;
+    case "harnesses":
+      return <HarnessesScreen navigate={navigate} />;
     case "repo-diff":
       return (
         <RepoDiffPageScreen
