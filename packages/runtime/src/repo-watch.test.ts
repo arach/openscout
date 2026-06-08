@@ -14,6 +14,7 @@ import {
 
 let tempRoot = "";
 const originalRepoWatchRoots = process.env.OPENSCOUT_REPO_WATCH_ROOTS;
+const originalRepoWatchNative = process.env.OPENSCOUT_REPO_WATCH_NATIVE;
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
@@ -26,12 +27,15 @@ function git(cwd: string, args: string[]): string {
 beforeEach(() => {
   tempRoot = mkdtempSync(join(tmpdir(), "openscout-repo-watch-"));
   delete process.env.OPENSCOUT_REPO_WATCH_ROOTS;
+  delete process.env.OPENSCOUT_REPO_WATCH_NATIVE;
 });
 
 afterEach(() => {
   rmSync(tempRoot, { recursive: true, force: true });
   if (originalRepoWatchRoots === undefined) delete process.env.OPENSCOUT_REPO_WATCH_ROOTS;
   else process.env.OPENSCOUT_REPO_WATCH_ROOTS = originalRepoWatchRoots;
+  if (originalRepoWatchNative === undefined) delete process.env.OPENSCOUT_REPO_WATCH_NATIVE;
+  else process.env.OPENSCOUT_REPO_WATCH_NATIVE = originalRepoWatchNative;
 });
 
 describe("repo-watch", () => {
@@ -134,6 +138,111 @@ describe("repo-watch", () => {
     expect(worktree.status.untracked).toBe(1);
     expect(worktree.agents[0]?.id).toBe("agent.codex");
     expect(worktree.sessions[0]?.id).toBe("session-1");
+  });
+
+  test("decorates native repo-service scan output with Scout hints and attention", async () => {
+    const repo = join(tempRoot, "native-demo");
+    mkdirSync(repo, { recursive: true });
+    const calls: string[] = [];
+
+    const snapshot = await getRepoWatchSnapshot({
+      force: true,
+      cacheTtlMs: 0,
+      hints: [
+        {
+          path: repo,
+          source: "endpoint",
+          agentId: "agent.codex",
+          agentName: "Codex",
+          agentState: "active",
+          sessionId: "session-1",
+          harness: "codex",
+        },
+      ],
+      nativeScan: async (request) => {
+        calls.push(JSON.stringify(request));
+        expect(request.hints).toEqual([{
+          path: repo,
+          source: "endpoint",
+          hintId: "agent.codex",
+        }]);
+        expect(request.limits.includeDiff).toBe(false);
+        return {
+          schema: "openscout.repo.scan/v1",
+          generatedAt: 1_780_860_000_000,
+          projects: [{
+            root: repo,
+            commonGitDir: join(repo, ".git"),
+            worktrees: [{
+              path: repo,
+              name: "native-demo",
+              isBare: false,
+              branch: {
+                name: "main",
+                upstream: null,
+                head: "abc123",
+                detached: false,
+                ahead: 0,
+                behind: 0,
+                isMain: true,
+                diverged: false,
+              },
+              status: {
+                clean: false,
+                staged: 0,
+                unstaged: 1,
+                untracked: 0,
+                conflicts: 0,
+                changedFiles: 1,
+                files: [{ path: "README.md", status: "unstaged" }],
+              },
+              diff: {
+                unstagedShortstat: null,
+                stagedShortstat: null,
+              },
+              lastCommitAt: null,
+              scannedAt: 1_780_860_000_000,
+            }],
+          }],
+          diagnostics: [{
+            level: "warning",
+            kind: "max_worktrees",
+            message: "native capped worktrees",
+            path: repo,
+          }],
+        };
+      },
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(snapshot.generatedAt).toBe(1_780_860_000_000);
+    expect(snapshot.warnings).toEqual(["native capped worktrees"]);
+    expect(snapshot.totals).toMatchObject({
+      projects: 1,
+      worktrees: 1,
+      dirtyWorktrees: 1,
+      attachedAgents: 1,
+      attachedSessions: 1,
+    });
+    const worktree = snapshot.projects[0]!.worktrees[0]!;
+    expect(worktree.attention).toBe("attention");
+    expect(worktree.attentionReasons).toContain("Dirty main");
+    expect(worktree.agents[0]?.id).toBe("agent.codex");
+    expect(worktree.sessions[0]?.id).toBe("session-1");
+  });
+
+  test("surfaces native repo-service failures when native mode is enabled", async () => {
+    const repo = join(tempRoot, "native-failure");
+    mkdirSync(repo, { recursive: true });
+
+    await expect(getRepoWatchSnapshot({
+      force: true,
+      cacheTtlMs: 0,
+      hints: [{ path: repo, source: "endpoint", agentId: "agent.codex" }],
+      nativeScan: async () => {
+        throw new Error("native unavailable");
+      },
+    })).rejects.toThrow("native unavailable");
   });
 
   test("deduplicates Git root probes for repeated path hints", async () => {

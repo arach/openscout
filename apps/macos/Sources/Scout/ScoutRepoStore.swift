@@ -22,8 +22,10 @@ final class ScoutRepoStore: ObservableObject {
     @Published var lens: ReposLens = .table
 
     private let decoder = JSONDecoder()
-    /// Calmer than Tail's 1.4s: a snapshot shells out to git per worktree.
-    private let pollInterval: TimeInterval = 4.0
+    /// Repo Watch shells out to git per worktree. Keep the automatic cadence
+    /// calm; entering the Repos view and the toolbar button still refresh
+    /// immediately when the user needs current data.
+    private let pollInterval: TimeInterval = 30 * 60
     private var pollTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
 
@@ -74,10 +76,7 @@ final class ScoutRepoStore: ObservableObject {
     // MARK: Lifecycle
 
     func start() {
-        guard pollTask == nil else {
-            refresh()
-            return
-        }
+        guard pollTask == nil else { return }
         refresh()
         let interval = pollInterval
         pollTask = Task { [weak self] in
@@ -93,12 +92,12 @@ final class ScoutRepoStore: ObservableObject {
         pollTask = nil
         fetchTask?.cancel()
         fetchTask = nil
-        isLoading = false
+        setIfChanged(false, to: \.isLoading)
     }
 
     func refresh() {
         if fetchTask != nil { return }
-        isLoading = !hasLoaded
+        setIfChanged(!hasLoaded, to: \.isLoading)
         fetchTask = Task { [weak self] in
             await self?.fetchSnapshot()
         }
@@ -106,16 +105,16 @@ final class ScoutRepoStore: ObservableObject {
 
     private func fetchSnapshot() async {
         defer {
-            isLoading = false
+            setIfChanged(false, to: \.isLoading)
             fetchTask = nil
         }
         // Preview path: with OPENSCOUT_REPOS_SAMPLE set, serve the fixture so the
         // section renders without a broker that implements the snapshot endpoint.
         if ScoutRepoSample.isEnabled, let sample = ScoutRepoSample.snapshot() {
-            snapshot = sample
-            hasLoaded = true
-            lastFetchedAt = Date()
-            lastError = nil
+            setIfChanged(sample, to: \.snapshot)
+            setIfChanged(true, to: \.hasLoaded)
+            setIfChanged(Date(), to: \.lastFetchedAt)
+            setIfChanged(nil, to: \.lastError)
             return
         }
         do {
@@ -126,12 +125,18 @@ final class ScoutRepoStore: ObservableObject {
                     URLQueryItem(name: "includeLastCommit", value: "1"),
                 ])
             let next = try await fetch(RepoWatchSnapshot.self, from: url)
-            snapshot = next
-            hasLoaded = true
-            lastFetchedAt = Date()
-            lastError = nil
+            setIfChanged(next, to: \.snapshot)
+            setIfChanged(true, to: \.hasLoaded)
+            setIfChanged(Date(), to: \.lastFetchedAt)
+            setIfChanged(nil, to: \.lastError)
         } catch {
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
+        }
+    }
+
+    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutRepoStore, T>) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
         }
     }
 

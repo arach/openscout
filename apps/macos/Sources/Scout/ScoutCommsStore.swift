@@ -32,6 +32,7 @@ final class ScoutCommsStore: ObservableObject {
     private var messagesTask: Task<Void, Never>?
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
+    private var attemptedInitialChannelsLoad = false
 
     var selectedChannel: ScoutChannel? {
         guard let selectedCId else { return nil }
@@ -85,7 +86,8 @@ final class ScoutCommsStore: ObservableObject {
         refresh(force: true)
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                let interval = self?.pollIntervalNanoseconds ?? 10_000_000_000
+                try? await Task.sleep(nanoseconds: interval)
                 self?.refresh()
             }
         }
@@ -191,11 +193,11 @@ final class ScoutCommsStore: ObservableObject {
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw ScoutCommsError.sendFailed
             }
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
             refresh(force: true)
             loadMessages()
         } catch {
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
@@ -217,10 +219,32 @@ final class ScoutCommsStore: ObservableObject {
         return try decoder.decode(ScoutBlobUploadResponse.self, from: data)
     }
 
+    /// Publish only what changed. Steady-state polls fetch byte-identical data;
+    /// an unguarded reassignment of a @Published property still fires
+    /// objectWillChange, recomputing every observer's body. Rows capture closures
+    /// (so SwiftUI can't diff them away), so that recompute relayouts the whole
+    /// list on a 2.5s heartbeat even when nothing moved. This keeps the store —
+    /// and the UI — quiet until something actually changes.
+    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutCommsStore, T>) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
+    }
+
+    private var pollIntervalNanoseconds: UInt64 {
+        if channels.isEmpty, lastError != nil {
+            return 30_000_000_000
+        }
+        if workingAgentCount > 0 {
+            return 2_500_000_000
+        }
+        return 10_000_000_000
+    }
+
     private func loadChannels(force: Bool) {
         if channelsTask != nil { return }
         if !force, pollTask == nil { return }
-        isLoading = channels.isEmpty
+        setIfChanged(channels.isEmpty && !attemptedInitialChannelsLoad, to: \.isLoading)
         channelsTask = Task { [weak self] in
             await self?.fetchChannels()
         }
@@ -236,7 +260,8 @@ final class ScoutCommsStore: ObservableObject {
 
     private func fetchChannels() async {
         defer {
-            isLoading = false
+            attemptedInitialChannelsLoad = true
+            setIfChanged(false, to: \.isLoading)
             channelsTask = nil
         }
 
@@ -251,37 +276,40 @@ final class ScoutCommsStore: ObservableObject {
             let next = try await fetchWithFallback([ScoutChannel].self, primary: commsURL, fallback: fallbackURL)
             let incomingIds = Set(next.map(\.cId))
             // The first successful population shouldn't flash every row as "new".
-            newChannelIds = knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds)
+            setIfChanged(knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds), to: \.newChannelIds)
             knownChannelIds = incomingIds
             // Animate only when the visible order actually changes (inserts,
             // removals, bumps). Steady-state polls that merely refresh previews
-            // and ages must not churn the list.
+            // and ages must not churn the list — and an identical poll must not
+            // publish at all, else the whole UI relayouts on a 2.5s heartbeat.
             if next.map(\.cId) != channels.map(\.cId) {
                 withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
                     channels = next
                 }
-            } else {
+            } else if next != channels {
                 channels = next
             }
-            if selectedCId == nil || !next.contains(where: { $0.cId == selectedCId }) {
-                selectedCId = next.first?.cId
-                selectedAgentId = next.first?.agentId
+            let shouldSelectFallback = selectedCId.map { !incomingIds.contains($0) } ?? true
+            if shouldSelectFallback {
+                setIfChanged(next.first?.cId, to: \.selectedCId)
+                setIfChanged(next.first?.agentId, to: \.selectedAgentId)
             }
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
             loadMessages()
         } catch {
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
     private func fetchAgents() async {
         defer { agentsTask = nil }
         do {
-            agents = try await fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
-            lastError = nil
+            let next = try await fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
+            setIfChanged(next, to: \.agents)
+            setIfChanged(nil, to: \.lastError)
         } catch {
             if channels.isEmpty {
-                lastError = Self.userFacingError(error)
+                setIfChanged(Self.userFacingError(error), to: \.lastError)
             }
         }
     }
@@ -298,11 +326,11 @@ final class ScoutCommsStore: ObservableObject {
                 ])
             let next = try await fetch([ScoutMessage].self, from: url)
             guard selectedCId == cId else { return }
-            messages = next.sorted { $0.createdAt < $1.createdAt }
-            lastError = nil
+            setIfChanged(next.sorted { $0.createdAt < $1.createdAt }, to: \.messages)
+            setIfChanged(nil, to: \.lastError)
         } catch {
             guard selectedCId == cId else { return }
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
@@ -318,7 +346,7 @@ final class ScoutCommsStore: ObservableObject {
             guard observeAgentId == agentId else { return }
             observePayload = next
             observeError = nil
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
         } catch {
             guard observeAgentId == agentId else { return }
             observeError = Self.userFacingError(error)

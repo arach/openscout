@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import type { DiscoverySnapshot } from "../tail/index.js";
 
@@ -143,6 +145,8 @@ export type RepoWatchSnapshotOptions = {
   maxFilesPerWorktree?: number;
   includeDiff?: boolean;
   includeLastCommit?: boolean;
+  useNativeRepoService?: boolean;
+  nativeScan?: RepoWatchNativeScanExec;
   now?: () => number;
   git?: GitExec;
 };
@@ -168,6 +172,52 @@ type ParsedStatus = {
   status: RepoWatchStatusSummary;
 };
 
+export type RepoWatchNativeScanRequest = {
+  hints: Array<{
+    path: string;
+    source: string;
+    hintId?: string;
+  }>;
+  limits: {
+    maxRoots: number;
+    maxWorktrees: number;
+    maxFilesPerWorktree: number;
+    scanBudgetMs: number;
+    includeDiff: boolean;
+    includeLastCommit: boolean;
+  };
+};
+
+export type RepoWatchNativeScanResponse = {
+  schema: "openscout.repo.scan/v1" | string;
+  generatedAt: number;
+  projects: Array<{
+    root: string;
+    commonGitDir: string;
+    worktrees: Array<{
+      path: string;
+      name: string;
+      isBare: boolean;
+      branch: RepoWatchBranchSummary;
+      status: RepoWatchStatusSummary;
+      diff: RepoWatchDiffSummary;
+      lastCommitAt: number | null;
+      scannedAt: number;
+    }>;
+  }>;
+  coverage?: Record<string, unknown>;
+  diagnostics?: Array<{
+    level: "info" | "warning" | string;
+    kind: string;
+    message: string;
+    path: string | null;
+  }>;
+};
+
+export type RepoWatchNativeScanExec = (
+  request: RepoWatchNativeScanRequest,
+) => Promise<RepoWatchNativeScanResponse>;
+
 const DEFAULT_CACHE_TTL_MS = 2_500;
 const DEFAULT_MAX_ROOTS = 8;
 const DEFAULT_MAX_WORKTREES = 4;
@@ -175,6 +225,7 @@ const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
 const DEFAULT_SCAN_BUDGET_MS = 4_000;
 const GIT_TIMEOUT_MS = 650;
 const GIT_MAX_BUFFER = 1024 * 1024;
+const REPO_SERVICE_MAX_BUFFER = 2 * 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;
 
@@ -342,6 +393,141 @@ async function defaultGit(cwd: string, args: string[]): Promise<string> {
       fail(new Error(detail));
     });
   });
+}
+
+function readBooleanEnv(name: string): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+type RepoServiceCommand = {
+  command: string;
+  args: string[];
+  cwd?: string;
+};
+
+function resolveRepoServiceCommand(): RepoServiceCommand | null {
+  const explicit = process.env.OPENSCOUT_REPO_SERVICE_BIN?.trim();
+  if (explicit) {
+    return { command: explicit, args: ["scan"] };
+  }
+
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const candidateRoots = uniqueBy([
+    resolve(moduleDir, "../../../.."),
+    process.cwd(),
+  ], (path) => path);
+
+  for (const root of candidateRoots) {
+    const manifestPath = resolve(root, "crates", "openscout-repo-service", "Cargo.toml");
+    if (!existsSync(manifestPath)) continue;
+    return {
+      command: process.env.CARGO?.trim() || "cargo",
+      args: ["run", "--quiet", "--manifest-path", manifestPath, "--", "scan"],
+      cwd: root,
+    };
+  }
+
+  return null;
+}
+
+async function runProcessJson(
+  command: RepoServiceCommand,
+  input: unknown,
+  timeoutMs: number,
+): Promise<unknown> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command.command, command.args, {
+      cwd: command.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const killTimer = setTimeout(() => {
+      terminate();
+      fail(new Error(`${command.command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    killTimer.unref?.();
+
+    function terminate(): void {
+      child.kill("SIGTERM");
+      const hardKillTimer = setTimeout(() => child.kill("SIGKILL"), 250);
+      hardKillTimer.unref?.();
+    }
+
+    function cleanup(): void {
+      clearTimeout(killTimer);
+    }
+
+    function fail(error: Error): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function succeed(output: unknown): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolvePromise(output);
+    }
+
+    function append(kind: "stdout" | "stderr", chunk: unknown): void {
+      const text = typeof chunk === "string" ? chunk : String(chunk);
+      if (kind === "stdout") stdout += text;
+      else stderr += text;
+      if (stdout.length + stderr.length > REPO_SERVICE_MAX_BUFFER) {
+        terminate();
+        fail(new Error(`${command.command} exceeded output limit`));
+      }
+    }
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => append("stdout", chunk));
+    child.stderr.on("data", (chunk) => append("stderr", chunk));
+    child.on("error", (error) => fail(error));
+    child.on("close", (code, signal) => {
+      if (settled) return;
+      if (code !== 0) {
+        const detail = (stderr || `${command.command} exited with ${signal ?? code ?? "unknown status"}`).trim();
+        fail(new Error(detail));
+        return;
+      }
+      try {
+        succeed(JSON.parse(stdout));
+      } catch (error) {
+        fail(new Error(`Repo service returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    });
+
+    child.stdin.end(JSON.stringify(input));
+  });
+}
+
+async function defaultNativeRepoScan(request: RepoWatchNativeScanRequest): Promise<RepoWatchNativeScanResponse> {
+  const command = resolveRepoServiceCommand();
+  if (!command) {
+    throw new Error("Repo service binary was not found.");
+  }
+
+  const output = await runProcessJson(
+    command,
+    request,
+    Math.max(2_000, request.limits.scanBudgetMs + 1_500),
+  );
+
+  if (!output || typeof output !== "object") {
+    throw new Error("Repo service returned a non-object response.");
+  }
+  const response = output as RepoWatchNativeScanResponse;
+  if (response.schema !== "openscout.repo.scan/v1" || !Array.isArray(response.projects)) {
+    throw new Error("Repo service returned an unsupported scan response.");
+  }
+  return response;
 }
 
 async function existingDirectoryForPath(path: string): Promise<string | null> {
@@ -895,18 +1081,143 @@ async function scanProject(
 
   return {
     project: {
-    id: `repo:${hashId(root.commonGitDir)}`,
-    name: basename(rootPath) || basename(root.commonGitDir) || rootPath,
-    root: rootPath,
-    commonGitDir: root.commonGitDir,
-    attention,
-    attentionReasons,
-    worktrees,
-    stats,
-    hints: root.hints,
+      id: `repo:${hashId(root.commonGitDir)}`,
+      name: basename(rootPath) || basename(root.commonGitDir) || rootPath,
+      root: rootPath,
+      commonGitDir: root.commonGitDir,
+      attention,
+      attentionReasons,
+      worktrees,
+      stats,
+      hints: root.hints,
     },
     warnings,
   };
+}
+
+function hintDedupeKey(hint: NormalizedHint): string {
+  return [
+    hint.path,
+    hint.source,
+    hint.agentId ?? "",
+    hint.sessionId ?? "",
+    hint.runtimeSource ?? "",
+    hint.harness ?? "",
+  ].join("\u0000");
+}
+
+function hintsForNativeProject(
+  project: RepoWatchNativeScanResponse["projects"][number],
+  hints: NormalizedHint[],
+): NormalizedHint[] {
+  const matched = hints.filter((hint) =>
+    pathContains(project.root, hint.path)
+    || pathContains(hint.path, project.root)
+    || project.worktrees.some((worktree) =>
+      pathContains(worktree.path, hint.path) || pathContains(hint.path, worktree.path),
+    ),
+  );
+  return uniqueBy(matched, hintDedupeKey);
+}
+
+function hintsForNativeWorktree(
+  worktreePath: string,
+  projectHints: NormalizedHint[],
+  fallbackHints: NormalizedHint[],
+): NormalizedHint[] {
+  const matched = projectHints.filter((hint) =>
+    pathContains(worktreePath, hint.path) || pathContains(hint.path, worktreePath),
+  );
+  return matched.length > 0 ? matched : fallbackHints;
+}
+
+function worktreeFromNative(
+  worktree: RepoWatchNativeScanResponse["projects"][number]["worktrees"][number],
+  hints: NormalizedHint[],
+): RepoWatchWorktree {
+  const refs = refsForHints(hints);
+  const branch = {
+    ...worktree.branch,
+    isMain: worktree.branch.name === "main" || worktree.branch.name === "master",
+    diverged: worktree.branch.ahead > 0 && worktree.branch.behind > 0,
+  };
+  const classified = classifyWorktree({
+    status: worktree.status,
+    branch,
+    agents: refs.agents,
+    sessions: refs.sessions,
+    error: null,
+  });
+
+  return {
+    id: `worktree:${hashId(worktree.path)}`,
+    path: worktree.path,
+    name: worktree.name || basename(worktree.path) || worktree.path,
+    isBare: worktree.isBare,
+    branch,
+    status: worktree.status,
+    diff: {
+      unstagedShortstat: worktree.diff.unstagedShortstat?.trim() || null,
+      stagedShortstat: worktree.diff.stagedShortstat?.trim() || null,
+    },
+    attention: classified.attention,
+    attentionReasons: classified.reasons,
+    agents: refs.agents,
+    sessions: refs.sessions,
+    hints,
+    lastCommitAt: worktree.lastCommitAt,
+    scannedAt: worktree.scannedAt,
+    error: null,
+  };
+}
+
+function projectsFromNativeScan(
+  response: RepoWatchNativeScanResponse,
+  hints: NormalizedHint[],
+): { projects: RepoWatchProject[]; warnings: string[]; generatedAt: number } {
+  const projects: RepoWatchProject[] = [];
+  const warnings = (response.diagnostics ?? [])
+    .filter((diagnostic) => diagnostic.level === "warning")
+    .map((diagnostic) => diagnostic.message);
+
+  for (const rawProject of response.projects) {
+    const projectHints = hintsForNativeProject(rawProject, hints);
+    const worktrees = rawProject.worktrees.map((rawWorktree) =>
+      worktreeFromNative(
+        rawWorktree,
+        hintsForNativeWorktree(rawWorktree.path, projectHints, projectHints),
+      ),
+    );
+    if (worktrees.length === 0) continue;
+
+    const stats = statsForProject(worktrees);
+    const attention = maxAttention(worktrees.map((worktree) => worktree.attention));
+    const attentionReasons = uniqueBy(
+      worktrees.flatMap((worktree) => worktree.attentionReasons),
+      (reason) => reason,
+    ).slice(0, 6);
+    const rootPath = worktrees[0]?.path ?? rawProject.root;
+
+    projects.push({
+      id: `repo:${hashId(rawProject.commonGitDir)}`,
+      name: basename(rootPath) || basename(rawProject.commonGitDir) || rootPath,
+      root: rootPath,
+      commonGitDir: rawProject.commonGitDir,
+      attention,
+      attentionReasons,
+      worktrees,
+      stats,
+      hints: projectHints,
+    });
+  }
+
+  projects.sort((left, right) => {
+    const attentionDelta = attentionRank(right.attention) - attentionRank(left.attention);
+    if (attentionDelta !== 0) return attentionDelta;
+    return left.name.localeCompare(right.name);
+  });
+
+  return { projects, warnings, generatedAt: response.generatedAt };
 }
 
 function totalsForProjects(projects: RepoWatchProject[]): RepoWatchSnapshot["totals"] {
@@ -946,10 +1257,12 @@ type RepoWatchSnapshotCacheShape = {
   maxRoots: number;
   maxWorktrees: number;
   scanBudgetMs: number;
+  scanner: "native" | "typescript";
 };
 
 function snapshotSignature(hints: NormalizedHint[], shape: RepoWatchSnapshotCacheShape): string {
   const shapeSignature = [
+    `scanner:${shape.scanner}`,
     shape.includeDiff ? "diff:1" : "diff:0",
     shape.includeLastCommit ? "commit:1" : "commit:0",
     `maxFiles:${shape.maxFiles}`,
@@ -991,6 +1304,9 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
   ]);
   const includeDiff = options.includeDiff ?? false;
   const includeLastCommit = options.includeLastCommit ?? false;
+  const useNativeRepoService = options.nativeScan != null
+    || options.useNativeRepoService === true
+    || (options.useNativeRepoService == null && readBooleanEnv("OPENSCOUT_REPO_WATCH_NATIVE"));
   const signature = snapshotSignature(hints, {
     includeDiff,
     includeLastCommit,
@@ -998,6 +1314,7 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
     maxRoots,
     maxWorktrees,
     scanBudgetMs,
+    scanner: useNativeRepoService ? "native" : "typescript",
   });
 
   if (!options.force
@@ -1005,6 +1322,37 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
     && cachedSnapshot.signature === signature
     && now - cachedSnapshot.generatedAt <= cacheTtlMs) {
     return cachedSnapshot.snapshot;
+  }
+
+  if (useNativeRepoService) {
+    const nativeScan = options.nativeScan ?? defaultNativeRepoScan;
+    // Native mode is intentionally rust-or-bust while the repo service is being validated.
+    // The previous TypeScript fallback is commented out by design so launch/scan failures surface.
+    const native = await nativeScan({
+      hints: hints.map((hint) => ({
+        path: hint.path,
+        source: hint.source,
+        hintId: hint.sourceLabel ?? hint.agentId ?? hint.sessionId,
+      })),
+      limits: {
+        maxRoots,
+        maxWorktrees,
+        maxFilesPerWorktree: maxFiles,
+        scanBudgetMs,
+        includeDiff,
+        includeLastCommit,
+      },
+    });
+    const converted = projectsFromNativeScan(native, hints);
+    const generatedAt = converted.generatedAt || now;
+    const snapshot: RepoWatchSnapshot = {
+      generatedAt,
+      projects: converted.projects,
+      totals: totalsForProjects(converted.projects),
+      warnings: converted.warnings,
+    };
+    cachedSnapshot = { signature, generatedAt, snapshot };
+    return snapshot;
   }
 
   const discovered = await discoverGitRoots(hints, git, maxRoots, deadlineMs);
