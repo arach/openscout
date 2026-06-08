@@ -11,6 +11,8 @@ import RepoWatchTable from "../scout/repo-watch/RepoWatchTable.tsx";
 import RepoWatchDrift from "../scout/repo-watch/RepoWatchDrift.tsx";
 import RepoWatchContext from "../scout/repo-watch/RepoWatchContext.tsx";
 import { attentionRank, type Tone } from "../scout/repo-watch/ui.ts";
+import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
+import { RepoDiffViewerLazy } from "../scout/repo-diff/RepoDiffViewerLazy.tsx";
 
 /**
  * Repo Watch / State of Repos (SCO-061) — the live web view.
@@ -36,6 +38,7 @@ function repoWatchUrl(depth: RepoWatchScanDepth, force: boolean): string {
   const params = new URLSearchParams({
     includeDiff: "1",
     includeLastCommit: "1",
+    native: "1",
   });
   if (force) params.set("force", "1");
   if (depth === "expanded") {
@@ -130,6 +133,8 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scanDepth, setScanDepth] = useState<RepoWatchScanDepth>("standard");
   const [scanMorePending, setScanMorePending] = useState(false);
+  // SCO-065: the worktree path whose diff is open in the slide-in viewer.
+  const [diffPath, setDiffPath] = useState<string | null>(null);
 
   const load = useCallback(async (options: {
     depth?: RepoWatchScanDepth;
@@ -295,6 +300,7 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
                   snapshot={snapshot}
                   selectedId={selectedId}
                   onSelect={setSelectedId}
+                  onViewDiff={setDiffPath}
                   scanDepth={scanDepth}
                   scanMorePending={scanMorePending}
                   onScanMore={scanMore}
@@ -311,6 +317,28 @@ export function ReposScreen(_props: { navigate: (route: Route) => void }) {
           </div>
         </div>
       </div>
+
+      {/* SCO-065 — the diff viewer slides in from the right. Lazy-loaded inside
+          the panel so Pierre/Shiki only import when a row's "diff" is clicked. */}
+      <SlidePanel
+        open={diffPath != null}
+        onClose={() => setDiffPath(null)}
+        side="right"
+        owner="openscout.repos-diff-viewer"
+        resizable
+        defaultSize={840}
+        maxSize={1280}
+        minSize={420}
+        ariaLabel="Worktree diff"
+      >
+        {diffPath != null ? (
+          <RepoDiffViewerLazy
+            key={diffPath}
+            path={diffPath}
+            onClose={() => setDiffPath(null)}
+          />
+        ) : null}
+      </SlidePanel>
     </div>
   );
 }

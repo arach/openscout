@@ -8,6 +8,8 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+mod diff;
+
 const DEFAULT_MAX_ROOTS: usize = 8;
 const DEFAULT_MAX_WORKTREES: usize = 4;
 const DEFAULT_MAX_FILES_PER_WORKTREE: usize = 12;
@@ -46,8 +48,23 @@ fn run() -> Result<(), String> {
             );
             Ok(())
         }
+        "diff" => {
+            let mut input = String::new();
+            io::stdin()
+                .read_to_string(&mut input)
+                .map_err(|error| error.to_string())?;
+            let request: diff::RepoDiffRequest = serde_json::from_str(&input)
+                .map_err(|error| format!("invalid diff request: {error}"))?;
+            let response = diff::diff(request);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response).map_err(|error| error.to_string())?
+            );
+            Ok(())
+        }
         "-h" | "--help" | "help" => {
             eprintln!("openscout-repo-service scan < request.json");
+            eprintln!("openscout-repo-service diff < request.json");
             Ok(())
         }
         other => Err(format!("unknown command: {other}")),
@@ -235,9 +252,9 @@ struct ScanDiagnostic {
     path: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
-enum DiagnosticLevel {
+pub(crate) enum DiagnosticLevel {
     Info,
     Warning,
 }
@@ -722,6 +739,13 @@ fn git_trimmed(cwd: &Path, args: &[&str]) -> Option<String> {
 }
 
 fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    let bytes = git_capture(cwd, args, GIT_TIMEOUT)?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+/// Run a bounded `git` subprocess and capture stdout bytes. Kills the child if
+/// it outlives `timeout`. Shared by the scan and diff commands.
+pub(crate) fn git_capture(cwd: &Path, args: &[&str], timeout: Duration) -> Result<Vec<u8>, String> {
     let mut child = Command::new("git")
         .args(args)
         .current_dir(cwd)
@@ -738,7 +762,7 @@ fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
                     .wait_with_output()
                     .map_err(|error| error.to_string())?;
                 if output.status.success() {
-                    return String::from_utf8(output.stdout).map_err(|error| error.to_string());
+                    return Ok(output.stdout);
                 }
                 let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
                 return Err(if stderr.is_empty() {
@@ -748,7 +772,7 @@ fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
                 });
             }
             Ok(None) => {
-                if started.elapsed() >= GIT_TIMEOUT {
+                if started.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err(format!("git {} timed out", args.join(" ")));
@@ -782,7 +806,7 @@ fn path_contains(parent: &Path, child: &Path) -> bool {
     child.strip_prefix(parent).is_ok()
 }
 
-fn normalize_path<T: AsRef<str>>(input: T) -> PathBuf {
+pub(crate) fn normalize_path<T: AsRef<str>>(input: T) -> PathBuf {
     let raw = input.as_ref().trim();
     let expanded = if raw == "~" {
         home_dir()
@@ -806,7 +830,7 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/"))
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_millis(0))

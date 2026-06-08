@@ -2299,7 +2299,7 @@ describe("createOpenScoutWebServer", () => {
     });
 
     const response = await server.app.request(
-      "http://localhost/api/repo-watch?force=1&includeTail=true&includeDiff=true&includeLastCommit=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000&ignored=true",
+      "http://localhost/api/repo-watch?force=1&includeTail=true&includeDiff=true&includeLastCommit=1&native=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000&ignored=true",
     );
 
     expect(response.status).toBe(200);
@@ -2308,8 +2308,78 @@ describe("createOpenScoutWebServer", () => {
       totals: { projects: 0, worktrees: 0 },
     });
     expect(fetchCalls).toEqual([
-      "http://broker.test/v1/repo-watch/snapshot?force=1&includeTail=1&includeDiff=1&includeLastCommit=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000",
+      "http://broker.test/v1/repo-watch/snapshot?force=1&includeTail=1&includeDiff=1&includeLastCommit=1&native=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000",
     ]);
+  });
+
+  function stubDiffSnapshot(worktreePath: string) {
+    return {
+      schema: "openscout.repo.diff/v1" as const,
+      generatedAt: 1_780_760_000_000,
+      worktreePath,
+      layers: [],
+      coverage: {
+        requestedLayers: 0,
+        emittedLayers: 0,
+        files: 0,
+        patchBytes: 0,
+        truncatedLayers: 0,
+        scanBudgetReached: false,
+      },
+      diagnostics: [],
+      scout: { worktreeId: "w1", projectId: null, agents: [], sessions: [], hints: [] },
+      render: {
+        renderKey: "k1",
+        cachePolicy: "local-disposable" as const,
+        preferredTheme: "pierre-dark",
+        preferredLayout: "split" as const,
+      },
+    };
+  }
+
+  test("serves repo-diff snapshots from the web server (no broker hop)", async () => {
+    let captured: { worktreePath?: string; layers?: string[]; baseRef?: string } | null = null;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        captured = {
+          worktreePath: opts.worktreePath,
+          layers: opts.layers,
+          baseRef: opts.baseRef ?? undefined,
+        };
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&layer=staged&layer=unstaged&baseRef=main&ignored=true",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ schema: "openscout.repo.diff/v1" });
+    expect(captured?.worktreePath).toBe("/tmp/wt");
+    // Layer order follows the request (the client controls tab order).
+    expect(captured?.layers).toEqual(["staged", "unstaged"]);
+    expect(captured?.baseRef).toBe("main");
+  });
+
+  test("rejects repo-diff requests without a worktree path", async () => {
+    let called = false;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        called = true;
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request("http://localhost/api/repo-diff/worktree");
+    expect(response.status).toBe(400);
+    expect(called).toBe(false);
   });
 
   test("proxies UI routes to the configured Vite dev server", async () => {

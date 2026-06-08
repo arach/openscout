@@ -100,6 +100,11 @@ struct ScoutRootView: View {
     /// inspector reads its selection directly.
     @StateObject private var reposTree = ScoutReposTreeModel()
 
+    /// SCO-065 — the worktree whose diff is presented in the slide-out
+    /// `ScoutBranchDiffSheet`. Non-nil while the sheet is up; activating a
+    /// worktree row (Enter / double-click) sets it.
+    @State private var diffSheetWorktree: RepoWorktree?
+
     private var manifest: HudAppManifest {
         HudAppManifest(
             name: "Scout",
@@ -338,7 +343,7 @@ struct ScoutRootView: View {
 
     /// A modal overlay is up and should own the keyboard.
     private var modalPresented: Bool {
-        sessionDraft != nil || previewImage != nil || showSettings
+        sessionDraft != nil || previewImage != nil || showSettings || diffSheetWorktree != nil
     }
 
     /// Bare (unmodified) keys may drive navigation/help only when nothing is
@@ -480,7 +485,7 @@ struct ScoutRootView: View {
     /// session if a session row is selected, else the agent's channel.
     private func openSelectedAgentChannel() {
         if section == .repos {
-            revealSelectedRepoInFinder()
+            activateSelectedRepoRow()
             return
         }
         guard section == .agents else { return }
@@ -494,8 +499,25 @@ struct ScoutRootView: View {
         section = .comms
     }
 
-    /// ⌘↩ / double-click on the Repos page — reveal the focused worktree (or
-    /// project root) in Finder.
+    /// ⌘↩ / double-click on the Repos page — activate the focused row.
+    ///
+    /// SCO-065: a **worktree** row opens the repo-diff slide-out sheet
+    /// (`ScoutBranchDiffSheet`) for that worktree's path. A **project** row has
+    /// no diff of its own, so it keeps the prior behavior and reveals the repo
+    /// root in Finder.
+    private func activateSelectedRepoRow() {
+        if let worktree = repos.worktree(id: reposTree.selectedWorktreeID),
+           !worktree.path.isEmpty {
+            withAnimation(.easeOut(duration: 0.14)) {
+                diffSheetWorktree = worktree
+            }
+            return
+        }
+        revealSelectedRepoInFinder()
+    }
+
+    /// Reveal the focused worktree (or project root) in Finder — the fallback
+    /// activation for project rows and the explicit "show in Finder" path.
     private func revealSelectedRepoInFinder() {
         let path: String?
         if let worktree = repos.worktree(id: reposTree.selectedWorktreeID) {
@@ -1494,7 +1516,26 @@ struct ScoutRootView: View {
     }
 
     private var reposContent: some View {
-        ScoutReposContent(repos: repos, tree: reposTree, onActivate: { revealSelectedRepoInFinder() })
+        ScoutReposContent(repos: repos, tree: reposTree, onActivate: { activateSelectedRepoRow() })
+            .overlay {
+                // SCO-065 — the repo-diff slide-out sheet (embedded web viewer).
+                // Scoped to the Repos content so it dims/sheets only this
+                // surface, matching the study's "diffs recap into a sheet".
+                if let worktree = diffSheetWorktree {
+                    ScoutBranchDiffSheet(
+                        worktreePath: worktree.path,
+                        branchParts: worktree.branchParts,
+                        edge: .bottom,
+                        onClose: {
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                diffSheetWorktree = nil
+                            }
+                        }
+                    )
+                    .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.14), value: diffSheetWorktree?.id)
     }
 
     private var inspectorHeader: some View {
