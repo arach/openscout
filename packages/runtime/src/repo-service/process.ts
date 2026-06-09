@@ -8,7 +8,11 @@ import { fileURLToPath } from "node:url";
 // different subcommand, so the binary resolution and bounded-subprocess JSON
 // I/O live here once.
 
-export const REPO_SERVICE_MAX_BUFFER = 2 * 1024 * 1024;
+// Generous ceiling on a single response. This must sit comfortably above the
+// diff producer's `maxPatchBytes` (16 MB) once JSON-encoded — a near-cap patch
+// inflates with escaping, so the old 2 MiB cap could abort large but legitimate
+// diffs. 96 MiB is a backstop against a runaway process, not a working limit.
+export const REPO_SERVICE_MAX_BUFFER = 96 * 1024 * 1024;
 
 export type RepoServiceCommand = {
   command: string;

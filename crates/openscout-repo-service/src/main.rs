@@ -10,11 +10,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod diff;
 
-const DEFAULT_MAX_ROOTS: usize = 8;
-const DEFAULT_MAX_WORKTREES: usize = 4;
-const DEFAULT_MAX_FILES_PER_WORKTREE: usize = 12;
-const DEFAULT_SCAN_BUDGET_MS: u64 = 4_000;
-const GIT_TIMEOUT: Duration = Duration::from_millis(650);
+// Permissive defaults — favor coverage over speed. The scan normally runs warm
+// in the background (prewarmed at web-server startup), so a generous budget and
+// per-command timeout buy more context without costing the user latency.
+const DEFAULT_MAX_ROOTS: usize = 24;
+const DEFAULT_MAX_WORKTREES: usize = 12;
+const DEFAULT_MAX_FILES_PER_WORKTREE: usize = 40;
+const DEFAULT_SCAN_BUDGET_MS: u64 = 12_000;
+const GIT_TIMEOUT: Duration = Duration::from_millis(3_000);
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 fn main() -> std::process::ExitCode {
@@ -44,7 +47,7 @@ fn run() -> Result<(), String> {
             let response = scan(request);
             println!(
                 "{}",
-                serde_json::to_string_pretty(&response).map_err(|error| error.to_string())?
+                serde_json::to_string(&response).map_err(|error| error.to_string())?
             );
             Ok(())
         }
@@ -58,7 +61,7 @@ fn run() -> Result<(), String> {
             let response = diff::diff(request);
             println!(
                 "{}",
-                serde_json::to_string_pretty(&response).map_err(|error| error.to_string())?
+                serde_json::to_string(&response).map_err(|error| error.to_string())?
             );
             Ok(())
         }

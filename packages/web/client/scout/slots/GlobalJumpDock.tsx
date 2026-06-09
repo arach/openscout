@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, Compass, Database, GitBranch, MessageSquare, ScrollText } from "lucide-react";
+import { Activity, Compass, GitBranch, MessageSquare, ScrollText } from "lucide-react";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -87,12 +87,13 @@ export function GlobalJumpDock() {
   );
 }
 
+// Bottom quick-links. `ops` and `search` were intentionally dropped here to keep
+// the dock lean — both surfaces remain reachable from the main nav; this dock is
+// just the fast path to the views worth one-tapping to.
 const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
   { id: "sessions", label: "Sessions", icon: <MessageSquare size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
   { id: "repos", label: "Repos", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "repos" } },
-  { id: "search", label: "Search", icon: <Database size={13} strokeWidth={1.6} />, route: { view: "search" } },
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
-  { id: "ops", label: "Ops", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
   { id: "home", label: "Home", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "inbox" } },
   { id: "dispatch", label: "Dispatch", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "broker" } },
 ];

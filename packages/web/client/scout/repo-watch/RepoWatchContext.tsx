@@ -62,6 +62,69 @@ function splitPath(p: string): { dir: string; file: string } {
   return { dir: p.slice(0, i + 1), file: p.slice(i + 1) };
 }
 
+/* Fixed commit scale for the drift ruler: origin centered, ±8 commits per side
+ * (matches the former full-fleet Drift view). The bar is clamped at 8 but the
+ * section header still carries the actual count. */
+const DRIFT_SCALE = 8;
+
+function driftSummary(ahead: number, behind: number, hasError: boolean): string {
+  if (hasError) return "scan err";
+  if (ahead > 0 && behind > 0) return `↑${ahead} ↓${behind} diverged`;
+  if (behind > 0) return `↓${behind} behind`;
+  if (ahead > 0) return `↑${ahead} ahead`;
+  return "in sync";
+}
+
+/* The selected worktree's distance from its base, plotted on the same fixed
+ * ±8 scale the table reads — behind extends left of origin, ahead extends
+ * right; in-sync / scan-err collapse to a hollow ring. Calmer and narrower
+ * than the old full-page ruler, but the same visual language. */
+function DriftRuler({
+  ahead,
+  behind,
+  hasError,
+}: {
+  ahead: number;
+  behind: number;
+  hasError: boolean;
+}) {
+  const insync = ahead === 0 && behind === 0;
+  return (
+    <div className="ctx-drift">
+      <div className="ctx-drift-track">
+        <span className="ctx-drift-tick" style={{ left: "0%" }} />
+        <span className="ctx-drift-tick" style={{ left: "25%" }} />
+        <span className="ctx-drift-tick origin" style={{ left: "50%" }} />
+        <span className="ctx-drift-tick" style={{ left: "75%" }} />
+        <span className="ctx-drift-tick" style={{ left: "100%" }} />
+        {hasError || insync ? (
+          <span className="ctx-drift-ring" />
+        ) : (
+          <>
+            {behind > 0 ? (
+              <span
+                className="ctx-drift-bar behind"
+                style={{ right: "50%", width: (Math.min(behind, DRIFT_SCALE) / DRIFT_SCALE) * 50 + "%" }}
+              />
+            ) : null}
+            {ahead > 0 ? (
+              <span
+                className="ctx-drift-bar ahead"
+                style={{ left: "50%", width: (Math.min(ahead, DRIFT_SCALE) / DRIFT_SCALE) * 50 + "%" }}
+              />
+            ) : null}
+          </>
+        )}
+      </div>
+      <div className="ctx-drift-axis">
+        <span>−8</span>
+        <span className="origin">origin</span>
+        <span>+8</span>
+      </div>
+    </div>
+  );
+}
+
 export default function RepoWatchContext({
   worktree,
   project,
@@ -152,6 +215,15 @@ export default function RepoWatchContext({
       ) : null}
 
       <div className="ctx-body">
+        {/* ── drift ── distance from base on the fixed ±8 commit scale */}
+        <div className="ctx-sec">
+          <div className="ctx-sec-h">
+            <span>DRIFT</span>
+            <span className="n">{driftSummary(b.ahead, b.behind, wt.error != null)}</span>
+          </div>
+          <DriftRuler ahead={b.ahead} behind={b.behind} hasError={wt.error != null} />
+        </div>
+
         {/* ── attention / why ── */}
         {wt.attentionReasons.length > 0 ? (
           <div className="ctx-sec">

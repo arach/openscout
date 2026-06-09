@@ -34,6 +34,10 @@ const currentDirectory = resolveOpenScoutSetupContextRoot({
   fallbackDirectory: process.cwd(),
 });
 const shellStateCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_WEB_SHELL_CACHE_TTL_MS ?? "15000", 10);
+// Keep a Repo Watch scan warm so the first page visit never triggers a cold
+// scan. Force-refreshed on this interval; should stay ≤ the broker repo-watch
+// cache TTL (15s). Set to 0 to disable the background keep-warm.
+const repoWatchKeepWarmMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_KEEP_WARM_MS ?? "10000", 10);
 const routes = resolveOpenScoutWebRoutes(process.env);
 
 function resolveStaticRoot(): string | undefined {
@@ -135,6 +139,7 @@ const web = await createOpenScoutWebServer({
     return relay ? relay.healthcheck() : false;
   },
   scoutbot: { enabled: true },
+  repoWatchKeepWarmMs: Number.isFinite(repoWatchKeepWarmMs) ? repoWatchKeepWarmMs : 10_000,
 });
 const { app, warmupCaches } = web;
 

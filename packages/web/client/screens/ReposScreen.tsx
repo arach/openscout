@@ -8,12 +8,16 @@ import type {
   RepoWatchProject,
 } from "../scout/repo-watch/types.ts";
 import RepoWatchTable from "../scout/repo-watch/RepoWatchTable.tsx";
-import RepoWatchDrift from "../scout/repo-watch/RepoWatchDrift.tsx";
 import RepoWatchContext from "../scout/repo-watch/RepoWatchContext.tsx";
-import { attentionRank, type Tone } from "../scout/repo-watch/ui.ts";
+import { attentionRank } from "../scout/repo-watch/ui.ts";
 import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../scout/repo-diff/RepoDiffViewerLazy.tsx";
 import { prefetchRepoDiffSnapshots } from "../scout/repo-diff/cache.ts";
+import {
+  readRepoWatchCache,
+  repoWatchSignature,
+  writeRepoWatchCache,
+} from "../scout/repo-watch/cache.ts";
 import { OpsSubnav } from "./OpsSubnav.tsx";
 
 /**
@@ -28,12 +32,7 @@ import { OpsSubnav } from "./OpsSubnav.tsx";
  */
 
 const REFRESH_MS = 10_000;
-const TONE_KEY = "openscout.repos.tone";
-const TONES: readonly Tone[] = ["warm", "cool", "mono"];
 
-type ReposView = "table" | "drift";
-const VIEW_KEY = "openscout.repos.view";
-const VIEWS: readonly ReposView[] = ["table", "drift"];
 type RepoWatchScanDepth = "standard" | "expanded";
 
 function repoWatchUrl(depth: RepoWatchScanDepth, force: boolean): string {
@@ -44,42 +43,17 @@ function repoWatchUrl(depth: RepoWatchScanDepth, force: boolean): string {
   });
   if (force) params.set("force", "1");
   if (depth === "expanded") {
-    params.set("maxRoots", "32");
-    params.set("maxWorktrees", "12");
-    params.set("scanBudgetMs", "12000");
+    // "Scan more" should go as wide as the broker allows. The broker clamps
+    // each of these with Math.min(value, cap), so these are the effective
+    // ceilings (maxRoots 128, maxWorktrees 32, scanBudgetMs 30s). The standard
+    // pass (no params) falls back to the small TS defaults — 8 roots / 4
+    // worktrees / 4s — so this is a real jump, not the old 32/12/12s that often
+    // still left coverage capped.
+    params.set("maxRoots", "128");
+    params.set("maxWorktrees", "32");
+    params.set("scanBudgetMs", "30000");
   }
   return `/api/repo-watch?${params.toString()}`;
-}
-
-/** A bit of UI state mirrored to localStorage, validated against `allowed` so a
- *  stale or garbage stored value can never wedge the view. SSR-safe. */
-function usePersistedState<T extends string>(
-  key: string,
-  allowed: readonly T[],
-  fallback: T,
-): [T, (next: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    if (typeof window === "undefined") return fallback;
-    try {
-      const stored = window.localStorage.getItem(key) as T | null;
-      return stored && allowed.includes(stored) ? stored : fallback;
-    } catch {
-      // Safari private mode / sandboxed iframes can throw on access.
-      return fallback;
-    }
-  });
-  const set = useCallback(
-    (next: T) => {
-      setValue(next);
-      try {
-        window.localStorage.setItem(key, next);
-      } catch {
-        /* ignore private-mode / quota failures */
-      }
-    },
-    [key],
-  );
-  return [value, set];
 }
 
 /* The default selection — the most-relevant worktree so the context pane isn't
@@ -177,17 +151,30 @@ function ReposOpsShell({
 }
 
 export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
-  const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
-  const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
+  // Seed from the cross-session cache so a return visit / reload paints the last
+  // scan instantly and refreshes in the background, rather than blocking on a
+  // full-screen "Scanning…". See scout/repo-watch/cache.ts.
+  const cached = useRef(readRepoWatchCache()).current;
+  const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(
+    cached?.snapshot ?? null,
+  );
+  const [phase, setPhase] = useState<"loading" | "ready" | "error">(
+    cached ? "ready" : "loading",
+  );
   const [error, setError] = useState<string | null>(null);
-  const hasData = useRef(false);
+  const hasData = useRef(Boolean(cached));
   const emptyStreak = useRef(0);
 
-  // Tone + view persist to localStorage; selection is shared across both views.
-  // All three reach the table and the context pane through the `.rw-scope`
-  // wrapper (which carries the tone palette vars).
-  const [tone, setTone] = usePersistedState<Tone>(TONE_KEY, TONES, "warm");
-  const [view, setView] = usePersistedState<ReposView>(VIEW_KEY, VIEWS, "table");
+  // Background-refresh affordances: a subtle "updating" pulse while a poll is in
+  // flight, and a one-shot glimmer (nonce bump) when a refresh actually changes
+  // the data — a no-op poll stays silent.
+  const [refreshing, setRefreshing] = useState(false);
+  const [glimmerNonce, setGlimmerNonce] = useState(0);
+  const [justFresh, setJustFresh] = useState(false);
+  const prevSig = useRef<string>(repoWatchSignature(cached?.snapshot ?? null));
+
+  // Selection is shared with the context pane via the `.rw-scope` wrapper, which
+  // carries the (fixed "warm") palette vars.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scanDepth, setScanDepth] = useState<RepoWatchScanDepth>("standard");
   const [scanMorePending, setScanMorePending] = useState(false);
@@ -201,6 +188,9 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
   } = {}) => {
     const depth = options.depth ?? scanDepth;
     if (options.scanMore) setScanMorePending(true);
+    // Show the "updating" pulse for any background refresh that isn't the very
+    // first cold load (which already has its own full-screen state).
+    if (!options.scanMore && hasData.current) setRefreshing(true);
     try {
       const data = await api<RepoWatchSnapshot>(
         repoWatchUrl(depth, options.force ?? false),
@@ -218,6 +208,14 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
       }
       emptyStreak.current = 0;
       hasData.current = true;
+      writeRepoWatchCache(data, Date.now());
+      // Only glimmer when the content the table renders actually changed, so a
+      // steady 10s poll doesn't strobe.
+      const sig = repoWatchSignature(data);
+      if (prevSig.current && sig !== prevSig.current) {
+        setGlimmerNonce((n) => n + 1);
+      }
+      prevSig.current = sig;
       setSnapshot(data);
       setError(null);
       setPhase("ready");
@@ -228,6 +226,7 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
       if (!hasData.current) setPhase("error");
     } finally {
       if (options.scanMore) setScanMorePending(false);
+      setRefreshing(false);
     }
   }, [scanDepth]);
 
@@ -236,6 +235,15 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
     const timer = setInterval(() => void load(), REFRESH_MS);
     return () => clearInterval(timer);
   }, [load]);
+
+  // Light the "Updated" badge for a beat whenever a refresh changes data, then
+  // let it fade back to idle.
+  useEffect(() => {
+    if (glimmerNonce === 0) return;
+    setJustFresh(true);
+    const timer = window.setTimeout(() => setJustFresh(false), 1_400);
+    return () => window.clearTimeout(timer);
+  }, [glimmerNonce]);
 
   // Seed the selection once a snapshot lands (or if the selected worktree
   // vanished from a later scan) so the context pane is never blank.
@@ -321,51 +329,28 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
   return (
     <ReposOpsShell navigate={navigate}>
     <div className="repo-watch-scope">
-      <div className={"rw-scope tone-" + tone}>
+      <div className="rw-scope tone-warm">
         <div className="mx-auto max-w-[1560px] px-6 py-6">
-          {/* Shared toolbar: view toggle (left) + tone toggle (right). */}
+          {/* Section title anchors the page now that the Ops subnav is hidden
+              in the lean view. Drift moved into the context pane per worktree;
+              the table is the only main view. */}
           <div className="rw-toolbar">
-            <div className="rw-tone" role="group" aria-label="View">
-              {VIEWS.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={v === view ? "on" : ""}
-                  aria-pressed={v === view}
-                  onClick={() => setView(v)}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-            <div
-              className="rw-tone"
-              style={{ marginLeft: "auto" }}
-              role="group"
-              aria-label="Console tone"
+            <h1 className="rw-title">Repos</h1>
+            <span
+              className={`rw-refresh${refreshing ? " is-busy" : ""}${justFresh ? " is-fresh" : ""}`}
+              aria-live="polite"
             >
-              {TONES.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={t === tone ? "on" : ""}
-                  aria-pressed={t === tone}
-                  onClick={() => setTone(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+              <span className="rw-refresh-dot" aria-hidden />
+              {refreshing ? (
+                <span className="rw-refresh-label">Updating…</span>
+              ) : justFresh ? (
+                <span className="rw-refresh-label">Updated</span>
+              ) : null}
+            </span>
           </div>
           <div className="flex items-start gap-6">
             <div className="min-w-0 flex-1">
-              {view === "drift" ? (
-                <RepoWatchDrift
-                  snapshot={snapshot}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
-                />
-              ) : (
+              <div className="rw-table-wrap">
                 <RepoWatchTable
                   snapshot={snapshot}
                   selectedId={selectedId}
@@ -375,7 +360,10 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
                   scanMorePending={scanMorePending}
                   onScanMore={scanMore}
                 />
-              )}
+                {glimmerNonce > 0 && (
+                  <div key={glimmerNonce} className="rw-glimmer" aria-hidden />
+                )}
+              </div>
             </div>
             <div className="hidden w-[340px] flex-none lg:block sticky top-6 self-start">
               <RepoWatchContext

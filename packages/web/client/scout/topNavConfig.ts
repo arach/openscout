@@ -116,7 +116,15 @@ export function topNavKeyForRoute(
   }
 }
 
-export function topNavBreadcrumbForRoute(route: Route): string | null {
+export function topNavBreadcrumbForRoute(route: Route, cleanNav = false): string | null {
+  // In lean nav, Dispatch (broker) and Repos are promoted to their own
+  // top-level tabs — so the trailing "/ Dispatch" · "/ Repos" crumb just
+  // repeats the active tab. Drop it so they read like Home/Agents/Chat/Tail,
+  // which carry no crumb. Genuinely deeper routes (a conversation, an agent,
+  // a Mesh/Providers page reached via the palette) still get their crumb.
+  if (cleanNav && (route.view === "broker" || route.view === "repos")) {
+    return null;
+  }
   if (route.view === "settings" && route.section === "agents") {
     return "Configuration";
   }

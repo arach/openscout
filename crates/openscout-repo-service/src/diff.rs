@@ -10,16 +10,25 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::thread;
+use std::time::Duration;
 
 use crate::{git_capture, normalize_path, now_ms, DiagnosticLevel};
 
-const DEFAULT_MAX_PATCH_BYTES: usize = 2_000_000;
-const DEFAULT_MAX_FILES: usize = 500;
-const DEFAULT_MAX_HUNKS_PER_FILE: usize = 300;
-const DEFAULT_MAX_LINES_PER_HUNK: usize = 5_000;
-const DEFAULT_TIMEOUT_MS: u64 = 15_000;
+// Permissive by default — we'd rather return a large diff than truncate one.
+// The launcher's output buffer (repo-service/process.ts) is sized well above
+// max_patch_bytes so a near-cap patch still fits once JSON-encoded.
+const DEFAULT_MAX_PATCH_BYTES: usize = 16_000_000;
+const DEFAULT_MAX_FILES: usize = 2_000;
+const DEFAULT_MAX_HUNKS_PER_FILE: usize = 800;
+const DEFAULT_MAX_LINES_PER_HUNK: usize = 20_000;
+const DEFAULT_TIMEOUT_MS: u64 = 20_000;
 const CONTEXT_FLAG: &str = "-U3";
+// The worktree probe is a single `rev-parse`; cap it tight so the probe plus
+// the (parallel) layer reads stay inside the launcher's kill window
+// (`timeoutMs + 1500` in repo-service/process.ts). With layers and their reads
+// fanned out, total wall-clock ≈ probe + one slow `git`.
+const PROBE_TIMEOUT: Duration = Duration::from_millis(1_000);
 
 // ── Request ──────────────────────────────────────────────────────────────
 
@@ -217,7 +226,7 @@ pub fn diff(request: RepoDiffRequest) -> RepoDiffResponse {
         ..RepoDiffCoverage::default()
     };
 
-    if !is_inside_work_tree(&worktree, timeout) {
+    if !is_inside_work_tree(&worktree, timeout.min(PROBE_TIMEOUT)) {
         diagnostics.push(RepoDiffDiagnostic {
             level: DiagnosticLevel::Warning,
             kind: "not_a_git_worktree".to_string(),
@@ -234,25 +243,44 @@ pub fn diff(request: RepoDiffRequest) -> RepoDiffResponse {
         };
     }
 
-    let started = Instant::now();
-    // Soft overall budget: one command timeout per requested layer, plus a
-    // little slack for the worktree probe. Bounds total wall time when many
-    // layers are requested or Git is slow.
-    let overall_budget = timeout.saturating_mul(layer_kinds.len().max(1) as u32 + 1);
+    // Build every requested layer concurrently. Layers are independent Git reads
+    // of the same worktree, and each layer fans its own raw/numstat/shortstat/
+    // patch reads out in parallel (see build_layer), so total wall-clock is
+    // ~one slow `git` rather than layers × reads × timeout. That keeps even a
+    // multi-layer diff under the launcher kill window instead of being SIGKILLed
+    // mid-read. The per-command `timeout` is the only hard bound on a single Git
+    // call.
+    let worktree_ref: &Path = &worktree;
+    let request_ref: &RepoDiffRequest = &request;
+    let built: Vec<(Option<RepoDiffLayer>, Vec<RepoDiffDiagnostic>)> = thread::scope(|scope| {
+        let handles: Vec<_> = layer_kinds
+            .iter()
+            .map(|&kind| scope.spawn(move || build_layer(worktree_ref, kind, request_ref, timeout)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle.join().unwrap_or_else(|_| {
+                    (
+                        None,
+                        vec![RepoDiffDiagnostic {
+                            level: DiagnosticLevel::Warning,
+                            kind: "layer_panicked".to_string(),
+                            message: "A diff layer worker panicked.".to_string(),
+                            path: None,
+                        }],
+                    )
+                })
+            })
+            .collect()
+    });
 
+    // Reassemble in request order so the response is deterministic regardless of
+    // which layer's Git finished first.
     let mut layers = Vec::new();
-    for kind in &layer_kinds {
-        if started.elapsed() >= overall_budget {
-            coverage.scan_budget_reached = true;
-            diagnostics.push(RepoDiffDiagnostic {
-                level: DiagnosticLevel::Warning,
-                kind: "diff_budget".to_string(),
-                message: "Diff stopped after reaching the time budget.".to_string(),
-                path: None,
-            });
-            break;
-        }
-        if let Some(layer) = build_layer(&worktree, *kind, &request, timeout, &mut diagnostics) {
+    for (layer, layer_diagnostics) in built {
+        diagnostics.extend(layer_diagnostics);
+        if let Some(layer) = layer {
             coverage.emitted_layers += 1;
             coverage.files += layer.files.len();
             coverage.patch_bytes += layer.raw_patch_bytes;
@@ -286,8 +314,9 @@ fn build_layer(
     kind: RepoDiffLayerKind,
     request: &RepoDiffRequest,
     timeout: Duration,
-    diagnostics: &mut Vec<RepoDiffDiagnostic>,
-) -> Option<RepoDiffLayer> {
+) -> (Option<RepoDiffLayer>, Vec<RepoDiffDiagnostic>) {
+    let mut diagnostics: Vec<RepoDiffDiagnostic> = Vec::new();
+
     // The "selector" is the layer-defining prefix of every git invocation for
     // this layer: `diff` (unstaged), `diff --cached` (staged), or
     // `diff <base> [compare]` (branch). Rust never infers branch refs.
@@ -312,7 +341,7 @@ fn build_layer(
                     message: "Branch layer requires baseRef (and usually compareRef); TypeScript must supply them.".to_string(),
                     path: None,
                 });
-                return None;
+                return (None, diagnostics);
             };
             selector.push(base.to_string());
             let compare = request
@@ -339,35 +368,16 @@ fn build_layer(
 
     let limits = &request.limits;
 
-    // Authoritative file identity / status / modes / rename / binary facts.
-    let raw_bytes = run_git(
-        worktree,
-        &build_args(&selector, &["--raw", "-z"], &path_args),
-        timeout,
-        diagnostics,
-    )
-    .unwrap_or_default();
-    let numstat_bytes = run_git(
-        worktree,
-        &build_args(&selector, &["--numstat", "-z"], &path_args),
-        timeout,
-        diagnostics,
-    )
-    .unwrap_or_default();
-    let shortstat = run_git(
-        worktree,
-        &build_args(&selector, &["--shortstat"], &path_args),
-        timeout,
-        diagnostics,
-    )
-    .and_then(|bytes| String::from_utf8(bytes).ok())
-    .map(|value| value.trim().to_string())
-    .filter(|value| !value.is_empty());
+    // Authoritative file identity / status / modes / rename / binary facts
+    // (`--raw`/`--numstat`/`--shortstat`) plus the patch text. All four are
+    // independent reads of the same diff, so fan them out — the layer then
+    // costs ~one `git` instead of four serial ones.
+    let raw_args = build_args(&selector, &["--raw", "-z"], &path_args);
+    let numstat_args = build_args(&selector, &["--numstat", "-z"], &path_args);
+    let shortstat_args = build_args(&selector, &["--shortstat"], &path_args);
 
-    let mut files = parse_files(&raw_bytes, &numstat_bytes);
-
-    // Canonical patch command (used for the patch text, the response
-    // `command` field, and the patchOid identity hash).
+    // Canonical patch command (used for the patch text, the response `command`
+    // field, and the patchOid identity hash).
     let mut patch_flags: Vec<&str> = vec![
         "--no-color",
         "--no-ext-diff",
@@ -384,13 +394,40 @@ fn build_layer(
         .collect();
 
     let want_patch = limits.include_raw_patch || limits.include_parsed_hunks;
+
+    let (raw_result, numstat_result, shortstat_result, patch_result) = thread::scope(|scope| {
+        let raw = scope.spawn(|| run_git_capture(worktree, &raw_args, timeout));
+        let numstat = scope.spawn(|| run_git_capture(worktree, &numstat_args, timeout));
+        let shortstat = scope.spawn(|| run_git_capture(worktree, &shortstat_args, timeout));
+        let patch = if want_patch {
+            Some(scope.spawn(|| run_git_capture(worktree, &patch_args, timeout)))
+        } else {
+            None
+        };
+        (
+            raw.join().unwrap_or_else(|_| Err(git_worker_panic())),
+            numstat.join().unwrap_or_else(|_| Err(git_worker_panic())),
+            shortstat.join().unwrap_or_else(|_| Err(git_worker_panic())),
+            patch.map(|handle| handle.join().unwrap_or_else(|_| Err(git_worker_panic()))),
+        )
+    });
+
+    let raw_bytes = collect_git(&mut diagnostics, raw_result).unwrap_or_default();
+    let numstat_bytes = collect_git(&mut diagnostics, numstat_result).unwrap_or_default();
+    let shortstat = collect_git(&mut diagnostics, shortstat_result)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let mut files = parse_files(&raw_bytes, &numstat_bytes);
+
     let mut full_patch_bytes = 0usize;
     let mut patch_text: Option<String> = None;
     let mut raw_patch: Option<String> = None;
     let mut truncated = false;
 
-    if want_patch {
-        if let Some(bytes) = run_git(worktree, &patch_args, timeout, diagnostics) {
+    if let Some(patch_result) = patch_result {
+        if let Some(bytes) = collect_git(&mut diagnostics, patch_result) {
             full_patch_bytes = bytes.len();
             let text = String::from_utf8_lossy(&bytes).into_owned();
             if limits.include_parsed_hunks {
@@ -434,18 +471,21 @@ fn build_layer(
 
     let patch_oid = fnv1a_128_hex(&command, patch_text.as_deref().unwrap_or("").as_bytes());
 
-    Some(RepoDiffLayer {
-        kind,
-        base_label,
-        compare_label,
-        command,
-        patch_oid,
-        raw_patch,
-        raw_patch_bytes: full_patch_bytes,
-        truncated,
-        files,
-        shortstat,
-    })
+    (
+        Some(RepoDiffLayer {
+            kind,
+            base_label,
+            compare_label,
+            command,
+            patch_oid,
+            raw_patch,
+            raw_patch_bytes: full_patch_bytes,
+            truncated,
+            files,
+            shortstat,
+        }),
+        diagnostics,
+    )
 }
 
 fn build_args(selector: &[String], flags: &[&str], paths: &[String]) -> Vec<String> {
@@ -455,24 +495,42 @@ fn build_args(selector: &[String], flags: &[&str], paths: &[String]) -> Vec<Stri
     args
 }
 
-fn run_git(
+/// Run one bounded `git` read and turn a failure into a diagnostic. Pure (no
+/// shared state) so it can run on a worker thread; the caller merges the
+/// `Err` diagnostic in deterministic order via `collect_git`.
+fn run_git_capture(
     worktree: &Path,
     args: &[String],
     timeout: Duration,
-    diagnostics: &mut Vec<RepoDiffDiagnostic>,
-) -> Option<Vec<u8>> {
+) -> Result<Vec<u8>, RepoDiffDiagnostic> {
     let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    match git_capture(worktree, &arg_refs, timeout) {
+    git_capture(worktree, &arg_refs, timeout).map_err(|error| RepoDiffDiagnostic {
+        level: DiagnosticLevel::Warning,
+        kind: "git_failed".to_string(),
+        message: format!("git {} failed: {error}", arg_refs.join(" ")),
+        path: None,
+    })
+}
+
+fn collect_git(
+    diagnostics: &mut Vec<RepoDiffDiagnostic>,
+    result: Result<Vec<u8>, RepoDiffDiagnostic>,
+) -> Option<Vec<u8>> {
+    match result {
         Ok(bytes) => Some(bytes),
-        Err(error) => {
-            diagnostics.push(RepoDiffDiagnostic {
-                level: DiagnosticLevel::Warning,
-                kind: "git_failed".to_string(),
-                message: format!("git {} failed: {error}", arg_refs.join(" ")),
-                path: None,
-            });
+        Err(diagnostic) => {
+            diagnostics.push(diagnostic);
             None
         }
+    }
+}
+
+fn git_worker_panic() -> RepoDiffDiagnostic {
+    RepoDiffDiagnostic {
+        level: DiagnosticLevel::Warning,
+        kind: "git_worker_panicked".to_string(),
+        message: "A diff Git worker panicked.".to_string(),
+        path: None,
     }
 }
 
@@ -1003,6 +1061,38 @@ mod tests {
 
         assert!(!staged.patch_oid.is_empty());
         assert_ne!(unstaged.patch_oid, staged.patch_oid);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn branch_layer_without_base_ref_is_skipped_with_diagnostic() {
+        // The branch layer needs refs from TypeScript; without baseRef it must
+        // emit no layer but still surface its diagnostic through the parallel
+        // collection (the `(None, diagnostics)` return path).
+        let root = temp_dir("openscout-repo-diff-branch-test");
+        fs::create_dir_all(&root).unwrap();
+        run_git(&root, &["init", "-b", "main"]);
+        fs::write(root.join("a.txt"), "one\n").unwrap();
+        run_git(&root, &["add", "-A"]);
+        commit(&root, "init");
+
+        let response = diff(RepoDiffRequest {
+            schema: None,
+            worktree_path: root.display().to_string(),
+            layers: Some(vec![RepoDiffLayerKind::Branch]),
+            base_ref: None,
+            compare_ref: None,
+            paths: Vec::new(),
+            limits: DiffLimits::default(),
+        });
+
+        assert!(response.layers.is_empty());
+        assert_eq!(response.coverage.emitted_layers, 0);
+        assert!(response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.kind == "branch_refs_missing"));
 
         let _ = fs::remove_dir_all(root);
     }

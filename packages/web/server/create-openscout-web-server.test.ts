@@ -2409,7 +2409,7 @@ describe("createOpenScoutWebServer", () => {
     expect(captured?.layers).toEqual(["staged", "unstaged"]);
     expect(captured?.baseRef).toBe("main");
     expect(captured?.limits).toMatchObject({
-      timeoutMs: 15_000,
+      timeoutMs: 20_000,
       includeBinaryPatch: false,
     });
   });

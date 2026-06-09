@@ -358,10 +358,19 @@ export type CreateOpenScoutWebServerOptions = {
   };
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
+  // Keep a Repo Watch scan warm in the broker cache by force-refreshing it on
+  // this interval (ms), so the first page visit never triggers a cold scan. Set
+  // by the real entrypoint; omitted/0 in tests so no background loop starts.
+  // Should be ≤ the broker repo-watch cache TTL to guarantee warm reads.
+  repoWatchKeepWarmMs?: number;
 };
 
 const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
-  timeoutMs: 15_000,
+  // Generous — a diff is a local read and we'd rather wait than truncate. The
+  // native producer fans its reads out in parallel, so this is the wall-clock
+  // ceiling for the whole diff, not per-git. maxPatchBytes/maxFiles fall through
+  // to the (permissive) native defaults.
+  timeoutMs: 20_000,
   includeBinaryPatch: false,
 };
 
@@ -4751,10 +4760,47 @@ export async function createOpenScoutWebServer(
     defaultViteUrl: "http://127.0.0.1:5180",
   });
 
+  // Force a native Repo Watch scan into the broker's cache. Mirrors the
+  // client's standard request (native + diff + last-commit, no explicit limits)
+  // so the warmed entry is the one the first page visit reads. `force=1` makes
+  // it actually refresh rather than return an aging cache entry.
+  let repoWatchWarmInFlight = false;
+  const warmRepoWatch = async (): Promise<void> => {
+    if (repoWatchWarmInFlight) return;
+    repoWatchWarmInFlight = true;
+    try {
+      const url = new URL(scoutBrokerPaths.v1.repoWatchSnapshot, resolveScoutBrokerUrl());
+      url.searchParams.set("native", "1");
+      url.searchParams.set("includeDiff", "1");
+      url.searchParams.set("includeLastCommit", "1");
+      url.searchParams.set("force", "1");
+      const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+      // Drain the body so the connection is freed; the broker has now cached it.
+      await res.arrayBuffer().catch(() => undefined);
+    } catch {
+      // Broker may not be ready yet, or the scan failed — the next tick retries.
+      // A cold first visit is the worst case, never a crash.
+    } finally {
+      repoWatchWarmInFlight = false;
+    }
+  };
+
+  // Keep the scan warm so a visit after idle is still instant. The interval is
+  // ≤ the broker cache TTL, so the cached snapshot never ages out from under a
+  // reader. Unref'd so it never holds the process open; cleared on stop().
+  let repoWatchKeepWarmTimer: ReturnType<typeof setInterval> | null = null;
+  const keepWarmMs = options.repoWatchKeepWarmMs ?? 0;
+  if (keepWarmMs > 0) {
+    repoWatchKeepWarmTimer = setInterval(() => void warmRepoWatch(), keepWarmMs);
+    repoWatchKeepWarmTimer.unref?.();
+  }
+
   const warmupCaches = () =>
     Promise.allSettled([
       shellStateCache.refresh(),
       loadPairingState(currentDirectory, true),
+      // Prime Repo Watch before the first visit so it never pays for a cold scan.
+      keepWarmMs > 0 ? warmRepoWatch() : Promise.resolve(),
     ]).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {
@@ -4771,6 +4817,10 @@ export async function createOpenScoutWebServer(
     });
 
   const stop = async () => {
+    if (repoWatchKeepWarmTimer) {
+      clearInterval(repoWatchKeepWarmTimer);
+      repoWatchKeepWarmTimer = null;
+    }
     if (!scoutbotRunner) return;
     const runner = scoutbotRunner;
     scoutbotRunner = null;

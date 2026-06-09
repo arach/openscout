@@ -163,7 +163,7 @@ export type RepoDiffSnapshotOptions = {
   now?: () => number;
 };
 
-const DEFAULT_NATIVE_TIMEOUT_MS = 15_000;
+const DEFAULT_NATIVE_TIMEOUT_MS = 20_000;
 const RENDER_OPTIONS_VERSION = 1;
 const DEFAULT_PREFERRED_THEME = "pierre-dark";
 const DEFAULT_PREFERRED_LAYOUT: "split" | "stacked" = "split";

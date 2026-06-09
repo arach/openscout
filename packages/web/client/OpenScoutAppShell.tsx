@@ -19,6 +19,7 @@ import {
   scoutFlags,
 } from "./lib/scout-flags.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { prewarmRepoWatch } from "./scout/repo-watch/cache.ts";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
@@ -153,6 +154,14 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
     setRightWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
   }, [sidePanelMaxWidth, setLeftWidth, setRightWidth]);
+
+  // Keep a repo scan "on the ready": warm the Repos snapshot shortly after boot
+  // (deferred so it doesn't contend with first paint) so the first visit paints
+  // instantly. Fire-and-forget — cache.ts swallows failures. See cache.ts.
+  useEffect(() => {
+    const timer = window.setTimeout(() => void prewarmRepoWatch(), 1_200);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     if (!isSearchRoute || rightCollapsed || rightOverlay) return;

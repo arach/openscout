@@ -220,12 +220,16 @@ export type RepoWatchNativeScanExec = (
   request: RepoWatchNativeScanRequest,
 ) => Promise<RepoWatchNativeScanResponse>;
 
-const DEFAULT_CACHE_TTL_MS = 2_500;
-const DEFAULT_MAX_ROOTS = 8;
-const DEFAULT_MAX_WORKTREES = 4;
-const DEFAULT_MAX_FILES_PER_WORKTREE = 12;
-const DEFAULT_SCAN_BUDGET_MS = 4_000;
-const GIT_TIMEOUT_MS = 650;
+// Cache + scan defaults. Permissive on purpose: favor coverage over latency,
+// and lean on the keep-warm (the web server force-refreshes this snapshot on an
+// interval ≤ TTL) so reads stay cache-warm and a page visit never blocks on a
+// cold scan. The wider TTL also dedupes the client's ~10s polling.
+const DEFAULT_CACHE_TTL_MS = 15_000;
+const DEFAULT_MAX_ROOTS = 24;
+const DEFAULT_MAX_WORKTREES = 12;
+const DEFAULT_MAX_FILES_PER_WORKTREE = 40;
+const DEFAULT_SCAN_BUDGET_MS = 12_000;
+const GIT_TIMEOUT_MS = 3_000;
 const GIT_MAX_BUFFER = 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;

@@ -145,12 +145,102 @@
   color: var(--ink-1);
 }
 
-/* shared toolbar — view toggle (left) + tone toggle (right), above both views */
+/* shared toolbar — section title (left) + view toggle (right), above both views */
 .rw-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+/* Section title — mirrors the nav font (mono / uppercase / tracked) but a step
+   larger than the nav tabs and breadcrumb so it reads as the page heading and
+   balances the navigation + context chrome. */
+.rw-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* ── live-refresh affordances (stale-while-revalidate) ───────────────────
+   The page paints the last scan instantly; these are the only, deliberately
+   quiet, signs of the background refresh. A faint idle dot, an amber pulse
+   while a poll is in flight, and a brief green "Updated" when data changes. */
+.rw-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  user-select: none;
+}
+.rw-refresh-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+  opacity: 0.45;
+  transition: background 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+.rw-refresh.is-busy {
+  color: var(--status-amber, #d6a04a);
+}
+.rw-refresh.is-busy .rw-refresh-dot {
+  background: var(--status-amber, #d6a04a);
+  opacity: 1;
+  animation: rw-refresh-pulse 1s ease-in-out infinite;
+}
+.rw-refresh.is-fresh {
+  color: var(--status-ok, #4ea96b);
+}
+.rw-refresh.is-fresh .rw-refresh-dot {
+  background: var(--status-ok, #4ea96b);
+  opacity: 1;
+}
+.rw-refresh-label {
+  white-space: nowrap;
+}
+@keyframes rw-refresh-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.55; }
+  50% { transform: scale(1.4); opacity: 1; }
+}
+
+/* One-shot glimmer: a soft light sweeps the table once when a refresh actually
+   changes data. Keyed remount in React re-runs it; transparent + non-interactive
+   at rest so it never blocks clicks. */
+.rw-table-wrap {
+  position: relative;
+}
+.rw-glimmer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 10px;
+  z-index: 2;
+  background: linear-gradient(
+    100deg,
+    transparent 38%,
+    color-mix(in srgb, var(--status-ok, #4ea96b) 16%, transparent) 50%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: rw-glimmer-sweep 0.9s ease-out forwards;
+}
+@keyframes rw-glimmer-sweep {
+  0% { background-position: 170% 0; opacity: 0; }
+  18% { opacity: 1; }
+  100% { background-position: -55% 0; opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-refresh.is-busy .rw-refresh-dot { animation: none; }
+  .rw-glimmer { animation: none; opacity: 0; }
 }
 
 /* tone toggle — Warm · Cool · Mono (also used for the Table | Drift toggle) */
@@ -859,6 +949,64 @@
   letter-spacing: 0.14em;
   color: var(--muted);
   margin-top: 6px;
+}
+
+/* drift ruler — the selected worktree's distance from base on a fixed ±8
+   commit scale (origin centered). Same palette as the table's drift read
+   (--amber behind, --mint ahead), sized for the context column. */
+.ctx-drift {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ctx-drift-track {
+  position: relative;
+  height: 16px;
+}
+.ctx-drift-tick {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  width: 1px;
+  background: var(--line);
+}
+.ctx-drift-tick.origin {
+  background: var(--line-3);
+}
+.ctx-drift-bar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 3px;
+  border-radius: 2px;
+}
+.ctx-drift-bar.behind {
+  background: var(--amber-dim);
+}
+.ctx-drift-bar.ahead {
+  background: var(--mint);
+}
+.ctx-drift-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--faint);
+}
+.ctx-drift-axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.ctx-drift-axis .origin {
+  color: var(--copy);
 }
 
 /* breakdown chips (staged / unstaged / untracked / conflicts) */

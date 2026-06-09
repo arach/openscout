@@ -296,7 +296,7 @@ export function useScoutNavCenter(): ReactNode | null {
   const opsEnabled = useOptionalFlag("ops.control", true);
   const cleanNav = useOptionalFlag("nav.clean", false);
   const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
-  const breadcrumb = topNavBreadcrumbForRoute(route);
+  const breadcrumb = topNavBreadcrumbForRoute(route, cleanNav);
 
   return createElement("div", { className: "scout-nav-tabs" },
     topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
