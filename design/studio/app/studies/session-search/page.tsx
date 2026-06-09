@@ -1323,12 +1323,12 @@ function formatRaw(raw: string): string {
   }
 }
 
-function stripUndefined<T extends Record<string, unknown>>(obj: T): T {
+function stripUndefined(obj: object): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (v !== undefined) out[k] = v;
   }
-  return out as T;
+  return out;
 }
 
 function summarizeRecord(record: NormalizedRecord): string {

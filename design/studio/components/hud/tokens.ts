@@ -58,6 +58,8 @@ export const ACTIVITY_GRID: Record<HudSize, string> = {
   large: "64px 14px 1px 20px 1fr",
 };
 
+export const OBSERVE_GRID = ACTIVITY_GRID;
+
 /** Tail row font size — locked to the 10/11 mono range so tail reads
  *  as a denser, more raw stream than activity. */
 export const TAIL_ROW_FONT_PX: Record<HudSize, number> = {

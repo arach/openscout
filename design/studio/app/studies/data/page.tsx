@@ -43,8 +43,9 @@ export default async function DataInspectorPage({
     force: shouldForce(sp.force, "list-databases"),
   });
   const databases = dbList.output.databases;
-  const selected =
-    (sp.db && databases.find((d) => d.name === sp.db)) ?? databases[0] ?? undefined;
+  const selected = sp.db
+    ? (databases.find((d) => d.name === sp.db) ?? databases[0] ?? undefined)
+    : (databases[0] ?? undefined);
   const dbPath = selected?.path;
 
   return (

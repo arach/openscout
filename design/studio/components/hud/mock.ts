@@ -14,6 +14,7 @@ import type {
   FirehoseEvent,
   FirehoseKind,
   FleetAgent,
+  ObserveBucket,
   ScoutThreadMessage,
 } from "./types";
 
@@ -180,6 +181,8 @@ export const AGENTS: FleetAgent[] = [
   },
 ];
 
+export const FLEET = AGENTS;
+
 // ─── Activity (structured event ledger) ─────────────────────────────
 
 export const ACTIVITY: ActivityBucket[] = [
@@ -294,6 +297,26 @@ export const ACTIVITY_KIND_LABEL: Record<ActivityKind, string> = {
   start: "START",
   fail: "FAIL",
 };
+
+export const OBSERVE: ObserveBucket[] = ACTIVITY.map((bucket) => ({
+  eyebrow: bucket.eyebrow,
+  headline: bucket.headline,
+  events: bucket.events.map((event) => ({
+    id: event.id,
+    ago: event.ago,
+    at: event.at,
+    agent: event.agent,
+    handle: event.handle,
+    kind: event.kind,
+    line: event.title,
+    meta: event.summary,
+    summary: event.detail ?? event.summary,
+    emphasized: event.emphasized,
+    flightId: event.flightId,
+  })),
+}));
+
+export const OBSERVE_KIND_LABEL = ACTIVITY_KIND_LABEL;
 
 export const ACTIVITY_CATEGORY_LABEL: Record<ActivityCategory, string> = {
   presence: "PRESENCE",
