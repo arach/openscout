@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -59,9 +60,15 @@ import {
   type RuntimeRegistrySnapshot,
 } from "./registry.js";
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
-import { applyControlPlaneDrizzleMigrations, stampControlPlaneSchemaVersion } from "./drizzle-migrate.js";
+import {
+  configureControlPlaneDatabase,
+  migrateControlPlaneDatabaseSchema,
+} from "./control-plane-migrations.js";
 import { Conversations, type ConversationsApi } from "./conversations/api.js";
-import { CONTROL_PLANE_SQLITE_SCHEMA, deliveryAttemptsTable, deliveriesTable } from "./schema.js";
+import {
+  deliveryAttemptsTable,
+  deliveriesTable,
+} from "./schema.js";
 import { budgetObservationsFromEndpoint } from "./budget-observations.js";
 
 function parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -82,8 +89,54 @@ function currentTimestampMs(): number {
   return nowMs();
 }
 
+const RUNTIME_SESSION_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+const RUNTIME_SESSION_ALIAS_METADATA_KEYS = [
+  { key: "sessionId", kind: "metadata_session" },
+  { key: "externalSessionId", kind: "external" },
+  { key: "threadId", kind: "thread" },
+  { key: "nativeSessionId", kind: "native" },
+  { key: "runtimeSessionId", kind: "runtime" },
+  { key: "runtimeInstanceId", kind: "runtime" },
+  { key: "tmuxSession", kind: "tmux" },
+  { key: "pairingSessionId", kind: "pairing" },
+] as const;
+
 function normalizeTimestampMs(value: number | null | undefined): number | null {
   return epochMs(value);
+}
+
+function stableHash(value: string, length = 20): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, length);
+}
+
+function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function metadataTimestampValue(metadata: Record<string, unknown> | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed);
+    }
+  }
+  return null;
+}
+
+function firstStringValue(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
 }
 
 function isSqliteConstraintError(error: unknown): boolean {
@@ -261,6 +314,76 @@ interface EndpointRow {
   metadata_json: string | null;
 }
 
+interface RuntimeSessionRow {
+  id: string;
+  agent_id: string;
+  endpoint_id: string;
+  node_id: string;
+  harness: string;
+  transport: string;
+  state: string;
+  primary_alias: string;
+  external_session_id: string | null;
+  cwd: string | null;
+  project_root: string | null;
+  started_at: number | null;
+  last_seen_at: number;
+  ended_at: number | null;
+  expires_at: number | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface RuntimeSessionAliasRow {
+  alias: string;
+  session_id: string;
+  alias_kind: string;
+  agent_id: string;
+  endpoint_id: string;
+  node_id: string;
+  harness: string;
+  transport: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  expires_at: number | null;
+}
+
+export type RuntimeSessionIndexRecord = {
+  id: string;
+  agentId: string;
+  endpointId: string;
+  nodeId: string;
+  harness: string;
+  transport: string;
+  state: string;
+  primaryAlias: string;
+  externalSessionId?: string;
+  cwd?: string;
+  projectRoot?: string;
+  startedAt?: number;
+  lastSeenAt: number;
+  endedAt?: number;
+  expiresAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type RuntimeSessionAliasRecord = {
+  alias: string;
+  sessionId: string;
+  aliasKind: string;
+  agentId: string;
+  endpointId: string;
+  nodeId: string;
+  harness: string;
+  transport: string;
+  firstSeenAt: number;
+  lastSeenAt: number;
+  expiresAt?: number;
+};
+
 interface BudgetUsageRow {
   id: string;
   scope: BudgetUsageRecord["scope"];
@@ -411,6 +534,141 @@ function budgetQuotaWindowFromRow(row: BudgetQuotaWindowRow): BudgetQuotaWindowS
     metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
     createdAt: row.created_at,
   };
+}
+
+function runtimeSessionFromRow(row: RuntimeSessionRow): RuntimeSessionIndexRecord {
+  return {
+    id: row.id,
+    agentId: row.agent_id,
+    endpointId: row.endpoint_id,
+    nodeId: row.node_id,
+    harness: row.harness,
+    transport: row.transport,
+    state: row.state,
+    primaryAlias: row.primary_alias,
+    externalSessionId: row.external_session_id ?? undefined,
+    cwd: row.cwd ?? undefined,
+    projectRoot: row.project_root ?? undefined,
+    startedAt: row.started_at ?? undefined,
+    lastSeenAt: row.last_seen_at,
+    endedAt: row.ended_at ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+function runtimeSessionAliasFromRow(row: RuntimeSessionAliasRow): RuntimeSessionAliasRecord {
+  return {
+    alias: row.alias,
+    sessionId: row.session_id,
+    aliasKind: row.alias_kind,
+    agentId: row.agent_id,
+    endpointId: row.endpoint_id,
+    nodeId: row.node_id,
+    harness: row.harness,
+    transport: row.transport,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    expiresAt: row.expires_at ?? undefined,
+  };
+}
+
+type RuntimeSessionAliasInput = {
+  alias: string;
+  aliasKind: string;
+};
+
+function runtimeSessionMetadata(endpoint: AgentEndpoint): Record<string, unknown> {
+  return endpoint.metadata ?? {};
+}
+
+function endpointRuntimeSessionPrimaryAlias(endpoint: AgentEndpoint): string | null {
+  const metadata = runtimeSessionMetadata(endpoint);
+  return firstStringValue(
+    metadataStringValue(metadata, "externalSessionId"),
+    metadataStringValue(metadata, "threadId"),
+    metadataStringValue(metadata, "nativeSessionId"),
+    metadataStringValue(metadata, "pairingSessionId"),
+    metadataStringValue(metadata, "sessionId"),
+    endpoint.sessionId,
+    metadataStringValue(metadata, "runtimeSessionId"),
+    metadataStringValue(metadata, "runtimeInstanceId"),
+    metadataStringValue(metadata, "tmuxSession"),
+  );
+}
+
+function endpointRuntimeSessionExternalId(endpoint: AgentEndpoint): string | null {
+  const metadata = runtimeSessionMetadata(endpoint);
+  return firstStringValue(
+    metadataStringValue(metadata, "externalSessionId"),
+    metadataStringValue(metadata, "threadId"),
+    metadataStringValue(metadata, "nativeSessionId"),
+    metadataStringValue(metadata, "pairingSessionId"),
+  );
+}
+
+function endpointRuntimeSessionStartedAt(endpoint: AgentEndpoint, fallback: number): number {
+  const metadata = runtimeSessionMetadata(endpoint);
+  return metadataTimestampValue(metadata, "sessionStartedAt")
+    ?? metadataTimestampValue(metadata, "startedAt")
+    ?? metadataTimestampValue(metadata, "lastStartedAt")
+    ?? fallback;
+}
+
+function endpointRuntimeSessionLastSeenAt(endpoint: AgentEndpoint, fallback: number): number {
+  const metadata = runtimeSessionMetadata(endpoint);
+  return metadataTimestampValue(metadata, "lastSeenAt")
+    ?? metadataTimestampValue(metadata, "lastEnsuredAt")
+    ?? metadataTimestampValue(metadata, "lastStartedAt")
+    ?? fallback;
+}
+
+function endpointRuntimeSessionIsTerminal(endpoint: AgentEndpoint): boolean {
+  return endpoint.state === "offline" || endpoint.metadata?.staleLocalRegistration === true;
+}
+
+function endpointRuntimeSessionState(endpoint: AgentEndpoint): string {
+  return endpoint.metadata?.staleLocalRegistration === true ? "superseded" : endpoint.state;
+}
+
+function endpointRuntimeSessionId(endpoint: AgentEndpoint, primaryAlias: string): string {
+  const key = [
+    endpoint.nodeId,
+    endpoint.agentId,
+    endpoint.harness,
+    endpoint.transport,
+    primaryAlias,
+  ].join("\u0000");
+  return `sess.${stableHash(key)}`;
+}
+
+function endpointRuntimeSessionAliases(endpoint: AgentEndpoint, scoutSessionId: string): RuntimeSessionAliasInput[] {
+  const metadata = runtimeSessionMetadata(endpoint);
+  const aliases: RuntimeSessionAliasInput[] = [
+    { alias: scoutSessionId, aliasKind: "scout" },
+    { alias: endpoint.id, aliasKind: "endpoint" },
+  ];
+  if (endpoint.sessionId?.trim()) {
+    aliases.push({ alias: endpoint.sessionId.trim(), aliasKind: "endpoint_session" });
+  }
+  for (const entry of RUNTIME_SESSION_ALIAS_METADATA_KEYS) {
+    const value = metadataStringValue(metadata, entry.key);
+    if (value) {
+      aliases.push({ alias: value, aliasKind: entry.kind });
+    }
+  }
+
+  const unique = new Map<string, RuntimeSessionAliasInput>();
+  for (const entry of aliases) {
+    const alias = entry.alias.trim();
+    if (!alias || unique.has(alias)) {
+      continue;
+    }
+    unique.set(alias, { ...entry, alias });
+  }
+  return [...unique.values()];
 }
 
 interface ConversationRow {
@@ -867,15 +1125,8 @@ export class SQLiteControlPlaneStore {
   constructor(dbPath: string) {
     mkdirSync(dirname(dbPath), { recursive: true });
     this.db = new SQLiteDatabase(dbPath, { create: true });
-    // Set busy_timeout FIRST — journal_mode = WAL requires a write lock and will
-    // fail with SQLITE_BUSY if another process holds one.
-    this.db.exec("PRAGMA busy_timeout = 5000;");
-    this.db.exec("PRAGMA journal_mode = WAL;");
-    this.db.exec("PRAGMA synchronous = NORMAL;");
-    this.db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
-    applyControlPlaneDrizzleMigrations(this.db);
-    this.ensureSchemaMigrations();
-    stampControlPlaneSchemaVersion(this.db);
+    configureControlPlaneDatabase(this.db);
+    migrateControlPlaneDatabaseSchema(this.db);
     this.readDb = new SQLiteDatabase(dbPath, { readonly: true });
     this.readDb.exec("PRAGMA busy_timeout = 5000;");
     this.readDb.exec("PRAGMA query_only = ON;");
@@ -900,43 +1151,124 @@ export class SQLiteControlPlaneStore {
     });
   }
 
-  private ensureSchemaMigrations(): void {
-    if (!this.hasColumn("invocations", "collaboration_record_id")) {
-      this.db.exec(
-        "ALTER TABLE invocations ADD COLUMN collaboration_record_id TEXT REFERENCES collaboration_records(id) ON DELETE SET NULL",
-      );
+  listRuntimeSessions(options: {
+    agentId?: string;
+    endpointId?: string;
+    sessionId?: string;
+    includeExpired?: boolean;
+    now?: number;
+    limit?: number;
+  } = {}): RuntimeSessionIndexRecord[] {
+    const predicates: string[] = [];
+    const params: SQLiteBinding[] = [];
+    if (options.agentId) {
+      predicates.push("agent_id = ?");
+      params.push(options.agentId);
     }
-    if (!this.hasColumn("invocations", "labels_json")) {
-      this.db.exec("ALTER TABLE invocations ADD COLUMN labels_json TEXT");
+    if (options.endpointId) {
+      predicates.push("endpoint_id = ?");
+      params.push(options.endpointId);
     }
-    if (!this.hasColumn("flights", "labels_json")) {
-      this.db.exec("ALTER TABLE flights ADD COLUMN labels_json TEXT");
+    if (options.sessionId) {
+      predicates.push("id = ?");
+      params.push(options.sessionId);
     }
-
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_invocations_collaboration_record_id_created_at ON invocations(collaboration_record_id, created_at)",
-    );
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_invocations_requester_created_at ON invocations(requester_id, created_at DESC)",
-    );
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_flights_invocation_id ON flights(invocation_id)",
-    );
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_activity_items_ts ON activity_items(ts DESC)",
-    );
-    this.db.exec(
-      "CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC)",
-    );
+    if (!options.includeExpired) {
+      predicates.push("(expires_at IS NULL OR expires_at > ?)");
+      params.push(options.now ?? currentTimestampMs());
+    }
+    const limit = normalizedListLimit(options.limit, 100, 1000);
+    params.push(limit);
+    const where = predicates.length ? `WHERE ${predicates.join(" AND ")}` : "";
+    return queryAllDynamic<RuntimeSessionRow>(
+      this.readDb,
+      `SELECT *
+       FROM runtime_sessions
+       ${where}
+       ORDER BY last_seen_at DESC, updated_at DESC, id ASC
+       LIMIT ?`,
+      params,
+    ).map(runtimeSessionFromRow);
   }
 
-  private hasColumn(tableName: string, columnName: string): boolean {
-    const escapedTableName = tableName.replaceAll("'", "''");
-    const rows = queryAll<{ name: string }>(
-      this.db,
-      `SELECT name FROM pragma_table_info('${escapedTableName}')`,
-    );
-    return rows.some((row) => row.name === columnName);
+  listRuntimeSessionAliases(options: {
+    alias?: string;
+    sessionId?: string;
+    includeExpired?: boolean;
+    now?: number;
+    limit?: number;
+  } = {}): RuntimeSessionAliasRecord[] {
+    const predicates: string[] = [];
+    const params: SQLiteBinding[] = [];
+    if (options.alias) {
+      predicates.push("alias = ?");
+      params.push(options.alias);
+    }
+    if (options.sessionId) {
+      predicates.push("session_id = ?");
+      params.push(options.sessionId);
+    }
+    if (!options.includeExpired) {
+      predicates.push("(expires_at IS NULL OR expires_at > ?)");
+      params.push(options.now ?? currentTimestampMs());
+    }
+    const limit = normalizedListLimit(options.limit, 100, 1000);
+    params.push(limit);
+    const where = predicates.length ? `WHERE ${predicates.join(" AND ")}` : "";
+    return queryAllDynamic<RuntimeSessionAliasRow>(
+      this.readDb,
+      `SELECT *
+       FROM runtime_session_aliases
+       ${where}
+       ORDER BY last_seen_at DESC, alias ASC, session_id ASC
+       LIMIT ?`,
+      params,
+    ).map(runtimeSessionAliasFromRow);
+  }
+
+  resolveRuntimeSessionAlias(alias: string, options: {
+    includeExpired?: boolean;
+    now?: number;
+    limit?: number;
+  } = {}): RuntimeSessionIndexRecord[] {
+    const trimmedAlias = alias.trim();
+    if (!trimmedAlias) {
+      return [];
+    }
+    const predicates = ["a.alias = ?"];
+    const params: SQLiteBinding[] = [trimmedAlias];
+    if (!options.includeExpired) {
+      const now = options.now ?? currentTimestampMs();
+      predicates.push("(a.expires_at IS NULL OR a.expires_at > ?)");
+      params.push(now);
+      predicates.push("(s.expires_at IS NULL OR s.expires_at > ?)");
+      params.push(now);
+    }
+    const limit = normalizedListLimit(options.limit, 20, 100);
+    params.push(limit);
+    return queryAllDynamic<RuntimeSessionRow>(
+      this.readDb,
+      `SELECT s.*
+       FROM runtime_session_aliases a
+       JOIN runtime_sessions s ON s.id = a.session_id
+       WHERE ${predicates.join(" AND ")}
+       ORDER BY a.last_seen_at DESC, s.updated_at DESC, s.id ASC
+       LIMIT ?`,
+      params,
+    ).map(runtimeSessionFromRow);
+  }
+
+  pruneExpiredRuntimeSessions(now = currentTimestampMs()): { aliasesDeleted: number; sessionsDeleted: number } {
+    const aliasesResult = this.db.query(
+      "DELETE FROM runtime_session_aliases WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+    ).run(now) as { changes?: number };
+    const sessionsResult = this.db.query(
+      "DELETE FROM runtime_sessions WHERE expires_at IS NOT NULL AND expires_at <= ?1",
+    ).run(now) as { changes?: number };
+    return {
+      aliasesDeleted: aliasesResult.changes ?? 0,
+      sessionsDeleted: sessionsResult.changes ?? 0,
+    };
   }
 
   close(): void {
@@ -1423,6 +1755,7 @@ export class SQLiteControlPlaneStore {
   }
 
   upsertEndpoint(endpoint: AgentEndpoint): void {
+    const observedAt = currentTimestampMs();
     this.db.query(
       `INSERT INTO agent_endpoints (
         id, agent_id, node_id, harness, transport, state, address, session_id, pane, cwd,
@@ -1454,10 +1787,165 @@ export class SQLiteControlPlaneStore {
       endpoint.cwd ?? null,
       endpoint.projectRoot ?? null,
       stringify(endpoint.metadata),
-      currentTimestampMs(),
+      observedAt,
     );
 
+    this.projectRuntimeSessionForEndpoint(endpoint, observedAt);
     this.recordEndpointBudgetObservations(endpoint);
+  }
+
+  private markRuntimeSessionsForEndpointEnded(
+    endpointId: string,
+    keepSessionId: string | null,
+    observedAt: number,
+  ): void {
+    const expiresAt = observedAt + RUNTIME_SESSION_RETENTION_MS;
+    if (keepSessionId) {
+      this.db.query(
+        `UPDATE runtime_sessions
+         SET state = CASE WHEN state IN ('offline', 'superseded') THEN state ELSE 'superseded' END,
+             ended_at = COALESCE(ended_at, ?1),
+             expires_at = COALESCE(expires_at, ?2),
+             updated_at = ?3
+         WHERE endpoint_id = ?4 AND id != ?5`,
+      ).run(observedAt, expiresAt, observedAt, endpointId, keepSessionId);
+      this.db.query(
+        `UPDATE runtime_session_aliases
+         SET expires_at = COALESCE(expires_at, ?1),
+             last_seen_at = CASE WHEN last_seen_at > ?2 THEN last_seen_at ELSE ?2 END
+         WHERE endpoint_id = ?3 AND session_id != ?4`,
+      ).run(expiresAt, observedAt, endpointId, keepSessionId);
+      return;
+    }
+
+    this.db.query(
+      `UPDATE runtime_sessions
+       SET state = CASE WHEN state IN ('offline', 'superseded') THEN state ELSE 'superseded' END,
+           ended_at = COALESCE(ended_at, ?1),
+           expires_at = COALESCE(expires_at, ?2),
+           updated_at = ?3
+       WHERE endpoint_id = ?4`,
+    ).run(observedAt, expiresAt, observedAt, endpointId);
+    this.db.query(
+      `UPDATE runtime_session_aliases
+       SET expires_at = COALESCE(expires_at, ?1),
+           last_seen_at = CASE WHEN last_seen_at > ?2 THEN last_seen_at ELSE ?2 END
+       WHERE endpoint_id = ?3`,
+    ).run(expiresAt, observedAt, endpointId);
+  }
+
+  private projectRuntimeSessionForEndpoint(endpoint: AgentEndpoint, observedAt: number): void {
+    const primaryAlias = endpointRuntimeSessionPrimaryAlias(endpoint);
+    if (!primaryAlias) {
+      this.markRuntimeSessionsForEndpointEnded(endpoint.id, null, observedAt);
+      return;
+    }
+
+    const sessionId = endpointRuntimeSessionId(endpoint, primaryAlias);
+    const lastSeenAt = endpointRuntimeSessionLastSeenAt(endpoint, observedAt);
+    const startedAt = endpointRuntimeSessionStartedAt(endpoint, lastSeenAt);
+    const terminal = endpointRuntimeSessionIsTerminal(endpoint);
+    const endedAt = terminal ? lastSeenAt : null;
+    const expiresAt = terminal ? lastSeenAt + RUNTIME_SESSION_RETENTION_MS : null;
+    const aliases = endpointRuntimeSessionAliases(endpoint, sessionId);
+
+    this.markRuntimeSessionsForEndpointEnded(endpoint.id, sessionId, lastSeenAt);
+    this.db.query(
+      `INSERT INTO runtime_sessions (
+        id, agent_id, endpoint_id, node_id, harness, transport, state, primary_alias,
+        external_session_id, cwd, project_root, started_at, last_seen_at, ended_at,
+        expires_at, metadata_json, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+      ON CONFLICT(id) DO UPDATE SET
+        agent_id = excluded.agent_id,
+        endpoint_id = excluded.endpoint_id,
+        node_id = excluded.node_id,
+        harness = excluded.harness,
+        transport = excluded.transport,
+        state = excluded.state,
+        primary_alias = excluded.primary_alias,
+        external_session_id = excluded.external_session_id,
+        cwd = excluded.cwd,
+        project_root = excluded.project_root,
+        started_at = COALESCE(runtime_sessions.started_at, excluded.started_at),
+        last_seen_at = CASE
+          WHEN runtime_sessions.last_seen_at > excluded.last_seen_at THEN runtime_sessions.last_seen_at
+          ELSE excluded.last_seen_at
+        END,
+        ended_at = excluded.ended_at,
+        expires_at = excluded.expires_at,
+        metadata_json = excluded.metadata_json,
+        updated_at = excluded.updated_at`,
+    ).run(
+      sessionId,
+      endpoint.agentId,
+      endpoint.id,
+      endpoint.nodeId,
+      endpoint.harness,
+      endpoint.transport,
+      terminal ? endpointRuntimeSessionState(endpoint) : endpoint.state,
+      primaryAlias,
+      endpointRuntimeSessionExternalId(endpoint),
+      endpoint.cwd ?? null,
+      endpoint.projectRoot ?? null,
+      startedAt,
+      lastSeenAt,
+      endedAt,
+      expiresAt,
+      stringify(endpoint.metadata),
+      observedAt,
+    );
+
+    this.upsertRuntimeSessionAliases(endpoint, sessionId, aliases, lastSeenAt, expiresAt);
+  }
+
+  private upsertRuntimeSessionAliases(
+    endpoint: AgentEndpoint,
+    sessionId: string,
+    aliases: RuntimeSessionAliasInput[],
+    lastSeenAt: number,
+    expiresAt: number | null,
+  ): void {
+    for (const alias of aliases) {
+      this.db.query(
+        `INSERT INTO runtime_session_aliases (
+          alias, session_id, alias_kind, agent_id, endpoint_id, node_id, harness, transport,
+          first_seen_at, last_seen_at, expires_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        ON CONFLICT(alias, session_id) DO UPDATE SET
+          alias_kind = excluded.alias_kind,
+          agent_id = excluded.agent_id,
+          endpoint_id = excluded.endpoint_id,
+          node_id = excluded.node_id,
+          harness = excluded.harness,
+          transport = excluded.transport,
+          last_seen_at = excluded.last_seen_at,
+          expires_at = excluded.expires_at`,
+      ).run(
+        alias.alias,
+        sessionId,
+        alias.aliasKind,
+        endpoint.agentId,
+        endpoint.id,
+        endpoint.nodeId,
+        endpoint.harness,
+        endpoint.transport,
+        lastSeenAt,
+        lastSeenAt,
+        expiresAt,
+      );
+    }
+
+    const aliasValues = aliases.map((alias) => alias.alias);
+    if (aliasValues.length === 0) {
+      this.db.query("DELETE FROM runtime_session_aliases WHERE session_id = ?1").run(sessionId);
+      return;
+    }
+    const placeholders = aliasValues.map(() => "?").join(", ");
+    this.db.query(
+      `DELETE FROM runtime_session_aliases
+       WHERE session_id = ? AND alias NOT IN (${placeholders})`,
+    ).run(sessionId, ...aliasValues);
   }
 
   private recordEndpointBudgetObservations(endpoint: AgentEndpoint): void {

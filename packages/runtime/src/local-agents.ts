@@ -4104,9 +4104,8 @@ export async function restartAllLocalAgents(options: {
   return restarted.filter((agent): agent is ScoutLocalAgentStatus => Boolean(agent));
 }
 
-function readPersistedClaudeSessionId(agentName: string): string | null {
+function readPersistedSessionCatalogId(runtimeDir: string): string | null {
   try {
-    const runtimeDir = relayAgentRuntimeDirectory(agentName);
     const catalogPath = join(runtimeDir, "session-catalog.json");
     if (existsSync(catalogPath)) {
       const raw = readFileSync(catalogPath, "utf8").trim();
@@ -4117,7 +4116,15 @@ function readPersistedClaudeSessionId(agentName: string): string | null {
         }
       }
     }
-    const legacyPath = join(runtimeDir, "claude-session-id.txt");
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function readPersistedLegacySessionId(runtimeDir: string, filename: string): string | null {
+  try {
+    const legacyPath = join(runtimeDir, filename);
     if (existsSync(legacyPath)) {
       const value = readFileSync(legacyPath, "utf8").trim();
       return value || null;
@@ -4126,6 +4133,34 @@ function readPersistedClaudeSessionId(agentName: string): string | null {
   } catch {
     return null;
   }
+}
+
+function readPersistedExternalSessionId(
+  agentNames: string[],
+  transport: RelayRuntimeTransport,
+): string | null {
+  const legacyFilename = transport === "claude_stream_json"
+    ? "claude-session-id.txt"
+    : transport === "codex_app_server"
+    ? "codex-thread-id.txt"
+    : null;
+  const uniqueAgentNames = [...new Set(agentNames.map((agentName) => agentName.trim()).filter(Boolean))];
+
+  for (const agentName of uniqueAgentNames) {
+    const runtimeDir = relayAgentRuntimeDirectory(agentName);
+    const catalogId = readPersistedSessionCatalogId(runtimeDir);
+    if (catalogId) {
+      return catalogId;
+    }
+    if (legacyFilename) {
+      const legacyId = readPersistedLegacySessionId(runtimeDir, legacyFilename);
+      if (legacyId) {
+        return legacyId;
+      }
+    }
+  }
+
+  return null;
 }
 
 function buildLocalAgentBinding(
@@ -4154,7 +4189,8 @@ function buildLocalAgentBinding(
   const instance = buildRelayAgentInstance(definitionId, projectRoot);
   const actorId = instance.id;
   const externalSessionId = normalizedRecord.transport === "claude_stream_json"
-    ? readPersistedClaudeSessionId(definitionId)
+    || normalizedRecord.transport === "codex_app_server"
+    ? readPersistedExternalSessionId([actorId, agentId, definitionId], normalizedRecord.transport)
     : null;
 
   return {
@@ -4266,6 +4302,7 @@ function buildLocalAgentBinding(
           permissionEnforcement: codexPermissionPosture.enforcement,
         } : {}),
         ...(externalSessionId ? { externalSessionId } : {}),
+        ...(externalSessionId && normalizedRecord.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
       },
     },
   };

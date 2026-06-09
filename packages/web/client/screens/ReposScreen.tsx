@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Route } from "../lib/types.ts";
 import { api } from "../lib/api.ts";
 import { EmptyState } from "../components/EmptyState.tsx";
@@ -14,6 +14,7 @@ import { attentionRank, type Tone } from "../scout/repo-watch/ui.ts";
 import { SlidePanel } from "../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../scout/repo-diff/RepoDiffViewerLazy.tsx";
 import { prefetchRepoDiffSnapshots } from "../scout/repo-diff/cache.ts";
+import { OpsSubnav } from "./OpsSubnav.tsx";
 
 /**
  * Repo Watch / State of Repos (SCO-061) — the live web view.
@@ -151,6 +152,30 @@ function prefetchWorktreePaths(
     .map((item) => item.path);
 }
 
+// Ops-cluster chrome — the same s-ops header + OpsSubnav module every other Ops
+// page (Broker/Mesh/Harnesses) wraps its content in, so Repos navigates
+// consistently with its siblings. The body scrolls itself (s-ops-body is
+// overflow:hidden by default), which also gives the sticky context panel a
+// scroll container.
+function ReposOpsShell({
+  navigate,
+  children,
+}: {
+  navigate: (route: Route) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="s-ops">
+      <div className="s-ops-header">
+        <OpsSubnav activeRoute={{ view: "repos" }} navigate={navigate} />
+      </div>
+      <div className="s-ops-body" style={{ overflowY: "auto" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -241,53 +266,60 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
 
   if (phase === "loading") {
     return (
-      <div className="repo-watch-scope" style={{ padding: "24px" }}>
-        <EmptyState
-          title="Scanning repositories…"
-          body="Reading worktree state from the broker."
-        />
-      </div>
+      <ReposOpsShell navigate={navigate}>
+        <div className="repo-watch-scope" style={{ padding: "24px" }}>
+          <EmptyState
+            title="Scanning repositories…"
+            body="Reading worktree state from the broker."
+          />
+        </div>
+      </ReposOpsShell>
     );
   }
 
   if (phase === "error" && !snapshot) {
     return (
-      <div className="repo-watch-scope" style={{ padding: "24px" }}>
-        <EmptyState
-          className="sys-state-card-error"
-          title="Couldn’t load Repo Watch"
-          body={error ?? "The broker did not return a snapshot."}
-          action={
-            <button
-              type="button"
-              className="s-btn"
-              onClick={() => {
-                setPhase("loading");
-                void load();
-              }}
-            >
-              Retry
-            </button>
-          }
-        />
-      </div>
+      <ReposOpsShell navigate={navigate}>
+        <div className="repo-watch-scope" style={{ padding: "24px" }}>
+          <EmptyState
+            className="sys-state-card-error"
+            title="Couldn’t load Repo Watch"
+            body={error ?? "The broker did not return a snapshot."}
+            action={
+              <button
+                type="button"
+                className="s-btn"
+                onClick={() => {
+                  setPhase("loading");
+                  void load();
+                }}
+              >
+                Retry
+              </button>
+            }
+          />
+        </div>
+      </ReposOpsShell>
     );
   }
 
   if (snapshot && snapshot.projects.length === 0) {
     return (
-      <div className="repo-watch-scope" style={{ padding: "24px" }}>
-        <EmptyState
-          title="No repositories in view"
-          body="Nothing active was discovered. Start an agent inside a git repo, or set OPENSCOUT_REPO_WATCH_ROOTS."
-        />
-      </div>
+      <ReposOpsShell navigate={navigate}>
+        <div className="repo-watch-scope" style={{ padding: "24px" }}>
+          <EmptyState
+            title="No repositories in view"
+            body="Nothing active was discovered. Start an agent inside a git repo, or set OPENSCOUT_REPO_WATCH_ROOTS."
+          />
+        </div>
+      </ReposOpsShell>
     );
   }
 
-  if (!snapshot) return null;
+  if (!snapshot) return <ReposOpsShell navigate={navigate} />;
 
   return (
+    <ReposOpsShell navigate={navigate}>
     <div className="repo-watch-scope">
       <div className={"rw-scope tone-" + tone}>
         <div className="mx-auto max-w-[1560px] px-6 py-6">
@@ -384,6 +416,7 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
         ) : null}
       </SlidePanel>
     </div>
+    </ReposOpsShell>
   );
 }
 

@@ -49,6 +49,33 @@ function getWritableDb(store: SQLiteControlPlaneStore): Database {
   return (store as unknown as { db: Database }).db;
 }
 
+function seedAgent(store: SQLiteControlPlaneStore, agentId = "agent-1"): void {
+  store.upsertNode({
+    id: "node-1",
+    meshId: "mesh-1",
+    name: "Test node",
+    advertiseScope: "local",
+    registeredAt: Date.now(),
+  });
+  store.upsertActor({
+    id: agentId,
+    kind: "agent",
+    displayName: "Agent One",
+  });
+  store.upsertAgent({
+    id: agentId,
+    kind: "agent",
+    definitionId: agentId,
+    displayName: "Agent One",
+    agentClass: "general",
+    capabilities: ["chat"],
+    wakePolicy: "on_demand",
+    homeNodeId: "node-1",
+    authorityNodeId: "node-1",
+    advertiseScope: "local",
+  });
+}
+
 function countRows(db: Database, table: string, where: string, value: string): number {
   const row = db.query(`SELECT COUNT(*) AS count FROM ${table} WHERE ${where} = ?1`).get(value) as {
     count: number;
@@ -219,6 +246,8 @@ describe("SQLiteControlPlaneStore", () => {
         "invocations",
         "unblock_requests",
         "unblock_request_events",
+        "runtime_sessions",
+        "runtime_session_aliases",
       ]);
 
       expect(indexNames).toContain("idx_messages_created_at");
@@ -241,8 +270,102 @@ describe("SQLiteControlPlaneStore", () => {
       expect(indexNames).toContain("idx_unblock_requests_state_owner_updated_at");
       expect(indexNames).toContain("idx_unblock_requests_source_ref");
       expect(indexNames).toContain("idx_unblock_request_events_request_created_at");
+      expect(indexNames).toContain("idx_runtime_sessions_agent_last_seen");
+      expect(indexNames).toContain("idx_runtime_sessions_endpoint_last_seen");
+      expect(indexNames).toContain("idx_runtime_sessions_external");
+      expect(indexNames).toContain("idx_runtime_session_aliases_alias");
+      expect(indexNames).toContain("idx_runtime_session_aliases_session");
     } finally {
       db.close();
+      store.close();
+    }
+  });
+
+  test("projects runtime sessions and aliases from endpoint updates", () => {
+    const store = createStore();
+    const base = Date.now();
+
+    try {
+      seedAgent(store);
+      store.upsertEndpoint({
+        id: "endpoint-1",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        sessionId: "relay-talkie-codex",
+        cwd: "/repo",
+        projectRoot: "/repo",
+        metadata: {
+          externalSessionId: "codex-thread-1",
+          threadId: "codex-thread-1",
+          runtimeInstanceId: "relay-talkie-codex",
+          startedAt: base - 5_000,
+          lastSeenAt: base,
+        },
+      });
+
+      const [session] = store.listRuntimeSessions({ agentId: "agent-1" });
+      expect(session).toEqual(expect.objectContaining({
+        agentId: "agent-1",
+        endpointId: "endpoint-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        primaryAlias: "codex-thread-1",
+        externalSessionId: "codex-thread-1",
+        startedAt: base - 5_000,
+        lastSeenAt: base,
+      }));
+      expect(session?.id.startsWith("sess.")).toBe(true);
+
+      const aliases = store.listRuntimeSessionAliases({ sessionId: session!.id })
+        .map((alias) => [alias.alias, alias.aliasKind])
+        .sort((left, right) => left[0]!.localeCompare(right[0]!));
+      expect(aliases).toEqual(expect.arrayContaining([
+        [session!.id, "scout"],
+        ["endpoint-1", "endpoint"],
+        ["relay-talkie-codex", "endpoint_session"],
+        ["codex-thread-1", "external"],
+      ]));
+      expect(store.resolveRuntimeSessionAlias("codex-thread-1")[0]?.id).toBe(session!.id);
+
+      store.upsertEndpoint({
+        id: "endpoint-1",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "codex",
+        transport: "codex_app_server",
+        state: "idle",
+        sessionId: "relay-talkie-codex",
+        cwd: "/repo",
+        projectRoot: "/repo",
+        metadata: {
+          externalSessionId: "codex-thread-2",
+          threadId: "codex-thread-2",
+          runtimeInstanceId: "relay-talkie-codex",
+          startedAt: base + 500,
+          lastSeenAt: base + 1_000,
+        },
+      });
+
+      const sessions = store.listRuntimeSessions({ endpointId: "endpoint-1", includeExpired: true })
+        .sort((left, right) => left.primaryAlias.localeCompare(right.primaryAlias));
+      expect(sessions.map((value) => value.primaryAlias)).toEqual(["codex-thread-1", "codex-thread-2"]);
+      expect(sessions[0]?.state).toBe("superseded");
+      expect(sessions[0]?.endedAt).toBe(base + 1_000);
+      expect(sessions[0]?.expiresAt).toBeGreaterThan(base + 1_000);
+      expect(sessions[1]?.state).toBe("idle");
+      expect(sessions[1]?.expiresAt).toBeUndefined();
+
+      const prune = store.pruneExpiredRuntimeSessions(base + 31 * 24 * 60 * 60 * 1000);
+      expect(prune.sessionsDeleted).toBe(1);
+      expect(prune.aliasesDeleted).toBeGreaterThan(0);
+      expect(store.listRuntimeSessions({ endpointId: "endpoint-1", includeExpired: true })).toHaveLength(1);
+      expect(store.resolveRuntimeSessionAlias("codex-thread-1", { includeExpired: true })).toHaveLength(0);
+      expect(store.resolveRuntimeSessionAlias("codex-thread-2")).toHaveLength(1);
+    } finally {
       store.close();
     }
   });
@@ -1002,6 +1125,47 @@ describe("SQLiteControlPlaneStore", () => {
     try {
       const row = db.query("PRAGMA user_version").get() as { user_version: number } | null;
       expect(row?.user_version).toBe(CONTROL_PLANE_SCHEMA_VERSION);
+    } finally {
+      db.close();
+      store.close();
+    }
+  });
+
+  test("migrates current-version databases missing runtime session mapping tables", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-sqlite-store-"));
+    dbRoots.add(root);
+    const dbPath = join(root, "control-plane.sqlite");
+
+    {
+      const legacyDb = new Database(dbPath);
+      legacyDb.exec(`
+        PRAGMA journal_mode = WAL;
+        PRAGMA foreign_keys = ON;
+        PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION};
+      `);
+      legacyDb.close();
+    }
+
+    const store = new SQLiteControlPlaneStore(dbPath);
+    const db = new Database(dbPath, { readonly: true });
+
+    try {
+      const tables = db.query(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('runtime_sessions', 'runtime_session_aliases') ORDER BY name",
+      ).all() as Array<{ name: string }>;
+      const indexNames = getIndexNames(db, ["runtime_sessions", "runtime_session_aliases"]);
+
+      expect(tables.map((table) => table.name)).toEqual([
+        "runtime_session_aliases",
+        "runtime_sessions",
+      ]);
+      expect(indexNames).toContain("idx_runtime_sessions_agent_last_seen");
+      expect(indexNames).toContain("idx_runtime_sessions_endpoint_last_seen");
+      expect(indexNames).toContain("idx_runtime_sessions_external");
+      expect(indexNames).toContain("idx_runtime_sessions_expires");
+      expect(indexNames).toContain("idx_runtime_session_aliases_alias");
+      expect(indexNames).toContain("idx_runtime_session_aliases_session");
+      expect(indexNames).toContain("idx_runtime_session_aliases_expires");
     } finally {
       db.close();
       store.close();

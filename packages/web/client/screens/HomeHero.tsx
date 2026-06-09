@@ -68,7 +68,6 @@ export type HomeHeroProps = {
 
 const HEARTRATE_VISIBLE_EVENT_THRESHOLD = 3;
 const HOME_SERVICE_GAUGE_LIMIT = 2;
-const HISTORY_SPARKLINE_LIMIT = 28;
 
 function gaugeTone(fill: number): GaugeTone {
   if (fill >= 0.9) return "err";
@@ -141,12 +140,6 @@ function buildTooltip(g: Extract<ServiceGauge, { kind: "quota" }>, now: Date): s
     .join(" · ");
 }
 
-function formatResetDetail(resetAt: number, now: Date): string {
-  const chip = formatResetChip(resetAt, now);
-  const rel = formatResetRelative(resetAt, now);
-  return `${chip.label} / ${rel}`;
-}
-
 function quotaWindowMinutes(label: string): number | null {
   const match = label.trim().match(/^(\d+(?:\.\d+)?)([mhd])$/i);
   if (!match) return null;
@@ -184,50 +177,6 @@ function usageLabel(window: ServiceQuotaWindowGauge): string {
     return window.usedLabel;
   }
   return `${window.usedLabel}/${window.capLabel}`;
-}
-
-function sampleHistoryPoints(points: ServiceQuotaHistoryPoint[], limit: number): ServiceQuotaHistoryPoint[] {
-  if (points.length <= limit) return points;
-  if (limit <= 1) return [points[points.length - 1]!];
-  const step = (points.length - 1) / (limit - 1);
-  return Array.from({ length: limit }, (_, index) => points[Math.round(index * step)]!);
-}
-
-function formatHistoryPointTitle(point: ServiceQuotaHistoryPoint): string {
-  const ts = new Date(point.capturedAt).toLocaleString([], {
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${ts} · ${point.usedLabel}`;
-}
-
-function HistorySparkline({ points }: { points?: ServiceQuotaHistoryPoint[] }) {
-  const sampled = sampleHistoryPoints(points ?? [], HISTORY_SPARKLINE_LIMIT);
-  if (sampled.length === 0) {
-    return <span className="hd-gauge-history hd-gauge-history--empty">—</span>;
-  }
-
-  const latest = sampled[sampled.length - 1]!;
-  return (
-    <span
-      className="hd-gauge-history"
-      title={formatHistoryPointTitle(latest)}
-      aria-label={formatHistoryPointTitle(latest)}
-    >
-      {sampled.map((point, index) => {
-        const fill = Math.max(0.06, Math.min(1, point.fill));
-        return (
-          <span
-            key={`${point.capturedAt}:${index}`}
-            className={`hd-gauge-history-bar hd-gauge-history-bar--${gaugeTone(point.fill)}`}
-            style={{ height: `${Math.round(fill * 100)}%` }}
-            title={formatHistoryPointTitle(point)}
-          />
-        );
-      })}
-    </span>
-  );
 }
 
 function EmptyGaugeCell() {
@@ -439,61 +388,6 @@ function sortedServiceGauges(gauges: ServiceGauge[]): ServiceGauge[] {
     .map(({ gauge }) => gauge);
 }
 
-function GaugeDetails({
-  gauges,
-  now,
-}: {
-  gauges: ServiceGauge[];
-  now: Date;
-}) {
-  return (
-    <div className="hd-gauge-details">
-      <div className="hd-gauge-details-head" aria-hidden="true">
-        <span>history</span>
-        <span>windows</span>
-      </div>
-      {gauges.map((gauge) => {
-        if (gauge.kind === "status") {
-          return (
-            <div key={gauge.id} className="hd-gauge-detail-row">
-              <span className="hd-gauge-detail-service">{gauge.label}</span>
-              <span className="hd-gauge-detail-windows">
-                <span className="hd-gauge-detail-window">
-                  <span className="hd-gauge-detail-window-top">
-                    <span className="hd-gauge-detail-window-label">{gauge.windowLabel ?? "usage"}</span>
-                    <span className="hd-gauge-detail-window-value">{gauge.statusLabel}</span>
-                  </span>
-                  <span className="hd-gauge-detail-window-bottom">{gauge.detailLabel ?? "quota n/a"}</span>
-                </span>
-              </span>
-            </div>
-          );
-        }
-
-        return (
-          <div key={gauge.id} className="hd-gauge-detail-row">
-            <span className="hd-gauge-detail-service">{gauge.label}</span>
-            <span className="hd-gauge-detail-windows">
-              {quotaWindows(gauge).map((window) => (
-                <span key={`${gauge.id}:${window.label}`} className="hd-gauge-detail-window">
-                  <span className="hd-gauge-detail-window-top">
-                    <span className="hd-gauge-detail-window-label">{window.label}</span>
-                    <span className="hd-gauge-detail-window-value">{usageLabel(window)}</span>
-                  </span>
-                  <span className="hd-gauge-detail-window-history">
-                    <HistorySparkline points={window.history} />
-                  </span>
-                  <span className="hd-gauge-detail-window-bottom">{formatResetDetail(window.resetAt, now)}</span>
-                </span>
-              ))}
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function HomeHero(props: HomeHeroProps) {
   const {
     now,
@@ -572,11 +466,10 @@ export default function HomeHero(props: HomeHeroProps) {
               </div>
               {gauges.map((g) => (
                 <span key={g.id} className="hd-gauge-wrap">
-                  <Gauge gauge={g} now={now} onClick={() => setShowAllGauges((value) => !value)} />
+                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "harnesses" })} />
                 </span>
               ))}
             </div>
-            {showAllGauges && <GaugeDetails gauges={sortedGauges} now={now} />}
           </div>
         )}
       </div>

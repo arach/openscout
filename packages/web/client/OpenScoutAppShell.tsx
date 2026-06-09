@@ -4,7 +4,7 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
 import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
 import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudsonkit/chrome";
-import { FeatureFlagsProvider, FeatureFlagPanel } from "hudsonkit/flags";
+import { FeatureFlagsProvider, FeatureFlagPanel, useOptionalFlag } from "hudsonkit/flags";
 import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {
@@ -62,6 +62,7 @@ export function OpenScoutAppShell({ app, assistant = true }: OpenScoutAppShellPr
 }
 
 function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState }) {
+  const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
   const meshValueClass = statusBar.mesh.color === "amber"
     ? "text-amber-400"
     : statusBar.mesh.color === "red"
@@ -83,8 +84,12 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
         </span>
         <span className={`text-[10px] ${meshValueClass}`}>{statusBar.mesh.value}</span>
       </div>
-      <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
-      <ScoutbotBroadcastChip />
+      {scoutbotEnabled && (
+        <>
+          <span aria-hidden="true" className="select-none text-muted-foreground/40 text-[10px]">·</span>
+          <ScoutbotBroadcastChip />
+        </>
+      )}
     </div>
   );
 }

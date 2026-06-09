@@ -32,6 +32,7 @@ type BuildInfo = {
 export function useScoutCommands(): CommandOption[] {
   const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
+  const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
 
   const askScoutbotForState = useCallback(() => {
     applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
@@ -110,6 +111,11 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Dispatch",
         action: () => navigate({ view: "broker" }),
       },
+      {
+        id: "nav:harnesses",
+        label: "Open Providers",
+        action: () => navigate({ view: "harnesses" }),
+      },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",
@@ -135,21 +141,19 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Agent Configuration",
         action: () => navigate({ view: "settings", section: "agents" }),
       },
-      {
+      ...(scoutbotEnabled ? [{
         id: "scoutbot:open",
         label: "Open Scout",
         action: () => applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" }),
-      },
-      {
+      }, {
         id: "scoutbot:state",
         label: "Ask Scout for State",
         action: () => askScoutbotForState(),
-      },
-      {
+      }, {
         id: "scoutbot:ops-tail",
         label: "Scout: Open Ops Tail",
         action: () => applyScoutbotUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } }),
-      },
+      }] : []),
       {
         id: "nav:pair",
         label: "Pair Device",
@@ -199,7 +203,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {

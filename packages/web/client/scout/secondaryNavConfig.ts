@@ -14,12 +14,14 @@ export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Sessions",
         route: { view: "sessions" },
         active: (route) => route.view === "sessions" || route.view === "terminal",
+        hideInLean: true,
       },
       {
         id: "config",
         label: "Config",
         route: { view: "settings", section: "agents" },
         active: (route) => route.view === "settings" && route.section === "agents",
+        hideInLean: true,
       },
     ],
   },
@@ -88,6 +90,12 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Repos",
         route: { view: "repos" },
         active: (route) => route.view === "repos",
+      },
+      {
+        id: "harnesses",
+        label: "Providers",
+        route: { view: "harnesses" },
+        active: (route) => route.view === "harnesses",
       },
       {
         id: "mesh",

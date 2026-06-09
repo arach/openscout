@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
+import { isScoutFlagEnabled } from "./scout-flags.ts";
 import type {
   AgentTab,
   FollowPreferredView,
@@ -96,6 +97,13 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
+// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
+// of the lean core, so it stays reachable even when the broader Ops cluster
+// (ops.control) is gated off. Other Ops modes still follow the ops gate.
+function isTailCoreSurface(mode: string | undefined): boolean {
+  return mode === "tail" && isScoutFlagEnabled("nav.clean");
+}
+
 const MACHINE_SCOPE_PARAM = "machineId";
 const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "inbox",
@@ -106,6 +114,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "messages",
   "sessions",
   "repos",
+  "harnesses",
   "channels",
   "mesh",
   "activity",
@@ -246,6 +255,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
   if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
   if (parts[0] === "repo-diff") {
     const path = url.searchParams.get("path")?.trim();
     if (path) {
@@ -328,10 +338,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
     };
   }
   if (parts[0] === "ops") {
-    if (!isOpsEnabledForUrl(url)) {
+    const mode = parseOpsMode(parts[1]) ?? "mission";
+    if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
       return scoped({ view: "inbox" });
     }
-    const mode = parseOpsMode(parts[1]) ?? "mission";
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
     const planDocumentId = mode === "plan" ? url.searchParams.get("plan")?.trim() : "";
     return {
@@ -412,6 +422,8 @@ export function routePath(r: Route): string {
         : "/sessions", r);
     case "repos":
       return pathWithMachineScope("/repos", r);
+    case "harnesses":
+      return pathWithMachineScope("/harnesses", r);
     case "repo-diff": {
       const params = new URLSearchParams();
       params.set("path", r.path);
@@ -533,9 +545,10 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    const requestedRoute: Route = r.view === "ops" && !isOpsEnabled()
-      ? { view: "inbox" }
-      : r;
+    const requestedRoute: Route =
+      r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
+        ? { view: "inbox" }
+        : r;
     const currentRoute = routeFromPath();
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
