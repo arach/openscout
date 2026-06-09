@@ -52,6 +52,27 @@ const DEFAULT_MIN = 280;
 const DEFAULT_MAX_RIGHT = 900;
 const DEFAULT_MAX_BOTTOM = 720;
 
+/** localStorage-backed panel size, keyed by owner+side, clamped to the current
+ *  [min,max] on read so a stale stored value (e.g. saved at a larger maxSize)
+ *  can never wedge the panel. SSR-safe. */
+function readStoredSize(
+  key: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+  } catch {
+    // Safari private mode / sandboxed iframes can throw on access.
+    return fallback;
+  }
+}
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -80,7 +101,15 @@ export function SlidePanel({
   const initialSize = defaultSize ?? (side === "right" ? DEFAULT_RIGHT_SIZE : DEFAULT_BOTTOM_SIZE);
   const resolvedMax = maxSize ?? (side === "right" ? DEFAULT_MAX_RIGHT : DEFAULT_MAX_BOTTOM);
 
-  const [size, setSize] = useState(initialSize);
+  // Remember the user's dragged size per panel instance (owner) and side, so a
+  // panel reopens at the size they left it — and the right/bottom variants are
+  // remembered separately. Restored once on mount; persisted on drag-end.
+  const sizeStorageKey = `slidepanel.size.${owner}.${side}`;
+  const [size, setSize] = useState(() =>
+    readStoredSize(sizeStorageKey, initialSize, minSize, resolvedMax),
+  );
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
   const [resizing, setResizing] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
@@ -137,7 +166,16 @@ export function SlidePanel({
         setSize(Math.min(resolvedMax, Math.max(minSize, next)));
       }
     };
-    const onUp = () => setResizing(false);
+    const onUp = () => {
+      setResizing(false);
+      // Persist once, on release (not per pointermove). sizeRef holds the final
+      // dragged value committed by the last onMove.
+      try {
+        window.localStorage.setItem(sizeStorageKey, String(sizeRef.current));
+      } catch {
+        /* ignore private-mode / quota failures */
+      }
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
@@ -146,7 +184,7 @@ export function SlidePanel({
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
     };
-  }, [resizing, side, minSize, resolvedMax]);
+  }, [resizing, side, minSize, resolvedMax, sizeStorageKey]);
 
   const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!focusTrap) return;

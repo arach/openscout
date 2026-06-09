@@ -4,6 +4,8 @@ import SwiftUI
 
 struct ScoutTailContent: View {
     @ObservedObject var tail: ScoutTailStore
+    /// Open the full session for a tail event in the slide-out web viewer.
+    let onOpenSession: (ScoutTailEvent) -> Void
 
     @State private var selectedEventId: String?
 
@@ -257,14 +259,15 @@ struct ScoutTailContent: View {
                         ForEach(visibleEvents) { event in
                             ScoutTailRow(
                                 event: event,
-                                isSelected: selectedEventId == event.id
+                                isSelected: selectedEventId == event.id,
+                                onOpenSession: { onOpenSession(event) }
                             ) {
                                 selectedEventId = selectedEventId == event.id ? nil : event.id
                             }
                             .id(event.id)
 
                             if selectedEventId == event.id {
-                                ScoutTailDetail(event: event)
+                                ScoutTailDetail(event: event, onOpenSession: { onOpenSession(event) })
                                     .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
@@ -474,6 +477,7 @@ private struct ScoutTailHeaderRow: View {
 private struct ScoutTailRow: View {
     let event: ScoutTailEvent
     let isSelected: Bool
+    let onOpenSession: () -> Void
     let action: () -> Void
 
     @State private var isHovering = false
@@ -543,6 +547,9 @@ private struct ScoutTailRow: View {
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { isHovering = $0 }
         .contextMenu {
+            Button("Open session") { onOpenSession() }
+                .disabled(event.sessionId.isEmpty)
+            Divider()
             Button("Copy event ID") {
                 copy(event.id)
             }
@@ -589,14 +596,20 @@ private struct ScoutTailRow: View {
 
 private struct ScoutTailDetail: View {
     let event: ScoutTailEvent
+    let onOpenSession: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            Text(event.summary)
-                .font(HudFont.ui(HudTextSize.base))
-                .foregroundStyle(ScoutPalette.ink)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+            HStack(alignment: .top, spacing: HudSpacing.md) {
+                Text(event.summary)
+                    .font(HudFont.ui(HudTextSize.base))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                openSessionButton
+            }
 
             LazyVGrid(
                 columns: [
@@ -622,6 +635,26 @@ private struct ScoutTailDetail: View {
         .overlay(alignment: .bottom) {
             HudDivider(color: ScoutDesign.hairlineStrong)
         }
+    }
+
+    private var openSessionButton: some View {
+        Button(action: onOpenSession) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "waveform.path.ecg")
+                Text("Open session")
+            }
+            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+            .foregroundStyle(ScoutPalette.accent)
+            .padding(.horizontal, HudSpacing.md)
+            .padding(.vertical, HudSpacing.xs)
+            .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
+            .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutPalette.accent.opacity(0.25), lineWidth: HudStrokeWidth.thin))
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .disabled(event.sessionId.isEmpty)
+        .opacity(event.sessionId.isEmpty ? 0.4 : 1)
+        .help("Open the full session in a viewer")
+        .fixedSize()
     }
 
     @ViewBuilder

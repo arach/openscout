@@ -72,8 +72,10 @@ function makeEndpoint(input: {
   agentId: string;
   harness: AgentEndpoint["harness"];
   model?: string;
+  sessionId?: string;
   projectRoot?: string;
   state?: AgentEndpoint["state"];
+  metadata?: Record<string, unknown>;
 }): AgentEndpoint {
   return {
     id: input.id,
@@ -82,9 +84,11 @@ function makeEndpoint(input: {
     harness: input.harness,
     transport: input.harness === "codex" ? "codex_app_server" : "claude_stream_json",
     state: input.state ?? "idle",
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     ...(input.projectRoot ? { projectRoot: input.projectRoot, cwd: input.projectRoot } : {}),
     metadata: {
       ...(input.model ? { model: input.model } : {}),
+      ...(input.metadata ?? {}),
     },
   };
 }
@@ -338,6 +342,35 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("arc.main");
+    }
+  });
+
+  test("resolves exact session targets through native endpoint aliases", () => {
+    const target = makeAgent({ id: "talkie.main", definitionId: "talkie" });
+    const snapshot = makeSnapshot(
+      [target],
+      [makeEndpoint({
+        id: "endpoint.talkie.main.local.codex_app_server",
+        agentId: target.id,
+        harness: "codex",
+        sessionId: "relay-talkie-codex",
+        metadata: {
+          externalSessionId: "codex-thread-talkie",
+          threadId: "codex-thread-talkie",
+          runtimeInstanceId: "relay-talkie-codex",
+        },
+      })],
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "session_id", sessionId: "codex-thread-talkie" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(target.id);
     }
   });
 

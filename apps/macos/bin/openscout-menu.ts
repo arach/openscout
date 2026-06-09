@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -161,19 +161,117 @@ function launch(): void {
   console.log(`Launched ${bundleName}.`);
 }
 
-function resolveSigningIdentity(explicit?: string): string | null {
+type SigningIdentity = {
+  signValue: string;
+  label: string;
+};
+
+type CodeSigningIdentity = {
+  hash: string;
+  name: string;
+  notBefore?: number;
+  notAfter?: number;
+};
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function parseCodeSigningIdentities(output: string): CodeSigningIdentity[] {
+  return output
+    .split("\n")
+    .map((line) => line.match(/^\s*\d+\)\s+([A-Fa-f0-9]{40})\s+"([^"]+)"/))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => ({
+      hash: match[1].toUpperCase(),
+      name: match[2],
+    }));
+}
+
+function certificateDates(pem: string): { notBefore?: number; notAfter?: number } {
+  try {
+    const output = execFileSync("openssl", ["x509", "-noout", "-startdate", "-enddate"], {
+      input: pem,
+      stdio: ["pipe", "pipe", "ignore"],
+    }).toString("utf8");
+    const notBeforeRaw = output.match(/^notBefore=(.+)$/m)?.[1];
+    const notAfterRaw = output.match(/^notAfter=(.+)$/m)?.[1];
+    return {
+      notBefore: notBeforeRaw ? Date.parse(notBeforeRaw) : undefined,
+      notAfter: notAfterRaw ? Date.parse(notAfterRaw) : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function certificatesForName(name: string): Map<string, { notBefore?: number; notAfter?: number }> {
+  const certificates = new Map<string, { notBefore?: number; notAfter?: number }>();
+  try {
+    const output = execFileSync("security", ["find-certificate", "-a", "-Z", "-p", "-c", name], {
+      stdio: ["ignore", "pipe", "ignore"],
+    }).toString("utf8");
+    const certPattern =
+      /SHA-1 hash:\s*([A-Fa-f0-9]{40})\s+(-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----)/g;
+    for (const match of output.matchAll(certPattern)) {
+      certificates.set(match[1].toUpperCase(), certificateDates(match[2]));
+    }
+  } catch {
+    // Keep the identity selectable even when certificate metadata is unavailable.
+  }
+  return certificates;
+}
+
+function enrichSigningIdentities(identities: CodeSigningIdentity[]): CodeSigningIdentity[] {
+  const certsByHash = new Map<string, { notBefore?: number; notAfter?: number }>();
+  for (const name of new Set(identities.map((identity) => identity.name))) {
+    for (const [hash, dates] of certificatesForName(name)) {
+      certsByHash.set(hash, dates);
+    }
+  }
+  return identities.map((identity) => ({
+    ...identity,
+    ...certsByHash.get(identity.hash),
+  }));
+}
+
+function newestIdentity(identities: CodeSigningIdentity[]): CodeSigningIdentity | null {
+  const enriched = enrichSigningIdentities(identities);
+  return enriched
+    .slice()
+    .sort((left, right) =>
+      (right.notBefore ?? 0) - (left.notBefore ?? 0)
+      || (right.notAfter ?? 0) - (left.notAfter ?? 0)
+    )[0] ?? null;
+}
+
+function describeIdentity(identity: CodeSigningIdentity): string {
+  const shortHash = identity.hash.slice(0, 10);
+  const validFrom = identity.notBefore ? `, valid from ${new Date(identity.notBefore).toISOString().slice(0, 10)}` : "";
+  return `${identity.name} [${shortHash}...]${validFrom}`;
+}
+
+function resolveSigningIdentity(explicit?: string): SigningIdentity | null {
   const fromEnv = explicit?.trim()
     || process.env.OPENSCOUT_SIGN_IDENTITY?.trim()
     || process.env.OPENSCOUT_DEVELOPER_ID_APP?.trim();
   if (fromEnv) {
-    return fromEnv;
+    return { signValue: fromEnv, label: fromEnv };
   }
 
   try {
     const identities = execSync("security find-identity -v -p codesigning", { stdio: "pipe" }).toString("utf8");
-    return identities.match(/"(Developer ID Application:[^"]+)"/)?.[1]
-      ?? identities.match(/"(Apple Development:[^"]+)"/)?.[1]
-      ?? null;
+    const parsed = parseCodeSigningIdentities(identities);
+    const developerId = newestIdentity(
+      parsed.filter((identity) => identity.name.startsWith("Developer ID Application:")),
+    );
+    const appleDevelopment = newestIdentity(
+      parsed.filter((identity) => identity.name.startsWith("Apple Development:")),
+    );
+    const selected = developerId ?? appleDevelopment;
+    return selected
+      ? { signValue: selected.hash, label: describeIdentity(selected) }
+      : null;
   } catch {
     return null;
   }
@@ -182,7 +280,7 @@ function resolveSigningIdentity(explicit?: string): string | null {
 function signBundle(options: CliOptions): void {
   const identity = resolveSigningIdentity(options.signIdentity);
   const entitlementsArgs = existsSync(entitlementsPath)
-    ? ` --entitlements '${entitlementsPath}'`
+    ? ` --entitlements ${shellQuote(entitlementsPath)}`
     : "";
 
   if (!identity && options.requireSigningIdentity) {
@@ -190,31 +288,33 @@ function signBundle(options: CliOptions): void {
   }
 
   if (identity) {
-    console.log(`Signing with: ${identity}`);
+    console.log(`Signing with: ${identity.label}`);
     try {
       execSync(
-        `codesign --force --options runtime --timestamp --sign '${identity}'${entitlementsArgs} --identifier ${bundleIdentifier} '${bundlePath}'`,
+        `codesign --force --options runtime --timestamp --sign ${shellQuote(identity.signValue)}${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${
+          shellQuote(bundlePath)
+        }`,
         { stdio: "inherit" },
       );
     } catch {
       if (options.requireSigningIdentity) {
-        throw new Error(`Signing with '${identity}' failed.`);
+        throw new Error(`Signing with '${identity.label}' failed.`);
       }
-      console.log(`Signing with '${identity}' failed. Falling back to ad-hoc.`);
+      console.log(`Signing with '${identity.label}' failed. Falling back to ad-hoc.`);
       execSync(
-        `codesign --force --sign -${entitlementsArgs} --identifier ${bundleIdentifier} '${bundlePath}'`,
+        `codesign --force --sign -${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${shellQuote(bundlePath)}`,
         { stdio: "inherit" },
       );
     }
   } else {
     console.log("No local signing identity found. Using ad-hoc signature.");
     execSync(
-      `codesign --force --sign -${entitlementsArgs} --identifier ${bundleIdentifier} '${bundlePath}'`,
+      `codesign --force --sign -${entitlementsArgs} --identifier ${shellQuote(bundleIdentifier)} ${shellQuote(bundlePath)}`,
       { stdio: "inherit" },
     );
   }
 
-  execSync(`codesign --verify --deep --strict '${bundlePath}'`, { stdio: "inherit" });
+  execSync(`codesign --verify --deep --strict ${shellQuote(bundlePath)}`, { stdio: "inherit" });
 }
 
 function buildIconIfPossible(): void {
@@ -254,16 +354,9 @@ function buildIconIfPossible(): void {
 }
 
 function releaseBinaryPath(): string {
-  const hudsonSource = process.env.OPENSCOUT_HUDSON_SOURCE ?? "path";
-  const defaultSpeechEngineSource = process.env.HUDSON_SPEECH_ENGINE_PATH
-    ? "path"
-    : hudsonSource === "git"
-      ? "git"
-      : "path";
   const env = {
     ...process.env,
     HUDSONKIT_WITH_VOICE: "1",
-    HUDSON_SPEECH_ENGINE_SOURCE: process.env.HUDSON_SPEECH_ENGINE_SOURCE ?? defaultSpeechEngineSource,
   };
   execSync("swift build -c release", {
     cwd: appDir,

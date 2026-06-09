@@ -165,6 +165,15 @@
 }
 
 * { box-sizing: border-box; margin: 0; }
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: var(--bg, #050605);
+  color: var(--ink, #f3f4ee);
+}
+
 body { margin: 0; }
 
 /* ── Content shell ── */

@@ -74,11 +74,18 @@ export function AgentLiveActions({
   const state = normalizeAgentState(agent.state);
   const canObserveTerminal = agent.transport === "tmux" && Boolean(activeSessionId);
   const canTakeover = canObserveTerminal || Boolean(resolvedCatalog?.resumeCommand);
-  const hasLiveTurn = Boolean(activeSessionId) || state === "working";
+  const hasLiveTurn = state === "working";
+  const isCompact = variant === "compact";
   const status = hasLiveTurn
     ? activeSessionId
-      ? `Live ${shortSession(activeSessionId)}`
+      ? isCompact
+        ? canObserveTerminal ? "Live terminal" : "Live trace"
+        : `Live ${shortSession(activeSessionId)}`
       : "Working"
+    : activeSessionId
+      ? isCompact
+        ? canObserveTerminal ? "Terminal" : "Trace"
+        : `${canObserveTerminal ? "Terminal" : "Trace"} ${shortSession(activeSessionId)}`
     : state === "ready"
       ? "Ready"
       : "No live turn";
@@ -87,7 +94,12 @@ export function AgentLiveActions({
     : agent.updatedAt
       ? timeAgo(agent.updatedAt)
       : null;
-  const observeLabel = canObserveTerminal ? "Observe terminal" : "Observe trace";
+  const observeLabel = canObserveTerminal
+    ? isCompact ? "Observe" : "Observe terminal"
+    : isCompact ? "Trace" : "Observe trace";
+  const observeTitle = canObserveTerminal
+    ? "Observe the tmux terminal"
+    : "Open the web observe trace";
 
   const openTerminal = (mode: "observe" | "takeover") => {
     onNavigate?.();
@@ -143,8 +155,8 @@ export function AgentLiveActions({
           type="button"
           className="agent-live-actions-button agent-live-actions-button--primary"
           onClick={() => canObserveTerminal ? openTerminal("observe") : openTrace()}
-          title={canObserveTerminal ? "Observe the live tmux terminal" : "Open the web observe trace"}
-          aria-label={observeLabel}
+          title={observeTitle}
+          aria-label={observeTitle}
         >
           <Eye size={13} strokeWidth={1.9} aria-hidden="true" />
           <span>{observeLabel}</span>

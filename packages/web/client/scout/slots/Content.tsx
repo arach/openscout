@@ -10,10 +10,13 @@ import { ChannelsScreen } from "../../screens/ChannelsScreen.tsx";
 import { ConversationScreen } from "../../screens/ConversationScreen.tsx";
 import { ConversationsScreen } from "../../screens/ConversationsScreen.tsx";
 import { FollowScreen } from "../../screens/FollowScreen.tsx";
+import { HarnessesScreen } from "../../screens/HarnessesScreen.tsx";
 import { HomeScreen } from "../../screens/HomeScreen.tsx";
 import { KnowledgeSearchScreen } from "../../screens/KnowledgeSearchScreen.tsx";
 import { MeshScreen } from "../../screens/MeshScreen.tsx";
 import { MessagesScreen } from "../../screens/MessagesScreen.tsx";
+import { ReposScreen } from "../../screens/ReposScreen.tsx";
+import { RepoDiffPageScreen } from "../../screens/RepoDiffPageScreen.tsx";
 import { SessionsScreen } from "../../screens/SessionsScreen.tsx";
 import { SessionRefScreen } from "../../screens/SessionRefScreen.tsx";
 import { SettingsScreen } from "../../screens/SettingsScreen.tsx";
@@ -109,6 +112,18 @@ function renderScreen(
       return <MeshScreen navigate={navigate} />;
     case "broker":
       return <BrokerScreen navigate={navigate} />;
+    case "repos":
+      return <ReposScreen navigate={navigate} />;
+    case "harnesses":
+      return <HarnessesScreen navigate={navigate} />;
+    case "repo-diff":
+      return (
+        <RepoDiffPageScreen
+          path={route.path}
+          layers={route.layers}
+          navigate={navigate}
+        />
+      );
     case "briefings":
       return route.briefingId
         ? <BriefingDetailScreen briefingId={route.briefingId} navigate={navigate} />

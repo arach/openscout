@@ -545,6 +545,7 @@ private struct TailnetPairTargetRow: View {
     }
 }
 
+
 // MARK: - Mac connection row
 
 /// A paired Mac row has two independent states:

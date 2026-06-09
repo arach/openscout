@@ -409,6 +409,9 @@ export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
       "OPENSCOUT_WEB_TRUSTED_HOSTS",
       "OPENSCOUT_WEB_TRUSTED_ORIGINS",
       "OPENSCOUT_WEB_PORT",
+      "OPENSCOUT_WEB_FLAG_BUNDLE",
+      "OPENSCOUT_WEB_EXPERIENCE",
+      "OPENSCOUT_WEB_AB_VARIANT",
     ]),
   };
   if (coreAgentsValue) {

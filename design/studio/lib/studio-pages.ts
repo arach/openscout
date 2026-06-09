@@ -209,6 +209,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The Agents view as a project · agent · session tree — keyboard-first (j/k/h/l), inspector follows the cursor.",
   },
   {
+    href: "/studies/branch-diff-sheet",
+    label: "Branch Diff Sheet",
+    bucket: "studies",
+    surface: "macos",
+    family: "repos",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/branch-diff-sheet/page.tsx",
+      "apps/macos/Sources/Scout/ScoutReposView.swift",
+    ],
+    blurb: "Click a branch → a diff sheet enters from the right or the bottom (one edge-switchable component). Real unified/split diff from commit 807c2d23.",
+  },
+  {
     href: "/studies/agent-work-preview",
     label: "Agent Work In Progress",
     bucket: "studies",

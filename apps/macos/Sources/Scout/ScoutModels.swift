@@ -34,7 +34,7 @@ enum ScoutChannelScope {
     case shared
 }
 
-struct ScoutChannel: Identifiable, Decodable, Sendable {
+struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     let cId: String
     let kind: String
     let title: String
@@ -168,7 +168,7 @@ struct ScoutChannel: Identifiable, Decodable, Sendable {
     }
 }
 
-struct ScoutMessage: Identifiable, Decodable, Sendable {
+struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
     let id: String
     let cId: String
     let actorId: String?
@@ -255,7 +255,7 @@ enum ScoutAgentState: String, Sendable, Decodable {
     }
 }
 
-struct ScoutAgent: Identifiable, Decodable, Sendable {
+struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     let id: String
     let name: String
     let handle: String?
@@ -594,7 +594,7 @@ struct ScoutObserveUsageMeta: Decodable, Sendable {
     let planType: String?
 }
 
-enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable {
+enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable, Equatable {
     case user
     case assistant
     case tool
@@ -649,7 +649,7 @@ enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable
     }
 }
 
-struct ScoutTailEvent: Identifiable, Decodable, Sendable {
+struct ScoutTailEvent: Identifiable, Decodable, Sendable, Equatable {
     let id: String
     let ts: TimeInterval
     let source: String
@@ -726,18 +726,18 @@ struct ScoutTailEvent: Identifiable, Decodable, Sendable {
     }()
 }
 
-struct ScoutTailRecentPayload: Decodable, Sendable {
+struct ScoutTailRecentPayload: Decodable, Sendable, Equatable {
     let events: [ScoutTailEvent]
 }
 
-struct ScoutTailDiscoverySnapshot: Decodable, Sendable {
+struct ScoutTailDiscoverySnapshot: Decodable, Sendable, Equatable {
     let generatedAt: TimeInterval
     let processes: [ScoutTailDiscoveredProcess]
     let transcripts: [ScoutTailDiscoveredTranscript]
     let totals: ScoutTailDiscoveryTotals
 }
 
-struct ScoutTailDiscoveredProcess: Identifiable, Decodable, Sendable {
+struct ScoutTailDiscoveredProcess: Identifiable, Decodable, Sendable, Equatable {
     let pid: Int
     let ppid: Int
     let command: String
@@ -749,7 +749,7 @@ struct ScoutTailDiscoveredProcess: Identifiable, Decodable, Sendable {
     var id: String { "\(source)-\(pid)" }
 }
 
-struct ScoutTailDiscoveredTranscript: Identifiable, Decodable, Sendable {
+struct ScoutTailDiscoveredTranscript: Identifiable, Decodable, Sendable, Equatable {
     let source: String
     let transcriptPath: String
     let sessionId: String?
@@ -762,7 +762,7 @@ struct ScoutTailDiscoveredTranscript: Identifiable, Decodable, Sendable {
     var id: String { "\(source)-\(transcriptPath)" }
 }
 
-struct ScoutTailDiscoveryTotals: Decodable, Sendable {
+struct ScoutTailDiscoveryTotals: Decodable, Sendable, Equatable {
     let total: Int
     let scoutManaged: Int
     let hudsonManaged: Int

@@ -4,6 +4,8 @@ import { createRoot } from "react-dom/client";
 import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
+import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
+import { SessionEmbedScreen } from "./screens/SessionEmbedScreen.tsx";
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
@@ -24,6 +26,12 @@ applyScoutThemeToDocument(initialTheme);
 
 const isScoutbotFxLab = window.location.pathname === "/dev/scoutbot-fx";
 const observeEmbedMatch = window.location.pathname.match(/^\/embed\/observe\/([^/]+)$/);
+// Standalone embeddable diff viewer (macOS WKWebView bottom sheet) — chrome-free,
+// reads `?path=<abs>` from the query string. See screens/RepoDiffEmbedScreen.tsx.
+const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
+// Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
+// chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
+const isSessionEmbed = window.location.pathname === "/embed/session";
 const scoutApp = createScoutApp({ initialTheme });
 
 createRoot(el).render(
@@ -33,6 +41,14 @@ createRoot(el).render(
     ) : observeEmbedMatch ? (
       <scoutApp.Provider>
         <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+      </scoutApp.Provider>
+    ) : isRepoDiffEmbed ? (
+      <scoutApp.Provider>
+        <RepoDiffEmbedScreen />
+      </scoutApp.Provider>
+    ) : isSessionEmbed ? (
+      <scoutApp.Provider>
+        <SessionEmbedScreen />
       </scoutApp.Provider>
     ) : (
       <OpenScoutAppShell app={scoutApp} />

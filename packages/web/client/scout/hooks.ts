@@ -1,8 +1,8 @@
 import { createElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Settings } from "lucide-react";
-import type { CommandOption, StatusColor, TakeoverState } from "@hudsonkit";
+import { type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
-import { isOpsEnabled } from "../lib/feature-flags.ts";
 import { useScout } from "./Provider.tsx";
 import { conversationForAgent } from "../lib/router.ts";
 import type { MeshStatus } from "../lib/types.ts";
@@ -31,7 +31,8 @@ type BuildInfo = {
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
   const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
-  const opsEnabled = isOpsEnabled();
+  const opsEnabled = useOptionalFlag("ops.control", true);
+  const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
 
   const askScoutbotForState = useCallback(() => {
     applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" });
@@ -110,6 +111,11 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Dispatch",
         action: () => navigate({ view: "broker" }),
       },
+      {
+        id: "nav:harnesses",
+        label: "Open Providers",
+        action: () => navigate({ view: "harnesses" }),
+      },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",
@@ -135,21 +141,19 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Agent Configuration",
         action: () => navigate({ view: "settings", section: "agents" }),
       },
-      {
+      ...(scoutbotEnabled ? [{
         id: "scoutbot:open",
         label: "Open Scout",
         action: () => applyScoutbotUiAction({ type: "open-scoutbot", mode: "ask" }),
-      },
-      {
+      }, {
         id: "scoutbot:state",
         label: "Ask Scout for State",
         action: () => askScoutbotForState(),
-      },
-      {
+      }, {
         id: "scoutbot:ops-tail",
         label: "Scout: Open Ops Tail",
         action: () => applyScoutbotUiAction({ type: "navigate", route: { view: "ops", mode: "tail" } }),
-      },
+      }] : []),
       {
         id: "nav:pair",
         label: "Pair Device",
@@ -199,7 +203,7 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {
@@ -289,12 +293,13 @@ export function useScoutStatus(): { label: string; color: StatusColor } {
 /* ── useNavCenter — tab bar + breadcrumb ──────────────────────────────── */
 export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
-  const opsEnabled = isOpsEnabled();
-  const activeKey = topNavKeyForRoute(route, opsEnabled);
+  const opsEnabled = useOptionalFlag("ops.control", true);
+  const cleanNav = useOptionalFlag("nav.clean", false);
+  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
   const breadcrumb = topNavBreadcrumbForRoute(route);
 
   return createElement("div", { className: "scout-nav-tabs" },
-    topNavItems(opsEnabled).map(({ key, label, route: tabRoute }) =>
+    topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
       createElement("button", {
         key,
         className: `scout-nav-tab${activeKey === key ? " active" : ""}`,
@@ -309,8 +314,10 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
+  // Lean view puts the machines away — the scope selector is power chrome.
+  const cleanNav = useOptionalFlag("nav.clean", false);
   return createElement("div", { className: "scout-nav-actions" },
-    createElement(MachineScopeControl, { variant: "nav" }),
+    !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),
     createElement(
       "button",
       {

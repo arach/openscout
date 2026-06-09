@@ -17,8 +17,13 @@ type ScoutBootstrapRoutes = {
   viteHmrPath?: string;
 };
 
+type ScoutBootstrapFeatureFlags = {
+  bundle?: string | null;
+};
+
 type ScoutBootstrap = {
   theme?: string;
+  featureFlags?: ScoutBootstrapFeatureFlags;
   routes?: ScoutBootstrapRoutes;
 };
 
@@ -48,6 +53,11 @@ function readScoutBootstrap(): ScoutBootstrap | null {
 export function readScoutBootstrapTheme(): string | null {
   const theme = readScoutBootstrap()?.theme;
   return typeof theme === "string" ? theme : null;
+}
+
+export function readScoutBootstrapFlagBundle(): string | null {
+  const bundle = readScoutBootstrap()?.featureFlags?.bundle;
+  return typeof bundle === "string" ? bundle : null;
 }
 
 export function resolveScoutRoutePath<K extends keyof typeof ROUTE_DEFAULTS>(

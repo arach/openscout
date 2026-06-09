@@ -185,6 +185,11 @@ import {
   type TailEvent,
 } from "./tail/index.js";
 import {
+  getRepoWatchSnapshot,
+  repoWatchHintsFromBrokerSnapshot,
+  repoWatchHintsFromTailDiscovery,
+} from "./repo-watch/index.js";
+import {
   isBrokerRunnableLocalAgentTransport,
   isDirectLocalAgentTransport,
 } from "./local-agent-transports.js";
@@ -4412,8 +4417,35 @@ async function completeInvocationsForBrokerReply(message: MessageRecord): Promis
   }
 }
 
+const ENDPOINT_SESSION_ALIAS_METADATA_KEYS = [
+  "sessionId",
+  "externalSessionId",
+  "threadId",
+  "nativeSessionId",
+  "runtimeSessionId",
+  "runtimeInstanceId",
+  "tmuxSession",
+  "pairingSessionId",
+] as const;
+
+function endpointSessionAliasValues(endpoint: AgentEndpoint): string[] {
+  const values = [
+    endpoint.id,
+    endpoint.sessionId,
+    ...ENDPOINT_SESSION_ALIAS_METADATA_KEYS.map((key) => metadataStringValue(endpoint.metadata, key)),
+  ];
+  const aliases = values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return [...new Set(aliases)];
+}
+
 function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId: string): boolean {
-  return endpoint.sessionId?.trim() === sessionId || endpoint.id === sessionId;
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) {
+    return false;
+  }
+  return endpointSessionAliasValues(endpoint).includes(normalizedSessionId);
 }
 
 function invocationTargetSessionId(invocation: InvocationRequest): string | undefined {
@@ -5158,6 +5190,12 @@ function parseTailLimit(url: URL): number {
   return Math.min(limit, 1_000);
 }
 
+function parsePositiveIntParam(url: URL, key: string, cap: number): number | undefined {
+  const value = Number.parseInt(url.searchParams.get(key) ?? "", 10);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.min(value, cap);
+}
+
 async function readTailRecentPayload(url: URL): Promise<{
   generatedAt: number;
   limit: number;
@@ -5666,6 +5704,42 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   if (method === "GET" && url.pathname === "/v1/tail/discover") {
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
     json(response, 200, await getTailDiscovery(force));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/repo-watch/snapshot") {
+    const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
+    const includeTail = url.searchParams.get("includeTail") === "1" || url.searchParams.get("includeTail") === "true";
+    const includeDiff = url.searchParams.get("includeDiff") === "1" || url.searchParams.get("includeDiff") === "true";
+    const includeLastCommit = url.searchParams.get("includeLastCommit") === "1"
+      || url.searchParams.get("includeLastCommit") === "true";
+    const nativeParam = url.searchParams.get("native");
+    const useNativeRepoService = nativeParam == null
+      ? undefined
+      : nativeParam === "1" || nativeParam === "true";
+    const maxRoots = parsePositiveIntParam(url, "maxRoots", 128);
+    const maxWorktrees = parsePositiveIntParam(url, "maxWorktrees", 32);
+    const maxFilesPerWorktree = parsePositiveIntParam(url, "maxFilesPerWorktree", 100);
+    const scanBudgetMs = parsePositiveIntParam(url, "scanBudgetMs", 30_000);
+    const snapshot = await brokerService.readSnapshot();
+    const tailHints = includeTail
+      ? repoWatchHintsFromTailDiscovery(await getTailDiscovery(false))
+      : [];
+    const repoSnapshot = await getRepoWatchSnapshot({
+      force,
+      includeDiff,
+      includeLastCommit,
+      useNativeRepoService,
+      maxRoots,
+      maxWorktrees,
+      maxFilesPerWorktree,
+      scanBudgetMs,
+      hints: [
+        ...repoWatchHintsFromBrokerSnapshot(snapshot),
+        ...tailHints,
+      ],
+    });
+    json(response, 200, repoSnapshot);
     return;
   }
 

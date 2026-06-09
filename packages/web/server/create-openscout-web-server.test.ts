@@ -33,6 +33,7 @@ let readUnblockRequestsResult: Array<Record<string, unknown>> = [];
 let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
+let queryAgentsResult: Array<Record<string, unknown>> = [];
 let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
@@ -88,11 +89,11 @@ mock.module("./db-queries.ts", () => ({
     db.exec("PRAGMA busy_timeout = 250");
     db.exec("PRAGMA query_only = ON");
   },
-  queryAgentById: () => null,
-  queryAgents: () => [],
+  queryAgentById: (agentId: string) =>
+    queryAgentsResult.find((agent) => agent.id === agentId) ?? null,
+  queryAgents: () => queryAgentsResult,
   queryActivity: () => [],
   queryBrokerDiagnostics: () => brokerDiagnosticsResult,
-  queryAgentById: () => null,
   queryConversationDefinitionById: (conversationId: string) =>
     queryConversationDefinitionByIdImpl(conversationId),
   queryHeartrate: () => [],
@@ -440,6 +441,7 @@ beforeEach(() => {
   };
   scoutRelayConfigResult = {};
   brokerDiagnosticsResult = makeBrokerDiagnostics();
+  queryAgentsResult = [];
   readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
@@ -687,6 +689,84 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
+  });
+
+  test("serves a bounded tmux peek for a broker-backed agent", async () => {
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Claude Relay",
+        harness: "claude",
+        transport: "tmux",
+        harnessSessionId: "fallback-session",
+        cwd: "/tmp/project",
+        projectRoot: "/tmp/project",
+      },
+    ];
+    scoutBrokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "active",
+            sessionId: "tmux-session",
+            pane: "%3",
+            cwd: "/tmp/project",
+            metadata: {
+              tmuxSession: "tmux-session",
+            },
+          },
+        },
+      },
+    };
+    const captureCalls: Array<Record<string, unknown>> = [];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      captureTmuxPane: (request) => {
+        captureCalls.push(request);
+        return { body: "\x1B[32mWorking\x1B[0m\nDone\n\n" };
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents/agent-1/tmux-peek?lines=12&cols=60",
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
+      available: true,
+      agentId: "agent-1",
+      sessionId: "tmux-session",
+      lineCount: 12,
+      columnCount: 60,
+      truncated: false,
+      reason: null,
+    });
+    const rows = String(body.body).split("\n");
+    expect(rows).toHaveLength(12);
+    expect(rows.every((row) => Array.from(row).length === 60)).toBe(true);
+    expect(rows.slice(0, 9).every((row) => row === " ".repeat(60))).toBe(true);
+    expect(rows.at(-3)?.trimEnd()).toBe("Working");
+    expect(rows.at(-2)?.trimEnd()).toBe("Done");
+    expect(rows.at(-1)?.trimEnd()).toBe("");
+    expect(typeof body.capturedAt).toBe("number");
+    expect(captureCalls).toEqual([
+      expect.objectContaining({
+        agentId: "agent-1",
+        sessionId: "tmux-session",
+        paneTarget: "%3",
+        cwd: "/tmp/project",
+        lines: 12,
+        columns: 60,
+      }),
+    ]);
   });
 
   test("serves broker diagnostics", async () => {
@@ -1271,6 +1351,45 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(404);
     expect(response.headers.get("cache-control")).toBe("no-store");
     await expect(response.text()).resolves.toContain("scout://pair pairing is not available");
+  });
+
+  test("serves site-level feature flag bundle config for the client", async () => {
+    const originalBundle = process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
+    const originalExperience = process.env.OPENSCOUT_WEB_EXPERIENCE;
+    const originalVariant = process.env.OPENSCOUT_WEB_AB_VARIANT;
+    process.env.OPENSCOUT_WEB_FLAG_BUNDLE = "B";
+    delete process.env.OPENSCOUT_WEB_EXPERIENCE;
+    delete process.env.OPENSCOUT_WEB_AB_VARIANT;
+
+    try {
+      const server = await createOpenScoutWebServer({
+        currentDirectory: "/tmp/openscout",
+        assetMode: "static",
+        staticRoot: makeStaticRoot(),
+      });
+
+      const response = await server.app.request("http://localhost/api/bootstrap.js");
+      const body = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(body).toContain('"featureFlags":{"bundle":"max-pro"}');
+    } finally {
+      if (originalBundle === undefined) {
+        delete process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
+      } else {
+        process.env.OPENSCOUT_WEB_FLAG_BUNDLE = originalBundle;
+      }
+      if (originalExperience === undefined) {
+        delete process.env.OPENSCOUT_WEB_EXPERIENCE;
+      } else {
+        process.env.OPENSCOUT_WEB_EXPERIENCE = originalExperience;
+      }
+      if (originalVariant === undefined) {
+        delete process.env.OPENSCOUT_WEB_AB_VARIANT;
+      } else {
+        process.env.OPENSCOUT_WEB_AB_VARIANT = originalVariant;
+      }
+    }
   });
 
   test("adds mixed-content protection only for HTTPS edge requests", async () => {
@@ -2280,6 +2399,145 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     expect(fetchCalls).toEqual([{ authorization: "Bearer sk-relay-test" }]);
+  });
+
+  test("proxies repo-watch snapshots through the web API", async () => {
+    const fetchCalls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      fetchCalls.push(String(input));
+      return new Response(JSON.stringify({
+        generatedAt: 1_780_760_000_000,
+        projects: [],
+        totals: {
+          projects: 0,
+          worktrees: 0,
+          dirtyWorktrees: 0,
+          conflictedWorktrees: 0,
+          attentionWorktrees: 0,
+          attachedAgents: 0,
+          attachedSessions: 0,
+        },
+        warnings: [],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-watch?force=1&includeTail=true&includeDiff=true&includeLastCommit=1&native=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000&ignored=true",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      generatedAt: 1_780_760_000_000,
+      totals: { projects: 0, worktrees: 0 },
+    });
+    expect(fetchCalls).toEqual([
+      "http://broker.test/v1/repo-watch/snapshot?force=1&includeTail=1&includeDiff=1&includeLastCommit=1&native=1&maxRoots=32&maxWorktrees=12&scanBudgetMs=12000",
+    ]);
+  });
+
+  function stubDiffSnapshot(worktreePath: string) {
+    return {
+      schema: "openscout.repo.diff/v1" as const,
+      generatedAt: 1_780_760_000_000,
+      worktreePath,
+      layers: [],
+      coverage: {
+        requestedLayers: 0,
+        emittedLayers: 0,
+        files: 0,
+        patchBytes: 0,
+        truncatedLayers: 0,
+        scanBudgetReached: false,
+      },
+      diagnostics: [],
+      scout: { worktreeId: "w1", projectId: null, agents: [], sessions: [], hints: [] },
+      render: {
+        renderKey: "k1",
+        cachePolicy: "local-disposable" as const,
+        preferredTheme: "pierre-dark",
+        preferredLayout: "split" as const,
+      },
+    };
+  }
+
+  test("serves repo-diff snapshots from the web server (no broker hop)", async () => {
+    let captured: {
+      worktreePath?: string;
+      layers?: string[];
+      baseRef?: string;
+      limits?: { timeoutMs?: number; includeBinaryPatch?: boolean };
+    } | null = null;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        captured = {
+          worktreePath: opts.worktreePath,
+          layers: opts.layers,
+          baseRef: opts.baseRef ?? undefined,
+          limits: opts.limits,
+        };
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&layer=staged&layer=unstaged&baseRef=main&ignored=true",
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ schema: "openscout.repo.diff/v1" });
+    expect(captured?.worktreePath).toBe("/tmp/wt");
+    // Layer order follows the request (the client controls tab order).
+    expect(captured?.layers).toEqual(["staged", "unstaged"]);
+    expect(captured?.baseRef).toBe("main");
+    expect(captured?.limits).toMatchObject({
+      timeoutMs: 15_000,
+      includeBinaryPatch: false,
+    });
+  });
+
+  test("rejects repo-diff requests without a worktree path", async () => {
+    let called = false;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        called = true;
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request("http://localhost/api/repo-diff/worktree");
+    expect(response.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  test("returns JSON for unknown API routes instead of the app shell", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/repo-diff/missing");
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({
+      error: "unknown api route: /api/repo-diff/missing",
+    });
   });
 
   test("proxies UI routes to the configured Vite dev server", async () => {

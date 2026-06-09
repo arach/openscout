@@ -1,5 +1,11 @@
 import { ScrollText } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useScout } from "../Provider.tsx";
 import { openContent } from "../slots/openContent.ts";
 import { api } from "../../lib/api.ts";
@@ -8,12 +14,18 @@ import { useTailEvents } from "../../lib/tail-events.ts";
 import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
+import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
+import { isNoisyConversationStatusMessage } from "../../lib/message-visibility.ts";
 import {
   compactAgentId,
   minimalAgentDisplayName,
   minimalAgentHandle,
 } from "../../lib/agent-labels.ts";
-import { formatAbsoluteTimestamp, timeAgo } from "../../lib/time.ts";
+import {
+  compareTimestampsAsc,
+  formatAbsoluteTimestamp,
+  timeAgo,
+} from "../../lib/time.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import { isActiveConversationFlight } from "../../lib/conversations.ts";
 import {
@@ -25,6 +37,7 @@ import {
   tailKindLabel,
   tailSummary,
 } from "../../lib/tail-preview.ts";
+import { TmuxPeekPanel } from "./TmuxPeek.tsx";
 import type {
   Flight,
   Message,
@@ -40,12 +53,50 @@ const KIND_LABELS: Record<string, string> = {
   thread: "Thread",
 };
 
+const INSPECTOR_REFRESH_ACCUMULATE_MS = 1_800;
+const INSPECTOR_REFRESH_MAX_WAIT_MS = 4_800;
+const TAIL_PREVIEW_PLAYBACK_BATCH_SIZE = 2;
+const TAIL_PREVIEW_PLAYBACK_MS = 120;
+const TAIL_PREVIEW_INITIAL_ACCUMULATE_MS = 650;
+const TAIL_PREVIEW_BURST_ACCUMULATE_MS = 1_800;
+
+type EventConversationRecord = {
+  id?: string | null;
+};
+
+type EventFlightRecord = {
+  id: string;
+  invocationId: string;
+  targetAgentId?: string | null;
+};
+
+type EventInvocationRecord = {
+  id: string;
+  targetAgentId?: string | null;
+  conversationId?: string | null;
+};
+
+function keepPreviousIfJsonEqual<T>(previous: T, next: T): T {
+  try {
+    return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+  } catch {
+    return next;
+  }
+}
+
 function pathLeaf(path: string | null | undefined): string | null {
   if (!path) return null;
   const normalized = path.replace(/[\\/]+$/, "");
   if (!normalized) return null;
   const parts = normalized.split(/[\\/]/).filter(Boolean);
   return parts.at(-1) ?? normalized;
+}
+
+function compactPath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const normalized = path.replace(/[\\/]+$/, "");
+  if (!normalized) return null;
+  return normalized.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
 }
 
 function flightStateLabel(state: string): string {
@@ -85,12 +136,24 @@ export function ConversationInspector() {
           `/api/flights?conversationId=${encodeURIComponent(conversationId)}`,
         ).catch(() => [] as Flight[]),
         api<Message[]>(
-          `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=1`,
+          `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=8`,
         ).catch(() => [] as Message[]),
       ]);
-      setMeta(sessionMeta);
-      setFlights(activeFlights ?? []);
-      setLatestMessage(recentMessages?.[recentMessages.length - 1] ?? null);
+      setMeta((previous) => keepPreviousIfJsonEqual(previous, sessionMeta));
+      setFlights((previous) =>
+        keepPreviousIfJsonEqual(previous, activeFlights ?? []),
+      );
+      setLatestMessage((previous) =>
+        keepPreviousIfJsonEqual(
+          previous,
+          recentMessages
+            ?.filter((message) => !isNoisyConversationStatusMessage(message))
+            .sort((left, right) =>
+              compareTimestampsAsc(left.createdAt, right.createdAt),
+            )
+            .at(-1) ?? null,
+        ),
+      );
       setLoaded(true);
     } catch {
       setLoaded(true);
@@ -102,23 +165,6 @@ export function ConversationInspector() {
     void load();
   }, [load]);
 
-  useBrokerEvents((event) => {
-    if (!conversationId) return;
-    if (event.kind === "message.posted") {
-      const payload = event.payload as
-        | { message?: { conversationId?: string } }
-        | undefined;
-      if (payload?.message?.conversationId === conversationId) void load();
-      return;
-    }
-    if (
-      event.kind === "flight.updated" ||
-      event.kind === "invocation.requested"
-    ) {
-      void load();
-    }
-  });
-
   const agentId = meta?.agentId ?? agentIdFromConversation(conversationId ?? "");
   const agent = useMemo(
     () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
@@ -126,6 +172,42 @@ export function ConversationInspector() {
   );
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
   const [tailPreviewEvents, setTailPreviewEvents] = useState<TailEvent[]>([]);
+  const [visibleTailPreviewEvents, setVisibleTailPreviewEvents] = useState<TailEvent[]>([]);
+  const visibleTailPreviewEventsRef = useRef<TailEvent[]>([]);
+  const loadAccumulationTimerRef = useRef<number | null>(null);
+  const loadAccumulationStartedAtRef = useRef<number | null>(null);
+  const tailPlaybackPendingRef = useRef<TailEvent[]>([]);
+  const tailPlaybackStartTimerRef = useRef<number | null>(null);
+  const tailPlaybackTimerRef = useRef<number | null>(null);
+  const trackedInvocationIdsRef = useRef<Set<string>>(new Set());
+
+  const clearScheduledLoad = useCallback(() => {
+    if (loadAccumulationTimerRef.current !== null) {
+      window.clearTimeout(loadAccumulationTimerRef.current);
+      loadAccumulationTimerRef.current = null;
+    }
+    loadAccumulationStartedAtRef.current = null;
+  }, []);
+
+  const scheduleLoad = useCallback(() => {
+    if (!conversationId) return;
+    const now = Date.now();
+    const startedAt = loadAccumulationStartedAtRef.current ?? now;
+    loadAccumulationStartedAtRef.current = startedAt;
+    const hasWaited = now - startedAt >= INSPECTOR_REFRESH_MAX_WAIT_MS;
+    const delay = hasWaited ? 0 : INSPECTOR_REFRESH_ACCUMULATE_MS;
+
+    if (loadAccumulationTimerRef.current !== null) {
+      window.clearTimeout(loadAccumulationTimerRef.current);
+    }
+    loadAccumulationTimerRef.current = window.setTimeout(() => {
+      loadAccumulationTimerRef.current = null;
+      loadAccumulationStartedAtRef.current = null;
+      void load();
+    }, delay);
+  }, [conversationId, load]);
+
+  useEffect(() => clearScheduledLoad, [clearScheduledLoad]);
 
   useEffect(() => {
     setCatalog(null);
@@ -159,18 +241,167 @@ export function ConversationInspector() {
         .sort((l, r) => (r.startedAt ?? 0) - (l.startedAt ?? 0))[0] ?? null,
     [flights],
   );
+
+  useEffect(() => {
+    trackedInvocationIdsRef.current = new Set(
+      flights.map((flight) => flight.invocationId),
+    );
+  }, [flights]);
+
+  useEffect(() => {
+    clearScheduledLoad();
+    trackedInvocationIdsRef.current.clear();
+  }, [clearScheduledLoad, conversationId]);
+
+  useBrokerEvents((event) => {
+    if (!conversationId) return;
+    if (event.kind === "message.posted") {
+      const payload = event.payload as
+        | { message?: { conversationId?: string | null } }
+        | undefined;
+      if (payload?.message?.conversationId === conversationId) scheduleLoad();
+      return;
+    }
+    if (event.kind === "conversation.upserted") {
+      const conversation = (
+        event.payload as { conversation?: EventConversationRecord } | undefined
+      )?.conversation;
+      if (conversation?.id === conversationId) scheduleLoad();
+      return;
+    }
+    if (event.kind === "invocation.requested") {
+      const invocation = (
+        event.payload as { invocation?: EventInvocationRecord } | undefined
+      )?.invocation;
+      if (invocation?.conversationId === conversationId) {
+        trackedInvocationIdsRef.current.add(invocation.id);
+        scheduleLoad();
+        return;
+      }
+      if (
+        !invocation?.conversationId &&
+        agentId &&
+        invocation?.targetAgentId === agentId
+      ) {
+        trackedInvocationIdsRef.current.add(invocation.id);
+        scheduleLoad();
+      }
+      return;
+    }
+    if (event.kind === "flight.updated") {
+      const flight = (
+        event.payload as { flight?: EventFlightRecord } | undefined
+      )?.flight;
+      if (!flight) return;
+      const matchesLoadedFlight =
+        activeFlight?.id === flight.id ||
+        activeFlight?.invocationId === flight.invocationId ||
+        trackedInvocationIdsRef.current.has(flight.invocationId) ||
+        flights.some(
+          (candidate) =>
+            candidate.id === flight.id ||
+            candidate.invocationId === flight.invocationId,
+        );
+      if (matchesLoadedFlight) {
+        scheduleLoad();
+      }
+    }
+  });
+
   const activeSessionId = catalog?.activeSessionId ?? agent?.harnessSessionId ?? meta?.harnessSessionId ?? null;
+  const harnessSessionId = agent?.harnessSessionId ?? meta?.harnessSessionId ?? null;
+  const harnessLogPath = agent?.harnessLogPath ?? null;
   const tailPreviewContext = useMemo(
     () => buildTailPreviewContext({ activeSessionId, agent, sessionMeta: meta }),
     [activeSessionId, agent, meta],
   );
+  const tailPreviewScopeKey = JSON.stringify({
+    sessionIds: tailPreviewContext.sessionIds,
+    paths: tailPreviewContext.paths,
+    projects: tailPreviewContext.projects,
+  });
   const hasTailPreviewScope =
     tailPreviewContext.sessionIds.length > 0 ||
     tailPreviewContext.paths.length > 0 ||
     tailPreviewContext.projects.length > 0;
 
+  const clearTailPlaybackTimers = useCallback(() => {
+    if (tailPlaybackStartTimerRef.current !== null) {
+      window.clearTimeout(tailPlaybackStartTimerRef.current);
+      tailPlaybackStartTimerRef.current = null;
+    }
+    if (tailPlaybackTimerRef.current !== null) {
+      window.clearInterval(tailPlaybackTimerRef.current);
+      tailPlaybackTimerRef.current = null;
+    }
+    tailPlaybackPendingRef.current = [];
+  }, []);
+
+  const stopTailPlayback = useCallback(() => {
+    clearTailPlaybackTimers();
+  }, [clearTailPlaybackTimers]);
+
+  const releaseTailPlayback = useCallback(() => {
+    if (tailPlaybackTimerRef.current !== null) return;
+    if (tailPlaybackStartTimerRef.current !== null) {
+      window.clearTimeout(tailPlaybackStartTimerRef.current);
+      tailPlaybackStartTimerRef.current = null;
+    }
+
+    const releaseCount = tailPlaybackPendingRef.current.length;
+    if (releaseCount === 0) return;
+
+    const emitNextBatch = () => {
+      const nextBatch = tailPlaybackPendingRef.current.slice(
+        0,
+        TAIL_PREVIEW_PLAYBACK_BATCH_SIZE,
+      );
+      tailPlaybackPendingRef.current = tailPlaybackPendingRef.current.slice(
+        TAIL_PREVIEW_PLAYBACK_BATCH_SIZE,
+      );
+      if (nextBatch.length > 0) {
+        setVisibleTailPreviewEvents((previous) =>
+          mergeTailPreviewEvents(previous, nextBatch),
+        );
+      }
+      if (tailPlaybackPendingRef.current.length > 0) return;
+      if (tailPlaybackTimerRef.current !== null) {
+        window.clearInterval(tailPlaybackTimerRef.current);
+        tailPlaybackTimerRef.current = null;
+      }
+    };
+
+    emitNextBatch();
+    if (tailPlaybackPendingRef.current.length > 0) {
+      tailPlaybackTimerRef.current = window.setInterval(
+        emitNextBatch,
+        TAIL_PREVIEW_PLAYBACK_MS,
+      );
+    }
+  }, []);
+
+  const scheduleTailPlayback = useCallback((delayMs: number) => {
+    if (tailPlaybackTimerRef.current !== null) return;
+    if (tailPlaybackStartTimerRef.current !== null) return;
+    tailPlaybackStartTimerRef.current = window.setTimeout(() => {
+      tailPlaybackStartTimerRef.current = null;
+      releaseTailPlayback();
+    }, delayMs);
+  }, [releaseTailPlayback]);
+
   useEffect(() => {
+    visibleTailPreviewEventsRef.current = visibleTailPreviewEvents;
+  }, [visibleTailPreviewEvents]);
+
+  useEffect(() => clearTailPlaybackTimers, [clearTailPlaybackTimers]);
+
+  useEffect(() => {
+    stopTailPlayback();
     setTailPreviewEvents([]);
+    setVisibleTailPreviewEvents([]);
+  }, [stopTailPlayback, tailPreviewScopeKey]);
+
+  useEffect(() => {
     if (!hasTailPreviewScope) return;
     let cancelled = false;
     const params = new URLSearchParams({ limit: "180", transcripts: "true" });
@@ -186,7 +417,7 @@ export function ConversationInspector() {
     return () => {
       cancelled = true;
     };
-  }, [hasTailPreviewScope, tailPreviewContext]);
+  }, [hasTailPreviewScope, tailPreviewScopeKey]);
 
   useTailEvents(
     useCallback(
@@ -195,9 +426,38 @@ export function ConversationInspector() {
         if (!tailEventMatchesContext(event, tailPreviewContext)) return;
         setTailPreviewEvents((previous) => mergeTailPreviewEvents(previous, [event]));
       },
-      [hasTailPreviewScope, tailPreviewContext],
+      [hasTailPreviewScope, tailPreviewScopeKey],
     ),
   );
+
+  useEffect(() => {
+    if (tailPreviewEvents.length === 0) {
+      stopTailPlayback();
+      setVisibleTailPreviewEvents([]);
+      return;
+    }
+
+    const visible = visibleTailPreviewEventsRef.current;
+    const knownIds = new Set([
+      ...visible.map((event) => event.id),
+      ...tailPlaybackPendingRef.current.map((event) => event.id),
+    ]);
+    const incoming = tailPreviewEvents.filter((event) => !knownIds.has(event.id));
+    if (incoming.length === 0) return;
+
+    tailPlaybackPendingRef.current = mergeTailPreviewEvents(
+      tailPlaybackPendingRef.current,
+      incoming,
+    );
+
+    if (tailPlaybackPendingRef.current.length > 0) {
+      scheduleTailPlayback(
+        visible.length === 0
+          ? TAIL_PREVIEW_INITIAL_ACCUMULATE_MS
+          : TAIL_PREVIEW_BURST_ACCUMULATE_MS,
+      );
+    }
+  }, [scheduleTailPlayback, stopTailPlayback, tailPreviewEvents]);
 
   if (!conversationId) return null;
 
@@ -212,7 +472,9 @@ export function ConversationInspector() {
   }
 
   const kindLabel = meta?.kind ? KIND_LABELS[meta.kind] ?? meta.kind : "Conversation";
-  const workspaceName = pathLeaf(meta?.workspaceRoot ?? null);
+  const workspaceRoot = meta?.workspaceRoot ?? null;
+  const workspaceName = pathLeaf(workspaceRoot);
+  const workspacePath = compactPath(workspaceRoot);
   const branch = meta?.currentBranch ?? null;
   const harness = agent?.harness ?? meta?.harness ?? null;
   const lastAt = meta?.lastMessageAt ?? latestMessage?.createdAt ?? null;
@@ -226,15 +488,53 @@ export function ConversationInspector() {
     latestMessage?.body?.trim() || meta?.preview?.trim() || null;
   const previewActor = latestMessage?.actorName ?? null;
   const liveSessionLabel = compactSessionId(activeSessionId);
+  const primarySessionId = activeSessionId ?? harnessSessionId;
+  const primarySessionLabel = compactSessionId(primarySessionId);
+  const harnessSessionLabel = compactSessionId(harnessSessionId);
+  const showHarnessSessionDetail = Boolean(
+    harnessSessionId &&
+    harnessSessionId !== primarySessionId,
+  );
+  const sessionKindLabel = [
+    harness,
+    agent?.transport,
+  ].filter(Boolean).join(" · ");
+  const showSessionContext = Boolean(activeSessionId || harnessSessionId || harnessLogPath);
+  const showTmuxPeek = Boolean(agent && agent.transport === "tmux");
+  const workInMotion = Boolean(activeFlight || agentStateNormalized === "working");
+  const activityTitle = workInMotion
+    ? activeFlight
+      ? flightStateLabel(activeFlight.state)
+      : "In motion"
+    : "At rest";
+  const activitySubtitle = activeFlight?.summary?.trim()
+    ?? (lastAt
+      ? `Last update ${timeAgo(lastAt) ?? "recently"}`
+      : "No recent activity recorded");
+  const workspaceMeta = [
+    branch ? `branch ${branch}` : null,
+    harness,
+    agent?.transport,
+  ].filter(Boolean);
+  const hasWorkspaceContext = Boolean(
+    workspaceName ||
+    workspacePath ||
+    workspaceMeta.length > 0,
+  );
+  const liveSectionLabel = workInMotion
+    ? "Live activity"
+    : showTmuxPeek
+      ? "Terminal"
+      : "Activity";
   const liveSummary = activeFlight?.summary?.trim()
-    ?? (activeSessionId
+    ?? (activeSessionId && !showTmuxPeek
       ? "Terminal session is live."
-      : tailPreviewEvents.length > 0
+      : visibleTailPreviewEvents.length > 0 && !showTmuxPeek
         ? "Streaming matching Tail events."
         : null);
   const tailRouteQuery = buildTailRouteQuery(tailPreviewContext, tailPreviewEvents);
-  const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0));
-
+  const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0 || showTmuxPeek));
+  const showTailStream = !showTmuxPeek;
   const goToAgentProfile = () => {
     if (!agentId) return;
     openContent(
@@ -302,41 +602,130 @@ export function ConversationInspector() {
 
       <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">Workspace</div>
-        <div className="ctx-panel-conversation-rows">
-          {workspaceName && (
-            <Row
-              label="Project"
-              value={workspaceName}
-              title={meta?.workspaceRoot ?? undefined}
-            />
-          )}
-          {branch && <Row label="Branch" value={branch} />}
-          {harness && <Row label="Harness" value={harness} />}
-          {!workspaceName && !branch && !harness && (
-            <div className="ctx-panel-empty">No workspace metadata yet</div>
-          )}
-        </div>
+        {hasWorkspaceContext ? (
+          <div className="ctx-panel-workspace-card">
+            <div className="ctx-panel-workspace-head">
+              <div className="ctx-panel-workspace-kicker">Project</div>
+              <div
+                className="ctx-panel-workspace-title"
+                title={workspaceRoot ?? workspaceName ?? undefined}
+              >
+                {workspaceName ?? "Unscoped workspace"}
+              </div>
+            </div>
+            {workspacePath && (
+              <div className="ctx-panel-workspace-path" title={workspaceRoot ?? workspacePath}>
+                {workspacePath}
+              </div>
+            )}
+            {workspaceMeta.length > 0 && (
+              <div className="ctx-panel-workspace-strip">
+                {workspaceMeta.map((item) => (
+                  <span key={item} className="ctx-panel-workspace-chip">
+                    {item}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="ctx-panel-empty">No workspace metadata yet</div>
+        )}
       </section>
+
+      {showSessionContext && (
+        <section className="ctx-panel-section">
+          <div className="ctx-panel-section-label">Session</div>
+          <div className="ctx-panel-session-card">
+            <div className="ctx-panel-session-head">
+              <div className="ctx-panel-session-primary">
+                {sessionKindLabel && (
+                  <div className="ctx-panel-session-kind">{sessionKindLabel}</div>
+                )}
+                {primarySessionId && (
+                  <div className="ctx-panel-session-id" title={primarySessionId}>
+                    {primarySessionLabel ?? primarySessionId}
+                  </div>
+                )}
+              </div>
+              {agentId && primarySessionId && (
+                <VantageHandoffButton
+                  agentId={agentId}
+                  className="ctx-panel-vantage-button"
+                  statusClassName="ctx-panel-vantage-status"
+                  label="Open"
+                  openingLabel="Opening..."
+                />
+              )}
+            </div>
+            {(showHarnessSessionDetail || harnessLogPath) && (
+              <div className="ctx-panel-session-meta">
+                {showHarnessSessionDetail && harnessSessionId && (
+                  <div className="ctx-panel-session-meta-item">
+                    <span>Harness session</span>
+                    <strong title={harnessSessionId}>
+                      {harnessSessionLabel ?? harnessSessionId}
+                    </strong>
+                  </div>
+                )}
+                {harnessLogPath && (
+                  <div className="ctx-panel-session-meta-item">
+                    <span>Harness log</span>
+                    <strong title={harnessLogPath}>
+                      {pathLeaf(harnessLogPath) ?? harnessLogPath}
+                    </strong>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="ctx-panel-section">
         <div className="ctx-panel-section-label">Activity</div>
-        <div className="ctx-panel-conversation-rows">
-          {typeof messageCount === "number" && (
-            <Row label="Messages" value={`${messageCount}`} />
-          )}
-          {typeof participantCount === "number" && (
-            <Row label="In conversation" value={`${participantCount}`} />
-          )}
-          {lastAt && (
-            <Row
-              label="Last"
-              value={timeAgo(lastAt) ?? ""}
-              title={formatAbsoluteTimestamp(lastAt)}
+        <div className={`ctx-panel-activity-card${workInMotion ? " ctx-panel-activity-card--active" : ""}`}>
+          <div className="ctx-panel-activity-head">
+            <span
+              className="ctx-panel-activity-dot"
+              style={{ background: workInMotion ? "var(--green)" : stateColor(agentState) }}
             />
+            <div className="ctx-panel-activity-main">
+              <div className="ctx-panel-activity-title">{activityTitle}</div>
+              <div
+                className="ctx-panel-activity-sub"
+                title={lastAt ? formatAbsoluteTimestamp(lastAt) : undefined}
+              >
+                {activitySubtitle}
+              </div>
+            </div>
+          </div>
+          {activeFlight && (
+            <div className="ctx-panel-activity-ledger">
+              <span className="ctx-panel-activity-ledger-label">
+                {flightStateLabel(activeFlight.state)}
+              </span>
+              {activeFlight.startedAt && (
+                <span
+                  className="ctx-panel-activity-ledger-time"
+                  title={formatAbsoluteTimestamp(activeFlight.startedAt)}
+                >
+                  {timeAgo(activeFlight.startedAt)}
+                </span>
+              )}
+            </div>
           )}
-          {agentStateNormalized && (
-            <Row label="Agent" value={agentStateLabel(agentState)} />
-          )}
+          <div className="ctx-panel-activity-facts">
+            {typeof messageCount === "number" && (
+              <Fact label="Messages" value={`${messageCount}`} />
+            )}
+            {typeof participantCount === "number" && (
+              <Fact label="People" value={`${participantCount}`} />
+            )}
+            {agentStateNormalized && (
+              <Fact label="Agent" value={agentStateLabel(agentState)} />
+            )}
+          </div>
         </div>
       </section>
 
@@ -352,14 +741,14 @@ export function ConversationInspector() {
       {showLiveActivity && agent && (
         <section className="ctx-panel-section ctx-panel-conversation-live-section">
           <div className="ctx-panel-section-label">
-            <span>Live activity</span>
+            <span>{liveSectionLabel}</span>
             {liveSessionLabel && (
               <span className="ctx-panel-live-session" title={activeSessionId ?? undefined}>
                 {liveSessionLabel}
               </span>
             )}
           </div>
-          <div className="ctx-panel-live-card">
+          <div className={`ctx-panel-live-card${workInMotion ? " ctx-panel-live-card--active" : ""}`}>
             <AgentLiveActions
               agent={agent}
               catalog={catalog}
@@ -371,32 +760,37 @@ export function ConversationInspector() {
             {liveSummary && (
               <div className="ctx-panel-live-summary">{liveSummary}</div>
             )}
-            <div className="ctx-panel-live-stream" aria-live="polite">
-              {tailPreviewEvents.length > 0 ? (
-                <ol className="ctx-panel-live-events">
-                  {tailPreviewEvents.map((event) => (
-                    <li key={event.id} className="ctx-panel-live-event">
-                      <span className="ctx-panel-live-event-kind">
-                        {tailKindLabel(event.kind)}
-                      </span>
-                      <span className="ctx-panel-live-event-summary">
-                        {tailSummary(event.summary)}
-                      </span>
-                      <span
-                        className="ctx-panel-live-event-time"
-                        title={formatAbsoluteTimestamp(event.ts)}
-                      >
-                        {timeAgo(event.ts)}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="ctx-panel-live-stream-empty">
-                  Waiting for matching Tail events
-                </div>
-              )}
-            </div>
+            {showTmuxPeek && (
+              <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+            )}
+            {showTailStream && (
+              <div className="ctx-panel-live-stream" aria-live="polite">
+                {visibleTailPreviewEvents.length > 0 ? (
+                  <ol className="ctx-panel-live-events">
+                    {visibleTailPreviewEvents.map((event) => (
+                      <li key={event.id} className="ctx-panel-live-event">
+                        <span className="ctx-panel-live-event-kind">
+                          {tailKindLabel(event.kind)}
+                        </span>
+                        <span className="ctx-panel-live-event-summary">
+                          {tailSummary(event.summary)}
+                        </span>
+                        <span
+                          className="ctx-panel-live-event-time"
+                          title={formatAbsoluteTimestamp(event.ts)}
+                        >
+                          {timeAgo(event.ts)}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="ctx-panel-live-stream-empty">
+                    Waiting for matching Tail events
+                  </div>
+                )}
+              </div>
+            )}
             {hasTailPreviewScope && (
               <button
                 type="button"
@@ -430,19 +824,17 @@ export function ConversationInspector() {
   );
 }
 
-function Row({
+function Fact({
   label,
   value,
-  title,
 }: {
   label: string;
   value: string;
-  title?: string;
 }) {
   return (
-    <div className="ctx-panel-conversation-row" title={title}>
-      <span className="ctx-panel-conversation-row-label">{label}</span>
-      <span className="ctx-panel-conversation-row-value">{value}</span>
+    <div className="ctx-panel-fact">
+      <span className="ctx-panel-fact-value">{value}</span>
+      <span className="ctx-panel-fact-label">{label}</span>
     </div>
   );
 }

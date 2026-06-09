@@ -124,6 +124,40 @@
   color: var(--dim);
 }
 
+.hd-gauge-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.hd-gauge-toggle {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  letter-spacing: var(--tracking-xs);
+  color: var(--muted);
+  border: var(--hd-hair);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: var(--space-2xs) var(--space-xs);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.hd-gauge-toggle:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.hd-gauge-toggle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .hd-gauge-set {
   --hd-gauge-columns: minmax(104px, 138px) minmax(140px, 1.1fr) minmax(68px, 0.55fr) minmax(140px, 1.1fr) minmax(68px, 0.55fr);
   width: 100%;

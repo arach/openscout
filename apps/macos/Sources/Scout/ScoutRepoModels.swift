@@ -17,7 +17,7 @@ import Foundation
 
 /// §6 Attention Rules — the backend's mechanical severity classifier. The UI
 /// sorts by `rank` (lower = worse) without inventing product semantics.
-enum RepoAttention: String, Decodable, Sendable, CaseIterable {
+enum RepoAttention: String, Decodable, Sendable, CaseIterable, Equatable {
     case critical   // merge conflicts / unmerged
     case attention  // dirty main|master, diverged branch, or status errored
     case active     // dirty, ahead/behind, or a live agent/session attached
@@ -43,7 +43,7 @@ enum RepoAttention: String, Decodable, Sendable, CaseIterable {
 
 // MARK: - Snapshot
 
-struct RepoWatchSnapshot: Decodable, Sendable {
+struct RepoWatchSnapshot: Decodable, Sendable, Equatable {
     /// Epoch **ms** the snapshot was generated. Relative-time anchor.
     let generatedAt: Double
     let projects: [RepoProject]
@@ -70,7 +70,7 @@ struct RepoWatchSnapshot: Decodable, Sendable {
     }
 }
 
-struct RepoTotals: Decodable, Sendable {
+struct RepoTotals: Decodable, Sendable, Equatable {
     let projects: Int
     let worktrees: Int
     let dirtyWorktrees: Int
@@ -113,7 +113,7 @@ struct RepoTotals: Decodable, Sendable {
 
 // MARK: - Project
 
-struct RepoProject: Decodable, Identifiable, Sendable {
+struct RepoProject: Decodable, Identifiable, Sendable, Equatable {
     let id: String                  // `repo:${hash(commonGitDir)}`
     let name: String
     let root: String
@@ -142,7 +142,7 @@ struct RepoProject: Decodable, Identifiable, Sendable {
     }
 }
 
-struct RepoProjectStats: Decodable, Sendable {
+struct RepoProjectStats: Decodable, Sendable, Equatable {
     let worktrees: Int
     let dirtyWorktrees: Int
     let conflictedWorktrees: Int
@@ -191,7 +191,7 @@ struct RepoProjectStats: Decodable, Sendable {
 
 // MARK: - Worktree
 
-struct RepoWorktree: Decodable, Identifiable, Sendable {
+struct RepoWorktree: Decodable, Identifiable, Sendable, Equatable {
     let id: String                  // `worktree:${hash(path)}`
     let path: String
     let name: String
@@ -235,7 +235,7 @@ struct RepoWorktree: Decodable, Identifiable, Sendable {
     }
 }
 
-struct RepoBranch: Decodable, Sendable {
+struct RepoBranch: Decodable, Sendable, Equatable {
     let name: String?
     let upstream: String?
     let head: String?
@@ -277,7 +277,7 @@ struct RepoBranch: Decodable, Sendable {
     }
 }
 
-struct RepoStatus: Decodable, Sendable {
+struct RepoStatus: Decodable, Sendable, Equatable {
     let clean: Bool
     let staged: Int
     let unstaged: Int
@@ -316,7 +316,7 @@ struct RepoStatus: Decodable, Sendable {
     }
 }
 
-struct RepoChangedFile: Decodable, Identifiable, Sendable {
+struct RepoChangedFile: Decodable, Identifiable, Sendable, Equatable {
     let path: String
     let status: String              // "untracked" | "conflict" | "staged" | "unstaged" | "staged+unstaged" | "changed"
 
@@ -331,7 +331,7 @@ struct RepoChangedFile: Decodable, Identifiable, Sendable {
     }
 }
 
-struct RepoDiff: Decodable, Sendable {
+struct RepoDiff: Decodable, Sendable, Equatable {
     let unstagedShortstat: String?
     let stagedShortstat: String?
 
@@ -351,7 +351,7 @@ struct RepoDiff: Decodable, Sendable {
     }
 }
 
-struct RepoAgentRef: Decodable, Identifiable, Sendable {
+struct RepoAgentRef: Decodable, Identifiable, Sendable, Equatable {
     let id: String
     let name: String?
     let state: String?
@@ -398,7 +398,7 @@ struct RepoAgentRef: Decodable, Identifiable, Sendable {
     }
 }
 
-struct RepoSessionRef: Decodable, Identifiable, Sendable {
+struct RepoSessionRef: Decodable, Identifiable, Sendable, Equatable {
     let id: String
     let source: String?
     let harness: String?
@@ -413,7 +413,7 @@ struct RepoSessionRef: Decodable, Identifiable, Sendable {
     }
 }
 
-struct RepoHint: Decodable, Sendable {
+struct RepoHint: Decodable, Sendable, Equatable {
     let path: String
     let source: String
     let sourceLabel: String?
@@ -443,7 +443,7 @@ struct RepoHint: Decodable, Sendable {
 // MARK: - Derivations (Swift twins of scout/repo-watch/ui.ts)
 
 /// Parsed `git diff --shortstat` churn, summed across staged + unstaged.
-struct RepoChurn: Sendable {
+struct RepoChurn: Sendable, Equatable {
     let add: Int
     let del: Int
     var total: Int { add + del }
@@ -453,7 +453,7 @@ struct RepoChurn: Sendable {
 }
 
 /// Worktree state lens — mirrors web `wtState()`.
-enum RepoWorktreeState: Sendable {
+enum RepoWorktreeState: Sendable, Equatable {
     case error   // scan failed
     case live    // a live agent is attached
     case dirty   // uncommitted changes or ahead/behind
@@ -535,7 +535,7 @@ extension RepoWorktree {
     }
 }
 
-struct RepoBranchParts: Sendable {
+struct RepoBranchParts: Sendable, Equatable {
     let detached: Bool
     let sha: String
     let prefix: String

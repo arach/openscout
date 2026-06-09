@@ -33,14 +33,6 @@ public final class ScoutVoiceService: ObservableObject {
                 self?.deliverFinal(text)
             }
         }
-        syncTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 120_000_000)
-                await MainActor.run {
-                    self?.syncFromDictation()
-                }
-            }
-        }
         dictation.prepare()
         syncFromDictation()
     }
@@ -58,18 +50,19 @@ public final class ScoutVoiceService: ObservableObject {
     // MARK: - Session
 
     public func start() {
-        partial = ""
-        state = .starting
+        setIfChanged("", to: \.partial)
+        setIfChanged(.starting, to: \.state)
         log.info("start() — HudsonKit dictation")
         dictation.start()
-        syncFromDictation()
+        startActiveSync()
     }
 
     public func stop() {
         guard state == .recording || state == .starting else { return }
-        state = .processing
+        setIfChanged(.processing, to: \.state)
         dictation.stop()
         syncFromDictation()
+        startActiveSync()
     }
 
     public func cancel() {
@@ -81,12 +74,12 @@ public final class ScoutVoiceService: ObservableObject {
     /// it to its buffer, so we don't re-fire on the next subscription
     /// or duplicate the transcript across sessions.
     public func consumeFinalText() {
-        lastFinalText = ""
+        setIfChanged("", to: \.lastFinalText)
     }
 
     private func syncFromDictation() {
-        partial = dictation.partialText
-        state = scoutState(for: dictation.state)
+        setIfChanged(dictation.partialText, to: \.partial)
+        setIfChanged(scoutState(for: dictation.state), to: \.state)
         if dictation.finalCount != deliveredFinalCount {
             deliverFinal(dictation.finalText)
         }
@@ -96,10 +89,45 @@ public final class ScoutVoiceService: ObservableObject {
         deliveredFinalCount = dictation.finalCount
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         log.info("dictation final len=\(trimmed.count)")
-        partial = ""
-        state = scoutState(for: dictation.state)
+        setIfChanged("", to: \.partial)
+        setIfChanged(scoutState(for: dictation.state), to: \.state)
         if !trimmed.isEmpty {
-            lastFinalText = text
+            setIfChanged(text, to: \.lastFinalText)
+        }
+    }
+
+    private func startActiveSync() {
+        if syncTask != nil { return }
+        syncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 120_000_000)
+                guard !Task.isCancelled else { break }
+                let shouldContinue = await MainActor.run { [weak self] in
+                    guard let self else { return false }
+                    self.syncFromDictation()
+                    return self.shouldContinueSyncing
+                }
+                if !shouldContinue { break }
+            }
+            await MainActor.run { [weak self] in
+                self?.syncTask = nil
+            }
+        }
+    }
+
+    private var shouldContinueSyncing: Bool {
+        if state.isCaptureActive || state.isProcessing { return true }
+        switch dictation.state {
+        case .listening, .transcribing:
+            return true
+        case .idle, .preparing, .unavailable:
+            return false
+        }
+    }
+
+    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutVoiceService, T>) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
         }
     }
 

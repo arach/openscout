@@ -190,6 +190,84 @@ for await (const line of rl) {
     await adapter.shutdown();
   });
 
+  test("attaches provider quota observations from rate limit events", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-quota-"));
+    tempPaths.add(tempRoot);
+
+    writeFakeClaudeExecutable(tempRoot, `#!/usr/bin/env bun
+console.log(JSON.stringify({
+  type: "system",
+  subtype: "init",
+  session_id: "claude-session-quota",
+  cwd: process.cwd(),
+  model: "claude-test",
+}));
+console.log(JSON.stringify({
+  type: "rate_limit_event",
+  timestamp: "2026-06-08T12:00:00.000Z",
+  rate_limits: {
+    plan_type: "max",
+    primary: {
+      used_percent: 30,
+      window_minutes: 300,
+      reset_after_seconds: 900,
+    },
+    secondary: {
+      remaining_percent: 64,
+      window_ms: 604800000,
+    },
+  },
+}));
+`);
+
+    process.env.PATH = `${tempRoot}:${originalPath ?? ""}`;
+
+    const adapter = createAdapter({
+      sessionId: `claude-test-${crypto.randomUUID()}`,
+      name: "Claude Quota Test",
+      cwd: tempRoot,
+      env: {
+        PATH: process.env.PATH,
+      },
+    });
+
+    const collector = createEventCollector();
+    adapter.on("event", (event) => collector.push(event));
+
+    await adapter.start();
+    await collector.waitFor((events) =>
+      events.some((event) => {
+        if (event.event !== "session:update") return false;
+        const observeQuota = event.session.providerMeta?.observeQuota;
+        return event.session.providerMeta?.provider === "anthropic"
+          && Boolean(observeQuota && typeof observeQuota === "object" && Array.isArray((observeQuota as { windows?: unknown }).windows));
+      })
+    );
+
+    expect(adapter.session.providerMeta).toEqual(expect.objectContaining({
+      provider: "anthropic",
+      observeQuota: expect.objectContaining({
+        provider: "anthropic",
+        capturedAt: Date.parse("2026-06-08T12:00:00.000Z"),
+        planType: "max",
+        windows: [
+          expect.objectContaining({
+            label: "5h",
+            windowKind: "primary",
+            usedPercent: 30,
+          }),
+          expect.objectContaining({
+            label: "weekly",
+            windowKind: "secondary",
+            percentRemaining: 64,
+          }),
+        ],
+      }),
+    }));
+
+    await adapter.shutdown();
+  });
+
   test("attaches observed Claude agent-team topology to session metadata", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-topology-"));
     const tempHome = mkdtempSync(join(tmpdir(), "openscout-claude-home-"));

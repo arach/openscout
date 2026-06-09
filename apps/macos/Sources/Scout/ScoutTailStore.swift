@@ -81,10 +81,7 @@ final class ScoutTailStore: ObservableObject {
     }
 
     func start() {
-        guard pollTask == nil else {
-            refresh()
-            return
-        }
+        guard pollTask == nil else { return }
         refresh()
         let interval = pollInterval
         pollTask = Task { [weak self] in
@@ -100,12 +97,12 @@ final class ScoutTailStore: ObservableObject {
         pollTask = nil
         fetchTask?.cancel()
         fetchTask = nil
-        isLoading = false
+        setIfChanged(false, to: \.isLoading)
     }
 
     func refresh(includeTranscripts: Bool = false) {
         if fetchTask != nil { return }
-        isLoading = events.isEmpty
+        setIfChanged(events.isEmpty, to: \.isLoading)
         fetchTask = Task { [weak self] in
             await self?.fetchRecent(includeTranscripts: includeTranscripts)
         }
@@ -113,7 +110,7 @@ final class ScoutTailStore: ObservableObject {
 
     private func fetchRecent(includeTranscripts: Bool) async {
         defer {
-            isLoading = false
+            setIfChanged(false, to: \.isLoading)
             fetchTask = nil
         }
 
@@ -130,40 +127,41 @@ final class ScoutTailStore: ObservableObject {
             let payload = try await fetch(ScoutTailRecentPayload.self, from: url)
             merge(payload.events)
             try await refreshDiscoveryIfNeeded()
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
         } catch {
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
     private func merge(_ next: [ScoutTailEvent]) {
         guard !next.isEmpty else {
-            lastBatchCount = 0
-            linesPerSecond = 0
+            setIfChanged(0, to: \.lastBatchCount)
+            setIfChanged(0, to: \.linesPerSecond)
             return
         }
         let previousIds = Set(events.map(\.id))
         let newCount = next.filter { !previousIds.contains($0.id) }.count
         let now = Date()
         let elapsed = max(0.1, now.timeIntervalSince(lastMergeAt ?? now.addingTimeInterval(-pollInterval)))
-        lastBatchCount = newCount
-        linesPerSecond = Double(newCount) / elapsed
+        setIfChanged(newCount, to: \.lastBatchCount)
+        setIfChanged(Double(newCount) / elapsed, to: \.linesPerSecond)
         lastMergeAt = now
         if newCount > 0 {
-            lastReceivedAt = now
+            setIfChanged(now, to: \.lastReceivedAt)
         }
 
         var byId = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
         for event in next {
             byId[event.id] = event
         }
-        events = byId.values
+        let merged = byId.values
             .sorted { lhs, rhs in
                 if lhs.ts == rhs.ts { return lhs.id < rhs.id }
                 return lhs.ts < rhs.ts
             }
             .suffix(maxEvents)
             .map { $0 }
+        setIfChanged(merged, to: \.events)
     }
 
     private func refreshDiscoveryIfNeeded() async throws {
@@ -174,8 +172,15 @@ final class ScoutTailStore: ObservableObject {
             return
         }
         let url = ScoutBroker.baseURL().appending(path: "v1/tail/discover")
-        discovery = try await fetch(ScoutTailDiscoverySnapshot.self, from: url)
+        let next = try await fetch(ScoutTailDiscoverySnapshot.self, from: url)
+        setIfChanged(next, to: \.discovery)
         lastDiscoveryFetchAt = now
+    }
+
+    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutTailStore, T>) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {

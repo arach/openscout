@@ -1,6 +1,6 @@
 {
   "name": "@openscout/runtime",
-  "version": "0.2.71",
+  "version": "0.2.72",
   "private": true,
   "description": "Local runtime foundation for the OpenScout control plane",
   "type": "module",
@@ -12,6 +12,11 @@
       "types": "./src/index.ts",
       "bun": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./repo-watch": {
+      "types": "./src/repo-watch/index.ts",
+      "bun": "./src/repo-watch/index.ts",
+      "default": "./dist/repo-watch/index.js"
     },
     "./setup": {
       "types": "./src/setup.ts",

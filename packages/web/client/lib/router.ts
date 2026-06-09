@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
+import { isScoutFlagEnabled } from "./scout-flags.ts";
 import type {
   AgentTab,
   FollowPreferredView,
@@ -96,6 +97,13 @@ function isOpsEnabledForUrl(url: URL): boolean {
   return isOpsEnabled();
 }
 
+// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
+// of the lean core, so it stays reachable even when the broader Ops cluster
+// (ops.control) is gated off. Other Ops modes still follow the ops gate.
+function isTailCoreSurface(mode: string | undefined): boolean {
+  return mode === "tail" && isScoutFlagEnabled("nav.clean");
+}
+
 const MACHINE_SCOPE_PARAM = "machineId";
 const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "inbox",
@@ -105,6 +113,8 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "conversations",
   "messages",
   "sessions",
+  "repos",
+  "harnesses",
   "channels",
   "mesh",
   "activity",
@@ -244,6 +254,25 @@ export function routeFromUrl(urlLike: string | URL): Route {
     return scoped(base);
   }
   if (parts[0] === "sessions") return scoped({ view: "sessions" });
+  if (parts[0] === "repos") return scoped({ view: "repos" });
+  if (parts[0] === "harnesses") return scoped({ view: "harnesses" });
+  if (parts[0] === "repo-diff") {
+    const path = url.searchParams.get("path")?.trim();
+    if (path) {
+      const layers = url.searchParams
+        .getAll("layer")
+        .filter(
+          (v): v is "unstaged" | "staged" | "branch" =>
+            v === "unstaged" || v === "staged" || v === "branch",
+        );
+      return {
+        view: "repo-diff",
+        path,
+        ...(layers.length > 0 ? { layers } : {}),
+      };
+    }
+    // No path → fall through to the default route below.
+  }
   if (parts[0] === "search") {
     const mode = parseSearchMode(parts[1]);
     return { view: "search", ...(mode && mode !== "knowledge" ? { mode } : {}) };
@@ -309,10 +338,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
     };
   }
   if (parts[0] === "ops") {
-    if (!isOpsEnabledForUrl(url)) {
+    const mode = parseOpsMode(parts[1]) ?? "mission";
+    if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
       return scoped({ view: "inbox" });
     }
-    const mode = parseOpsMode(parts[1]) ?? "mission";
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
     const planDocumentId = mode === "plan" ? url.searchParams.get("plan")?.trim() : "";
     return {
@@ -391,6 +420,16 @@ export function routePath(r: Route): string {
       return pathWithMachineScope(r.sessionId
         ? `/sessions/${encodeURIComponent(r.sessionId)}`
         : "/sessions", r);
+    case "repos":
+      return pathWithMachineScope("/repos", r);
+    case "harnesses":
+      return pathWithMachineScope("/harnesses", r);
+    case "repo-diff": {
+      const params = new URLSearchParams();
+      params.set("path", r.path);
+      for (const layer of r.layers ?? []) params.append("layer", layer);
+      return `/repo-diff${searchSuffix(params)}`;
+    }
     case "search":
       return r.mode === "indexer" ? "/search/indexer" : "/search";
     case "channels":
@@ -480,6 +519,8 @@ function routeKey(r: Route): string {
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
       return `terminal:${r.agentId ?? ""}:${r.mode ?? "takeover"}`;
+    case "repo-diff":
+      return `repo-diff:${r.path}`;
     default:
       return `${r.view}${scope}`;
   }
@@ -504,9 +545,10 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    const requestedRoute: Route = r.view === "ops" && !isOpsEnabled()
-      ? { view: "inbox" }
-      : r;
+    const requestedRoute: Route =
+      r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
+        ? { view: "inbox" }
+        : r;
     const currentRoute = routeFromPath();
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;

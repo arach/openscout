@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { Check, Copy, X } from "lucide-react";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { useScout } from "../Provider.tsx";
 import { openAgent } from "./openAgent.ts";
 import { openContent } from "./openContent.ts";
@@ -48,6 +49,7 @@ function clampScoutbotHeight(value: number, inspectorHeight: number) {
 }
 
 export function ScoutInspector() {
+  const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
   const { route, navigate, agents, selectedBrokerAttempt, clearBrokerAttempt } = useScout();
   const [scoutbotCollapsed] = usePersistentBoolean("openscout.scoutbot.collapsed", true);
   const [scoutbotHeight, setScoutbotHeight] = usePersistentNumber("openscout.scoutbot.height", SCOUTBOT_DEFAULT_HEIGHT);
@@ -159,8 +161,8 @@ export function ScoutInspector() {
       <div className="min-h-0 flex-1 overflow-hidden">
         {content}
       </div>
-      {!scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
-      <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />
+      {scoutbotEnabled && !scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
+      {scoutbotEnabled && <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />}
     </div>
   );
 }

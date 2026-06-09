@@ -1,9 +1,17 @@
+import { useState } from "react";
 import type { Route } from "../lib/types.ts";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
+
+type ServiceQuotaHistoryPoint = {
+  capturedAt: number;
+  fill: number;
+  usedLabel: string;
+  resetAt?: number;
+};
 
 type ServiceQuotaWindowGauge = {
   label: string;
@@ -12,6 +20,7 @@ type ServiceQuotaWindowGauge = {
   capLabel: string;
   unitLabel: string;
   resetAt: number;
+  history?: ServiceQuotaHistoryPoint[];
 };
 
 export type ServiceGauge =
@@ -58,6 +67,7 @@ export type HomeHeroProps = {
 };
 
 const HEARTRATE_VISIBLE_EVENT_THRESHOLD = 3;
+const HOME_SERVICE_GAUGE_LIMIT = 2;
 
 function gaugeTone(fill: number): GaugeTone {
   if (fill >= 0.9) return "err";
@@ -341,6 +351,43 @@ function Gauge({
   );
 }
 
+function compactNumberValue(label: string): number {
+  const match = label.trim().match(/^(\d+(?:\.\d+)?)([kKmM])?$/u);
+  if (!match) return 0;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return 0;
+  switch (match[2]?.toLowerCase()) {
+    case "m":
+      return value * 1_000_000;
+    case "k":
+      return value * 1_000;
+    default:
+      return value;
+  }
+}
+
+function gaugeUsageScore(gauge: ServiceGauge): number {
+  if (gauge.kind === "quota") {
+    return Math.max(gauge.fill, ...quotaWindows(gauge).map((window) => window.fill));
+  }
+
+  // Status gauges do not have a quota denominator. Treat nonzero observed usage
+  // as noteworthy, but let any meaningfully-used quota window outrank it.
+  return compactNumberValue(gauge.statusLabel) > 0 ? 0.01 : 0;
+}
+
+function topServiceGauges(gauges: ServiceGauge[]): ServiceGauge[] {
+  return sortedServiceGauges(gauges)
+    .slice(0, HOME_SERVICE_GAUGE_LIMIT);
+}
+
+function sortedServiceGauges(gauges: ServiceGauge[]): ServiceGauge[] {
+  return gauges
+    .map((gauge, index) => ({ gauge, index, score: gaugeUsageScore(gauge) }))
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(({ gauge }) => gauge);
+}
+
 export default function HomeHero(props: HomeHeroProps) {
   const {
     now,
@@ -361,6 +408,7 @@ export default function HomeHero(props: HomeHeroProps) {
     heartrateVisibleEventThreshold = HEARTRATE_VISIBLE_EVENT_THRESHOLD,
     serviceGauges,
   } = props;
+  const [showAllGauges, setShowAllGauges] = useState(false);
 
   const ledePart =
     narrativeParts.find((p) => p.includes("need")) ?? narrativeParts[0] ?? "";
@@ -369,7 +417,10 @@ export default function HomeHero(props: HomeHeroProps) {
   const leadsNeedsYou = ledePart.includes("need");
   const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
-  const gauges = serviceGauges;
+  const sortedGauges = sortedServiceGauges(serviceGauges);
+  const compactGauges = topServiceGauges(serviceGauges);
+  const gauges = showAllGauges ? sortedGauges : compactGauges;
+  const hasHiddenGauges = serviceGauges.length > compactGauges.length;
   const showHeartrate = heartrate.reduce((total, bucket) => total + bucket.count, 0)
     >= heartrateVisibleEventThreshold;
   return (
@@ -392,7 +443,19 @@ export default function HomeHero(props: HomeHeroProps) {
         </div>
         {gauges.length > 0 && (
           <div className="hd-topbar-c" aria-label="service usage">
-            <span className="hd-gauge-window">SUBSCRIPTIONS</span>
+            <div className="hd-gauge-title-row">
+              <span className="hd-gauge-window">SUBSCRIPTIONS</span>
+              {hasHiddenGauges && (
+                <button
+                  type="button"
+                  className="hd-gauge-toggle"
+                  aria-expanded={showAllGauges}
+                  onClick={() => setShowAllGauges((value) => !value)}
+                >
+                  [{showAllGauges ? "top 2" : `all ${serviceGauges.length}`}]
+                </button>
+              )}
+            </div>
             <div className="hd-gauge-set">
               <div className="hd-gauge-table-head" aria-hidden="true">
                 <span>service</span>
@@ -403,7 +466,7 @@ export default function HomeHero(props: HomeHeroProps) {
               </div>
               {gauges.map((g) => (
                 <span key={g.id} className="hd-gauge-wrap">
-                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "ops" })} />
+                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "harnesses" })} />
                 </span>
               ))}
             </div>

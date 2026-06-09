@@ -88,7 +88,7 @@ const PROVIDER_CREDENTIAL_ENV: Record<string, readonly CredentialEnvMapping[]> =
   openrouter: [{ outputKey: "OPENROUTER_API_KEY" }],
   opencode: [{ outputKey: "OPENCODE_API_KEY" }],
   vercel: [{ outputKey: "AI_GATEWAY_API_KEY" }],
-  xai: [{ outputKey: "XAI_API_KEY" }],
+  xai: [{ outputKey: "XAI_API_KEY", sourceKeys: ["XAI_API_KEY", "SCOUT_XAI_API_KEY"] }],
   zai: [{ outputKey: "ZAI_API_KEY" }],
 };
 

@@ -14,12 +14,14 @@ export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Sessions",
         route: { view: "sessions" },
         active: (route) => route.view === "sessions" || route.view === "terminal",
+        hideInLean: true,
       },
       {
         id: "config",
         label: "Config",
         route: { view: "settings", section: "agents" },
         active: (route) => route.view === "settings" && route.section === "agents",
+        hideInLean: true,
       },
     ],
   },
@@ -42,6 +44,8 @@ export const CHAT_SECONDARY_NAV: SecondaryNavGroup[] = [
         label: "Channels",
         route: { view: "channels" },
         active: (route) => route.view === "channels",
+        // Lean view is one unified conversations area — no DM/channel split.
+        hideInLean: true,
       },
     ],
   },
@@ -66,6 +70,10 @@ export const SEARCH_SECONDARY_NAV: SecondaryNavGroup[] = [
   },
 ];
 
+// In the lean view the ops surfaces (Tail/Dispatch/Repos promoted to the top
+// nav; Control/Mesh/Providers/Runtime/Plans tucked behind the palette) are all
+// one level — so every item is `hideInLean`. The bar collapses to nothing and
+// `.s-ops-header:empty` drops the empty chrome. The full bar returns in max-pro.
 export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
@@ -76,36 +84,56 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
         active: (route) =>
           route.view === "ops" &&
           (route.mode === undefined || route.mode === "mission" || route.mode === "issues"),
+        hideInLean: true,
       },
       {
         id: "dispatch",
         label: "Dispatch",
         route: { view: "broker" },
         active: (route) => route.view === "broker",
+        hideInLean: true,
+      },
+      {
+        id: "repos",
+        label: "Repos",
+        route: { view: "repos" },
+        active: (route) => route.view === "repos",
+        hideInLean: true,
+      },
+      {
+        id: "harnesses",
+        label: "Providers",
+        route: { view: "harnesses" },
+        active: (route) => route.view === "harnesses",
+        hideInLean: true,
       },
       {
         id: "mesh",
         label: "Mesh",
         route: { view: "mesh" },
         active: (route) => route.view === "mesh",
+        hideInLean: true,
       },
       {
         id: "tail",
         label: "Tail",
         route: { view: "ops", mode: "tail" },
         active: (route) => route.view === "ops" && route.mode === "tail",
+        hideInLean: true,
       },
       {
         id: "runtime",
         label: "Runtime",
         route: { view: "ops", mode: "atop" },
         active: (route) => route.view === "ops" && route.mode === "atop",
+        hideInLean: true,
       },
       {
         id: "plans",
         label: "Plans",
         route: { view: "ops", mode: "plan" },
         active: (route) => route.view === "ops" && route.mode === "plan",
+        hideInLean: true,
       },
     ],
   },

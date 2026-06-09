@@ -66,8 +66,9 @@ final class ScoutAppearance: ObservableObject {
 #if os(macOS)
 /// Applies live appearance settings to the hosting NSWindow. Lives in the view
 /// tree as a background so it re-applies whenever the settings change.
-/// `HudWindowChrome` forces the window opaque/dark; `alphaValue` composites on
-/// top of that, so the transparency slider works without fighting it.
+/// `HudWindowChrome` owns the window's opaque/chrome setup. Scout only adjusts
+/// `alphaValue`; changing `isOpaque` here fights Hudson's chrome bridge and
+/// creates a continuous AppKit/SwiftUI layout loop when opacity is below 1.0.
 struct ScoutWindowConfigurator: NSViewRepresentable {
     var opacity: Double
     var themeMode: ScoutThemeMode
@@ -86,16 +87,22 @@ struct ScoutWindowConfigurator: NSViewRepresentable {
         let value = opacity
         let mode = themeMode
         // Defer past HudChromeShell's own HudWindowChrome (which hard-sets
-        // .darkAqua once on launch) so the picker's choice wins.
+        // .darkAqua once on launch) so the picker's choice wins. Guard EVERY
+        // assignment: re-setting window.appearance/alphaValue on each SwiftUI
+        // update invalidates SwiftUI's internal WindowAppearanceViewModel, which
+        // re-resolves the window background style read by every view — so the
+        // whole tree (all those Buttons) re-renders every frame and idle CPU
+        // sits ~35%. Only touch the window when a value actually changed.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             guard let window = view.window else { return }
-            window.alphaValue = value
-            window.isOpaque = value >= 1.0
+            if window.alphaValue != value { window.alphaValue = value }
+            let desired: NSAppearance?
             switch mode {
-            case .system: window.appearance = nil
-            case .light: window.appearance = NSAppearance(named: .aqua)
-            case .dark: window.appearance = NSAppearance(named: .darkAqua)
+            case .system: desired = nil
+            case .light: desired = NSAppearance(named: .aqua)
+            case .dark: desired = NSAppearance(named: .darkAqua)
             }
+            if window.appearance?.name != desired?.name { window.appearance = desired }
         }
     }
 }

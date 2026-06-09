@@ -325,6 +325,17 @@ function summaryForType(rawType: string, obj: Record<string, unknown>, blocks: u
   if (rawType === "permission-mode") {
     return `permission-mode → ${String(obj.permissionMode ?? "")}`;
   }
+  if (rawType === "mode") {
+    return `mode → ${String(obj.mode ?? "")}`;
+  }
+  if (rawType === "ai-title" && typeof obj.aiTitle === "string") {
+    return clip(`ai-title: ${obj.aiTitle}`);
+  }
+  if (rawType === "pr-link") {
+    const num = obj.prNumber != null ? `#${String(obj.prNumber)}` : "";
+    const repo = typeof obj.prRepository === "string" ? obj.prRepository : "";
+    return clip(`pr-link → ${[num, repo].filter(Boolean).join(" ") || String(obj.prUrl ?? "")}`);
+  }
   if (rawType === "file-history-snapshot") {
     const snap = obj.snapshot as Record<string, unknown> | undefined;
     const tracked = snap && typeof snap === "object" ? snap.trackedFileBackups : undefined;

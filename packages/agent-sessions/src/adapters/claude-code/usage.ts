@@ -10,7 +10,8 @@ export function readClaudeCodeBudgetObservations(
 ): AdapterBudgetObservations {
   return readObservedProviderBudgetObservations(input, {
     provider: "anthropic",
-    includeQuotaWindows: false,
+    includeQuotaWindows: true,
     usageMetadataSource: "claude-code.providerMeta.observeUsage",
+    quotaMetadataSource: "claude-code.providerMeta.observeQuota",
   }, now);
 }

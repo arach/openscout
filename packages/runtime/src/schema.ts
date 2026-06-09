@@ -1,6 +1,61 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 9;
+export const CONTROL_PLANE_SCHEMA_VERSION = 10;
+
+export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS runtime_sessions (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  endpoint_id TEXT NOT NULL REFERENCES agent_endpoints(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  harness TEXT NOT NULL,
+  transport TEXT NOT NULL,
+  state TEXT NOT NULL,
+  primary_alias TEXT NOT NULL,
+  external_session_id TEXT,
+  cwd TEXT,
+  project_root TEXT,
+  started_at INTEGER,
+  last_seen_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  expires_at INTEGER,
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS runtime_session_aliases (
+  alias TEXT NOT NULL,
+  session_id TEXT NOT NULL REFERENCES runtime_sessions(id) ON DELETE CASCADE,
+  alias_kind TEXT NOT NULL,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  endpoint_id TEXT NOT NULL REFERENCES agent_endpoints(id) ON DELETE CASCADE,
+  node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+  harness TEXT NOT NULL,
+  transport TEXT NOT NULL,
+  first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  PRIMARY KEY (alias, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_agent_last_seen
+  ON runtime_sessions (agent_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_endpoint_last_seen
+  ON runtime_sessions (endpoint_id, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_external
+  ON runtime_sessions (external_session_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_sessions_expires
+  ON runtime_sessions (expires_at)
+  WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_alias
+  ON runtime_session_aliases (alias, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_session
+  ON runtime_session_aliases (session_id);
+CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_expires
+  ON runtime_session_aliases (expires_at)
+  WHERE expires_at IS NOT NULL;
+`;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -63,6 +118,8 @@ CREATE TABLE IF NOT EXISTS agent_endpoints (
   metadata_json TEXT,
   updated_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000)
 );
+
+${CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA}
 
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,

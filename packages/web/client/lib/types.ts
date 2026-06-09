@@ -698,6 +698,18 @@ export type AgentObservePayload = {
   data: ObserveData;
 };
 
+export type TmuxPeekPayload = {
+  available: boolean;
+  agentId: string;
+  sessionId: string | null;
+  capturedAt: number;
+  body: string;
+  lineCount: number;
+  columnCount: number;
+  truncated: boolean;
+  reason: string | null;
+};
+
 export type SessionCatalogEntry = {
   id: string;
   startedAt: number;
@@ -1108,6 +1120,12 @@ export type Route =
       sort?: MessagesSort;
     } & MachineScopedRoute)
   | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
+  | ({ view: "repos" } & MachineScopedRoute)
+  | ({ view: "harnesses" } & MachineScopedRoute)
+  // A diff path is absolute + machine-local, so this is intentionally not
+  // machine-scoped. Reached by drilling in / "open as page" from the Repos
+  // diff panel; deep-linkable as /repo-diff?path=<abs>&layer=…
+  | { view: "repo-diff"; path: string; layers?: ("unstaged" | "staged" | "branch")[] }
   | { view: "search"; mode?: SearchMode }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)

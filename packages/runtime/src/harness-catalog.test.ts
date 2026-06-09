@@ -92,6 +92,24 @@ describe("harness catalog", () => {
     expect(report.ready).toBe(true);
   });
 
+  test("readiness reports pi ready with Scout xAI credentials", () => {
+    const pi = createBuiltInHarnessCatalog().find((entry) => entry.name === "pi");
+    expect(pi).toBeTruthy();
+
+    const report = evaluateHarnessReadiness(pi!, {
+      env: {
+        SCOUT_XAI_API_KEY: "test-key",
+      },
+      whichBinary: () => "/usr/local/bin/pi",
+      requirementExists: () => false,
+    });
+
+    expect(report.state).toBe("ready");
+    expect(report.installed).toBe(true);
+    expect(report.configured).toBe(true);
+    expect(report.ready).toBe(true);
+  });
+
   test("builds current shell-safe resume commands", () => {
     const entries = createBuiltInHarnessCatalog();
     const claude = entries.find((entry) => entry.name === "claude");
