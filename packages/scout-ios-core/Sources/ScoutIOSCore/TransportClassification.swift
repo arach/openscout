@@ -217,8 +217,9 @@ func orderedRelayCandidates(
         discoveredRelayURLs + storedRelayURLs,
         userDefaults: userDefaults
     )
-    guard let primary = allowed.first else { return [] }
-    return deduplicatedRelayURLs(primary: primary, fallbacks: Array(allowed.dropFirst()))
+    let candidates = relayURLsIncludingInsecureLocalFallbacks(allowed)
+    guard let primary = candidates.first else { return [] }
+    return deduplicatedRelayURLs(primary: primary, fallbacks: Array(candidates.dropFirst()))
 }
 
 public func relayURLDependsOnTailscale(_ rawValue: String) -> Bool {
@@ -266,6 +267,30 @@ func deduplicatedRelayURLs(primary: String, fallbacks: [String]) -> [String] {
     }
 
     return urls
+}
+
+func relayURLsIncludingInsecureLocalFallbacks(_ relayURLs: [String]) -> [String] {
+    relayURLs.flatMap { relayURL in
+        guard let fallback = insecureLocalRelayFallback(for: relayURL) else {
+            return [relayURL]
+        }
+        return [relayURL, fallback]
+    }
+}
+
+private func insecureLocalRelayFallback(for rawValue: String) -> String? {
+    guard var components = URLComponents(string: rawValue),
+          components.scheme?.lowercased() == "wss" else {
+        return nil
+    }
+
+    switch transportKind(forRelayURL: rawValue) {
+    case .lan, .tailnet, .loopback:
+        components.scheme = "ws"
+        return components.url?.absoluteString
+    case .oscout, .remote, .none:
+        return nil
+    }
 }
 
 func isLocalOnlyRelayHost(_ host: String) -> Bool {

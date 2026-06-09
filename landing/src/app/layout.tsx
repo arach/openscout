@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Archivo } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
+import { siteBaseUrl } from "@/lib/site-links";
 import "./globals.css";
 
 // Basel — one grotesque across the whole system. Every legacy font variable
@@ -16,7 +17,7 @@ const archivo = Archivo({
 
 export const metadata: Metadata = {
   title: "OpenScout — Local Agent Broker",
-  metadataBase: new URL("https://openscout.app"),
+  metadataBase: new URL(siteBaseUrl),
   description:
     "Broker-backed local communication and execution for AI agents. Durable conversations, explicit invocations, tracked flights, bridges, a native Mac app, and a local web dashboard.",
   icons: {
@@ -32,7 +33,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "OpenScout",
     description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
-    url: "https://openscout.app",
+    url: siteBaseUrl,
     siteName: "OpenScout",
     type: "website",
     images: [

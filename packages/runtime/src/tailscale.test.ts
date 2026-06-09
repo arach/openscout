@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   readTailscalePeers,
   readTailscaleSelf,
+  readTailscaleSelfWebHostsSync,
   readTailscaleStatusSummary,
 } from "./tailscale";
 
@@ -109,6 +110,31 @@ describe("tailscale status readers", () => {
       peers,
       self,
     });
+
+    expect(readTailscaleSelfWebHostsSync()).toEqual([]);
+  });
+
+  test("reads tailnet web hosts from a running self identity", () => {
+    process.env.OPENSCOUT_TAILSCALE_STATUS_JSON = writeFixture({
+      BackendState: "Running",
+      Self: {
+        ID: "self-node",
+        HostName: "workstation",
+        DNSName: "workstation.tailnet.ts.net.",
+        TailscaleIPs: ["100.64.0.10"],
+        Online: true,
+        OS: "macOS",
+      },
+      CurrentTailnet: {
+        Name: "example.tailnet",
+        MagicDNSSuffix: "tailnet.ts.net",
+      },
+    });
+
+    expect(readTailscaleSelfWebHostsSync()).toEqual([
+      "workstation.tailnet.ts.net",
+      "100.64.0.10",
+    ]);
   });
 
   test("treats malformed status fixtures as unavailable", async () => {

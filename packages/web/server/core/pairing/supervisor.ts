@@ -245,15 +245,15 @@ function schedulePairingRefresh(state: SupervisorState, payload: PairingQrPayloa
   const delayMs = Math.max(1_000, payload.expiresAt - Date.now() - SCOUT_PAIR_REFRESH_LEEWAY_MS);
   state.refreshTimer = setTimeout(() => {
     state.refreshTimer = null;
-    if (state.current.status === "paired") {
-      refreshPairedPairingPayload(state);
+    if (state.current.pairing) {
+      refreshPairingPayload(state);
       return;
     }
     void startSupervisorRuntime(state);
   }, Math.min(delayMs, PAIRING_QR_TTL_MS));
 }
 
-function refreshPairedPairingPayload(state: SupervisorState): void {
+function refreshPairingPayload(state: SupervisorState): void {
   const pairing = state.current.pairing;
   if (!pairing) {
     void startSupervisorRuntime(state);

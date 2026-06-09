@@ -37,6 +37,23 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
     expect(endpoint.fallbackRelayUrls).toEqual([]);
   });
 
+  test("uses insecure websocket tailnet fallback when tailscale TLS is unavailable", () => {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
+      backendState: "Running",
+      dnsName: "relay.example.ts.net",
+      online: true,
+      health: [],
+    }, {
+      localAddress: "192.168.1.25",
+      tls: null,
+    });
+
+    expect(endpoint.relayUrl).toBe("ws://192.168.1.25:7889");
+    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:7889");
+    expect(endpoint.fallbackRelayUrls).toEqual(["ws://relay.example.ts.net:7889"]);
+    expect(endpoint.options).toEqual({});
+  });
+
   test("uses local network address when tailscale is stopped", () => {
     const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
       backendState: "Stopped",

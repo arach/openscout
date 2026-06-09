@@ -521,10 +521,17 @@ public final class BridgeConnection: @unchecked Sendable {
         // Candidate relays: Bonjour LAN first (local pairing is supported), then
         // the QR's ordered relay URLs, route-filtered and deduplicated.
         let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: qrPayload.publicKey)
+        let storedRelayURLs = qrPayload.orderedRelayURLs
         let relayURLs = orderedRelayCandidates(
             discoveredRelayURLs: discovered,
-            storedRelayURLs: qrPayload.orderedRelayURLs,
+            storedRelayURLs: storedRelayURLs,
             userDefaults: userDefaults
+        )
+        await logRelayCandidateDiagnostics(
+            context: "Pairing",
+            discoveredRelayURLs: discovered,
+            storedRelayURLs: storedRelayURLs,
+            candidates: relayURLs
         )
         guard !relayURLs.isEmpty else {
             await connectionLogHandle.log("No relay routes available for pairing", event: .routeUnavailable, level: .error)
@@ -614,11 +621,18 @@ public final class BridgeConnection: @unchecked Sendable {
 
     private func assembleRelayCandidates(for info: BridgeConnectionInfo) async -> [String] {
         let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: info.publicKeyHex)
-        return orderedRelayCandidates(
+        let candidates = orderedRelayCandidates(
             discoveredRelayURLs: discovered,
             storedRelayURLs: info.relayURLs,
             userDefaults: userDefaults
         )
+        await logRelayCandidateDiagnostics(
+            context: "Reconnect",
+            discoveredRelayURLs: discovered,
+            storedRelayURLs: info.relayURLs,
+            candidates: candidates
+        )
+        return candidates
     }
 
     private func savedConnectionInfoForTarget() -> BridgeConnectionInfo? {
@@ -852,6 +866,13 @@ public final class BridgeConnection: @unchecked Sendable {
                 return .relayUnavailable
             }
         } catch {
+            let route = transportKind(forRelayURL: relayURL)
+            await connectionLogHandle.log(
+                "Resolve failed detail: \(detailedErrorDescription(error))",
+                event: .resolve,
+                level: .warning,
+                route: route
+            )
             if relayURLDependsOnTailscale(relayURL) && isTailscaleRouteNetworkFailure(error) {
                 return .tailscaleUnavailable
             }
@@ -878,6 +899,13 @@ public final class BridgeConnection: @unchecked Sendable {
             throw BridgeConnectionError.handshakeFailed("Failed to construct relay URL")
         }
 
+        let route = transportKind(forRelayURL: relayURL)
+        await connectionLogHandle.log(
+            "Opening WebSocket \(url.absoluteString)",
+            event: .network,
+            route: route
+        )
+
         let ws = urlSession.webSocketTask(with: url)
         ws.resume()
         lock.withLockVoid { webSocket = ws }
@@ -894,7 +922,14 @@ public final class BridgeConnection: @unchecked Sendable {
                 remoteStaticKey: remoteStaticKey
             )
         } catch {
-            throw BridgeConnectionError.handshakeFailed(error.localizedDescription)
+            let detail = detailedErrorDescription(error)
+            await connectionLogHandle.log(
+                "Handshake failed detail: \(detail)",
+                event: .handshake,
+                level: .warning,
+                route: route
+            )
+            throw BridgeConnectionError.handshakeFailed(detail)
         }
 
         guard newTransport.isReady, let remoteKey = remoteKeyBox.get() else {
@@ -1166,6 +1201,100 @@ private extension NSLock {
     func withLockVoid(_ body: () -> Void) {
         lock(); defer { unlock() }
         body()
+    }
+}
+
+private extension BridgeConnection {
+    func logRelayCandidateDiagnostics(
+        context: String,
+        discoveredRelayURLs: [String],
+        storedRelayURLs: [String],
+        candidates: [String]
+    ) async {
+        await connectionLogHandle.log(
+            "\(context) relay inputs: discovered=\(formatRelayURLs(discoveredRelayURLs)) stored=\(formatRelayURLs(storedRelayURLs))",
+            event: .discover
+        )
+        await connectionLogHandle.log(
+            "Route prefs: LAN=\(routingSettingLabel(lanRoutingEnabled(userDefaults: userDefaults))) TSN=\(routingSettingLabel(tailnetRoutingEnabled(userDefaults: userDefaults))) OSN=\(routingSettingLabel(openScoutNetworkRoutingEnabled(userDefaults: userDefaults)))",
+            event: .resolve
+        )
+
+        let disabled = (discoveredRelayURLs + storedRelayURLs).filter {
+            !relayURLAllowedByRouteSettings($0, userDefaults: userDefaults)
+        }
+        if !disabled.isEmpty {
+            await connectionLogHandle.log(
+                "Filtered by route prefs: \(formatRelayURLs(disabled))",
+                event: .routeDisabled,
+                level: .warning
+            )
+        }
+
+        await connectionLogHandle.log(
+            "\(context) candidates \(candidates.count): \(formatRelayURLs(candidates))",
+            event: .resolve,
+            route: candidates.first.map(transportKind(forRelayURL:))
+        )
+    }
+}
+
+private func routingSettingLabel(_ enabled: Bool) -> String {
+    enabled ? "on" : "off"
+}
+
+private func formatRelayURLs(_ urls: [String], limit: Int = 8) -> String {
+    if urls.isEmpty { return "none" }
+    let rendered = urls.prefix(limit).enumerated().map { index, url in
+        "\(index + 1):\(transportKind(forRelayURL: url).label)=\(url)"
+    }
+    let remainder = urls.count - rendered.count
+    if remainder > 0 {
+        return "\(rendered.joined(separator: ", ")) +\(remainder) more"
+    }
+    return rendered.joined(separator: ", ")
+}
+
+private func detailedErrorDescription(_ error: Error) -> String {
+    if let bridgeError = error as? BridgeConnectionError {
+        return bridgeError.localizedDescription
+    }
+
+    let nsError = error as NSError
+    var parts = [error.localizedDescription]
+    var domainCode = "\(nsError.domain) code=\(nsError.code)"
+    if let urlCode = urlErrorCodeLabel(nsError) {
+        domainCode += " \(urlCode)"
+    }
+    parts.append(domainCode)
+
+    if let failingURL = nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL {
+        parts.append("url=\(failingURL.absoluteString)")
+    } else if let failingURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String {
+        parts.append("url=\(failingURL)")
+    }
+
+    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+        parts.append("underlying={\(detailedErrorDescription(underlying))}")
+    }
+
+    let uniqueParts = (Array(NSOrderedSet(array: parts)) as? [String]) ?? parts
+    return uniqueParts.joined(separator: " | ")
+}
+
+private func urlErrorCodeLabel(_ error: NSError) -> String? {
+    guard error.domain == NSURLErrorDomain else { return nil }
+    switch URLError.Code(rawValue: error.code) {
+    case .timedOut: return "timedOut"
+    case .cannotFindHost: return "cannotFindHost"
+    case .cannotConnectToHost: return "cannotConnectToHost"
+    case .dnsLookupFailed: return "dnsLookupFailed"
+    case .networkConnectionLost: return "networkConnectionLost"
+    case .notConnectedToInternet: return "notConnectedToInternet"
+    case .appTransportSecurityRequiresSecureConnection: return "ATSRequiresSecureConnection"
+    case .secureConnectionFailed: return "secureConnectionFailed"
+    case .serverCertificateUntrusted: return "serverCertificateUntrusted"
+    default: return nil
     }
 }
 

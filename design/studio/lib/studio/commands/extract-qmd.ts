@@ -93,7 +93,6 @@ function emptyResult({
     files: [],
     recordsScanned: 0,
     mechanicalMs: 0,
-    llmMs: 0,
     parseResult: parseRun,
     error,
   };

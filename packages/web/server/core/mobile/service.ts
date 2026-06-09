@@ -67,6 +67,13 @@ export type ScoutMobileAgentSummary = {
   state: "offline" | "available" | "working";
   statusLabel: string;
   sessionId: string | null;
+  /// The broker conversation the phone should open for this agent — its operator
+  /// DM, else the most-recent thread it participates in, else the canonical
+  /// `dm.operator.<agentId>` it WILL get on first send. This is the real
+  /// conversation id (snapshot/events/send all key off it); `sessionId` above is
+  /// only a harness label (e.g. `relay-openscout-claude`, shared across agents)
+  /// and must NOT be used for routing.
+  conversationId: string | null;
   lastActiveAt: number | null;
 };
 
@@ -307,10 +314,49 @@ function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): strin
     ?? agentId;
 }
 
+function rawConversationTitle(conversation: ScoutBrokerConversationRecord): string | null {
+  const title = typeof conversation.title === "string" ? conversation.title.trim() : "";
+  return title.length > 0 ? title : null;
+}
+
+function conversationIdTitle(conversationId: string): string {
+  if (conversationId.startsWith("channel.")) {
+    return conversationId.slice("channel.".length);
+  }
+  if (conversationId.startsWith("dm.operator.")) {
+    return conversationId.slice("dm.operator.".length);
+  }
+  return conversationId;
+}
+
+function mobileConversationTitle(
+  snapshot: ScoutBrokerSnapshot,
+  conversation: ScoutBrokerConversationRecord,
+  directAgentId: string | null = null,
+): string {
+  if (conversation.kind === "direct" && directAgentId) {
+    return agentDisplayName(snapshot, directAgentId);
+  }
+  const title = rawConversationTitle(conversation) ?? conversationIdTitle(conversation.id);
+  return conversation.kind === "channel" && title.startsWith("channel.")
+    ? title.slice("channel.".length)
+    : title;
+}
+
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
   return Object.values(snapshot.endpoints).find((endpoint) => (
     endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
   )) ?? null;
+}
+
+/// The conversation id the phone should route an agent tap to. Reuses the same
+/// resolver the snapshot RPC uses, so whatever we hand the phone round-trips back
+/// to the identical conversation. When the agent has no conversation yet (a
+/// branch/card agent never DM'd from the phone), fall back to the canonical
+/// operator-DM id it will be created under on first send — so the snapshot opens
+/// an empty composer and live events/send line up once it exists.
+function mobileAgentConversationId(snapshot: ScoutBrokerSnapshot, agentId: string): string {
+  return resolveMobileConversation(snapshot, agentId)?.id ?? `dm.operator.${agentId}`;
 }
 
 function buildMobileAgentSummary(
@@ -344,6 +390,7 @@ function buildMobileAgentSummary(
     state,
     statusLabel: state === "working" ? "Working" : state === "available" ? "Available" : "Offline",
     sessionId: endpoint?.sessionId ?? null,
+    conversationId: mobileAgentConversationId(snapshot, agent.id),
     lastActiveAt: lastAuthoredMessageAt,
   };
 }
@@ -369,9 +416,7 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
       return [{
         id: conversation.id,
         kind: conversation.kind,
-        title: conversation.kind === "direct" && directAgentId
-          ? agentDisplayName(snapshot, directAgentId)
-          : conversation.title,
+        title: mobileConversationTitle(snapshot, conversation, directAgentId),
         participantIds: [...conversation.participantIds],
         agentId: directAgentId,
         agentName: directAgentId ? agentDisplayName(snapshot, directAgentId) : null,
@@ -639,6 +684,41 @@ function resolveMobileConversation(
     .sort((a, b) => lastActivityMs(b.id) - lastActivityMs(a.id))[0] ?? null;
 }
 
+/// An empty-but-valid snapshot for a known agent whose operator DM hasn't been
+/// created yet. Lets the phone open a composer (instead of erroring) for fleet
+/// agents you've never chatted with; the first send creates the conversation.
+function emptyMobileSessionSnapshot(
+  snapshot: ScoutBrokerSnapshot,
+  conversationId: string,
+  agentId: string,
+): ScoutMobileSessionSnapshot {
+  const endpoint = endpointForAgent(snapshot, agentId);
+  const agent = snapshot.agents[agentId] ?? null;
+  return {
+    session: {
+      id: conversationId,
+      name: agentDisplayName(snapshot, agentId),
+      adapterType: endpoint?.harness ?? "relay",
+      status: endpoint?.state === "offline" ? "idle" : "active",
+      cwd: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+      model: typeof endpoint?.metadata?.model === "string" ? endpoint.metadata.model : null,
+      providerMeta: {
+        conversationId,
+        conversationKind: "direct",
+        agentId,
+        workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+        harness: endpoint?.harness ?? null,
+        selector: agent?.selector ?? null,
+        defaultSelector: agent?.defaultSelector ?? null,
+        project: agentDisplayName(snapshot, agentId),
+      },
+    },
+    history: { hasOlder: false, oldestTurnId: null, newestTurnId: null },
+    turns: [],
+    currentTurnId: null,
+  };
+}
+
 export async function getScoutMobileSessionSnapshot(
   conversationId: string,
   options: {
@@ -652,6 +732,15 @@ export async function getScoutMobileSessionSnapshot(
   const { snapshot } = broker;
   const conversation = resolveMobileConversation(snapshot, conversationId);
   if (!conversation) {
+    // No conversation yet, but the phone routed a canonical `dm.operator.<agentId>`
+    // for a real agent — return an empty session rather than throwing.
+    const pendingAgentId = conversationId.startsWith("dm.operator.")
+      ? conversationId.slice("dm.operator.".length)
+      : null;
+    const pendingAgent = pendingAgentId ? snapshot.agents[pendingAgentId] : null;
+    if (pendingAgentId && pendingAgent && !isInactiveAgent(pendingAgent)) {
+      return emptyMobileSessionSnapshot(snapshot, conversationId, pendingAgentId);
+    }
     throw new Error(`Unknown mobile session "${conversationId}".`);
   }
 
@@ -662,6 +751,7 @@ export async function getScoutMobileSessionSnapshot(
   const agent = directAgentId ? snapshot.agents[directAgentId] : null;
   const messagePage = pageMessagesForConversation(snapshot, conversation.id, options);
   const messages = messagePage.messages;
+  const title = mobileConversationTitle(snapshot, conversation, directAgentId);
   const activeFlight = latestActiveFlightForAgent(snapshot, directAgentId);
   const lastAgentMessageAt = messages
     .filter((message) => message.actorId === directAgentId)
@@ -716,7 +806,7 @@ export async function getScoutMobileSessionSnapshot(
   return {
     session: {
       id: conversation.id,
-      name: conversation.title,
+      name: title,
       adapterType: endpoint?.harness ?? "relay",
       status: shouldShowWorkingTurn ? "active" : endpoint?.state === "offline" ? "idle" : "active",
       cwd: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
@@ -729,7 +819,7 @@ export async function getScoutMobileSessionSnapshot(
         harness: endpoint?.harness ?? null,
         selector: agent?.selector ?? null,
         defaultSelector: agent?.defaultSelector ?? null,
-        project: directAgentId ? agentDisplayName(snapshot, directAgentId) : conversation.title,
+        project: directAgentId ? agentDisplayName(snapshot, directAgentId) : title,
         currentBranch:
           metadataString(endpoint?.metadata, "branch")
           ?? metadataString(endpoint?.metadata, "workspaceQualifier")
@@ -841,6 +931,7 @@ export async function createScoutSession(
     state: brokerEndpoint?.state === "offline" ? "offline" : "available",
     statusLabel: brokerEndpoint?.state === "offline" ? "Offline" : "Available",
     sessionId: localAgent.sessionId,
+    conversationId: directSession.conversation.id,
     lastActiveAt: null,
   };
 
@@ -1145,15 +1236,14 @@ export async function getScoutMobileConversations(
     const unread = readAt != null
       ? messages.filter((m) => m.createdAt > readAt && !selfIds.has(m.actorId)).length
       : 0;
+    const directAgentId = conv.kind === "direct"
+      ? conv.participantIds.find((participantId) => !selfIds.has(participantId)) ?? null
+      : null;
 
     rows.push({
       id: conv.id,
       kind: mobileKind,
-      // Some channels carry their raw id as the title ("channel.font-studio");
-      // show the bare channel name.
-      title: mobileKind === "channel" && conv.title.startsWith("channel.")
-        ? conv.title.slice("channel.".length)
-        : conv.title,
+      title: mobileConversationTitle(snapshot, conv, directAgentId),
       participants: conv.participantIds
         .filter((p) => !selfIds.has(p))
         .map((p) => commsActorLabel(snapshot, p, selfIds)),
@@ -1213,7 +1303,28 @@ export async function sendScoutMobileComms(
   const broker = await loadScoutBrokerContext();
   if (!broker) throw new Error("Relay is not reachable.");
   const conv = broker.snapshot.conversations?.[input.conversationId];
-  if (!conv) throw new Error(`Unknown conversation: ${input.conversationId}`);
+  if (!conv) {
+    // First message to an agent we've never DM'd from the phone: the canonical
+    // operator DM (`dm.operator.<agentId>`) doesn't exist yet. Route through the
+    // agent so the broker creates the conversation under that same id.
+    const pendingAgentId = input.conversationId.startsWith("dm.operator.")
+      ? input.conversationId.slice("dm.operator.".length)
+      : null;
+    if (pendingAgentId && broker.snapshot.agents[pendingAgentId]) {
+      const result = await sendScoutMobileMessage(
+        {
+          agentId: pendingAgentId,
+          body: input.body,
+          clientMessageId: input.clientMessageId,
+          replyToMessageId: input.replyToMessageId,
+        },
+        currentDirectory,
+        deviceId,
+      );
+      return { conversationId: result.conversationId, messageId: result.messageId };
+    }
+    throw new Error(`Unknown conversation: ${input.conversationId}`);
+  }
   const selfIds = operatorActorIds();
 
   // 1:1 DMs route through the direct-message path, addressed to the single

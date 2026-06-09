@@ -155,8 +155,12 @@ struct AgentsSurface: View {
     }
 
     private func openSession(_ agent: AgentSummary) {
-        guard let sid = agent.sessionId else { return }
-        route = ConversationRoute(id: sid, title: agent.title)
+        // Route by the agent's real broker conversation (its operator DM), NOT
+        // `sessionId` — that's a harness label (e.g. "relay-openscout-claude"),
+        // shared across agents, that resolves to no conversation. Fall back to the
+        // canonical `dm.operator.<id>` the broker creates on first send.
+        let conversationId = agent.conversationId ?? "dm.operator.\(agent.id)"
+        route = ConversationRoute(id: conversationId, title: agent.title)
     }
 
     // MARK: - Grouping / ordering

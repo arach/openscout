@@ -81,7 +81,14 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
     /// What the agent is doing right now — the most-recent action, not a clock.
     public var statusLabel: String?
     public var state: State
+    /// Harness session label (e.g. "relay-openscout-claude"). NOT a routable
+    /// conversation id — it's shared across agents in the same project. Use it for
+    /// display only; route taps via `conversationId`.
     public var sessionId: String?
+    /// The broker conversation to open for this agent (its operator DM, or the
+    /// canonical `dm.operator.<id>` it'll be created under on first send). This is
+    /// what the conversation surface loads / sends / streams against.
+    public var conversationId: String?
     public var lastActiveAt: Date?
 
     public init(
@@ -95,6 +102,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         statusLabel: String? = nil,
         state: State = .unknown,
         sessionId: String? = nil,
+        conversationId: String? = nil,
         lastActiveAt: Date? = nil
     ) {
         self.id = id
@@ -107,6 +115,7 @@ public struct AgentSummary: Codable, Sendable, Identifiable, Equatable {
         self.statusLabel = statusLabel
         self.state = state
         self.sessionId = sessionId
+        self.conversationId = conversationId
         self.lastActiveAt = lastActiveAt
     }
 }

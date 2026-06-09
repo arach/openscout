@@ -11,6 +11,7 @@ import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import { docsComponents } from "./mdx-components";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { githubRepoUrl } from "@/lib/site-links";
 
 const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
   () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
@@ -664,7 +665,7 @@ export function DocView({
                 <span className="status-bar__sigil">:</span>home
               </Link>
               <a
-                href="https://github.com/arach/openscout"
+                href={githubRepoUrl}
                 className="status-bar__link"
                 target="_blank"
                 rel="noopener noreferrer"

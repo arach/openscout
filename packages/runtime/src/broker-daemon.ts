@@ -193,6 +193,7 @@ import {
   isBrokerRunnableLocalAgentTransport,
   isDirectLocalAgentTransport,
 } from "./local-agent-transports.js";
+import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const PROCESS_NAME = "scout-broker";
 const WEB_PROCESS_NAME = "scout-web";
@@ -305,6 +306,7 @@ const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host
 const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
   ?? resolveBrokerServiceConfig().brokerSocketPath;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+const tailnetWebHosts = readTailscaleSelfWebHostsSync();
 const nodeLocalProductAgentIds = new Set([
   SCOUT_DISPATCHER_AGENT_ID,
   OPENSCOUT_COORDINATOR_AGENT_ID,
@@ -314,6 +316,15 @@ const seedUrls = (process.env.OPENSCOUT_MESH_SEEDS ?? "")
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+const webStartTrustedHosts = new Set(
+  [
+    ...(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    ...tailnetWebHosts,
+  ].map((value) => value.replace(/\.$/, "").toLowerCase()),
+);
 const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
   .split(",")
   .map((value) => value.trim().toLowerCase())
@@ -886,6 +897,7 @@ function normalizeTrustedWebHost(value: string | undefined): string | null {
       || hostName === "localhost"
       || hostName === "127.0.0.1"
       || hostName === "::1"
+      || webStartTrustedHosts.has(hostName)
     ) {
       return hostName;
     }
@@ -928,6 +940,10 @@ function appendCsvValue(input: string | undefined, value: string | undefined): s
   return existing.length > 0 ? existing.join(",") : undefined;
 }
 
+function appendCsvValues(input: string | undefined, values: Array<string | undefined>): string | undefined {
+  return values.reduce((current, value) => appendCsvValue(current, value), input);
+}
+
 function resolveWebServerLogPath(): string {
   const config = resolveBrokerServiceConfig();
   const logDirectory = join(config.supportDirectory, "logs", "web");
@@ -946,6 +962,10 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
   }
 
   const logFd = openSync(resolveWebServerLogPath(), "a");
+  const trustedHosts = appendCsvValues(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS, [
+    ...tailnetWebHosts,
+    context.trustedHost,
+  ]);
   const env = {
     ...process.env,
     OPENSCOUT_WEB_HOST: process.env.OPENSCOUT_WEB_HOST?.trim() || "0.0.0.0",
@@ -957,9 +977,7 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     ...(context.trustedHost && context.trustedHost !== "scout.local" && !process.env.OPENSCOUT_WEB_ADVERTISED_HOST?.trim()
       ? { OPENSCOUT_WEB_ADVERTISED_HOST: context.trustedHost }
       : {}),
-    ...(context.trustedHost
-      ? { OPENSCOUT_WEB_TRUSTED_HOSTS: appendCsvValue(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS, context.trustedHost) }
-      : {}),
+    ...(trustedHosts ? { OPENSCOUT_WEB_TRUSTED_HOSTS: trustedHosts } : {}),
     OPENSCOUT_SETUP_CWD: resolveWebServerSetupCwd(),
   };
   console.log("[openscout-runtime] starting Scout web server", {
@@ -1085,6 +1103,8 @@ function scoutWebSupervisorCorsHeaders(request: IncomingMessage): Record<string,
       || hostName.endsWith(".scout.local")
       || hostName === "127.0.0.1"
       || hostName === "localhost"
+      || hostName === "::1"
+      || webStartTrustedHosts.has(hostName)
     );
   } catch {
     allowed = false;

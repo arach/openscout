@@ -82,6 +82,7 @@ final class ScoutIOSCoreTests: XCTestCase {
             [
                 "ws://mac.local:7889",
                 "wss://mac.tailnet.ts.net:7889",
+                "ws://mac.tailnet.ts.net:7889",
                 "wss://mesh.oscout.net",
             ]
         )
@@ -106,7 +107,32 @@ final class ScoutIOSCoreTests: XCTestCase {
             ),
             [
                 "wss://mac.tailnet.ts.net:7889",
+                "ws://mac.tailnet.ts.net:7889",
                 "wss://mesh.oscout.net",
+            ]
+        )
+    }
+
+    func testRelayCandidatesAddInsecureFallbackAfterLegacyLocalTLSRelayUrls() {
+        let defaults = makeDefaults()
+
+        XCTAssertEqual(
+            orderedRelayCandidates(
+                discoveredRelayURLs: [],
+                storedRelayURLs: [
+                    "wss://192.168.1.10:7889",
+                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mesh.oscout.net",
+                    "wss://example.com",
+                ],
+                userDefaults: defaults
+            ),
+            [
+                "wss://192.168.1.10:7889",
+                "ws://192.168.1.10:7889",
+                "wss://mac.tailnet.ts.net:7889",
+                "ws://mac.tailnet.ts.net:7889",
+                "wss://example.com",
             ]
         )
     }
@@ -210,6 +236,7 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(log.entries.first?.route, .tailnet)
         XCTAssertEqual(ConnectionLogEvent.reconnect.label, "RECONNECT")
         XCTAssertEqual(ConnectionLogEvent.network.label, "NETWORK")
+        XCTAssertEqual(ConnectionLogEvent.auth.label, "AUTH")
     }
 
     private func makeDefaults() -> UserDefaults {

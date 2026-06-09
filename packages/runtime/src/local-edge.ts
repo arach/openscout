@@ -22,18 +22,37 @@ export type OpenScoutLocalEdgeConfig = {
   routes: OpenScoutLocalEdgeRoute[];
 };
 
+function normalizeRouteHost(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized || normalized.includes("/") || /\s/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 function uniqRoutes(routes: OpenScoutLocalEdgeRoute[]): OpenScoutLocalEdgeRoute[] {
   const seen = new Set<string>();
   const out: OpenScoutLocalEdgeRoute[] = [];
   for (const route of routes) {
-    const key = `${route.host.toLowerCase()} ${route.upstream}`;
+    const host = normalizeRouteHost(route.host);
+    if (!host) {
+      continue;
+    }
+    const key = `${host} ${route.upstream}`;
     if (seen.has(key)) {
       continue;
     }
     seen.add(key);
-    out.push(route);
+    out.push({ ...route, host });
   }
   return out;
+}
+
+function formatCaddyHost(host: string): string {
+  if (host.includes(":") && !host.startsWith("[") && !host.endsWith("]")) {
+    return `[${host}]`;
+  }
+  return host;
 }
 
 export function resolveOpenScoutLocalEdgeConfig(input: {
@@ -42,6 +61,7 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
   scheme?: OpenScoutLocalEdgeScheme;
   brokerPort?: number;
   webPort?: number;
+  extraHosts?: string[];
 } = {}): OpenScoutLocalEdgeConfig {
   const portalHost = resolveScoutWebNamedHostname(input.portalHost ?? DEFAULT_SCOUT_WEB_PORTAL_HOST);
   const nodeHost = resolveScoutWebNamedHostname(input.nodeHost ?? resolveConfiguredScoutWebHostname());
@@ -58,6 +78,7 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
     routes: uniqRoutes([
       { host: portalHost, upstream },
       { host: wildcardHost, upstream },
+      ...(input.extraHosts ?? []).map((host) => ({ host, upstream })),
     ]),
   };
 }
@@ -267,7 +288,8 @@ export function renderOpenScoutCaddyfile(config: OpenScoutLocalEdgeConfig): stri
   const blocks = schemes
     .flatMap((scheme) =>
       config.routes.map((route) => {
-        const host = scheme === "http" ? `http://${route.host}` : route.host;
+        const routeHost = formatCaddyHost(route.host);
+        const host = scheme === "http" ? `http://${routeHost}` : routeHost;
         return `${host} {\n`
           + (scheme === "https" ? `  tls internal\n` : "")
           + `  handle /__openscout/web/start {\n`

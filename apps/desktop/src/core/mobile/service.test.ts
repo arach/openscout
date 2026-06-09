@@ -5,7 +5,10 @@ import {
   type ActiveScoutBrokerService,
 } from "@openscout/runtime/broker-api";
 
-import { getScoutMobileSessionSnapshot } from "./service.ts";
+import {
+  getScoutMobileConversations,
+  getScoutMobileSessionSnapshot,
+} from "./service.ts";
 
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
 afterEach(() => {
@@ -83,6 +86,34 @@ describe("getScoutMobileSessionSnapshot", () => {
 
     expect(snapshot.turns.map((turn) => turn.id)).toEqual(["msg-user"]);
     expect(snapshot.currentTurnId).toBe(null);
+  });
+
+  test("falls back when a resolved conversation has no title", async () => {
+    const brokerSnapshot = brokerSnapshotWithFlight({
+      id: "flight-running",
+      state: "running",
+      summary: "Working on it.",
+    });
+    delete (brokerSnapshot.conversations["dm.operator.scoutbot"] as { title?: string }).title;
+    installBrokerSnapshot(brokerSnapshot);
+
+    const snapshot = await getScoutMobileSessionSnapshot("dm.operator.scoutbot");
+
+    expect(snapshot.session.name).toBe("Scout");
+  });
+
+  test("falls back when a comms conversation has no title", async () => {
+    const brokerSnapshot = brokerSnapshotWithFlight({
+      id: "flight-running",
+      state: "running",
+      summary: "Working on it.",
+    });
+    delete (brokerSnapshot.conversations["dm.operator.scoutbot"] as { title?: string }).title;
+    installBrokerSnapshot(brokerSnapshot);
+
+    const conversations = await getScoutMobileConversations();
+
+    expect(conversations.find((conversation) => conversation.id === "dm.operator.scoutbot")?.title).toBe("Scout");
   });
 });
 

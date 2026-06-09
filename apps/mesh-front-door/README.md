@@ -100,7 +100,7 @@ https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete
 ```
 
 GitHub still returns to the single HTTPS callback above; the Worker then returns
-the OpenScout session to the app with `openscout://osn-auth`.
+the OpenScout session to the app with `scout://osn-auth`.
 
 ## Local Commands
 

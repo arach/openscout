@@ -10,7 +10,7 @@
     },
     "apps/cloud": {
       "name": "@openscout/api",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "dependencies": {
         "@vercel/blob": "^2.3.3",
         "next": "16.1.6",
@@ -26,7 +26,7 @@
     },
     "apps/desktop": {
       "name": "@scout/app",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "bin": {
         "scout": "./bin/scout.ts",
         "pair-supervisor": "./bin/pair-supervisor.ts",
@@ -62,7 +62,7 @@
     },
     "apps/mesh-front-door": {
       "name": "@openscout/mesh-front-door",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "dependencies": {
         "@openscout/protocol": "workspace:*",
       },
@@ -72,7 +72,7 @@
     },
     "packages/agent-sessions": {
       "name": "@openscout/agent-sessions",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "devDependencies": {
         "@types/node": "^22",
         "bun-types": "^1.3.11",
@@ -81,7 +81,7 @@
     },
     "packages/cli": {
       "name": "@openscout/scout",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "bin": {
         "scout": "./bin/scout.mjs",
       },
@@ -96,14 +96,14 @@
     },
     "packages/protocol": {
       "name": "@openscout/protocol",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "devDependencies": {
         "typescript": "^5",
       },
     },
     "packages/runtime": {
       "name": "@openscout/runtime",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "bin": {
         "openscout-runtime": "./bin/openscout-runtime.mjs",
       },
@@ -127,7 +127,7 @@
     },
     "packages/session-trace": {
       "name": "@openscout/session-trace",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "dependencies": {
         "@openscout/agent-sessions": "workspace:*",
       },
@@ -137,7 +137,7 @@
     },
     "packages/session-trace-react": {
       "name": "@openscout/session-trace-react",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "dependencies": {
         "@openscout/session-trace": "workspace:*",
       },
@@ -151,7 +151,7 @@
     },
     "packages/web": {
       "name": "@openscout/web",
-      "version": "0.2.70",
+      "version": "0.2.71",
       "bin": {
         "openscout-web": "./bin/openscout-web.mjs",
       },

@@ -466,6 +466,7 @@ struct MobileAgentSummary: Codable, Sendable {
     let state: String
     let statusLabel: String?
     let sessionId: String?
+    let conversationId: String?
     let lastActiveAt: Int?
 
     func toSummary() -> AgentSummary {
@@ -487,6 +488,7 @@ struct MobileAgentSummary: Codable, Sendable {
             statusLabel: statusLabel,
             state: mappedState,
             sessionId: sessionId,
+            conversationId: conversationId,
             lastActiveAt: lastActiveAt.map { Date(timeIntervalSince1970: Double(scoutEpochMilliseconds($0)) / 1000.0) }
         )
     }

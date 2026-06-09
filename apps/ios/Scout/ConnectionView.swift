@@ -137,7 +137,7 @@ struct ConnectionView: View {
         switch event {
         case .connected: return HudPalette.accent
         case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
-        case .handshake, .resolve, .discover, .fallback, .pairing, .trust: return levelColor(level)
+        case .handshake, .resolve, .discover, .fallback, .pairing, .trust, .auth: return levelColor(level)
         case .lifecycle: return HudPalette.dim
         }
     }

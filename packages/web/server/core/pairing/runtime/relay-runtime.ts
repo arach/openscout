@@ -1,5 +1,5 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 
@@ -39,27 +39,39 @@ export type RelayEndpointResolutionOptions = {
   tls?: TLSPair | null;
 };
 
-function findStoredCerts(): TLSPair | null {
+function findStoredTailscaleCert(hostname: string): TLSPair | null {
   if (!existsSync(PAIRING_DIR)) {
     return null;
   }
 
-  try {
-    const files = readdirSync(PAIRING_DIR);
-    const certFile = files.find((file) => file.endsWith(".ts.net.crt") || file.endsWith(".crt"));
-    if (!certFile) {
-      return null;
-    }
-    const keyFile = certFile.replace(/\.crt$/, ".key");
-    if (!files.includes(keyFile)) {
-      return null;
-    }
-    return {
-      cert: join(PAIRING_DIR, certFile),
-      key: join(PAIRING_DIR, keyFile),
-    };
-  } catch {
+  const certPath = join(PAIRING_DIR, `${hostname}.crt`);
+  const keyPath = join(PAIRING_DIR, `${hostname}.key`);
+  if (!existsSync(certPath) || !existsSync(keyPath)) {
     return null;
+  }
+
+  if (!storedCertificateLooksPubliclyTrusted(certPath)) {
+    return null;
+  }
+
+  return { cert: certPath, key: keyPath };
+}
+
+function storedCertificateLooksPubliclyTrusted(certPath: string): boolean {
+  try {
+    execFileSync("openssl", ["x509", "-in", certPath, "-noout", "-checkend", "86400"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    });
+    const output = execFileSync("openssl", ["x509", "-in", certPath, "-noout", "-issuer", "-subject"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: 5_000,
+    }).toString();
+    const issuer = output.match(/^issuer=(.*)$/m)?.[1]?.trim();
+    const subject = output.match(/^subject=(.*)$/m)?.[1]?.trim();
+    return Boolean(issuer && subject && issuer !== subject);
+  } catch {
+    return false;
   }
 }
 
@@ -169,50 +181,25 @@ function generateTailscaleCerts(hostname: string): TLSPair | null {
 
   try {
     pairingLog.info("relay", "generating tailscale TLS cert", { hostname });
-    execSync(`tailscale cert --cert-file "${certPath}" --key-file "${keyPath}" "${hostname}"`, {
+    execFileSync("tailscale", ["cert", "--cert-file", certPath, "--key-file", keyPath, hostname], {
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 30_000,
     });
     return { cert: certPath, key: keyPath };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    pairingLog.warn("relay", "tailscale cert failed; falling back to self-signed TLS", { hostname, detail });
-    return generateSelfSignedCert(hostname);
-  }
-}
-
-function generateSelfSignedCert(hostname: string): TLSPair | null {
-  mkdirSync(PAIRING_DIR, { recursive: true });
-
-  const certPath = join(PAIRING_DIR, `${hostname}.crt`);
-  const keyPath = join(PAIRING_DIR, `${hostname}.key`);
-
-  try {
-    execSync(
-      `openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 ` +
-      `-keyout "${keyPath}" -out "${certPath}" -days 365 -nodes ` +
-      `-subj "/CN=${hostname}" -addext "subjectAltName=DNS:${hostname}"`,
-      {
-        stdio: ["pipe", "pipe", "pipe"],
-        timeout: 10_000,
-      },
-    );
-    pairingLog.info("relay", "generated self-signed TLS cert", { hostname });
-    return { cert: certPath, key: keyPath };
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    pairingLog.warn("relay", "failed to generate self-signed TLS cert", { hostname, detail });
+    pairingLog.warn("relay", "tailscale cert failed; using insecure websocket tailnet relay", { hostname, detail });
     return null;
   }
 }
 
 function resolveTls(hostname: string | null) {
-  const stored = findStoredCerts();
-  if (stored) {
-    return stored;
-  }
   if (!hostname) {
     return null;
+  }
+  const stored = findStoredTailscaleCert(hostname);
+  if (stored) {
+    return stored;
   }
   return generateTailscaleCerts(hostname);
 }

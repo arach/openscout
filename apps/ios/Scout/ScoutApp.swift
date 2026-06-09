@@ -30,9 +30,10 @@ struct ScoutApp: App {
             .sheet(isPresented: $model.showPairing) {
                 PairingView(model: model)
             }
-            // Camera-free deep-link pairing: scout://pair?payload=…
+            // Camera-free pairing and native auth: scout://pair?payload=…
+            // and scout://osn-auth?session=…
             .onOpenURL { url in
-                Task { await model.pairFromLink(url.absoluteString) }
+                Task { await model.handleDeepLink(url) }
             }
             .onChange(of: scenePhase) { _, phase in
                 model.setScenePhase(phase)

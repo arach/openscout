@@ -9,7 +9,7 @@ Status:
 - the HudsonKit-first implementation is the active Scout iOS app
 - the legacy ScoutApp target has been removed
 - `apps/ios/Scout` is the source root for new mobile-facing work
-- Scout owns `scout://` pairing links
+- Scout owns `scout://` pairing and native auth links
 
 Project notes:
 - XcodeGen project definition: [project.yml](./project.yml)

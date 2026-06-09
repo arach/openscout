@@ -16,6 +16,7 @@ public enum ConnectionLogEvent: String, CaseIterable, Sendable {
     case routeUnavailable
     case pairing
     case trust
+    case auth
 
     public var label: String {
         switch self {
@@ -31,6 +32,7 @@ public enum ConnectionLogEvent: String, CaseIterable, Sendable {
         case .routeUnavailable: return "UNAVAIL"
         case .pairing: return "PAIR"
         case .trust: return "TRUST"
+        case .auth: return "AUTH"
         }
     }
 }

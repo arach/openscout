@@ -1,3 +1,9 @@
+import {
+  isOpenScoutProductionHost,
+  productionSiteHosts,
+  productionSiteHostSuffixes,
+} from "./site-links";
+
 export type SiteTheme = "light" | "dark";
 export type SiteThemePreference = SiteTheme | "auto";
 
@@ -22,12 +28,7 @@ export function normalizeThemePreference(
 }
 
 export function isProductionSiteHost(host: string | null | undefined) {
-  const normalizedHost = normalizeHost(host);
-  return (
-    normalizedHost === "openscout.app"
-    || normalizedHost === "www.openscout.app"
-    || normalizedHost.endsWith(".openscout.app")
-  );
+  return isOpenScoutProductionHost(host);
 }
 
 export function defaultSiteThemeForHost(
@@ -51,6 +52,8 @@ export function resolveSiteTheme(
 export const SITE_THEME_INIT_SCRIPT = `(() => {
   const cookieName = ${JSON.stringify(SITE_THEME_COOKIE)};
   const queryParamName = ${JSON.stringify(SITE_THEME_QUERY_PARAM)};
+  const productionHosts = ${JSON.stringify(productionSiteHosts)};
+  const productionHostSuffixes = ${JSON.stringify(productionSiteHostSuffixes)};
   const readCookie = (name) => {
     const match = document.cookie
       .split("; ")
@@ -66,9 +69,8 @@ export const SITE_THEME_INIT_SCRIPT = `(() => {
     value === "light" || value === "dark" || value === "auto" ? value : "auto";
   const isProductionSiteHost = (host) => {
     const normalizedHost = normalizeHost(host);
-    return normalizedHost === "openscout.app"
-      || normalizedHost === "www.openscout.app"
-      || normalizedHost.endsWith(".openscout.app");
+    return productionHosts.includes(normalizedHost)
+      || productionHostSuffixes.some((suffix) => normalizedHost.endsWith(suffix));
   };
   const params = new URLSearchParams(window.location.search);
   const defaultTheme = isProductionSiteHost(window.location.host) ? "dark" : "light";

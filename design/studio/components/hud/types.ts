@@ -115,6 +115,30 @@ export interface ActivityBucket {
   events: ActivityEvent[];
 }
 
+// Legacy observe surface shape. HudObserve is still typechecked by Next even
+// though the current HUD barrel exports HudActivity instead.
+export type ObserveKind = ActivityKind;
+
+export interface ObserveEvent {
+  id: string;
+  ago: string;
+  at: string;
+  agent: string;
+  handle: string;
+  kind: ObserveKind;
+  line: string;
+  meta: string;
+  summary?: string;
+  emphasized?: boolean;
+  flightId?: string;
+}
+
+export interface ObserveBucket {
+  eyebrow: string;
+  headline: string;
+  events: ObserveEvent[];
+}
+
 // ─── Tail (firehose) ─────────────────────────────────────────────────
 //
 // Low-level granular log stream. Each row = one line. No buckets, no

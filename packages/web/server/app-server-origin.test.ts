@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { resolveOpenScoutWebApplicationServerIdentity } from "./app-server-origin.ts";
+
+function writeTailscaleFixture(body: unknown): { directory: string; filePath: string } {
+  const directory = mkdtempSync(join(tmpdir(), "openscout-web-origin-"));
+  const filePath = join(directory, "tailscale-status.json");
+  writeFileSync(filePath, JSON.stringify(body, null, 2), "utf8");
+  return { directory, filePath };
+}
 
 describe("resolveOpenScoutWebApplicationServerIdentity", () => {
   test("uses scout.local as the portal and a node host as the advertised host", () => {
@@ -80,5 +90,42 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       portalHost: "scout.local",
       trustedHosts: ["arachs-mac-mini.scout.local", "scout.local"],
     });
+  });
+
+  test("trusts running Tailscale self hosts", () => {
+    const { directory, filePath } = writeTailscaleFixture({
+      BackendState: "Running",
+      Self: {
+        ID: "self-node",
+        HostName: "m1",
+        DNSName: "m1.tailnet.ts.net.",
+        TailscaleIPs: ["100.64.0.10"],
+        Online: true,
+        OS: "macOS",
+      },
+      CurrentTailnet: {
+        Name: "example.tailnet",
+        MagicDNSSuffix: "tailnet.ts.net",
+      },
+    });
+
+    try {
+      expect(
+        resolveOpenScoutWebApplicationServerIdentity(
+          { OPENSCOUT_TAILSCALE_STATUS_JSON: filePath },
+          "M1.local",
+          {},
+        ),
+      ).toMatchObject({
+        trustedHosts: [
+          "m1.scout.local",
+          "scout.local",
+          "m1.tailnet.ts.net",
+          "100.64.0.10",
+        ],
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

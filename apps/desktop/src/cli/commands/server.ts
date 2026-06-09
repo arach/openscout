@@ -15,6 +15,7 @@ import {
   type OpenScoutLocalEdgeConfig,
   type OpenScoutLocalEdgeScheme,
 } from "@openscout/runtime/local-edge";
+import { readTailscaleSelfWebHostsSync } from "@openscout/runtime/mesh/tailscale";
 import {
   resolveBunExecutable as resolveResolvedBunExecutable,
   resolveBundledEntrypoint,
@@ -280,6 +281,27 @@ function appendEnvList(env: Record<string, string>, key: string, value: string):
   env[key] = env[key] ? `${env[key]},${value}` : value;
 }
 
+function splitEnvList(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function appendEnvListValues(input: string | undefined, values: string[]): string | undefined {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of [...splitEnvList(input), ...values]) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out.length > 0 ? out.join(",") : undefined;
+}
+
 function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): string | null {
   const entryDir = dirname(entry);
   const clientDirectory = join(entryDir, "client");
@@ -319,7 +341,15 @@ function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Rec
   if (flagEnv.OPENSCOUT_SETUP_CWD) {
     autoEnv.OPENSCOUT_SETUP_CWD = flagEnv.OPENSCOUT_SETUP_CWD;
   }
-  return { ...process.env, ...autoEnv, ...flagEnv } as NodeJS.ProcessEnv;
+  const mergedEnv = { ...process.env, ...autoEnv, ...flagEnv } as NodeJS.ProcessEnv;
+  const trustedHosts = appendEnvListValues(
+    mergedEnv.OPENSCOUT_WEB_TRUSTED_HOSTS,
+    readTailscaleSelfWebHostsSync(),
+  );
+  if (trustedHosts) {
+    mergedEnv.OPENSCOUT_WEB_TRUSTED_HOSTS = trustedHosts;
+  }
+  return mergedEnv;
 }
 
 function parseServerSelection(args: string[]): {
@@ -433,6 +463,7 @@ function resolveServerLocalEdgeConfig(env: NodeJS.ProcessEnv): OpenScoutLocalEdg
     nodeHost,
     scheme: resolveServerEdgeScheme(env),
     webPort: port,
+    extraHosts: splitEnvList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),
   });
 }
 
