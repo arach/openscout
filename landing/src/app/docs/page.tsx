@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { getAllDocs } from "@/lib/docs";
+import { absoluteSiteUrl, githubRepoUrl } from "@/lib/site-links";
 import type { DocMeta } from "@/lib/docs";
 
 export const metadata: Metadata = {
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
     title: "Documentation — Scout",
     description:
       "Reference material for OpenScout/Ø.1 — the local-first broker protocol for inter-agent messaging.",
-    url: "https://openscout.app/docs",
+    url: absoluteSiteUrl("/docs"),
     images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
   },
   twitter: {
@@ -187,7 +188,7 @@ export default function DocsIndex() {
                 <span className="status-bar__sigil">:</span>home
               </Link>
               <a
-                href="https://github.com/arach/openscout"
+                href={githubRepoUrl}
                 className="status-bar__link"
                 target="_blank"
                 rel="noopener noreferrer"

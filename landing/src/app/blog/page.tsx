@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { formatBlogDate, getAllBlogPosts } from "@/lib/blog";
+import { absoluteSiteUrl } from "@/lib/site-links";
 
 export const metadata: Metadata = {
   title: "Blog - Scout",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Blog - Scout",
     description: "Notes on OpenScout product design, agent collaboration, and local-first operations.",
-    url: "https://openscout.app/blog",
+    url: absoluteSiteUrl("/blog"),
     images: [{ url: "/og.png", width: 1200, height: 630 }],
   },
   twitter: {

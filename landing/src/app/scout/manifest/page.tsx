@@ -11,6 +11,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { absoluteSiteUrl, githubRepoUrl } from "@/lib/site-links";
 import manifest from "../../../../public/.well-known/scout.json";
 
 export const metadata: Metadata = {
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
     title: "Scout Manifest — OpenScout",
     description:
       "A human-readable view of OpenScout's well-known manifest for agents, CLIs, SDKs, and broker integrations.",
-    url: "https://openscout.app/scout/manifest",
+    url: absoluteSiteUrl("/scout/manifest"),
     images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
   },
   twitter: {
@@ -162,7 +163,7 @@ export default function ScoutManifestPage() {
               <ActionLink href="/install.md">
                 <Terminal size={16} /> Install guide
               </ActionLink>
-              <ActionLink href="https://github.com/arach/openscout">
+              <ActionLink href={githubRepoUrl}>
                 <ExternalLink size={16} /> Repository
               </ActionLink>
             </div>

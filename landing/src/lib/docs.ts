@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join, basename, dirname, relative, resolve, sep } from "path";
 import matter from "gray-matter";
+import { githubRawBaseUrl, githubRepoUrl } from "./site-links";
 
 export type DocMeta = {
   slug: string;
@@ -20,8 +21,8 @@ export type DocEntry = DocMeta & {
 const DOCS_DIR = join(process.cwd(), "..", "docs");
 const TRACKS_DIR = join(DOCS_DIR, "openagents-tracks");
 const REPO_ROOT = join(DOCS_DIR, "..");
-const GITHUB_BLOB_BASE_URL = "https://github.com/arach/openscout/blob/main";
-const GITHUB_RAW_BASE_URL = "https://raw.githubusercontent.com/arach/openscout/main";
+const GITHUB_BLOB_BASE_URL = `${githubRepoUrl}/blob/main`;
+const GITHUB_RAW_BASE_URL = githubRawBaseUrl;
 
 type GroupDef = { group: string; order: number; title: string; description: string };
 

@@ -10,11 +10,12 @@ import {
   Speech,
 } from "lucide-react";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { absoluteSiteUrl, githubIssuesUrl, siteBaseUrl } from "@/lib/site-links";
 
 export const metadata: Metadata = {
   title: "Privacy Policy — OpenScout",
   description:
-    "Privacy practices for openscout.app, api.openscout.app, and the Scout desktop and iOS apps.",
+    "Privacy practices for oscout.net, api.openscout.app, and the Scout desktop and iOS apps.",
   alternates: {
     canonical: "/privacy",
   },
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
     title: "Privacy — OpenScout",
     description:
       "What OpenScout collects, what stays local, and how to opt out.",
-    url: "https://openscout.app/privacy",
+    url: absoluteSiteUrl("/privacy"),
     images: [{ url: "/og-privacy.png", width: 1200, height: 630 }],
   },
   twitter: {
@@ -36,7 +37,7 @@ const websitePractices = [
     icon: Database,
     title: "Website analytics",
     description:
-      "The marketing site at openscout.app uses Google Analytics in production to measure page visits and site interactions such as navigation clicks, CTA clicks, command copy events, and lead-form activity.",
+      "The marketing site at oscout.net uses Google Analytics in production to measure page visits and site interactions such as navigation clicks, CTA clicks, command copy events, and lead-form activity.",
   },
   {
     icon: Shield,
@@ -102,7 +103,7 @@ export default function PrivacyPage() {
         </h1>
         <p className="mt-5 max-w-3xl text-[16px] leading-relaxed text-[var(--site-copy)]">
           Last updated April 23, 2026. This policy covers the OpenScout marketing
-          site at <span className="font-medium text-[var(--site-ink)]">openscout.app</span>,
+          site at <span className="font-medium text-[var(--site-ink)]">{siteBaseUrl.replace("https://", "")}</span>,
           the early-access endpoint at <span className="font-medium text-[var(--site-ink)]">api.openscout.app</span>,
           and the Scout desktop and iOS apps.
         </p>
@@ -205,11 +206,12 @@ export default function PrivacyPage() {
           </h2>
           <div className="mt-4 rounded-2xl border border-[var(--site-border-soft)] bg-[var(--site-surface)] p-6">
             <p className="text-[14px] leading-relaxed text-[var(--site-copy)]">
-              The public marketing site is served from GitHub Pages. Early-access
-              submissions are written to private blob storage. Local app state stays
-              on your own devices unless you explicitly send information through a
-              service or bridge you operate. We keep website submissions for product
-              and support operations until they are no longer needed.
+              The public marketing site is served from Cloudflare Pages.
+              Early-access submissions are written to private blob storage. Local
+              app state stays on your own devices unless you explicitly send
+              information through a service or bridge you operate. We keep website
+              submissions for product and support operations until they are no
+              longer needed.
             </p>
           </div>
         </section>
@@ -224,7 +226,7 @@ export default function PrivacyPage() {
               submission, contact us through the OpenScout support channel.
             </p>
             <a
-              href="https://github.com/arach/openscout/issues"
+              href={githubIssuesUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-[var(--site-ink)] px-4 text-sm font-medium text-[var(--site-ink-contrast)] transition-colors hover:bg-[var(--site-ink-hover)]"

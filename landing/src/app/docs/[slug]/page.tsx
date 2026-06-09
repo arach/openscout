@@ -2,6 +2,7 @@ import { getAllDocs, getDocBySlug, getNavigation } from "@/lib/docs";
 import { DocView } from "./doc-view";
 import { notFound } from "next/navigation";
 import { serialize } from "next-mdx-remote/serialize";
+import { absoluteSiteUrl } from "@/lib/site-links";
 
 export function generateStaticParams() {
   return getAllDocs().map((doc) => ({ slug: doc.slug }));
@@ -17,7 +18,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     openGraph: {
       title: `${doc.title} — Scout Docs`,
       description: doc.description,
-      url: `https://openscout.app/docs/${slug}`,
+      url: absoluteSiteUrl(`/docs/${slug}`),
       images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
     },
     twitter: {

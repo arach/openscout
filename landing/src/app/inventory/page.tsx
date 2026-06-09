@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PlanInventoryScreen } from "@/components/plan-inventory-screen";
 import { loadPlanInventory } from "@/lib/plan-inventory";
+import { absoluteSiteUrl } from "@/lib/site-links";
 
 export const metadata: Metadata = {
   title: "Plan Inventory — OpenScout",
@@ -8,7 +9,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Plan Inventory — OpenScout",
     description: "Review recent agent plans and branch into follow-up work.",
-    url: "https://openscout.app/inventory",
+    url: absoluteSiteUrl("/inventory"),
     images: [{ url: "/og-inventory.png", width: 1200, height: 630 }],
   },
   twitter: {
