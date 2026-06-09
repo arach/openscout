@@ -151,7 +151,7 @@ function resolveRuntimeEntry(): string {
         "--outfile",
         sourceBundle,
         "--external",
-        "node-pty",
+        "@lydell/node-pty",
       ],
       {
         cwd: resolve(selfDir, ".."),

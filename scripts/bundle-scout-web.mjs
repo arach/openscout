@@ -73,7 +73,7 @@ export function bundleScoutTerminalRelayNode(repoRoot, outfile) {
       "--outfile",
       outfile,
       "--external",
-      "node-pty",
+      "@lydell/node-pty",
     ],
     { cwd: repoRoot, stdio: "inherit" },
   );

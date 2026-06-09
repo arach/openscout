@@ -51,7 +51,7 @@ for (const entry of entries) {
       entry.output,
       "--external",
       "vite",
-      ...(entry.target === "node" ? ["--external", "node-pty"] : []),
+      ...(entry.target === "node" ? ["--external", "@lydell/node-pty"] : []),
     ],
     {
       cwd: packageDirectory,
