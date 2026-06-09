@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
@@ -2455,6 +2456,9 @@ function AgentsLibrary({
   navigate: (r: Route) => void;
 }) {
   const { route } = useScout();
+  // Workflow / harness-topology telemetry is a power surface — the lean
+  // directory is just the project-grouped agent board (cards/tree).
+  const workflowsEnabled = useOptionalFlag("surface.workflows", false);
   const [query, setQuery] = useState("");
   const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AgentInventoryStatus>>(() => new Set());
@@ -2778,15 +2782,17 @@ function AgentsLibrary({
           )}
         </div>
 
-        <div className="s-agents-library-topology">
-          <ObservedTopologyPanel
-            title="Observed harness families"
-            size="compact"
-            maxAgents={8}
-            maxTasks={4}
-            showEmpty
-          />
-        </div>
+        {workflowsEnabled && (
+          <div className="s-agents-library-topology">
+            <ObservedTopologyPanel
+              title="Observed harness families"
+              size="compact"
+              maxAgents={8}
+              maxTasks={4}
+              showEmpty
+            />
+          </div>
+        )}
 
         <ProjectBoard
           projects={visibleProjects}

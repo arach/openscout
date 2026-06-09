@@ -314,8 +314,10 @@ export function useScoutNavCenter(): ReactNode | null {
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
+  // Lean view puts the machines away — the scope selector is power chrome.
+  const cleanNav = useOptionalFlag("nav.clean", false);
   return createElement("div", { className: "scout-nav-actions" },
-    createElement(MachineScopeControl, { variant: "nav" }),
+    !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),
     createElement(
       "button",
       {
