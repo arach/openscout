@@ -1,6 +1,6 @@
 {
   "name": "@openscout/agent-sessions",
-  "version": "0.2.70",
+  "version": "0.2.72",
   "private": true,
   "description": "Browser-safe session boundary for OpenScout agent sessions",
   "type": "module",
