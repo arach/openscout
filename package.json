@@ -55,7 +55,7 @@
     "supervisor:build": "bash scripts/cargo.sh build --manifest-path crates/openscout-supervisor/Cargo.toml",
     "supervisor:run": "bash scripts/cargo.sh run --manifest-path crates/openscout-supervisor/Cargo.toml --",
     "supervisor:daemon": "bash scripts/cargo.sh run --manifest-path crates/openscout-supervisor/Cargo.toml -- supervise",
-    "supervisor:smoke": "bash scripts/supervisor-smoke.sh",
+    "supervisor:verify": "bash scripts/supervisor-verify.sh",
     "mesh:iroh:smoke": "bun scripts/mesh-iroh-smoke.mjs",
     "mesh-front-door:check": "bun run --cwd apps/mesh-front-door check",
     "mesh-front-door:dev": "bun run --cwd apps/mesh-front-door dev",
