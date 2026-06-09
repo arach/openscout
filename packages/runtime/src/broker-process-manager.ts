@@ -233,8 +233,22 @@ function findGlobalRuntimeDir(): string | null {
 
 function findBundledRuntimeDir(): string | null {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const candidate = resolve(moduleDir, "..");
-  return isInstalledRuntimePackageDir(candidate) ? candidate : null;
+  return resolveBundledRuntimeDirFromModuleDir(moduleDir);
+}
+
+export function resolveBundledRuntimeDirFromModuleDir(moduleDir: string): string | null {
+  const candidates = [
+    // @openscout/runtime/dist/broker-process-manager.js
+    resolve(moduleDir, ".."),
+    // @openscout/scout/dist/runtime/broker-process-manager.mjs
+    resolve(moduleDir, "..", ".."),
+  ];
+
+  for (const candidate of candidates) {
+    if (isInstalledRuntimePackageDir(candidate)) return candidate;
+  }
+
+  return null;
 }
 
 function findWorkspaceRuntimeDir(startDir: string): string | null {

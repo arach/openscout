@@ -1412,6 +1412,18 @@
   color: var(--accent);
 }
 
+.sys-settings-link-list {
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.sys-settings-route-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
 .sys-settings-kv-nowrap {
   white-space: nowrap;
   overflow: hidden;

@@ -1,7 +1,8 @@
 import Foundation
+import Dispatch
 import os
 
-public final class BonjourRelayDiscovery: NSObject {
+public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
     public static let serviceType = "_scout-pair._tcp."
 
     private static let logger = Logger(
@@ -14,7 +15,6 @@ public final class BonjourRelayDiscovery: NSObject {
     private var resolvingServices: [String: NetService] = [:]
     private var discoveredRelayURLs: [String] = []
     private var continuation: CheckedContinuation<[String], Never>?
-    private var timeoutTimer: Timer?
 
     public init(publicKeyHex: String) {
         self.targetPublicKeyHex = publicKeyHex.lowercased()
@@ -34,11 +34,18 @@ public final class BonjourRelayDiscovery: NSObject {
 
     private func start(timeoutSeconds: Double) async -> [String] {
         await withCheckedContinuation { continuation in
-            self.continuation = continuation
-            browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    continuation.resume(returning: [])
+                    return
+                }
 
-            timeoutTimer = Timer.scheduledTimer(withTimeInterval: max(0.1, timeoutSeconds), repeats: false) { [weak self] _ in
-                self?.finish()
+                self.continuation = continuation
+                self.browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + max(0.1, timeoutSeconds)) { [weak self] in
+                    self?.finish()
+                }
             }
         }
     }
@@ -46,8 +53,6 @@ public final class BonjourRelayDiscovery: NSObject {
     private func finish() {
         guard let continuation else { return }
         self.continuation = nil
-        timeoutTimer?.invalidate()
-        timeoutTimer = nil
         browser.stop()
         resolvingServices.removeAll()
         continuation.resume(returning: deduplicatedRelayURLs(discoveredRelayURLs))

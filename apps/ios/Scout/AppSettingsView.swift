@@ -40,6 +40,11 @@ struct AppSettingsView: View {
             default:           connectionPanel
             }
         }
+        .task(id: tab) {
+            if tab == "ROUTES" {
+                await model.refreshTailnetPairTargets()
+            }
+        }
     }
 
     private var connectionPanel: some View {
@@ -123,6 +128,26 @@ struct AppSettingsView: View {
                 HudInspectorToggleRow("LAN", isOn: lanBinding, valueOn: "Use", valueOff: "Skip", hint: "skip nearby relay")
                 HudInspectorToggleRow("Tailscale", isOn: tailnetBinding, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
                 HudInspectorToggleRow("OpenScout Net", isOn: osnBinding, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
+            }
+            HudInspectorSection("Tailnet repair") {
+                HudInspectorFieldRow("Devices", value: tailnetRepairValue, hint: tailnetRepairHint)
+                HudInspectorActionRow("Refresh devices", value: model.isRefreshingTailnetPairTargets ? "…" : "Run", tone: .accent) {
+                    Task { await model.refreshTailnetPairTargets() }
+                }
+                if let error = model.tailnetPairError {
+                    HudInspectorFieldRow("Last error", value: "Warn", hint: error)
+                }
+                if model.tailnetPairTargets.isEmpty && !model.isRefreshingTailnetPairTargets {
+                    HudInspectorFieldRow("No devices", value: "—", hint: "tailnet peers")
+                } else {
+                    ForEach(model.tailnetPairTargets) { target in
+                        TailnetPairTargetRow(
+                            target: target,
+                            isPairing: model.tailnetPairingTargetId == target.id,
+                            onPair: { Task { await model.pairWithTailnetTarget(target) } }
+                        )
+                    }
+                }
             }
         }
     }
@@ -435,6 +460,77 @@ struct AppSettingsView: View {
         guard count > 0 else { return "—" }
         if (summary.allowedRouteCounts[kind] ?? 0) == 0 { return "Off" }
         return count == 1 ? "Saved" : "\(count)"
+    }
+
+    private var tailnetRepairValue: String {
+        if model.isRefreshingTailnetPairTargets { return "…" }
+        if model.tailnetPairError != nil { return "Warn" }
+        let total = model.tailnetPairTargets.count
+        guard total > 0 else { return "—" }
+        let online = model.tailnetPairTargets.filter(\.isOnline).count
+        return "\(online)/\(total)"
+    }
+
+    private var tailnetRepairHint: String {
+        if model.isRefreshingTailnetPairTargets { return "scanning" }
+        if let origin = model.tailnetPairDiscoveryOrigin { return origin }
+        if model.tailnetPairError != nil { return "discovery failed" }
+        return "mesh peers"
+    }
+}
+
+// MARK: - Tailnet repair row
+
+private struct TailnetPairTargetRow: View {
+    let target: AppModel.TailnetPairTarget
+    let isPairing: Bool
+    let onPair: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: HudSpacing.sm) {
+            HudStatusDot(color: target.isOnline ? HudPalette.accent : HudPalette.dim, size: 7, pulses: target.isOnline)
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(target.displayName)
+                    .font(HudFont.ui(HudTextSize.md))
+                    .foregroundStyle(target.isOnline ? HudPalette.ink : HudPalette.muted)
+                    .lineLimit(1)
+                Text(target.detail)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(HudPalette.dim)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            Spacer(minLength: HudSpacing.md)
+
+            Button(action: onPair) {
+                Text(isPairing ? "PAIRING" : "PAIR")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(target.isOnline ? HudPalette.accent : HudPalette.dim)
+                    .padding(.horizontal, HudSpacing.sm)
+                    .padding(.vertical, HudSpacing.xxs)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(
+                                HudSurface.tintBorder(target.isOnline ? HudPalette.accent : HudPalette.dim),
+                                lineWidth: HudStrokeWidth.thin
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!target.isOnline || isPairing)
+        }
+        .frame(height: HudLayout.rowHeightRegular)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HudHairline.subtle)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(target.displayName), \(target.detail)")
     }
 }
 

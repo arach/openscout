@@ -311,6 +311,35 @@ function agentDisplayName(snapshot: ScoutBrokerSnapshot, agentId: string): strin
     ?? agentId;
 }
 
+function rawConversationTitle(conversation: ScoutBrokerConversationRecord): string | null {
+  const title = typeof conversation.title === "string" ? conversation.title.trim() : "";
+  return title.length > 0 ? title : null;
+}
+
+function conversationIdTitle(conversationId: string): string {
+  if (conversationId.startsWith("channel.")) {
+    return conversationId.slice("channel.".length);
+  }
+  if (conversationId.startsWith("dm.operator.")) {
+    return conversationId.slice("dm.operator.".length);
+  }
+  return conversationId;
+}
+
+function mobileConversationTitle(
+  snapshot: ScoutBrokerSnapshot,
+  conversation: ScoutBrokerConversationRecord,
+  directAgentId: string | null = null,
+): string {
+  if (conversation.kind === "direct" && directAgentId) {
+    return agentDisplayName(snapshot, directAgentId);
+  }
+  const title = rawConversationTitle(conversation) ?? conversationIdTitle(conversation.id);
+  return conversation.kind === "channel" && title.startsWith("channel.")
+    ? title.slice("channel.".length)
+    : title;
+}
+
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
   return Object.values(snapshot.endpoints).find((endpoint) => (
     endpoint.agentId === agentId && !isInactiveEndpoint(snapshot, endpoint)
@@ -378,9 +407,7 @@ function buildMobileSessionSummaries(snapshot: ScoutBrokerSnapshot): ScoutMobile
       return [{
         id: conversation.id,
         kind: conversation.kind,
-        title: conversation.kind === "direct" && directAgentId
-          ? agentDisplayName(snapshot, directAgentId)
-          : conversation.title,
+        title: mobileConversationTitle(snapshot, conversation, directAgentId),
         participantIds: [...conversation.participantIds],
         agentId: directAgentId,
         agentName: directAgentId ? agentDisplayName(snapshot, directAgentId) : null,
@@ -714,6 +741,7 @@ export async function getScoutMobileSessionSnapshot(
   const agent = directAgentId ? snapshot.agents[directAgentId] : null;
   const messagePage = pageMessagesForConversation(snapshot, conversation.id, options);
   const messages = messagePage.messages;
+  const title = mobileConversationTitle(snapshot, conversation, directAgentId);
   const activeFlight = latestActiveFlightForAgent(snapshot, directAgentId);
   const lastAgentMessageAt = messages
     .filter((message) => message.actorId === directAgentId)
@@ -768,7 +796,7 @@ export async function getScoutMobileSessionSnapshot(
   return {
     session: {
       id: conversation.id,
-      name: conversation.title,
+      name: title,
       adapterType: endpoint?.harness ?? "relay",
       status: shouldShowWorkingTurn ? "active" : endpoint?.state === "offline" ? "idle" : "active",
       cwd: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
@@ -781,7 +809,7 @@ export async function getScoutMobileSessionSnapshot(
         harness: endpoint?.harness ?? null,
         selector: agent?.selector ?? null,
         defaultSelector: agent?.defaultSelector ?? null,
-        project: directAgentId ? agentDisplayName(snapshot, directAgentId) : conversation.title,
+        project: directAgentId ? agentDisplayName(snapshot, directAgentId) : title,
         currentBranch:
           metadataString(endpoint?.metadata, "branch")
           ?? metadataString(endpoint?.metadata, "workspaceQualifier")
@@ -1295,15 +1323,14 @@ export async function getScoutMobileConversations(
     const unread = readAt != null
       ? messages.filter((m) => m.createdAt > readAt && !selfIds.has(m.actorId)).length
       : 0;
+    const directAgentId = conv.kind === "direct"
+      ? conv.participantIds.find((participantId) => !selfIds.has(participantId)) ?? null
+      : null;
 
     rows.push({
       id: conv.id,
       kind: mobileKind,
-      // Some channels carry their raw id as the title ("channel.font-studio");
-      // show the bare channel name.
-      title: mobileKind === "channel" && conv.title.startsWith("channel.")
-        ? conv.title.slice("channel.".length)
-        : conv.title,
+      title: mobileConversationTitle(snapshot, conv, directAgentId),
       participants: conv.participantIds
         .filter((p) => !selfIds.has(p))
         .map((p) => commsActorLabel(snapshot, p, selfIds)),

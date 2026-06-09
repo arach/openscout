@@ -6,6 +6,7 @@ import { api } from "../lib/api.ts";
 import { pairingTone } from "../lib/status-tone.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { PairingState, Route } from "../lib/types.ts";
+import { pairingDeepLinks } from "../../shared/pairing-link.js";
 import { AgentConfigurationScreen } from "./AgentConfigurationScreen.tsx";
 import "./system-surfaces-redesign.css";
 
@@ -30,11 +31,6 @@ function formatExpiresIn(expiresAt: number | undefined, now: number): string | n
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-function pairingDeepLink(qrValue: string | null | undefined): string | null {
-  const payload = qrValue?.trim();
-  return payload ? `scoutnext://pair?payload=${encodeURIComponent(payload)}` : null;
-}
-
 function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   const onClick = useCallback(() => {
@@ -57,6 +53,17 @@ function CopyButton({ value }: { value: string }) {
         </svg>
       )}
     </button>
+  );
+}
+
+function PairRouteLink({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="sys-settings-route-link">
+      <a className="sys-settings-link" href={value} title={value} aria-label={`Open Scout ${label} pairing link`}>
+        <code>{label}</code>
+      </a>
+      <CopyButton value={value} />
+    </span>
   );
 }
 
@@ -232,7 +239,8 @@ function PairingSettingsScreen() {
     if (!value) return null;
     return renderSVG(value, { border: 2, ecc: "M", pixelSize: 8 });
   }, [pairing?.pairing?.qrValue]);
-  const pairLink = useMemo(() => pairingDeepLink(pairing?.pairing?.qrValue), [pairing?.pairing?.qrValue]);
+  const pairLinks = useMemo(() => pairingDeepLinks(pairing?.pairing?.qrValue), [pairing?.pairing?.qrValue]);
+  const hasRoutePairLinks = Boolean(pairLinks.lan || pairLinks.tailnet || pairLinks.default);
 
   const relayHost = relayHostLabel(pairing?.pairing?.relay ?? pairing?.relay ?? null);
   const expiresIn = formatExpiresIn(pairing?.pairing?.expiresAt, now);
@@ -370,14 +378,15 @@ function PairingSettingsScreen() {
                 </span>
               </div>
             )}
-            {pairLink && (
+            {hasRoutePairLinks && (
               <div className="sys-settings-kv">
-                <span className="sys-settings-kv-label">Link</span>
-                <span className="sys-settings-kv-value">
-                  <a className="sys-settings-link" href={pairLink} title={pairLink} aria-label="Open ScoutNext pairing link">
-                    <code>scoutnext://pair</code>
-                  </a>
-                  <CopyButton value={pairLink} />
+                <span className="sys-settings-kv-label">Links</span>
+                <span className="sys-settings-kv-value sys-settings-link-list">
+                  {pairLinks.lan && <PairRouteLink label="LAN" value={pairLinks.lan} />}
+                  {pairLinks.tailnet && <PairRouteLink label="TSN" value={pairLinks.tailnet} />}
+                  {!pairLinks.lan && !pairLinks.tailnet && pairLinks.default && (
+                    <PairRouteLink label="PAIR" value={pairLinks.default} />
+                  )}
                 </span>
               </div>
             )}

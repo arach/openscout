@@ -7,6 +7,7 @@ import {
   resolveScoutWebNamedHostname,
   type LocalConfig,
 } from "@openscout/runtime/local-config";
+import { readTailscaleSelfWebHostsSync } from "@openscout/runtime/mesh/tailscale";
 
 export type OpenScoutWebApplicationServerIdentity = {
   advertisedHost: string;
@@ -61,6 +62,7 @@ export function resolveOpenScoutWebApplicationServerIdentity(
     || resolveConfiguredScoutWebHostname(config, _machineHostname);
   const publicOrigin = env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim() || undefined;
   const publicOriginHost = hostFromOrigin(publicOrigin);
+  const tailnetHosts = readTailscaleSelfWebHostsSync(env);
 
   return {
     advertisedHost,
@@ -70,6 +72,7 @@ export function resolveOpenScoutWebApplicationServerIdentity(
       advertisedHost,
       portalHost,
       publicOriginHost,
+      ...tailnetHosts,
       ...splitList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),
     ]),
     trustedOrigins: uniq([

@@ -303,6 +303,11 @@ function stableHash(value: string): string {
 }
 import { buildHarnessResumeCommand, findHarnessEntry, loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
+  pairingDeepLinks,
+  SCOUT_PAIRING_DEEP_LINK_PATH,
+  SCOUT_PAIRING_DEEP_LINK_SCHEME,
+} from "../shared/pairing-link.js";
+import {
   resolveOpenScoutWebRoutes,
   serializeOpenScoutWebBootstrap,
 } from "../shared/runtime-config.js";
@@ -2981,6 +2986,24 @@ export async function createOpenScoutWebServer(
   app.get("/api/pairing-state/refresh", async (c) =>
     c.json(await loadPairingState(currentDirectory, true)),
   );
+  app.get(`/${SCOUT_PAIRING_DEEP_LINK_PATH}`, async (c) => {
+    const state = await loadPairingState(currentDirectory, true);
+    const route = c.req.query("route")?.trim().toLowerCase();
+    const links = pairingDeepLinks(state.pairing?.qrValue);
+    const location = route === "lan"
+      ? links.lan ?? links.default
+      : route === "ts" || route === "tsn" || route === "tailnet"
+        ? links.tailnet ?? links.default
+        : links.default;
+    c.header("cache-control", "no-store");
+    if (!location) {
+      return c.text(
+        `${SCOUT_PAIRING_DEEP_LINK_SCHEME}://${SCOUT_PAIRING_DEEP_LINK_PATH} pairing is not available.`,
+        404,
+      );
+    }
+    return c.redirect(location, 302);
+  });
   app.get("/api/operator-attention", async (c) =>
     c.json(await buildOperatorAttentionState(currentDirectory)),
   );

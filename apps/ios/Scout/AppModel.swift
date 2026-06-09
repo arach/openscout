@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Network
 import HudsonUI
@@ -47,6 +48,35 @@ final class AppModel {
     var tailnetRoutingEnabled: Bool
     var openScoutNetworkRoutingEnabled: Bool
 
+    struct TailnetPairTarget: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let dnsName: String
+        let hostName: String?
+        let addresses: [String]
+        let isOnline: Bool
+        let os: String?
+        let pairLinks: [String]
+
+        var displayName: String {
+            if let hostName = AppModel.cleanTailnetHost(hostName) { return AppModel.prettyMachineName(hostName) }
+            return AppModel.prettyMachineName(dnsName)
+        }
+
+        var detail: String {
+            var parts: [String] = [isOnline ? "online" : "offline"]
+            if let os, !os.isEmpty { parts.append(os) }
+            if let address = addresses.first, !address.isEmpty { parts.append(address) }
+            return parts.joined(separator: " · ")
+        }
+    }
+
+    var tailnetPairTargets: [TailnetPairTarget] = []
+    var isRefreshingTailnetPairTargets = false
+    var tailnetPairError: String?
+    var tailnetPairDiscoveryOrigin: String?
+    var tailnetPairingTargetId: String?
+
     /// Fleet rollup for the bottom status bar (`N agents · Y active`). Polled
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
@@ -70,6 +100,11 @@ final class AppModel {
     private static let voicePrefKey = "scout.voicePreference"
     private static let reconnectBaseDelayMs = 700
     private static let reconnectMaxDelayMs = 30_000
+    // Fixed web contracts. The default port mirrors
+    // packages/runtime/src/local-config.ts DEFAULT_LOCAL_CONFIG.ports.web.
+    private static let scoutWebMeshPath = "/api/mesh"
+    private static let scoutWebPairPath = "/pair"
+    private static let defaultScoutWebPort = 3200
 
     init() {
         let log = ConnectionLog()
@@ -443,6 +478,163 @@ final class AppModel {
         Task { await reconnect() }
     }
 
+    func refreshTailnetPairTargets() async {
+        guard !isRefreshingTailnetPairTargets else { return }
+        isRefreshingTailnetPairTargets = true
+        tailnetPairError = nil
+        defer { isRefreshingTailnetPairTargets = false }
+
+        do {
+            let (mesh, origin) = try await loadTailnetMeshStatus()
+            let targets = tailnetTargets(from: mesh, preferredOrigin: origin)
+            tailnetPairTargets = targets
+            tailnetPairDiscoveryOrigin = origin.host
+            connectionLog.log(
+                "Tailnet repair found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via \(origin.host ?? "web")",
+                event: .network,
+                level: .info,
+                route: .tailnet
+            )
+        } catch {
+            tailnetPairTargets = []
+            tailnetPairError = error.localizedDescription
+            connectionLog.log(
+                "Tailnet repair discovery failed: \(error.localizedDescription)",
+                event: .network,
+                level: .warning,
+                route: .tailnet
+            )
+        }
+    }
+
+    @discardableResult
+    func pairWithTailnetTarget(_ target: TailnetPairTarget) async -> Bool {
+        guard target.isOnline else {
+            tailnetPairError = "\(target.displayName) is offline"
+            return false
+        }
+        guard !target.pairLinks.isEmpty else {
+            tailnetPairError = "No pair link for \(target.displayName)"
+            return false
+        }
+
+        tailnetPairingTargetId = target.id
+        tailnetPairError = nil
+        defer { tailnetPairingTargetId = nil }
+
+        connectionLog.log(
+            "Tailnet repair pairing \(target.displayName) via \(target.dnsName)",
+            event: .pairing,
+            level: .info,
+            route: .tailnet
+        )
+        for link in target.pairLinks {
+            if await pairFromLink(link) {
+                tailnetPairError = nil
+                return true
+            }
+        }
+        tailnetPairError = "Pairing failed for \(target.displayName)"
+        return false
+    }
+
+    private func loadTailnetMeshStatus() async throws -> (TailnetMeshStatusResponse, URL) {
+        guard let host = Self.cleanTailnetHost(fleet.focusedClient.currentHost) else {
+            throw TailnetPairingError.noActiveBridgeHost
+        }
+
+        var lastError: Error?
+        for origin in scoutWebOriginCandidates(host: host) {
+            guard let url = scoutWebURL(origin: origin, path: Self.scoutWebMeshPath) else { continue }
+            do {
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4)
+                request.httpMethod = "GET"
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    throw TailnetPairingError.invalidMeshResponse(origin: origin.absoluteString)
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    throw TailnetPairingError.meshHTTPStatus(origin: origin.absoluteString, status: http.statusCode)
+                }
+                return (try JSONDecoder().decode(TailnetMeshStatusResponse.self, from: data), origin)
+            } catch {
+                lastError = error
+            }
+        }
+
+        throw lastError ?? TailnetPairingError.noMeshEndpoint(host: host)
+    }
+
+    private func tailnetTargets(from mesh: TailnetMeshStatusResponse, preferredOrigin: URL) -> [TailnetPairTarget] {
+        (mesh.tailscale?.peers ?? [])
+            .compactMap { peer -> TailnetPairTarget? in
+                guard let dnsName = Self.cleanTailnetHost(peer.dnsName) else { return nil }
+                let pairLinks = scoutWebOriginCandidates(host: dnsName, preferredOrigin: preferredOrigin)
+                    .compactMap { scoutWebURL(origin: $0, path: Self.scoutWebPairPath, queryItems: [
+                        URLQueryItem(name: "route", value: "tsn")
+                    ])?.absoluteString }
+                return TailnetPairTarget(
+                    id: peer.id,
+                    name: peer.name,
+                    dnsName: dnsName,
+                    hostName: peer.hostName,
+                    addresses: peer.addresses,
+                    isOnline: peer.online,
+                    os: peer.os,
+                    pairLinks: pairLinks
+                )
+            }
+            .sorted { a, b in
+                if a.isOnline != b.isOnline { return a.isOnline && !b.isOnline }
+                return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+    }
+
+    private func scoutWebOriginCandidates(host: String, preferredOrigin: URL? = nil) -> [URL] {
+        var candidates: [URL] = []
+        if let preferredOrigin,
+           let scheme = preferredOrigin.scheme {
+            candidates.append(contentsOf: [
+                scoutWebOrigin(scheme: scheme, host: host, port: preferredOrigin.port),
+                scoutWebOrigin(scheme: scheme, host: host, port: Self.defaultScoutWebPort),
+            ].compactMap { $0 })
+        }
+        candidates.append(contentsOf: [
+            scoutWebOrigin(scheme: "http", host: host, port: nil),
+            scoutWebOrigin(scheme: "https", host: host, port: nil),
+            scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort),
+            scoutWebOrigin(scheme: "https", host: host, port: Self.defaultScoutWebPort),
+        ].compactMap { $0 })
+        return dedupeURLs(candidates)
+    }
+
+    private func scoutWebOrigin(scheme: String, host: String, port: Int?) -> URL? {
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = host
+        components.port = port
+        return components.url
+    }
+
+    private func scoutWebURL(origin: URL, path: String, queryItems: [URLQueryItem] = []) -> URL? {
+        var components = URLComponents(url: origin, resolvingAgainstBaseURL: false)
+        components?.path = path
+        components?.queryItems = queryItems.isEmpty ? nil : queryItems
+        return components?.url
+    }
+
+    private func dedupeURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var output: [URL] = []
+        for url in urls {
+            let key = url.absoluteString.lowercased()
+            guard !seen.contains(key) else { continue }
+            seen.insert(key)
+            output.append(url)
+        }
+        return output
+    }
+
     /// The client every surface consumes.
     var client: any ScoutBrokerClient { fleet.focusedClient }
 
@@ -594,28 +786,44 @@ final class AppModel {
     /// Pair from a scanned QR string, then stay connected. Returns true on success.
     @discardableResult
     func pair(scanned: String) async -> Bool {
-        await completePair(source: "scanned QR") { try QRPayload.parse(from: scanned) }
+        await completePair(source: "scanned QR", inputLength: scanned.count) { try QRPayload.parse(from: scanned) }
     }
 
     /// Pair from a camera-free pairing link — a pasted payload or a
     /// `scout://pair?…` deep link. Same payload as the QR.
     @discardableResult
     func pairFromLink(_ link: String) async -> Bool {
-        await completePair(source: "pairing link") { try QRPayload.parse(fromLink: link) }
+        await completePair(source: "pairing link", inputLength: link.count) { try await parsePairingPayload(fromLink: link) }
     }
 
     /// Shared pairing tail: build the payload, run the XX handshake, and land in
     /// the shell on success. The `makePayload` closure is the only difference
     /// between the QR and link entry points.
     @discardableResult
-    private func completePair(source channel: String, _ makePayload: () throws -> QRPayload) async -> Bool {
+    private func completePair(source channel: String, inputLength: Int? = nil, _ makePayload: () async throws -> QRPayload) async -> Bool {
         resetReconnectState()
         backgroundFleetConnectTask?.cancel()
         connectionState = .connecting
         connectionLog.log("Pairing from \(channel)…", event: .pairing, level: .info)
         do {
             let pairingBridge = BridgeBrokerClient(connectionLog: ConnectionLogHandle(connectionLog))
-            let payload = try makePayload()
+            let payload: QRPayload
+            do {
+                payload = try await makePayload()
+                let remaining = Int(payload.secondsRemaining.rounded(.down))
+                connectionLog.log(
+                    "Pairing payload parsed: room=\(payload.room) relay=\(payload.relay) fallbacks=\(payload.fallbackRelays?.count ?? 0) expiresIn=\(remaining)s key=\(String(payload.publicKey.prefix(16)))...",
+                    event: .pairing,
+                    route: transportKind(forRelayURL: payload.relay)
+                )
+            } catch {
+                connectionLog.log(
+                    "Pairing payload parse failed: len=\(inputLength.map(String.init) ?? "?") error=\(error.localizedDescription)",
+                    event: .pairing,
+                    level: .error
+                )
+                throw error
+            }
             try await pairingBridge.pair(qrPayload: payload, primaryName: deviceName)
             let route = pairingBridge.currentRoute
             let pairedMachineId = fleet.adoptConnectedPairingClient(pairingBridge)
@@ -634,6 +842,79 @@ final class AppModel {
             connectionLog.log("Pairing failed: \(error.localizedDescription)", event: .pairing, level: .error)
             return false
         }
+    }
+
+    private func parsePairingPayload(fromLink link: String) async throws -> QRPayload {
+        do {
+            return try QRPayload.parse(fromLink: link)
+        } catch {
+            guard let url = pairingWebURL(from: link) else {
+                throw error
+            }
+            return try await resolvePairingWebLink(url, originalError: error)
+        }
+    }
+
+    private func pairingWebURL(from link: String) -> URL? {
+        let trimmed = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host?.isEmpty == false,
+              components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "pair"
+        else {
+            return nil
+        }
+        return components.url
+    }
+
+    private func resolvePairingWebLink(_ url: URL, originalError: Error) async throws -> QRPayload {
+        connectionLog.log(
+            "Resolving pairing web link: \(url.host ?? "unknown")\(url.path)",
+            event: .pairing,
+            level: .info
+        )
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 8)
+        request.httpMethod = "GET"
+
+        let delegate = PairingWebRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let response: URLResponse
+        do {
+            (_, response) = try await session.data(for: request)
+        } catch {
+            connectionLog.log(
+                "Pairing web link resolve failed: \(error.localizedDescription)",
+                event: .pairing,
+                level: .error
+            )
+            throw error
+        }
+
+        let redirectURL = delegate.redirectURL ?? httpLocationRedirect(from: response, relativeTo: url)
+        guard let redirectURL else {
+            throw originalError
+        }
+
+        connectionLog.log(
+            "Pairing web link redirected: \(redirectURL.scheme ?? "unknown")://\(redirectURL.host ?? redirectURL.path)",
+            event: .pairing,
+            level: .info
+        )
+        return try QRPayload.parse(fromLink: redirectURL.absoluteString)
+    }
+
+    private func httpLocationRedirect(from response: URLResponse, relativeTo baseURL: URL) -> URL? {
+        guard let http = response as? HTTPURLResponse,
+              (300..<400).contains(http.statusCode),
+              let location = http.value(forHTTPHeaderField: "Location")
+        else {
+            return nil
+        }
+        return URL(string: location, relativeTo: baseURL)?.absoluteURL
     }
 
     private var deviceName: String {
@@ -792,10 +1073,18 @@ final class AppModel {
     /// OpenScout front door) in one move, so a long Tailnet host can never bleed
     /// into the chrome. An IP address has no friendly label to extract — it's
     /// shown verbatim. A plain name (no dots) passes straight through.
-    static func prettyMachineName(_ raw: String) -> String {
+    nonisolated static func prettyMachineName(_ raw: String) -> String {
         let isIP = raw.contains(".") && raw.split(separator: ".").allSatisfy { UInt($0) != nil }
         let label = isIP ? raw : (raw.split(separator: ".").first.map(String.init) ?? raw)
         return label.replacingOccurrences(of: "-", with: " ")
+    }
+
+    private nonisolated static func cleanTailnetHost(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
     }
 
     private func hasTrustedMachine(id hex: String) -> Bool {
@@ -845,6 +1134,65 @@ final class AppModel {
                     self.syncFocusedConnectionState()
                 }
             }
+        }
+    }
+}
+
+private final class PairingWebRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedRedirectURL: URL?
+
+    var redirectURL: URL? {
+        lock.withLock { storedRedirectURL }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest
+    ) async -> URLRequest? {
+        lock.withLock {
+            storedRedirectURL = request.url
+        }
+        return nil
+    }
+}
+
+private struct TailnetMeshStatusResponse: Decodable {
+    let tailscale: TailnetMeshTailscale?
+}
+
+private struct TailnetMeshTailscale: Decodable {
+    let peers: [TailnetMeshPeer]
+}
+
+private struct TailnetMeshPeer: Decodable {
+    let id: String
+    let name: String
+    let dnsName: String?
+    let hostName: String?
+    let addresses: [String]
+    let online: Bool
+    let os: String?
+}
+
+private enum TailnetPairingError: LocalizedError {
+    case noActiveBridgeHost
+    case noMeshEndpoint(host: String)
+    case invalidMeshResponse(origin: String)
+    case meshHTTPStatus(origin: String, status: Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .noActiveBridgeHost:
+            return "Connect to a paired Mac before scanning Tailnet devices"
+        case .noMeshEndpoint(let host):
+            return "No Scout web mesh endpoint responded on \(host)"
+        case .invalidMeshResponse(let origin):
+            return "Invalid mesh response from \(origin)"
+        case .meshHTTPStatus(let origin, let status):
+            return "Mesh endpoint \(origin) returned HTTP \(status)"
         }
     }
 }

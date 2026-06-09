@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   buildDefaultBrokerUrl,
@@ -7,6 +10,7 @@ import {
   DEFAULT_BROKER_URL,
   parseLaunchctlPrint,
   renderLaunchAgentPlist,
+  resolveBundledRuntimeDirFromModuleDir,
   selectLastRelevantLogLine,
   type BrokerServiceConfig,
 } from "./broker-process-manager";
@@ -80,6 +84,19 @@ describe("broker launch agent config", () => {
         process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = originalPublicOrigin;
       }
     }
+  });
+
+  test("resolves the package root from a bundled scout dist runtime module", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-runtime-package-"));
+    const packageRoot = join(root, "scout");
+    const moduleDir = join(packageRoot, "dist", "runtime");
+
+    mkdirSync(join(packageRoot, "bin"), { recursive: true });
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(join(packageRoot, "package.json"), "{}");
+    writeFileSync(join(packageRoot, "bin", "openscout-runtime.mjs"), "");
+
+    expect(resolveBundledRuntimeDirFromModuleDir(moduleDir)).toBe(packageRoot);
   });
 
   test("parses launchctl print output for pid and state", () => {

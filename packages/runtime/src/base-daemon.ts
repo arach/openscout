@@ -20,6 +20,7 @@ import {
   type OpenScoutLocalEdgeConfig,
   type OpenScoutLocalEdgeScheme,
 } from "./local-edge.js";
+import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const RESTART_MIN_DELAY_MS = 1_000;
 const RESTART_MAX_DELAY_MS = 30_000;
@@ -62,6 +63,35 @@ function warn(message: string, details?: unknown): void {
   console.warn(`[openscout-base] ${message}`, details);
 }
 
+function splitCsv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function appendCsvValues(input: string | undefined, values: string[]): string | undefined {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of [...splitCsv(input), ...values]) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out.length > 0 ? out.join(",") : undefined;
+}
+
+function resolveTailnetWebHosts(): string[] {
+  return readTailscaleSelfWebHostsSync();
+}
+
+function resolveWebTrustedHostsEnv(): string | undefined {
+  return appendCsvValues(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS, resolveTailnetWebHosts());
+}
+
 function ensureDirectory(path: string): void {
   mkdirSync(path, { recursive: true });
 }
@@ -81,6 +111,7 @@ function spawnBroker(): void {
     return;
   }
 
+  const webTrustedHostsEnv = resolveWebTrustedHostsEnv();
   const stdout = logFile("broker.stdout.log");
   const stderr = logFile("broker.stderr.log");
   brokerProcess = spawn(config.bunExecutable, [
@@ -99,6 +130,7 @@ function spawnBroker(): void {
       OPENSCOUT_BROKER_SOCKET_PATH: config.brokerSocketPath,
       OPENSCOUT_CONTROL_HOME: config.controlHome,
       OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
+      ...(webTrustedHostsEnv ? { OPENSCOUT_WEB_TRUSTED_HOSTS: webTrustedHostsEnv } : {}),
     },
     stdio: ["ignore", stdout, stderr],
   });
@@ -172,6 +204,10 @@ function resolveEdgeConfig(): OpenScoutLocalEdgeConfig {
     scheme: resolveEdgeScheme(),
     brokerPort: config.brokerPort,
     webPort: Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort(),
+    extraHosts: [
+      ...splitCsv(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS),
+      ...resolveTailnetWebHosts(),
+    ],
   });
 }
 

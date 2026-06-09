@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+const DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS = 1_500;
 
 export interface TailscalePeerCandidate {
   id: string;
@@ -103,8 +105,35 @@ function isBackendRunning(status: TailscaleStatusJson): boolean {
   return (status.BackendState ?? "").trim().toLowerCase() === "running";
 }
 
+function normalizeHost(value: string | undefined): string | null {
+  const normalized = value?.trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized || normalized.includes("/") || /\s/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function uniq(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeHost(value ?? undefined);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
 async function readStatusJsonFromFile(filePath: string): Promise<TailscaleStatusJson> {
   const raw = await readFile(filePath, "utf8");
+  return parseStatusJson(raw);
+}
+
+function readStatusJsonFromFileSync(filePath: string): TailscaleStatusJson {
+  const raw = readFileSync(filePath, "utf8");
   return parseStatusJson(raw);
 }
 
@@ -125,6 +154,53 @@ async function readStatusJson(): Promise<TailscaleStatusJson | null> {
   } catch {
     return null;
   }
+}
+
+function statusTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const parsed = Number.parseInt(env.OPENSCOUT_TAILSCALE_STATUS_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS;
+}
+
+function readStatusJsonSync(env: NodeJS.ProcessEnv = process.env): TailscaleStatusJson | null {
+  if (env.OPENSCOUT_TAILSCALE_AUTO_HOSTS === "0") {
+    return null;
+  }
+
+  const fixturePath = env.OPENSCOUT_TAILSCALE_STATUS_JSON;
+  if (fixturePath) {
+    try {
+      return readStatusJsonFromFileSync(fixturePath);
+    } catch {
+      return null;
+    }
+  }
+
+  const tailscaleBin = env.OPENSCOUT_TAILSCALE_BIN ?? (env === process.env ? "tailscale" : undefined);
+  if (!tailscaleBin) {
+    return null;
+  }
+
+  try {
+    const stdout = execFileSync(tailscaleBin, ["status", "--json"], {
+      encoding: "utf8",
+      timeout: statusTimeoutMs(env),
+      windowsHide: true,
+    });
+    return parseStatusJson(stdout);
+  } catch {
+    return null;
+  }
+}
+
+export function tailscaleSelfWebHosts(self: TailscaleSelfCandidate | null | undefined): string[] {
+  if (!self) {
+    return [];
+  }
+  return uniq([
+    self.dnsName,
+    self.hostName && self.magicDnsSuffix ? `${self.hostName}.${self.magicDnsSuffix}` : undefined,
+    ...self.addresses,
+  ]);
 }
 
 export async function readTailscalePeers(): Promise<TailscalePeerCandidate[]> {
@@ -156,4 +232,12 @@ export async function readTailscaleStatusSummary(): Promise<TailscaleStatusSumma
     peers: parsePeers(status),
     self: parseSelf(status),
   };
+}
+
+export function readTailscaleSelfWebHostsSync(env: NodeJS.ProcessEnv = process.env): string[] {
+  const status = readStatusJsonSync(env);
+  if (!status || !isBackendRunning(status)) {
+    return [];
+  }
+  return tailscaleSelfWebHosts(parseSelf(status));
 }

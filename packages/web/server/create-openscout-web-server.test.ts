@@ -1180,6 +1180,99 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
 
+  test("redirects the remote pairing page to the iOS deep link", async () => {
+    const qrValue = JSON.stringify({
+      v: 1,
+      relay: "ws://mac.tailnet.ts.net:7889",
+      room: "room-1",
+      publicKey: "a".repeat(64),
+      expiresAt: 1_780_958_228_426,
+    });
+    pairingStateResult = makePairingState({
+      pairing: {
+        relay: "ws://mac.tailnet.ts.net:7889",
+        room: "room-1",
+        publicKey: "a".repeat(64),
+        expiresAt: 1_780_958_228_426,
+        qrArt: "",
+        qrValue,
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/pair", {
+      redirect: "manual",
+    });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("location")).toBe(`scout://pair?payload=${encodeURIComponent(qrValue)}`);
+  });
+
+  test("redirects route-specific pairing pages to reordered iOS deep links", async () => {
+    const lanPayload = {
+      v: 1,
+      relay: "ws://192.168.18.14:7889",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      room: "room-1",
+      publicKey: "a".repeat(64),
+      expiresAt: 1_780_958_228_426,
+    };
+    const tailnetPayload = {
+      ...lanPayload,
+      relay: "ws://mac.tailnet.ts.net:7889",
+      fallbackRelays: ["ws://192.168.18.14:7889"],
+    };
+    const qrValue = JSON.stringify(lanPayload);
+    pairingStateResult = makePairingState({
+      pairing: {
+        relay: lanPayload.relay,
+        fallbackRelays: lanPayload.fallbackRelays,
+        room: lanPayload.room,
+        publicKey: lanPayload.publicKey,
+        expiresAt: lanPayload.expiresAt,
+        qrArt: "",
+        qrValue,
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const lan = await server.app.request("http://localhost/pair?route=lan", {
+      redirect: "manual",
+    });
+    const tailnet = await server.app.request("http://localhost/pair?route=tsn", {
+      redirect: "manual",
+    });
+
+    expect(lan.status).toBe(302);
+    expect(lan.headers.get("location")).toBe(`scout://pair?payload=${encodeURIComponent(JSON.stringify(lanPayload))}`);
+    expect(tailnet.status).toBe(302);
+    expect(tailnet.headers.get("location")).toBe(`scout://pair?payload=${encodeURIComponent(JSON.stringify(tailnetPayload))}`);
+  });
+
+  test("returns a clear error when remote pairing has no active payload", async () => {
+    pairingStateResult = makePairingState({ pairing: null });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/pair");
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.text()).resolves.toContain("scout://pair pairing is not available");
+  });
+
   test("adds mixed-content protection only for HTTPS edge requests", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

@@ -33,16 +33,25 @@ struct HomeSurface: View {
     @State private var agents: [AgentSummary] = []
     @State private var isLoading = true
     @State private var searchText = ""
-    @State private var route: ConversationRoute?
+    @State private var route: HomeConversationRoute?
     @State private var expanded: Set<String> = []
     @State private var expandedActivity: Set<String> = []
     @State private var activity: [TailEvent] = []
     @State private var showAllActivity = false
 
-    /// A Hashable navigation target — the contract models stay transport-pure.
-    private struct ConversationRoute: Hashable, Identifiable {
-        let id: String
-        let title: String
+    /// A Hashable navigation target for Home's activity shortcuts. Session
+    /// conversation IDs open the session projection; broker comms IDs open the
+    /// comms thread reader.
+    private enum HomeConversationRoute: Hashable, Identifiable {
+        case session(id: String, title: String)
+        case comms(CommsConversation)
+
+        var id: String {
+            switch self {
+            case .session(let id, _): return "session:\(id)"
+            case .comms(let conversation): return "comms:\(conversation.id)"
+            }
+        }
     }
 
     var body: some View {
@@ -67,13 +76,23 @@ struct HomeSurface: View {
         .refreshable { await load() }
         .task(id: reloadToken) { await load() }
         .navigationDestination(item: $route) { route in
-            ConversationSurface(
-                client: client,
-                conversationId: route.id,
-                title: route.title,
-                onClose: { self.route = nil },
-                onStatusContextChange: onConversationStatusContext
-            )
+            switch route {
+            case .session(let id, let title):
+                ConversationSurface(
+                    client: client,
+                    conversationId: id,
+                    title: title,
+                    onClose: { self.route = nil },
+                    onStatusContextChange: onConversationStatusContext
+                )
+            case .comms(let conversation):
+                CommsThreadView(
+                    client: client,
+                    conversation: conversation,
+                    onClose: { self.route = nil },
+                    onRead: { _ = try? await client.markConversationRead(conversationId: conversation.id) }
+                )
+            }
         }
         // Activity's "All" pushes the full live firehose — Home only previews it.
         .navigationDestination(isPresented: $showAllActivity) {
@@ -317,8 +336,16 @@ struct HomeSurface: View {
             .padding(.leading, inset ? HudSpacing.xxl : HudSpacing.xl)
     }
 
+    /// Open an agent's conversation. We route by the agent's real broker
+    /// `conversationId` — its operator DM — NOT its `sessionId` (a harness label
+    /// like "relay-openscout-claude" that's shared across agents and resolves to
+    /// no conversation). When the bridge predates this field, fall back to the
+    /// canonical `dm.operator.<id>` the broker will create on first send. Agent
+    /// taps always open the full conversation surface (composer + streaming), so
+    /// this skips the comms-reader detection used for activity-feed links.
     private func tap(_ agent: AgentSummary) -> (() -> Void)? {
-        agent.sessionId.map { sid in { route = ConversationRoute(id: sid, title: agent.title) } }
+        let conversationId = agent.conversationId ?? "dm.operator.\(agent.id)"
+        return { route = .session(id: conversationId, title: agent.title) }
     }
 
     private func toggle(_ id: String) {
@@ -365,7 +392,88 @@ struct HomeSurface: View {
     /// no thread linkage (`conversationId == nil`) stay non-interactive.
     private func tapActivity(_ event: TailEvent) -> (() -> Void)? {
         guard let conversationId = event.conversationId, !conversationId.isEmpty else { return nil }
-        return { route = ConversationRoute(id: conversationId, title: event.source) }
+        return { route = activityRoute(for: event, conversationId: conversationId) }
+    }
+
+    private func activityRoute(for event: TailEvent, conversationId: String) -> HomeConversationRoute {
+        if let comms = commsConversation(
+            from: conversationId,
+            titleFallback: event.source,
+            preview: event.summary,
+            timestamp: Date(timeIntervalSince1970: Double(event.tsMs) / 1000)
+        ) {
+            return .comms(comms)
+        }
+        return .session(id: conversationId, title: event.source)
+    }
+
+    private func commsConversation(
+        from conversationId: String,
+        titleFallback: String?,
+        preview: String?,
+        timestamp: Date?
+    ) -> CommsConversation? {
+        if conversationId.starts(with: "dm.operator.") {
+            let title = commsTitle(from: conversationId, prefix: "dm.operator.", fallback: titleFallback)
+            return CommsConversation(
+                id: conversationId,
+                kind: .direct,
+                title: title,
+                participants: [title],
+                lastMessagePreview: preview,
+                lastMessageAt: timestamp
+            )
+        }
+        if conversationId.starts(with: "channel.") {
+            let title = commsTitle(from: conversationId, prefix: "channel.")
+            return CommsConversation(
+                id: conversationId,
+                kind: title == "system" ? .system : .channel,
+                title: title,
+                topic: title == "system" ? "system" : "channel",
+                lastMessagePreview: preview,
+                lastMessageAt: timestamp
+            )
+        }
+        if conversationId.starts(with: "group.") {
+            let title = commsTitle(from: conversationId, prefix: "group.", fallback: titleFallback)
+            return CommsConversation(
+                id: conversationId,
+                kind: .group,
+                title: title,
+                participants: [title],
+                lastMessagePreview: preview,
+                lastMessageAt: timestamp
+            )
+        }
+        if conversationId.starts(with: "thread.") {
+            return CommsConversation(
+                id: conversationId,
+                kind: .thread,
+                title: commsTitle(from: conversationId, prefix: "thread.", fallback: titleFallback),
+                lastMessagePreview: preview,
+                lastMessageAt: timestamp
+            )
+        }
+        return nil
+    }
+
+    private func commsTitle(from conversationId: String, prefix: String, fallback: String? = nil) -> String {
+        let raw = conversationId.hasPrefix(prefix) ? String(conversationId.dropFirst(prefix.count)) : conversationId
+        let derived = raw
+            .split(separator: ".")
+            .first
+            .map(String.init)?
+            .replacingOccurrences(of: "-", with: " ")
+            ?? raw
+        guard let fallback = fallback?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !fallback.isEmpty,
+              fallback.caseInsensitiveCompare("operator") != .orderedSame,
+              fallback.caseInsensitiveCompare("you") != .orderedSame
+        else {
+            return derived
+        }
+        return fallback
     }
 
     private func toggleActivity(_ id: String) {
@@ -804,12 +912,25 @@ private struct ProjectRow: View {
     }
 
     private var projectName: some View {
-        Text(group.name)
+        Text(boundedProjectName(group.name))
             .font(HudFont.ui(HudTextSize.md, weight: .medium))
             .foregroundStyle(HudPalette.ink)
             .lineLimit(1)
-            .truncationMode(.tail)
+            .truncationMode(.middle)
             .layoutPriority(1)
+    }
+
+    /// Bounds an over-long project name (e.g. a raw UUID used as the fallback
+    /// folder name) to a fixed character ceiling, middle-eliding so the head
+    /// stays recognizable and the last few characters survive after the
+    /// ellipsis — distinct IDs stay distinguishable and the row keeps its
+    /// age/disclosure on-screen on one line.
+    private func boundedProjectName(_ name: String) -> String {
+        let ceiling = 22
+        let tail = 4
+        guard name.count > ceiling else { return name }
+        let head = ceiling - tail - 1 // reserve one slot for the ellipsis
+        return "\(name.prefix(head))…\(name.suffix(tail))"
     }
 
     private var identityLine: some View {
