@@ -22,6 +22,29 @@ import type {
   MobileAgentSummary,
 } from "../types/mobile.ts";
 
+/**
+ * The conversation the phone should open for an agent. Mirrors the broker
+ * snapshot resolver (`resolveMobileConversation` in core/mobile/service): the
+ * operator DM if it exists, else the most-recent conversation the agent has
+ * posted in (its ask/`c.…` thread), else the canonical operator-DM id the broker
+ * will create on first send. The phone routes taps by this — NOT `sessionId`,
+ * which is only ever the operator-DM id and so misses ask threads (the bug where
+ * multi-agent-project transcripts came up blank). Single-agent version for the
+ * detail query; the list query (`queryMobileAgents`) resolves the same thing in
+ * batch.
+ */
+function resolveAgentConversationId(agentId: string): string {
+  const dm = conversationIdForAgent(agentId);
+  if (db().prepare(`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`).get(dm)) {
+    return dm;
+  }
+  const recent = db().prepare(
+    `SELECT conversation_id FROM messages WHERE actor_id = ?
+       GROUP BY conversation_id ORDER BY MAX(created_at) DESC LIMIT 1`,
+  ).get(agentId) as { conversation_id: string } | undefined;
+  return recent?.conversation_id ?? dm;
+}
+
 export function queryMobileAgents(
   limit = 50,
   filters: { query?: string | null } = {},
@@ -51,6 +74,30 @@ export function queryMobileAgents(
       `SELECT actor_id, MAX(${messageCreatedAtExpression}) AS last_at FROM messages GROUP BY actor_id`,
     ).all() as Array<{ actor_id: string; last_at: number }>).map((r) => [r.actor_id, r.last_at]),
   );
+
+  // Conversation each agent should open (see `resolveAgentConversationId`).
+  // Resolved in batch — the operator DMs that exist + the most-recent
+  // conversation each actor has posted in — so the per-agent lookup below is a
+  // map hit instead of two queries per row.
+  const operatorDmIds = new Set(
+    (db().prepare(
+      `SELECT id FROM conversations WHERE id LIKE 'dm.operator.%'`,
+    ).all() as Array<{ id: string }>).map((r) => r.id),
+  );
+  const recentConvByActor = new Map<string, string>();
+  for (const r of db().prepare(
+    `SELECT m.actor_id AS actor_id, m.conversation_id AS conversation_id
+       FROM messages m
+       JOIN (SELECT actor_id, MAX(created_at) AS mc FROM messages GROUP BY actor_id) t
+         ON t.actor_id = m.actor_id AND t.mc = m.created_at`,
+  ).all() as Array<{ actor_id: string; conversation_id: string }>) {
+    if (!recentConvByActor.has(r.actor_id)) recentConvByActor.set(r.actor_id, r.conversation_id);
+  }
+  const resolveConversationId = (agentId: string): string => {
+    const dm = conversationIdForAgent(agentId);
+    if (operatorDmIds.has(dm)) return dm;
+    return recentConvByActor.get(agentId) ?? dm;
+  };
 
   const rows = db().prepare(
     `SELECT
@@ -104,6 +151,7 @@ export function queryMobileAgents(
       state,
       statusLabel,
       sessionId: conversationIdForAgent(r.id),
+      conversationId: resolveConversationId(r.id),
       lastActiveAt: lastMessageAt.get(r.id) ?? null,
     };
   });
@@ -222,6 +270,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     state,
     statusLabel,
     sessionId: conversationIdForAgent(row.id),
+    conversationId: resolveAgentConversationId(row.id),
     lastActiveAt: lastMessageAt,
     cwd: compact(row.cwd),
     wakePolicy: row.wake_policy,
