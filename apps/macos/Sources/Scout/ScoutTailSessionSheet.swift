@@ -436,6 +436,7 @@ private struct ScoutTailSessionEscapeMonitor: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("Tail session sheet · bottom") {
     ScoutTailSessionSheet(
         sessionRef: "dbec9314-15de-4c1a-b8ac-085f297eaafd",
@@ -447,3 +448,4 @@ private struct ScoutTailSessionEscapeMonitor: View {
     .frame(width: 980, height: 640)
     .background(ScoutDesign.bg)
 }
+#endif

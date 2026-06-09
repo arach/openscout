@@ -722,6 +722,7 @@ private struct ScoutDrawerResizeHandle: View {
 
 // MARK: - Preview
 
+#if DEBUG
 #Preview("Branch diff sheet · bottom") {
     ScoutBranchDiffSheet(
         worktreePath: "/Users/art/dev/openscout",
@@ -737,3 +738,4 @@ private struct ScoutDrawerResizeHandle: View {
     .frame(width: 980, height: 640)
     .background(ScoutDesign.bg)
 }
+#endif
