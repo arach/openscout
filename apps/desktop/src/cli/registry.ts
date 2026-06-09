@@ -36,6 +36,8 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "ps", summary: "List configured local agents" },
   { name: "restart", summary: "Restart configured local agents" },
   { name: "menu", summary: "Launch the OpenScout macOS menu bar app" },
+  { name: "install", summary: "Download and install the OpenScout macOS app" },
+  { name: "update", summary: "Update the installed OpenScout macOS app", canonicalName: "install" },
   { name: "vantage", summary: "Build a Hudson Vantage terminal canvas plan" },
   { name: "config", summary: "View or set user config (name, handle, etc.)" },
   { name: "mesh", summary: "Mesh status and diagnostics" },
