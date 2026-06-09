@@ -105,7 +105,7 @@ describe("mesh front door GitHub auth", () => {
 
     expect(callback?.status).toBe(302);
     const location = new URL(callback?.headers.get("location") ?? "");
-    expect(location.protocol).toBe("openscout:");
+    expect(location.protocol).toBe("scout:");
     expect(location.host).toBe("osn-auth");
     expect(location.searchParams.get("session")).toBeTruthy();
     expect(location.searchParams.get("expires_at")).toBeTruthy();

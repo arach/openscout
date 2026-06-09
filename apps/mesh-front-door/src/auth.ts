@@ -49,7 +49,7 @@ const GITHUB_API_VERSION = "2022-11-28";
 
 const OPENSCOUT_GITHUB_OAUTH_SCOPE = "user:email";
 const OPENSCOUT_NATIVE_AUTH_RETURN_TO = "/v1/auth/native/complete";
-const OPENSCOUT_IOS_AUTH_CALLBACK_URL = "openscout://osn-auth";
+const OPENSCOUT_IOS_AUTH_CALLBACK_URL = "scout://osn-auth";
 const OPENSCOUT_SESSION_COOKIE = "osn_session";
 const OPENSCOUT_OAUTH_STATE_COOKIE = "osn_oauth_state";
 const DEFAULT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -103,12 +103,19 @@ export async function readOpenScoutSessionFromRequest(
 
 async function startGitHubOAuth(request: Request, env: OpenScoutAuthEnv): Promise<Response> {
   const clientId = readGitHubClientId(env);
-  if (!clientId) return json(500, { error: "github_oauth_not_configured", detail: "missing client id" });
-  if (!env.OPENSCOUT_SESSION_SECRET?.trim()) return json(500, { error: "session_secret_not_configured" });
+  if (!clientId) {
+    logAuthEvent(request, "github_oauth_start_denied", { reason: "missing_client_id" });
+    return json(500, { error: "github_oauth_not_configured", detail: "missing client id" });
+  }
+  if (!env.OPENSCOUT_SESSION_SECRET?.trim()) {
+    logAuthEvent(request, "github_oauth_start_denied", { reason: "missing_session_secret" });
+    return json(500, { error: "session_secret_not_configured" });
+  }
 
   const url = new URL(request.url);
   const redirectUri = readRedirectUri(request, env);
   const returnTo = sanitizeReturnTo(url.searchParams.get("return_to"));
+  logAuthEvent(request, "github_oauth_start", { returnTo, redirectUri });
   const state: OAuthState = {
     nonce: randomToken(),
     returnTo,
@@ -133,16 +140,28 @@ async function startGitHubOAuth(request: Request, env: OpenScoutAuthEnv): Promis
 async function finishGitHubOAuth(request: Request, env: OpenScoutAuthEnv, fetcher: Fetcher): Promise<Response> {
   const clientId = readGitHubClientId(env);
   const clientSecret = readGitHubClientSecret(env);
-  if (!clientId || !clientSecret) return json(500, { error: "github_oauth_not_configured" });
+  if (!clientId || !clientSecret) {
+    logAuthEvent(request, "github_oauth_callback_denied", {
+      reason: !clientId ? "missing_client_id" : "missing_client_secret",
+    });
+    return json(500, { error: "github_oauth_not_configured" });
+  }
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code")?.trim();
   const state = url.searchParams.get("state")?.trim();
-  if (!code || !state) return json(400, { error: "missing_oauth_code_or_state" });
+  if (!code || !state) {
+    logAuthEvent(request, "github_oauth_callback_denied", { reason: "missing_code_or_state" });
+    return json(400, { error: "missing_oauth_code_or_state" });
+  }
+  logAuthEvent(request, "github_oauth_callback", { hasCode: true, hasState: true });
 
   const stateToken = readCookie(request, OPENSCOUT_OAUTH_STATE_COOKIE);
   const expectedState = await verifySignedToken<OAuthState>(stateToken, env.OPENSCOUT_SESSION_SECRET);
   if (!expectedState || expectedState.expiresAt <= Date.now() || expectedState.nonce !== state) {
+    logAuthEvent(request, "github_oauth_callback_denied", {
+      reason: !expectedState ? "invalid_state_cookie" : expectedState.expiresAt <= Date.now() ? "expired_state" : "state_mismatch",
+    });
     return json(400, { error: "invalid_oauth_state" }, [clearCookie(OPENSCOUT_OAUTH_STATE_COOKIE, request.url)]);
   }
 
@@ -153,11 +172,13 @@ async function finishGitHubOAuth(request: Request, env: OpenScoutAuthEnv, fetche
     redirectUri: readRedirectUri(request, env),
   });
   if (!accessToken.ok) {
+    logAuthEvent(request, "github_oauth_callback_denied", { reason: "token_exchange_failed", detail: accessToken.detail });
     return json(502, { error: "github_token_exchange_failed", detail: accessToken.detail });
   }
 
   const identity = await fetchGitHubIdentity(fetcher, accessToken.token);
   if (!identity.ok) {
+    logAuthEvent(request, "github_oauth_callback_denied", { reason: identity.error, detail: identity.detail });
     return json(identity.status, { error: identity.error, detail: identity.detail });
   }
 
@@ -176,11 +197,24 @@ async function finishGitHubOAuth(request: Request, env: OpenScoutAuthEnv, fetche
     const callbackURL = new URL(OPENSCOUT_IOS_AUTH_CALLBACK_URL);
     callbackURL.searchParams.set("session", sessionToken);
     callbackURL.searchParams.set("expires_at", session.expiresAt.toString());
+    logAuthEvent(request, "github_oauth_finished", {
+      mode: "native",
+      providerUserId: session.providerUserId,
+      login: session.login,
+      callbackScheme: callbackURL.protocol.replace(":", ""),
+      callbackHost: callbackURL.host,
+    });
     return redirect(callbackURL, [
       clearCookie(OPENSCOUT_OAUTH_STATE_COOKIE, request.url),
     ]);
   }
 
+  logAuthEvent(request, "github_oauth_finished", {
+    mode: "web",
+    providerUserId: session.providerUserId,
+    login: session.login,
+    returnTo: expectedState.returnTo,
+  });
   return redirect(new URL(expectedState.returnTo, url.origin), [
     clearCookie(OPENSCOUT_OAUTH_STATE_COOKIE, request.url),
     cookie(OPENSCOUT_SESSION_COOKIE, sessionToken, request.url, { maxAge: ttlSeconds }),
@@ -356,6 +390,19 @@ function json(status: number, payload: unknown, cookies: string[] = []): Respons
   });
   for (const value of cookies) headers.append("set-cookie", value);
   return new Response(JSON.stringify(payload, null, 2), { status, headers });
+}
+
+function logAuthEvent(request: Request, event: string, details: Record<string, unknown> = {}): void {
+  const url = new URL(request.url);
+  console.log(JSON.stringify({
+    service: "openscout-mesh-front-door",
+    area: "auth",
+    event,
+    method: request.method,
+    host: url.host,
+    path: url.pathname,
+    ...details,
+  }));
 }
 
 function readPositiveInteger(value: string | undefined, fallback: number): number {

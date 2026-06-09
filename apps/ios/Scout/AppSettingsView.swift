@@ -129,6 +129,17 @@ struct AppSettingsView: View {
                 HudInspectorToggleRow("Tailscale", isOn: tailnetBinding, valueOn: "On", valueOff: "Off", hint: "reach over your tailnet")
                 HudInspectorToggleRow("OpenScout Net", isOn: osnBinding, valueOn: "On", valueOff: "Off", hint: "relay fallback off-LAN")
             }
+            HudInspectorSection("OpenScout Net") {
+                HudInspectorFieldRow("Login", value: model.openScoutNetworkAuthStatus, hint: model.openScoutNetworkAuthHint)
+                HudInspectorActionRow("GitHub", value: model.openScoutNetworkAuthActionLabel, tone: .accent) {
+                    model.openOpenScoutNetworkLogin()
+                }
+                if model.openScoutNetworkAuthStatus != "Signed out" {
+                    HudInspectorActionRow("Sign out", value: "Clear", tone: .warn) {
+                        model.signOutOpenScoutNetwork()
+                    }
+                }
+            }
             HudInspectorSection("Tailnet repair") {
                 HudInspectorFieldRow("Devices", value: tailnetRepairValue, hint: tailnetRepairHint)
                 HudInspectorActionRow("Refresh devices", value: model.isRefreshingTailnetPairTargets ? "…" : "Run", tone: .accent) {

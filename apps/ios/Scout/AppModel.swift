@@ -105,6 +105,13 @@ final class AppModel {
     private static let scoutWebMeshPath = "/api/mesh"
     private static let scoutWebPairPath = "/pair"
     private static let defaultScoutWebPort = 3200
+    private static let openScoutNetworkFrontDoorBaseURL = "https://mesh.oscout.net"
+    private static let openScoutNetworkAuthStartPath = "/v1/auth/github/start"
+    private static let openScoutNetworkNativeReturnToPath = "/v1/auth/native/complete"
+    private static let openScoutNetworkAuthExpiresAtKey = "scout.osn.sessionExpiresAtMs"
+
+    var openScoutNetworkAuthExpiresAt: Date?
+    private var openScoutNetworkSessionToken: String?
 
     init() {
         let log = ConnectionLog()
@@ -113,6 +120,7 @@ final class AppModel {
         lanRoutingEnabled = BridgeRoutePreferences.lanRoutingEnabled()
         tailnetRoutingEnabled = BridgeRoutePreferences.tailnetRoutingEnabled()
         openScoutNetworkRoutingEnabled = BridgeRoutePreferences.openScoutNetworkRoutingEnabled()
+        loadOpenScoutNetworkSession()
         if let raw = UserDefaults.standard.string(forKey: Self.voicePrefKey),
            let pref = HudDictation.Preference(rawValue: raw) {
             dictation.preference = pref
@@ -473,6 +481,50 @@ final class AppModel {
         reconnectIfCurrentRouteWasDisabled(.oscout, enabled: enabled)
     }
 
+    var openScoutNetworkAuthStatus: String {
+        guard let expiresAt = openScoutNetworkAuthExpiresAt,
+              openScoutNetworkSessionToken?.isEmpty == false
+        else {
+            return "Signed out"
+        }
+        return expiresAt > Date() ? "Signed in" : "Expired"
+    }
+
+    var openScoutNetworkAuthHint: String {
+        guard let expiresAt = openScoutNetworkAuthExpiresAt,
+              openScoutNetworkSessionToken?.isEmpty == false
+        else {
+            return "GitHub login required"
+        }
+        if expiresAt <= Date() {
+            return "login again"
+        }
+        return "expires \(expiresAt.formatted(.relative(presentation: .named)))"
+    }
+
+    var openScoutNetworkAuthActionLabel: String {
+        openScoutNetworkAuthStatus == "Signed in" ? "Refresh" : "Login"
+    }
+
+    func openOpenScoutNetworkLogin() {
+        guard let url = Self.openScoutNetworkAuthStartURL() else {
+            connectionLog.log("OpenScout Network login URL is invalid", event: .auth, level: .error, route: .oscout)
+            return
+        }
+        connectionLog.log("Opening OpenScout Network login…", event: .auth, route: .oscout)
+        #if canImport(UIKit)
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    func signOutOpenScoutNetwork() {
+        try? ScoutIdentity.deleteOSNSessionToken()
+        UserDefaults.standard.removeObject(forKey: Self.openScoutNetworkAuthExpiresAtKey)
+        openScoutNetworkSessionToken = nil
+        openScoutNetworkAuthExpiresAt = nil
+        connectionLog.log("OpenScout Network session cleared", event: .auth, route: .oscout)
+    }
+
     private func reconnectIfCurrentRouteWasDisabled(_ route: TransportKind, enabled: Bool) {
         guard !enabled, fleet.hasConnectedRoute(route) else { return }
         Task { await reconnect() }
@@ -796,6 +848,58 @@ final class AppModel {
         await completePair(source: "pairing link", inputLength: link.count) { try await parsePairingPayload(fromLink: link) }
     }
 
+    /// App-level URL router for the shared `scout://` scheme. Auth links are
+    /// consumed here; everything else falls through to the existing pair parser.
+    @discardableResult
+    func handleDeepLink(_ url: URL) async -> Bool {
+        if handleOpenScoutNetworkAuthCallback(url) {
+            return true
+        }
+        return await pairFromLink(url.absoluteString)
+    }
+
+    private func handleOpenScoutNetworkAuthCallback(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "scout"
+        else {
+            return false
+        }
+        let host = components.host?.lowercased()
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        guard host == "osn-auth" || path == "osn-auth" else {
+            return false
+        }
+
+        let items = components.queryItems ?? []
+        func value(_ key: String) -> String? { items.first { $0.name == key }?.value?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let session = value("session"), !session.isEmpty,
+              let expiresAtRaw = value("expires_at"),
+              let expiresAtMs = Double(expiresAtRaw)
+        else {
+            connectionLog.log("OpenScout Network auth callback missing session fields", event: .auth, level: .error, route: .oscout)
+            return true
+        }
+
+        let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+        guard expiresAt > Date() else {
+            connectionLog.log("OpenScout Network auth callback was already expired", event: .auth, level: .error, route: .oscout)
+            return true
+        }
+
+        do {
+            try ScoutIdentity.saveOSNSessionToken(session)
+            UserDefaults.standard.set(expiresAtMs, forKey: Self.openScoutNetworkAuthExpiresAtKey)
+            openScoutNetworkSessionToken = session
+            openScoutNetworkAuthExpiresAt = expiresAt
+            openScoutNetworkRoutingEnabled = true
+            BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+            connectionLog.log("OpenScout Network login saved", event: .auth, level: .success, route: .oscout)
+        } catch {
+            connectionLog.log("OpenScout Network auth save failed: \(error.localizedDescription)", event: .auth, level: .error, route: .oscout)
+        }
+        return true
+    }
+
     /// Shared pairing tail: build the payload, run the XX handshake, and land in
     /// the shell on success. The `makePayload` closure is the only difference
     /// between the QR and link entry points.
@@ -923,6 +1027,42 @@ final class AppModel {
         #else
         return "Scout"
         #endif
+    }
+
+    private func loadOpenScoutNetworkSession() {
+        let expiresAtMs = UserDefaults.standard.double(forKey: Self.openScoutNetworkAuthExpiresAtKey)
+        let loadedToken = (try? ScoutIdentity.loadOSNSessionToken()) ?? nil
+        guard let token = loadedToken,
+              token.isEmpty == false,
+              expiresAtMs > 0
+        else {
+            openScoutNetworkSessionToken = nil
+            openScoutNetworkAuthExpiresAt = nil
+            return
+        }
+        let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+        guard expiresAt > Date() else {
+            try? ScoutIdentity.deleteOSNSessionToken()
+            UserDefaults.standard.removeObject(forKey: Self.openScoutNetworkAuthExpiresAtKey)
+            openScoutNetworkSessionToken = nil
+            openScoutNetworkAuthExpiresAt = nil
+            return
+        }
+        openScoutNetworkSessionToken = token
+        openScoutNetworkAuthExpiresAt = expiresAt
+    }
+
+    private static func openScoutNetworkAuthStartURL() -> URL? {
+        guard let base = URL(string: openScoutNetworkFrontDoorBaseURL),
+              var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        else {
+            return nil
+        }
+        components.path = openScoutNetworkAuthStartPath
+        components.queryItems = [
+            URLQueryItem(name: "return_to", value: openScoutNetworkNativeReturnToPath),
+        ]
+        return components.url
     }
 
     // MARK: - Status presentation

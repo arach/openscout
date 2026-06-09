@@ -68,7 +68,8 @@ targets:
         # On-device dictation (HudDictation): mic capture + Apple Speech fallback.
         NSMicrophoneUsageDescription: Scout uses the microphone to dictate messages to your agents.
         NSSpeechRecognitionUsageDescription: Scout transcribes your dictation on-device.
-        # Camera-free pairing deep link: scout://pair?payload=…
+        # Camera-free pairing and native auth deep links:
+        # scout://pair?payload=… and scout://osn-auth?session=…
         CFBundleURLTypes:
           - CFBundleURLName: com.openscout.scout
             CFBundleURLSchemes:
