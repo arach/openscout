@@ -66,6 +66,7 @@ const SURFACE_FLAG_KEYS = [
   "surface.activity",
   "surface.follow",
   "surface.scoutbot",
+  "surface.workflows",
 ] as const;
 
 export const scoutFlags = createFlagRegistry({
@@ -182,6 +183,15 @@ export const scoutFlags = createFlagRegistry({
     tier: "everyone",
     owner: "scout-web",
     tags: ["surface", "assistant"],
+  },
+  "surface.workflows": {
+    label: "Surface · Workflows",
+    description:
+      "Observed harness families / workflow topology telemetry on the Agents directory. Off in the lean view — the directory is just the project-grouped agent board.",
+    defaultEnabled: false,
+    tier: "everyone",
+    owner: "scout-web",
+    tags: ["surface", "observability"],
   },
 });
 
