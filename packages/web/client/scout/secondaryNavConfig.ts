@@ -91,7 +91,7 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
       },
       {
         id: "harnesses",
-        label: "Harnesses",
+        label: "Providers",
         route: { view: "harnesses" },
         active: (route) => route.view === "harnesses",
       },

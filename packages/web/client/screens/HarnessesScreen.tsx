@@ -302,9 +302,9 @@ function BudgetCell({ gauge }: { gauge: ServiceGauge | null }) {
 
 function HarnessLedger({ rows }: { rows: HarnessRow[] }) {
   return (
-    <div className="hs-ledger" role="table" aria-label="Harness ledger">
+    <div className="hs-ledger" role="table" aria-label="Provider ledger">
       <div className="hs-ledger-head" role="row">
-        <span>harness</span>
+        <span>provider</span>
         <span>agents</span>
         <span>runtime</span>
         <span>budget</span>
@@ -479,9 +479,9 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
         <div className="hs-page">
           <header className="hs-page-head">
             <div className="hs-title-group">
-              <span className="hs-kicker">ops / harness central</span>
-              <h2>Harnesses</h2>
-              <p>{activeHarnesses} active harnesses / {scopedAgents.length} registered agents / {serviceGauges.length} budget feeds</p>
+              <span className="hs-kicker">ops / provider central</span>
+              <h2>Providers</h2>
+              <p>{activeHarnesses} active providers / {scopedAgents.length} registered agents / {serviceGauges.length} budget feeds</p>
             </div>
             <button
               type="button"
@@ -494,9 +494,9 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
             </button>
           </header>
 
-          <div className="hs-stat-grid" aria-label="Harness summary">
+          <div className="hs-stat-grid" aria-label="Provider summary">
             <div className="hs-stat">
-              <span>Harnesses</span>
+              <span>Providers</span>
               <strong>{rows.length}</strong>
               <em>{activeHarnesses} active</em>
             </div>
@@ -518,7 +518,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
           </div>
 
           {error && <div className="hs-error">refresh: {error}</div>}
-          {loading ? <div className="hs-empty">Loading harnesses.</div> : <HarnessLedger rows={rows} />}
+          {loading ? <div className="hs-empty">Loading providers.</div> : <HarnessLedger rows={rows} />}
           <TopologySection snapshot={topologySnapshot} />
         </div>
       </div>

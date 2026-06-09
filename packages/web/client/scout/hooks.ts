@@ -112,7 +112,7 @@ export function useScoutCommands(): CommandOption[] {
       },
       {
         id: "nav:harnesses",
-        label: "Open Harnesses",
+        label: "Open Providers",
         action: () => navigate({ view: "harnesses" }),
       },
       ...(opsEnabled ? [{

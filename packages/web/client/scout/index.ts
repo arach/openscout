@@ -97,10 +97,10 @@ const intents: AppIntent[] = [
   },
   {
     commandId: "nav:harnesses",
-    title: "Open Harnesses",
-    description: "Open the central view for registered harnesses, observed topology, and budget feeds",
+    title: "Open Providers",
+    description: "Open the central view for providers, harnesses, observed topology, and budget feeds",
     category: "navigation",
-    keywords: ["harness", "harnesses", "providers", "claude", "codex", "budget", "usage", "topology"],
+    keywords: ["provider", "providers", "harness", "harnesses", "claude", "codex", "budget", "usage", "topology"],
   },
   {
     commandId: "nav:ops",

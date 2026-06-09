@@ -50,7 +50,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   messages: "Chat",
   sessions: "Sessions",
   repos: "Repos",
-  harnesses: "Harnesses",
+  harnesses: "Providers",
   search: "Search",
   channels: "Channels",
   activity: "Activity",
