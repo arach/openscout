@@ -29,10 +29,14 @@ type ScoutMenuResult = {
 const MENU_BUNDLE_ID = "com.openscout.menu";
 const MENU_BUNDLE_NAME = "OpenScoutMenu.app";
 const MENU_PROCESS_NAME = "OpenScoutMenu";
+// Installed builds ship the menu bar app as a helper embedded inside OpenScout.app.
+const APP_BUNDLE_ID = "com.openscout.scout";
+const APP_BUNDLE_NAME = "OpenScout.app";
+const EMBEDDED_MENU_RELATIVE_PATH = join("Contents", "Library", "LoginItems", "OpenScout Menu.app");
 const HELP_FLAGS = new Set(["help", "--help", "-h"]);
-const COMMON_MENU_BUNDLE_PATHS = [
-  join("/Applications", MENU_BUNDLE_NAME),
-  join(homedir(), "Applications", MENU_BUNDLE_NAME),
+const COMMON_APP_BUNDLE_PATHS = [
+  join("/Applications", APP_BUNDLE_NAME),
+  join(homedir(), "Applications", APP_BUNDLE_NAME),
 ] as const;
 
 export function renderMenuCommandHelp(): string {
@@ -53,9 +57,10 @@ export function renderMenuCommandHelp(): string {
     "  quit   = stop",
     "",
     "Behavior:",
-    "  On macOS, `scout menu` launches the installed OpenScout menu app when available.",
-    "  When run inside an OpenScout repo checkout, it prefers `apps/macos/bin/openscout-menu.ts`",
-    "  so launch/build/restart reuse the repo helper and auto-build the app bundle if needed.",
+    "  On macOS, `scout menu` loads the menu bar app from the installed OpenScout.app",
+    "  (the menu ships as an embedded helper). If OpenScout.app is not installed, it",
+    "  points you to `scout install`. Inside an OpenScout repo checkout it prefers",
+    "  `apps/macos/bin/openscout-menu.ts` so launch/build/restart reuse the repo helper.",
     "",
     "Examples:",
     "  scout menu",
@@ -168,10 +173,10 @@ function stopRunningMenu(env: NodeJS.ProcessEnv): boolean {
   return runProcess("pkill", ["-x", MENU_PROCESS_NAME], { env, allowFailure: true }).ok;
 }
 
-function resolveInstalledMenuBundlePath(env: NodeJS.ProcessEnv): string | null {
+function resolveInstalledAppBundlePath(env: NodeJS.ProcessEnv): string | null {
   const spotlight = runProcess(
     "mdfind",
-    [`kMDItemCFBundleIdentifier == '${MENU_BUNDLE_ID}'`],
+    [`kMDItemCFBundleIdentifier == '${APP_BUNDLE_ID}'`],
     { env, allowFailure: true },
   );
   const indexedPath = spotlight.stdout
@@ -182,7 +187,7 @@ function resolveInstalledMenuBundlePath(env: NodeJS.ProcessEnv): string | null {
     return indexedPath;
   }
 
-  for (const candidate of COMMON_MENU_BUNDLE_PATHS) {
+  for (const candidate of COMMON_APP_BUNDLE_PATHS) {
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -191,15 +196,19 @@ function resolveInstalledMenuBundlePath(env: NodeJS.ProcessEnv): string | null {
   return null;
 }
 
-function openInstalledMenuApp(bundlePath: string | null, env: NodeJS.ProcessEnv): void {
+function resolveEmbeddedMenuBundlePath(appBundlePath: string): string {
+  return join(appBundlePath, EMBEDDED_MENU_RELATIVE_PATH);
+}
+
+function openInstalledMenuApp(helperPath: string | null, env: NodeJS.ProcessEnv): void {
   const bundleAttempts: Array<{ command: string; args: string[] }> = [
     { command: "open", args: ["-b", MENU_BUNDLE_ID] },
   ];
-  if (bundlePath) {
-    bundleAttempts.push({ command: "open", args: [bundlePath] });
+  if (helperPath) {
+    bundleAttempts.push({ command: "open", args: [helperPath] });
   }
 
-  let lastFailure = "OpenScout Menu is not installed.";
+  let lastFailure = "OpenScout is not installed.";
   for (const attempt of bundleAttempts) {
     const result = runProcess(attempt.command, attempt.args, { env, allowFailure: true });
     if (result.ok) {
@@ -209,7 +218,7 @@ function openInstalledMenuApp(bundlePath: string | null, env: NodeJS.ProcessEnv)
   }
 
   throw new ScoutCliError(
-    `${lastFailure} Run this command from the OpenScout repo to auto-build the menu app, or install the app first.`,
+    `${lastFailure} Run \`scout install\` to download the OpenScout app, or run from the repo to build it.`,
   );
 }
 
@@ -224,6 +233,9 @@ function renderMenuResult(result: ScoutMenuResult): string {
     }
     if (result.helperPath) {
       lines.push(`Helper: ${result.helperPath}`);
+    }
+    if (!result.installed) {
+      lines.push("Run `scout install` to download the macOS app.");
     }
     return lines.join("\n");
   }
@@ -283,23 +295,30 @@ function runWithInstalledApp(
   context: ScoutCommandContext,
   command: ScoutMenuCommand,
 ): ScoutMenuResult {
-  const bundlePath = resolveInstalledMenuBundlePath(context.env);
-
   if (command.action === "build" || command.action === "dmg") {
     throw new ScoutCliError(
       `scout menu ${command.action} requires an OpenScout repo checkout. Run from the repo root or use bun run macos:${command.action}.`,
     );
   }
 
+  const appBundlePath = resolveInstalledAppBundlePath(context.env);
+  const helperPath = appBundlePath ? resolveEmbeddedMenuBundlePath(appBundlePath) : null;
+
+  if (!appBundlePath && command.action !== "status") {
+    throw new ScoutCliError(
+      "OpenScout is not installed. Run `scout install` to download the macOS app.",
+    );
+  }
+
   switch (command.action) {
     case "launch":
       if (!isMenuRunning(context.env)) {
-        openInstalledMenuApp(bundlePath, context.env);
+        openInstalledMenuApp(helperPath, context.env);
       }
       break;
     case "restart":
       stopRunningMenu(context.env);
-      openInstalledMenuApp(bundlePath, context.env);
+      openInstalledMenuApp(helperPath, context.env);
       break;
     case "quit":
       stopRunningMenu(context.env);
@@ -311,17 +330,19 @@ function runWithInstalledApp(
   }
 
   const running = command.action === "quit" ? false : isMenuRunning(context.env);
-  const installed = Boolean(bundlePath) || running;
+  const installed = Boolean(appBundlePath) || running;
 
   return {
     action: command.action,
     mode: "installed-app",
     bundleId: MENU_BUNDLE_ID,
-    bundlePath,
-    helperPath: null,
+    bundlePath: appBundlePath,
+    helperPath,
     installed,
     running,
-    message: renderActionMessage(command.action),
+    message: installed
+      ? renderActionMessage(command.action)
+      : "OpenScout is not installed. Run `scout install` to download the macOS app.",
   };
 }
 
