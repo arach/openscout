@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
+import { isScoutFlagEnabled } from "./scout-flags.ts";
 import type {
   AgentTab,
   FollowPreferredView,
@@ -94,6 +95,13 @@ function isOpsEnabledForUrl(url: URL): boolean {
     return true;
   }
   return isOpsEnabled();
+}
+
+// Tail (ops?mode=tail) is promoted to the primary nav by `nav.clean` and is part
+// of the lean core, so it stays reachable even when the broader Ops cluster
+// (ops.control) is gated off. Other Ops modes still follow the ops gate.
+function isTailCoreSurface(mode: string | undefined): boolean {
+  return mode === "tail" && isScoutFlagEnabled("nav.clean");
 }
 
 const MACHINE_SCOPE_PARAM = "machineId";
@@ -330,10 +338,10 @@ export function routeFromUrl(urlLike: string | URL): Route {
     };
   }
   if (parts[0] === "ops") {
-    if (!isOpsEnabledForUrl(url)) {
+    const mode = parseOpsMode(parts[1]) ?? "mission";
+    if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
       return scoped({ view: "inbox" });
     }
-    const mode = parseOpsMode(parts[1]) ?? "mission";
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
     const planDocumentId = mode === "plan" ? url.searchParams.get("plan")?.trim() : "";
     return {
@@ -537,9 +545,10 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    const requestedRoute: Route = r.view === "ops" && !isOpsEnabled()
-      ? { view: "inbox" }
-      : r;
+    const requestedRoute: Route =
+      r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
+        ? { view: "inbox" }
+        : r;
     const currentRoute = routeFromPath();
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;

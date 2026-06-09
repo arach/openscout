@@ -65,6 +65,7 @@ const SURFACE_FLAG_KEYS = [
   "surface.work",
   "surface.activity",
   "surface.follow",
+  "surface.scoutbot",
 ] as const;
 
 export const scoutFlags = createFlagRegistry({
@@ -169,6 +170,18 @@ export const scoutFlags = createFlagRegistry({
     tier: "everyone",
     owner: "scout-web",
     tags: ["surface"],
+  },
+  "surface.scoutbot": {
+    label: "Surface · Scoutbot",
+    description:
+      "Scoutbot assistant — the inspector panel, the status-bar broadcast chip, and the Ask-Scout command-palette actions.",
+    // Default ON: this is a kill-switch / lean-launch toggle for an
+    // always-present feature, not a default-off reveal like its surface.*
+    // siblings. Not in a bundle yet — toggle via the panel or ?ff.surface.scoutbot.
+    defaultEnabled: true,
+    tier: "everyone",
+    owner: "scout-web",
+    tags: ["surface", "assistant"],
   },
 });
 
@@ -301,9 +314,17 @@ function scoutStoredBundleLayer(): FeatureFlagLayerInput<ScoutAudienceTier> {
   return bundle ? scoutFlagBundleLayer(bundle) : {};
 }
 
+// The out-of-the-box experience. With nothing else set we serve the lean
+// `light-prod` bundle (clean nav, ops/surface extras off) as the baseline; the
+// full experience is opt-in via `?ffBundle=max-pro` (one load), `?ffGlobal=max-pro`
+// (pinned for the browser), or the dev panel. `OPENSCOUT_WEB_FLAG_BUNDLE` on the
+// server still wins over this default. This is the lowest-priority layer —
+// url/local always override it.
+const SCOUT_DEFAULT_BUNDLE: ScoutFlagBundle = "light-prod";
+
 function scoutSiteBundleLayer(): FeatureFlagLayerInput<ScoutAudienceTier> {
-  const bundle = scoutFlagBundleFromValue(readScoutBootstrapFlagBundle());
-  return bundle ? scoutFlagBundleLayer(bundle) : {};
+  const bundle = scoutFlagBundleFromValue(readScoutBootstrapFlagBundle()) ?? SCOUT_DEFAULT_BUNDLE;
+  return scoutFlagBundleLayer(bundle);
 }
 
 function applyScoutFlagBundlePersistence(params: URLSearchParams): void {

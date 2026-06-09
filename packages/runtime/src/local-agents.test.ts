@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import {
   endpointStateAfterSuccessfulSessionWarmup,
   areHarnessBinariesAvailable,
   brokerSnapshotMessages,
+  loadRegisteredLocalAgentBindings,
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
@@ -30,6 +31,8 @@ const scoutSkillPath = join(repoRoot, ".agents", "skills", "scout", "SKILL.md");
 const originalCodexBin = process.env.OPENSCOUT_CODEX_BIN;
 const originalCodeXBin = process.env.CODEX_BIN;
 const originalPath = process.env.PATH;
+const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
+const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const tempPaths = new Set<string>();
 
 afterEach(() => {
@@ -47,6 +50,16 @@ afterEach(() => {
     delete process.env.PATH;
   } else {
     process.env.PATH = originalPath;
+  }
+  if (originalNodeQualifier === undefined) {
+    delete process.env.OPENSCOUT_NODE_QUALIFIER;
+  } else {
+    process.env.OPENSCOUT_NODE_QUALIFIER = originalNodeQualifier;
+  }
+  if (originalSupportDirectory === undefined) {
+    delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+  } else {
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
   }
 
   for (const tempPath of tempPaths) {
@@ -99,6 +112,56 @@ describe("local agent prompts", () => {
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
+  });
+
+  test("hydrates persisted Codex thread ids onto local endpoint metadata", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-local-agent-binding-"));
+    tempPaths.add(tempRoot);
+    const supportDirectory = join(tempRoot, "support");
+    const projectRoot = join(tempRoot, "projects", "talkie");
+    const actorId = "talkie.test-node";
+    const runtimeDirectory = join(supportDirectory, "runtime", "agents", actorId);
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = supportDirectory;
+    process.env.OPENSCOUT_NODE_QUALIFIER = "test-node";
+    mkdirSync(runtimeDirectory, { recursive: true });
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(runtimeDirectory, "session-catalog.json"), JSON.stringify({
+      activeSessionId: "codex-thread-talkie",
+      sessions: [{
+        id: "codex-thread-talkie",
+        startedAt: Date.now(),
+        cwd: projectRoot,
+        harness: "codex",
+        transport: "codex_app_server",
+      }],
+    }), "utf8");
+    mkdirSync(supportDirectory, { recursive: true });
+    writeFileSync(join(supportDirectory, "relay-agents.json"), JSON.stringify({
+      version: 1,
+      agents: {
+        talkie: {
+          agentId: "talkie",
+          definitionId: "talkie",
+          projectName: "talkie",
+          projectRoot,
+          defaultHarness: "codex",
+          runtime: {
+            cwd: projectRoot,
+            harness: "codex",
+            transport: "codex_app_server",
+            sessionId: "relay-talkie-codex",
+            wakePolicy: "on_demand",
+          },
+        },
+      },
+    }), "utf8");
+
+    const [binding] = await loadRegisteredLocalAgentBindings("node.local");
+
+    expect(binding?.agent.id).toBe(actorId);
+    expect(binding?.endpoint.sessionId).toBe("relay-talkie-codex");
+    expect(binding?.endpoint.metadata?.externalSessionId).toBe("codex-thread-talkie");
+    expect(binding?.endpoint.metadata?.threadId).toBe("codex-thread-talkie");
   });
 
   test("system prompt composes shared base, project context, and broker-backed protocol", () => {

@@ -2370,7 +2370,12 @@ describe("broker daemon comms layer", () => {
       harness: "codex",
       transport: "codex_app_server",
       state: "active",
-      sessionId: "codex-thread-reviewer",
+      sessionId: "relay-reviewer-codex",
+      metadata: {
+        externalSessionId: "codex-thread-reviewer",
+        threadId: "codex-thread-reviewer",
+        runtimeInstanceId: "relay-reviewer-codex",
+      },
     });
 
     const response = await postJson<{

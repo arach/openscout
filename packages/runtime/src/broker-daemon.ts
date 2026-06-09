@@ -4397,8 +4397,35 @@ async function completeInvocationsForBrokerReply(message: MessageRecord): Promis
   }
 }
 
+const ENDPOINT_SESSION_ALIAS_METADATA_KEYS = [
+  "sessionId",
+  "externalSessionId",
+  "threadId",
+  "nativeSessionId",
+  "runtimeSessionId",
+  "runtimeInstanceId",
+  "tmuxSession",
+  "pairingSessionId",
+] as const;
+
+function endpointSessionAliasValues(endpoint: AgentEndpoint): string[] {
+  const values = [
+    endpoint.id,
+    endpoint.sessionId,
+    ...ENDPOINT_SESSION_ALIAS_METADATA_KEYS.map((key) => metadataStringValue(endpoint.metadata, key)),
+  ];
+  const aliases = values
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  return [...new Set(aliases)];
+}
+
 function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId: string): boolean {
-  return endpoint.sessionId?.trim() === sessionId || endpoint.id === sessionId;
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) {
+    return false;
+  }
+  return endpointSessionAliasValues(endpoint).includes(normalizedSessionId);
 }
 
 function invocationTargetSessionId(invocation: InvocationRequest): string | undefined {
