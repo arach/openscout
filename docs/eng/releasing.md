@@ -147,7 +147,7 @@ By default the script expects the sibling checkout at `../hudson`. Override with
 env, then the repo root `package.json`. It will:
 
 1. Build the SwiftPM app products.
-2. Assemble `apps/macos/dist/OpenScout.app` with `OpenScout Menu.app` embedded
+2. Assemble `apps/macos/dist/OpenScout.app` with `ScoutMenu.app` embedded
    under `Contents/Library/LoginItems`.
 3. Stage `OpenScout.app` with an `/Applications` symlink and write the Finder
    installer layout.

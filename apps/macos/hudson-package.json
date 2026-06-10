@@ -30,9 +30,9 @@
         "icon": "../../apps/desktop/public/scout-icon.png",
         "embeddedHelpers": [
           {
-            "name": "OpenScout Menu",
-            "bundleName": "OpenScout Menu.app",
-            "displayName": "OpenScout Menu",
+            "name": "Scout Menu",
+            "bundleName": "ScoutMenu.app",
+            "displayName": "Scout Menu",
             "product": "OpenScoutMenu",
             "executableName": "OpenScoutMenu",
             "binaryPath": ".build/release/OpenScoutMenu",

@@ -5,9 +5,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.openscout.menu</string>
     <key>CFBundleName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleDisplayName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleExecutable</key>
     <string>OpenScoutMenu</string>
     <key>CFBundlePackageType</key>

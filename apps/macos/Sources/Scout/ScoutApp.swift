@@ -143,7 +143,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("LoginItems", isDirectory: true)
-            .appendingPathComponent("OpenScout Menu.app", isDirectory: true)
+            .appendingPathComponent("ScoutMenu.app", isDirectory: true)
 
         guard FileManager.default.fileExists(atPath: helperURL.path) else {
             return
