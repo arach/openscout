@@ -3,7 +3,7 @@
 const NODES = [
   { x: 60,  y: 28,  label: "cli·hudson" },
   { x: 200, y: 16,  label: "mac·atlas" },
-  { x: 340, y: 30,  label: "iphone·orin" },
+  { x: 340, y: 30,  label: "remote·orin" },
   { x: 110, y: 110, label: "ide·arc" },
   { x: 280, y: 120, label: "web·echo" },
   { x: 200, y: 70,  label: "broker" },

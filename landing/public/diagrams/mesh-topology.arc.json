@@ -14,7 +14,7 @@
     "agent-a2":  { "icon": "Terminal",    "name": "Codex",       "subtitle": "@reviewer",     "color": "emerald" },
     "broker-b":  { "icon": "Database",   "name": "Broker",      "subtitle": "Workstation B", "color": "violet" },
     "agent-b1":  { "icon": "Terminal",    "name": "Claude Code", "subtitle": "@indexer",      "color": "amber" },
-    "agent-b2":  { "icon": "Smartphone", "name": "Paired Device", "subtitle": "iPhone",      "color": "blue" }
+    "agent-b2":  { "icon": "Smartphone", "name": "Remote Device", "subtitle": "Scout app",   "color": "blue" }
   },
   "connectors": [
     { "from": "broker-a",  "to": "broker-b",  "fromAnchor": "right",  "toAnchor": "left",   "style": "mesh" },

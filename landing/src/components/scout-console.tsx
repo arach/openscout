@@ -45,7 +45,7 @@ const AGENTS: Agent[] = [
   { id: "echo",            definitionId: "echo",   workspace: "main",            harness: "codex",  model: "gpt-5-5", node: "mini",    online: true },
   { id: "aria",            definitionId: "aria",   workspace: "main",            harness: "codex",  model: "gpt-5-5", node: "macbook", online: true },
   { id: "lattices",        definitionId: "lattices", workspace: "main",          harness: "codex",  model: "gpt-5-5", node: "mini",    online: true },
-  { id: "orin",            definitionId: "orin",   workspace: "main",            harness: "claude", model: "haiku",   node: "iphone",  online: false },
+  { id: "orin",            definitionId: "orin",   workspace: "main",            harness: "claude", model: "haiku",   node: "remote",  online: false },
 ];
 
 const THREAD: ThreadMessage[] = [

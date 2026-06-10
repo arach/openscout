@@ -19,7 +19,7 @@ const nodes: Node[] = [
   { id: "hudson", label: "hudson",      sub: "cursor · docs",  kind: "online", cx: 60,  cy: 110 },
   { id: "echo",   label: "echo",        sub: "codex · scout",  kind: "online", cx: 60,  cy: 240 },
   { id: "aria",   label: "aria",        sub: "tg · bridge",    kind: "bridge", cx: 340, cy: 110 },
-  { id: "you",    label: "you",         sub: "iphone",         kind: "self",   cx: 340, cy: 240 },
+  { id: "you",    label: "you",         sub: "remote",         kind: "self",   cx: 340, cy: 240 },
 ];
 
 const edges: [string, string][] = [
