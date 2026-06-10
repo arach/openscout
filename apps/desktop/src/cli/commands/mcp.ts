@@ -4,13 +4,47 @@ import { parseContextRootCommandOptions } from "../options.ts";
 import { runScoutMcpServer } from "../../core/mcp/scout-mcp.ts";
 import { renderMcpInstallHelp, runMcpInstallCommand } from "./mcp-install.ts";
 
+export type ScoutMcpCommandOptions = {
+  currentDirectory: string;
+  enableNotifications: boolean;
+};
+
+export function parseMcpCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutMcpCommandOptions {
+  const filteredArgs: string[] = [];
+  let enableNotifications = false;
+
+  for (const arg of args) {
+    if (arg === "--notifications" || arg === "--enable-notifications") {
+      enableNotifications = true;
+      continue;
+    }
+    filteredArgs.push(arg);
+  }
+
+  const options = parseContextRootCommandOptions(
+    "mcp",
+    filteredArgs,
+    defaultCurrentDirectory,
+  );
+  return {
+    currentDirectory: options.currentDirectory,
+    enableNotifications,
+  };
+}
+
 export function renderMcpCommandHelp(): string {
   return [
     "Usage:",
-    "  scout mcp [--context-root <path>]",
+    "  scout mcp [--context-root <path>] [--notifications]",
     "  scout mcp install [--host <codex|claude>] [--force] [--dry-run]",
     "",
     "Run or install the Scout MCP server.",
+    "",
+    "`--notifications` enables background MCP reply notifications on this",
+    "stdio connection. Omit it for a quiet tool-only MCP lane.",
     "",
     "The stdio server form is intended to be launched by an MCP host. It exposes",
     "the same canonical Scout coordination loop the CLI teaches:",
@@ -55,7 +89,13 @@ export async function runMcpCommand(
     return;
   }
 
-  const options = parseContextRootCommandOptions("mcp", args, defaultScoutContextDirectory(context));
+  const options = parseMcpCommandOptions(
+    args,
+    defaultScoutContextDirectory(context),
+  );
+  if (options.enableNotifications) {
+    context.env.OPENSCOUT_MCP_ENABLE_NOTIFICATIONS = "1";
+  }
   await runScoutMcpServer({
     defaultCurrentDirectory: options.currentDirectory,
     env: context.env,

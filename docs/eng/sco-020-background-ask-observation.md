@@ -21,7 +21,8 @@ The problem is that completion retrieval must not be overloaded onto ask submiss
 - `replyMode: "inline"` waits for target acknowledgement or immediate terminal
   state, but it is still the submission call.
 - `replyMode: "notify"` returns immediately, but depends on the MCP host keeping
-  the server alive and surfacing custom notifications.
+  the server alive and surfacing custom notifications. Background MCP
+  notifications are therefore opt-in via `OPENSCOUT_MCP_ENABLE_NOTIFICATIONS=1`.
 
 Long-running agent work should not require one open MCP request.
 
