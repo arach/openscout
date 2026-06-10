@@ -1,0 +1,84 @@
+import type { AdapterConfig } from "../protocol/adapter.js";
+import { AcpAdapter } from "./acp.js";
+
+const DEFAULT_GROK_ARGS = ["--no-auto-update", "agent", "stdio"];
+const GROK_BUILD_ADAPTER_TYPE = "grok-build";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringArray(value: unknown): string[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const entries = value.filter((entry): entry is string => typeof entry === "string");
+  return entries.length === value.length ? entries : null;
+}
+
+function firstNonEmptyString(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return null;
+}
+
+function resolveGrokEnvironment(configEnv: Record<string, string> | undefined): {
+  env: Record<string, string> | undefined;
+  hasXaiApiKey: boolean;
+} {
+  const xaiApiKey = firstNonEmptyString(
+    configEnv?.XAI_API_KEY,
+    configEnv?.SCOUT_XAI_API_KEY,
+    process.env.XAI_API_KEY,
+    process.env.SCOUT_XAI_API_KEY,
+  );
+
+  if (!xaiApiKey) {
+    return { env: configEnv, hasXaiApiKey: false };
+  }
+
+  return {
+    env: {
+      ...(configEnv ?? {}),
+      XAI_API_KEY: configEnv?.XAI_API_KEY?.trim() ? configEnv.XAI_API_KEY : xaiApiKey,
+    },
+    hasXaiApiKey: true,
+  };
+}
+
+function defaultAuthPreference(hasXaiApiKey: boolean): string[] {
+  return hasXaiApiKey ? ["xai.api_key", "cached_token"] : ["cached_token"];
+}
+
+export const createAdapter = (config: AdapterConfig) => {
+  const rawOptions = isRecord(config.options) ? config.options : {};
+  const { env, hasXaiApiKey } = resolveGrokEnvironment(config.env);
+
+  const command = stringValue(rawOptions.command) ?? "grok";
+  const args = stringArray(rawOptions.args) ?? DEFAULT_GROK_ARGS;
+  const authMethodPreference = stringArray(rawOptions.authMethodPreference)
+    ?? defaultAuthPreference(hasXaiApiKey);
+
+  return new AcpAdapter({
+    ...config,
+    env,
+    options: {
+      clientName: "openscout",
+      clientTitle: "OpenScout",
+      ...rawOptions,
+      adapterType: GROK_BUILD_ADAPTER_TYPE,
+      command,
+      args,
+      requireAuth: typeof rawOptions.requireAuth === "boolean" ? rawOptions.requireAuth : true,
+      authMethodPreference,
+    },
+  });
+};

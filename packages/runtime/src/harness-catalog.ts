@@ -259,6 +259,42 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     capabilities: ["chat", "invoke", "deliver", "review", "execute"],
   },
   {
+    name: "grok-build",
+    harness: "grok-build",
+    label: "Grok Build",
+    description: "xAI's Grok Build CLI coding agent over ACP",
+    homepage: "https://docs.x.ai/build/overview",
+    tags: ["coding", "cli", "xai", "acp"],
+    featured: true,
+    order: 3,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+      files: true,
+    },
+    install: {
+      binary: "grok",
+      macos: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      linux: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      windows: "irm https://x.ai/cli/install.ps1 | iex",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "file", path: "~/.grok/auth.json", label: "~/.grok/auth.json", fileType: "file" },
+        { kind: "env", key: "XAI_API_KEY" },
+        { kind: "env", key: "SCOUT_XAI_API_KEY" },
+      ],
+      loginCommand: "grok login",
+      notReadyMessage: "Grok Build is installed but still needs a cached login or XAI_API_KEY.",
+    },
+    capabilities: ["chat", "invoke", "deliver", "review", "execute"],
+    metadata: {
+      adapterType: "grok-build",
+      transport: "acp_stdio",
+    },
+  },
+  {
     name: "cursor",
     harness: "cursor",
     label: "Cursor Agent SDK",
