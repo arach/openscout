@@ -309,7 +309,6 @@ final class HUDRunnerState: ObservableObject {
                 "asked \(response.targetAgentId ?? response.flight?.targetAgentId ?? "Scout agent")",
                 kind: .success
             )
-            HudFleetService.shared.refresh(force: true)
         } catch {
             lastError = error.localizedDescription
             HUDFlashState.shared.flash(error.localizedDescription)

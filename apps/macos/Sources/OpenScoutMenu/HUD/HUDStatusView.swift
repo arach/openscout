@@ -27,8 +27,8 @@ struct HUDStatusView: View {
     var onDismiss: () -> Void
 
     @ObservedObject private var state = HUDState.shared
-    @ObservedObject private var fleet = HudFleetService.shared
     @StateObject private var agentsStore = ScoutAgentsStore()
+    @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
 
     private let minPanelW: CGFloat = 360
@@ -112,7 +112,7 @@ struct HUDStatusView: View {
         )
         .onAppear {
             agentsStore.start()
-            fleet.start()
+            activityStore.start()
             HUDDockState.shared.setSuggestionAgents(agents)
         }
         .onChange(of: agents) { _, next in
@@ -120,7 +120,7 @@ struct HUDStatusView: View {
         }
         .onDisappear {
             agentsStore.stop()
-            fleet.stop()
+            activityStore.stop()
         }
     }
 
@@ -186,8 +186,8 @@ struct HUDStatusView: View {
             case .activity:
                 HUDActivityView(
                     agents: agents,
-                    activity: fleet.activity,
-                    isLoading: fleet.isLoading && fleet.activity == nil
+                    activity: activityStore.items,
+                    isLoading: activityStore.isLoading && activityStore.items == nil
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
