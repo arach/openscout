@@ -176,6 +176,31 @@ function ReposOpsShell({
   );
 }
 
+function RepoWatchEmptyNextSteps({ error }: { error?: string | null }) {
+  return (
+    <div className="rw-empty-next">
+      <p className="rw-empty-copy">
+        Repos is waiting on the local Scout Services layer. Restart the broker
+        from the menu bar app, then rescan.
+      </p>
+      <ol className="rw-empty-steps">
+        <li>
+          Click <span className="rw-empty-action-name">Restart broker</span> to
+          hand off to the menu bar app.
+        </li>
+        <li>
+          Wait for Scout Services to report the broker online.
+        </li>
+        <li>
+          If nothing opens, run <code>scout doctor</code> and follow the repair
+          command it prints.
+        </li>
+      </ol>
+      {error ? <p className="rw-empty-error">{error}</p> : null}
+    </div>
+  );
+}
+
 export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -191,6 +216,8 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [scanDepth, setScanDepth] = useState<RepoWatchScanDepth>("standard");
   const [scanMorePending, setScanMorePending] = useState(false);
+  const [serviceRestartPending, setServiceRestartPending] = useState(false);
+  const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
   // SCO-065: the worktree path whose diff is open in the slide-in viewer.
   const [diffPath, setDiffPath] = useState<string | null>(null);
 
@@ -264,6 +291,33 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
     void load({ depth: "expanded", force: true, scanMore: true });
   }, [load]);
 
+  const restartBrokerFromMenu = useCallback(async () => {
+    if (serviceRestartPending) return;
+    setServiceRestartPending(true);
+    setServiceRestartError(null);
+
+    try {
+      const response = await fetch("/api/scout-services/restart-link", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: "broker" }),
+      });
+      if (!response.ok) {
+        throw new Error(`Scout Services link failed (${response.status})`);
+      }
+      const data = await response.json() as { url?: string };
+      if (!data.url?.startsWith("scout://services/restart/")) {
+        throw new Error("Scout Services link was not returned.");
+      }
+      window.location.assign(data.url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setServiceRestartError(`${message} Run scout doctor if the menu app did not open.`);
+    } finally {
+      setServiceRestartPending(false);
+    }
+  }, [serviceRestartPending]);
+
   if (phase === "loading") {
     return (
       <ReposOpsShell navigate={navigate}>
@@ -308,8 +362,28 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
       <ReposOpsShell navigate={navigate}>
         <div className="repo-watch-scope" style={{ padding: "24px" }}>
           <EmptyState
-            title="No repositories in view"
-            body="Nothing active was discovered. Start an agent inside a git repo, or set OPENSCOUT_REPO_WATCH_ROOTS."
+            title="Scout Services need attention"
+            body={<RepoWatchEmptyNextSteps error={serviceRestartError} />}
+            action={
+              <>
+                <button
+                  type="button"
+                  className="s-btn s-btn-primary"
+                  onClick={() => void restartBrokerFromMenu()}
+                  disabled={serviceRestartPending}
+                >
+                  {serviceRestartPending ? "Opening…" : "Restart broker"}
+                </button>
+                <button
+                  type="button"
+                  className="s-btn"
+                  onClick={scanNow}
+                  disabled={refreshing || scanMorePending}
+                >
+                  {refreshing ? "Scanning…" : "Scan again"}
+                </button>
+              </>
+            }
           />
         </div>
       </ReposOpsShell>

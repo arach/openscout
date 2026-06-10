@@ -179,6 +179,10 @@ import {
   type OpenScoutVantageHandoffInput,
 } from "./vantage-handoff.ts";
 import {
+  createSignedScoutServicesRestartUrl,
+  parseScoutServicesRestartTarget,
+} from "./scout-services-deeplink.ts";
+import {
   loadUserConfig,
   saveUserConfig,
   resolveOperatorName,
@@ -4651,6 +4655,24 @@ export async function createOpenScoutWebServer(
     } catch {
       return c.json({ error: "broker repo-watch unavailable" }, 502);
     }
+  });
+
+  app.post("/api/scout-services/restart-link", async (c) => {
+    let target = parseScoutServicesRestartTarget(c.req.query("target"));
+    if (!target) {
+      try {
+        const body = await c.req.json<{ target?: string }>();
+        target = parseScoutServicesRestartTarget(body.target);
+      } catch {
+        // Body is optional; query-string target is enough.
+      }
+    }
+
+    if (!target) {
+      return c.json({ error: "unsupported Scout Services restart target" }, 400);
+    }
+
+    return c.json(createSignedScoutServicesRestartUrl(target));
   });
 
   app.get("/api/repo-diff/worktree", async (c) => {
