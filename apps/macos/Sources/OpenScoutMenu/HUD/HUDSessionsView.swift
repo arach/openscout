@@ -48,17 +48,18 @@ private struct SynthesizedSession: Identifiable {
 }
 
 struct HUDSessionsView: View {
-    @ObservedObject private var fleet = HudFleetService.shared
+    let agents: [HudAgent]
+
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
 
     private var sessions: [SynthesizedSession] {
-        Self.synthesize(from: fleet.agents ?? [])
+        Self.synthesize(from: agents)
     }
 
     var body: some View {
         Group {
-            if (fleet.agents ?? []).isEmpty {
+            if agents.isEmpty {
                 EmptySessions()
             } else {
                 switch state.size {
@@ -181,13 +182,13 @@ struct HUDSessionsView: View {
         agents.map { agent in
             let status: SessionStatus = {
                 switch agent.state {
-                case .working, .needsAttention, .waiting: return .running
+                case .working, .needsAttention: return .running
                 case .available, .done: return .idle
                 case .offline: return .ended
                 }
             }()
             let project = (agent.projectRoot as NSString?)?.lastPathComponent
-                ?? agent.role.split(separator: "·").first.map { String($0).trimmingCharacters(in: .whitespaces) }
+                ?? agent.hudRole.split(separator: "·").first.map { String($0).trimmingCharacters(in: .whitespaces) }
                 ?? "—"
             let refId = String(agent.id.prefix(8))
             return SynthesizedSession(
@@ -200,7 +201,7 @@ struct HUDSessionsView: View {
                 harness: agent.harness ?? "raw",
                 status: status,
                 project: project,
-                branch: agent.branch,
+                branch: agent.branchLabel,
                 duration: agent.runtime,
                 messageCount: agent.capabilities.count,
                 lastTurn: agent.lastTurn,

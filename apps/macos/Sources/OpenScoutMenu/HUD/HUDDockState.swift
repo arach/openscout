@@ -34,6 +34,7 @@ final class HUDDockState: ObservableObject {
     @Published private(set) var selectedSuggestionIndex: Int = 0
 
     private var voiceSubscription: AnyCancellable?
+    private var suggestionAgents: [HudAgent] = []
     private var currentSuggestionTrigger: HUDDockSuggestionTrigger?
     private var dismissedSuggestionSignature: String?
     private let log = Logger(subsystem: "dev.openscout.menu", category: "dock")
@@ -121,7 +122,12 @@ final class HUDDockState: ObservableObject {
 
     // MARK: - Suggestions
 
-    func refreshSuggestions(agents: [HudAgent]) {
+    func setSuggestionAgents(_ agents: [HudAgent]) {
+        suggestionAgents = agents
+        refreshSuggestions()
+    }
+
+    func refreshSuggestions() {
         guard let trigger = Self.detectSuggestionTrigger(in: text) else {
             clearSuggestions(resetDismissedSignature: true)
             return
@@ -134,7 +140,7 @@ final class HUDDockState: ObservableObject {
             return
         }
 
-        let next = Self.suggestions(for: trigger, agents: agents)
+        let next = Self.suggestions(for: trigger, agents: suggestionAgents)
         suggestions = next
         if next.isEmpty {
             selectedSuggestionIndex = 0

@@ -44,9 +44,10 @@ enum HudDockSize {
 }
 
 struct HudMessageDock: View {
+    let agents: [HudAgent]
+
     @ObservedObject private var dock = HUDDockState.shared
     @ObservedObject private var compose = HudComposeService.shared
-    @ObservedObject private var fleet = HudFleetService.shared
     @FocusState private var focused: Bool
     @State private var panelWidth: CGFloat = 0
 
@@ -114,7 +115,9 @@ struct HudMessageDock: View {
         }
         .onChange(of: dock.blurRequested)  { _, _ in focused = false }
         .onChange(of: dock.text) { _, _ in refreshSuggestions() }
-        .onReceive(fleet.$agents) { _ in refreshSuggestions() }
+        .onChange(of: agents) { _, next in
+            dock.setSuggestionAgents(next)
+        }
         .onAppear { refreshSuggestions() }
     }
 
@@ -131,7 +134,7 @@ struct HudMessageDock: View {
     }
 
     private func refreshSuggestions() {
-        dock.refreshSuggestions(agents: fleet.agents ?? [])
+        dock.setSuggestionAgents(agents)
     }
 
     private func suggestionPopoverHeight(count: Int) -> CGFloat {

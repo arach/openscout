@@ -176,7 +176,7 @@ final class HUDController {
                 } else {
                     Task { @MainActor in
                         HUDDockState.shared.text = "/"
-                        HUDDockState.shared.refreshSuggestions(agents: HudFleetService.shared.agents ?? [])
+                        HUDDockState.shared.refreshSuggestions()
                         HUDDockState.shared.focus()
                     }
                 }
@@ -385,7 +385,7 @@ final class HUDController {
                 } else {
                     Task { @MainActor in
                         HUDDockState.shared.text = "/"
-                        HUDDockState.shared.refreshSuggestions(agents: HudFleetService.shared.agents ?? [])
+                        HUDDockState.shared.refreshSuggestions()
                         HUDDockState.shared.focus()
                     }
                 }

@@ -234,6 +234,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     public let id: String
     public let name: String
     public let handle: String?
+    public let agentClass: String?
     public let harness: String?
     public let state: ScoutAgentState
     public let role: String?
@@ -249,6 +250,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     public let conversationId: String?
     public let harnessSessionId: String?
     public let updatedAt: TimeInterval?
+    public let createdAt: TimeInterval?
 
     public var displayName: String { nilIfEmpty(name) ?? nilIfEmpty(handle) ?? id }
     public var detail: String { [role, harness, transport].compactMap(nilIfEmpty).joined(separator: " · ") }
@@ -268,11 +270,41 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         }
         return nil
     }
+    public var hue: Double { ScoutAgentHue.forAgent(name: name, handle: handle) }
+    public var ago: String { updatedLabel }
+    public var runtime: String { Self.formatRuntime(createdAtMs: createdAt) }
+    public var hudRole: String {
+        let left = nilIfEmpty(role) ?? nilIfEmpty(project) ?? nilIfEmpty(agentClass) ?? "agent"
+        if let harness = nilIfEmpty(harness) {
+            return "\(left) · \(harness)"
+        }
+        return left
+    }
+    public var lastTurn: String {
+        Self.makeSummary(
+            state: state,
+            harness: harness,
+            transport: transport,
+            project: project,
+            cwd: cwd,
+            nodeName: nodeName,
+            selector: selector
+        )
+    }
+    public var lastMessage: ScoutAgentMessage? { nil }
+    public var pendingAsk: String? {
+        state == .needsAttention ? "waiting for operator input" : nil
+    }
+    public var files: Int { capabilities.count }
+    public var tokens: String {
+        nilIfEmpty(model) ?? nilIfEmpty(harness) ?? nilIfEmpty(transport) ?? "—"
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case handle
+        case agentClass
         case harness
         case state
         case role
@@ -289,6 +321,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         case conversationId
         case harnessSessionId
         case updatedAt
+        case createdAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -296,6 +329,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         id = try c.decode(String.self, forKey: .id)
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? id
         handle = try c.decodeIfPresent(String.self, forKey: .handle)
+        agentClass = try c.decodeIfPresent(String.self, forKey: .agentClass)
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
         state = ScoutAgentState.from(raw: try c.decodeIfPresent(String.self, forKey: .state))
         role = try c.decodeIfPresent(String.self, forKey: .role)
@@ -312,6 +346,104 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         harnessSessionId = try c.decodeIfPresent(String.self, forKey: .harnessSessionId)
         updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
+        createdAt = try c.decodeIfPresent(TimeInterval.self, forKey: .createdAt)
+    }
+
+    public static func formatAgo(sinceMs: TimeInterval?, now: Date = Date()) -> String {
+        ScoutRelativeTime.format(sinceMs, now: now)
+    }
+
+    private static func formatRuntime(createdAtMs: TimeInterval?, now: Date = Date()) -> String {
+        guard let createdAtMs else { return "—" }
+        let then = Date(timeIntervalSince1970: createdAtMs / 1000)
+        let delta = max(0, Int(now.timeIntervalSince(then)))
+        if delta < 60 { return "\(delta)s" }
+        if delta < 3600 { return "\(delta / 60)m" }
+        if delta < 86_400 {
+            let h = delta / 3600
+            let m = (delta % 3600) / 60
+            return m == 0 ? "\(h)h" : "\(h)h \(m)m"
+        }
+        return "\(delta / 86_400)d"
+    }
+
+    private static func makeSummary(
+        state: ScoutAgentState,
+        harness: String?,
+        transport: String?,
+        project: String?,
+        cwd: String?,
+        nodeName: String?,
+        selector: String?
+    ) -> String {
+        let status: String = switch state {
+        case .working: "Working"
+        case .needsAttention: "Waiting on the operator"
+        case .available: "Available"
+        case .done: "Done"
+        case .offline: "Offline"
+        }
+        let runtime = [harness, transport].compactMap(nilIfEmpty).joined(separator: " · ")
+        let scope = nilIfEmpty(project) ?? nilIfEmpty(cwd) ?? nilIfEmpty(nodeName) ?? nilIfEmpty(selector) ?? "broker-visible fleet"
+        if runtime.isEmpty {
+            return "\(status) in \(scope)."
+        }
+        return "\(status) via \(runtime) in \(scope)."
+    }
+}
+
+public struct ScoutAgentMessage: Sendable, Equatable {
+    public let to: String
+    public let text: String
+
+    public init(to: String, text: String) {
+        self.to = to
+        self.text = text
+    }
+}
+
+public enum ScoutAgentHue {
+    public static let scout: Double  = 125
+    public static let hudson: Double = 210
+    public static let qb: Double     = 25
+    public static let cody: Double   = 85
+    public static let ranger: Double = 295
+    public static let vox: Double    = 340
+    public static let atlas: Double  = 175
+    public static let drover: Double = 50
+    public static let vault: Double  = 250
+    public static let pike: Double   = 305
+    public static let quill: Double  = 195
+    public static let cobalt: Double = 235
+
+    public static func forAgent(name: String, handle: String?) -> Double {
+        let key = (handle ?? name)
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+        switch key {
+        case "scout": return scout
+        case "hudson": return hudson
+        case "qb": return qb
+        case "cody": return cody
+        case "ranger": return ranger
+        case "vox": return vox
+        case "atlas": return atlas
+        case "drover": return drover
+        case "vault": return vault
+        case "pike": return pike
+        case "quill": return quill
+        case "cobalt": return cobalt
+        default: return hashedHue(key)
+        }
+    }
+
+    private static func hashedHue(_ input: String) -> Double {
+        var hash: UInt32 = 2_166_136_261
+        for byte in input.utf8 {
+            hash ^= UInt32(byte)
+            hash &*= 16_777_619
+        }
+        return Double(hash % 360)
     }
 }
 

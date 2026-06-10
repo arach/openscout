@@ -28,6 +28,7 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var fleet = HudFleetService.shared
+    @StateObject private var agentsStore = ScoutAgentsStore()
     @StateObject private var tail = ScoutTailStore()
 
     private let minPanelW: CGFloat = 360
@@ -35,7 +36,7 @@ struct HUDStatusView: View {
     private let cornerRadius: CGFloat = 12
 
     private var agents: [HudAgent] {
-        fleet.agents ?? []
+        agentsStore.agents ?? []
     }
 
     private var activeAgentId: String? {
@@ -43,7 +44,7 @@ struct HUDStatusView: View {
     }
 
     private var brokerOffline: Bool {
-        fleet.lastError != nil && (fleet.agents?.isEmpty ?? true)
+        agentsStore.lastError != nil && (agentsStore.agents?.isEmpty ?? true)
     }
 
     private var attentionCount: Int {
@@ -81,7 +82,7 @@ struct HUDStatusView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .layoutPriority(1)
                 HUDFlashRow()
-                HudMessageDock()
+                HudMessageDock(agents: agents)
             }
 
             // `?` cheatsheet — drawn on top of the panel body, masthead
@@ -109,8 +110,18 @@ struct HUDStatusView: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(HUDChrome.borderRim, lineWidth: 1)
         )
-        .onAppear { fleet.start() }
-        .onDisappear { fleet.stop() }
+        .onAppear {
+            agentsStore.start()
+            fleet.start()
+            HUDDockState.shared.setSuggestionAgents(agents)
+        }
+        .onChange(of: agents) { _, next in
+            HUDDockState.shared.setSuggestionAgents(next)
+        }
+        .onDisappear {
+            agentsStore.stop()
+            fleet.stop()
+        }
     }
 
     // MARK: - Masthead
@@ -185,7 +196,7 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .sessions:
-                HUDSessionsView()
+                HUDSessionsView(agents: agents)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .assistant:
@@ -199,7 +210,7 @@ struct HUDStatusView: View {
 
     @ViewBuilder
     private var agentsContent: some View {
-        if fleet.agents == nil && fleet.lastError == nil {
+        if agentsStore.agents == nil && agentsStore.lastError == nil {
             FleetLoadingView()
         } else {
             HUDAgentsView(agents: agents, activeAgentId: activeAgentId)
@@ -515,7 +526,7 @@ struct HudAgentRow: View {
     private var stateColor: Color {
         switch agent.state {
         case .working, .needsAttention: return HUDChrome.accent
-        case .available, .waiting:      return HUDChrome.inkMuted
+        case .available:                return HUDChrome.inkMuted
         case .done:                     return HUDChrome.inkMuted
         case .offline:                  return HUDChrome.inkFaint
         }
@@ -526,7 +537,6 @@ struct HudAgentRow: View {
         case .working:        return "WORKING"
         case .needsAttention: return "NEEDS ATTENTION"
         case .available:      return "AVAILABLE"
-        case .waiting:        return "WAITING"
         case .done:           return "DONE"
         case .offline:        return "OFFLINE"
         }
@@ -641,7 +651,7 @@ struct HudAgentRow: View {
             statDot
             Text(agent.tokens.uppercased())
             statDot
-            Text(agent.branch)
+            Text(agent.branchLabel)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
@@ -721,7 +731,7 @@ private struct BroadsheetStatusFlag: View {
                     with: .color(HUDChrome.canvas),
                     style: StrokeStyle(lineWidth: 1.1, lineCap: .round, lineJoin: .round)
                 )
-            case .available, .waiting:
+            case .available:
                 ctx.stroke(
                     Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: r),
                     with: .color(color.opacity(0.75)),

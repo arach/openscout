@@ -258,7 +258,7 @@ private struct HUDAgentsHeader: View {
 private func stateColor(for state: HudAgentState) -> Color {
     switch state {
     case .working, .needsAttention: return HUDChrome.accent
-    case .available, .waiting, .done: return HUDChrome.inkMuted
+    case .available, .done: return HUDChrome.inkMuted
     case .offline: return HUDChrome.inkFaint
     }
 }
@@ -268,7 +268,6 @@ private func stateLabel(for state: HudAgentState) -> String {
     case .working:        return "WORKING"
     case .needsAttention: return "NEEDS ATTENTION"
     case .available:      return "AVAILABLE"
-    case .waiting:        return "WAITING"
     case .done:           return "DONE"
     case .offline:        return "OFFLINE"
     }
@@ -475,7 +474,7 @@ private struct AgentDetailInline: View {
             }
 
             VStack(alignment: .leading, spacing: 3) {
-                statKV(label: "BRANCH", value: agent.branch)
+                statKV(label: "BRANCH", value: agent.branchLabel)
                 if let cwd = agent.projectRoot {
                     statKV(label: "CWD", value: cwd)
                 }
@@ -749,7 +748,7 @@ private struct AgentColumnB: View {
 
     private var statBlock: some View {
         VStack(alignment: .leading, spacing: 4) {
-            kv(label: "BRANCH", value: agent.branch)
+            kv(label: "BRANCH", value: agent.branchLabel)
             kv(label: "CWD", value: agent.projectRoot ?? "—")
             kv(label: "MODEL", value: agent.tokens)
         }

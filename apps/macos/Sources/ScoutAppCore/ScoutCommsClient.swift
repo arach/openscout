@@ -1,11 +1,7 @@
 import Foundation
 
-public struct ScoutCommsClient {
-    private let decoder: JSONDecoder
-
-    public init(decoder: JSONDecoder = JSONDecoder()) {
-        self.decoder = decoder
-    }
+public struct ScoutCommsClient: Sendable {
+    public init() {}
 
     public func fetchChannels(limit: Int) async throws -> [ScoutChannel] {
         let base = ScoutWeb.baseURL()
@@ -61,7 +57,7 @@ public struct ScoutCommsClient {
         guard (200..<300).contains(http.statusCode) else {
             throw ScoutCommsClientError.httpStatus(http.statusCode)
         }
-        return try decoder.decode(type, from: data)
+        return try JSONDecoder().decode(type, from: data)
     }
 
     private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {
