@@ -10,7 +10,11 @@ import { loadScoutCommandHandler } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
 import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
-import { normalizeCliBinaryMtimeMs, shouldRestartBrokerForCliMtime } from "./uptodate.ts";
+import {
+  normalizeCliBinaryMtimeMs,
+  shouldEnsureBrokerUptodateForCommand,
+  shouldRestartBrokerForCliMtime,
+} from "./uptodate.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 
 async function main() {
@@ -19,8 +23,12 @@ async function main() {
   let command = input.command;
   let commandArgs = input.args;
 
-  // Restart broker if CLI was updated since last run
-  await ensureBrokerUptodate();
+  // MCP stdio hosts expect the protocol handshake immediately; broker
+  // maintenance here can leave the host terminal waiting with input disabled.
+  if (shouldEnsureBrokerUptodateForCommand(command)) {
+    // Restart broker if CLI was updated since last run
+    await ensureBrokerUptodate();
+  }
 
   if (input.versionRequested) {
     context.output.writeText(SCOUT_APP_VERSION);

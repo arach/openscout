@@ -1393,6 +1393,7 @@ function renderMcpAskSummary(result: {
   unresolvedTargetLabel: string | null;
   output: string | null;
   delivery?: string;
+  notification?: { status: string } | null;
   waitStatus?: string;
   flight?: ScoutFlightRecord | null;
   followUrl?: string | null;
@@ -1429,6 +1430,9 @@ function renderMcpAskSummary(result: {
   if (result.output) {
     return result.output;
   }
+  if (result.notification?.status === "not_scheduled" && result.flightId) {
+    return `Ask sent to ${target}${detailText}; MCP notification was not scheduled. Use invocations_wait with flightId=${result.flightId}.${followText}`;
+  }
   if (result.delivery === "mcp_notification") {
     return `Ask sent to ${target}; reply will be delivered by MCP notification${detailText}.${followText}`;
   }
@@ -1442,13 +1446,18 @@ function renderMcpAskPrimitiveSummary(receipt: ScoutAskReceipt): string {
       : "";
     const flight = receipt.ids.flightId ? `; flight ${receipt.ids.flightId}` : "";
     const work = receipt.ids.workId ? `; work ${receipt.ids.workId}` : "";
-    const delivery = receipt.delivery === "mcp_notification"
-      ? receipt.notification?.status === "scheduled"
+    let delivery = "";
+    if (receipt.notification?.status === "not_scheduled") {
+      delivery = receipt.ids.flightId
+        ? ` MCP notification was not scheduled; use invocations_wait with flightId=${receipt.ids.flightId}.`
+        : " MCP notification was not scheduled.";
+    } else if (receipt.delivery === "mcp_notification") {
+      delivery = receipt.notification?.status === "scheduled"
         ? " Reply will be delivered by MCP notification."
         : receipt.ids.flightId
-        ? ` MCP notification was not scheduled; use invocations_wait with flightId=${receipt.ids.flightId}.`
-        : " MCP notification was not scheduled."
-      : "";
+          ? ` MCP notification was not scheduled; use invocations_wait with flightId=${receipt.ids.flightId}.`
+          : " MCP notification was not scheduled.";
+    }
     return `Ask ${receipt.state}${target}${flight}${work}.${delivery}`;
   }
   if (receipt.next) {
@@ -1468,6 +1477,10 @@ function resolveAskReplyMode(input: {
     return input.replyMode;
   }
   return input.awaitReply ? "inline" : "none";
+}
+
+function areMcpReplyNotificationsEnabled(env: NodeJS.ProcessEnv): boolean {
+  return env.OPENSCOUT_MCP_ENABLE_NOTIFICATIONS?.trim() === "1";
 }
 
 function resolveMcpReplyToSessionId(
@@ -3689,7 +3702,7 @@ export function createScoutMcpServer(options: {
         replyMode: z
           .enum(REPLY_MODE_VALUES)
           .describe(
-            "Reply delivery mode: 'none' returns durable ids only, 'inline' waits briefly, and 'notify' returns quickly then emits notifications/scout/reply later.",
+            "Reply delivery mode: 'none' returns durable ids only, 'inline' waits briefly, and 'notify' returns quickly; notify emits notifications/scout/reply only when OPENSCOUT_MCP_ENABLE_NOTIFICATIONS=1.",
           )
           .optional(),
         timeoutSeconds: z
@@ -3761,6 +3774,7 @@ export function createScoutMcpServer(options: {
         awaitReply: wait,
         replyMode,
       });
+      const replyNotificationsEnabled = areMcpReplyNotificationsEnabled(env);
       const targetSession = targetSessionId?.trim();
       const targetTo = targetSession ? `session:${targetSession}` : to?.trim();
       const targetProjectPath = projectPath?.trim()
@@ -3819,7 +3833,11 @@ export function createScoutMcpServer(options: {
         } catch {
           // Keep the initial receipt; callers can follow by flight id.
         }
-      } else if (resolvedReplyMode === "notify" && structuredContent.ids.flightId) {
+      } else if (
+        resolvedReplyMode === "notify"
+        && replyNotificationsEnabled
+        && structuredContent.ids.flightId
+      ) {
         const flight = await deps.getFlight(
           deps.resolveBrokerUrl(),
           structuredContent.ids.flightId,
@@ -3869,11 +3887,9 @@ export function createScoutMcpServer(options: {
       if (structuredContent.ok && !structuredContent.delivery) {
         structuredContent = {
           ...structuredContent,
-          delivery: resolvedReplyMode === "notify"
-            ? "mcp_notification"
-            : resolvedReplyMode === "inline"
-              ? "inline"
-              : "none",
+          delivery: resolvedReplyMode === "inline"
+            ? "inline"
+            : "none",
           ...(resolvedReplyMode === "notify"
             ? {
                 notification: {
@@ -4255,7 +4271,7 @@ export function createScoutMcpServer(options: {
           replyMode: z
             .enum(REPLY_MODE_VALUES)
             .describe(
-              "Reply delivery mode: 'inline' returns a quick acknowledgement or immediate completion, 'notify' returns immediately then emits notifications/scout/reply, and 'none' returns durable ids only. Inline acknowledgement waits use timeoutSeconds only as a caller wait budget.",
+              "Reply delivery mode: 'inline' returns a quick acknowledgement or immediate completion, 'notify' returns durable ids and emits notifications/scout/reply only when OPENSCOUT_MCP_ENABLE_NOTIFICATIONS=1, and 'none' returns durable ids only. Inline acknowledgement waits use timeoutSeconds only as a caller wait budget.",
             )
             .optional(),
           timeoutSeconds: z
@@ -4324,6 +4340,7 @@ export function createScoutMcpServer(options: {
       );
       const resolvedReplyMode = resolveAskReplyMode({ awaitReply, replyMode });
       const shouldAwait = resolvedReplyMode === "inline";
+      const replyNotificationsEnabled = areMcpReplyNotificationsEnabled(env);
       const resolvedReplyToSessionId = resolveMcpReplyToSessionId(
         replyToSessionId,
         env,
@@ -4354,7 +4371,9 @@ export function createScoutMcpServer(options: {
         const completedFlight = waitResult.flight;
         const trackedWorkItem = result.workItem ?? null;
         const notificationScheduled =
-          resolvedReplyMode === "notify" && Boolean(result.flight);
+          resolvedReplyMode === "notify"
+          && replyNotificationsEnabled
+          && Boolean(result.flight);
         const followArtifacts = buildScoutFollowArtifacts(
           {
             flight: completedFlight ?? result.flight ?? null,
@@ -4365,7 +4384,7 @@ export function createScoutMcpServer(options: {
           },
           env,
         );
-        if (resolvedReplyMode === "notify" && result.flight) {
+        if (notificationScheduled && result.flight) {
           scheduleScoutReplyNotification({
             server,
             deps,
@@ -4464,7 +4483,9 @@ export function createScoutMcpServer(options: {
         const completedFlight = waitResult.flight;
         const trackedWorkItem = result.workItem ?? null;
         const notificationScheduled =
-          resolvedReplyMode === "notify" && Boolean(result.flight);
+          resolvedReplyMode === "notify"
+          && replyNotificationsEnabled
+          && Boolean(result.flight);
         const followArtifacts = buildScoutFollowArtifacts(
           {
             flight: completedFlight ?? result.flight ?? null,
@@ -4474,7 +4495,7 @@ export function createScoutMcpServer(options: {
           },
           env,
         );
-        if (resolvedReplyMode === "notify" && result.flight) {
+        if (notificationScheduled && result.flight) {
           scheduleScoutReplyNotification({
             server,
             deps,
@@ -4612,7 +4633,9 @@ export function createScoutMcpServer(options: {
       const completedFlight = waitResult.flight;
       const trackedWorkItem = result.workItem ?? null;
       const notificationScheduled =
-        resolvedReplyMode === "notify" && Boolean(result.flight);
+        resolvedReplyMode === "notify"
+        && replyNotificationsEnabled
+        && Boolean(result.flight);
       const followArtifacts = buildScoutFollowArtifacts(
         {
           flight: completedFlight ?? result.flight ?? null,
@@ -4622,7 +4645,7 @@ export function createScoutMcpServer(options: {
         },
         env,
       );
-      if (resolvedReplyMode === "notify" && result.flight) {
+      if (notificationScheduled && result.flight) {
         scheduleScoutReplyNotification({
           server,
           deps,

@@ -1005,7 +1005,7 @@ describe("createScoutMcpServer", () => {
     });
   });
 
-  test("ask schedules MCP reply notifications in notify mode", async () => {
+  test("ask schedules MCP reply notifications in opt-in notify mode", async () => {
     let receivedWaitOptions: unknown;
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator.main",
@@ -1039,6 +1039,8 @@ describe("createScoutMcpServer", () => {
           output: "talkie replied",
         };
       },
+    }, {
+      OPENSCOUT_MCP_ENABLE_NOTIFICATIONS: "1",
     });
 
     const notificationPromise = new Promise<{
@@ -1097,7 +1099,7 @@ describe("createScoutMcpServer", () => {
     expect(receivedWaitOptions).toBeUndefined();
   });
 
-  test("ask reports notify delivery even when notification scheduling cannot start", async () => {
+  test("ask does not schedule MCP reply notifications by default", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator.main",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1133,7 +1135,7 @@ describe("createScoutMcpServer", () => {
     expect(result.structuredContent).toMatchObject({
       ok: true,
       state: "queued",
-      delivery: "mcp_notification",
+      delivery: "none",
       notification: {
         method: "notifications/scout/reply",
         status: "not_scheduled",
@@ -1557,7 +1559,7 @@ describe("createScoutMcpServer", () => {
     );
   });
 
-  test("schedules MCP reply notifications for notify-mode asks", async () => {
+  test("schedules MCP reply notifications for opt-in notify-mode asks", async () => {
     const { client } = await connectTestServer({
       resolveSenderId: async () => "operator",
       resolveBrokerUrl: () => "http://broker.test",
@@ -1605,6 +1607,7 @@ describe("createScoutMcpServer", () => {
         throw new Error("not used");
       },
     }, {
+      OPENSCOUT_MCP_ENABLE_NOTIFICATIONS: "1",
       OPENSCOUT_WEB_PUBLIC_ORIGIN: "http://scout.test",
     });
 
