@@ -1,6 +1,6 @@
 [workspace]
 members = [
   "crates/openscout-repo-service",
-  "crates/openscout-supervisor",
+  "crates/scoutd",
 ]
 resolver = "2"

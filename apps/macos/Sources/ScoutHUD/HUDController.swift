@@ -144,6 +144,15 @@ public final class HUDController {
         }
     }
 
+    @discardableResult
+    public func handleHostKeyDown(_ event: NSEvent) -> Bool {
+        guard isVisible, shouldClaimHostKey(event) else {
+            return false
+        }
+        handleKeyDown(event)
+        return true
+    }
+
     // Drive the panel frame from HUDState.size. The window resize is
     // anchored on its current center so the panel grows/shrinks in
     // place — feels like a tier swap, not a jump.
@@ -241,6 +250,38 @@ public final class HUDController {
         }
         guard let panel, panel.isVisible else { return false }
         return panel.isKeyWindow || NSApp.isActive
+    }
+
+    private func shouldClaimHostKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            return true
+        }
+        if HUDRunnerState.shared.isPresented {
+            let keyCode = event.keyCode
+            if event.modifierFlags.contains(.command), (keyCode == 36 || keyCode == 76) {
+                return true
+            }
+            if keyCode == 125 || keyCode == 126 || keyCode == 36 || keyCode == 48 {
+                return true
+            }
+        }
+        if HUDDockState.shared.suggestionsVisible {
+            let keyCode = event.keyCode
+            if keyCode == 36 || keyCode == 48 || keyCode == 125 || keyCode == 126 {
+                return true
+            }
+        }
+        if event.keyCode == 45,
+           event.modifierFlags.contains(.command),
+           HUDNavBus.shared.createNew != nil {
+            return true
+        }
+        switch event.keyCode {
+        case 18, 19, 20, 21, 23, 36, 38, 40, 34, 125, 126, 46, 5, 3, 44, 33, 30, 124, 123:
+            return true
+        default:
+            return false
+        }
     }
 
     private func handleKeyDown(_ event: NSEvent) {

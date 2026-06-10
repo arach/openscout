@@ -1,5 +1,7 @@
 # OpenScout Agent Context
 
+Verified: 2026-06-10
+
 Purpose: dense context for coding agents working in this repo.
 
 ## Identity
@@ -21,13 +23,27 @@ Purpose: dense context for coding agents working in this repo.
 |---|---|
 | Transitional desktop/CLI source | `apps/desktop` |
 | Web UI/server | `packages/web` |
-| Native macOS menu app | `apps/macos` |
+| Native macOS Scout app + HUD + thin menu helper | `apps/macos` |
 | iOS app | `apps/ios` |
 | Broker/runtime | `packages/runtime` |
 | Shared protocol | `packages/protocol` |
 | Public CLI package | `packages/cli` |
 | Web package | `packages/web` |
 | Docs | `docs` |
+
+## Semantic Specs (dense)
+
+Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for agents/programs.
+
+| Subsystem | Spec |
+|---|---|
+| Index / read order | `docs/agent/INDEX.agent.md` |
+| Broker records + routing | `docs/agent/broker.agent.md` |
+| Comms workflows | `docs/agent/scout-comms.agent.md` |
+| Harness sessions | `docs/agent/runtime-sessions.agent.md` |
+| Pairing / mobile bridge | `docs/agent/pairing-runtime.agent.md` |
+| scoutd / local services | `docs/agent/scoutd.agent.md` |
+| Native macOS app (Scout + HUD + menu helper) | `docs/agent/macos.agent.md` |
 
 ## Must-Read Docs
 
@@ -38,11 +54,11 @@ Purpose: dense context for coding agents working in this repo.
 | first run | `docs/quickstart.md` |
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
-| runtime/session semantics | `docs/runtime-sessions.md` |
+| runtime/session semantics (prose) | `docs/runtime-sessions.md` |
 | data boundary | `docs/data-ownership.md` |
 | agent integration | `docs/agent-integration-contract.md` |
 | host integrations | `docs/integrations.md` |
-| external client comms | `docs/scout-comms.md` |
+| external client comms (prose) | `docs/scout-comms.md` |
 | identity grammar | `docs/agent-identity.md` |
 | collaboration model | `docs/collaboration-workflows-v1.md` |
 | operator attention | `docs/operator-attention-and-unblock.md` |
@@ -82,38 +98,18 @@ MCP tools.
 - Broker is the canonical writer for Scout-owned coordination records.
 - Do not make external harness transcripts canonical Scout messages.
 - Use explicit target metadata; message body is payload, not routing.
-- One target means DM.
-- Group coordination means explicit channel.
-- Shared broadcast is opt-in.
-- `send` / `messages_send` is a durable message/update with receipt ids.
-- `messages_reply` is the threaded message form for continuing an existing
-  conversation; it is not a new ask.
-- `ask` is the normal MCP primitive for agent-to-agent work. It returns a
-  compact lifecycle receipt without requiring discovery preflight.
-- If the project is known but the concrete agent/session is not, use
-  `ask({ projectPath })` or `scout ask --project <path>` and let the broker
-  resolve or create the right instance.
-- Agent cards, labels, and exact agent ids are fresh-session targets for new
-  work. Use `targetSessionId` / `session:<id>` only to continue one exact prior
-  Codex/Claude session.
-- Treat the base agent identity as the vanilla project/workspace identity.
-  Harness, model, profile, node, and session details are instance constraints,
-  not separate base agents, unless a specialized profile is explicitly needed.
-- Cards describe identities and return addresses; sessions are concrete harness
-  lifecycles. Treat card/session creation as a pro integration layer, not the
-  normal path for agent-to-agent work.
+- One target means DM; group coordination means explicit channel; shared
+  broadcast is opt-in.
 - Harness/session mismatches must fail with actionable diagnostics, not silent hangs.
-- Broker-side guidance should reduce sender burden; prefer candidates and remediation over opaque routing errors.
-- Track token/coordination cost as metadata when available; do not import full harness transcripts.
-- If blocked, record who or what owns the next move. For long-running MCP work,
-  prefer `replyMode: "notify"` over holding the caller open for completion; use
-  `replyMode: "inline"` only when the caller needs an acknowledgement before
-  continuing.
-- If a host-side approval or permission prompt is stuck, open the host UI or use
-  the host integration's forwarded unblock request. An MCP server cannot see a
-  prompt intercepted by the host before the tool call reaches Scout.
+- If blocked, record who or what owns the next move.
 - Mesh means reachability, not distributed consistency guarantees.
 - Do not claim enterprise readiness.
+- Session/card targeting (fresh vs `session:<id>` continue), `send`/`ask`/`messages_reply`
+  semantics, project-routed asks, and reply-path rules: see
+  `runtime-sessions.agent.md` and `scout-comms.agent.md`.
+- Usage/cost tracking, broker-side coaching, reply modes, and stuck host
+  permission prompts: see `scout-comms.agent.md`, `broker.agent.md`, and
+  `integration-contract.agent.md`.
 
 ## Common Checks
 

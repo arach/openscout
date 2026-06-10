@@ -27,12 +27,12 @@ type ScoutMenuResult = {
 };
 
 const MENU_BUNDLE_ID = "com.openscout.menu";
-const MENU_BUNDLE_NAME = "OpenScoutMenu.app";
-const MENU_PROCESS_NAME = "OpenScoutMenu";
+const MENU_BUNDLE_NAME = "ScoutMenu.app";
+const MENU_PROCESS_NAME = "ScoutMenu";
 // Installed builds ship the menu bar app as a helper embedded inside OpenScout.app.
 const APP_BUNDLE_ID = "com.openscout.scout";
 const APP_BUNDLE_NAME = "OpenScout.app";
-const EMBEDDED_MENU_RELATIVE_PATH = join("Contents", "Library", "LoginItems", "OpenScout Menu.app");
+const EMBEDDED_MENU_RELATIVE_PATH = join("Contents", "Library", "LoginItems", "ScoutMenu.app");
 const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 const COMMON_APP_BUNDLE_PATHS = [
   join("/Applications", APP_BUNDLE_NAME),

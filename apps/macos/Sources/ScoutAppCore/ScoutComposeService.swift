@@ -29,11 +29,6 @@ public final class ScoutComposeService: ObservableObject {
         }
     }
 
-    deinit {
-        replyStreamTask?.cancel()
-        threadLoadTask?.cancel()
-    }
-
     public func send(body raw: String, targetHandle: String?) async {
         guard let envelope = ScoutComposeRouting.envelope(body: raw, targetHandle: targetHandle) else {
             return
@@ -100,6 +95,7 @@ public final class ScoutComposeService: ObservableObject {
             } catch is CancellationError {
                 return
             } catch {
+                guard !ScoutAppError.isCancellation(error) else { return }
                 attempt += 1
                 let delayMs = min(15_000, 500 * (1 << min(attempt, 5)))
                 log.warning("reply stream dropped (attempt \(attempt, privacy: .public)): \(error.localizedDescription, privacy: .public); retrying in \(delayMs, privacy: .public)ms")
@@ -112,42 +108,90 @@ public final class ScoutComposeService: ObservableObject {
         let url = ScoutWeb.baseURL().appendingPathComponent("api/events")
         var req = URLRequest(url: url)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 60 * 60
+        req.timeoutInterval = 60
 
         Self.diag("[compose] SSE: connecting → \(url.absoluteString)")
 
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let delegate = ScoutSSEDelegate(
-                onConnected: { status in
-                    ScoutComposeService.diag("[compose] SSE: connected (HTTP \(status))")
-                },
-                onEvent: { [weak self] event, data in
-                    if event == "message.posted" {
-                        ScoutComposeService.diag("[compose] SSE: message.posted (\(data.count) chars)")
-                        self?.handleMessagePostedBlock(data)
+        let cancellation = ScoutSSECancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let delegate = ScoutSSEDelegate(
+                    onConnected: { status in
+                        Task { @MainActor in
+                            ScoutComposeService.diag("[compose] SSE: connected (HTTP \(status))")
+                        }
+                    },
+                    onEvent: { [weak self] event, data in
+                        Task { @MainActor in
+                            if event == "message.posted" {
+                                ScoutComposeService.diag("[compose] SSE: message.posted (\(data.count) chars)")
+                                self?.handleMessagePostedBlock(data)
+                            }
+                        }
+                    },
+                    onComplete: { error in
+                        if let error {
+                            Task { @MainActor in
+                                ScoutComposeService.diag("[compose] SSE: stream error \(error.localizedDescription)")
+                            }
+                            continuation.resume(throwing: error)
+                        } else {
+                            Task { @MainActor in
+                                ScoutComposeService.diag("[compose] SSE: stream ended")
+                            }
+                            continuation.resume()
+                        }
                     }
-                },
-                onComplete: { error in
-                    if let error {
-                        ScoutComposeService.diag("[compose] SSE: stream error \(error.localizedDescription)")
-                        continuation.resume(throwing: error)
-                    } else {
-                        ScoutComposeService.diag("[compose] SSE: stream ended")
-                        continuation.resume()
-                    }
+                )
+                let config = URLSessionConfiguration.default
+                config.timeoutIntervalForRequest = 60
+                config.timeoutIntervalForResource = 0
+                config.httpMaximumConnectionsPerHost = 4
+                let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+                let task = session.dataTask(with: req)
+                cancellation.set {
+                    task.cancel()
+                    session.invalidateAndCancel()
                 }
-            )
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 60 * 60
-            config.timeoutIntervalForResource = 0
-            config.httpMaximumConnectionsPerHost = 4
-            let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-            let task = session.dataTask(with: req)
-            delegate.cancellation = {
-                task.cancel()
-                session.invalidateAndCancel()
+                delegate.cancellation = {
+                    cancellation.cancel()
+                }
+                task.resume()
             }
-            task.resume()
+        } onCancel: {
+            cancellation.cancel()
+        }
+    }
+
+    private final class ScoutSSECancellation: @unchecked Sendable {
+        private let lock = NSLock()
+        private var handler: (() -> Void)?
+        private var isCancelled = false
+
+        func set(_ handler: @escaping () -> Void) {
+            var shouldRunNow = false
+            lock.lock()
+            if isCancelled {
+                shouldRunNow = true
+            } else {
+                self.handler = handler
+            }
+            lock.unlock()
+
+            if shouldRunNow {
+                handler()
+            }
+        }
+
+        func cancel() {
+            let handler: (() -> Void)?
+            lock.lock()
+            isCancelled = true
+            handler = self.handler
+            self.handler = nil
+            lock.unlock()
+
+            handler?()
         }
     }
 

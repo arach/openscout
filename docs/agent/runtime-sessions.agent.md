@@ -1,0 +1,128 @@
+# Runtime Sessions Agent Notes
+
+Source: `docs/runtime-sessions.md`, `packages/runtime/**`, `@openscout/agent-sessions`.
+
+Status: harness lifecycle semantics. Broker routing uses these nouns.
+
+Verified: 2026-06-10
+
+## Role
+
+Runtime starts, attaches, wakes, inspects, and health-checks **harness sessions**. Broker routes work to **endpoints** that reference those sessions. Runtime does not replace broker record ownership.
+
+## Model
+
+| Noun | Meaning |
+|---|---|
+| `agent` | stable identity, e.g. `hudson.main.air-local` |
+| `session` | concrete harness conversation/process/thread |
+| `endpoint` | broker row: agent + harness + transport + session + node + state |
+| `card` | identity + return address; not implicitly live |
+| `harness` | execution backend: `codex`, `claude`, `cursor`, … |
+| `transport` | wire to harness: `app-server`, `stream-json`, tmux, ACP, … |
+| `adapter` | runtime module mapping harness events → observed events |
+
+Public noun is always **session**. Map provider `threadId` into session metadata.
+
+## Relations
+
+```text
+agent 1—* sessions (over lifetime)
+agent 1—* endpoints (per harness/worktree/node)
+endpoint *—1 session (when attached)
+card → agent identity metadata (may have zero live sessions)
+scout up / session start → runtime creates or attaches session → broker registers endpoint
+```
+
+## Lifecycle Commands
+
+| Intent | CLI | Notes |
+|---|---|---|
+| prewarm / start | `scout up <agent>` | alias for session start path |
+| explicit start | `scout session start --agent X --harness Y` | creates compatible session |
+| attach existing | `scout session attach --agent X --harness Y --session <id>` | |
+| inspect | `scout session inspect --agent X --harness Y` | |
+| stop | `scout down <agent>` | detach/stop local session |
+
+## Routing Interaction
+
+| Target form | Session behavior |
+|---|---|
+| `--to <label>` / `--to <agentId>` | fresh session for new ask work |
+| `--to session:<id>` | continue exact harness context |
+| `--project <path>` | broker/runtime pick concrete agent+session for project |
+| `scout card create` | mint identity; does not start session unless commanded |
+
+Mismatch example: Codex-targeted ask + only Claude endpoint attached → `harness_mismatch` diagnostic, not silent routing.
+
+## Endpoint States
+
+| State | Meaning |
+|---|---|
+| `registered` | metadata only |
+| `attaching` | binding to existing session |
+| `waking` | start/resume in progress |
+| `idle` | reachable, ready |
+| `working` | active flight/work claimed |
+| `unreachable` | known but not contactable |
+| `failed` | wake/attach failed (reason recorded) |
+| `superseded` | replaced row; diagnostics only |
+| `stopped` | intentional detach |
+
+Happy path: `registered → waking → idle ↔ working → idle`.
+
+## Session Persistence
+
+| Flag | Meaning |
+|---|---|
+| `resumable` | provider says reattach possible |
+| `reachability_unknown` | metadata exists; liveness unconfirmed after restart |
+| `not_attachable` | reference invalid/incompatible |
+| `terminal` | harness reported closed/stopped |
+
+After broker restart: assume `reachability_unknown` until proven.
+
+## Adapter Registry (pairing/runtime)
+
+Built-in adapter keys include: `claude-code`, `codex`, `acp`, `pi`, `opencode`, `openai`.
+
+Managed-process direction (SCO-056): ACP stdio and similar executables map into same session/endpoint model via adapter boundary.
+
+## Observed vs Owned
+
+Runtime tails harness output → **observed events** (SCO-042). Those feed UI/status; they do not become broker `message` rows unless sent through Scout comms APIs.
+
+## Invariants
+
+1. Session is harness-specific; no cross-harness satisfy without explicit adapter.
+2. Card create ≠ running session.
+3. Broker receipt ≠ harness completion.
+4. Endpoint attachment health ≠ flight lifecycle.
+5. Wake/register on first deliver for known on-demand targets — do not require manual `scout up` before first message unless broker says so.
+6. Failures return layer + remediation command, not silent limbo.
+
+## Forbidden
+
+- Introduce user-facing `thread` noun parallel to `session`.
+- Bind Codex ask to Claude session silently.
+- Treat pairing bridge session as broker endpoint without registration.
+- Require orientation loop (`who`/`whoami`/`latest`) when broker already returned actionable dispatch.
+
+## Code Map
+
+| Concern | Path |
+|---|---|
+| Broker session routing | `packages/runtime` broker layer |
+| Harness adapters | `@openscout/agent-sessions` |
+| Pairing bridge sessions | `**/pairing/runtime/bridge/**` |
+| CLI session commands | `packages/cli`, `apps/desktop/src/cli` |
+
+## Verification
+
+```bash
+scout who --json
+scout session inspect --agent <id> --harness codex
+scout ask --to <agent> "ping"
+```
+
+Expect: receipt ids; endpoint state progresses `waking → idle` when harness available.

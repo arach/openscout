@@ -127,7 +127,7 @@ The TS scanner remains available only when native mode is not requested.
 - The Rust scanner emits scan coverage and diagnostics without Scout business
   semantics.
 - The scanner can include or omit diff/last-commit enrichment by request.
-- The crate can be built independently of the supervisor crate.
+- The crate can be built independently of the scoutd crate.
 - Existing TypeScript Repo Watch API remains unchanged whether the wrapper is
   disabled, enabled by env, or enabled per request.
 

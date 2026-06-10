@@ -1,10 +1,10 @@
 #[cfg(not(unix))]
-compile_error!("openscout-supervisor first slice requires a Unix-like platform.");
+compile_error!("scoutd first slice requires a Unix-like platform.");
 
 use std::collections::HashSet;
 use std::env;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -25,6 +25,11 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
+const DAEMON_NAME: &str = "scoutd";
+/// Pre-rename daemon binary name. Kept for legacy-name compatibility so doctor
+/// still sees a still-running `openscout-supervisor supervise` orphan after the
+/// openscout-supervisor → scoutd rename.
+const LEGACY_DAEMON_NAME: &str = "openscout-supervisor";
 static SHUTDOWN_REQUESTED: AtomicBool = AtomicBool::new(false);
 const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_MESH_ID",
@@ -36,6 +41,17 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_TAILSCALE_BIN",
     "OPENSCOUT_TAILSCALE_STATUS_JSON",
     "OPENSCOUT_SSE_KEEPALIVE_MS",
+    "OPENSCOUT_WEB_EDGE_SCHEME",
+    "OPENSCOUT_WEB_PUBLIC_ORIGIN",
+    "OPENSCOUT_WEB_PORTAL_HOST",
+    "OPENSCOUT_WEB_LOCAL_NAME",
+    "OPENSCOUT_WEB_ADVERTISED_HOST",
+    "OPENSCOUT_WEB_TRUSTED_HOSTS",
+    "OPENSCOUT_WEB_TRUSTED_ORIGINS",
+    "OPENSCOUT_WEB_PORT",
+    "OPENSCOUT_WEB_FLAG_BUNDLE",
+    "OPENSCOUT_WEB_EXPERIENCE",
+    "OPENSCOUT_WEB_AB_VARIANT",
 ];
 
 unsafe extern "C" {
@@ -85,6 +101,11 @@ fn run() -> Result<(), String> {
             print_doctor(&report, json);
             Ok(())
         }
+        "install" => {
+            let status = install_service(&config)?;
+            print_status(&status, json);
+            Ok(())
+        }
         "start" => {
             let status = start_service(&config)?;
             print_status(&status, json);
@@ -101,7 +122,12 @@ fn run() -> Result<(), String> {
             print_status(&status, json);
             Ok(())
         }
-        "supervise" | "daemon" => supervise_service(&config),
+        "uninstall" => {
+            let status = uninstall_service(&config)?;
+            print_status(&status, json);
+            Ok(())
+        }
+        "supervise" => supervise_service(&config),
         other => Err(format!("unknown command: {other}")),
     }
 }
@@ -120,8 +146,8 @@ struct Config {
     stderr_log_path: PathBuf,
     control_home: PathBuf,
     runtime_package_dir: PathBuf,
-    supervisor_executable: PathBuf,
-    supervisor_state_path: PathBuf,
+    daemon_executable: PathBuf,
+    daemon_state_path: PathBuf,
     bun_executable: String,
     broker_host: String,
     broker_port: u16,
@@ -173,7 +199,7 @@ impl Config {
                     })?
             }
         };
-        let supervisor_executable = match env_nonempty("OPENSCOUT_SUPERVISOR_BIN") {
+        let daemon_executable = match env_nonempty("OPENSCOUT_SCOUTD_BIN") {
             Some(value) => PathBuf::from(value),
             None => env::current_exe().map_err(|error| error.to_string())?,
         };
@@ -209,7 +235,7 @@ impl Config {
                     .to_string()
             }),
         );
-        let supervisor_state_path = runtime_directory.join("supervisor-state.json");
+        let daemon_state_path = runtime_directory.join("scoutd-state.json");
 
         Ok(Self {
             label: label.clone(),
@@ -224,8 +250,8 @@ impl Config {
             stderr_log_path: logs_directory.join("stderr.log"),
             control_home,
             runtime_package_dir,
-            supervisor_executable,
-            supervisor_state_path,
+            daemon_executable,
+            daemon_state_path,
             bun_executable,
             broker_host,
             broker_port,
@@ -263,7 +289,7 @@ struct ServiceStatus {
     config: Config,
     launchctl: LaunchctlStatus,
     health: HealthStatus,
-    supervisor_state: Option<String>,
+    daemon_state: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -283,7 +309,14 @@ struct DoctorReport {
     warnings: Vec<String>,
 }
 
+fn install_service(config: &Config) -> Result<ServiceStatus, String> {
+    bootout_legacy_service(config);
+    ensure_launch_agent(config)?;
+    Ok(broker_service_status(config))
+}
+
 fn start_service(config: &Config) -> Result<ServiceStatus, String> {
+    bootout_legacy_service(config);
     ensure_launch_agent(config)?;
     let _ = run_command("/bin/launchctl", &["bootout", &config.service_target]);
     let _ = wait_for_stopped(config);
@@ -307,11 +340,21 @@ fn stop_service(config: &Config) -> Result<ServiceStatus, String> {
     wait_for_stopped(config)
 }
 
+fn uninstall_service(config: &Config) -> Result<ServiceStatus, String> {
+    let _ = stop_service(config);
+    // Removes the legacy plist as well (see bootout_legacy_service).
+    bootout_legacy_service(config);
+    if config.launch_agent_path.exists() {
+        fs::remove_file(&config.launch_agent_path).map_err(|error| error.to_string())?;
+    }
+    Ok(broker_service_status(config))
+}
+
 fn supervise_service(config: &Config) -> Result<(), String> {
     install_signal_handlers();
-    ensure_supervisor_directories(config)?;
+    ensure_daemon_directories(config)?;
     eprintln!(
-        "[openscout-supervisor] starting Bun base from {}",
+        "[scoutd] starting Bun base from {}",
         config.runtime_entrypoint().display(),
     );
 
@@ -319,7 +362,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let mut restart_count = 0_u32;
     let mut restart_delay = RESTART_MIN_DELAY;
     let mut child = spawn_base_process(config)?;
-    write_supervisor_state(
+    write_daemon_state(
         config,
         started_at_ms,
         Some(child.id()),
@@ -331,8 +374,8 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
         match child.try_wait().map_err(|error| error.to_string())? {
             Some(status) => {
-                write_supervisor_state(config, started_at_ms, None, "exited", restart_count)?;
-                eprintln!("[openscout-supervisor] Bun base exited: {status}");
+                write_daemon_state(config, started_at_ms, None, "exited", restart_count)?;
+                eprintln!("[scoutd] Bun base exited: {status}");
                 restart_count = restart_count.saturating_add(1);
                 sleep_until_or_shutdown(Instant::now() + restart_delay);
                 if SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
@@ -340,7 +383,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                 }
                 restart_delay = doubled_delay(restart_delay);
                 child = spawn_base_process(config)?;
-                write_supervisor_state(
+                write_daemon_state(
                     config,
                     started_at_ms,
                     Some(child.id()),
@@ -351,7 +394,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
             }
             None => {
                 if Instant::now() >= next_state_write {
-                    write_supervisor_state(
+                    write_daemon_state(
                         config,
                         started_at_ms,
                         Some(child.id()),
@@ -365,7 +408,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         }
     }
 
-    write_supervisor_state(
+    write_daemon_state(
         config,
         started_at_ms,
         Some(child.id()),
@@ -373,7 +416,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         restart_count,
     )?;
     terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
-    write_supervisor_state(config, started_at_ms, None, "stopped", restart_count)?;
+    write_daemon_state(config, started_at_ms, None, "stopped", restart_count)?;
     Ok(())
 }
 
@@ -464,7 +507,7 @@ fn terminate_child(child: &mut Child, label: &str, timeout: Duration) -> Result<
         thread::sleep(POLL_INTERVAL);
     }
 
-    eprintln!("[openscout-supervisor] {label} did not exit after SIGTERM; forcing shutdown");
+    eprintln!("[scoutd] {label} did not exit after SIGTERM; forcing shutdown");
     child.kill().map_err(|error| error.to_string())?;
     let _ = child.wait();
     Ok(())
@@ -488,7 +531,7 @@ fn broker_service_status(config: &Config) -> ServiceStatus {
         config: config.clone(),
         launchctl: inspect_launchctl(config),
         health: fetch_health(config),
-        supervisor_state: read_supervisor_state_json(config),
+        daemon_state: read_daemon_state_json(config),
     }
 }
 
@@ -679,29 +722,26 @@ fn doctor_report(config: &Config) -> DoctorReport {
             status.config.broker_socket_path.display(),
         ));
     }
-    if status.launchctl.loaded && status.supervisor_state.is_none() {
+    if status.launchctl.loaded && status.daemon_state.is_none() {
         warnings.push(format!(
-            "launchd service is loaded but supervisor state is missing: {}",
-            status.config.supervisor_state_path.display(),
+            "launchd service is loaded but scoutd state is missing: {}",
+            status.config.daemon_state_path.display(),
         ));
     }
 
-    let supervisor_processes: Vec<&ProcessInfo> = processes
+    let daemon_processes: Vec<&ProcessInfo> = processes
         .iter()
-        .filter(|process| command_invokes_supervisor_daemon(&process.command))
+        .filter(|process| command_invokes_scoutd_daemon(&process.command))
         .collect();
-    if supervisor_processes.len() > 1 {
+    if daemon_processes.len() > 1 {
         warnings.push(format!(
-            "multiple openscout-supervisor processes found: {}",
-            supervisor_processes.len()
+            "multiple scoutd processes found: {}",
+            daemon_processes.len()
         ));
     }
-    for process in supervisor_processes {
+    for process in daemon_processes {
         if process.ppid == 1 && status.launchctl.pid != Some(process.pid) {
-            warnings.push(format!(
-                "orphaned openscout-supervisor process: pid {}",
-                process.pid
-            ));
+            warnings.push(format!("orphaned scoutd process: pid {}", process.pid));
         }
     }
     let broker_processes: Vec<&ProcessInfo> = processes
@@ -747,15 +787,60 @@ fn process_snapshot() -> Vec<ProcessInfo> {
     output
         .lines()
         .filter_map(parse_process_line)
-        .filter(|process| {
-            process.command.contains("openscout-runtime")
-                || command_references_process(&process.command, "openscout-supervisor")
-                || command_references_process(&process.command, "scout-base")
-                || command_references_process(&process.command, "scout-broker")
-                || command_references_process(&process.command, "scout-web")
-                || command_references_process(&process.command, "OpenScoutMenu")
-        })
+        .filter(|process| process_snapshot_filter(&process.command))
         .collect()
+}
+
+fn process_snapshot_filter(command: &str) -> bool {
+    command.contains("openscout-runtime")
+        || command_references_process(command, DAEMON_NAME)
+        // Legacy-name compatibility for the openscout-supervisor → scoutd rename.
+        || command_references_process(command, LEGACY_DAEMON_NAME)
+        || command_references_process(command, "scout-base")
+        || command_references_process(command, "scout-broker")
+        || command_references_process(command, "scout-web")
+        || command_references_process(command, "ScoutMenu")
+}
+
+fn legacy_service_label(config: &Config) -> String {
+    match config.service_mode.as_str() {
+        "prod" => "com.openscout.broker".to_string(),
+        "custom" => "com.openscout.broker.custom".to_string(),
+        _ => "dev.openscout.broker".to_string(),
+    }
+}
+
+fn legacy_service_target(config: &Config) -> String {
+    format!("{}/{}", config.domain_target, legacy_service_label(config))
+}
+
+fn legacy_launch_agent_path(config: &Config) -> PathBuf {
+    match home_dir() {
+        Ok(home) => home.join(format!(
+            "Library/LaunchAgents/{}.plist",
+            legacy_service_label(config)
+        )),
+        Err(_) => config.launch_agent_path.clone(),
+    }
+}
+
+fn bootout_legacy_service(config: &Config) {
+    let legacy_target = legacy_service_target(config);
+    if legacy_target != config.service_target {
+        let _ = run_command("/bin/launchctl", &["bootout", &legacy_target]);
+    }
+    // The legacy plist has RunAtLoad=true, so leaving it on disk lets launchd
+    // re-bootstrap the old service at every login. Remove it best-effort,
+    // consistent with the bootout above.
+    let legacy_path = legacy_launch_agent_path(config);
+    if legacy_path != config.launch_agent_path && legacy_path.exists() {
+        if let Err(error) = fs::remove_file(&legacy_path) {
+            eprintln!(
+                "[scoutd] failed to remove legacy launch agent {}: {error}",
+                legacy_path.display()
+            );
+        }
+    }
 }
 
 fn command_references_process(command: &str, process_name: &str) -> bool {
@@ -764,12 +849,15 @@ fn command_references_process(command: &str, process_name: &str) -> bool {
         .any(|part| part == process_name || part.rsplit('/').next() == Some(process_name))
 }
 
-fn command_invokes_supervisor_daemon(command: &str) -> bool {
+fn command_invokes_scoutd_daemon(command: &str) -> bool {
     let mut parts = command.split_whitespace();
     while let Some(part) = parts.next() {
-        if part == "openscout-supervisor" || part.rsplit('/').next() == Some("openscout-supervisor")
-        {
-            return matches!(parts.next(), Some("supervise" | "daemon"));
+        let name = part.rsplit('/').next().unwrap_or(part);
+        // Legacy-name compatibility for the openscout-supervisor → scoutd rename:
+        // a pre-rename `openscout-supervisor supervise` orphan still counts as a
+        // daemon process so doctor's duplicate/orphan warnings include it.
+        if name == DAEMON_NAME || name == LEGACY_DAEMON_NAME {
+            return matches!(parts.next(), Some("supervise"));
         }
     }
     false
@@ -794,7 +882,7 @@ fn parse_process_line(line: &str) -> Option<ProcessInfo> {
 }
 
 fn ensure_launch_agent(config: &Config) -> Result<(), String> {
-    ensure_supervisor_directories(config)?;
+    ensure_daemon_directories(config)?;
     let plist = render_launch_agent_plist(config);
     if fs::read_to_string(&config.launch_agent_path)
         .ok()
@@ -806,7 +894,7 @@ fn ensure_launch_agent(config: &Config) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_supervisor_directories(config: &Config) -> Result<(), String> {
+fn ensure_daemon_directories(config: &Config) -> Result<(), String> {
     fs::create_dir_all(&config.support_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.logs_directory).map_err(|error| error.to_string())?;
@@ -878,7 +966,7 @@ fn render_launch_agent_plist(config: &Config) -> String {
   <string>{label}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>{supervisor}</string>
+    <string>{daemon}</string>
     <string>supervise</string>
   </array>
   <key>WorkingDirectory</key>
@@ -901,15 +989,15 @@ fn render_launch_agent_plist(config: &Config) -> String {
 </plist>
 "#,
         label = xml_escape(&config.label),
-        supervisor = xml_escape(&config.supervisor_executable.to_string_lossy()),
+        daemon = xml_escape(&config.daemon_executable.to_string_lossy()),
         cwd = xml_escape(&config.runtime_package_dir.to_string_lossy()),
         stdout = xml_escape(&config.stdout_log_path.to_string_lossy()),
         stderr = xml_escape(&config.stderr_log_path.to_string_lossy()),
     )
 }
 
-fn read_supervisor_state_json(config: &Config) -> Option<String> {
-    let raw = fs::read_to_string(&config.supervisor_state_path).ok()?;
+fn read_daemon_state_json(config: &Config) -> Option<String> {
+    let raw = fs::read_to_string(&config.daemon_state_path).ok()?;
     let trimmed = raw.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         Some(trimmed.to_string())
@@ -918,7 +1006,7 @@ fn read_supervisor_state_json(config: &Config) -> Option<String> {
     }
 }
 
-fn write_supervisor_state(
+fn write_daemon_state(
     config: &Config,
     started_at_ms: u128,
     base_pid: Option<u32>,
@@ -929,7 +1017,8 @@ fn write_supervisor_state(
     let payload = format!(
         "{{\
 \"schemaVersion\":1,\
-\"supervisorPid\":{},\
+\"daemon\":\"scoutd\",\
+\"scoutdPid\":{},\
 \"startedAtMs\":{},\
 \"basePid\":{},\
 \"baseState\":{},\
@@ -943,9 +1032,9 @@ fn write_supervisor_state(
         restart_count,
         epoch_ms(),
     );
-    let temporary_path = config.supervisor_state_path.with_extension("json.tmp");
+    let temporary_path = config.daemon_state_path.with_extension("json.tmp");
     fs::write(&temporary_path, payload).map_err(|error| error.to_string())?;
-    fs::rename(&temporary_path, &config.supervisor_state_path).map_err(|error| error.to_string())
+    fs::rename(&temporary_path, &config.daemon_state_path).map_err(|error| error.to_string())
 }
 
 fn epoch_ms() -> u128 {
@@ -1106,8 +1195,8 @@ fn first_nonempty(first: &str, second: &str) -> String {
 
 fn print_help() {
     println!(
-        "openscout-supervisor <status|start|stop|restart|doctor|supervise> [--json]\n\n\
-         First native supervisor slice for the OpenScout local control plane."
+        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise> [--json]\n\n\
+         Native daemon for the OpenScout local control plane."
     );
 }
 
@@ -1130,8 +1219,8 @@ fn print_status(status: &ServiceStatus, json: bool) {
             status.launchctl.launchd_state.as_deref().unwrap_or("-")
         );
         println!(
-            "supervisor state: {}",
-            if status.supervisor_state.is_some() {
+            "scoutd state: {}",
+            if status.daemon_state.is_some() {
                 "recorded"
             } else {
                 "missing"
@@ -1168,44 +1257,131 @@ fn print_doctor(report: &DoctorReport, json: bool) {
 }
 
 fn status_json(status: &ServiceStatus) -> String {
+    let installed = status.config.launch_agent_path.exists();
+    let uses_launch_agent = installed || status.launchctl.loaded;
+    let last_log_line = if status.health.reachable {
+        read_last_log_line(&[
+            &status.config.stdout_log_path,
+            &status.config.stderr_log_path,
+        ])
+    } else {
+        read_last_log_line(&[
+            &status.config.stderr_log_path,
+            &status.config.stdout_log_path,
+        ])
+    };
+
     format!(
         "{{\
 \"label\":{},\
+\"mode\":{},\
 \"launchAgentPath\":{},\
-\"supervisorExecutable\":{},\
-\"supervisorStatePath\":{},\
-\"supervisorState\":{},\
+\"bootoutCommand\":{},\
 \"brokerUrl\":{},\
 \"brokerSocketPath\":{},\
+\"supportDirectory\":{},\
+\"runtimeDirectory\":{},\
+\"controlHome\":{},\
+\"stdoutLogPath\":{},\
+\"stderrLogPath\":{},\
+\"installed\":{},\
 \"loaded\":{},\
 \"pid\":{},\
 \"launchdState\":{},\
 \"lastExitStatus\":{},\
+\"usesLaunchAgent\":{},\
 \"reachable\":{},\
 \"health\":{},\
-\"healthTransport\":{},\
-\"healthStatusCode\":{},\
-\"healthBody\":{},\
-\"healthError\":{}\
+\"lastLogLine\":{},\
+\"scoutdExecutable\":{},\
+\"scoutdStatePath\":{},\
+\"scoutdState\":{}\
 }}",
         json_string(&status.config.label),
+        json_string(&status.config.service_mode),
         json_string(&status.config.launch_agent_path.to_string_lossy()),
-        json_string(&status.config.supervisor_executable.to_string_lossy()),
-        json_string(&status.config.supervisor_state_path.to_string_lossy()),
-        status.supervisor_state.as_deref().unwrap_or("null"),
+        json_string(&format!(
+            "/bin/launchctl bootout {}",
+            status.config.service_target
+        )),
         json_string(&status.config.broker_url),
         json_string(&status.config.broker_socket_path.to_string_lossy()),
+        json_string(&status.config.support_directory.to_string_lossy()),
+        json_string(&status.config.runtime_directory.to_string_lossy()),
+        json_string(&status.config.control_home.to_string_lossy()),
+        json_string(&status.config.stdout_log_path.to_string_lossy()),
+        json_string(&status.config.stderr_log_path.to_string_lossy()),
+        installed,
         status.launchctl.loaded,
         json_opt_u32(status.launchctl.pid),
         json_opt_str(status.launchctl.launchd_state.as_deref()),
         json_opt_i32(status.launchctl.last_exit_status),
+        uses_launch_agent,
         status.health.reachable,
-        status.health.ok,
-        json_opt_str(status.health.transport.as_deref()),
-        json_opt_u16(status.health.status_code),
-        json_opt_str(status.health.body.as_deref()),
-        json_opt_str(status.health.error.as_deref()),
+        health_json(&status.health),
+        json_opt_str(last_log_line.as_deref()),
+        json_string(&status.config.daemon_executable.to_string_lossy()),
+        json_string(&status.config.daemon_state_path.to_string_lossy()),
+        status.daemon_state.as_deref().unwrap_or("null"),
     )
+}
+
+fn health_json(health: &HealthStatus) -> String {
+    format!(
+        "{{\
+\"reachable\":{},\
+\"ok\":{},\
+\"checkedAt\":{},\
+\"transport\":{},\
+\"statusCode\":{},\
+\"body\":{},\
+\"error\":{}\
+}}",
+        health.reachable,
+        health.ok,
+        epoch_ms(),
+        json_opt_str(health.transport.as_deref()),
+        json_opt_u16(health.status_code),
+        json_opt_str(health.body.as_deref()),
+        json_opt_str(health.error.as_deref()),
+    )
+}
+
+fn read_last_log_line(paths: &[&Path]) -> Option<String> {
+    for path in paths {
+        if let Some(line) = read_last_log_line_from(path) {
+            return Some(line);
+        }
+    }
+    None
+}
+
+/// Window for tailing log files. Logs are unrotated and can reach hundreds of
+/// MB, so we only read this many trailing bytes rather than the whole file.
+const LOG_TAIL_WINDOW: u64 = 64 * 1024;
+
+fn read_last_log_line_from(path: &Path) -> Option<String> {
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let offset = len.saturating_sub(LOG_TAIL_WINDOW);
+    if offset > 0 {
+        file.seek(SeekFrom::Start(offset)).ok()?;
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+
+    let tail = String::from_utf8_lossy(&bytes);
+    // When we did not start at the beginning of the file, the first line may be
+    // a partial line truncated by the seek; skip it.
+    let mut lines = tail.lines();
+    if offset > 0 {
+        lines.next();
+    }
+    lines
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .next_back()
+        .map(str::to_string)
 }
 
 fn doctor_json(report: &DoctorReport) -> String {
@@ -1304,7 +1480,14 @@ fn xml_escape(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_invokes_supervisor_daemon, health_body_reports_ok, parse_health_response};
+    use super::{
+        command_invokes_scoutd_daemon, health_body_reports_ok, parse_health_response,
+        process_snapshot_filter, read_last_log_line_from, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+    };
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn health_body_reports_ok_accepts_compact_and_pretty_json() {
@@ -1335,18 +1518,91 @@ mod tests {
     }
 
     #[test]
-    fn command_invokes_supervisor_daemon_only_matches_daemon_commands() {
-        assert!(command_invokes_supervisor_daemon(
-            "/Users/arach/dev/openscout/target/debug/openscout-supervisor supervise"
+    fn command_invokes_scoutd_daemon_only_matches_daemon_commands() {
+        assert!(command_invokes_scoutd_daemon(
+            "/Users/arach/dev/openscout/target/debug/scoutd supervise"
         ));
-        assert!(command_invokes_supervisor_daemon(
-            "target/debug/openscout-supervisor daemon"
+        assert!(!command_invokes_scoutd_daemon(
+            "target/debug/scoutd doctor --json"
         ));
-        assert!(!command_invokes_supervisor_daemon(
-            "target/debug/openscout-supervisor doctor --json"
+        assert!(!command_invokes_scoutd_daemon("scoutd status --json"));
+    }
+
+    #[test]
+    fn command_invokes_scoutd_daemon_matches_legacy_supervisor_name() {
+        // Legacy-name compatibility: a still-running pre-rename daemon must be
+        // recognized so doctor's orphan/duplicate warnings include it.
+        assert!(command_invokes_scoutd_daemon(
+            "/usr/local/bin/openscout-supervisor supervise"
         ));
-        assert!(!command_invokes_supervisor_daemon(
-            "target/debug/openscout-supervisor status --json"
+        assert!(command_invokes_scoutd_daemon(
+            "openscout-supervisor supervise"
         ));
+        assert!(!command_invokes_scoutd_daemon(
+            "openscout-supervisor status --json"
+        ));
+    }
+
+    #[test]
+    fn process_snapshot_filter_matches_legacy_supervisor_name() {
+        assert!(process_snapshot_filter(
+            "/usr/local/bin/openscout-supervisor supervise"
+        ));
+        assert!(process_snapshot_filter("scoutd supervise"));
+        assert!(!process_snapshot_filter("/bin/zsh -l"));
+    }
+
+    fn unique_temp_path(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        env::temp_dir().join(format!("scoutd-test-{name}-{nanos}.log"))
+    }
+
+    #[test]
+    fn read_last_log_line_from_returns_trimmed_last_nonempty_line() {
+        let path = unique_temp_path("small");
+        fs::write(&path, "first line\nsecond line\n  \n").expect("write log");
+        let line = read_last_log_line_from(&path);
+        let _ = fs::remove_file(&path);
+        assert_eq!(line.as_deref(), Some("second line"));
+    }
+
+    #[test]
+    fn read_last_log_line_from_reads_only_a_bounded_tail() {
+        let path = unique_temp_path("large");
+        // Build a file much larger than the tail window so the early lines fall
+        // outside it; only the final line should be returned.
+        let filler = "x".repeat(200);
+        let mut contents = String::new();
+        while contents.len() < (LOG_TAIL_WINDOW as usize) * 3 {
+            contents.push_str(&filler);
+            contents.push('\n');
+        }
+        contents.push_str("final marker line\n");
+        fs::write(&path, &contents).expect("write large log");
+
+        let line = read_last_log_line_from(&path);
+        let _ = fs::remove_file(&path);
+        assert_eq!(line.as_deref(), Some("final marker line"));
+    }
+
+    #[test]
+    fn read_last_log_line_from_handles_non_utf8_bytes() {
+        let path = unique_temp_path("non-utf8");
+        // Invalid UTF-8 (0xFF) on an earlier line, valid final line.
+        let mut bytes = b"corrupt \xff line\n".to_vec();
+        bytes.extend_from_slice(b"good final line\n");
+        fs::write(&path, &bytes).expect("write non-utf8 log");
+
+        let line = read_last_log_line_from(&path);
+        let _ = fs::remove_file(&path);
+        assert_eq!(line.as_deref(), Some("good final line"));
+    }
+
+    #[test]
+    fn legacy_daemon_name_is_pre_rename_binary() {
+        assert_eq!(LEGACY_DAEMON_NAME, "openscout-supervisor");
     }
 }

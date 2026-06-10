@@ -66,7 +66,7 @@ export function renderServerCommandHelp(): string {
     "",
     "Subcommands:",
     "  start              Start the Scout web UI server.",
-    "  restart            Restart the Scout web UI server via the broker supervisor.",
+    "  restart            Restart the Scout web UI server via the broker service.",
     "  open               Open the Scout web UI (starts server on demand if needed).",
     "  caddyfile          Print the local edge Caddyfile for scout.local.",
     "  edge               Publish local names and run the Caddy edge.",
@@ -913,7 +913,7 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
   });
 }
 
-type ScoutServerSupervisorStatus = {
+type ScoutServerWebControlStatus = {
   ok: boolean;
   running: boolean;
   starting: boolean;
@@ -932,39 +932,39 @@ type ScoutServerRestartResult = {
   totalMs: number;
 };
 
-async function fetchSupervisorStatus(): Promise<ScoutServerSupervisorStatus> {
+async function fetchWebControlStatus(): Promise<ScoutServerWebControlStatus> {
   const brokerUrl = resolveScoutBrokerUrl();
   const response = await fetch(new URL("/v1/web/status", brokerUrl));
   if (!response.ok) {
-    throw new ScoutCliError(`broker supervisor returned HTTP ${response.status}`);
+    throw new ScoutCliError(`broker web control endpoint returned HTTP ${response.status}`);
   }
-  return await response.json() as ScoutServerSupervisorStatus;
+  return await response.json() as ScoutServerWebControlStatus;
 }
 
-async function waitForSupervisor(
-  predicate: (status: ScoutServerSupervisorStatus) => boolean,
+async function waitForWebControl(
+  predicate: (status: ScoutServerWebControlStatus) => boolean,
   timeoutMs: number,
   intervalMs = 150,
-): Promise<ScoutServerSupervisorStatus> {
+): Promise<ScoutServerWebControlStatus> {
   const deadline = Date.now() + timeoutMs;
-  let last: ScoutServerSupervisorStatus | null = null;
+  let last: ScoutServerWebControlStatus | null = null;
   while (Date.now() < deadline) {
-    last = await fetchSupervisorStatus().catch(() => last);
+    last = await fetchWebControlStatus().catch(() => last);
     if (last && predicate(last)) return last;
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   if (!last) {
-    throw new ScoutCliError("broker supervisor did not respond within the timeout");
+    throw new ScoutCliError("broker web control endpoint did not respond within the timeout");
   }
   return last;
 }
 
 async function restartScoutWebServer(): Promise<ScoutServerRestartResult> {
   const started = Date.now();
-  const before = await fetchSupervisorStatus().catch(() => null);
+  const before = await fetchWebControlStatus().catch(() => null);
   if (!before || !before.pid) {
     throw new ScoutCliError(
-      "Scout web server is not running under the broker supervisor — start it with `scout server start`.",
+      "Scout web server is not running under the broker service - start it with `scout server start`.",
     );
   }
   const previousPid = before.pid;
@@ -983,7 +983,7 @@ async function restartScoutWebServer(): Promise<ScoutServerRestartResult> {
     }
   }
 
-  const drained = await waitForSupervisor(
+  const drained = await waitForWebControl(
     (status) => status.pid === null || status.pid !== previousPid,
     12_000,
   );
@@ -991,7 +991,7 @@ async function restartScoutWebServer(): Promise<ScoutServerRestartResult> {
 
   const respawned = drained.pid && drained.pid !== previousPid
     ? drained
-    : await waitForSupervisor((status) => status.running && status.pid !== null && status.pid !== previousPid, 15_000);
+    : await waitForWebControl((status) => status.running && status.pid !== null && status.pid !== previousPid, 15_000);
 
   return {
     webUrl: respawned.webUrl,

@@ -183,7 +183,15 @@ struct ScoutRootView: View {
         .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity, themeMode: appearance.themeMode))
         .onAppear {
             store.start()
+            if let cId = ScoutExternalCommand.takePendingChannelId() {
+                openChannelFromExternalCommand(cId)
+            }
             syncScopedStoreLifecycles()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ScoutExternalCommand.openChannelNotificationName)) { notification in
+            guard let cId = notification.userInfo?["cId"] as? String else { return }
+            openChannelFromExternalCommand(cId)
+            ScoutExternalCommand.clearPendingChannelId(cId)
         }
         .onDisappear {
             store.stop()
@@ -338,7 +346,14 @@ struct ScoutRootView: View {
     }
 
     private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
-        guard !HUDController.shared.isVisible else { return false }
+        if event.keyCode == 53, HUDController.shared.handleHostKeyDown(event) {
+            return true
+        }
+        if HUDController.shared.isVisible,
+           bareKeysAvailable,
+           HUDController.shared.handleHostKeyDown(event) {
+            return true
+        }
         if showCheatsheet, event.keyCode == 53 {
             showCheatsheet = false
             return true
@@ -375,6 +390,13 @@ struct ScoutRootView: View {
             return false
         }
         return true
+    }
+
+    private func openChannelFromExternalCommand(_ cId: String) {
+        let trimmed = cId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        section = .comms
+        store.selectChannel(trimmed)
     }
 
     /// A modal overlay is up and should own the keyboard.

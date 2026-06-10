@@ -8,9 +8,9 @@ local Hudson `hkit package macos` packager and currently installs one app:
 
 The menu app is intentionally thin:
 
-- broker lifecycle is driven through `openscout-runtime service ...`
+- broker lifecycle uses `scoutd`, either directly or through `openscout-runtime service ...`
 - pairing state is read from `~/.scout/pairing/runtime.json`
-- pairing control uses the existing `pair-supervisor` entrypoint when it can be resolved
+- pairing control uses the `pairing-runtime-controller` entrypoint when it can be resolved
 - the local web UI is opened from the menu app instead of being reimplemented in Swift
 
 ## Development
@@ -132,13 +132,14 @@ The app prefers explicit `OPENSCOUT_*` overrides, then repo-local scripts when r
 Optional overrides:
 
 - `OPENSCOUT_RUNTIME_BIN`
+- `OPENSCOUT_SCOUTD_BIN`
 - `OPENSCOUT_CLI_BIN`
 - `OPENSCOUT_BUN_BIN`
-- `OPENSCOUT_PAIR_SUPERVISOR_BIN`
+- `OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN`
 - `OPENSCOUT_SIGN_IDENTITY`
 - `OPENSCOUT_SETUP_CWD`
 
-`OPENSCOUT_PAIR_SUPERVISOR_BIN` is useful when you want native pairing control outside the repo checkout.
+`OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN` is useful when you want native pairing control outside the repo checkout.
 
 When the menu app launches `scout server start`, it forwards `OPENSCOUT_CLI_BIN`,
 `OPENSCOUT_BUN_BIN`, and `OPENSCOUT_SETUP_CWD` so downstream pairing and Codex

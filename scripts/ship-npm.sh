@@ -87,7 +87,9 @@ echo "  runtime…"
 (cd packages/runtime && npm run build)
 
 echo "  cli…"
-(cd packages/cli && node ./scripts/build.mjs)
+# Require the prebuilt scoutd broker service binary in published artifacts —
+# build.mjs fails loudly here if cargo is unavailable (see OPENSCOUT_REQUIRE_SCOUTD).
+(cd packages/cli && OPENSCOUT_REQUIRE_SCOUTD=1 node ./scripts/build.mjs)
 
 echo "  web…"
 (cd packages/web && npm run build)

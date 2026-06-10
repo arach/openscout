@@ -9,7 +9,7 @@
     <key>CFBundleDisplayName</key>
     <string>Scout Menu</string>
     <key>CFBundleExecutable</key>
-    <string>OpenScoutMenu</string>
+    <string>ScoutMenu</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>

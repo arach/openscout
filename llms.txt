@@ -41,10 +41,15 @@ finalized; package manifests currently use `UNLICENSED`.
 ## Agent-Optimized Docs
 
 - `llms-full.txt` — larger generated context bundle for copy/paste into agents
+- [`docs/agent/INDEX.agent.md`](./docs/agent/INDEX.agent.md) — semantic spec index (dense subsystem models)
 - [`docs/agent/README.agent.md`](./docs/agent/README.agent.md)
+- [`docs/agent/broker.agent.md`](./docs/agent/broker.agent.md)
+- [`docs/agent/scout-comms.agent.md`](./docs/agent/scout-comms.agent.md)
+- [`docs/agent/runtime-sessions.agent.md`](./docs/agent/runtime-sessions.agent.md)
+- [`docs/agent/pairing-runtime.agent.md`](./docs/agent/pairing-runtime.agent.md)
+- [`docs/agent/scoutd.agent.md`](./docs/agent/scoutd.agent.md)
 - [`docs/agent/current-posture.agent.md`](./docs/agent/current-posture.agent.md)
 - [`docs/agent/integration-contract.agent.md`](./docs/agent/integration-contract.agent.md)
-- [`docs/agent/scout-comms.agent.md`](./docs/agent/scout-comms.agent.md)
 
 ## Core Rules
 

@@ -35,7 +35,7 @@ export const SCOUT_PAIRING_PROCESS_EXIT_TIMEOUT_MS = 5_000;
 export const SCOUT_PAIRING_PROCESS_EXIT_POLL_MS = 100;
 export const SCOUT_PAIRING_COMMAND_LABEL = "scout pair";
 export const SCOUT_PAIRING_RUNTIME_VERSION = 1 as const;
-export const SCOUT_PAIRING_RUNTIME_SCRIPT = "pair-supervisor.ts";
+export const SCOUT_PAIRING_RUNTIME_SCRIPT = "pairing-runtime-controller.ts";
 
 export type ScoutPairingControlAction = "start" | "stop" | "restart";
 
@@ -686,7 +686,7 @@ function resolveScoutPairingRuntimeScriptPath(): string {
     }
   }
 
-  throw new Error("Unable to locate the Scout pair supervisor entrypoint.");
+  throw new Error("Unable to locate the Scout pairing runtime controller entrypoint.");
 }
 
 function pairingStateFromRuntime(

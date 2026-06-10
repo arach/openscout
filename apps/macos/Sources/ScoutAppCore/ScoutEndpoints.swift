@@ -69,6 +69,16 @@ public enum ScoutBroker {
         }
         return fallbackURL
     }
+
+    /// Broker host/port as declared in `~/.openscout/config.json`, when present.
+    ///
+    /// scoutd resolves its broker target purely from `OPENSCOUT_BROKER_*`
+    /// environment variables and never reads the unified config file, so callers
+    /// invoking scoutd must forward these values explicitly. Returns `nil` when
+    /// the config file is absent or does not pin a broker port.
+    public static func configuredEndpoint() -> (host: String, port: Int)? {
+        ScoutEndpointResolver.brokerEndpointFromConfig()
+    }
 }
 
 private enum ScoutEndpointResolver {
@@ -128,11 +138,19 @@ private enum ScoutEndpointResolver {
     }
 
     static func brokerURLFromConfig() -> URL? {
-        guard let cfg = readConfig(),
-              let port = cfg.ports?.broker else {
+        guard let endpoint = brokerEndpointFromConfig() else {
             return nil
         }
-        return URL(string: "http://\(clientHost(from: cfg.host)):\(port)")
+        return URL(string: "http://\(endpoint.host):\(endpoint.port)")
+    }
+
+    static func brokerEndpointFromConfig() -> (host: String, port: Int)? {
+        guard let cfg = readConfig(),
+              let port = cfg.ports?.broker,
+              isValidPort(port) else {
+            return nil
+        }
+        return (clientHost(from: cfg.host), port)
     }
 
     private static func readConfig() -> OpenScoutConfig? {

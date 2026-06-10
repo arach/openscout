@@ -24,7 +24,8 @@ public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                self?.refresh()
+                guard let self else { return }
+                refresh()
             }
         }
     }
@@ -56,6 +57,7 @@ public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
             scoutSetIfChanged(next, to: \.agents)
             scoutSetIfChanged(nil, to: \.lastError)
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             scoutSetIfChanged(ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."), to: \.lastError)
         }
     }

@@ -22,7 +22,7 @@ extension Color {
 
 /// Adaptive semantic palette for the Scout desktop app. Dark values are
 /// pixel-identical to the previous static palette (HudPalette / ScoutDesign);
-/// light values are lifted from the calibrated OpenScoutMenu `ShellPalette`.
+/// light values are lifted from the calibrated ScoutMenu `ShellPalette`.
 ///
 /// Views consume these in place of the static `ScoutPalette.*` / `ScoutDesign.*`
 /// colors, so the whole app follows light/dark. (Arbitrary runtime themes /

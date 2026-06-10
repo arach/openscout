@@ -31,7 +31,7 @@ const SCOUT_PAIR_REFRESH_LEEWAY_MS = 30_000;
 const SCOUT_PAIR_RESTART_DELAY_MS = 2_000;
 const BONJOUR_SERVICE_TYPE = "_scout-pair._tcp";
 
-type SupervisorState = {
+type PairingRuntimeControllerState = {
   current: PairingRuntimeSnapshot;
   restartTimer: ReturnType<typeof setTimeout> | null;
   refreshTimer: ReturnType<typeof setTimeout> | null;
@@ -45,18 +45,18 @@ type BonjourAdvertisement = {
   stop: () => void;
 };
 
-export async function runScoutPairingSupervisor(): Promise<void> {
+export async function runPairingRuntimeController(): Promise<void> {
   clearStalePairingRuntimeFiles();
 
   const existingPid = readPairingRuntimePid();
   if (existingPid && existingPid !== process.pid && isProcessRunning(existingPid)) {
-    console.error(`Scout pair supervisor is already running (pid ${existingPid}).`);
+    console.error(`Scout pairing runtime controller is already running (pid ${existingPid}).`);
     process.exit(1);
   }
 
   writePairingRuntimePid(process.pid);
 
-  const state: SupervisorState = {
+  const state: PairingRuntimeControllerState = {
     current: writePairingRuntimeSnapshot(createPairingRuntimeSnapshot(
       { pid: process.pid },
       {
@@ -78,8 +78,8 @@ export async function runScoutPairingSupervisor(): Promise<void> {
 
   const shutdown = async () => {
     state.intentionalStop = true;
-    clearSupervisorTimers(state);
-    await stopSupervisorRuntime(state);
+    clearRuntimeControllerTimers(state);
+    await stopControlledPairingRuntime(state);
     writeCurrent(state, {
       status: "stopped",
       statusLabel: "Stopped",
@@ -96,12 +96,12 @@ export async function runScoutPairingSupervisor(): Promise<void> {
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
 
-  await startSupervisorRuntime(state);
+  await startControlledPairingRuntime(state);
 }
 
-async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
-  clearSupervisorTimers(state);
-  await stopSupervisorRuntime(state);
+async function startControlledPairingRuntime(state: PairingRuntimeControllerState): Promise<void> {
+  clearRuntimeControllerTimers(state);
+  await stopControlledPairingRuntime(state);
 
   const config = resolvedPairingConfig();
   const relayPort = config.port + 1;
@@ -207,7 +207,7 @@ async function startSupervisorRuntime(state: SupervisorState): Promise<void> {
   }
 }
 
-function createStatusWriter(state: SupervisorState) {
+function createStatusWriter(state: PairingRuntimeControllerState) {
   return (
     status: PairingRuntimeStatus,
     detail: string | null,
@@ -232,15 +232,15 @@ function createStatusWriter(state: SupervisorState) {
   };
 }
 
-function scheduleRestart(state: SupervisorState): void {
+function scheduleRestart(state: PairingRuntimeControllerState): void {
   clearRestartTimer(state);
   state.restartTimer = setTimeout(() => {
     state.restartTimer = null;
-    void startSupervisorRuntime(state);
+    void startControlledPairingRuntime(state);
   }, SCOUT_PAIR_RESTART_DELAY_MS);
 }
 
-function schedulePairingRefresh(state: SupervisorState, payload: PairingQrPayload): void {
+function schedulePairingRefresh(state: PairingRuntimeControllerState, payload: PairingQrPayload): void {
   clearRefreshTimer(state);
   const delayMs = Math.max(1_000, payload.expiresAt - Date.now() - SCOUT_PAIR_REFRESH_LEEWAY_MS);
   state.refreshTimer = setTimeout(() => {
@@ -249,14 +249,14 @@ function schedulePairingRefresh(state: SupervisorState, payload: PairingQrPayloa
       refreshPairingPayload(state);
       return;
     }
-    void startSupervisorRuntime(state);
+    void startControlledPairingRuntime(state);
   }, Math.min(delayMs, PAIRING_QR_TTL_MS));
 }
 
-function refreshPairingPayload(state: SupervisorState): void {
+function refreshPairingPayload(state: PairingRuntimeControllerState): void {
   const pairing = state.current.pairing;
   if (!pairing) {
-    void startSupervisorRuntime(state);
+    void startControlledPairingRuntime(state);
     return;
   }
 
@@ -286,26 +286,26 @@ function refreshedPairingPayload(pairing: NonNullable<PairingRuntimeSnapshot["pa
   };
 }
 
-function clearSupervisorTimers(state: SupervisorState): void {
+function clearRuntimeControllerTimers(state: PairingRuntimeControllerState): void {
   clearRestartTimer(state);
   clearRefreshTimer(state);
 }
 
-function clearRestartTimer(state: SupervisorState): void {
+function clearRestartTimer(state: PairingRuntimeControllerState): void {
   if (state.restartTimer) {
     clearTimeout(state.restartTimer);
     state.restartTimer = null;
   }
 }
 
-function clearRefreshTimer(state: SupervisorState): void {
+function clearRefreshTimer(state: PairingRuntimeControllerState): void {
   if (state.refreshTimer) {
     clearTimeout(state.refreshTimer);
     state.refreshTimer = null;
   }
 }
 
-async function stopSupervisorRuntime(state: SupervisorState): Promise<void> {
+async function stopControlledPairingRuntime(state: PairingRuntimeControllerState): Promise<void> {
   try {
     state.bonjour?.stop();
   } catch {
@@ -407,7 +407,7 @@ function relayScheme(relayUrl: string): "ws" | "wss" {
 }
 
 function writeCurrent(
-  state: SupervisorState,
+  state: PairingRuntimeControllerState,
   patch: Partial<Pick<PairingRuntimeSnapshot, "status" | "statusLabel" | "statusDetail" | "connectedPeerFingerprint" | "relay" | "pairing" | "childPid">>,
   overrides: Partial<Pick<PairingRuntimeSnapshot, "identityFingerprint" | "trustedPeerCount">> = {},
 ): void {

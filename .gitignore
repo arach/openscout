@@ -57,6 +57,10 @@ packages/web/dev/ranger-fx-fixtures/
 # package build artifacts
 packages/*/dist/
 apps/*/dist/
+
+# prebuilt scoutd broker service binary, copied into the @openscout/scout package
+# at publish time (built from crates/scoutd; see packages/cli/scripts/build.mjs)
+packages/cli/bin/scoutd
 packages/*/node_modules/
 apps/*/node_modules/
 packages/relay/relay-docs/node_modules/

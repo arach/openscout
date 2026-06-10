@@ -58,6 +58,24 @@ function findWorkspaceLeaks(pkg) {
   return leaks;
 }
 
+// Files that MUST be present in a package's tarball. Keyed by package name.
+// @openscout/scout ships the prebuilt scoutd broker service binary; if it is
+// missing, npm-installed users hit "Unable to locate scoutd" for every broker
+// operation (resolveScoutdCommand in broker-process-manager.ts).
+const REQUIRED_PACKED_FILES = {
+  "@openscout/scout": ["package/bin/scoutd"],
+};
+
+function listTarballEntries(tarballPath, packageDir) {
+  return execFileSync("tar", ["-tzf", tarballPath], {
+    cwd: packageDir,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 async function inspectPackedManifest(packageDir, tempDir) {
   const pkg = JSON.parse(await fs.readFile(path.join(packageDir, "package.json"), "utf8"));
   const tarballPath = path.join(tempDir, npmTarballName(pkg.name, pkg.version));
@@ -82,9 +100,15 @@ async function inspectPackedManifest(packageDir, tempDir) {
     },
   );
 
+  const entries = listTarballEntries(tarballPath, packageDir);
+  const missingFiles = (REQUIRED_PACKED_FILES[pkg.name] ?? []).filter(
+    (required) => !entries.includes(required),
+  );
+
   return {
     name: pkg.name,
     leaks: findWorkspaceLeaks(JSON.parse(packedManifestText)),
+    missingFiles,
     tarballPath,
   };
 }
@@ -97,16 +121,24 @@ async function main() {
 
     for (const packageDir of findWorkspaceDirs()) {
       const result = await inspectPackedManifest(packageDir, tempDir);
-      if (result.leaks.length > 0) {
+      if (result.leaks.length > 0 || result.missingFiles.length > 0) {
         failures.push(result);
       }
     }
 
     if (failures.length > 0) {
       for (const failure of failures) {
-        console.error(`${failure.name} packed with workspace dependencies:`);
-        for (const leak of failure.leaks) {
-          console.error(`  - ${leak}`);
+        if (failure.leaks.length > 0) {
+          console.error(`${failure.name} packed with workspace dependencies:`);
+          for (const leak of failure.leaks) {
+            console.error(`  - ${leak}`);
+          }
+        }
+        if (failure.missingFiles.length > 0) {
+          console.error(`${failure.name} is missing required packed files:`);
+          for (const missing of failure.missingFiles) {
+            console.error(`  - ${missing}`);
+          }
         }
       }
       process.exitCode = 1;

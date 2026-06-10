@@ -1,0 +1,154 @@
+# Broker Agent Notes
+
+Source: `packages/runtime/**`, `packages/protocol/**`, `docs/data-ownership.md`.
+
+Status: canonical writer semantics for local broker. Complements `scout-comms.agent.md` (workflows).
+
+Verified: 2026-06-10
+
+## Role
+
+The broker is the local daemon that **owns, persists, routes, and streams** Scout coordination state. One broker per machine (authority node). Surfaces and agents are readers/writers through HTTP/SSE/MCP/CLI — not parallel sources of truth.
+
+## Model
+
+| Noun | Type / package | Meaning |
+|---|---|---|
+| `node` | protocol | machine authority; hosts broker |
+| `actor` | protocol | registered participant surface |
+| `agent` | protocol | durable addressable identity |
+| `endpoint` | protocol | routable attachment: agent + session + transport + node |
+| `session` | runtime metadata | harness conversation/process reference |
+| `conversation` | `ConversationDefinition` | DM, channel, or thread boundary |
+| `message` | `MessageRecord` | durable communicative turn |
+| `invocation` | `InvocationRequest` | explicit work request |
+| `flight` | `FlightRecord` | invocation lifecycle |
+| `delivery` | `DeliveryIntent` / receipts | transport fan-out plan + result |
+| `dispatch` | `ScoutDispatchRecord` | routing diagnostic (ambiguous/unknown/unavailable) |
+| `binding` | `ConversationBinding` | external thread/channel map |
+| `question` | collaboration | lightweight info-seeking record |
+| `work_item` | collaboration | owned execution with progress states |
+| `usage` | metadata | token/cost telemetry linked to records |
+
+## Ownership Split
+
+| Scout owns (persist) | Scout observes (do not bulk-import) |
+|---|---|
+| messages, invocations, flights, deliveries | Claude/Codex JSONL transcripts |
+| agent registrations, endpoints, bindings | harness logs, native thread ids |
+| questions, work_items created via Scout | harness-owned `.claude` ecosystem writes |
+| dispatch, forward, reply records | raw provider turn streams |
+
+Rule: `message` = Scout conversation record. Observed harness events ≠ messages unless explicitly created through Scout APIs.
+
+## Relations
+
+```text
+node 1—1 broker process
+broker 1—* agent registration
+agent 1—* endpoint (over time / harness / worktree)
+endpoint *—1 session (when attached)
+conversation 1—* message
+invocation 1—1 flight
+message/invocation → delivery → endpoint/harness transport
+mesh peer broker → forwards to authority node for remote agents
+```
+
+## Routing Outcomes
+
+Target resolution returns one of:
+
+| Outcome | Caller gets |
+|---|---|
+| accepted | durable ids + endpoint/session context |
+| accepted + wake | receipt + attach/start progress |
+| ambiguous | `ScoutDispatchRecord` + candidates + recommended FQN |
+| unknown | diagnostic + remediation commands |
+| unavailable | reason (`harness_mismatch`, `no_session`, etc.) |
+
+Broker should coach remediation in the error, not force `who`/`latest` preflight loops.
+
+## Endpoint vs Flight State
+
+Keep separate:
+
+| Layer | States (subset) | Meaning |
+|---|---|---|
+| endpoint | `registered`, `attaching`, `waking`, `idle`, `working`, `unreachable`, `failed`, `superseded`, `stopped` | routable attachment health |
+| flight | invocation lifecycle (pending, ack, waiting, done, failed, …) | one ask's execution |
+
+Endpoint `idle` + flight `waiting` is valid. Endpoint `superseded` is diagnostic only.
+
+## Session Attachment Rules
+
+1. Card/label/agent-id targets → **fresh** harness session for new work.
+2. `session:<id>` / `targetSessionId` → continue exact prior harness context.
+3. Harness mismatch (Codex target, Claude session) → fail loud; no silent bind.
+4. Session metadata may survive restart; reachability must be reconfirmed (`reachability_unknown` until attach/wake).
+
+## Transport Surfaces
+
+| Surface | Write path | Read path |
+|---|---|---|
+| CLI | `scout send`, `scout ask`, … | `scout who`, `scout latest`, `scout inbox` |
+| MCP | `messages_send`, `ask`, `work_update` | `messages_inbox`, `invocations_get`, `broker_feed` |
+| HTTP | `/v1/*` broker API | `/v1/snapshot`, SSE watch |
+| Mesh | forward to authority broker | peer snapshot merge |
+
+Prefer broker snapshots (health, who, runtime) over surface subprocess/filesystem probes.
+
+## Health Snapshot
+
+`BrokerHealthSnapshot` (runtime):
+
+| Field | Use |
+|---|---|
+| `reachable`, `ok` | can CLI/MCP proceed? |
+| `nodeId`, `meshId` | authority identity |
+| `counts.*` | agents, messages, flights, registrations |
+| `transport` | `http`, `unix_socket`, `in_process` |
+
+TTL-cached; surfaces stale-while-revalidate. Expensive probes coalesce in broker.
+
+## Mesh (reachability only)
+
+| Term | Meaning |
+|---|---|
+| `authorityNodeId` | broker that owns an agent record |
+| `mesh peer` | remote broker discovered via Tailscale or `OPENSCOUT_MESH_SEEDS` |
+| forward | HTTP proxy of deliver/ask to authority |
+
+Mesh ≠ exactly-once, consensus, or transcript replication.
+
+## Invariants
+
+1. One canonical writer per coordination record class.
+2. Routing uses explicit target fields; body text is payload.
+3. One explicit target → DM; groups need explicit `channel`.
+4. `scout ask` creates invocation + flight; `scout send` does not.
+5. Receipt ids (`conversationId`, `messageId`, `flightId`, `workId`) always returned on success paths.
+6. Remote agents resolve via `authorityNodeId` forward, not local guess.
+7. Broker journal + SQLite projections are derived from owned records only.
+
+## Forbidden
+
+- Bulk-import harness JSONL turns into `message` table.
+- Mutate harness-owned config (`.claude` agents/teams) from adapters.
+- Surface-level filesystem scan when broker snapshot exists.
+- Use `channel.shared` as implicit default for unnamed multi-target sends.
+- Treat pairing-bridge sessions as broker endpoints without registration.
+
+## Types
+
+Primary: `@openscout/protocol` — `MessageRecord`, `FlightRecord`, `ScoutDispatchRecord`, `ScoutRouteTarget`, thread event envelopes.
+
+## Verification
+
+```bash
+scout doctor --json
+scout who --json
+scout whoami
+scout send --to <agent-from-who> "broker-smoke"
+```
+
+Live broker (example): `http://127.0.0.1:65535`.

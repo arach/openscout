@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct OpenScoutMenuApp: App {
+struct ScoutMenuApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
