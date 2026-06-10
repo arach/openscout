@@ -44,7 +44,7 @@ export const metadata: Metadata = {
 
 const primaryLinks = [
   {
-    label: "Login",
+    label: "Connect",
     href: githubNativeAuthStartUrl,
     icon: LogIn,
     external: true,
@@ -69,8 +69,8 @@ const primaryLinks = [
 
 const resourceLinks = [
   {
-    label: "Phone login",
-    description: "Sign in through the Cloudflare front door and return to OpenScout iOS.",
+    label: "Remote device access",
+    description: "Sign in through the Cloudflare front door and return to your Scout app.",
     href: githubNativeAuthStartUrl,
     external: true,
   },
@@ -198,8 +198,8 @@ export default function HomePage() {
             </h1>
             <p className="mt-7 max-w-2xl font-sans text-[clamp(1.05rem,2vw,1.5rem)] leading-[1.35] text-white/82">
               A broker, runtime, and set of surfaces for coordinating AI agents
-              across your local machines, with Cloudflare-backed login for phone
-              access when you need it.
+              across your local machines, with OpenScout Network login for remote
+              device access when you need it.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a
@@ -209,7 +209,7 @@ export default function HomePage() {
                 className="inline-flex h-11 items-center gap-2 rounded-[6px] bg-white px-4 font-sans text-sm font-semibold text-black transition hover:bg-white/88"
               >
                 <LogIn className="h-4 w-4" aria-hidden />
-                Login on phone
+                Connect remote device
               </a>
               <Link
                 href="/docs/quickstart"
@@ -265,8 +265,9 @@ export default function HomePage() {
             <p className="mt-4 max-w-lg font-sans text-base leading-7 text-[var(--site-copy)]">
               OpenScout is currently built for high-trust local developer pilots:
               agents you run, machines you trust, and broker-owned coordination
-              records you can inspect. Phone login starts at the Cloudflare mesh
-              front door, then hands the session back to the iOS app.
+              records you can inspect. OpenScout Network login starts at the
+              Cloudflare mesh front door, then hands the session back to your
+              Scout app.
             </p>
             <pre className="mt-6 overflow-x-auto rounded-[6px] border border-[var(--site-border)] bg-[var(--site-panel)] px-4 py-3 font-mono text-sm text-[var(--site-ink)]">
               bun add -g @openscout/scout
@@ -332,7 +333,7 @@ export default function HomePage() {
               className="inline-flex items-center gap-1.5 hover:text-[var(--site-ink)]"
             >
               <LogIn className="h-3.5 w-3.5" aria-hidden />
-              Login
+              Connect
             </a>
             <a
               href={githubRepoUrl}
