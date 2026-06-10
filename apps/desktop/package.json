@@ -23,7 +23,7 @@
   },
   "bin": {
     "scout": "./bin/scout.ts",
-    "pair-supervisor": "./bin/pair-supervisor.ts"
+    "pairing-runtime-controller": "./bin/pairing-runtime-controller.ts"
   },
   "files": [
     "bin",

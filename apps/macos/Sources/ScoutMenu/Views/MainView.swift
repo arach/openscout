@@ -513,7 +513,7 @@ struct MainView: View {
             VStack(spacing: 6) {
                 ProgressView()
                     .scaleEffect(0.6)
-                Text("Starting pair-supervisor…")
+                Text("Starting pairing controller...")
                     .font(MenuType.body(11))
                     .foregroundStyle(ShellPalette.copy)
             }

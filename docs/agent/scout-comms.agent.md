@@ -4,6 +4,8 @@ Source: `docs/scout-comms.md`.
 
 Status: current v0 integration guidance, not frozen public API.
 
+Verified: 2026-06-10
+
 ## Mental Model
 
 Scout comms are protocol-shaped but not a standalone wire protocol.

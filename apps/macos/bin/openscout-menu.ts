@@ -17,13 +17,17 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
 const repoRoot = resolve(appDir, "..", "..");
 const distDir = resolve(appDir, "dist");
-const bundleName = "OpenScoutMenu.app";
+const bundleName = "ScoutMenu.app";
 const bundlePath = resolve(distDir, bundleName);
+const legacyBundlePaths = [
+  resolve(distDir, "OpenScoutMenu.app"),
+  resolve(distDir, "OpenScout Menu.app"),
+];
 const binaryDir = resolve(bundlePath, "Contents", "MacOS");
-const binaryPath = resolve(binaryDir, "OpenScoutMenu");
+const binaryPath = resolve(binaryDir, "ScoutMenu");
 const resourcesDir = resolve(bundlePath, "Contents", "Resources");
 const infoPlistTemplate = resolve(appDir, "Info.plist");
-const entitlementsPath = resolve(appDir, "OpenScoutMenu.entitlements");
+const entitlementsPath = resolve(appDir, "ScoutMenu.entitlements");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
 const bundleIdentifier = "com.openscout.menu";
@@ -131,7 +135,7 @@ function appVersion(explicit?: string): string {
 
 function isRunning(): boolean {
   try {
-    execSync("pgrep -x OpenScoutMenu", { stdio: "pipe" });
+    execSync("pgrep -x ScoutMenu", { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -140,7 +144,7 @@ function isRunning(): boolean {
 
 function quit(): boolean {
   try {
-    execSync("pkill -x OpenScoutMenu", { stdio: "pipe" });
+    execSync("pkill -x ScoutMenu", { stdio: "pipe" });
     return true;
   } catch {
     return false;
@@ -153,7 +157,7 @@ function launch(): void {
   }
 
   if (isRunning()) {
-    console.log("OpenScout Menu is already running.");
+    console.log("Scout Menu is already running.");
     return;
   }
 
@@ -370,7 +374,7 @@ function releaseBinaryPath(): string {
     stdio: ["ignore", "pipe", "inherit"],
   }).toString("utf8").trim();
 
-  return join(binPath, "OpenScoutMenu");
+  return join(binPath, "ScoutMenu");
 }
 
 function writeBundle(version: string): void {
@@ -379,6 +383,9 @@ function writeBundle(version: string): void {
     throw new Error(`Built binary not found at ${releaseBinary}`);
   }
 
+  for (const legacyBundlePath of legacyBundlePaths) {
+    rmSync(legacyBundlePath, { recursive: true, force: true });
+  }
   rmSync(bundlePath, { recursive: true, force: true });
   mkdirSync(binaryDir, { recursive: true });
   mkdirSync(resourcesDir, { recursive: true });
@@ -464,9 +471,9 @@ async function main(): Promise<void> {
     case "quit":
     case "stop":
       if (quit()) {
-        console.log("OpenScout Menu stopped.");
+        console.log("Scout Menu stopped.");
       } else {
-        console.log("OpenScout Menu is not running.");
+        console.log("Scout Menu is not running.");
       }
       break;
     case "status":
@@ -504,7 +511,7 @@ type HudState = {
 function readHudState(): HudState {
   if (!existsSync(HUD_STATE_PATH)) {
     throw new Error(
-      `${HUD_STATE_PATH} not found. Is OpenScoutMenu running? Try \`launch\`.`,
+      `${HUD_STATE_PATH} not found. Is Scout Menu running? Try \`launch\`.`,
     );
   }
   return JSON.parse(readFileSync(HUD_STATE_PATH, "utf8")) as HudState;

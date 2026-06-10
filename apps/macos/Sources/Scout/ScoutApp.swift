@@ -5,14 +5,62 @@ import ScoutAppCore
 import ScoutHUD
 import SwiftUI
 
+private enum ScoutLaunchOptions {
+    static let hudRequested = CommandLine.arguments.contains("--hud")
+    static let hudCommand = value(after: "--hud-command")
+    static let hudValue = value(after: "--hud-value")
+    static let channelId = value(after: "--channel")
+
+    private static func value(after flag: String) -> String? {
+        guard let index = CommandLine.arguments.firstIndex(of: flag) else {
+            return nil
+        }
+        let nextIndex = CommandLine.arguments.index(after: index)
+        guard CommandLine.arguments.indices.contains(nextIndex) else {
+            return nil
+        }
+        return CommandLine.arguments[nextIndex]
+    }
+}
+
+@MainActor
+enum ScoutExternalCommand {
+    static let openChannelNotificationName = Notification.Name("com.openscout.app.open-channel")
+    private static var pendingChannelId: String?
+
+    static func openChannel(_ cId: String) {
+        pendingChannelId = cId
+        NotificationCenter.default.post(
+            name: openChannelNotificationName,
+            object: nil,
+            userInfo: ["cId": cId]
+        )
+    }
+
+    static func takePendingChannelId() -> String? {
+        defer { pendingChannelId = nil }
+        return pendingChannelId
+    }
+
+    static func clearPendingChannelId(_ cId: String) {
+        if pendingChannelId == cId {
+            pendingChannelId = nil
+        }
+    }
+}
+
 @main
 struct ScoutApp: App {
     @NSApplicationDelegateAdaptor(ScoutAppDelegate.self) private var delegate
     @StateObject private var appearance = ScoutAppearance.shared
 
     init() {
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        if ScoutLaunchOptions.hudRequested {
+            NSApplication.shared.setActivationPolicy(.accessory)
+        } else {
+            NSApplication.shared.setActivationPolicy(.regular)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+        }
     }
 
     var body: some Scene {
@@ -39,6 +87,12 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         installHUDCommandObserver()
         HUDStateFile.shared.start()
         registerHUDHotkey()
+        if ScoutLaunchOptions.hudRequested {
+            showHUDFromLaunchArguments()
+        }
+        if let channelId = ScoutLaunchOptions.channelId?.nilIfEmpty {
+            ScoutExternalCommand.openChannel(channelId)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -116,8 +170,22 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         let value = notification.userInfo?["value"] as? String
+        if handleAppCommand(command: command, value: value) {
+            return
+        }
         if !ScoutHUDRouter.handle(command: command, value: value) {
             NSLog("[hud] Scout ignored command: %@ %@", command, value ?? "")
+        }
+    }
+
+    private func handleAppCommand(command: String, value: String?) -> Bool {
+        switch command.lowercased() {
+        case "channel", "open-channel":
+            guard let cId = value?.nilIfEmpty else { return false }
+            ScoutExternalCommand.openChannel(cId)
+            return true
+        default:
+            return false
         }
     }
 
@@ -128,6 +196,28 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             userInfo: ScoutServiceURLRelay.userInfo(url: url),
             deliverImmediately: true
         )
+    }
+
+    private func showHUDFromLaunchArguments() {
+        DispatchQueue.main.async { [weak self] in
+            self?.hideMainWindowsForHUDLaunch()
+            let command = ScoutLaunchOptions.hudCommand?.lowercased() ?? "show"
+            if command == "hide" {
+                HUDController.shared.dismiss()
+                return
+            }
+            HUDController.shared.show()
+            if command != "show", command != "toggle" {
+                _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
+            }
+        }
+    }
+
+    private func hideMainWindowsForHUDLaunch() {
+        NSApp.setActivationPolicy(.accessory)
+        for window in NSApp.windows where !(window is NSPanel) {
+            window.orderOut(nil)
+        }
     }
 
     private func launchMenuHelperIfNeeded() {
@@ -143,7 +233,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("LoginItems", isDirectory: true)
-            .appendingPathComponent("OpenScout Menu.app", isDirectory: true)
+            .appendingPathComponent("ScoutMenu.app", isDirectory: true)
 
         guard FileManager.default.fileExists(atPath: helperURL.path) else {
             return

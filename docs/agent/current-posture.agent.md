@@ -2,6 +2,8 @@
 
 Source: `docs/current-posture.md`.
 
+Verified: 2026-06-10
+
 ## Status
 
 | Dimension | Current truth |

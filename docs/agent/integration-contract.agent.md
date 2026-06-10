@@ -4,6 +4,8 @@ Source: `docs/agent-integration-contract.md`.
 
 Status: v0 integration guidance. Use this as the current Scout-native target, not as a frozen public API guarantee.
 
+Verified: 2026-06-10
+
 ## Minimum Scout-Native Integration
 
 | Requirement | Meaning |

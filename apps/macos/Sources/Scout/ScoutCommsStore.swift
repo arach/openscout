@@ -90,7 +90,8 @@ final class ScoutCommsStore: ObservableObject {
             while !Task.isCancelled {
                 let interval = self?.pollIntervalNanoseconds ?? 10_000_000_000
                 try? await Task.sleep(nanoseconds: interval)
-                self?.refresh()
+                guard let self else { return }
+                refresh()
             }
         }
     }

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CARGO_SH="$ROOT_DIR/scripts/cargo.sh"
-MANIFEST_PATH="$ROOT_DIR/crates/openscout-supervisor/Cargo.toml"
+MANIFEST_PATH="$ROOT_DIR/crates/scoutd/Cargo.toml"
 
 "$CARGO_SH" fmt --all --check
 "$CARGO_SH" check --manifest-path "$MANIFEST_PATH"

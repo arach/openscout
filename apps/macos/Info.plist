@@ -5,11 +5,11 @@
     <key>CFBundleIdentifier</key>
     <string>com.openscout.menu</string>
     <key>CFBundleName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleDisplayName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleExecutable</key>
-    <string>OpenScoutMenu</string>
+    <string>ScoutMenu</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>

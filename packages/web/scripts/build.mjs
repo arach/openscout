@@ -27,8 +27,8 @@ const entries = [
     target: "bun",
   },
   {
-    input: resolve(packageDirectory, "server", "pair-supervisor.ts"),
-    output: resolve(outputDirectory, "pair-supervisor.mjs"),
+    input: resolve(packageDirectory, "server", "pairing-runtime-controller.ts"),
+    output: resolve(outputDirectory, "pairing-runtime-controller.mjs"),
     target: "bun",
   },
   {

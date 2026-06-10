@@ -120,7 +120,7 @@ function verifyScoutWebBundle(outfile) {
 /**
  * Public: run static checks on any built bundle and fail loudly if it would
  * crash at module-load. Wire this into build pipelines (main.mjs,
- * pair-supervisor.mjs, scout-control-plane-web.mjs) so a bare reference to a
+ * pairing-runtime-controller.mjs, scout-control-plane-web.mjs) so a bare reference to a
  * Node API without a matching import is caught before publish.
  *
  * @param {string} outfile

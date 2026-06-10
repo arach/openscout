@@ -1,11 +1,11 @@
-# SCO-062: Native Supervisor
+# SCO-062: scoutd Native Daemon
 
 ## 1. Status
 
 - **Status:** Draft
 - **Owner:** OpenScout
-- **Scope:** Local service/process supervision for the OpenScout control plane
-- **Intent:** Add a small Rust supervisor that makes OpenScout's local Bun services easier to start, stop, inspect, and repair without moving product logic out of TypeScript.
+- **Scope:** Local service/process lifecycle control for the OpenScout control plane
+- **Intent:** Add a small Rust daemon that makes OpenScout's local Bun services easier to start, stop, inspect, and repair without moving product logic out of TypeScript.
 
 ## 2. Summary
 
@@ -13,44 +13,55 @@ OpenScout should keep Bun/TypeScript for the broker, web UI, CLI UX, MCP glue,
 and agent protocol iteration. Those layers change often and benefit from the
 same development loop as the rest of the product.
 
-The process supervision layer has different needs. It owns launchd service
+The process daemon layer has different needs. It owns launchd service
 installation, process-tree cleanup, stale socket diagnosis, health checks, and
 machine-readable repair hints. Recent runtime investigation showed that small
-supervision mistakes can leave orphaned Bun broker processes consuming CPU even
+daemon ownership mistakes can leave orphaned Bun broker processes consuming CPU even
 when the product code is otherwise healthy.
 
-SCO-062 introduces `openscout-supervisor`, a Rust CLI binary that becomes the
-native service kernel for the local control plane. The first implementation is
+SCO-062 introduces `scoutd`, a Rust CLI binary that becomes the native service
+kernel for the local control plane. The first implementation is
 intentionally narrow: supervise the existing Bun base/broker/web stack rather
 than replacing it.
 
 ## 3. Decision
 
-Build a Rust binary named `openscout-supervisor`.
+Build a Rust binary named `scoutd`.
 
 The first supported command surface:
 
 ```bash
-openscout-supervisor status --json
-openscout-supervisor start --json
-openscout-supervisor stop --json
-openscout-supervisor restart --json
-openscout-supervisor doctor --json
-openscout-supervisor supervise
+scoutd status --json
+scoutd install --json
+scoutd start --json
+scoutd stop --json
+scoutd restart --json
+scoutd uninstall --json
+scoutd doctor --json
+scoutd supervise
 ```
 
-The existing JavaScript `scout` CLI remains the operator entrypoint. It may
-shell out to `openscout-supervisor` when the binary is available, and fall back
-to the current Bun service manager when it is not.
+The existing JavaScript `scout` CLI remains the operator entrypoint. It shells
+out to `scoutd` for local service commands.
 
-`supervise` is the long-running process. The other commands are one-shot
+`supervise` is the long-running daemon process. The other commands are one-shot
 operator commands that inspect launchd/broker state or ask launchd to start and
 stop the daemon.
+
+Process ownership is intentionally layered:
+
+```text
+launchd -> scoutd -> scout-base -> scout-broker -> scout-web / scout-edge / OpenScoutMenu
+```
+
+`launchd` keeps `scoutd` alive. `scoutd` is the durable native root and doctor
+for the local runtime. `scout-base` remains the Bun service composer that starts
+the broker and web/edge/menu children.
 
 ## 4. Why Rust
 
 This decision is not primarily about speed. Rust is a good fit because the
-supervisor is a small correctness-heavy local kernel:
+daemon is a small correctness-heavy local kernel:
 
 - one native binary
 - explicit errors
@@ -61,7 +72,7 @@ supervisor is a small correctness-heavy local kernel:
 
 ## 5. Boundary
 
-The supervisor may know:
+`scoutd` may know:
 
 - pids, parent pids, command lines, and process trees
 - launchd labels, plist paths, and service state
@@ -69,7 +80,7 @@ The supervisor may know:
 - support, runtime, and control-plane directories
 - stale process and stale socket repair actions
 
-The supervisor must not know:
+`scoutd` must not know:
 
 - message routing semantics
 - agent identity grammar beyond command-line diagnostics
@@ -81,7 +92,7 @@ The broker remains the canonical writer for Scout-owned coordination records.
 
 ## 6. First Slice
 
-Add a stdlib-only Rust crate under `crates/openscout-supervisor`.
+Add a stdlib-only Rust crate under `crates/scoutd`.
 
 The first slice should:
 
@@ -89,16 +100,16 @@ The first slice should:
 2. Render and install a launchd plist when one is missing.
 3. Read launchd state with `launchctl print`.
 4. Probe broker health through the Unix socket first, then TCP HTTP.
-5. Start `openscout-supervisor supervise` through launchd.
+5. Start `scoutd supervise` through launchd.
 6. Have `supervise` start the existing `openscout-runtime.mjs base` process as
    a child.
 7. Restart the child with bounded backoff if it exits unexpectedly.
 8. Stop the service through launchd and wait until both launchd and broker health report down.
 9. Restart as stop-then-start.
 10. Emit stable JSON for `status` and `doctor`.
-11. Write a small supervisor state file with daemon pid, child pid, restart
+11. Write a small `scoutd-state.json` file with daemon pid, child pid, restart
     count, and last update time.
-12. Detect obvious orphan candidates such as `openscout-supervisor`,
+12. Detect obvious orphan candidates such as `scoutd`,
     `scout-broker`, and `scout-web` with parent pid `1`.
 
 This first crate should avoid external Rust dependencies. Once the shape feels
@@ -111,8 +122,8 @@ right, we can add `clap`, `serde`, and `serde_json` for maintainability.
 The npm install should not require Rust.
 
 The public `@openscout/scout` package should eventually ship a prebuilt
-supervisor binary or depend on an optional platform package such as
-`@openscout/supervisor-darwin-arm64`.
+`scoutd` binary or depend on an optional platform package such as
+`@openscout/scoutd-darwin-arm64`.
 
 Users should not need:
 
@@ -125,9 +136,9 @@ Users should not need:
 
 ### Developers
 
-Repo developers need Rust only when editing or building the supervisor.
+Repo developers need Rust only when editing or building `scoutd`.
 
-The normal Bun/TypeScript workflows should continue to work when the supervisor
+The normal Bun/TypeScript workflows should continue to work when `scoutd`
 is absent.
 
 ### Release
@@ -170,8 +181,8 @@ shortcut until stop and start are boring.
 
 Includes `status` plus local process observations and warnings:
 
-- missing supervisor state while launchd is loaded
-- multiple supervisors
+- missing `scoutd` state while launchd is loaded
+- multiple `scoutd` processes
 - multiple brokers
 - orphaned brokers
 - stale web processes
@@ -181,14 +192,15 @@ Includes `status` plus local process observations and warnings:
 
 ## 9. Acceptance Criteria
 
-- `openscout-supervisor status --json` works when the broker is up or down.
-- `openscout-supervisor start --json` can bring up the existing Bun service.
-- launchd starts `openscout-supervisor supervise`, not Bun directly.
-- `openscout-supervisor stop --json` leaves no `scout-broker` or supervised `scout-web` descendants behind.
-- `openscout-supervisor restart --json` succeeds from a healthy service.
-- `openscout-supervisor status --json` includes the last written supervisor state when the daemon is running.
-- `openscout-supervisor doctor --json` reports orphaned broker processes without mutating state.
-- Existing `scout` CLI and Bun service manager continue to work if the supervisor binary is absent.
+- `scoutd status --json` works when the broker is up or down.
+- `scoutd install --json` writes the launchd plist without starting the service.
+- `scoutd start --json` can bring up the existing Bun service.
+- launchd starts `scoutd supervise`, not Bun directly.
+- `scoutd stop --json` leaves no `scout-broker` or supervised `scout-web` descendants behind.
+- `scoutd restart --json` succeeds from a healthy service.
+- `scoutd status --json` includes the last written daemon state when `scoutd` is running.
+- `scoutd doctor --json` reports orphaned broker processes without mutating state.
+- Existing `scout` CLI and Bun service manager continue to work if the `scoutd` binary is absent.
 
 ## 10. Non-Goals
 
@@ -200,7 +212,7 @@ Includes `status` plus local process observations and warnings:
 
 ## 11. Follow-Ups
 
-- Wire the TypeScript service manager to prefer the supervisor when present.
+- Wire the TypeScript service manager to prefer `scoutd` when present.
 - Add CI for Rust build/test/lint.
 - Add prebuilt binary packaging.
 - Decide whether doctor repair actions should be explicit subcommands or interactive prompts.

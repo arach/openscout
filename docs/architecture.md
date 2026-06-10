@@ -103,6 +103,20 @@ Manages agent sessions across harnesses — starting them, stopping them, health
 
 Also owns the file-based agent override registry, project discovery, and harness profile resolution.
 
+### Local Service Process Tree
+
+On macOS, local service ownership is intentionally layered:
+
+```text
+launchd -> scoutd -> scout-base -> scout-broker -> scout-web / scout-edge / OpenScoutMenu
+```
+
+`launchd` keeps `scoutd` alive. `scoutd` is the native daemon and doctor at the
+root of the Scout-owned runtime tree. `scout-base` is the Bun service composer:
+it starts and restarts broker, web, edge, and menu children. This distinction is
+why the Rust binary is named `scoutd`, while the Bun orchestrator keeps the
+`scout-base` process name.
+
 ### CLI
 
 The operator's main interface. It sends route intent such as `--to hudson` or `--channel triage` to the broker and renders broker receipts, remediation actions, and orientation views. Legacy body-mention shortcuts still exist for compatibility, but new flows should keep target metadata out of the message body.

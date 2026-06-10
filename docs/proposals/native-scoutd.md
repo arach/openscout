@@ -1,14 +1,14 @@
-# Native Supervisor Proposal
+# Native scoutd Proposal
 
 ## Decision
 
-Add a small native supervisor for OpenScout's local control plane, implemented in Rust, while keeping the broker, web UI, CLI UX, MCP glue, and agent protocol logic in Bun/TypeScript.
+Add a small native daemon for OpenScout's local control plane, implemented in Rust, while keeping the broker, web UI, CLI UX, MCP glue, and agent protocol logic in Bun/TypeScript.
 
 This is not a rewrite of the broker. The first milestone is a dependable process and service kernel that can start, stop, restart, inspect, and repair the existing Bun services.
 
 ## Why Rust Here
 
-The supervisor owns behavior where correctness matters more than iteration speed:
+`scoutd` owns behavior where correctness matters more than iteration speed:
 
 - launchd/service lifecycle
 - process-tree ownership
@@ -19,7 +19,7 @@ The supervisor owns behavior where correctness matters more than iteration speed
 - log path and runtime-directory hygiene
 - machine-readable doctor output
 
-Rust gives this layer a small single-binary footprint, explicit error handling, predictable process control, and fewer runtime assumptions than supervising Bun from inside Bun.
+Rust gives this layer a small single-binary footprint, explicit error handling, predictable process control, and fewer runtime assumptions than keeping Bun alive from inside Bun.
 
 ## Non-Goals
 
@@ -30,44 +30,46 @@ Rust gives this layer a small single-binary footprint, explicit error handling, 
 
 ## First Milestone
 
-Create `openscout-supervisor` with these commands:
+Create `scoutd` with these commands:
 
 ```bash
-openscout-supervisor status --json
-openscout-supervisor start --json
-openscout-supervisor stop --json
-openscout-supervisor restart --json
-openscout-supervisor doctor --json
-openscout-supervisor supervise
+scoutd status --json
+scoutd install --json
+scoutd start --json
+scoutd stop --json
+scoutd restart --json
+scoutd uninstall --json
+scoutd doctor --json
+scoutd supervise
 ```
 
 The first repository slice should:
 
 - install the launchd plist for the base service when it is missing
-- start `openscout-supervisor supervise` through launchd
+- start `scoutd supervise` through launchd
 - have `supervise` start the existing `openscout-runtime.mjs base` process as
   a child
 - restart the child with bounded backoff when it exits unexpectedly
-- write a small supervisor state file for status and doctor commands
+- write a small `scoutd-state.json` file for status and doctor commands
 - inspect the base process, broker wrapper, broker process, supervised web process, and menu app
-- detect and report orphaned `openscout-supervisor`, `scout-broker`, and
+- detect and report orphaned `scoutd`, `scout-broker`, and
   `scout-web` children
 - verify the broker over the Unix socket first, then HTTP as fallback
 - fail `stop` if launchd or broker health do not report stopped within a bounded timeout
 - produce JSON status that the existing `scout` CLI can render
 
-The existing TypeScript service manager can become a thin compatibility wrapper
-that shells out to `openscout-supervisor` when it is present. The long-running
-process is the supervisor daemon; `status`, `doctor`, `start`, `stop`, and
-`restart` remain short-lived operator commands.
+The existing TypeScript service manager becomes a thin wrapper that shells out
+to `scoutd`. The long-running process is the
+native daemon; `status`, `doctor`, `install`, `start`, `stop`, `restart`, and
+`uninstall` remain short-lived operator commands.
 
-Later supervisor ownership can expand into explicit process-tree signal
+Later `scoutd` ownership can expand into explicit process-tree signal
 forwarding, forced cleanup, edge proxy inspection, mDNS helper inspection, and
 doctor repair actions after this launchd-only path feels boring.
 
 The numbered engineering proposal for this work is tracked in
-[`docs/eng/sco-062-native-supervisor.md`](../eng/sco-062-native-supervisor.md).
-The first repository slice lives in `crates/openscout-supervisor`.
+[`docs/eng/sco-062-scoutd-native-daemon.md`](../eng/sco-062-scoutd-native-daemon.md).
+The first repository slice lives in `crates/scoutd`.
 
 ## Dependency Implications
 
@@ -75,26 +77,26 @@ The first repository slice lives in `crates/openscout-supervisor`.
 
 For npm users, the goal is no new required system dependency.
 
-The public `@openscout/scout` package should ship or resolve a prebuilt supervisor binary. The CLI calls it as a child process. Users should not need Rust, Cargo, node-gyp, Python, or a native build chain during install.
+The public `@openscout/scout` package should ship or resolve a prebuilt `scoutd` binary. The CLI calls it as a child process. Users should not need Rust, Cargo, node-gyp, Python, or a native build chain during install.
 
 Preferred packaging shape:
 
 - `@openscout/scout` keeps the `scout` JavaScript CLI.
-- Platform-specific optional packages may provide native binaries later, for example `@openscout/supervisor-darwin-arm64`.
-- The CLI/runtime resolves the bundled supervisor, then falls back to current Bun service management when unavailable.
+- Platform-specific optional packages may provide native binaries later, for example `@openscout/scoutd-darwin-arm64`.
+- The CLI/runtime resolves bundled `scoutd` for local service management.
 
 This keeps the npm surface CLI-style, not native-addon-style.
 
 ### Developers
 
-Repo developers will need Rust only when editing the supervisor:
+Repo developers will need Rust only when editing `scoutd`:
 
 - Rust stable toolchain
 - Cargo
 - `Cargo.lock` checked in once the crate is first built
-- CI job for supervisor build/test
+- CI job for `scoutd` build/test
 
-The main Bun/TypeScript workflows should keep working without touching Rust unless the supervisor code changed.
+The main Bun/TypeScript workflows should keep working without touching Rust unless `scoutd` changed.
 
 ### Rust Crates
 
@@ -122,17 +124,17 @@ Prefer bundled or optional packages over postinstall compilation.
 
 ### License And Security
 
-Adding Rust crates introduces a second dependency license set. CI should eventually include a Rust license/audit check. The supervisor should not add network access in the first milestone, except probing configured local broker URLs.
+Adding Rust crates introduces a second dependency license set. CI should eventually include a Rust license/audit check. `scoutd` should not add network access in the first milestone, except probing configured local broker URLs.
 
 ## Boundary Contract
 
-The supervisor should treat Bun processes as opaque services. It can know command lines, pids, sockets, ports, log paths, and health endpoints. It should not know message-routing semantics, agent identities, mesh forwarding rules, or protocol record details.
+`scoutd` should treat Bun processes as opaque services. It can know command lines, pids, sockets, ports, log paths, and health endpoints. It should not know message-routing semantics, agent identities, mesh forwarding rules, or protocol record details.
 
 The broker remains the canonical writer for Scout-owned coordination records.
 
 ## Open Questions
 
-- Should `scout service restart` become stop-then-start through the supervisor, or should launchd own restart entirely?
-- Should the supervisor own web/menu/edge directly, or only own the base process and inspect descendants?
-- How soon should stale-agent repair move into the supervisor versus remain a broker doctor operation?
+- Should `scout service restart` become stop-then-start through `scoutd`, or should launchd own restart entirely?
+- Should `scoutd` own web/menu/edge directly, or only own the base process and inspect descendants?
+- How soon should stale-agent repair move into `scoutd` versus remain a broker doctor operation?
 - What is the minimum useful Linux story after macOS launchd is stable?

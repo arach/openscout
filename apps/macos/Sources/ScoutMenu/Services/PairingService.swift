@@ -24,7 +24,7 @@ struct PairingRuntimeViewState: Sendable {
 }
 
 @MainActor
-struct PairingService {
+final class PairingService {
     private struct PairingConfig: Decodable {
         struct Workspace: Decodable {
             let root: String?
@@ -65,6 +65,7 @@ struct PairingService {
     private let toolchain = OpenScoutToolchain()
     private let fileManager = FileManager.default
     private let decoder = JSONDecoder()
+    private var runtimeProcess: Process?
 
     func loadState() async -> OpenScoutAppController.PairingViewState {
         clearStaleArtifacts()
@@ -98,7 +99,7 @@ struct PairingService {
             statusLabel: "Stopped",
             statusDetail: controlAvailable
                 ? "Start pairing to generate a fresh QR code."
-                : "Pairing control is unavailable until the supervisor entrypoint can be resolved.",
+                : "Pairing control is unavailable until the runtime controller entrypoint can be resolved.",
             relay: config?.relay,
             workspaceRoot: config?.workspace?.root,
             identityFingerprint: identityFingerprint,
@@ -117,9 +118,9 @@ struct PairingService {
         case .start:
             try startRuntimeIfNeeded()
         case .stop:
-            try stopRuntime()
+            await stopRuntime()
         case .restart:
-            try stopRuntime()
+            await stopRuntime()
             try startRuntimeIfNeeded()
         }
 
@@ -143,26 +144,39 @@ struct PairingService {
             return
         }
 
-        let descriptor = try toolchain.pairSupervisorCommand()
-        _ = try CommandRunner.spawn(descriptor)
+        let descriptor = try toolchain.pairingRuntimeControllerCommand()
+        let process = try CommandRunner.spawn(descriptor) { [weak self] process in
+            Task { @MainActor [weak self] in
+                self?.runtimeProcessDidExit(process)
+            }
+        }
+        runtimeProcess = process
     }
 
-    private func stopRuntime() throws {
+    private func stopRuntime() async {
         if let pid = readRuntimeOwnerPID(), isProcessRunning(pid) {
             kill(pid_t(pid), SIGTERM)
-            waitForExit(pid: pid, timeoutMs: 5_000)
+            await waitForExit(pid: pid, timeoutMs: 5_000)
         }
 
+        runtimeProcess = nil
         clearStaleArtifacts()
     }
 
-    private func waitForExit(pid: Int, timeoutMs: Int) {
+    private func runtimeProcessDidExit(_ process: Process) {
+        guard runtimeProcess?.processIdentifier == process.processIdentifier else {
+            return
+        }
+        runtimeProcess = nil
+    }
+
+    private func waitForExit(pid: Int, timeoutMs: Int) async {
         let startedAt = Date()
         while Date().timeIntervalSince(startedAt) * 1_000 < Double(timeoutMs) {
             if !isProcessRunning(pid) {
                 return
             }
-            usleep(100_000)
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 

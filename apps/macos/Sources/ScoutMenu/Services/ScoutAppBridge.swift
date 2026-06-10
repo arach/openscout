@@ -6,16 +6,28 @@ import ScoutHUD
 enum ScoutAppBridge {
     private static let scoutBundleIdentifier = "com.openscout.scout"
 
-    static func openScout() {
-        launchScoutIfNeeded(activates: true, arguments: []) {}
+    static func openScout(channelId: String? = nil) {
+        if runningScoutApp == nil {
+            launchScoutIfNeeded(activates: true, arguments: appLaunchArguments(channelId: channelId)) {}
+            return
+        }
+
+        launchScoutIfNeeded(activates: true, arguments: []) {
+            if let channelId {
+                postHUDCommand(command: "channel", value: channelId)
+            }
+        }
     }
 
     static func openHUD(command: String, value: String? = nil) {
-        launchScoutIfNeeded(activates: false, arguments: ["--hud"]) {
+        if runningScoutApp == nil {
+            guard command != "hide" else { return }
+            launchScoutIfNeeded(activates: false, arguments: hudLaunchArguments(command: command, value: value)) {}
+            return
+        }
+
+        launchScoutIfNeeded(activates: false, arguments: []) {
             postHUDCommand(command: command, value: value)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                postHUDCommand(command: command, value: value)
-            }
         }
     }
 
@@ -59,6 +71,19 @@ enum ScoutAppBridge {
         NSWorkspace.shared.runningApplications.first {
             $0.bundleIdentifier == scoutBundleIdentifier
         }
+    }
+
+    private static func hudLaunchArguments(command: String, value: String?) -> [String] {
+        var arguments = ["--hud", "--hud-command", command]
+        if let value {
+            arguments += ["--hud-value", value]
+        }
+        return arguments
+    }
+
+    private static func appLaunchArguments(channelId: String?) -> [String] {
+        guard let channelId else { return [] }
+        return ["--channel", channelId]
     }
 
     private static func postHUDCommand(command: String, value: String?) {
