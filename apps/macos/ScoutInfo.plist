@@ -10,6 +10,17 @@
     <string>Scout</string>
     <key>CFBundleExecutable</key>
     <string>Scout</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.openscout.scout.scout-url</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>scout</string>
+            </array>
+        </dict>
+    </array>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>

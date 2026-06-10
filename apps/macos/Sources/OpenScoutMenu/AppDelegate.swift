@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import ScoutAppCore
 import ScoutHUD
 import SwiftUI
 
@@ -13,20 +14,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        HUDDockState.shared.shouldDeferDictationAppend = {
-            CommsWindowController.shared.isPresented
-        }
 
-        // scout:// URL scheme ingress + live state mirror at
-        // /tmp/openscout-hud-state.json. Pair makes up the HUD's
-        // external IPC: URLs for actions, JSON file for queries.
+        // scout:// URL scheme ingress. Service restart links stay here;
+        // HUD links are forwarded to Scout, which owns the panel.
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleScoutURL(_:withReplyEvent:)),
             forEventClass: AEEventClass(kInternetEventClass),
             andEventID: AEEventID(kAEGetURL)
         )
-        HUDStateFile.shared.start()
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleServiceURLNotification(_:)),
+            name: ScoutServiceURLRelay.notificationName,
+            object: nil
+        )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -39,16 +41,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         contextMenu = buildContextMenu()
 
-        // Global HUD hotkey: Hyper (⌃⌥⇧⌘) + H.
-        HotkeyManager.shared.register(
-            id: 1,
-            keyCode: CarbonKeyCode.h,
-            modifiers: CarbonModifier.hyper
-        ) {
-            Task { @MainActor in
-                HUDController.shared.toggle()
-            }
-        }
         HotkeyManager.shared.register(
             id: 2,
             keyCode: CarbonKeyCode.c,
@@ -82,6 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        DistributedNotificationCenter.default().removeObserver(
+            self,
+            name: ScoutServiceURLRelay.notificationName,
+            object: nil
+        )
         controller.stop()
     }
 
@@ -209,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func toggleHUD() {
-        HUDController.shared.toggle()
+        ScoutAppBridge.openHUD(command: "toggle")
     }
 
     @objc
@@ -226,5 +223,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         Task { @MainActor in
             HUDURLRouter.handle(url: url)
         }
+    }
+
+    @objc
+    private func handleServiceURLNotification(_ notification: Notification) {
+        guard
+            let urlString = notification.userInfo?["url"] as? String,
+            let url = URL(string: urlString)
+        else { return }
+        HUDURLRouter.handle(url: url)
     }
 }

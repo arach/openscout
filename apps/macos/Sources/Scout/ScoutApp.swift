@@ -1,6 +1,8 @@
 import AppKit
 import HudsonShell
 import HudsonUI
+import ScoutAppCore
+import ScoutHUD
 import SwiftUI
 
 @main
@@ -27,13 +29,105 @@ struct ScoutApp: App {
     }
 }
 
+@MainActor
 final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
+    private var distributedObserverInstalled = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         launchMenuHelperIfNeeded()
+        installScoutURLHandler()
+        installHUDCommandObserver()
+        HUDStateFile.shared.start()
+        registerHUDHotkey()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        NSApp.setActivationPolicy(.accessory)
+        return false
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.setActivationPolicy(.regular)
+        return true
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        HotkeyManager.shared.unregister(id: 1)
+        if distributedObserverInstalled {
+            DistributedNotificationCenter.default().removeObserver(
+                self,
+                name: ScoutHUDRouter.commandNotificationName,
+                object: nil
+            )
+        }
+    }
+
+    private func installScoutURLHandler() {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleScoutURL(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
+
+    private func installHUDCommandObserver() {
+        guard !distributedObserverInstalled else { return }
+        distributedObserverInstalled = true
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleHUDCommandNotification(_:)),
+            name: ScoutHUDRouter.commandNotificationName,
+            object: nil
+        )
+    }
+
+    private func registerHUDHotkey() {
+        HotkeyManager.shared.register(
+            id: 1,
+            keyCode: CarbonKeyCode.h,
+            modifiers: CarbonModifier.hyper
+        ) {
+            Task { @MainActor in
+                ScoutHUDRouter.handle(command: "toggle")
+            }
+        }
+    }
+
+    @objc
+    private func handleScoutURL(_ event: NSAppleEventDescriptor, withReplyEvent _: NSAppleEventDescriptor) {
+        guard
+            let urlString = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+            let url = URL(string: urlString)
+        else { return }
+        if ScoutHUDRouter.handle(url: url) {
+            return
+        }
+        if url.host?.lowercased() == "services" {
+            forwardServiceURLToHelper(url)
+        } else {
+            NSLog("[scout://] Scout ignored URL: %@", url.absoluteString)
+        }
+    }
+
+    @objc
+    private func handleHUDCommandNotification(_ notification: Notification) {
+        guard let command = notification.userInfo?["command"] as? String else {
+            return
+        }
+        let value = notification.userInfo?["value"] as? String
+        if !ScoutHUDRouter.handle(command: command, value: value) {
+            NSLog("[hud] Scout ignored command: %@ %@", command, value ?? "")
+        }
+    }
+
+    private func forwardServiceURLToHelper(_ url: URL) {
+        DistributedNotificationCenter.default().postNotificationName(
+            ScoutServiceURLRelay.notificationName,
+            object: nil,
+            userInfo: ScoutServiceURLRelay.userInfo(url: url),
+            deliverImmediately: true
+        )
     }
 
     private func launchMenuHelperIfNeeded() {

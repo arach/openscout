@@ -1,7 +1,6 @@
 import AppKit
 import CryptoKit
 import Foundation
-import ScoutHUD
 
 /// Routes `scout://` URLs to menu-app actions. Wired from AppDelegate's
 /// NSAppleEventManager kAEGetURL handler.
@@ -19,9 +18,8 @@ import ScoutHUD
 ///   scout://services/restart/web     — restart the web server
 ///   scout://services/restart/all     — restart broker, relay, and web
 ///
-/// All actions are fire-and-forget; current state is mirrored to
-/// `/tmp/openscout-hud-state.json` by HUDStateFile so callers can read
-/// it without a round trip.
+/// HUD actions are forwarded to Scout, which owns the panel and mirrors
+/// current state to `/tmp/openscout-hud-state.json`.
 @MainActor
 enum HUDURLRouter {
     static func handle(url: URL) {
@@ -35,7 +33,7 @@ enum HUDURLRouter {
 
         switch host {
         case "hud":
-            handleHUD(head: head, tail: tail)
+            forwardHUD(head: head, tail: tail)
         case "services":
             handleServices(url: url, head: head, tail: tail)
         default:
@@ -43,29 +41,8 @@ enum HUDURLRouter {
         }
     }
 
-    private static func handleHUD(head: String, tail: [String]) {
-        switch head {
-        case "show":
-            HUDController.shared.show()
-        case "hide":
-            HUDController.shared.dismiss()
-        case "toggle":
-            HUDController.shared.toggle()
-        case "tab":
-            if let raw = tail.first, let view = parseView(raw) {
-                HUDState.shared.select(view)
-            } else {
-                NSLog("[scout://] tab: unrecognized %@", tail.first ?? "(empty)")
-            }
-        case "size":
-            if let raw = tail.first, let size = parseSize(raw) {
-                HUDState.shared.setSize(size)
-            } else {
-                NSLog("[scout://] size: unrecognized %@", tail.first ?? "(empty)")
-            }
-        default:
-            NSLog("[scout://] unhandled head: %@", head)
-        }
+    private static func forwardHUD(head: String, tail: [String]) {
+        ScoutAppBridge.openHUD(command: head, value: tail.first)
     }
 
     private static func handleServices(url: URL, head: String, tail: [String]) {
@@ -203,25 +180,5 @@ enum HUDURLRouter {
             diff |= leftBytes[index] ^ rightBytes[index]
         }
         return diff == 0
-    }
-
-    private static func parseView(_ raw: String) -> HUDView? {
-        switch raw.lowercased() {
-        case "agents":   return .agents
-        case "activity": return .activity
-        case "tail":     return .tail
-        case "sessions": return .sessions
-        case "assistant": return .assistant
-        default:         return nil
-        }
-    }
-
-    private static func parseSize(_ raw: String) -> HUDSize? {
-        switch raw.lowercased() {
-        case "compact", "s", "small":  return .compact
-        case "medium",  "m":            return .medium
-        case "large",   "l":            return .large
-        default:                        return nil
-        }
     }
 }
