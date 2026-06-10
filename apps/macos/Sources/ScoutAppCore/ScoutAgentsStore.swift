@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 @MainActor
-public final class ScoutAgentsStore: ObservableObject {
+public final class ScoutAgentsStore: ObservableObject, ScoutChangeSetting {
     @Published public private(set) var agents: [ScoutAgent]? = nil
     @Published public private(set) var lastError: String?
     @Published public private(set) var isLoading = false
@@ -34,13 +34,13 @@ public final class ScoutAgentsStore: ObservableObject {
         pollTask = nil
         inFlight?.cancel()
         inFlight = nil
-        setIfChanged(false, to: \.isLoading)
+        scoutSetIfChanged(false, to: \.isLoading)
     }
 
     public func refresh(force: Bool = false) {
         if inFlight != nil { return }
         if !force, pollTask == nil { return }
-        setIfChanged(agents == nil, to: \.isLoading)
+        scoutSetIfChanged(agents == nil, to: \.isLoading)
         inFlight = Task { [weak self] in
             await self?.fetchAgents()
         }
@@ -48,21 +48,15 @@ public final class ScoutAgentsStore: ObservableObject {
 
     private func fetchAgents() async {
         defer {
-            setIfChanged(false, to: \.isLoading)
+            scoutSetIfChanged(false, to: \.isLoading)
             inFlight = nil
         }
         do {
             let next = try await client.fetchAgents()
-            setIfChanged(next, to: \.agents)
-            setIfChanged(nil, to: \.lastError)
+            scoutSetIfChanged(next, to: \.agents)
+            scoutSetIfChanged(nil, to: \.lastError)
         } catch {
-            setIfChanged(ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."), to: \.lastError)
-        }
-    }
-
-    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutAgentsStore, T>) {
-        if self[keyPath: keyPath] != value {
-            self[keyPath: keyPath] = value
+            scoutSetIfChanged(ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."), to: \.lastError)
         }
     }
 }

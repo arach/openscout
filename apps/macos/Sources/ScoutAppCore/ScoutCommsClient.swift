@@ -15,7 +15,7 @@ public struct ScoutCommsClient: Sendable {
     }
 
     public func fetchAgents() async throws -> [ScoutAgent] {
-        try await fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
+        try await ScoutHTTP.fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
     }
 
     public func fetchMessages(cId: String, limit: Int) async throws -> [ScoutMessage] {
@@ -26,7 +26,7 @@ public struct ScoutCommsClient: Sendable {
                 URLQueryItem(name: "conversationId", value: cId),
                 URLQueryItem(name: "limit", value: "\(limit)"),
             ])
-        return try await fetch([ScoutMessage].self, from: url)
+        return try await ScoutHTTP.fetch([ScoutMessage].self, from: url)
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -40,45 +40,14 @@ public struct ScoutCommsClient: Sendable {
             "cId": cId,
             "conversationId": cId,
         ])
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ScoutCommsClientError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ScoutCommsClientError.httpStatus(http.statusCode)
-        }
-    }
-
-    private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw ScoutCommsClientError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ScoutCommsClientError.httpStatus(http.statusCode)
-        }
-        return try JSONDecoder().decode(type, from: data)
+        try await ScoutHTTP.send(request)
     }
 
     private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {
         do {
-            return try await fetch(type, from: primary)
+            return try await ScoutHTTP.fetch(type, from: primary)
         } catch {
-            return try await fetch(type, from: fallback)
-        }
-    }
-}
-
-public enum ScoutCommsClientError: LocalizedError, Sendable {
-    case invalidResponse
-    case httpStatus(Int)
-
-    public var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "Scout returned an invalid response."
-        case .httpStatus(let status):
-            return "Scout returned HTTP \(status)."
+            return try await ScoutHTTP.fetch(type, from: fallback)
         }
     }
 }

@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 @MainActor
-public final class ScoutTailStore: ObservableObject {
+public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
     @Published public private(set) var events: [ScoutTailEvent] = []
     @Published public private(set) var discovery: ScoutTailDiscoverySnapshot?
     @Published public private(set) var isLoading = false
@@ -101,12 +101,12 @@ public final class ScoutTailStore: ObservableObject {
         pollTask = nil
         fetchTask?.cancel()
         fetchTask = nil
-        setIfChanged(false, to: \.isLoading)
+        scoutSetIfChanged(false, to: \.isLoading)
     }
 
     public func refresh(includeTranscripts: Bool = false) {
         if fetchTask != nil { return }
-        setIfChanged(events.isEmpty, to: \.isLoading)
+        scoutSetIfChanged(events.isEmpty, to: \.isLoading)
         fetchTask = Task { [weak self] in
             await self?.fetchRecent(includeTranscripts: includeTranscripts)
         }
@@ -114,7 +114,7 @@ public final class ScoutTailStore: ObservableObject {
 
     private func fetchRecent(includeTranscripts: Bool) async {
         defer {
-            setIfChanged(false, to: \.isLoading)
+            scoutSetIfChanged(false, to: \.isLoading)
             fetchTask = nil
         }
 
@@ -122,27 +122,30 @@ public final class ScoutTailStore: ObservableObject {
             let payload = try await client.fetchRecent(limit: 500, includeTranscripts: includeTranscripts)
             merge(payload.events)
             try await refreshDiscoveryIfNeeded()
-            setIfChanged(nil, to: \.lastError)
+            scoutSetIfChanged(nil, to: \.lastError)
         } catch {
-            setIfChanged(Self.userFacingError(error), to: \.lastError)
+            scoutSetIfChanged(
+                ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout broker."),
+                to: \.lastError
+            )
         }
     }
 
     private func merge(_ next: [ScoutTailEvent]) {
         guard !next.isEmpty else {
-            setIfChanged(0, to: \.lastBatchCount)
-            setIfChanged(0, to: \.linesPerSecond)
+            scoutSetIfChanged(0, to: \.lastBatchCount)
+            scoutSetIfChanged(0, to: \.linesPerSecond)
             return
         }
         let previousIds = Set(events.map(\.id))
         let newCount = next.filter { !previousIds.contains($0.id) }.count
         let now = Date()
         let elapsed = max(0.1, now.timeIntervalSince(lastMergeAt ?? now.addingTimeInterval(-pollInterval)))
-        setIfChanged(newCount, to: \.lastBatchCount)
-        setIfChanged(Double(newCount) / elapsed, to: \.linesPerSecond)
+        scoutSetIfChanged(newCount, to: \.lastBatchCount)
+        scoutSetIfChanged(Double(newCount) / elapsed, to: \.linesPerSecond)
         lastMergeAt = now
         if newCount > 0 {
-            setIfChanged(now, to: \.lastReceivedAt)
+            scoutSetIfChanged(now, to: \.lastReceivedAt)
         }
 
         var byId = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
@@ -156,7 +159,7 @@ public final class ScoutTailStore: ObservableObject {
             }
             .suffix(maxEvents)
             .map { $0 }
-        setIfChanged(merged, to: \.events)
+        scoutSetIfChanged(merged, to: \.events)
     }
 
     private func refreshDiscoveryIfNeeded() async throws {
@@ -167,21 +170,8 @@ public final class ScoutTailStore: ObservableObject {
             return
         }
         let next = try await client.fetchDiscovery()
-        setIfChanged(next, to: \.discovery)
+        scoutSetIfChanged(next, to: \.discovery)
         lastDiscoveryFetchAt = now
-    }
-
-    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutTailStore, T>) {
-        if self[keyPath: keyPath] != value {
-            self[keyPath: keyPath] = value
-        }
-    }
-
-    private static func userFacingError(_ error: Error) -> String {
-        if let tailError = error as? ScoutTailError {
-            return tailError.localizedDescription
-        }
-        return ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout broker.")
     }
 
     private func counts(_ values: [String]) -> [ScoutTailCount] {

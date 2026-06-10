@@ -71,13 +71,7 @@ public final class ScoutComposeService: ObservableObject {
             payload["threadId"] = threadId
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw ScoutComposeError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ScoutComposeError.httpStatus(http.statusCode)
-        }
+        try await ScoutHTTP.send(request)
     }
 
     private static func composeEchoSpans(
@@ -243,14 +237,7 @@ public final class ScoutComposeService: ObservableObject {
 
     private func fetchThreadsOnce() async throws {
         let url = ScoutWeb.baseURL().appendingPathComponent("api/scoutbot/threads")
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw ScoutComposeError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ScoutComposeError.httpStatus(http.statusCode)
-        }
-        let decoded = try JSONDecoder().decode(ScoutbotThreadsResponse.self, from: data)
+        let decoded = try await ScoutHTTP.fetch(ScoutbotThreadsResponse.self, from: url)
         let pick = decoded.threads.first(where: { $0.threadId == decoded.defaultThreadId })
             ?? decoded.threads.first
         guard let pick else {
