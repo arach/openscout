@@ -1,6 +1,7 @@
 import HudsonShell
 import HudsonUI
 import ScoutAppCore
+import ScoutHUD
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI
@@ -337,6 +338,7 @@ struct ScoutRootView: View {
     }
 
     private func handleKeyboardEvent(_ event: NSEvent) -> Bool {
+        guard !HUDController.shared.isVisible else { return false }
         if showCheatsheet, event.keyCode == 53 {
             showCheatsheet = false
             return true

@@ -100,95 +100,7 @@ public final class HUDController {
         config.hasShadow = true
         config.onKeyDown = { [weak self] event in
             guard let self else { return }
-            // Esc always cascades — it's the only way to blur the dock
-            // back into nav mode, so it must fire even when focused.
-            if event.keyCode == 53 {
-                Task { @MainActor in self.handleEscape() }
-                return
-            }
-            if HUDRunnerState.shared.handleKey(keyCode: event.keyCode, modifiers: event.modifierFlags) { return }
-            if HUDRunnerState.shared.isPresented { return }
-            if HUDDockState.shared.handleSuggestionKey(keyCode: event.keyCode) { return }
-            if event.keyCode == 45,
-               event.modifierFlags.contains(.command),
-               !HUDRunnerState.shared.isPresented,
-               HUDNavBus.shared.createNew != nil {
-                Task { @MainActor in HUDNavBus.shared.createNew?() }
-                return
-            }
-            // While the dock is focused the TextField owns the keystroke;
-            // suppress the rest so the operator can type "j", "1", etc.
-            // as text without also cycling rows or switching tabs.
-            if self.shouldSuppressNavHotkeys(for: event) { return }
-            switch event.keyCode {
-            case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.agents) }
-            case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.activity) }
-            case 20: // 3
-                Task { @MainActor in HUDState.shared.select(.tail) }
-            case 21: // 4
-                Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 23: // 5
-                Task { @MainActor in HUDState.shared.select(.assistant) }
-            case 36: // Return — engage selected row (focus dock, prefill @target)
-                Task { @MainActor in
-                    HUDNavBus.shared.engageSelected?()
-                    self.activateSelected()
-                }
-            case 38: // j — cycle selection next
-                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-            case 40: // k — cycle selection prev
-                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-            case 34: // i — focus the message dock (vim-style "insert")
-                Task { @MainActor in HUDDockState.shared.focus() }
-            case 125: // Down arrow — next row; ⌘↓ steps tier down
-                if self.isCommandOnly(event.modifierFlags) {
-                    Task { @MainActor in HUDState.shared.stepSize(-1) }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-                }
-            case 126: // Up arrow — prev row; ⌘↑ steps tier up
-                if self.isCommandOnly(event.modifierFlags) {
-                    Task { @MainActor in HUDState.shared.stepSize(+1) }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-                }
-            case 46: // m — toggle voice dictation (transcript lands in dock)
-                Task { @MainActor in await Self.toggleMicWithFlash() }
-            case 5: // g — top (G with shift = bottom)
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
-                }
-            case 3: // f — toggle live-follow (tail / stream views)
-                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
-            case 44: // / (alone) → focus dock + seed slash; ? (shift) → cheatsheet
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDCheatsheetState.shared.toggle() }
-                } else {
-                    Task { @MainActor in
-                        HUDDockState.shared.text = "/"
-                        HUDDockState.shared.refreshSuggestions()
-                        HUDDockState.shared.focus()
-                    }
-                }
-            case 33: // [ — step size down
-                Task { @MainActor in HUDState.shared.stepSize(-1) }
-            case 30: // ] — step size up
-                Task { @MainActor in HUDState.shared.stepSize(+1) }
-            case 124: // Right arrow — ⌘→ steps tier up
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(+1) }
-                }
-            case 123: // Left arrow — ⌘← steps tier down
-                if event.modifierFlags.contains(.command) {
-                    Task { @MainActor in HUDState.shared.stepSize(-1) }
-                }
-            default:
-                break
-            }
+            self.handleKeyDown(event)
         }
 
         let p = OverlayPanelShell.makePanel(config: config, rootView: view)
@@ -303,93 +215,15 @@ public final class HUDController {
 
     private func installMonitors() {
         removeMonitors()
-        // Global key monitor — catches nav keys + Esc even when our
-        // non-activating panel isn't the key window. (Local onKeyDown
-        // also fires when the panel IS key.)
+        // Global key monitor is only a backup for the non-activating
+        // panel being key while another app remains frontmost. It should
+        // not turn normal typing in other apps into HUD shortcuts.
         globalKeyMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: .keyDown
         ) { [weak self] event in
             guard let self else { return }
-            let kc = event.keyCode
-            // Esc always cascades.
-            if kc == 53 {
-                Task { @MainActor in self.handleEscape() }
-                return
-            }
-            if HUDRunnerState.shared.handleKey(keyCode: kc, modifiers: event.modifierFlags) { return }
-            if HUDRunnerState.shared.isPresented { return }
-            if HUDDockState.shared.handleSuggestionKey(keyCode: kc) { return }
-            if kc == 45,
-               event.modifierFlags.contains(.command),
-               !HUDRunnerState.shared.isPresented,
-               HUDNavBus.shared.createNew != nil {
-                Task { @MainActor in HUDNavBus.shared.createNew?() }
-                return
-            }
-            // Guard against firing nav hotkeys while the dock is the
-            // first responder (typing in the field).
-            if self.shouldSuppressNavHotkeys(for: event) { return }
-            switch kc {
-            case 18: // 1
-                Task { @MainActor in HUDState.shared.select(.agents) }
-            case 19: // 2
-                Task { @MainActor in HUDState.shared.select(.activity) }
-            case 20: // 3
-                Task { @MainActor in HUDState.shared.select(.tail) }
-            case 21: // 4
-                Task { @MainActor in HUDState.shared.select(.sessions) }
-            case 23: // 5
-                Task { @MainActor in HUDState.shared.select(.assistant) }
-            case 36: // Return — engage selected row
-                Task { @MainActor in
-                    HUDNavBus.shared.engageSelected?()
-                    self.activateSelected()
-                }
-            case 38: // j — next row
-                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-            case 40: // k — prev row
-                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-            case 34: // i — focus dock
-                Task { @MainActor in HUDDockState.shared.focus() }
-            case 125: // Down arrow — next row; ⌘↓ steps tier down
-                if self.isCommandOnly(event.modifierFlags) {
-                    Task { @MainActor in HUDState.shared.stepSize(-1) }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.cycleNext?() }
-                }
-            case 126: // Up arrow — prev row; ⌘↑ steps tier up
-                if self.isCommandOnly(event.modifierFlags) {
-                    Task { @MainActor in HUDState.shared.stepSize(+1) }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
-                }
-            case 46: // m — toggle voice dictation
-                Task { @MainActor in await Self.toggleMicWithFlash() }
-            case 5: // g / G
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
-                } else {
-                    Task { @MainActor in HUDNavBus.shared.jumpTop?() }
-                }
-            case 3: // f — toggle follow
-                Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
-            case 44: // / (alone) → focus dock + seed slash; ? (shift) → cheatsheet
-                if event.modifierFlags.contains(.shift) {
-                    Task { @MainActor in HUDCheatsheetState.shared.toggle() }
-                } else {
-                    Task { @MainActor in
-                        HUDDockState.shared.text = "/"
-                        HUDDockState.shared.refreshSuggestions()
-                        HUDDockState.shared.focus()
-                    }
-                }
-            case 33: // [
-                Task { @MainActor in HUDState.shared.stepSize(-1) }
-            case 30: // ]
-                Task { @MainActor in HUDState.shared.stepSize(+1) }
-            default:
-                break
-            }
+            guard self.shouldHandleGlobalKey(event) else { return }
+            self.handleKeyDown(event)
         }
 
         globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -398,6 +232,106 @@ public final class HUDController {
             Task { @MainActor [weak self] in
                 self?.scheduleOutsideClickDismiss()
             }
+        }
+    }
+
+    private func shouldHandleGlobalKey(_ event: NSEvent) -> Bool {
+        if event.keyCode == 53 {
+            return true
+        }
+        guard let panel, panel.isVisible else { return false }
+        return panel.isKeyWindow || NSApp.isActive
+    }
+
+    private func handleKeyDown(_ event: NSEvent) {
+        // Esc always cascades — it's the only way to blur the dock
+        // back into nav mode, so it must fire even when focused.
+        if event.keyCode == 53 {
+            Task { @MainActor in self.handleEscape() }
+            return
+        }
+        if HUDRunnerState.shared.handleKey(keyCode: event.keyCode, modifiers: event.modifierFlags) { return }
+        if HUDRunnerState.shared.isPresented { return }
+        if HUDDockState.shared.handleSuggestionKey(keyCode: event.keyCode) { return }
+        if event.keyCode == 45,
+           event.modifierFlags.contains(.command),
+           !HUDRunnerState.shared.isPresented,
+           HUDNavBus.shared.createNew != nil {
+            Task { @MainActor in HUDNavBus.shared.createNew?() }
+            return
+        }
+        // While the dock is focused the TextField owns the keystroke;
+        // suppress the rest so the operator can type "j", "1", etc.
+        // as text without also cycling rows or switching tabs.
+        if shouldSuppressNavHotkeys(for: event) { return }
+        switch event.keyCode {
+        case 18: // 1
+            Task { @MainActor in HUDState.shared.select(.agents) }
+        case 19: // 2
+            Task { @MainActor in HUDState.shared.select(.activity) }
+        case 20: // 3
+            Task { @MainActor in HUDState.shared.select(.tail) }
+        case 21: // 4
+            Task { @MainActor in HUDState.shared.select(.sessions) }
+        case 23: // 5
+            Task { @MainActor in HUDState.shared.select(.assistant) }
+        case 36: // Return — engage selected row
+            Task { @MainActor in
+                HUDNavBus.shared.engageSelected?()
+                self.activateSelected()
+            }
+        case 38: // j — next row
+            Task { @MainActor in HUDNavBus.shared.cycleNext?() }
+        case 40: // k — prev row
+            Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
+        case 34: // i — focus the message dock
+            Task { @MainActor in HUDDockState.shared.focus() }
+        case 125: // Down arrow — next row; command steps tier down
+            if isCommandOnly(event.modifierFlags) {
+                Task { @MainActor in HUDState.shared.stepSize(-1) }
+            } else {
+                Task { @MainActor in HUDNavBus.shared.cycleNext?() }
+            }
+        case 126: // Up arrow — previous row; command steps tier up
+            if isCommandOnly(event.modifierFlags) {
+                Task { @MainActor in HUDState.shared.stepSize(+1) }
+            } else {
+                Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
+            }
+        case 46: // m — toggle voice dictation
+            Task { @MainActor in await Self.toggleMicWithFlash() }
+        case 5: // g — top; G with shift = bottom
+            if event.modifierFlags.contains(.shift) {
+                Task { @MainActor in HUDNavBus.shared.jumpBottom?() }
+            } else {
+                Task { @MainActor in HUDNavBus.shared.jumpTop?() }
+            }
+        case 3: // f — toggle live-follow
+            Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
+        case 44: // / focuses dock; ? toggles cheatsheet
+            if event.modifierFlags.contains(.shift) {
+                Task { @MainActor in HUDCheatsheetState.shared.toggle() }
+            } else {
+                Task { @MainActor in
+                    HUDDockState.shared.text = "/"
+                    HUDDockState.shared.refreshSuggestions()
+                    HUDDockState.shared.focus()
+                }
+            }
+        case 33: // [
+            Task { @MainActor in HUDState.shared.stepSize(-1) }
+        case 30: // ]
+            Task { @MainActor in HUDState.shared.stepSize(+1) }
+        case 124: // Right arrow — command steps tier up
+            if event.modifierFlags.contains(.command) {
+                Task { @MainActor in HUDState.shared.stepSize(+1) }
+            }
+        case 123: // Left arrow — command steps tier down
+            if event.modifierFlags.contains(.command) {
+                Task { @MainActor in HUDState.shared.stepSize(-1) }
+            }
+        default:
+            break
         }
     }
 
