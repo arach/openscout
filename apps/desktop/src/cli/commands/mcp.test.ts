@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { renderMcpCommandHelp } from "./mcp.ts";
+import { parseMcpCommandOptions, renderMcpCommandHelp } from "./mcp.ts";
 
 describe("renderMcpCommandHelp", () => {
   test("lists the canonical Scout MCP coordination loop", () => {
@@ -20,6 +20,26 @@ describe("renderMcpCommandHelp", () => {
     expect(help).toContain("invocations_wait");
     expect(help).toContain("work_update");
     expect(help).toContain("card_create");
+    expect(help).toContain("--notifications");
     expect(help).toContain("scout mcp install");
+  });
+});
+
+describe("parseMcpCommandOptions", () => {
+  test("parses notification-enabled stdio mode", () => {
+    expect(parseMcpCommandOptions(
+      ["--context-root", "/tmp/project", "--notifications"],
+      "/tmp/default",
+    )).toEqual({
+      currentDirectory: "/tmp/project",
+      enableNotifications: true,
+    });
+  });
+
+  test("keeps notifications disabled by default", () => {
+    expect(parseMcpCommandOptions([], "/tmp/default")).toEqual({
+      currentDirectory: "/tmp/default",
+      enableNotifications: false,
+    });
   });
 });
