@@ -1,3 +1,4 @@
+import ScoutAppCore
 import ScoutSharedUI
 import SwiftUI
 
