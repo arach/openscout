@@ -23,7 +23,6 @@ import SwiftUI
 //   8. Border stroke + corner radius clip
 
 struct HUDStatusView: View {
-    @ObservedObject var controller: OpenScoutAppController
     var onDismiss: () -> Void
 
     @ObservedObject private var state = HUDState.shared

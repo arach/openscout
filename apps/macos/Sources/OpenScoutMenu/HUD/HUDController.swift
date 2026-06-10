@@ -60,12 +60,6 @@ final class HUDController {
     }
 
     func show() {
-        let controller = OpenScoutAppController.shared
-
-        // Trigger a refresh so the HUD glance reflects current state, not
-        // whatever was cached when the timer last fired.
-        controller.refresh()
-
         // Reuse the panel if it already exists (still fading out, etc).
         if let panel {
             OverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
@@ -78,7 +72,7 @@ final class HUDController {
             return
         }
 
-        let view = HUDStatusView(controller: controller, onDismiss: { [weak self] in
+        let view = HUDStatusView(onDismiss: { [weak self] in
             self?.dismiss()
         })
         .preferredColorScheme(.dark)

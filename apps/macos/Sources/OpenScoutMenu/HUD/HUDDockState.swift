@@ -38,6 +38,7 @@ final class HUDDockState: ObservableObject {
     private var currentSuggestionTrigger: HUDDockSuggestionTrigger?
     private var dismissedSuggestionSignature: String?
     private let log = Logger(subsystem: "dev.openscout.menu", category: "dock")
+    var shouldDeferDictationAppend: () -> Bool = { false }
 
     var suggestionsVisible: Bool {
         !suggestions.isEmpty
@@ -55,8 +56,8 @@ final class HUDDockState: ObservableObject {
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 self.log.info("voice final received — len=\(trimmed.count)")
                 guard !trimmed.isEmpty else { return }
-                if CommsWindowController.shared.isPresented {
-                    // Comms panel is foreground and owns dictation; its own
+                if self.shouldDeferDictationAppend() {
+                    // Another foreground surface owns dictation; its own
                     // subscription splices the transcript and drains it.
                     return
                 }

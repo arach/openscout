@@ -12,6 +12,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        HUDDockState.shared.shouldDeferDictationAppend = {
+            CommsWindowController.shared.isPresented
+        }
 
         // scout:// URL scheme ingress + live state mirror at
         // /tmp/openscout-hud-state.json. Pair makes up the HUD's
