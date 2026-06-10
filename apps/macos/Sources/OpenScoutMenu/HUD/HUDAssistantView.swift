@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 // Assistant tab — slot 5. Native port of
@@ -21,27 +22,9 @@ import SwiftUI
 //   path     → path hue (cool teal)
 //   code     → ink + medium weight, mono
 
-// MARK: - Span + Message model
-
-enum HUDAssistantSpan {
-    case text(String)
-    case mention(String)
-    case cmd(String)
-    case path(String)
-    case code(String)
-}
-
-enum HUDAssistantSource {
-    case scout
-    case operatorYou
-}
-
-struct HUDAssistantMessage: Identifiable {
-    let id: String
-    let source: HUDAssistantSource
-    let at: String
-    let body: [HUDAssistantSpan]
-}
+typealias HUDAssistantSpan = ScoutAssistantSpan
+typealias HUDAssistantSource = ScoutAssistantSource
+typealias HUDAssistantMessage = ScoutAssistantMessage
 
 // MARK: - Main view
 

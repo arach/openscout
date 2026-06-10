@@ -29,6 +29,9 @@ let package = Package(
         ),
         .target(
             name: "ScoutAppCore",
+            dependencies: [
+                .product(name: "ScoutNativeCore", package: "scout-native-core"),
+            ],
             path: "Sources/ScoutAppCore"
         ),
         .target(
