@@ -6,8 +6,12 @@ import ScoutHUD
 enum ScoutAppBridge {
     private static let scoutBundleIdentifier = "com.openscout.scout"
 
+    static func openScout() {
+        launchScoutIfNeeded(activates: true, arguments: []) {}
+    }
+
     static func openHUD(command: String, value: String? = nil) {
-        launchScoutIfNeeded {
+        launchScoutIfNeeded(activates: false, arguments: ["--hud"]) {
             postHUDCommand(command: command, value: value)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                 postHUDCommand(command: command, value: value)
@@ -15,8 +19,15 @@ enum ScoutAppBridge {
         }
     }
 
-    private static func launchScoutIfNeeded(completion: @MainActor @escaping @Sendable () -> Void) {
-        if isScoutRunning {
+    private static func launchScoutIfNeeded(
+        activates: Bool,
+        arguments: [String],
+        completion: @MainActor @escaping @Sendable () -> Void
+    ) {
+        if let app = runningScoutApp {
+            if activates {
+                app.activate(options: [.activateAllWindows])
+            }
             completion()
             return
         }
@@ -27,9 +38,9 @@ enum ScoutAppBridge {
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
+        configuration.activates = activates
         configuration.addsToRecentItems = false
-        configuration.arguments = ["--hud"]
+        configuration.arguments = arguments
 
         NSWorkspace.shared.openApplication(at: scoutURL, configuration: configuration) { _, error in
             if let error {
@@ -44,8 +55,8 @@ enum ScoutAppBridge {
         }
     }
 
-    private static var isScoutRunning: Bool {
-        NSWorkspace.shared.runningApplications.contains {
+    private static var runningScoutApp: NSRunningApplication? {
+        NSWorkspace.shared.runningApplications.first {
             $0.bundleIdentifier == scoutBundleIdentifier
         }
     }

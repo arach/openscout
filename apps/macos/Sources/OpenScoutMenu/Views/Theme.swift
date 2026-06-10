@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import SwiftUI
 
 // MARK: - Adaptive color helper
@@ -259,64 +258,6 @@ struct LatsGridBackdrop: View {
                 y += step
             }
             context.stroke(path, with: .color(ShellPalette.gridLine), lineWidth: 1)
-        }
-    }
-}
-
-// MARK: - Theme manager
-
-@MainActor
-final class ThemeManager: ObservableObject {
-    static let shared = ThemeManager()
-
-    enum Mode: String, CaseIterable, Identifiable {
-        case system, light, dark
-
-        var id: String { rawValue }
-
-        var label: String {
-            switch self {
-            case .system: return "Auto"
-            case .light:  return "Light"
-            case .dark:   return "Dark"
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .system: return "circle.lefthalf.filled"
-            case .light:  return "sun.max"
-            case .dark:   return "moon"
-            }
-        }
-    }
-
-    @Published var mode: Mode {
-        didSet {
-            UserDefaults.standard.set(mode.rawValue, forKey: Self.defaultsKey)
-        }
-    }
-
-    private static let defaultsKey = "OpenScoutThemeMode"
-
-    private init() {
-        let raw = UserDefaults.standard.string(forKey: Self.defaultsKey) ?? Mode.dark.rawValue
-        self.mode = Mode(rawValue: raw) ?? .dark
-    }
-
-    var colorScheme: ColorScheme? {
-        switch mode {
-        case .system: return nil
-        case .light:  return .light
-        case .dark:   return .dark
-        }
-    }
-
-    var nsAppearance: NSAppearance? {
-        switch mode {
-        case .system: return nil
-        case .light:  return NSAppearance(named: .aqua)
-        case .dark:   return NSAppearance(named: .darkAqua)
         }
     }
 }

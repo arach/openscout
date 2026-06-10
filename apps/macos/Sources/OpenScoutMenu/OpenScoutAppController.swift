@@ -521,6 +521,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func openCommsNow(cId: String?) async {
+        _ = cId
         guard !webActionPending else {
             return
         }
@@ -534,7 +535,7 @@ final class OpenScoutAppController: ObservableObject {
 
         do {
             try await ensureWebServerRunning()
-            CommsWindowController.shared.show(cId: cId)
+            ScoutAppBridge.openScout()
         } catch {
             lastError = error.localizedDescription
         }

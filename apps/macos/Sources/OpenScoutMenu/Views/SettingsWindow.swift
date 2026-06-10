@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import ScoutAppCore
 import SwiftUI
 
@@ -8,7 +7,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowController()
 
     private var window: NSWindow?
-    private var themeCancellable: AnyCancellable?
     private weak var controller: OpenScoutAppController?
     private let frameAutosaveName = "OpenScoutSettingsWindow"
 
@@ -39,13 +37,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if window.frame.origin == .zero {
             window.center()
         }
-        window.appearance = ThemeManager.shared.nsAppearance
-
-        themeCancellable = ThemeManager.shared.$mode
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.window?.appearance = ThemeManager.shared.nsAppearance
-            }
+        window.appearance = NSAppearance(named: .darkAqua)
 
         self.window = window
         window.makeKeyAndOrderFront(nil)
@@ -57,7 +49,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        themeCancellable = nil
         controller?.setStatusSurfaceVisible(false, source: "settings")
         controller = nil
         window = nil
@@ -67,7 +58,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 // MARK: - Root
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
-    case diagnostics, about, advanced, appearance
+    case diagnostics, about, advanced
 
     var id: String { rawValue }
 
@@ -76,7 +67,6 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .diagnostics: return "Diagnostics"
         case .about:       return "About"
         case .advanced:    return "Advanced"
-        case .appearance:  return "Appearance"
         }
     }
 
@@ -85,14 +75,12 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         case .diagnostics: return "stethoscope"
         case .about:       return "info.circle"
         case .advanced:    return "slider.horizontal.3"
-        case .appearance:  return "paintbrush"
         }
     }
 }
 
 private struct SettingsRootView: View {
     @ObservedObject var controller: OpenScoutAppController
-    @ObservedObject private var theme = ThemeManager.shared
     @State private var selected: SettingsTab = .diagnostics
 
     var body: some View {
@@ -118,7 +106,6 @@ private struct SettingsRootView: View {
                             case .diagnostics: DiagnosticsTab(controller: controller)
                             case .about:       AboutTab(controller: controller)
                             case .advanced:    AdvancedTab()
-                            case .appearance:  AppearanceTab(theme: theme)
                             }
                         }
                         .padding(16)
@@ -127,7 +114,7 @@ private struct SettingsRootView: View {
                 }
             }
         }
-        .preferredColorScheme(theme.colorScheme)
+        .preferredColorScheme(.dark)
     }
 
     private var topBar: some View {
@@ -694,141 +681,6 @@ private struct AdvancedTab: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(ShellPalette.line, lineWidth: 1)
         )
-    }
-}
-
-// MARK: - Appearance
-
-private struct AppearanceTab: View {
-    @ObservedObject var theme: ThemeManager
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("THEME")
-                    .font(MenuType.mono(10, weight: .bold))
-                    .tracking(1.4)
-                    .foregroundStyle(ShellPalette.dim)
-
-                Text("Affects the menu bar popover and this settings window. Auto follows the system appearance.")
-                    .font(MenuType.body(12))
-                    .foregroundStyle(ShellPalette.copy)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    ForEach(ThemeManager.Mode.allCases) { mode in
-                        ThemeChip(
-                            mode: mode,
-                            isSelected: theme.mode == mode
-                        ) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                theme.mode = mode
-                            }
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                HStack(spacing: 6) {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(ShellPalette.muted)
-                    Text("Saved automatically. Persists across launches.")
-                        .font(MenuType.mono(10))
-                        .foregroundStyle(ShellPalette.muted)
-                }
-                .padding(.top, 2)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ShellPalette.card)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(ShellPalette.line, lineWidth: 1)
-            )
-
-            ThemePreviewCard()
-        }
-    }
-}
-
-private struct ThemeChip: View {
-    let mode: ThemeManager.Mode
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: mode.symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(mode.label.uppercased())
-                    .font(MenuType.mono(10, weight: .semibold))
-                    .tracking(0.9)
-            }
-            .foregroundStyle(isSelected ? ShellPalette.accent : ShellPalette.copy)
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isSelected ? ShellPalette.accentSoft : ShellPalette.surfaceFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .stroke(isSelected ? ShellPalette.accentBorder : ShellPalette.line, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ThemePreviewCard: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("PREVIEW")
-                .font(MenuType.mono(10, weight: .bold))
-                .tracking(1.4)
-                .foregroundStyle(ShellPalette.dim)
-
-            HStack(spacing: 10) {
-                swatch(label: "BG",    color: ShellPalette.shellBackground, border: ShellPalette.line)
-                swatch(label: "CARD",  color: ShellPalette.card,            border: ShellPalette.line)
-                swatch(label: "OK",    color: ShellPalette.success,         border: .clear)
-                swatch(label: "WARN",  color: ShellPalette.warning,         border: .clear)
-                swatch(label: "FAIL",  color: ShellPalette.error,           border: .clear)
-                swatch(label: "ACCNT", color: ShellPalette.violet,          border: .clear)
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(ShellPalette.card)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(ShellPalette.line, lineWidth: 1)
-        )
-    }
-
-    private func swatch(label: String, color: Color, border: Color) -> some View {
-        VStack(spacing: 6) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(color)
-                .frame(width: 56, height: 36)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .stroke(border == .clear ? Color.clear : border, lineWidth: 1)
-                )
-            Text(label)
-                .font(MenuType.mono(8, weight: .bold))
-                .tracking(0.8)
-                .foregroundStyle(ShellPalette.muted)
-        }
     }
 }
 

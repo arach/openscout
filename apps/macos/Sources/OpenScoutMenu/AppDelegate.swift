@@ -63,13 +63,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
             .store(in: &cancellables)
 
-        ThemeManager.shared.$mode
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.popover?.appearance = ThemeManager.shared.nsAppearance
-            }
-            .store(in: &cancellables)
-
         controller.start()
     }
 
@@ -115,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.delegate = self
-        popover.appearance = ThemeManager.shared.nsAppearance
+        popover.appearance = NSAppearance(named: .darkAqua)
         let host = NSHostingController(rootView: MainView(controller: controller))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
@@ -126,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let commsItem = NSMenuItem(title: "Open Comms", action: #selector(openComms), keyEquivalent: "c")
+        let commsItem = NSMenuItem(title: "Open Scout", action: #selector(openComms), keyEquivalent: "c")
         commsItem.target = self
         commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(commsItem)

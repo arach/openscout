@@ -3,7 +3,6 @@ import SwiftUI
 
 struct MainView: View {
     @ObservedObject var controller: OpenScoutAppController
-    @ObservedObject private var theme = ThemeManager.shared
 
     @State private var showQR: Bool = false
 
@@ -63,7 +62,7 @@ struct MainView: View {
         // re-anchor against a status item that's mid-redraw and snap the
         // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
-        .preferredColorScheme(theme.colorScheme)
+        .preferredColorScheme(.dark)
     }
 
     private var hasError: Bool {
@@ -126,7 +125,7 @@ struct MainView: View {
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .disabled(controller.webActionPending)
-                .help("Open Comms")
+                .help("Open Scout")
 
                 Button {
                     controller.openWebApp()
