@@ -22,6 +22,7 @@ let package = Package(
             name: "OpenScoutMenu",
             dependencies: [
                 "ScoutAppCore",
+                "ScoutHUD",
                 "ScoutSharedUI",
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
             ],
@@ -35,6 +36,15 @@ let package = Package(
             path: "Sources/ScoutAppCore"
         ),
         .target(
+            name: "ScoutHUD",
+            dependencies: [
+                "ScoutAppCore",
+                "ScoutSharedUI",
+                .product(name: "ScoutNativeCore", package: "scout-native-core"),
+            ],
+            path: "Sources/ScoutHUD"
+        ),
+        .target(
             name: "ScoutSharedUI",
             dependencies: [
                 .product(name: "HudsonVoice", package: "hudson"),
@@ -46,6 +56,7 @@ let package = Package(
             name: "Scout",
             dependencies: [
                 "ScoutAppCore",
+                "ScoutHUD",
                 "ScoutSharedUI",
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),

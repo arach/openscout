@@ -1,5 +1,6 @@
 import AppKit
 import ScoutAppCore
+import ScoutHUD
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI

@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI
@@ -47,7 +48,7 @@ struct HudMessageDock: View {
     let agents: [HudAgent]
 
     @ObservedObject private var dock = HUDDockState.shared
-    @ObservedObject private var compose = HudComposeService.shared
+    @ObservedObject private var compose = ScoutComposeService.shared
     @FocusState private var focused: Bool
     @State private var panelWidth: CGFloat = 0
 
@@ -126,7 +127,7 @@ struct HudMessageDock: View {
         // Snapshot + clear synchronously so the field empties on the
         // same runloop tick as the keypress — no Task hop between the
         // user pressing return and SwiftUI seeing an empty binding.
-        // HudComposeService still echoes the message into the thread
+        // ScoutComposeService still echoes the message into the thread
         // before the network round-trip resolves.
         let outgoing = dock.text
         dock.text = ""

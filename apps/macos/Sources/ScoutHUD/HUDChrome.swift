@@ -14,36 +14,36 @@ import SwiftUI
 // feedback_no_dim_text_in_menu and feedback_no_white_alpha_dividers is
 // honored. Scout-only colors: warm-dark canvas + lime accent.
 
-enum HUDChrome {
+public enum HUDChrome {
     // ── Canvas (hard black, faint warmth) ──────────────────────────────
     // Pivot away from the warm-dark scout brand toward near-pure black.
     // The operator asked for "very very very hard black" with softer
     // tones reserved for hierarchy. A whisper of warmth (~+1% in r/g)
     // keeps it from reading as a cold UI surface, but the visual
     // intent is: black means black.
-    static let canvas      = Color(red: 0.045, green: 0.040, blue: 0.035)
-    static let canvasAlt   = Color(red: 0.080, green: 0.072, blue: 0.062)
-    static let canvasLift  = Color(red: 0.155, green: 0.142, blue: 0.122)
+    public static let canvas      = Color(red: 0.045, green: 0.040, blue: 0.035)
+    public static let canvasAlt   = Color(red: 0.080, green: 0.072, blue: 0.062)
+    public static let canvasLift  = Color(red: 0.155, green: 0.142, blue: 0.122)
     // Legacy glass tokens — still referenced by the panel background.
     // Pulled down into the new near-black range so the panel reads as
     // a single hard surface rather than the old warm gradient.
-    static let glassTop    = Color(red: 0.075, green: 0.068, blue: 0.058).opacity(0.96)
-    static let glassBottom = Color(red: 0.030, green: 0.026, blue: 0.022).opacity(0.97)
+    public static let glassTop    = Color(red: 0.075, green: 0.068, blue: 0.058).opacity(0.96)
+    public static let glassBottom = Color(red: 0.030, green: 0.026, blue: 0.022).opacity(0.97)
 
     // ── Ink (warm, never pure white) ───────────────────────────────────
     // Pulled back from the harder-white pass — pure white reads as
     // clinical, "blunt and out of place" per the operator. We sit
     // around the 0.88-0.92 range with a faint warm tint so the names
     // read as printed ink, not chrome lettering.
-    static let ink         = Color(red: 0.905, green: 0.892, blue: 0.862)
-    static let inkMuted    = Color(red: 0.700, green: 0.680, blue: 0.646)
-    static let inkFaint    = Color(red: 0.500, green: 0.485, blue: 0.455)
-    static let inkDeep     = Color(red: 0.380, green: 0.365, blue: 0.342)
+    public static let ink         = Color(red: 0.905, green: 0.892, blue: 0.862)
+    public static let inkMuted    = Color(red: 0.700, green: 0.680, blue: 0.646)
+    public static let inkFaint    = Color(red: 0.500, green: 0.485, blue: 0.455)
+    public static let inkDeep     = Color(red: 0.380, green: 0.365, blue: 0.342)
 
     // ── Borders (sharper against the harder canvas) ────────────────────
-    static let border      = Color(red: 0.255, green: 0.240, blue: 0.215)
-    static let borderSoft  = Color(red: 0.155, green: 0.142, blue: 0.122)
-    static let borderStrong = Color(red: 0.380, green: 0.355, blue: 0.318)
+    public static let border      = Color(red: 0.255, green: 0.240, blue: 0.215)
+    public static let borderSoft  = Color(red: 0.155, green: 0.142, blue: 0.122)
+    public static let borderStrong = Color(red: 0.380, green: 0.355, blue: 0.318)
 
     // ── Rim (warm-cream hairline used on the panel edge) ──────────────
     // The Lattices voice-mode reference: a single restrained, thin
@@ -53,21 +53,21 @@ enum HUDChrome {
     // glowing UI rectangle. Pair with an ambient halo shadow
     // (HUDStatusView) — together they do the job that the now-removed
     // corner brackets were doing badly.
-    static let borderRim   = Color(red: 0.395, green: 0.370, blue: 0.320)
+    public static let borderRim   = Color(red: 0.395, green: 0.370, blue: 0.320)
 
     // ── Accent (scout lime — single accent, no cyan/rose) ──────────────
     // oklch(0.86 0.17 125)
-    static let accent      = Color(red: 0.580, green: 0.890, blue: 0.420)
-    static let accentDim   = Color(red: 0.470, green: 0.720, blue: 0.340)
-    static let accentSoft  = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.14)
-    static let accentWhisper = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.06)
+    public static let accent      = Color(red: 0.580, green: 0.890, blue: 0.420)
+    public static let accentDim   = Color(red: 0.470, green: 0.720, blue: 0.340)
+    public static let accentSoft  = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.14)
+    public static let accentWhisper = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.06)
 
     // ── Per-agent hue helper ───────────────────────────────────────────
     //
     // Studio convention is oklch(0.72 0.14 H). The HSB approximation lands
     // close to the studio's lifted-and-clear palette by hue. Saturation 0.55,
     // brightness 0.80 reads as a clear identity band, not a wash.
-    static func agentHue(_ h: Double, lightness: Double = 0.80, saturation: Double = 0.55) -> Color {
+    public static func agentHue(_ h: Double, lightness: Double = 0.80, saturation: Double = 0.55) -> Color {
         let normHue = (h.truncatingRemainder(dividingBy: 360)) / 360.0
         return Color(hue: normHue, saturation: saturation, brightness: lightness, opacity: 1)
     }
@@ -83,29 +83,29 @@ enum HUDChrome {
 // system font folder; Inter falls back to SF Pro at UI sizes when not
 // bundled.
 
-enum HUDType {
+public enum HUDType {
     // Sans body — agent names, prose, all readable text. Inter, then
     // SF Pro (Apple's Inter-equivalent) as the system fallback.
-    static func body(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    public static func body(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom("Inter", size: size).weight(weight)
     }
 
     // Display — same family as body, retained for legacy call sites.
     // Use `body(_, weight:)` for new code.
-    static func display(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    public static func display(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         body(size, weight: weight)
     }
 
     // Mono — JetBrains Mono. Used for counts, branches, time, eyebrows,
     // hotkeys. Falls back to SF Mono if JBM is not installed.
-    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+    public static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
         .custom("JetBrains Mono", size: size).weight(weight)
     }
 
     // Eyebrow standard tracking for ALL-CAPS mono labels.
     // Studio convention: tracking-eyebrow ≈ 0.18em (~1.6px at 9px).
-    static let eyebrowTracking: CGFloat = 1.55
-    static let eyebrowMicro: CGFloat = 1.85
+    public static let eyebrowTracking: CGFloat = 1.55
+    public static let eyebrowMicro: CGFloat = 1.85
 }
 
 // MARK: - Hairline (solid 1px, single border color)
@@ -114,12 +114,17 @@ enum HUDType {
 // 5-stop gradient pretended to be a specular lift; studio uses a flat
 // `--studio-edge` everywhere and that's what we mirror.
 
-struct HUDHairline: View {
-    enum Axis { case horizontal, vertical }
+public struct HUDHairline: View {
+    public enum Axis { case horizontal, vertical }
     var axis: Axis = .horizontal
     var inset: CGFloat = 0
 
-    var body: some View {
+    public init(axis: Axis = .horizontal, inset: CGFloat = 0) {
+        self.axis = axis
+        self.inset = inset
+    }
+
+    public var body: some View {
         Rectangle()
             .fill(HUDChrome.border)
             .frame(
@@ -158,7 +163,7 @@ struct HUDHueRule: View {
 // of surface character that makes a flat glass panel feel printed.
 // Cached as a static image so we don't repaint on every frame.
 
-struct HUDPaperGrain: View {
+public struct HUDPaperGrain: View {
     var opacity: Double = 0.045
     static let image: NSImage = {
         let size = NSSize(width: 240, height: 240)
@@ -182,7 +187,11 @@ struct HUDPaperGrain: View {
         return img
     }()
 
-    var body: some View {
+    public init(opacity: Double = 0.045) {
+        self.opacity = opacity
+    }
+
+    public var body: some View {
         Image(nsImage: Self.image)
             .resizable(resizingMode: .tile)
             .blendMode(.softLight)
@@ -242,13 +251,25 @@ struct HUDPanelRim: View {
 
 // MARK: - NSVisualEffectView bridge
 
-struct VisualEffectBackground: NSViewRepresentable {
+public struct VisualEffectBackground: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .hudWindow
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
     var state: NSVisualEffectView.State = .active
     var cornerRadius: CGFloat = 12
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
+    public init(
+        material: NSVisualEffectView.Material = .hudWindow,
+        blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
+        state: NSVisualEffectView.State = .active,
+        cornerRadius: CGFloat = 12
+    ) {
+        self.material = material
+        self.blendingMode = blendingMode
+        self.state = state
+        self.cornerRadius = cornerRadius
+    }
+
+    public func makeNSView(context: Context) -> NSVisualEffectView {
         let v = NSVisualEffectView()
         v.material = material
         v.blendingMode = blendingMode
@@ -261,7 +282,7 @@ struct VisualEffectBackground: NSViewRepresentable {
         return v
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+    public func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.blendingMode = blendingMode
         nsView.state = state

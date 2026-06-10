@@ -10,8 +10,8 @@ import Foundation
 /// together form the HUD's external API surface: URLs for actions,
 /// JSON file for queries.
 @MainActor
-final class HUDStateFile {
-    static let shared = HUDStateFile()
+public final class HUDStateFile {
+    public static let shared = HUDStateFile()
     private static let path = "/tmp/openscout-hud-state.json"
 
     private var cancellables = Set<AnyCancellable>()
@@ -19,7 +19,7 @@ final class HUDStateFile {
 
     private init() {}
 
-    func start() {
+    public func start() {
         guard !started else { return }
         started = true
 
@@ -37,7 +37,7 @@ final class HUDStateFile {
 
     /// HUDController calls this whenever visibility / window id changes
     /// (Combine can't observe non-published mutations cleanly).
-    func touch() {
+    public func touch() {
         write()
     }
 

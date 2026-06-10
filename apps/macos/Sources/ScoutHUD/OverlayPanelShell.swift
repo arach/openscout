@@ -117,8 +117,8 @@ private final class OverlayHostingView<Content: View>: NSHostingView<Content> {
 }
 
 @MainActor
-enum OverlayPanelShell {
-    enum Placement {
+public enum OverlayPanelShell {
+    public enum Placement {
         case centered(yOffsetRatio: CGFloat = 0)
         case mouseScreenCentered(yOffsetRatio: CGFloat = 0)
         case topCenter(margin: CGFloat = 40)
@@ -189,7 +189,7 @@ enum OverlayPanelShell {
         return panel
     }
 
-    static func position(_ window: NSWindow, placement: Placement) {
+    public static func position(_ window: NSWindow, placement: Placement) {
         let screen: NSScreen
         switch placement {
         case .mouseScreenCentered, .topCenter:

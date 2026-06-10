@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import ScoutHUD
 
 /// Routes `scout://` URLs to menu-app actions. Wired from AppDelegate's
 /// NSAppleEventManager kAEGetURL handler.

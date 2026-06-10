@@ -5,7 +5,7 @@ import SwiftUI
 // HUD view selection + per-session state.
 // One source of truth for which view the HUD is showing and at what size.
 
-enum HUDView: Int, CaseIterable, Identifiable, Sendable {
+public enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     case agents    = 1
     case activity  = 2
     case tail      = 3
@@ -17,9 +17,9 @@ enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     // tab and on every Scout message.
     case assistant = 5
 
-    var id: Int { rawValue }
+    public var id: Int { rawValue }
 
-    var label: String {
+    public var label: String {
         switch self {
         case .agents:    return "AGENTS"
         case .activity:  return "ACTIVITY"
@@ -29,19 +29,19 @@ enum HUDView: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var keyLabel: String {
+    public var keyLabel: String {
         String(rawValue)
     }
 }
 
-enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
+public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
     case compact = 0
     case medium  = 1
     case large   = 2
 
-    var id: Int { rawValue }
+    public var id: Int { rawValue }
 
-    var label: String {
+    public var label: String {
         switch self {
         case .compact: return "S"
         case .medium:  return "M"
@@ -60,7 +60,7 @@ enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
     //   S 560x520     compact single-column overlay — at-a-glance HUD
     //   M 1280x920    two-pane wide layout — operator workbench
     //   L screen/top  full-width half-screen dock — context room
-    func contentSize(on screen: NSScreen? = NSScreen.main) -> NSSize {
+    public func contentSize(on screen: NSScreen? = NSScreen.main) -> NSSize {
         switch self {
         case .compact:
             return NSSize(width: 560, height: 520)
@@ -75,30 +75,30 @@ enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
     /// Whether this size requires explicit screen-relative positioning by
     /// the caller (vs. the default center-anchored resize). Today only the
     /// new .large tier does — it docks to the top half of the active screen.
-    var isScreenAnchored: Bool {
+    public var isScreenAnchored: Bool {
         self == .large
     }
 }
 
 @MainActor
-final class HUDState: ObservableObject {
-    @Published var view: HUDView = .agents
-    @Published var size: HUDSize = .compact
+public final class HUDState: ObservableObject {
+    @Published public var view: HUDView = .agents
+    @Published public var size: HUDSize = .compact
 
-    static let shared = HUDState()
+    public static let shared = HUDState()
 
     private init() {}
 
-    func select(_ view: HUDView) {
+    public func select(_ view: HUDView) {
         guard self.view != view else { return }
         self.view = view
     }
 
-    func select(viewIndex raw: Int) {
+    public func select(viewIndex raw: Int) {
         if let v = HUDView(rawValue: raw) { select(v) }
     }
 
-    func setSize(_ size: HUDSize) {
+    public func setSize(_ size: HUDSize) {
         guard self.size != size else { return }
         self.size = size
     }
@@ -106,7 +106,7 @@ final class HUDState: ObservableObject {
     // Step the size in `direction` (-1 = down, +1 = up). Clamps at ends —
     // hotkey can hold and won't wrap; the user always knows what's at
     // the edges. Wrapping reads as "lost the toggle."
-    func stepSize(_ direction: Int) {
+    public func stepSize(_ direction: Int) {
         let next = size.rawValue + direction
         if let v = HUDSize(rawValue: next) { setSize(v) }
     }

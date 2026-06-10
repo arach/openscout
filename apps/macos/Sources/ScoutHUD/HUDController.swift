@@ -8,13 +8,13 @@ import SwiftUI
 // menu-bar item. Esc dismisses.
 
 @MainActor
-final class HUDController {
-    static let shared = HUDController()
+public final class HUDController {
+    public static let shared = HUDController()
 
     private var panel: OverlayPanel?
     private var sizeSubscription: AnyCancellable?
 
-    var isVisible: Bool {
+    public var isVisible: Bool {
         guard let panel else { return false }
         // Drop the alpha gate: external IPC consumers (HUDStateFile,
         // capture loops) want "is the panel on screen" the moment show()
@@ -26,7 +26,7 @@ final class HUDController {
 
     /// CGWindowID of the panel when visible; nil when dismissed. Consumed
     /// by HUDStateFile + external screencapture loops (scout:// IPC).
-    var currentWindowId: Int? {
+    public var currentWindowId: Int? {
         guard let panel, isVisible else { return nil }
         return panel.windowNumber
     }
@@ -55,11 +55,11 @@ final class HUDController {
         await HUDDockState.shared.toggleDictation()
     }
 
-    func toggle() {
+    public func toggle() {
         if isVisible { dismiss() } else { show() }
     }
 
-    func show() {
+    public func show() {
         // Reuse the panel if it already exists (still fading out, etc).
         if let panel {
             OverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
@@ -213,7 +213,7 @@ final class HUDController {
         HUDStateFile.shared.touch()
     }
 
-    func dismiss() {
+    public func dismiss() {
         guard let p = panel else { return }
         removeMonitors()
         sizeSubscription?.cancel()

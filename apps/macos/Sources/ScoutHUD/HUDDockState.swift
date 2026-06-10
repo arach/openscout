@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import os.log
+import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI
@@ -16,13 +17,13 @@ private typealias HUDDockCommandCandidate = MessageCommandCandidate
 /// the focus signal. The dock itself binds to this; views fire actions
 /// (engage SEND, row Enter, etc.) into it.
 ///
-/// Sending happens through `HudComposeService`, which posts to the web
+/// Sending happens through `ScoutComposeService`, which posts to the web
 /// surface's `/api/send` endpoint. The broker parses `@-mentions` in
 /// the body, so when a target is set we prepend `@<handle> ` to the
 /// outgoing body and clear the chip after submit.
 @MainActor
-final class HUDDockState: ObservableObject {
-    static let shared = HUDDockState()
+public final class HUDDockState: ObservableObject {
+    public static let shared = HUDDockState()
 
     @Published var text: String = ""
     @Published var targetHandle: String? = nil   // "@hudson" (display + routing)
@@ -38,7 +39,7 @@ final class HUDDockState: ObservableObject {
     private var currentSuggestionTrigger: HUDDockSuggestionTrigger?
     private var dismissedSuggestionSignature: String?
     private let log = Logger(subsystem: "dev.openscout.menu", category: "dock")
-    var shouldDeferDictationAppend: () -> Bool = { false }
+    public var shouldDeferDictationAppend: () -> Bool = { false }
 
     var suggestionsVisible: Bool {
         !suggestions.isEmpty
@@ -271,7 +272,7 @@ final class HUDDockState: ObservableObject {
     /// empty text. Routing default is the assistant (`@scoutbot`); when
     /// a dispatch chip is set, the compose service routes to that target
     /// instead. Local echo into the Assistant thread is owned by
-    /// HudComposeService.
+    /// ScoutComposeService.
     /// Submit a body through the compose pipeline. The caller is expected
     /// to clear the field synchronously before invoking this (see
     /// HudMessageDock.submit) — that keeps the dock empty on the same
@@ -285,8 +286,8 @@ final class HUDDockState: ObservableObject {
         if body == nil { text = "" }
         isSending = true
         defer { isSending = false }
-        await HudComposeService.shared.send(body: trimmed, targetHandle: targetHandle)
-        lastError = HudComposeService.shared.lastError
+        await ScoutComposeService.shared.send(body: trimmed, targetHandle: targetHandle)
+        lastError = ScoutComposeService.shared.lastError
         if let err = lastError, !err.isEmpty {
             HUDFlashState.shared.flash(err)
         }

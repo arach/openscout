@@ -10,8 +10,8 @@ import Foundation
 @MainActor private var eventHandlerInstalled = false
 
 @MainActor
-final class HotkeyManager {
-    static let shared = HotkeyManager()
+public final class HotkeyManager {
+    public static let shared = HotkeyManager()
     private var hotKeyRefs: [UInt32: EventHotKeyRef] = [:]
 
     private init() {}
@@ -57,7 +57,7 @@ final class HotkeyManager {
     }
 
     @discardableResult
-    func register(
+    public func register(
         id: UInt32,
         keyCode: UInt32,
         modifiers: UInt32,
@@ -93,7 +93,7 @@ final class HotkeyManager {
         return false
     }
 
-    func unregister(id: UInt32) {
+    public func unregister(id: UInt32) {
         if let ref = hotKeyRefs[id] {
             UnregisterEventHotKey(ref)
             hotKeyRefs.removeValue(forKey: id)
@@ -101,7 +101,7 @@ final class HotkeyManager {
         }
     }
 
-    func unregisterAll() {
+    public func unregisterAll() {
         for (id, ref) in hotKeyRefs {
             UnregisterEventHotKey(ref)
             hotkeyCallbacks.removeValue(forKey: id)
@@ -112,12 +112,12 @@ final class HotkeyManager {
 }
 
 // Convenience: Hyper = ⌃⌥⇧⌘
-enum CarbonModifier {
-    static let hyper: UInt32 = UInt32(controlKey | optionKey | shiftKey | cmdKey)
+public enum CarbonModifier {
+    public static let hyper: UInt32 = UInt32(controlKey | optionKey | shiftKey | cmdKey)
 }
 
 // Common keyCodes we use here. Source: HIToolbox/Events.h.
-enum CarbonKeyCode {
-    static let c: UInt32 = 8
-    static let h: UInt32 = 4
+public enum CarbonKeyCode {
+    public static let c: UInt32 = 8
+    public static let h: UInt32 = 4
 }

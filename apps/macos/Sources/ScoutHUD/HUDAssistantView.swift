@@ -30,7 +30,7 @@ typealias HUDAssistantMessage = ScoutAssistantMessage
 
 struct HUDAssistantView: View {
     @ObservedObject private var state = HUDState.shared
-    @ObservedObject private var compose = HudComposeService.shared
+    @ObservedObject private var compose = ScoutComposeService.shared
 
     var body: some View {
         Group {
@@ -149,7 +149,7 @@ private struct AssistantEmptyState: View {
 
 private struct ThreadHeader: View {
     let size: HUDSize
-    @ObservedObject private var compose = HudComposeService.shared
+    @ObservedObject private var compose = ScoutComposeService.shared
 
     private var horizontalPad: CGFloat {
         size == .large ? 20 : 16

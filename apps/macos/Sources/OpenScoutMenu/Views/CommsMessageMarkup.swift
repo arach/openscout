@@ -1,3 +1,4 @@
+import ScoutHUD
 import ScoutSharedUI
 import SwiftUI
 
