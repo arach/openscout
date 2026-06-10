@@ -281,14 +281,7 @@ final class ScoutCommsStore: ObservableObject {
         }
 
         do {
-            let base = ScoutWeb.baseURL()
-            let commsURL = base
-                .appending(path: "api/comms")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "160")])
-            let fallbackURL = base
-                .appending(path: "api/conversations")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "160")])
-            let next = try await fetchWithFallback([ScoutChannel].self, primary: commsURL, fallback: fallbackURL)
+            let next = try await ScoutCommsClient().fetchChannels(limit: 160)
             let incomingIds = Set(next.map(\.cId))
             // The first successful population shouldn't flash every row as "new".
             setIfChanged(knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds), to: \.newChannelIds)
@@ -320,7 +313,7 @@ final class ScoutCommsStore: ObservableObject {
     private func fetchAgents() async {
         defer { agentsTask = nil }
         do {
-            let next = try await fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
+            let next = try await ScoutCommsClient().fetchAgents()
             setIfChanged(next, to: \.agents)
             setIfChanged(nil, to: \.lastError)
         } catch {
@@ -334,16 +327,9 @@ final class ScoutCommsStore: ObservableObject {
     private func loadMessages(cId: String) async {
         defer { messagesTask = nil }
         do {
-            let url = ScoutWeb.baseURL()
-                .appending(path: "api/messages")
-                .appending(queryItems: [
-                    URLQueryItem(name: "cId", value: cId),
-                    URLQueryItem(name: "conversationId", value: cId),
-                    URLQueryItem(name: "limit", value: "260"),
-                ])
-            let next = try await fetch([ScoutMessage].self, from: url)
+            let next = try await ScoutCommsClient().fetchMessages(cId: cId, limit: 260)
             guard selectedCId == cId else { return }
-            setIfChanged(next.sorted { $0.createdAt < $1.createdAt }, to: \.messages)
+            setIfChanged(next, to: \.messages)
             setIfChanged(nil, to: \.lastError)
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
@@ -383,14 +369,6 @@ final class ScoutCommsStore: ObservableObject {
             throw ScoutCommsError.httpStatus(http.statusCode)
         }
         return try decoder.decode(type, from: data)
-    }
-
-    private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {
-        do {
-            return try await fetch(type, from: primary)
-        } catch {
-            return try await fetch(type, from: fallback)
-        }
     }
 
     private static func userFacingError(_ error: Error) -> String {

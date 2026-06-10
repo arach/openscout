@@ -1493,65 +1493,6 @@ private struct CommsMemberAvatar: View {
     }
 }
 
-private extension CommsItem {
-    var participantDisplayNames: [String] {
-        if scope == .private {
-            let peer = agentName?.nilIfEmpty
-                ?? participantIds.first(where: { displayName(for: $0) != "Operator" }).map(displayName(for:))
-                ?? displayTitle
-            return uniqueMemberNames(["Operator", peer])
-        }
-
-        var names: [String] = []
-        for participant in participantIds {
-            let name = displayName(for: participant)
-            if !names.contains(name) {
-                names.append(name)
-            }
-        }
-
-        if names.isEmpty {
-            names.append(displayTitle)
-        }
-
-        return uniqueMemberNames(names)
-    }
-
-    private func displayName(for participant: String) -> String {
-        let trimmed = participant.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "Unknown" }
-        if trimmed == "operator" { return "Operator" }
-        if trimmed == agentId, let agentName = agentName?.nilIfEmpty { return agentName }
-        if let agentName = agentName?.nilIfEmpty,
-           trimmed.lowercased().contains(agentName.lowercased()) {
-            return agentName
-        }
-
-        let withoutHandle = trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "@"))
-        let compact = withoutHandle.split(separator: ".").first.map(String.init) ?? withoutHandle
-        return compact
-            .replacingOccurrences(of: "-", with: " ")
-            .split(separator: " ")
-            .map { part in
-                guard let first = part.first else { return "" }
-                return first.uppercased() + part.dropFirst()
-            }
-            .joined(separator: " ")
-    }
-
-    private func uniqueMemberNames(_ names: [String]) -> [String] {
-        var result: [String] = []
-        for name in names {
-            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            if !result.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
-                result.append(trimmed)
-            }
-        }
-        return result
-    }
-}
-
 private struct CommsIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

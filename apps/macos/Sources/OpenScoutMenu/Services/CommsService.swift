@@ -18,136 +18,8 @@ enum CommsFilter: String, CaseIterable, Identifiable {
     }
 }
 
-enum CommsScope {
-    case `private`
-    case shared
-}
-
-struct CommsItem: Identifiable, Decodable, Sendable, Equatable {
-    let cId: String
-    let kind: String
-    let title: String
-    let alias: String?
-    let participantIds: [String]
-    let agentId: String?
-    let agentName: String?
-    let harness: String?
-    let preview: String?
-    let messageCount: Int
-    let lastMessageAt: TimeInterval?
-    let workspaceRoot: String?
-    let currentBranch: String?
-
-    var id: String { cId }
-
-    var displayTitle: String {
-        if let alias, !alias.isEmpty { return alias }
-        if let agentName, !agentName.isEmpty { return agentName }
-        return title
-    }
-
-    var scope: CommsScope {
-        if kind == "direct", participantIds.count <= 2 {
-            return .private
-        }
-        return .shared
-    }
-
-    var scopeLabel: String {
-        switch scope {
-        case .private: return "Private"
-        case .shared: return "Shared"
-        }
-    }
-
-    var cIdShort: String {
-        if cId.hasPrefix("c.") {
-            let rest = String(cId.dropFirst("c.".count))
-            return "cId \(String(rest.prefix(8)))"
-        }
-        if cId.hasPrefix("dm.") {
-            return "cId legacy-dm"
-        }
-        if cId.hasPrefix("channel.") {
-            return "cId #\(String(cId.dropFirst("channel.".count)))"
-        }
-        return cId.count > 16 ? "cId \(String(cId.prefix(12)))" : "cId \(cId)"
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case cId
-        case fallbackId = "id"
-        case kind
-        case title
-        case alias
-        case participantIds
-        case agentId
-        case agentName
-        case harness
-        case preview
-        case messageCount
-        case lastMessageAt
-        case workspaceRoot
-        case currentBranch
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        cId = try c.decodeIfPresent(String.self, forKey: .cId)
-            ?? c.decode(String.self, forKey: .fallbackId)
-        kind = try c.decode(String.self, forKey: .kind)
-        title = try c.decode(String.self, forKey: .title)
-        alias = try c.decodeIfPresent(String.self, forKey: .alias)
-        participantIds = try c.decodeIfPresent([String].self, forKey: .participantIds) ?? []
-        agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
-        agentName = try c.decodeIfPresent(String.self, forKey: .agentName)
-        harness = try c.decodeIfPresent(String.self, forKey: .harness)
-        preview = try c.decodeIfPresent(String.self, forKey: .preview)
-        messageCount = try c.decodeIfPresent(Int.self, forKey: .messageCount) ?? 0
-        lastMessageAt = try c.decodeIfPresent(TimeInterval.self, forKey: .lastMessageAt)
-        workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot)
-        currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
-    }
-}
-
-struct CommsMessage: Identifiable, Decodable, Sendable, Equatable {
-    let id: String
-    let cId: String
-    let actorId: String?
-    let actorName: String
-    let body: String
-    let createdAt: TimeInterval
-    let messageClass: String
-
-    var isOperator: Bool {
-        actorId == "operator" || messageClass == "operator" || actorName.lowercased() == "operator"
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case cId
-        case fallbackCId = "conversationId"
-        case actorId
-        case actorName
-        case body
-        case createdAt
-        case messageClass = "class"
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(String.self, forKey: .id)
-        cId = try c.decodeIfPresent(String.self, forKey: .cId)
-            ?? c.decode(String.self, forKey: .fallbackCId)
-        actorId = try c.decodeIfPresent(String.self, forKey: .actorId)
-        actorName = try c.decodeIfPresent(String.self, forKey: .actorName)
-            ?? actorId
-            ?? "unknown"
-        body = try c.decode(String.self, forKey: .body)
-        createdAt = try c.decode(TimeInterval.self, forKey: .createdAt)
-        messageClass = try c.decodeIfPresent(String.self, forKey: .messageClass) ?? "message"
-    }
-}
+typealias CommsItem = ScoutChannel
+typealias CommsMessage = ScoutMessage
 
 @MainActor
 final class CommsService: ObservableObject {
@@ -161,7 +33,6 @@ final class CommsService: ObservableObject {
     @Published private(set) var isSending = false
     @Published private(set) var lastError: String?
 
-    private let decoder = JSONDecoder()
     private var pollTask: Task<Void, Never>?
     private var itemsTask: Task<Void, Never>?
     private var messagesTask: Task<Void, Never>?
@@ -177,7 +48,7 @@ final class CommsService: ObservableObject {
         items.filter { item in
             switch filter {
             case .all: return true
-            case .private: return item.scope == .private
+            case .private: return item.scope == .direct
             case .shared: return item.scope == .shared
             }
         }
@@ -240,19 +111,7 @@ final class CommsService: ObservableObject {
         setIfChanged(true, to: \.isSending)
         defer { setIfChanged(false, to: \.isSending) }
         do {
-            let url = ScoutWeb.baseURL().appending(path: "api/send")
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: [
-                "body": trimmed,
-                "cId": selectedCId,
-                "conversationId": selectedCId,
-            ])
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw CommsServiceError.sendFailed
-            }
+            try await ScoutCommsClient().send(body: trimmed, cId: selectedCId)
             setIfChanged(nil, to: \.lastError)
             refresh(force: true)
             loadMessages()
@@ -268,14 +127,7 @@ final class CommsService: ObservableObject {
             itemsTask = nil
         }
         do {
-            let base = ScoutWeb.baseURL()
-            let commsURL = base
-                .appending(path: "api/comms")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "120")])
-            let fallbackURL = base
-                .appending(path: "api/conversations")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "120")])
-            let next = try await fetchWithFallback([CommsItem].self, primary: commsURL, fallback: fallbackURL)
+            let next = try await ScoutCommsClient().fetchChannels(limit: 120)
             setIfChanged(next, to: \.items)
             if selectedCId == nil || !next.contains(where: { $0.cId == selectedCId }) {
                 setIfChanged(next.first?.cId, to: \.selectedCId)
@@ -293,16 +145,9 @@ final class CommsService: ObservableObject {
             messagesTask = nil
         }
         do {
-            let url = ScoutWeb.baseURL()
-                .appending(path: "api/messages")
-                .appending(queryItems: [
-                    URLQueryItem(name: "cId", value: cId),
-                    URLQueryItem(name: "conversationId", value: cId),
-                    URLQueryItem(name: "limit", value: "220"),
-                ])
-            let next = try await fetch([CommsMessage].self, from: url)
+            let next = try await ScoutCommsClient().fetchMessages(cId: cId, limit: 220)
             guard selectedCId == cId else { return }
-            setIfChanged(next.sorted { $0.createdAt < $1.createdAt }, to: \.messages)
+            setIfChanged(next, to: \.messages)
             setIfChanged(nil, to: \.lastError)
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
@@ -311,29 +156,7 @@ final class CommsService: ObservableObject {
         }
     }
 
-    private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw CommsServiceError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw CommsServiceError.httpStatus(http.statusCode)
-        }
-        return try decoder.decode(type, from: data)
-    }
-
-    private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {
-        do {
-            return try await fetch(type, from: primary)
-        } catch {
-            return try await fetch(type, from: fallback)
-        }
-    }
-
     private static func userFacingError(_ error: Error) -> String {
-        if let commsError = error as? CommsServiceError {
-            return commsError.localizedDescription
-        }
         return ScoutAppError.userFacing(error)
     }
 
@@ -343,21 +166,4 @@ final class CommsService: ObservableObject {
         }
     }
 
-}
-
-enum CommsServiceError: LocalizedError {
-    case invalidResponse
-    case httpStatus(Int)
-    case sendFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "Comms returned an invalid response."
-        case .httpStatus(let status):
-            return "Comms returned HTTP \(status)."
-        case .sendFailed:
-            return "Comms send failed."
-        }
-    }
 }
