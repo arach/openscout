@@ -1,23 +1,22 @@
 import Combine
 import Foundation
-import ScoutAppCore
 
 @MainActor
-final class ScoutTailStore: ObservableObject {
-    @Published private(set) var events: [ScoutTailEvent] = []
-    @Published private(set) var discovery: ScoutTailDiscoverySnapshot?
-    @Published private(set) var isLoading = false
-    @Published private(set) var lastError: String?
-    @Published private(set) var lastBatchCount = 0
-    @Published private(set) var linesPerSecond = 0.0
-    @Published private(set) var lastReceivedAt: Date?
-    @Published var query = ""
-    @Published var selectedSource: String?
-    @Published var selectedKind: ScoutTailEventKind?
-    @Published var isFollowing = true
-    @Published var showMetadata = false
+public final class ScoutTailStore: ObservableObject {
+    @Published public private(set) var events: [ScoutTailEvent] = []
+    @Published public private(set) var discovery: ScoutTailDiscoverySnapshot?
+    @Published public private(set) var isLoading = false
+    @Published public private(set) var lastError: String?
+    @Published public private(set) var lastBatchCount = 0
+    @Published public private(set) var linesPerSecond = 0.0
+    @Published public private(set) var lastReceivedAt: Date?
+    @Published public var query = ""
+    @Published public var selectedSource: String?
+    @Published public var selectedKind: ScoutTailEventKind?
+    @Published public var isFollowing = true
+    @Published public var showMetadata = false
 
-    private let decoder = JSONDecoder()
+    private let client: ScoutTailClient
     private let pollInterval: TimeInterval = 1.4
     private let maxEvents = 700
     private var pollTask: Task<Void, Never>?
@@ -25,7 +24,11 @@ final class ScoutTailStore: ObservableObject {
     private var lastMergeAt: Date?
     private var lastDiscoveryFetchAt: Date?
 
-    var filteredEvents: [ScoutTailEvent] {
+    public init(client: ScoutTailClient = ScoutTailClient()) {
+        self.client = client
+    }
+
+    public var filteredEvents: [ScoutTailEvent] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return events.filter { event in
             if !showMetadata, event.isLowSignalMetadata {
@@ -53,35 +56,35 @@ final class ScoutTailStore: ObservableObject {
         }
     }
 
-    var sources: [String] {
+    public var sources: [String] {
         Array(Set(events.map(\.source).filter { !$0.isEmpty })).sorted()
     }
 
-    var sourceCounts: [ScoutTailCount] {
+    public var sourceCounts: [ScoutTailCount] {
         counts(events.map(\.sourceLabel))
     }
 
-    var originCounts: [ScoutTailCount] {
+    public var originCounts: [ScoutTailCount] {
         counts(events.map(\.originLabel))
     }
 
-    var projectCounts: [ScoutTailCount] {
+    public var projectCounts: [ScoutTailCount] {
         counts(events.map(\.projectLabel))
     }
 
-    var kindCounts: [ScoutTailCount] {
+    public var kindCounts: [ScoutTailCount] {
         counts(events.map { $0.kind.title })
     }
 
-    var sessionCount: Int {
+    public var sessionCount: Int {
         Set(events.map(\.sessionId).filter { !$0.isEmpty }).count
     }
 
-    var liveRateLabel: String {
+    public var liveRateLabel: String {
         String(format: "%.1f lines/s", linesPerSecond)
     }
 
-    func start() {
+    public func start() {
         guard pollTask == nil else { return }
         refresh()
         let interval = pollInterval
@@ -93,7 +96,7 @@ final class ScoutTailStore: ObservableObject {
         }
     }
 
-    func stop() {
+    public func stop() {
         pollTask?.cancel()
         pollTask = nil
         fetchTask?.cancel()
@@ -101,7 +104,7 @@ final class ScoutTailStore: ObservableObject {
         setIfChanged(false, to: \.isLoading)
     }
 
-    func refresh(includeTranscripts: Bool = false) {
+    public func refresh(includeTranscripts: Bool = false) {
         if fetchTask != nil { return }
         setIfChanged(events.isEmpty, to: \.isLoading)
         fetchTask = Task { [weak self] in
@@ -116,16 +119,7 @@ final class ScoutTailStore: ObservableObject {
         }
 
         do {
-            var items = [
-                URLQueryItem(name: "limit", value: "500"),
-            ]
-            if includeTranscripts {
-                items.append(URLQueryItem(name: "transcripts", value: "true"))
-            }
-            let url = ScoutBroker.baseURL()
-                .appending(path: "v1/tail/recent")
-                .appending(queryItems: items)
-            let payload = try await fetch(ScoutTailRecentPayload.self, from: url)
+            let payload = try await client.fetchRecent(limit: 500, includeTranscripts: includeTranscripts)
             merge(payload.events)
             try await refreshDiscoveryIfNeeded()
             setIfChanged(nil, to: \.lastError)
@@ -172,8 +166,7 @@ final class ScoutTailStore: ObservableObject {
            discovery != nil {
             return
         }
-        let url = ScoutBroker.baseURL().appending(path: "v1/tail/discover")
-        let next = try await fetch(ScoutTailDiscoverySnapshot.self, from: url)
+        let next = try await client.fetchDiscovery()
         setIfChanged(next, to: \.discovery)
         lastDiscoveryFetchAt = now
     }
@@ -182,17 +175,6 @@ final class ScoutTailStore: ObservableObject {
         if self[keyPath: keyPath] != value {
             self[keyPath: keyPath] = value
         }
-    }
-
-    private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse else {
-            throw ScoutTailError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw ScoutTailError.httpStatus(http.statusCode)
-        }
-        return try decoder.decode(type, from: data)
     }
 
     private static func userFacingError(_ error: Error) -> String {
@@ -210,26 +192,5 @@ final class ScoutTailStore: ObservableObject {
                 if $0.count == $1.count { return $0.label < $1.label }
                 return $0.count > $1.count
             }
-    }
-}
-
-struct ScoutTailCount: Identifiable, Sendable {
-    let label: String
-    let count: Int
-
-    var id: String { label }
-}
-
-enum ScoutTailError: LocalizedError {
-    case invalidResponse
-    case httpStatus(Int)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "Scout returned an invalid tail response."
-        case .httpStatus(let status):
-            return "Scout tail returned HTTP \(status)."
-        }
     }
 }

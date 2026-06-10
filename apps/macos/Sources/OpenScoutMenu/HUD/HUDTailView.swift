@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 // Tail tab — native port of design/studio/components/hud/HudTail.tsx.
@@ -17,6 +18,20 @@ private enum TailKind: String {
     case pmt = "PMT"
     case brk = "BRK"
     case ask = "ASK"
+
+    static func from(_ event: ScoutTailEvent) -> TailKind {
+        let summaryKind = from(event.summary)
+        if summaryKind == .err || summaryKind == .ask {
+            return summaryKind
+        }
+        switch event.kind {
+        case .user: return .pmt
+        case .assistant: return .turn
+        case .tool, .toolResult: return .tol
+        case .system: return .lif
+        case .other: return summaryKind
+        }
+    }
 
     static func from(_ raw: String) -> TailKind {
         let v = raw.lowercased()
@@ -110,9 +125,7 @@ private struct TailRowModel: Identifiable {
 }
 
 struct HUDTailView: View {
-    let agents: [HudAgent]
-    let activity: [HudActivityItem]?
-    let isLoading: Bool
+    @ObservedObject var tail: ScoutTailStore
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
@@ -121,13 +134,9 @@ struct HUDTailView: View {
     // their reading position doesn't get yanked. `f` toggles it back.
     @State private var following = true
 
-    private var agentById: [String: HudAgent] {
-        Dictionary(uniqueKeysWithValues: agents.map { ($0.id, $0) })
-    }
-
     var body: some View {
         Group {
-            if isLoading || activity == nil {
+            if tail.isLoading && tail.events.isEmpty {
                 TailLoadingView()
             } else if rows.isEmpty {
                 TailEmptyView()
@@ -139,8 +148,14 @@ struct HUDTailView: View {
                 }
             }
         }
-        .onAppear { wireNavBus() }
-        .onDisappear { HUDNavBus.shared.clear() }
+        .onAppear {
+            tail.start()
+            wireNavBus()
+        }
+        .onDisappear {
+            tail.stop()
+            HUDNavBus.shared.clear()
+        }
     }
 
     // Register cycle/engage closures with the global key bus. HUDController
@@ -261,37 +276,24 @@ struct HUDTailView: View {
     }
 
     private var rows: [TailRowModel] {
-        let clock = DateFormatter()
-        clock.dateFormat = "HH:mm:ss"
-        return (activity ?? []).prefix(80).map { item in
-            let agent = item.agentId.flatMap { agentById[$0] }
-            let source = agent?.handle ?? agent?.name ?? item.displayName
-            let kind = TailKind.from(item.kind)
-            let at = clock.string(from: Date(timeIntervalSince1970: item.ts / 1000))
+        Array(tail.filteredEvents.suffix(80)).map { event in
+            let source = event.sourceLabel
+            let kind = TailKind.from(event)
             return TailRowModel(
-                id: item.id,
-                at: at,
+                id: event.id,
+                at: event.clockLabel,
                 kind: kind,
                 source: source.hasPrefix("@") ? String(source.dropFirst()) : source,
-                line: Self.line(for: item),
+                line: Self.line(for: event),
                 emphasized: kind == .ask || kind == .err
             )
         }
     }
 
-    private static func line(for item: HudActivityItem) -> String {
-        let title = item.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch (title?.isEmpty == false ? title : nil, summary?.isEmpty == false ? summary : nil) {
-        case let (.some(t), .some(s)) where t != s:
-            return "\(t) — \(s)"
-        case let (.some(t), _):
-            return t
-        case let (_, .some(s)):
-            return s
-        default:
-            return item.kind.replacingOccurrences(of: "_", with: " ")
-        }
+    private static func line(for event: ScoutTailEvent) -> String {
+        let summary = event.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { return event.kind.title }
+        return summary
     }
 }
 

@@ -92,7 +92,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     }
 
     public var ageLabel: String {
-        RelativeTime.format(lastMessageAt)
+        ScoutRelativeTime.format(lastMessageAt)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -254,7 +254,7 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     public var detail: String { [role, harness, transport].compactMap(nilIfEmpty).joined(separator: " · ") }
     public var workspace: String { nilIfEmpty(projectRoot) ?? nilIfEmpty(cwd) ?? nilIfEmpty(project) ?? "—" }
     public var branchLabel: String { nilIfEmpty(branch) ?? "—" }
-    public var updatedLabel: String { RelativeTime.format(updatedAt) }
+    public var updatedLabel: String { ScoutRelativeTime.format(updatedAt) }
     public var roleLabel: String { nilIfEmpty(role) ?? "Session agent" }
     public var modelDisplayValue: String {
         if let model = nilIfEmpty(model) { return model }
@@ -312,22 +312,6 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         harnessSessionId = try c.decodeIfPresent(String.self, forKey: .harnessSessionId)
         updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
-    }
-}
-
-private enum RelativeTime {
-    static func format(_ raw: TimeInterval?, now: Date = Date()) -> String {
-        guard let raw else { return "—" }
-        let seconds = raw > 10_000_000_000 ? raw / 1000 : raw
-        let delta = max(0, Int(now.timeIntervalSince(Date(timeIntervalSince1970: seconds))))
-        if delta < 60 { return "\(delta)s" }
-        if delta < 3600 { return "\(delta / 60)m" }
-        if delta < 86_400 {
-            let h = delta / 3600
-            let m = (delta % 3600) / 60
-            return m == 0 ? "\(h)h" : "\(h)h \(m)m"
-        }
-        return "\(delta / 86_400)d"
     }
 }
 

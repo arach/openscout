@@ -1,3 +1,4 @@
+import ScoutAppCore
 import SwiftUI
 
 // HUD shell — broadsheet edition.
@@ -27,6 +28,7 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var fleet = HudFleetService.shared
+    @StateObject private var tail = ScoutTailStore()
 
     private let minPanelW: CGFloat = 360
     private let minPanelH: CGFloat = 380
@@ -179,11 +181,7 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
-                HUDTailView(
-                    agents: agents,
-                    activity: fleet.activity,
-                    isLoading: fleet.isLoading && fleet.activity == nil
-                )
+                HUDTailView(tail: tail)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .sessions:

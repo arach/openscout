@@ -48,6 +48,19 @@ extension ScoutAgentState {
     }
 }
 
+extension ScoutTailEventKind {
+    var tint: Color {
+        switch self {
+        case .user: return ScoutPalette.statusInfo
+        case .assistant: return ScoutPalette.accent
+        case .tool: return .cyan
+        case .toolResult: return .orange
+        case .system: return ScoutPalette.muted
+        case .other: return ScoutPalette.dim
+        }
+    }
+}
+
 struct ScoutObservePayload: Decodable, Sendable {
     let agentId: String
     let source: String
@@ -300,198 +313,6 @@ struct ScoutObserveUsageMeta: Decodable, Sendable {
     let serviceTier: String?
     let speed: String?
     let planType: String?
-}
-
-enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable, Equatable {
-    case user
-    case assistant
-    case tool
-    case toolResult = "tool-result"
-    case system
-    case other
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .user: return "USER"
-        case .assistant: return "ASST"
-        case .tool: return "TOOL"
-        case .toolResult: return "OUT"
-        case .system: return "SYS"
-        case .other: return "EVT"
-        }
-    }
-
-    var glyph: String {
-        switch self {
-        case .user: return ">"
-        case .assistant: return "<"
-        case .tool: return "*"
-        case .toolResult: return "="
-        case .system: return "~"
-        case .other: return "·"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .user: return "User"
-        case .assistant: return "Assistant"
-        case .tool: return "Tool"
-        case .toolResult: return "Tool result"
-        case .system: return "System"
-        case .other: return "Other"
-        }
-    }
-
-    var tint: Color {
-        switch self {
-        case .user: return ScoutPalette.statusInfo
-        case .assistant: return ScoutPalette.accent
-        case .tool: return .cyan
-        case .toolResult: return .orange
-        case .system: return ScoutPalette.muted
-        case .other: return ScoutPalette.dim
-        }
-    }
-}
-
-struct ScoutTailEvent: Identifiable, Decodable, Sendable, Equatable {
-    let id: String
-    let ts: TimeInterval
-    let source: String
-    let sessionId: String
-    let pid: Int
-    let parentPid: Int?
-    let project: String
-    let cwd: String
-    let harness: String
-    let kind: ScoutTailEventKind
-    let summary: String
-
-    var date: Date {
-        Date(timeIntervalSince1970: ts > 10_000_000_000 ? ts / 1000 : ts)
-    }
-
-    var clockLabel: String {
-        Self.clockFormatter.string(from: date)
-    }
-
-    var ageLabel: String {
-        ScoutRelativeTime.format(ts)
-    }
-
-    var sourceLabel: String {
-        source.isEmpty ? "unknown" : source.lowercased()
-    }
-
-    var projectLabel: String {
-        project.nilIfEmpty ?? cwd.split(separator: "/").last.map(String.init) ?? "—"
-    }
-
-    var sessionShortLabel: String {
-        let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "—" }
-        return String(trimmed.prefix(8))
-    }
-
-    var pidLabel: String {
-        pid > 0 ? "\(pid)" : "log"
-    }
-
-    var originLabel: String {
-        switch harness {
-        case "scout-managed": return "scout"
-        case "hudson-managed": return "hudson"
-        case "unattributed": return "native"
-        default: return harness
-        }
-    }
-
-    var isLowSignalMetadata: Bool {
-        if kind == .other || kind == .system {
-            let normalized = summary
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-            if normalized.hasPrefix("last-prompt:") { return true }
-            if normalized.hasPrefix("permission-mode") { return true }
-            if normalized == "[ai-title]"
-                || normalized == "[custom-title]"
-                || normalized == "[agent-name]"
-                || normalized == "[model]"
-                || normalized == "[summary]" {
-                return true
-            }
-        }
-        return false
-    }
-
-    private static let clockFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter
-    }()
-}
-
-struct ScoutTailRecentPayload: Decodable, Sendable, Equatable {
-    let events: [ScoutTailEvent]
-}
-
-struct ScoutTailDiscoverySnapshot: Decodable, Sendable, Equatable {
-    let generatedAt: TimeInterval
-    let processes: [ScoutTailDiscoveredProcess]
-    let transcripts: [ScoutTailDiscoveredTranscript]
-    let totals: ScoutTailDiscoveryTotals
-}
-
-struct ScoutTailDiscoveredProcess: Identifiable, Decodable, Sendable, Equatable {
-    let pid: Int
-    let ppid: Int
-    let command: String
-    let etime: String
-    let cwd: String?
-    let harness: String
-    let source: String
-
-    var id: String { "\(source)-\(pid)" }
-}
-
-struct ScoutTailDiscoveredTranscript: Identifiable, Decodable, Sendable, Equatable {
-    let source: String
-    let transcriptPath: String
-    let sessionId: String?
-    let cwd: String?
-    let project: String
-    let harness: String
-    let mtimeMs: TimeInterval
-    let size: Int
-
-    var id: String { "\(source)-\(transcriptPath)" }
-}
-
-struct ScoutTailDiscoveryTotals: Decodable, Sendable, Equatable {
-    let total: Int
-    let scoutManaged: Int
-    let hudsonManaged: Int
-    let unattributed: Int
-    let transcripts: Int
-}
-
-enum ScoutRelativeTime {
-    static func format(_ raw: TimeInterval?, now: Date = Date()) -> String {
-        guard let raw else { return "—" }
-        let seconds = raw > 10_000_000_000 ? raw / 1000 : raw
-        let delta = max(0, Int(now.timeIntervalSince(Date(timeIntervalSince1970: seconds))))
-        if delta < 60 { return "\(delta)s" }
-        if delta < 3600 { return "\(delta / 60)m" }
-        if delta < 86_400 {
-            let h = delta / 3600
-            let m = (delta % 3600) / 60
-            return m == 0 ? "\(h)h" : "\(h)h \(m)m"
-        }
-        return "\(delta / 86_400)d"
-    }
 }
 
 func uniqueMemberNames(_ names: [String]) -> [String] {
