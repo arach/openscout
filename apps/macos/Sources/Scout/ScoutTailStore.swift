@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ScoutAppCore
 
 @MainActor
 final class ScoutTailStore: ObservableObject {
@@ -198,16 +199,7 @@ final class ScoutTailStore: ObservableObject {
         if let tailError = error as? ScoutTailError {
             return tailError.localizedDescription
         }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            switch nsError.code {
-            case NSURLErrorCannotConnectToHost, NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut:
-                return "Could not connect to the Scout broker."
-            default:
-                break
-            }
-        }
-        return error.localizedDescription
+        return ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout broker.")
     }
 
     private func counts(_ values: [String]) -> [ScoutTailCount] {
@@ -218,56 +210,6 @@ final class ScoutTailStore: ObservableObject {
                 if $0.count == $1.count { return $0.label < $1.label }
                 return $0.count > $1.count
             }
-    }
-}
-
-enum ScoutBroker {
-    private static let fallbackURL = URL(string: "http://127.0.0.1:65535")!
-
-    static func baseURL() -> URL {
-        if let url = readBrokerURLFromEnvironment() {
-            return url
-        }
-        if let url = readBrokerURLFromConfig() {
-            return url
-        }
-        return fallbackURL
-    }
-
-    private static func readBrokerURLFromEnvironment() -> URL? {
-        let env = ProcessInfo.processInfo.environment
-        if let value = env["OPENSCOUT_BROKER_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !value.isEmpty,
-           let url = URL(string: value) {
-            return url
-        }
-
-        let portValue = env["OPENSCOUT_BROKER_PORT"]
-        guard let portText = portValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let port = Int(portText),
-              (1...65_535).contains(port) else {
-            return nil
-        }
-        let rawHost = env["OPENSCOUT_BROKER_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = (rawHost?.isEmpty == false && rawHost != "0.0.0.0" && rawHost != "::")
-            ? rawHost!
-            : "127.0.0.1"
-        return URL(string: "http://\(host):\(port)")
-    }
-
-    private static func readBrokerURLFromConfig() -> URL? {
-        struct OpenScoutConfig: Decodable {
-            struct Ports: Decodable { let broker: Int? }
-            let host: String?
-            let ports: Ports?
-        }
-        let path = ("~/.openscout/config.json" as NSString).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-        guard let cfg = try? JSONDecoder().decode(OpenScoutConfig.self, from: data) else { return nil }
-        let rawHost = cfg.host ?? "127.0.0.1"
-        let host = (rawHost == "0.0.0.0" || rawHost == "::") ? "127.0.0.1" : rawHost
-        guard let port = cfg.ports?.broker else { return nil }
-        return URL(string: "http://\(host):\(port)")
     }
 }
 

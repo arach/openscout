@@ -43,6 +43,8 @@ enum CommandRunner {
             let process = Process()
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
+            let stdoutCapture = PipeCapture()
+            let stderrCapture = PipeCapture()
 
             process.executableURL = descriptor.executableURL
             process.arguments = descriptor.arguments
@@ -60,10 +62,13 @@ enum CommandRunner {
                 )
             }
 
+            stdoutCapture.startReading(from: stdoutPipe.fileHandleForReading)
+            stderrCapture.startReading(from: stderrPipe.fileHandleForReading)
+
             process.waitUntilExit()
 
-            let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let stdoutData = stdoutCapture.waitForData()
+            let stderrData = stderrCapture.waitForData()
 
             return CommandResult(
                 exitCode: process.terminationStatus,
@@ -95,5 +100,29 @@ enum CommandRunner {
 
     private static func mergedEnvironment(overrides: [String: String]) -> [String: String] {
         ProcessInfo.processInfo.environment.merging(overrides) { _, new in new }
+    }
+}
+
+private final class PipeCapture: @unchecked Sendable {
+    private let group = DispatchGroup()
+    private let lock = NSLock()
+    private var data = Data()
+
+    func startReading(from handle: FileHandle) {
+        group.enter()
+        DispatchQueue.global(qos: .utility).async { [self] in
+            let captured = handle.readDataToEndOfFile()
+            self.lock.lock()
+            self.data = captured
+            self.lock.unlock()
+            self.group.leave()
+        }
+    }
+
+    func waitForData() -> Data {
+        group.wait()
+        lock.lock()
+        defer { lock.unlock() }
+        return data
     }
 }

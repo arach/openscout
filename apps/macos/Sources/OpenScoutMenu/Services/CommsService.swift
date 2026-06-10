@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ScoutAppCore
 
 enum CommsFilter: String, CaseIterable, Identifiable {
     case all
@@ -22,7 +23,7 @@ enum CommsScope {
     case shared
 }
 
-struct CommsItem: Identifiable, Decodable, Sendable {
+struct CommsItem: Identifiable, Decodable, Sendable, Equatable {
     let cId: String
     let kind: String
     let title: String
@@ -109,7 +110,7 @@ struct CommsItem: Identifiable, Decodable, Sendable {
     }
 }
 
-struct CommsMessage: Identifiable, Decodable, Sendable {
+struct CommsMessage: Identifiable, Decodable, Sendable, Equatable {
     let id: String
     let cId: String
     let actorId: String?
@@ -184,7 +185,7 @@ final class CommsService: ObservableObject {
 
     func start(preferredCId: String? = nil) {
         if let preferredCId {
-            selectedCId = preferredCId
+            setIfChanged(preferredCId, to: \.selectedCId)
         }
         guard pollTask == nil else {
             refresh(force: true)
@@ -206,12 +207,13 @@ final class CommsService: ObservableObject {
         messagesTask?.cancel()
         itemsTask = nil
         messagesTask = nil
+        setIfChanged(false, to: \.isLoading)
     }
 
     func refresh(force: Bool = false) {
         if itemsTask != nil { return }
         if !force, pollTask == nil { return }
-        isLoading = items.isEmpty
+        setIfChanged(items.isEmpty, to: \.isLoading)
         itemsTask = Task { [weak self] in
             await self?.loadItems()
         }
@@ -219,8 +221,8 @@ final class CommsService: ObservableObject {
 
     func select(_ cId: String) {
         guard selectedCId != cId else { return }
-        selectedCId = cId
-        messages = []
+        setIfChanged(cId, to: \.selectedCId)
+        setIfChanged([], to: \.messages)
         loadMessages()
     }
 
@@ -235,10 +237,10 @@ final class CommsService: ObservableObject {
     func send(_ body: String) async {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let selectedCId, !isSending else { return }
-        isSending = true
-        defer { isSending = false }
+        setIfChanged(true, to: \.isSending)
+        defer { setIfChanged(false, to: \.isSending) }
         do {
-            let url = HudFleetService.webBaseURL().appending(path: "api/send")
+            let url = ScoutWeb.baseURL().appending(path: "api/send")
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -251,21 +253,22 @@ final class CommsService: ObservableObject {
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
                 throw CommsServiceError.sendFailed
             }
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
             refresh(force: true)
             loadMessages()
         } catch {
-            lastError = Self.userFacingError(error)
+            guard !ScoutAppError.isCancellation(error) else { return }
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
     private func loadItems() async {
         defer {
-            isLoading = false
+            setIfChanged(false, to: \.isLoading)
             itemsTask = nil
         }
         do {
-            let base = HudFleetService.webBaseURL()
+            let base = ScoutWeb.baseURL()
             let commsURL = base
                 .appending(path: "api/comms")
                 .appending(queryItems: [URLQueryItem(name: "limit", value: "120")])
@@ -273,14 +276,15 @@ final class CommsService: ObservableObject {
                 .appending(path: "api/conversations")
                 .appending(queryItems: [URLQueryItem(name: "limit", value: "120")])
             let next = try await fetchWithFallback([CommsItem].self, primary: commsURL, fallback: fallbackURL)
-            items = next
+            setIfChanged(next, to: \.items)
             if selectedCId == nil || !next.contains(where: { $0.cId == selectedCId }) {
-                selectedCId = next.first?.cId
+                setIfChanged(next.first?.cId, to: \.selectedCId)
             }
-            lastError = nil
+            setIfChanged(nil, to: \.lastError)
             loadMessages()
         } catch {
-            lastError = Self.userFacingError(error)
+            guard !ScoutAppError.isCancellation(error) else { return }
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
@@ -289,7 +293,7 @@ final class CommsService: ObservableObject {
             messagesTask = nil
         }
         do {
-            let url = HudFleetService.webBaseURL()
+            let url = ScoutWeb.baseURL()
                 .appending(path: "api/messages")
                 .appending(queryItems: [
                     URLQueryItem(name: "cId", value: cId),
@@ -298,11 +302,12 @@ final class CommsService: ObservableObject {
                 ])
             let next = try await fetch([CommsMessage].self, from: url)
             guard selectedCId == cId else { return }
-            messages = next.sorted { $0.createdAt < $1.createdAt }
-            lastError = nil
+            setIfChanged(next.sorted { $0.createdAt < $1.createdAt }, to: \.messages)
+            setIfChanged(nil, to: \.lastError)
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
-            lastError = Self.userFacingError(error)
+            setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
@@ -329,8 +334,15 @@ final class CommsService: ObservableObject {
         if let commsError = error as? CommsServiceError {
             return commsError.localizedDescription
         }
-        return error.localizedDescription
+        return ScoutAppError.userFacing(error)
     }
+
+    private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<CommsService, T>) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
+    }
+
 }
 
 enum CommsServiceError: LocalizedError {

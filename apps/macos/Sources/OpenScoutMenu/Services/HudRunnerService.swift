@@ -1,4 +1,5 @@
 import Foundation
+import ScoutAppCore
 
 struct HudRunnerOptions: Decodable {
     struct Defaults: Decodable {
@@ -121,7 +122,7 @@ enum HudRunnerService {
     }
 
     static func fetchOptions() async throws -> HudRunnerOptions {
-        let url = HudFleetService.webBaseURL().appending(path: "api/runner/options")
+        let url = ScoutWeb.baseURL().appending(path: "api/runner/options")
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse else {
             throw HudRunnerServiceError.invalidResponse
@@ -141,7 +142,7 @@ enum HudRunnerService {
         displayName: String,
         instructions: String
     ) async throws -> HudRunnerAskResponse {
-        let url = HudFleetService.webBaseURL().appending(path: "api/runner/ask")
+        let url = ScoutWeb.baseURL().appending(path: "api/runner/ask")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

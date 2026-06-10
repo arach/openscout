@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 // Agents tab — native port of design/studio/components/hud/HudAgents.tsx.
@@ -909,7 +910,7 @@ private func openAgentProjectRoot(_ agent: HudAgent) {
 }
 
 private func agentMessagesURL(_ agent: HudAgent) -> URL {
-    let base = HudFleetService.webBaseURL()
+    let base = ScoutWeb.baseURL()
     if let cid = agent.conversationId, !cid.isEmpty {
         return agentRelativeURL("/c/\(agentPercent(cid))", base: base)
     }

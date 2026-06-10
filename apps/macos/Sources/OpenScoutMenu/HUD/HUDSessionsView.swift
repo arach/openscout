@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 // Sessions tab — native port of design/studio/components/hud/HudSessions.tsx.
@@ -514,7 +515,7 @@ private struct SessionDetailInline: View {
     // scoped /ops/tail query, never an empty index.
 
     private var transcriptURL: URL {
-        let base = HudFleetService.webBaseURL()
+        let base = ScoutWeb.baseURL()
         if let ref = session.harnessSessionId, !ref.isEmpty {
             return relativeURL("/sessions/\(percent(ref))", base: base)
         }
@@ -531,7 +532,7 @@ private struct SessionDetailInline: View {
     }
 
     private var followURL: URL {
-        let base = HudFleetService.webBaseURL()
+        let base = ScoutWeb.baseURL()
         if let ref = session.harnessSessionId, !ref.isEmpty {
             return relativeURL("/follow/session/\(percent(ref))", base: base)
         }
@@ -546,7 +547,7 @@ private struct SessionDetailInline: View {
     }
 
     private var agentURL: URL {
-        let base = HudFleetService.webBaseURL()
+        let base = ScoutWeb.baseURL()
         let aid = session.id
         if aid.isEmpty { return relativeURL("/agents", base: base) }
         return relativeURL("/agents/\(percent(aid))", base: base)

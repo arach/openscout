@@ -100,12 +100,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let popover = makePopover()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        controller.setStatusSurfaceVisible(true, source: "popover")
     }
 
     func popoverDidClose(_ notification: Notification) {
         popover?.contentViewController = nil
         popover = nil
         controller.clearActionLog()
+        controller.setStatusSurfaceVisible(false, source: "popover")
     }
 
     private func makePopover() -> NSPopover {

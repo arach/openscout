@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI
@@ -1610,7 +1611,7 @@ private struct CommsObserveTarget: Identifiable, Equatable {
     var id: String { agentId }
 
     var url: URL {
-        HudFleetService.webBaseURL()
+        ScoutWeb.baseURL()
             .appending(path: "embed")
             .appending(path: "observe")
             .appending(path: agentId)

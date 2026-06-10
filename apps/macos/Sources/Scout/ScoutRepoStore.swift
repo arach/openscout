@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ScoutAppCore
 
 /// Polls the broker's Repo Watch snapshot for the Repos section. Mirrors
 /// `ScoutTailStore`'s lifecycle (start/stop/refresh + a single in-flight fetch)

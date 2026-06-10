@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import ScoutAppCore
 import SwiftUI
 
 @MainActor
@@ -8,6 +9,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     private var window: NSWindow?
     private var themeCancellable: AnyCancellable?
+    private weak var controller: OpenScoutAppController?
     private let frameAutosaveName = "OpenScoutSettingsWindow"
 
     private override init() {
@@ -15,6 +17,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
 
     func show(controller: OpenScoutAppController) {
+        self.controller = controller
+        controller.setStatusSurfaceVisible(true, source: "settings")
         if let window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -54,6 +58,8 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         themeCancellable = nil
+        controller?.setStatusSurfaceVisible(false, source: "settings")
+        controller = nil
         window = nil
     }
 }
@@ -344,7 +350,7 @@ private struct DiagnosticsTab: View {
 
     private func webDetail() -> String {
         if controller.webReachable {
-            return "Web surface is responding on http://127.0.0.1:3200."
+            return "Web surface is responding on \(ScoutWeb.baseURL().absoluteString)."
         }
         if controller.webActionPending {
             return "Web app is starting. This may take up to 15 seconds on first boot."

@@ -1,5 +1,6 @@
 import AppKit
 import HudsonUI
+import ScoutAppCore
 import SwiftUI
 
 struct ScoutTailContent: View {

@@ -1,4 +1,5 @@
 import Foundation
+import ScoutAppCore
 
 @MainActor
 final class HudFleetService: ObservableObject {
@@ -14,10 +15,6 @@ final class HudFleetService: ObservableObject {
     private let pollInterval: TimeInterval = 2.0
     private var pollTask: Task<Void, Never>?
     private var inFlight: Task<Void, Never>?
-    private var webBaseURL: URL?
-    // Last-resort default if ~/.openscout/config.json can't be read.
-    // The canonical source is the local openscout config (host + ports.web).
-    nonisolated private static let defaultWebURL = URL(string: "http://127.0.0.1:3200")!
 
     private init() {}
 
@@ -110,66 +107,7 @@ final class HudFleetService: ObservableObject {
     }
 
     private func resolveWebBaseURL() async throws -> URL {
-        if let cached = webBaseURL {
-            return cached
-        }
-        // Explicit web-surface env overrides win. Do not use
-        // OPENSCOUT_BROKER_URL here: that is the control-plane broker
-        // and does not serve /api/agents, /api/activity, /api/send, etc.
-        if let url = Self.readWebURLFromEnvironment() {
-            webBaseURL = url
-            return url
-        }
-        // Canonical source: ~/.openscout/config.json. The "web" port is
-        // the surface serving /api/agents, /api/activity, etc. The
-        // separate "broker" port is the control plane and doesn't have
-        // those routes.
-        if let url = Self.readWebURLFromConfig() {
-            webBaseURL = url
-            return url
-        }
-        webBaseURL = Self.defaultWebURL
-        return Self.defaultWebURL
-    }
-
-    nonisolated private static func readWebURLFromEnvironment() -> URL? {
-        let env = ProcessInfo.processInfo.environment
-
-        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL", "OPENSCOUT_WEB_PUBLIC_ORIGIN"] {
-            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty,
-                  let url = URL(string: value) else {
-                continue
-            }
-            return url
-        }
-
-        let portValue = env["OPENSCOUT_WEB_PORT"] ?? env["SCOUT_WEB_PORT"]
-        guard let portText = portValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let port = Int(portText),
-              (1...65_535).contains(port) else {
-            return nil
-        }
-
-        let rawHost = env["OPENSCOUT_WEB_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = (rawHost?.isEmpty == false && rawHost != "0.0.0.0" && rawHost != "::")
-            ? rawHost!
-            : "127.0.0.1"
-        return URL(string: "http://\(host):\(port)")
-    }
-
-    nonisolated private static func readWebURLFromConfig() -> URL? {
-        struct OpenScoutConfig: Decodable {
-            struct Ports: Decodable { let web: Int? }
-            let host: String?
-            let ports: Ports?
-        }
-        let path = ("~/.openscout/config.json" as NSString).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-        guard let cfg = try? JSONDecoder().decode(OpenScoutConfig.self, from: data) else { return nil }
-        let host = cfg.host ?? "127.0.0.1"
-        guard let port = cfg.ports?.web else { return nil }
-        return URL(string: "http://\(host):\(port)")
+        ScoutWeb.baseURL()
     }
 
     /// Synchronous accessor for the web surface base URL. Used by HUD drill
@@ -177,13 +115,7 @@ final class HudFleetService: ObservableObject {
     /// resolution order of `resolveWebBaseURL` (env → config → default)
     /// but without the actor-isolated cache.
     nonisolated static func webBaseURL() -> URL {
-        if let url = readWebURLFromEnvironment() {
-            return url
-        }
-        if let url = readWebURLFromConfig() {
-            return url
-        }
-        return defaultWebURL
+        ScoutWeb.baseURL()
     }
 
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {

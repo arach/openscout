@@ -32,6 +32,8 @@ private enum ScoutReposMetrics {
 
     static let rowHeight: CGFloat = 30
     static let churnColWidth: CGFloat = 104
+    static let churnNumWidth: CGFloat = 36   // +adds / −dels each right-align in a fixed slot
+    static let churnBarWidth: CGFloat = 24   // proportional split bar, fixed trailing slot
     static let filesColWidth: CGFloat = 44
     static let driftColWidth: CGFloat = 104
     static let agentsColWidth: CGFloat = 132
@@ -341,8 +343,8 @@ struct ScoutReposContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             sortButton(.churn, edge: .trailing)
                 .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
-            sortButton(.files, edge: .center)
-                .frame(width: ScoutReposMetrics.filesColWidth, alignment: .center)
+            sortButton(.files, edge: .trailing)
+                .frame(width: ScoutReposMetrics.filesColWidth, alignment: .trailing)
             sortButton(.drift, edge: .center)
                 .frame(width: ScoutReposMetrics.driftColWidth, alignment: .center)
             sortButton(.agents, edge: .leading)
@@ -730,28 +732,14 @@ struct ScoutReposTree: View {
                 .foregroundStyle(ScoutPalette.dim)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            repoTag("\(project.worktrees.count) wt", tint: ScoutPalette.muted)
             Spacer(minLength: HudSpacing.sm)
         }
     }
 
-    @ViewBuilder
     private func projectChurnCol(_ project: RepoProject) -> some View {
         let add = project.worktrees.reduce(0) { $0 + $1.churn.add }
         let del = project.worktrees.reduce(0) { $0 + $1.churn.del }
-        Group {
-            if add > 0 || del > 0 {
-                HStack(spacing: 3) {
-                    Text("+\(add)").foregroundStyle(ScoutPalette.statusOk.opacity(0.85))
-                    Text("−\(del)").foregroundStyle(ScoutPalette.statusError.opacity(0.85))
-                }
-                .monospacedDigit()
-            } else {
-                Text("—").foregroundStyle(ScoutPalette.dim)
-            }
-        }
-        .font(HudFont.mono(HudTextSize.micro))
-        .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
+        return churnCell(add: add, del: del, dim: true)
     }
 
     @ViewBuilder
@@ -785,35 +773,7 @@ struct ScoutReposTree: View {
             branchLabel(wt.branchParts)
             tags(wt)
             Spacer(minLength: HudSpacing.sm)
-            if !wt.path.isEmpty {
-                diffButton(wt)
-            }
         }
-    }
-
-    /// SCO-065 — the per-worktree "diff" affordance. A plain "diff" chip (no
-    /// icon) visible on every worktree row so the repo-diff sheet is
-    /// discoverable; clicking it — or anywhere on the row — opens the sheet for
-    /// this worktree.
-    private func diffButton(_ wt: RepoWorktree) -> some View {
-        Button {
-            onOpenDiff(wt)
-        } label: {
-            Text("diff")
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .tracking(0.4)
-                .foregroundStyle(ScoutPalette.accent)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: HudRadius.tight).fill(ScoutPalette.accentSoft))
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.tight)
-                        .stroke(ScoutPalette.accent.opacity(0.25), lineWidth: HudStrokeWidth.thin)
-                )
-        }
-        .buttonStyle(.plain)
-        .scoutPointerCursor()
-        .help("Open diff")
     }
 
     @ViewBuilder
@@ -887,23 +847,36 @@ struct ScoutReposTree: View {
     }
 
     /// CHURN column — +adds/−dels with a proportional split bar (web `Churn`).
-    @ViewBuilder
     private func churnCol(_ wt: RepoWorktree) -> some View {
-        Group {
-            if wt.churn.has {
-                HStack(spacing: HudSpacing.xs) {
-                    HStack(spacing: 3) {
-                        Text("+\(wt.churn.add)").foregroundStyle(ScoutPalette.statusOk)
-                        Text("−\(wt.churn.del)").foregroundStyle(ScoutPalette.statusError)
-                    }
-                    .monospacedDigit()
-                    RepoChurnBar(add: wt.churn.add, del: wt.churn.del, width: 38)
-                }
+        churnCell(add: wt.churn.add, del: wt.churn.del)
+    }
+
+    /// Shared churn cell for both project (aggregate) and worktree rows: the add
+    /// and del counts each right-align in a fixed slot and the split bar sits in
+    /// a fixed trailing slot, so every churn value lines up down the list and
+    /// the cell never wraps no matter how large the diff. `dim` quiets the
+    /// aggregate row so it reads as a rollup.
+    @ViewBuilder
+    private func churnCell(add: Int, del: Int, dim: Bool = false) -> some View {
+        let alpha = dim ? 0.85 : 1
+        HStack(spacing: 0) {
+            if add > 0 || del > 0 {
+                Text("+\(add)")
+                    .foregroundStyle(ScoutPalette.statusOk.opacity(alpha))
+                    .frame(width: ScoutReposMetrics.churnNumWidth, alignment: .trailing)
+                Text("−\(del)")
+                    .foregroundStyle(ScoutPalette.statusError.opacity(alpha))
+                    .frame(width: ScoutReposMetrics.churnNumWidth, alignment: .trailing)
+                RepoChurnBar(add: add, del: del, width: ScoutReposMetrics.churnBarWidth)
+                    .padding(.leading, HudSpacing.sm)
             } else {
-                Text("—").foregroundStyle(ScoutPalette.dim)
+                Text("—")
+                    .foregroundStyle(ScoutPalette.dim)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .font(HudFont.mono(HudTextSize.micro))
+        .monospacedDigit()
         .frame(width: ScoutReposMetrics.churnColWidth, alignment: .trailing)
     }
 
@@ -924,7 +897,7 @@ struct ScoutReposTree: View {
             }
         }
         .font(HudFont.mono(HudTextSize.xxs))
-        .frame(width: ScoutReposMetrics.filesColWidth, alignment: .center)
+        .frame(width: ScoutReposMetrics.filesColWidth, alignment: .trailing)
     }
 
     /// AGENTS column — a live badge + up to two handles + overflow (web `Agents`).

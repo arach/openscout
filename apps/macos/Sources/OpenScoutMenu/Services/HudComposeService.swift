@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import os.log
+import ScoutAppCore
 import ScoutNativeCore
 
 /// Compose pipeline for the universal HUD dock. Owns the act of turning
@@ -109,7 +110,7 @@ final class HudComposeService: ObservableObject {
     // MARK: - Wire
 
     private func postToBroker(_ body: String) async throws {
-        let url = HudFleetService.webBaseURL().appendingPathComponent("api/send")
+        let url = ScoutWeb.baseURL().appendingPathComponent("api/send")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -182,7 +183,7 @@ final class HudComposeService: ObservableObject {
     }
 
     private func consumeReplyStreamOnce() async throws {
-        let url = HudFleetService.webBaseURL().appendingPathComponent("api/events")
+        let url = ScoutWeb.baseURL().appendingPathComponent("api/events")
         var req = URLRequest(url: url)
         req.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 60 * 60
@@ -325,7 +326,7 @@ final class HudComposeService: ObservableObject {
     }
 
     private func fetchThreadsOnce() async throws {
-        let url = HudFleetService.webBaseURL().appendingPathComponent("api/scoutbot/threads")
+        let url = ScoutWeb.baseURL().appendingPathComponent("api/scoutbot/threads")
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse else {
             throw HudComposeError.invalidResponse

@@ -1,5 +1,6 @@
 import HudsonShell
 import HudsonUI
+import ScoutAppCore
 import ScoutNativeCore
 import ScoutSharedUI
 import SwiftUI

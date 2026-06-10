@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import ScoutAppCore
 
 @MainActor
 final class OpenScoutAppController: ObservableObject {
@@ -92,9 +93,12 @@ final class OpenScoutAppController: ObservableObject {
     private let toolchain = OpenScoutToolchain()
     private var refreshTimer: Timer?
     private var refreshQueued = false
+    private var statusSurfaceSources: Set<String> = []
     private var webServerProcess: Process?
     private var actionLogCollapseTask: Task<Void, Never>?
     private static let actionLogMaxEntries = 50
+    private static let fastRefreshInterval: TimeInterval = 2.5
+    private static let backgroundRefreshInterval: TimeInterval = 30
 
     private init() {}
 
@@ -104,11 +108,7 @@ final class OpenScoutAppController: ObservableObject {
         }
 
         requestRefresh(reason: .startup)
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.requestRefresh(reason: .timer)
-            }
-        }
+        scheduleRefreshTimer()
     }
 
     func stop() {
@@ -118,6 +118,34 @@ final class OpenScoutAppController: ObservableObject {
 
     func refresh() {
         requestRefresh(reason: .manual)
+    }
+
+    func setStatusSurfaceVisible(_ visible: Bool, source: String) {
+        let wasInteractive = !statusSurfaceSources.isEmpty
+        if visible {
+            statusSurfaceSources.insert(source)
+        } else {
+            statusSurfaceSources.remove(source)
+        }
+        guard wasInteractive != !statusSurfaceSources.isEmpty else { return }
+        scheduleRefreshTimer()
+        if !statusSurfaceSources.isEmpty {
+            requestRefresh(reason: .manual)
+        }
+    }
+
+    private func scheduleRefreshTimer() {
+        refreshTimer?.invalidate()
+        let interval = statusSurfaceSources.isEmpty
+            ? Self.backgroundRefreshInterval
+            : Self.fastRefreshInterval
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.requestRefresh(reason: .timer)
+            }
+        }
+        timer.tolerance = min(5, interval * 0.2)
+        refreshTimer = timer
     }
 
     private func requestRefresh(reason: RefreshReason) {
@@ -275,7 +303,7 @@ final class OpenScoutAppController: ObservableObject {
 
         do {
             try await ensureWebServerRunning()
-            appendActionLog(.success, "Reachable on :3200")
+            appendActionLog(.success, "Reachable at \(webSurfaceDisplayURL)")
             await tailTask.value
             scheduleActionLogCollapse()
         } catch {
@@ -482,7 +510,7 @@ final class OpenScoutAppController: ObservableObject {
         do {
             try await ensureWebServerRunning()
             let normalizedPath = path.hasPrefix("/") ? path : "/\(path)"
-            if let url = URL(string: "http://127.0.0.1:3200\(normalizedPath)") {
+            if let url = URL(string: normalizedPath, relativeTo: webSurfaceBaseURL)?.absoluteURL {
                 NSWorkspace.shared.open(url)
             }
         } catch {
@@ -538,8 +566,8 @@ final class OpenScoutAppController: ObservableObject {
         let logPath = scoutWebServerLogPath()
         let tail = readScoutWebServerLogTail(at: logPath, maxLines: 12)
         let detail = tail.isEmpty
-            ? "Timed out waiting for the OpenScout web app on port 3200. Check \(logPath)."
-            : "Timed out waiting for the OpenScout web app on port 3200.\n\nLast lines from \(logPath):\n\(tail)"
+            ? "Timed out waiting for the OpenScout web app at \(webSurfaceDisplayURL). Check \(logPath)."
+            : "Timed out waiting for the OpenScout web app at \(webSurfaceDisplayURL).\n\nLast lines from \(logPath):\n\(tail)"
         throw NSError(
             domain: "OpenScoutWeb",
             code: 1,
@@ -562,7 +590,7 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func isWebSurfaceReachable() async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:3200/api/health") else {
+        guard let url = URL(string: "/api/health", relativeTo: webSurfaceBaseURL)?.absoluteURL else {
             return false
         }
 
@@ -583,6 +611,14 @@ final class OpenScoutAppController: ObservableObject {
         } catch {
             return false
         }
+    }
+
+    private var webSurfaceBaseURL: URL {
+        ScoutWeb.baseURL()
+    }
+
+    private var webSurfaceDisplayURL: String {
+        webSurfaceBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     }
 }
 

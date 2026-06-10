@@ -1,0 +1,157 @@
+import Foundation
+#if os(macOS)
+import AppKit
+#endif
+
+public enum ScoutAppError {
+    public static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
+    public static func userFacing(_ error: Error, connectionMessage: String? = nil) -> String {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCannotConnectToHost, NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut:
+                if let connectionMessage {
+                    return connectionMessage
+                }
+            default:
+                break
+            }
+        }
+        return error.localizedDescription
+    }
+}
+
+public enum ScoutWeb {
+    private static let fallbackURL = URL(string: "http://127.0.0.1:3200")!
+
+    public static func baseURL() -> URL {
+        if let url = ScoutEndpointResolver.webURLFromEnvironment() {
+            return url
+        }
+        if let url = ScoutEndpointResolver.webURLFromConfig() {
+            return url
+        }
+        return fallbackURL
+    }
+
+    public static func url(path: String) -> URL? {
+        var normalized = path
+        if !normalized.hasPrefix("/") {
+            normalized = "/" + normalized
+        }
+        return URL(string: normalized, relativeTo: baseURL())?.absoluteURL
+    }
+
+    public static func open(path: String) {
+        #if os(macOS)
+        guard let url = url(path: path) else { return }
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+}
+
+public enum ScoutBroker {
+    private static let fallbackURL = URL(string: "http://127.0.0.1:65535")!
+
+    public static func baseURL() -> URL {
+        if let url = ScoutEndpointResolver.brokerURLFromEnvironment() {
+            return url
+        }
+        if let url = ScoutEndpointResolver.brokerURLFromConfig() {
+            return url
+        }
+        return fallbackURL
+    }
+}
+
+private enum ScoutEndpointResolver {
+    private struct OpenScoutConfig: Decodable {
+        struct Ports: Decodable {
+            let web: Int?
+            let broker: Int?
+        }
+
+        let host: String?
+        let ports: Ports?
+    }
+
+    static func webURLFromEnvironment() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+
+        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL", "OPENSCOUT_WEB_PUBLIC_ORIGIN"] {
+            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  let url = URL(string: value) else {
+                continue
+            }
+            return url
+        }
+
+        let portValue = env["OPENSCOUT_WEB_PORT"] ?? env["SCOUT_WEB_PORT"]
+        guard let portText = portValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let port = Int(portText),
+              isValidPort(port) else {
+            return nil
+        }
+        return URL(string: "http://\(clientHost(from: env["OPENSCOUT_WEB_HOST"])):\(port)")
+    }
+
+    static func webURLFromConfig() -> URL? {
+        guard let cfg = readConfig(),
+              let port = cfg.ports?.web else {
+            return nil
+        }
+        return URL(string: "http://\(clientHost(from: cfg.host)):\(port)")
+    }
+
+    static func brokerURLFromEnvironment() -> URL? {
+        let env = ProcessInfo.processInfo.environment
+        if let value = env["OPENSCOUT_BROKER_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !value.isEmpty,
+           let url = URL(string: value) {
+            return url
+        }
+
+        guard let portText = env["OPENSCOUT_BROKER_PORT"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let port = Int(portText),
+              isValidPort(port) else {
+            return nil
+        }
+        return URL(string: "http://\(clientHost(from: env["OPENSCOUT_BROKER_HOST"])):\(port)")
+    }
+
+    static func brokerURLFromConfig() -> URL? {
+        guard let cfg = readConfig(),
+              let port = cfg.ports?.broker else {
+            return nil
+        }
+        return URL(string: "http://\(clientHost(from: cfg.host)):\(port)")
+    }
+
+    private static func readConfig() -> OpenScoutConfig? {
+        let path = ("~/.openscout/config.json" as NSString).expandingTildeInPath
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        return try? JSONDecoder().decode(OpenScoutConfig.self, from: data)
+    }
+
+    private static func clientHost(from rawHost: String?) -> String {
+        guard let host = rawHost?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty,
+              host != "0.0.0.0",
+              host != "::" else {
+            return "127.0.0.1"
+        }
+        return host
+    }
+
+    private static func isValidPort(_ port: Int) -> Bool {
+        (1...65_535).contains(port)
+    }
+}

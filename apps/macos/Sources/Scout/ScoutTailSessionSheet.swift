@@ -1,4 +1,5 @@
 import HudsonUI
+import ScoutAppCore
 import SwiftUI
 import WebKit
 
