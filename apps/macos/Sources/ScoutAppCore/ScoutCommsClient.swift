@@ -1,6 +1,9 @@
 import Foundation
+import os.log
 
 public struct ScoutCommsClient: Sendable {
+    private static let log = Logger(subsystem: "dev.openscout.menu", category: "comms")
+
     public init() {}
 
     public func fetchChannels(limit: Int) async throws -> [ScoutChannel] {
@@ -41,6 +44,46 @@ public struct ScoutCommsClient: Sendable {
             "conversationId": cId,
         ])
         try await ScoutHTTP.send(request)
+    }
+
+    /// Advance the operator's read cursor for a conversation. Best-effort: the
+    /// caller fires this when a conversation is opened, so any failure must stay
+    /// out of the UI — we log and move on. The server defaults `actorId` to
+    /// "operator", so we omit it here.
+    public func advanceReadCursor(
+        cId: String,
+        lastReadMessageId: String?,
+        lastReadSeq: Int? = nil,
+        lastReadAt: TimeInterval? = nil
+    ) async {
+        // Conversation ids mint as "c.<uuid>" (no path separators), so a single
+        // path segment is safe; appending(path:) percent-encodes any stray
+        // reserved characters for us.
+        let url = ScoutWeb.baseURL()
+            .appending(path: "api/conversations/\(cId)/read-cursor")
+        var payload: [String: Any] = [:]
+        if let lastReadMessageId, !lastReadMessageId.isEmpty {
+            payload["lastReadMessageId"] = lastReadMessageId
+        }
+        if let lastReadSeq {
+            payload["lastReadSeq"] = lastReadSeq
+        }
+        // Always carry a timestamp so the cursor advances even when we only know
+        // "the user looked just now" (e.g. messages haven't loaded yet). The
+        // server takes epoch milliseconds.
+        let resolvedAt = lastReadAt ?? Date().timeIntervalSince1970
+        payload["lastReadAt"] = Int(resolvedAt * 1000)
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+            try await ScoutHTTP.send(request)
+        } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            Self.log.warning("advanceReadCursor failed for \(cId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {

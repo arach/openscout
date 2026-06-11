@@ -4,7 +4,11 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { ScoutBrokerJsonRequestTrace } from "./broker-api.js";
+import type {
+  ScoutBrokerBuildIdentity,
+  ScoutBrokerChildServiceSnapshots,
+  ScoutBrokerJsonRequestTrace,
+} from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   expandHomePath,
@@ -54,6 +58,8 @@ export type BrokerHealthSnapshot = {
   socketFallbackError?: string;
   nodeId?: string;
   meshId?: string;
+  build?: ScoutBrokerBuildIdentity;
+  services?: ScoutBrokerChildServiceSnapshots;
   counts?: {
     nodes: number;
     actors: number;
@@ -462,6 +468,12 @@ function normalizeNativeServiceStatus(input: NativeServiceStatus, config: Broker
     ?? false;
   const healthError = readString(healthRecord.error) ?? readString(input.healthError);
   const healthTransport = readHealthTransport(healthRecord.transport) ?? readHealthTransport(input.healthTransport);
+  const healthNodeId = readString(healthRecord.nodeId);
+  const healthMeshId = readString(healthRecord.meshId);
+  const healthSocketFallbackError = readString(healthRecord.socketFallbackError);
+  const healthCounts = isRecord(healthRecord.counts)
+    ? healthRecord.counts as BrokerHealthSnapshot["counts"]
+    : undefined;
   const installed = readBoolean(input.installed) ?? existsSync(config.launchAgentPath);
   const loaded = readBoolean(input.loaded) ?? false;
   const stdoutLogPath = readString(input.stdoutLogPath) ?? config.stdoutLogPath;
@@ -496,6 +508,16 @@ function normalizeNativeServiceStatus(input: NativeServiceStatus, config: Broker
       checkedAt: readNumber(healthRecord.checkedAt) ?? Date.now(),
       transport: healthTransport,
       socketPath: config.brokerSocketPath,
+      ...(healthSocketFallbackError ? { socketFallbackError: healthSocketFallbackError } : {}),
+      ...(healthNodeId ? { nodeId: healthNodeId } : {}),
+      ...(healthMeshId ? { meshId: healthMeshId } : {}),
+      ...(healthCounts ? { counts: healthCounts } : {}),
+      ...(isRecord(healthRecord.build)
+        ? { build: healthRecord.build as ScoutBrokerBuildIdentity }
+        : {}),
+      ...(isRecord(healthRecord.services)
+        ? { services: healthRecord.services as ScoutBrokerChildServiceSnapshots }
+        : {}),
       error: healthError,
     },
     lastLogLine,

@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 04: Dotted Cube mark</title>
+  <desc id="desc">A dark app icon with a white dotted isometric cube and a clean inner cube echo.</desc>
+  <defs>
+    <pattern id="dots" width="5" height="5" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.7" fill="#f7f4ea" opacity="0.44"/>
+    </pattern>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="#101113"/>
+  <g transform="translate(166 138) scale(3.08)">
+    <path d="M112 8 207 63v110l-95 55-95-55V63Z" fill="url(#dots)"/>
+    <path d="M112 68 156 93v50l-44 25-44-25V93Z" fill="#101113"/>
+    <path d="M112 8 207 63v110l-95 55-95-55V63Z" fill="none" stroke="#f7f4ea" stroke-width="5.6" stroke-linejoin="round"/>
+    <path d="M112 8v220M17 63l95 55 95-55M17 173l95-55 95 55" fill="none" stroke="#f7f4ea" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M112 68 156 93v50l-44 25-44-25V93Z" fill="none" stroke="#f7f4ea" stroke-opacity="0.78" stroke-width="4.2" stroke-linejoin="round"/>
+    <path d="M112 68v100M68 93l44 25 44-25M68 143l44-25 44 25" fill="none" stroke="#f7f4ea" stroke-opacity="0.66" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

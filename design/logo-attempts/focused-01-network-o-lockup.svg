@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 300" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 01: Network O lockup</title>
+  <desc id="desc">A simple OpenScout wordmark where a hexagonal network mark acts as the opening O.</desc>
+  <defs>
+    <style>
+      .ink { stroke: #25282c; }
+      .line { stroke: #25282c; stroke-opacity: 0.62; }
+      .word { fill: #25282c; font: 760 116px Inter, "Avenir Next", "Helvetica Neue", Arial, sans-serif; }
+      .cube-top { fill: #ff4654; }
+      .cube-left { fill: #e5313f; }
+      .cube-right { fill: #c92231; }
+    </style>
+  </defs>
+  <g transform="translate(24 18)">
+    <path class="ink" d="M114 14 211 70v112l-97 56-97-56V70Z" fill="none" stroke-width="8.5" stroke-linejoin="round"/>
+    <path class="line" d="M114 14v224M17 70l97 56 97-56M17 182l97-56 97 56" fill="none" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="cube-top" d="M114 109 130 118.25 114 127.5 98 118.25Z"/>
+    <path class="cube-left" d="M98 118.25 114 127.5v18.5l-16-9.25Z"/>
+    <path class="cube-right" d="M130 118.25 114 127.5V146l16-9.25Z"/>
+  </g>
+  <text class="word" x="246" y="198">penScout</text>
+</svg>

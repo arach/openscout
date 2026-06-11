@@ -36,7 +36,18 @@ final class OpenScoutAppController: ObservableObject {
         var reachable: Bool = false
         var pid: Int? = nil
         var lastExitStatus: Int? = nil
+        var restartTelemetry: BrokerRestartTelemetry? = nil
         var statusDetail: String = "Checking broker status..."
+
+        var hasRestartWarning: Bool {
+            guard loaded || reachable else { return false }
+            return restartTelemetry?.shouldWarn == true
+        }
+
+        var restartWarningSummary: String? {
+            guard let restartTelemetry, restartTelemetry.shouldWarn else { return nil }
+            return restartTelemetry.compactWarning(reachable: reachable)
+        }
     }
 
     struct PairingViewState: Sendable {
@@ -473,7 +484,9 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func updateMenuBarPresentation() {
-        if tailscale.available && !tailscale.running {
+        if broker.hasRestartWarning {
+            menuBarSymbolName = "exclamationmark.triangle"
+        } else if tailscale.available && !tailscale.running {
             menuBarSymbolName = "exclamationmark.triangle"
         } else if pairing.status == "paired" {
             menuBarSymbolName = "checkmark.circle"
@@ -488,11 +501,12 @@ final class OpenScoutAppController: ObservableObject {
         let brokerLine = broker.reachable
             ? "Broker online"
             : (broker.installed ? "Broker installed, not reachable" : "Broker not installed")
+        let restartLine = broker.restartWarningSummary
         let pairingLine = "Pairing \(pairing.statusLabel.lowercased())"
         let tailscaleLine = tailscale.available
             ? "Tailscale \(tailscale.statusLabel.lowercased())"
             : "Tailscale unavailable"
-        menuBarTooltip = "\(brokerLine)\n\(pairingLine)\n\(tailscaleLine)"
+        menuBarTooltip = ([brokerLine, restartLine, pairingLine, tailscaleLine].compactMap { $0 }).joined(separator: "\n")
     }
 
     private func openWebSurfaceNow(path: String) async {
@@ -632,6 +646,7 @@ extension OpenScoutAppController.BrokerState {
         self.reachable = status.reachable
         self.pid = status.pid
         self.lastExitStatus = status.lastExitStatus
+        self.restartTelemetry = status.restartTelemetry
 
         if status.reachable {
             self.statusDetail = "Broker is responding at \(status.brokerURL)."

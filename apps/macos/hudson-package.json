@@ -37,7 +37,7 @@
             "executableName": "ScoutMenu",
             "binaryPath": ".build/release/ScoutMenu",
             "infoPlist": "Info.plist",
-            "bundleIdentifier": "com.openscout.menu",
+            "bundleIdentifier": "app.openscout.mac.menu",
             "lsuiElement": true,
             "icon": "../../apps/desktop/public/scout-icon.png",
             "destination": "Contents/Library/LoginItems"

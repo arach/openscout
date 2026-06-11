@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 260" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 02: Simple Geometry lockup</title>
+  <desc id="desc">A minimal OpenScout wordmark where a simple geometric hex mark acts as the opening O.</desc>
+  <defs>
+    <style>
+      .ink { stroke: #25282c; }
+      .word { fill: #25282c; font: 760 112px Inter, "Avenir Next", "Helvetica Neue", Arial, sans-serif; }
+      .inner { stroke: #e5313f; }
+    </style>
+  </defs>
+  <g transform="translate(28 22)">
+    <path class="ink" d="M96 8 179 56v96l-83 48-83-48V56Z" fill="none" stroke-width="9" stroke-linejoin="round"/>
+    <path class="inner" d="M96 77 119 91v26l-23 14-23-14V91Z" fill="none" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+  <text class="word" x="220" y="177">penScout</text>
+</svg>

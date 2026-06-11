@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 enum ScoutAppCommand: String {
+    case newConversation
     case moveDown
     case moveUp
     case focusSearch
@@ -14,6 +15,7 @@ enum ScoutAppCommand: String {
     case openSelectedAgentChannel
     case toggleCheatsheet
     case toggleDesignPreview
+    case openSettings
 
     func post() {
         NotificationCenter.default.post(name: .scoutAppCommand, object: rawValue)
@@ -31,6 +33,20 @@ extension Notification.Name {
 
 struct ScoutCommands: Commands {
     var body: some Commands {
+        CommandGroup(after: .newItem) {
+            Button("New Conversation") {
+                ScoutAppCommand.newConversation.post()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+        }
+
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings...") {
+                ScoutAppCommand.openSettings.post()
+            }
+            .keyboardShortcut(",", modifiers: .command)
+        }
+
         CommandMenu("Navigate") {
             Button("Next Item") {
                 ScoutAppCommand.moveDown.post()

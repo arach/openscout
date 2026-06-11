@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 01 preview</title>
+  <desc id="desc">Preview of the network O OpenScout lockup, mark, and small-size checks.</desc>
+  <rect width="1200" height="760" fill="#f7f4ea"/>
+  <image href="focused-01-network-o-lockup.svg" x="88" y="116" width="1024" height="327"/>
+  <image href="focused-01-network-o-mark.svg" x="96" y="510" width="96" height="96"/>
+  <image href="focused-01-network-o-mark.svg" x="236" y="486" width="144" height="144"/>
+  <image href="focused-01-network-o-mark.svg" x="436" y="454" width="208" height="208"/>
+  <text x="704" y="540" fill="#25282c" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="32" font-weight="760">Focused 01: Network O</text>
+  <text x="704" y="586" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">Thinner regular hex with a smaller broker cube.</text>
+  <text x="704" y="620" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">Next tweak: lock wordmark font or outline text.</text>
+</svg>

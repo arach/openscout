@@ -1,0 +1,604 @@
+/* Scout — Comms study. Tokens only (`--s-*`). */
+
+.comms {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: 620px;
+  font-family: var(--s-font-sans);
+}
+
+/* ── List ──────────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--s-chrome);
+  border-right: 1px solid var(--s-hairline);
+}
+
+.listHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+}
+
+.listTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.listCount {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.filters {
+  display: flex;
+  gap: 4px;
+  padding: 0 14px 10px;
+}
+
+.filter {
+  flex: 1;
+  text-align: center;
+  padding: 5px 0;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+  cursor: pointer;
+}
+
+.filter.active {
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border-color: var(--s-accent);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--s-dim);
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline);
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 8px;
+}
+
+.group {
+  position: sticky;
+  top: 0;
+  padding: 8px 16px 4px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--s-dim);
+  background: var(--s-chrome);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: 10px;
+  padding: 9px 16px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
+}
+
+.row.selected {
+  background: var(--s-accent-soft);
+  border-left-color: var(--s-accent);
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+
+.avatar.channel {
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.unreadDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-accent);
+  flex-shrink: 0;
+}
+
+.name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unread .name {
+  font-weight: 700;
+}
+
+.time {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  flex-shrink: 0;
+}
+
+.preview {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--s-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.unread .preview {
+  color: color-mix(in srgb, var(--s-ink) 80%, transparent);
+}
+
+.cid {
+  margin-top: 3px;
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-dim);
+}
+
+/* Pending-ask marker — only actionable asks are flagged; tiny + subtle. */
+.askChip {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--s-font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.askChip.pending {
+  color: var(--s-warn);
+  background: color-mix(in srgb, var(--s-warn) 18%, transparent);
+}
+
+.countBadge {
+  align-self: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+}
+
+.countBadge.countUnread {
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border-color: var(--s-accent);
+}
+
+/* ── Thread ────────────────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-bg);
+}
+
+.threadHead {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.threadAvatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+
+.threadIdent {
+  min-width: 0;
+  flex: 1;
+}
+
+.threadName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.threadSub {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.threadActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  cursor: pointer;
+}
+
+.primaryBtn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+  cursor: pointer;
+}
+
+/* Pinned Ask — the design-system band: a sharp 2px accent inset edge over a
+   faint accent-soft tint, with a hairline base. No rounded callout. */
+.pinned {
+  padding: 10px 18px 11px;
+  border-bottom: 1px solid var(--s-hairline);
+  background: color-mix(in srgb, var(--s-accent-soft) 55%, var(--s-bg));
+  box-shadow: inset 2px 0 0 var(--s-accent);
+}
+
+.pinnedBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--s-accent);
+}
+
+.pinnedLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.pinnedId {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.pinnedFrom {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-dim);
+}
+
+.pinnedText {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--s-ink);
+}
+
+/* Stream */
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.turn {
+  display: flex;
+  gap: 12px;
+}
+
+.turnAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.turnAgent {
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+
+.turnMe {
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.turnBody {
+  min-width: 0;
+  flex: 1;
+  max-width: 64ch;
+}
+
+.turnHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.turnAuthor {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.turnTime {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.turnText {
+  font-size: 13px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--s-ink) 90%, transparent);
+}
+
+.turnText p {
+  margin: 0 0 8px;
+}
+
+.turnText ol,
+.turnText ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.turnText li {
+  margin-bottom: 4px;
+}
+
+.turnText code {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+.turnText.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.more {
+  margin-top: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-accent);
+  cursor: pointer;
+}
+
+.fileCard {
+  margin-top: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--s-hairline-strong);
+  background: var(--s-surface);
+  overflow: hidden;
+}
+
+.fileCardHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-ink);
+  border-bottom: 1px solid var(--s-hairline);
+  background: var(--s-bg);
+}
+
+.fileCardBody {
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--s-muted);
+}
+
+/* Composer */
+.composer {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.composerBox {
+  border-radius: 11px;
+  border: 1px solid var(--s-hairline-strong);
+  background: var(--s-surface);
+  overflow: hidden;
+}
+
+.composerField {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--s-dim);
+  border-left: 2px solid var(--s-accent);
+}
+
+.composerBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--s-hairline);
+  background: var(--s-bg);
+}
+
+.composerHint {
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.composerHint kbd {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 8%, transparent);
+  color: var(--s-muted);
+}
+
+/* ── Data contract strip ───────────────────────────────────────────── */
+
+.contract {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--studio-edge);
+}
+
+.contractHead {
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--studio-ink-faint);
+  margin-bottom: 12px;
+}
+
+.contractTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.contractTable th {
+  text-align: left;
+  font-family: ui-monospace, monospace;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--studio-ink-faint);
+  padding: 0 14px 6px 0;
+  border-bottom: 1px solid var(--studio-edge);
+}
+
+.contractTable td {
+  padding: 8px 14px 8px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--studio-edge);
+  color: var(--studio-ink-muted);
+}
+
+.contractField {
+  font-family: ui-monospace, monospace;
+  font-weight: 600;
+  color: var(--studio-ink);
+  white-space: nowrap;
+}
+
+.contractType {
+  font-family: ui-monospace, monospace;
+  color: var(--studio-ink-muted);
+  white-space: nowrap;
+}
+
+.contractSource {
+  line-height: 1.5;
+}

@@ -38,6 +38,7 @@ scoutd stop --json
 scoutd restart --json
 scoutd uninstall --json
 scoutd doctor --json
+scoutd --version
 scoutd supervise
 ```
 
@@ -108,9 +109,12 @@ The first slice should:
 9. Restart as stop-then-start.
 10. Emit stable JSON for `status` and `doctor`.
 11. Write a small `scoutd-state.json` file with daemon pid, child pid, restart
-    count, and last update time.
+    count, build identity, restart backoff, last child exit, and last update
+    time.
 12. Detect obvious orphan candidates such as `scoutd`,
     `scout-broker`, and `scout-web` with parent pid `1`.
+13. Keep child stdout/stderr logs bounded with conservative `.1` tail retention
+    before each child spawn.
 
 This first crate should avoid external Rust dependencies. Once the shape feels
 right, we can add `clap`, `serde`, and `serde_json` for maintainability.
@@ -158,6 +162,7 @@ Prefer bundled or optional packages over postinstall downloads.
 Reports:
 
 - service label and launch agent path
+- daemon version/build identity (`scoutdVersion`, `scoutdBuild`)
 - loaded state, pid, launchd state, last exit status
 - broker URL and socket path
 - health reachability, transport, and raw health body
@@ -189,10 +194,27 @@ Includes `status` plus local process observations and warnings:
 - missing runtime entrypoint
 - missing Bun executable
 - broker socket present while health is unreachable
+- restart telemetry from `scoutd-state.json`, including restart count, backoff,
+  and last child exit detail when present
+
+### `doctor --fix` follow-up sketch
+
+The current Rust slice does not implement repair actions. If Lane B/Integrator
+adds `doctor --fix`, keep it explicit and conservative:
+
+- ensure support/runtime/log/control directories and the launchd plist
+- boot out/remove the legacy pre-`scoutd` launchd label
+- remove a stale broker socket only when health is unreachable and no broker
+  process owns it
+- terminate only exact-match orphaned Scout processes already reported by
+  `doctor`
+- report attempted actions in an additive `fixes`/`repairs` field without
+  changing the existing `status`, `warnings`, or `processes` fields
 
 ## 9. Acceptance Criteria
 
 - `scoutd status --json` works when the broker is up or down.
+- `scoutd --version` prints the package version without requiring service config.
 - `scoutd install --json` writes the launchd plist without starting the service.
 - `scoutd start --json` can bring up the existing Bun service.
 - launchd starts `scoutd supervise`, not Bun directly.
@@ -216,4 +238,7 @@ Includes `status` plus local process observations and warnings:
 - Add CI for Rust build/test/lint.
 - Add prebuilt binary packaging.
 - Decide whether doctor repair actions should be explicit subcommands or interactive prompts.
+- Wire automatic build git SHA injection for packaged/prebuilt `scoutd` binaries
+  by setting `SCOUTD_GIT_SHA` at compile time; local builds intentionally work
+  without it and report `gitSha: null`.
 - Expand Linux support after macOS launchd is stable.

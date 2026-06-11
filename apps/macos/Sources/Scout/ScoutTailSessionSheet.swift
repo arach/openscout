@@ -36,15 +36,16 @@ import AppKit
 func tailSessionEmbedURL(sessionRef: String, theme: ScoutBranchDiffTheme) -> URL {
     var components = URLComponents(url: ScoutWeb.baseURL(), resolvingAgainstBaseURL: false)
     components?.path = "/embed/session"
+    let themeVars = ScoutEmbedTheme.themeVarsQueryItem(for: theme)
     components?.queryItems = [
         URLQueryItem(name: "ref", value: sessionRef),
         URLQueryItem(name: "theme", value: theme.queryValue),
-    ]
+    ] + (themeVars.map { [$0] } ?? [])
     if let encodedRef = sessionRef.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
         components?.percentEncodedQueryItems = [
             URLQueryItem(name: "ref", value: encodedRef),
             URLQueryItem(name: "theme", value: theme.queryValue),
-        ]
+        ] + (themeVars.map { [$0] } ?? [])
     }
     return components?.url ?? ScoutWeb.baseURL()
 }

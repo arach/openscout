@@ -11,10 +11,15 @@ import { renderScoutHelp } from "./help.ts";
 import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
 import {
+  canCompareBrokerBuildIdentity,
+  extractBuildIdentityPartsFromScoutdPayload,
   normalizeCliBinaryMtimeMs,
+  resolveCurrentCliBuildIdentityParts,
   shouldEnsureBrokerUptodateForCommand,
+  shouldRestartBrokerForBuildIdentity,
   shouldRestartBrokerForCliMtime,
 } from "./uptodate.ts";
+import { runNativeScoutdJson } from "./scoutd.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 import {
   resolveBrokerServiceConfig,
@@ -115,36 +120,82 @@ function legacyBrokerServiceLabel(mode: BrokerServiceMode): string {
  */
 async function ensureBrokerUptodate(report: (message: string) => void = () => undefined): Promise<void> {
   try {
-    const mtime = normalizeCliBinaryMtimeMs(statSync(getScoutBinPath()).mtimeMs);
-    const checkpointDir = join(homedir(), ".scout");
-    const mtimePath = join(checkpointDir, "cli-mtime");
+    const currentIdentity = resolveCurrentCliBuildIdentityParts(process.env, SCOUT_APP_VERSION);
+    const nativeStatus = await runNativeScoutdJson("status", { timeoutMs: 5_000 });
+    if (nativeStatus.ok) {
+      const runningIdentity = extractBuildIdentityPartsFromScoutdPayload(nativeStatus.raw);
+      if (shouldRestartBrokerForBuildIdentity(currentIdentity, runningIdentity)) {
+        report("Scout CLI build changed; restarting the broker service to load the updated runtime.");
+        const restarted = await runNativeScoutdJson("restart");
+        if (!restarted.ok) {
+          await restartBrokerServiceWithLaunchctl();
+        }
+        writeCliMtimeCheckpointIfAvailable();
+        return;
+      }
+      if (canCompareBrokerBuildIdentity(currentIdentity, runningIdentity)) {
+        writeCliMtimeCheckpointIfAvailable();
+        return;
+      }
+    }
 
+    const mtime = readCurrentCliMtime();
+    if (mtime === null) {
+      return;
+    }
+    const mtimePath = cliMtimeCheckpointPath();
     const lastMtime = existsSync(mtimePath) ? Number(readFileSync(mtimePath, "utf8").trim()) : 0;
 
     if (shouldRestartBrokerForCliMtime(mtime, lastMtime)) {
-      // CLI was updated — bounce the broker
-      const config = resolveBrokerServiceConfig();
-      const uid = config.uid;
-      if (!uid) {
-        return;
-      }
       report("Scout CLI changed on disk; restarting the broker service to load the updated runtime.");
-      const legacyLabel = legacyBrokerServiceLabel(config.mode);
-      spawnSync("launchctl", ["bootout", `gui/${uid}/${legacyLabel}`], { stdio: "ignore" });
-      spawnSync("launchctl", ["bootout", `gui/${uid}/${config.label}`], { stdio: "ignore" });
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-      spawnSync("launchctl", ["bootstrap", `gui/${uid}`, config.launchAgentPath], { stdio: "ignore" });
-      await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      await restartBrokerServiceWithLaunchctl();
     }
 
-    // Update checkpoint on every run
-    if (!existsSync(checkpointDir)) {
-      mkdirSync(checkpointDir, { recursive: true });
-    }
-    writeFileSync(mtimePath, String(mtime), { encoding: "utf8", flag: "w" });
+    writeCliMtimeCheckpoint(mtime);
   } catch {
     // Non-fatal: don't block command execution if broker check fails
   }
+}
+
+function readCurrentCliMtime(): number | null {
+  try {
+    return normalizeCliBinaryMtimeMs(statSync(getScoutBinPath()).mtimeMs);
+  } catch {
+    return null;
+  }
+}
+
+function cliMtimeCheckpointPath(): string {
+  return join(homedir(), ".scout", "cli-mtime");
+}
+
+function writeCliMtimeCheckpoint(mtime: number): void {
+  const checkpointDir = join(homedir(), ".scout");
+  if (!existsSync(checkpointDir)) {
+    mkdirSync(checkpointDir, { recursive: true });
+  }
+  writeFileSync(cliMtimeCheckpointPath(), String(mtime), { encoding: "utf8", flag: "w" });
+}
+
+function writeCliMtimeCheckpointIfAvailable(): void {
+  const mtime = readCurrentCliMtime();
+  if (mtime !== null) {
+    writeCliMtimeCheckpoint(mtime);
+  }
+}
+
+async function restartBrokerServiceWithLaunchctl(): Promise<void> {
+  const config = resolveBrokerServiceConfig();
+  const uid = config.uid;
+  if (!uid) {
+    return;
+  }
+  const legacyLabel = legacyBrokerServiceLabel(config.mode);
+  spawnSync("launchctl", ["bootout", `gui/${uid}/${legacyLabel}`], { stdio: "ignore" });
+  spawnSync("launchctl", ["bootout", `gui/${uid}/${config.label}`], { stdio: "ignore" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+  spawnSync("launchctl", ["bootstrap", `gui/${uid}`, config.launchAgentPath], { stdio: "ignore" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 2000));
 }
 
 try {

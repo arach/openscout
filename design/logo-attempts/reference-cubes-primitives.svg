@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Two isometric cube primitive study</title>
+  <desc id="desc">A primitive SVG recreation of the downloaded two-cube reference: one dotted cube and one clean wire cube on a dark field.</desc>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="54%" r="72%">
+      <stop offset="0%" stop-color="#202221"/>
+      <stop offset="58%" stop-color="#151716"/>
+      <stop offset="100%" stop-color="#101111"/>
+    </radialGradient>
+    <radialGradient id="underGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#232826" stop-opacity="0.34"/>
+      <stop offset="58%" stop-color="#161918" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#111212" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="5.5" height="5.5" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="0.75" fill="#f5f2e9" opacity="0.68"/>
+    </pattern>
+    <pattern id="dotsDim" width="5.5" height="5.5" patternUnits="userSpaceOnUse">
+      <circle cx="1.2" cy="1.2" r="0.72" fill="#f5f2e9" opacity="0.38"/>
+    </pattern>
+    <linearGradient id="edgeLeft" x1="126" y1="276" x2="472" y2="678" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fbfaf4"/>
+      <stop offset="55%" stop-color="#e4e3dc"/>
+      <stop offset="100%" stop-color="#b6b9b6"/>
+    </linearGradient>
+    <linearGradient id="edgeRight" x1="554" y1="276" x2="898" y2="678" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="62%" stop-color="#f7f6f0"/>
+      <stop offset="100%" stop-color="#c6c9c6"/>
+    </linearGradient>
+    <filter id="lineGlow" x="-8%" y="-8%" width="116%" height="116%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="0.9" result="blur"/>
+      <feFlood flood-color="#f8f5ec" flood-opacity="0.16" result="glow"/>
+      <feComposite in="glow" in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="#0e0f0f" opacity="0.14"/>
+  <ellipse cx="304" cy="656" rx="252" ry="150" fill="url(#underGlow)"/>
+  <ellipse cx="728" cy="656" rx="252" ry="150" fill="url(#underGlow)"/>
+
+  <!-- faint floor echoes -->
+  <g opacity="0.16">
+    <polygon points="304,526 474,624 304,722 134,624" fill="none" stroke="#303534" stroke-width="1.5"/>
+    <polygon points="728,526 898,624 728,722 558,624" fill="none" stroke="#303534" stroke-width="1.5"/>
+  </g>
+
+  <!-- Left dotted cube -->
+  <g filter="url(#lineGlow)">
+    <polygon points="304,282 472,380 472,580 304,678 136,580 136,380" fill="url(#dotsDim)" opacity="0.72"/>
+    <polygon points="304,282 472,380 304,478 136,380" fill="url(#dots)" opacity="0.64"/>
+    <polygon points="136,380 304,478 304,678 136,580" fill="url(#dotsDim)" opacity="0.56"/>
+    <polygon points="472,380 472,580 304,678 304,478" fill="url(#dotsDim)" opacity="0.5"/>
+    <polygon points="136,580 304,678 472,580 304,482" fill="url(#dotsDim)" opacity="0.34"/>
+
+    <polygon points="304,394 386,441 386,535 304,582 222,535 222,441" fill="#121313" opacity="0.42"/>
+    <polygon points="304,394 386,441 304,488 222,441" fill="url(#dots)" opacity="0.22"/>
+    <polygon points="222,441 304,488 304,582 222,535" fill="url(#dotsDim)" opacity="0.18"/>
+    <polygon points="386,441 386,535 304,582 304,488" fill="url(#dotsDim)" opacity="0.16"/>
+
+    <polygon points="304,282 472,380 472,580 304,678 136,580 136,380" fill="none" stroke="url(#edgeLeft)" stroke-width="2.2" stroke-linejoin="round"/>
+    <line x1="304" y1="282" x2="304" y2="678" stroke="#f7f4ea" stroke-width="2.1" stroke-linecap="round"/>
+    <line x1="136" y1="380" x2="304" y2="478" stroke="#f7f4ea" stroke-width="2.1" stroke-linecap="round"/>
+    <line x1="472" y1="380" x2="304" y2="478" stroke="#f7f4ea" stroke-width="2.1" stroke-linecap="round"/>
+    <line x1="136" y1="580" x2="304" y2="482" stroke="#d7d7d1" stroke-width="1.8" stroke-linecap="round" opacity="0.72"/>
+    <line x1="472" y1="580" x2="304" y2="482" stroke="#d7d7d1" stroke-width="1.8" stroke-linecap="round" opacity="0.72"/>
+
+    <polygon points="304,394 386,441 386,535 304,582 222,535 222,441" fill="none" stroke="#eeeae2" stroke-width="1.7" stroke-linejoin="round" opacity="0.72"/>
+    <line x1="304" y1="394" x2="304" y2="582" stroke="#eeeae2" stroke-width="1.5" stroke-linecap="round" opacity="0.55"/>
+    <line x1="222" y1="441" x2="304" y2="488" stroke="#eeeae2" stroke-width="1.5" stroke-linecap="round" opacity="0.56"/>
+    <line x1="386" y1="441" x2="304" y2="488" stroke="#eeeae2" stroke-width="1.5" stroke-linecap="round" opacity="0.56"/>
+    <line x1="222" y1="535" x2="304" y2="488" stroke="#eeeae2" stroke-width="1.35" stroke-linecap="round" opacity="0.28"/>
+    <line x1="386" y1="535" x2="304" y2="488" stroke="#eeeae2" stroke-width="1.35" stroke-linecap="round" opacity="0.28"/>
+  </g>
+
+  <!-- Right wire cube -->
+  <g filter="url(#lineGlow)">
+    <polygon points="728,280 898,378 898,578 728,676 558,578 558,378" fill="#0e0f0f" opacity="0.08"/>
+    <polygon points="728,280 898,378 898,578 728,676 558,578 558,378" fill="none" stroke="url(#edgeRight)" stroke-width="5.2" stroke-linejoin="round"/>
+    <line x1="728" y1="280" x2="728" y2="676" stroke="#f8f7f2" stroke-width="5.2" stroke-linecap="round"/>
+    <line x1="558" y1="378" x2="728" y2="476" stroke="#f8f7f2" stroke-width="5.2" stroke-linecap="round"/>
+    <line x1="898" y1="378" x2="728" y2="476" stroke="#f8f7f2" stroke-width="5.2" stroke-linecap="round"/>
+    <line x1="558" y1="578" x2="728" y2="480" stroke="#dfe0dc" stroke-width="4.6" stroke-linecap="round" opacity="0.58"/>
+    <line x1="898" y1="578" x2="728" y2="480" stroke="#dfe0dc" stroke-width="4.6" stroke-linecap="round" opacity="0.58"/>
+
+    <polygon points="728,370 820,423 820,529 728,582 636,529 636,423" fill="none" stroke="#fbfaf4" stroke-width="5.1" stroke-linejoin="round"/>
+    <line x1="728" y1="370" x2="728" y2="582" stroke="#fbfaf4" stroke-width="5.1" stroke-linecap="round"/>
+    <line x1="636" y1="423" x2="728" y2="476" stroke="#fbfaf4" stroke-width="5.1" stroke-linecap="round"/>
+    <line x1="820" y1="423" x2="728" y2="476" stroke="#fbfaf4" stroke-width="5.1" stroke-linecap="round"/>
+    <line x1="636" y1="529" x2="728" y2="476" stroke="#dfe0dc" stroke-width="4.2" stroke-linecap="round" opacity="0.56"/>
+    <line x1="820" y1="529" x2="728" y2="476" stroke="#dfe0dc" stroke-width="4.2" stroke-linecap="round" opacity="0.56"/>
+
+    <path d="M558 378 728 280 898 378" fill="none" stroke="#ffffff" stroke-width="1.4" opacity="0.32"/>
+    <path d="M558 578 728 676 898 578" fill="none" stroke="#ffffff" stroke-width="1.4" opacity="0.18"/>
+  </g>
+</svg>

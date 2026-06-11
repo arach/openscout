@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 02 preview</title>
+  <desc id="desc">Preview of the simple geometric OpenScout lockup, mark, and small-size checks.</desc>
+  <rect width="1200" height="760" fill="#f7f4ea"/>
+  <image href="focused-02-simple-geometry-lockup.svg" x="112" y="154" width="976" height="282"/>
+  <image href="focused-02-simple-geometry-mark.svg" x="108" y="512" width="84" height="84"/>
+  <image href="focused-02-simple-geometry-mark.svg" x="244" y="488" width="132" height="132"/>
+  <image href="focused-02-simple-geometry-mark.svg" x="436" y="456" width="196" height="196"/>
+  <text x="704" y="540" fill="#25282c" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="32" font-weight="760">Focused 02: Simple Geometry</text>
+  <text x="704" y="586" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">A precise outer hex with a smaller line-only echo.</text>
+  <text x="704" y="620" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">No cube, no route lines, no signal marks.</text>
+</svg>

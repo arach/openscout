@@ -150,6 +150,7 @@ import {
   requestScoutBrokerJson,
   registerActiveScoutBrokerService,
   unregisterActiveScoutBrokerService,
+  type ScoutBrokerChildServiceSnapshots,
 } from "./broker-api.js";
 import { createBrokerCoreService } from "./broker-core-service.js";
 import {
@@ -1055,6 +1056,46 @@ async function webControlStatus(error: string | null = null): Promise<WebControl
     port: webServerPort(),
     pid: webServerProcess?.pid ?? null,
     error,
+  };
+}
+
+function isChildProcessRunning(child: ChildProcess | null): boolean {
+  return Boolean(child && child.exitCode === null && child.signalCode === null);
+}
+
+function readBrokerChildServiceSnapshots(): ScoutBrokerChildServiceSnapshots {
+  const webRunning = isChildProcessRunning(webServerProcess);
+  return {
+    web: {
+      managed: true,
+      managedBy: "broker",
+      state: webStartInFlight ? "starting" : webRunning ? "running" : "stopped",
+      pid: webServerProcess?.pid ?? null,
+      port: webServerPort(),
+      url: webServerUrl(),
+      healthy: null,
+      detail: webStartInFlight
+        ? "web startup is in flight"
+        : webRunning
+          ? "web child process is active; broker /health does not probe /api/health"
+          : "web child has not been started by this broker",
+    },
+    terminalRelay: {
+      managed: true,
+      managedBy: "web",
+      state: "unknown",
+      pid: null,
+      healthy: null,
+      detail: "terminal relay is managed inside scout-web; broker /health does not probe it",
+    },
+    localEdge: {
+      managed: true,
+      managedBy: "base",
+      state: "unknown",
+      pid: null,
+      healthy: null,
+      detail: "local edge/Caddy is managed by scout-base; no broker-visible cached state is available",
+    },
   };
 }
 
@@ -5608,6 +5649,7 @@ const brokerService = createBrokerCoreService({
   journal,
   threadEvents,
   isReconciledStaleFlightActivityItem,
+  readChildServices: readBrokerChildServiceSnapshots,
   readHome: brokerHomePayload,
   executeCommand: handleCommand,
   postConversationMessage,
