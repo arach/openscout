@@ -156,7 +156,7 @@ struct TerminalSurface: View {
                     .foregroundStyle(HudPalette.ink)
                 Text(endpoint.isEmpty ? "paired Mac" : endpoint)
                     .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             }
             Spacer()
             statusDot
@@ -170,7 +170,7 @@ struct TerminalSurface: View {
         let connecting = workspace?.isConnecting ?? false
         let color: Color = connected ? HudPalette.accent
             : connecting ? HudPalette.statusWarn
-            : HudPalette.dim
+            : ScoutInk.dim
         return HudStatusDot(color: color, size: 7, pulses: connecting)
     }
 
@@ -221,7 +221,7 @@ struct TerminalSurface: View {
                 ProgressView().tint(HudPalette.accent)
                 Text(workspace.statusMessage.isEmpty ? "Connecting…" : workspace.statusMessage)
                     .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                     .multilineTextAlignment(.center)
             }
         case .connected:
@@ -256,7 +256,7 @@ struct TerminalSurface: View {
                 .foregroundStyle(HudPalette.ink)
             Text(detail)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
             HStack(spacing: HudSpacing.sm) {
@@ -289,7 +289,7 @@ struct TerminalSurface: View {
                 .foregroundStyle(HudPalette.ink)
             Text(detail)
                 .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 260)
             if retry {
@@ -384,7 +384,7 @@ struct TerminalSurface: View {
                 //      only by *interactive* shells, so `-lc` skips it entirely.
                 //      The inner pane is interactive and prompts at most once, on
                 //      first session create, answerable in-pane.
-                execCommand: "/bin/zsh -lc 'exec tmux new -A -s scout'",
+                startupCommand: "/bin/zsh -lc 'exec tmux new -A -s scout'",
                 // Provisioning is over the already-authenticated Noise bridge;
                 // require that it returns the Mac's host-key fingerprint and pin
                 // it before SSH auth. No empty-fingerprint TOFU fallback.
