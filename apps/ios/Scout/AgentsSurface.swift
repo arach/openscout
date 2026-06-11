@@ -10,25 +10,48 @@ import ScoutCapabilities
 /// color-coding (harness is a muted token). Tapping an agent with a live session
 /// opens it; tapping a project — or a dormant agent — opens project info with a
 /// launcher to start a fresh session on the harness/model of your choice.
+///
+/// Multi-Mac: under the fleet-wide `[All]` filter the roster **stacks by
+/// machine** — each online Mac is a pinned section over its own tree, offline
+/// Macs trail as quiet gray rows. Filtered to one Mac (or with a single paired
+/// Mac), it renders the bare list with no machine chrome. Taps route back
+/// through the machine they came from, so opening an agent on one Mac never
+/// crosses wires with another.
 struct AgentsSurface: View {
-    let client: any ScoutBrokerClient
-    var reloadToken: Int = 0
+    let model: AppModel
     /// Publishes the pushed conversation's runtime/project/model context into
     /// the global protected-area status bar.
     var onConversationStatusContext: (String?) -> Void = { _ in }
 
-    @State private var agents: [AgentSummary] = []
+    @State private var sections: [MachineAgents] = []
     @State private var isLoading = true
     @State private var searchText = ""
     @State private var sort: SortMode = Self.initialSort
     @State private var route: ConversationRoute?
+    /// The client a pushed conversation routes through — the machine the tapped
+    /// agent lives on, not necessarily the bound one.
+    @State private var routeClient: (any ScoutBrokerClient)?
     @State private var projectSheet: ProjectNode?
+    @State private var sheetClient: (any ScoutBrokerClient)?
     @State private var didDebugOpen = false
 
     enum SortMode: String, CaseIterable, Identifiable {
         case project, recent
         var id: String { rawValue }
         var label: String { self == .project ? "PROJECT" : "RECENT" }
+    }
+
+    /// One machine's slice of the directory: its agents plus the live client to
+    /// read/route through. Offline Macs arrive with `client == nil` so the stack
+    /// can show them collapsed instead of dropping them.
+    private struct MachineAgents: Identifiable {
+        let id: String
+        let name: String
+        let isOnline: Bool
+        let lastSeen: Date?
+        let connectionState: AppModel.ConnectionState
+        let client: (any ScoutBrokerClient)?
+        let agents: [AgentSummary]
     }
 
     private struct ConversationRoute: Hashable, Identifiable {
@@ -46,9 +69,24 @@ struct AgentsSurface: View {
         return .project
     }
 
+    /// Reload trigger: the focused Mac becoming ready (`dataReadyToken`), ANY Mac's
+    /// connection changing (`fleetRevision` — so an aggregated "All" picks up a Mac
+    /// that connects in the background), or the filter itself moving.
+    private var reloadKey: String {
+        let filter: String
+        switch model.machineFilter {
+        case .all: filter = "all"
+        case .machine(let id): filter = id
+        }
+        return "\(model.dataReadyToken).\(model.fleetRevision).\(filter)"
+    }
+
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // Pinned section headers carry the per-machine stack; in single-Mac
+            // mode there are no sections, so nothing pins and the list reads exactly
+            // as it always has.
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 HudField("Search agents", text: $searchText, icon: "magnifyingglass")
                     .padding(.horizontal, HudSpacing.xxl)
                     .padding(.top, HudSpacing.lg)
@@ -57,20 +95,17 @@ struct AgentsSurface: View {
                 if isLoading {
                     HudEmptyState(title: "Loading agents", icon: "person.2")
                         .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
-                } else if agents.isEmpty {
-                    HudEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
-                        .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
                 } else {
-                    summaryBar
+                    if !allAgents.isEmpty { summaryBar }
                     content
                 }
             }
         }
         .refreshable { await load() }
-        .task(id: reloadToken) { await load(); openDebugProjectIfRequested() }
+        .task(id: reloadKey) { await load(); openDebugProjectIfRequested() }
         .navigationDestination(item: $route) { route in
             ConversationSurface(
-                client: client,
+                client: routeClient ?? model.client,
                 conversationId: route.id,
                 title: route.title,
                 onClose: { self.route = nil },
@@ -80,10 +115,11 @@ struct AgentsSurface: View {
         .sheet(item: $projectSheet) { node in
             ProjectDetailSheet(
                 node: node,
-                client: client,
-                onOpenSession: { agent in projectSheet = nil; openSession(agent) },
+                client: sheetClient ?? model.client,
+                onOpenSession: { agent in projectSheet = nil; openSession(agent, client: sheetClient) },
                 onStarted: { conversationId, title in
                     projectSheet = nil
+                    routeClient = sheetClient
                     route = ConversationRoute(id: conversationId, title: title)
                 }
             )
@@ -93,12 +129,13 @@ struct AgentsSurface: View {
     // MARK: - Summary + sort
 
     /// One chrome row: the count on the left, the sort toggle on the right —
-    /// integrated, not stacked into its own strip.
+    /// integrated, not stacked into its own strip. Counts span every visible Mac.
     private var summaryBar: some View {
-        let live = agents.filter { $0.state == .live }.count
+        let visible = allVisibleAgents
+        let live = visible.filter { $0.state == .live }.count
         let text = live > 0
-            ? "\(visibleAgents.count) agents · \(live) live"
-            : "\(visibleAgents.count) agents · \(projects.count) projects"
+            ? "\(visible.count) agents · \(live) live"
+            : "\(visible.count) agents · \(projects(from: visible).count) projects"
         return HStack(alignment: .firstTextBaseline) {
             HudSectionLabel(text.uppercased())
             Spacer(minLength: HudSpacing.md)
@@ -110,29 +147,63 @@ struct AgentsSurface: View {
 
     @ViewBuilder
     private var content: some View {
-        if visibleAgents.isEmpty {
+        if allVisibleAgents.isEmpty && !allAgents.isEmpty {
             HudEmptyState(title: "No matches", subtitle: "Nothing matches “\(searchText)”.", icon: "magnifyingglass")
                 .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
-        } else if sort == .project {
-            ForEach(projects) { project in
+        } else if sections.count > 1 {
+            stackedContent
+        } else if let only = sections.first, only.isOnline, !only.agents.isEmpty {
+            machineBody(only)
+        } else {
+            HudEmptyState(title: "No agents", subtitle: "Connect to your Mac to see the directory.", icon: "person.2.slash")
+                .frame(maxWidth: .infinity).padding(.top, HudSpacing.huge)
+        }
+    }
+
+    /// Multi-Mac: each online machine is a pinned section over its project tree;
+    /// offline Macs trail as quiet gray rows (we still surface every Mac we know
+    /// about, just out of the way). A search collapses to matching Macs only.
+    @ViewBuilder
+    private var stackedContent: some View {
+        ForEach(onlineSections) { section in
+            Section {
+                machineBody(section)
+            } header: {
+                MachineSectionHeader(
+                    name: section.name,
+                    agentCount: filtered(section.agents).count,
+                    liveCount: filtered(section.agents).filter { $0.state == .live }.count
+                )
+            }
+        }
+        ForEach(offlineSections) { section in
+            OfflineMachineRow(name: section.name, state: section.connectionState, lastSeen: section.lastSeen)
+        }
+    }
+
+    /// One machine's agents, rendered as the project tree or the recent list —
+    /// the same body Agents has always shown, now reusable per-Mac.
+    @ViewBuilder
+    private func machineBody(_ section: MachineAgents) -> some View {
+        let agents = filtered(section.agents)
+        if sort == .project {
+            ForEach(projects(from: agents)) { project in
                 ProjectSection(
                     project: project,
-                    onOpenProject: { projectSheet = $0 },
-                    onTapAgent: tapAgent
+                    onOpenProject: { node in sheetClient = section.client; projectSheet = node },
+                    onTapAgent: { agent in tapAgent(agent, in: section) }
                 )
             }
         } else {
             // Most-recent: a flat list, newest first. The name + harness + age is
             // the identity here; we don't repeat the project (that's PROJECT mode's
             // job) — the second line only appears when the agent is on a branch.
-            ForEach(Array(recents.enumerated()), id: \.element.id) { idx, agent in
-                AgentRow(
-                    agent: agent,
-                    connector: nil,
-                    showProject: false,
-                    onTap: { tapAgent(agent) }
-                )
-                if idx < recents.count - 1 { rowDivider }
+            let ordered = recents(from: agents)
+            ForEach(Array(ordered.enumerated()), id: \.element.id) { idx, agent in
+                AgentRow(agent: agent, connector: nil, showProject: false) {
+                    tapAgent(agent, in: section)
+                }
+                if idx < ordered.count - 1 { rowDivider }
             }
         }
     }
@@ -142,30 +213,52 @@ struct AgentsSurface: View {
             .padding(.leading, HudSpacing.xxl)
     }
 
+    // MARK: - Section partitioning
+
+    private var isSearching: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Online Macs lead the stack. Under a search, only Macs with a match show.
+    private var onlineSections: [MachineAgents] {
+        sections.filter(\.isOnline).filter { !isSearching || !filtered($0.agents).isEmpty }
+    }
+
+    /// Offline Macs trail as gray rows — hidden while searching (they hold nothing
+    /// to match against).
+    private var offlineSections: [MachineAgents] {
+        isSearching ? [] : sections.filter { !$0.isOnline }
+    }
+
     // MARK: - Routing
 
-    /// Live session → open it. No session → there's nothing to resume, so land on
-    /// the project (info + a launcher to start one).
-    private func tapAgent(_ agent: AgentSummary) {
+    /// Live session → open it on the machine it lives on. No session → there's
+    /// nothing to resume, so land on the project (info + a launcher).
+    private func tapAgent(_ agent: AgentSummary, in section: MachineAgents) {
         if agent.sessionId != nil {
-            openSession(agent)
+            openSession(agent, client: section.client)
         } else {
-            projectSheet = projectNode(for: agent)
+            sheetClient = section.client
+            projectSheet = projectNode(for: agent, in: section.agents)
         }
     }
 
-    private func openSession(_ agent: AgentSummary) {
+    private func openSession(_ agent: AgentSummary, client: (any ScoutBrokerClient)?) {
         // Route by the agent's real broker conversation (its operator DM), NOT
         // `sessionId` — that's a harness label (e.g. "relay-openscout-claude"),
         // shared across agents, that resolves to no conversation. Fall back to the
         // canonical `dm.operator.<id>` the broker creates on first send.
         let conversationId = agent.conversationId ?? "dm.operator.\(agent.id)"
+        routeClient = client
         route = ConversationRoute(id: conversationId, title: agent.title)
     }
 
-    // MARK: - Grouping / ordering
+    // MARK: - Grouping / ordering (pure over an agent list, reused per machine)
 
-    private var visibleAgents: [AgentSummary] {
+    private var allAgents: [AgentSummary] { sections.flatMap(\.agents) }
+    private var allVisibleAgents: [AgentSummary] { sections.flatMap { filtered($0.agents) } }
+
+    private func filtered(_ agents: [AgentSummary]) -> [AgentSummary] {
         let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !q.isEmpty else { return agents }
         return agents.filter { a in
@@ -174,15 +267,14 @@ struct AgentsSurface: View {
         }
     }
 
-    private var projects: [ProjectNode] {
-        let grouped = Dictionary(grouping: visibleAgents) { projectKey($0) }
-        return grouped
+    private func projects(from agents: [AgentSummary]) -> [ProjectNode] {
+        Dictionary(grouping: agents) { projectKey($0) }
             .map { key, value in ProjectNode(id: key, name: key, agents: value.sorted(by: Self.agentOrder)) }
             .sorted(by: Self.projectOrder)
     }
 
-    private var recents: [AgentSummary] {
-        visibleAgents.sorted { lhs, rhs in
+    private func recents(from agents: [AgentSummary]) -> [AgentSummary] {
+        agents.sorted { lhs, rhs in
             if (lhs.state == .live) != (rhs.state == .live) { return lhs.state == .live }
             let l = lhs.lastActiveAt ?? .distantPast
             let r = rhs.lastActiveAt ?? .distantPast
@@ -195,7 +287,7 @@ struct AgentsSurface: View {
         displayProjectName(a.projectName) ?? a.title
     }
 
-    private func projectNode(for agent: AgentSummary) -> ProjectNode {
+    private func projectNode(for agent: AgentSummary, in agents: [AgentSummary]) -> ProjectNode {
         let key = projectKey(agent)
         let members = agents.filter { projectKey($0) == key }.sorted(by: Self.agentOrder)
         return ProjectNode(id: key, name: key, agents: members)
@@ -214,9 +306,35 @@ struct AgentsSurface: View {
         return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
     }
 
+    // MARK: - Load
+
+    /// Fetch each visible machine's directory. Online Macs are queried through
+    /// their own keyed client (so taps route back to the right Mac); offline Macs
+    /// come through agent-less for a collapsed row. Queried in series — the fleet
+    /// is small, and series keeps the `any ScoutBrokerClient` reads on-actor.
     private func load() async {
         isLoading = true
-        agents = (try? await client.listAgents(query: nil, limit: 100)) ?? []
+        var result: [MachineAgents] = []
+        for machine in model.agentMachines() {
+            let agents: [AgentSummary]
+            if let client = machine.client {
+                agents = (try? await client.listAgents(query: nil, limit: 100)) ?? []
+            } else {
+                agents = []
+            }
+            result.append(
+                MachineAgents(
+                    id: machine.id,
+                    name: machine.name,
+                    isOnline: machine.isOnline,
+                    lastSeen: machine.lastSeen,
+                    connectionState: machine.connectionState,
+                    client: machine.client,
+                    agents: agents
+                )
+            )
+        }
+        sections = result
         isLoading = false
     }
 
@@ -229,9 +347,11 @@ struct AgentsSurface: View {
               !want.isEmpty else { return }
         // Only latch once we've actually matched — the first (pre-connect) load
         // has no agents yet, so keep trying until data arrives.
-        if let node = projects.first(where: { $0.name.lowercased() == want })
-            ?? projects.first(where: { $0.name.lowercased().contains(want) }) {
+        let nodes = projects(from: allVisibleAgents)
+        if let node = nodes.first(where: { $0.name.lowercased() == want })
+            ?? nodes.first(where: { $0.name.lowercased().contains(want) }) {
             didDebugOpen = true
+            sheetClient = sections.first(where: { $0.isOnline })?.client
             projectSheet = node
         }
         #endif
@@ -276,6 +396,74 @@ private struct SortToggle: View {
                 .buttonStyle(.plain)
             }
         }
+    }
+}
+
+// MARK: - Machine section chrome (multi-Mac stack)
+
+/// A pinned per-machine header in the `[All]` stack. Tells you which Mac the rows
+/// beneath belong to as it sticks past — the iPhone-friendly "which machine am I
+/// looking at" playback. Opaque so scrolling rows don't bleed through when pinned.
+private struct MachineSectionHeader: View {
+    let name: String
+    let agentCount: Int
+    let liveCount: Int
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            HudStatusDot(color: HudPalette.accent, size: 6, pulses: liveCount > 0)
+            Text(name)
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: HudSpacing.sm)
+            if liveCount > 0 {
+                Text("\(liveCount) live")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(HudPalette.accent)
+            }
+            Text("\(agentCount)")
+                .font(HudFont.mono(HudTextSize.xs)).monospacedDigit()
+                .foregroundStyle(HudPalette.muted)
+        }
+        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(HudPalette.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(HudHairline.standard).frame(height: HudStrokeWidth.thin)
+        }
+    }
+}
+
+/// An offline (or still-connecting) Mac in the stack: a quiet gray row that
+/// acknowledges the machine without pretending it has a live directory.
+private struct OfflineMachineRow: View {
+    let name: String
+    let state: AppModel.ConnectionState
+    let lastSeen: Date?
+
+    var body: some View {
+        HStack(spacing: HudSpacing.sm) {
+            HudStatusDot(color: HudPalette.dim, size: 6, pulses: false)
+            Text(name)
+                .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                .foregroundStyle(HudPalette.muted)
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: HudSpacing.sm)
+            Text(detail)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(HudPalette.dim)
+        }
+        .padding(.horizontal, HudSpacing.xxl)
+        .padding(.vertical, HudSpacing.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detail: String {
+        if case .connecting = state { return "connecting…" }
+        if let lastSeen, let age = machineRelativeAge(lastSeen) { return "offline · \(age)" }
+        return "offline"
     }
 }
 
@@ -377,7 +565,7 @@ private struct AgentRow: View {
                     }
                 }
                 Spacer(minLength: HudSpacing.sm)
-                if let age = relativeAge(agent.lastActiveAt) {
+                if let age = machineRelativeAge(agent.lastActiveAt) {
                     Text(age)
                         .font(HudFont.mono(HudTextSize.micro)).monospacedDigit()
                         .foregroundStyle(HudPalette.dim)
@@ -638,8 +826,9 @@ func displayProjectName(_ raw: String?) -> String? {
     return p
 }
 
-/// Compact relative age ("now" / "3m" / "2h" / "1d") for a row's right edge.
-private func relativeAge(_ date: Date?) -> String? {
+/// Compact relative age ("now" / "3m" / "2h" / "1d") for a row's right edge or a
+/// machine's last-seen stamp.
+private func machineRelativeAge(_ date: Date?) -> String? {
     guard let date else { return nil }
     let s = max(0, Int(Date().timeIntervalSince(date)))
     if s < 60 { return "now" }

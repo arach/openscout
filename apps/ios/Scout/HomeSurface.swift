@@ -16,8 +16,10 @@ struct HomeSurface: View {
     let model: AppModel
     @Environment(\.scoutLayout) private var layout
     /// Focuses/filters the app through a tapped machine. Online state is
-    /// independent: several chips can be lit, but only one is focused.
+    /// independent: several chips can be lit, but only one is the filter target.
     var onSelectMachine: (AppModel.PairedMachine) -> Void = { _ in }
+    /// Widens the filter back to the whole fleet (the `[All]` chip).
+    var onSelectAll: () -> Void = {}
     /// Publishes conversation/session detail to the global protected-area
     /// status bar while Home has pushed a chat.
     var onConversationStatusContext: (String?) -> Void = { _ in }
@@ -130,8 +132,15 @@ struct HomeSurface: View {
                 .foregroundStyle(HudPalette.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: HudSpacing.sm) {
+                    // The fleet-wide filter leads the rail when there's more than
+                    // one Mac to span — "see everything" without toggling each one.
+                    if showsAllChip {
+                        AllMachinesChip(isSelected: model.machineFilter == .all) { onSelectAll() }
+                    }
                     ForEach(model.pairedMachines) { machine in
-                        MachineChip(machine: machine) { onSelectMachine(machine) }
+                        MachineChip(machine: machine, isSelected: isFilterSelected(machine)) {
+                            onSelectMachine(machine)
+                        }
                     }
                     // Pairing rides along as one more chip — same decoration as a
                     // machine, just quieter — so it reads as "add another," not a
@@ -140,6 +149,21 @@ struct HomeSurface: View {
                 }
                 .padding(.vertical, 2)
             }
+        }
+    }
+
+    /// The `[All]` chip only earns its place once a second Mac exists; with one
+    /// machine, All and that machine are the same set, so the rail stays bare.
+    private var showsAllChip: Bool { model.pairedMachines.count > 1 }
+
+    /// Which machine chip wears the selected (accent) treatment. Driven by the
+    /// filter, not the bound Mac: under `.all` the `[All]` chip owns the highlight
+    /// (and a lone-Mac rail highlights its single chip); under `.machine` exactly
+    /// one chip lights.
+    private func isFilterSelected(_ machine: AppModel.PairedMachine) -> Bool {
+        switch model.machineFilter {
+        case .all: return !showsAllChip
+        case .machine(let id): return id == machine.id
         }
     }
 
@@ -783,6 +807,9 @@ private struct ActivityRow: View {
 /// current focus/filter. Multiple chips may be green; only one is focused.
 private struct MachineChip: View {
     let machine: AppModel.PairedMachine
+    /// The current filter target (accent treatment) — distinct from `isActive`,
+    /// which is the bound Mac shown in the status bar.
+    let isSelected: Bool
     let onTap: () -> Void
 
     var body: some View {
@@ -791,15 +818,15 @@ private struct MachineChip: View {
                 HudStatusDot(color: statusColor, size: 6, pulses: statusPulses)
                 Text(machine.name)
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(machine.isActive ? HudPalette.ink : (machine.isOnline ? HudPalette.ink.opacity(0.82) : HudPalette.muted))
+                    .foregroundStyle(isSelected ? HudPalette.ink : (machine.isOnline ? HudPalette.ink.opacity(0.82) : HudPalette.muted))
                     .lineLimit(1)
             }
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, HudSpacing.xs)
             .background(Capsule().fill(HudSurface.inset))
-            .overlay(Capsule().stroke(machine.isActive ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
             .shadow(color: machine.isOnline ? HudPalette.accent.opacity(0.12) : .clear, radius: 7)
-            .opacity(machine.isOnline || machine.isActive ? 1 : 0.58)
+            .opacity(machine.isOnline || isSelected ? 1 : 0.58)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -810,8 +837,10 @@ private struct MachineChip: View {
         switch machine.connectionState {
         case .connected:  return HudPalette.accent
         case .connecting: return HudPalette.statusWarn
-        case .failed:     return HudPalette.statusError
-        case .idle:       return HudPalette.dim
+        // The rail is a picker, not an alarm: an offline or unreachable Mac
+        // reads gray ("not here right now"), never red. Real connection errors
+        // surface in the footer, on the machine you're actually bound to.
+        case .failed, .idle: return HudPalette.dim
         }
     }
 
@@ -823,9 +852,63 @@ private struct MachineChip: View {
     private var accessibilityState: String {
         var parts: [String] = []
         if machine.isOnline { parts.append("online") }
-        if machine.isActive { parts.append("focused") }
+        if isSelected { parts.append("selected") }
         if parts.isEmpty { parts.append("paired") }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// The fleet-wide filter chip: a hand-drawn `[ All ]` (bracketed, accent when
+/// active) that spans every paired Mac in one selection. Same capsule body as a
+/// `MachineChip` so it sits in the rail as a peer, not a separate control.
+private struct AllMachinesChip: View {
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    private var tint: Color { isSelected ? HudPalette.accent : HudPalette.muted }
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 3) {
+                MachineBracket(.leading).stroke(tint, lineWidth: 1.2).frame(width: 4, height: 11)
+                Text("All")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(isSelected ? HudPalette.ink : HudPalette.ink.opacity(0.82))
+                    .lineLimit(1)
+                MachineBracket(.trailing).stroke(tint, lineWidth: 1.2).frame(width: 4, height: 11)
+            }
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.xs)
+            .background(Capsule().fill(HudSurface.inset))
+            .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("All machines\(isSelected ? ", selected" : "")")
+    }
+}
+
+/// One side of the `[ All ]` bracket — a square-cornered `[` or `]` tick.
+private struct MachineBracket: Shape {
+    enum Side { case leading, trailing }
+    let side: Side
+    init(_ side: Side) { self.side = side }
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        switch side {
+        case .leading:
+            p.move(to: CGPoint(x: r.maxX, y: r.minY))
+            p.addLine(to: CGPoint(x: r.minX, y: r.minY))
+            p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        case .trailing:
+            p.move(to: CGPoint(x: r.minX, y: r.minY))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+            p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        }
+        return p
     }
 }
 

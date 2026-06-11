@@ -33,9 +33,20 @@ final class AppModel {
         case shell
     }
 
+    /// Which machine(s) the fleet surfaces (Home, Agents) show. `.all` aggregates
+    /// across every connected Mac; `.machine` narrows to one. Independent of the
+    /// *bound* Mac in the status bar (`focusedMachineId`): picking a specific Mac
+    /// focuses it, picking All leaves the binding alone. Defaults to All so a
+    /// multi-Mac fleet shows everything without hunting for what to toggle.
+    enum MachineFilter: Equatable {
+        case all
+        case machine(String)   // lowercased public-key hex
+    }
+
     var phase: Phase = .connect
     var connectionState: ConnectionState = .idle
     var showPairing = false
+    var machineFilter: MachineFilter = .all
 
     private let fleet: FleetConnectionManager
     let connectionLog: ConnectionLog
@@ -714,6 +725,13 @@ final class AppModel {
         return 0
     }
 
+    /// A reload signal for fleet-wide surfaces (the Agents "All" stack): bumps on
+    /// ANY paired Mac's connection change, not just the focused one (which is all
+    /// `dataReadyToken` tracks). Without it, a Mac that finishes connecting in the
+    /// background wouldn't show up in an aggregated list until something else
+    /// nudged a reload.
+    var fleetRevision: Int { machinesRevision }
+
     /// The host the focused live bridge reached the Mac through — the SSH target for the
     /// in-app Terminal when the route is direct (the host IS the Mac). nil on a
     /// relay route (`.remote`), where the bridge host isn't the Mac, so the
@@ -798,6 +816,17 @@ final class AppModel {
         connectionState = .idle
         machinesRevision += 1
         await connectIfNeeded()
+    }
+
+    /// Point the fleet surfaces at one Mac or the whole fleet. Picking a specific
+    /// Mac also focuses/binds it (single-client surfaces + the status bar follow);
+    /// picking All only changes what the lists aggregate — the bound Mac stays put.
+    /// `machineFilter` is observed, so the Agents stack reloads off the change.
+    func selectMachineFilter(_ filter: MachineFilter) async {
+        machineFilter = filter
+        if case .machine(let id) = filter {
+            await connect(toMachineId: id)
+        }
     }
 
     /// Focus one explicit paired Mac. If its keyed bridge client is already
@@ -1185,6 +1214,46 @@ final class AppModel {
             }
     }
 
+    /// A machine the Agents surface renders under the active filter, paired with
+    /// its live client for reads + routing. Offline Macs come through with
+    /// `client == nil` so the surface can show them collapsed rather than dropping
+    /// them — we still surface every Mac we know about.
+    struct AgentMachine: Identifiable {
+        let id: String
+        let name: String
+        let isOnline: Bool
+        let lastSeen: Date?
+        let connectionState: ConnectionState
+        let client: (any ScoutBrokerClient)?
+    }
+
+    /// Machines the Agents surface should query, honoring `machineFilter`. `.all`
+    /// returns every paired Mac (online ones first, each carrying a live client;
+    /// offline ones clientless, for a collapsed row); `.machine(id)` narrows to one.
+    /// Online leads so the stack opens on live work, with recency preserved inside
+    /// each group.
+    func agentMachines() -> [AgentMachine] {
+        let scoped: [PairedMachine]
+        switch machineFilter {
+        case .all:
+            scoped = pairedMachines
+        case .machine(let id):
+            scoped = pairedMachines.filter { $0.id == id.lowercased() }
+        }
+        let online = scoped.filter(\.isOnline)
+        let offline = scoped.filter { !$0.isOnline }
+        return (online + offline).map { m in
+            AgentMachine(
+                id: m.id,
+                name: m.name,
+                isOnline: m.isOnline,
+                lastSeen: m.lastSeen,
+                connectionState: m.connectionState,
+                client: m.isOnline ? fleet.connectedClient(machineId: m.id) : nil
+            )
+        }
+    }
+
     /// Forget a paired Mac: drop its trusted-bridge record from the keychain and
     /// tear down that keyed client. No-op if the id doesn't match.
     func forgetMachine(id hex: String) {
@@ -1408,6 +1477,15 @@ private final class FleetConnectionManager: @unchecked Sendable {
 
     func host(machineId: String) -> String? {
         clients[machineId.lowercased()]?.currentHost
+    }
+
+    /// The live client for a machine, or nil when it isn't connected. Unlike the
+    /// private `client(for:)`, this never spins up a new client — it's for
+    /// read-side aggregation across the already-connected fleet (the "All" filter).
+    func connectedClient(machineId: String) -> BridgeBrokerClient? {
+        let key = machineId.lowercased()
+        guard let client = clients[key], case .connected = states[key] else { return nil }
+        return client
     }
 
     func hasConnectedRoute(_ route: TransportKind) -> Bool {
