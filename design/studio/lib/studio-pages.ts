@@ -106,6 +106,72 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Spacing scale + comfortable/compact/manifest density specimens.",
   },
 
+  // ── Studies · Scout ─────────────────────────────────────────────
+  {
+    href: "/studies/scout-shell",
+    label: "Scout Design System",
+    bucket: "studies",
+    surface: "cross",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-shell/page.tsx",
+      "apps/macos/Sources/Scout/ScoutTheme.swift",
+    ],
+    blurb: "One token set (the exact sRGB of native ScoutThemeColors) and the whole shell rebuilt from it — Comms, Agents, Repos, Tail, Settings as window mockups. Default skin is the live app theme: juniper · light · indigo.",
+  },
+  {
+    href: "/studies/scout-ios",
+    label: "Scout iOS Theme",
+    bucket: "studies",
+    surface: "ios",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-ios/page.tsx",
+      "apps/ios/Scout/Theme.swift",
+    ],
+    blurb: "The iOS theme in an iPhone frame — exact HudPalette + Scout-layer tokens (dark-locked, emerald accent), with a live token board and a Shipped vs Higher-contrast toggle that mirrors the macOS dark port (raise dim past AA, lift surface/card).",
+  },
+  {
+    href: "/studies/scout-comms",
+    label: "Scout Comms",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-comms/page.tsx",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+    ],
+    blurb: "The conversation surface broken out from the design system — recency groups, labeled filters, unread emphasis, ask answered/pending, pinned Ask, collapsible turns, composer hint. Carries the unreadCount + askState data contract for the native port.",
+  },
+  {
+    href: "/studies/scout-tail",
+    label: "Scout Tail",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-tail/page.tsx",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+      "apps/macos/Sources/Scout/ScoutModels.swift",
+    ],
+    blurb: "The live event stream — inline filter-chip bar (replacing the kind dropdown) and a colored KIND chip per row, with a token-only tone vocabulary that moves tool/output off raw .cyan/.orange.",
+  },
+  {
+    href: "/studies/scout-settings",
+    label: "Scout Settings",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-settings/page.tsx",
+      "apps/macos/Sources/Scout/ScoutSettingsView.swift",
+    ],
+    blurb: "The Appearance page as it should ship — accent as an inline dot row (not big tiles), sections reordered (Theme → Mode → Accent → Window material), plus a Preview-accents-on-hover toggle.",
+  },
+
   // ── Studies · Web ───────────────────────────────────────────────
   {
     href: "/studies/inspector-bar",

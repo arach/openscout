@@ -218,16 +218,8 @@ private struct DiagnosticsTab: View {
                 label: "Broker",
                 status: brokerStatus(),
                 summary: brokerSummary(),
-                detail: controller.broker.statusDetail,
-                rows: [
-                    KVEntry(key: "URL", value: controller.broker.brokerURL),
-                    KVEntry(
-                        key: "Launch agent",
-                        value: controller.broker.launchAgentPath.isEmpty ? "Not installed" : controller.broker.launchAgentPath,
-                        path: controller.broker.launchAgentPath.isEmpty ? nil : controller.broker.launchAgentPath
-                    ),
-                    KVEntry(key: "PID", value: controller.broker.pid.map(String.init) ?? "—"),
-                ],
+                detail: brokerDetail(),
+                rows: brokerRows(),
                 logPath: nil,
                 actions: []
             )
@@ -277,6 +269,7 @@ private struct DiagnosticsTab: View {
 
     private func brokerStatus() -> ServiceLightStatus {
         if controller.brokerActionPending { return .pending }
+        if controller.broker.hasRestartWarning { return .warn }
         if controller.broker.reachable { return .healthy }
         if controller.broker.loaded { return .warn }
         if controller.broker.installed { return .warn }
@@ -285,10 +278,62 @@ private struct DiagnosticsTab: View {
 
     private func brokerSummary() -> String {
         if controller.brokerActionPending { return "Working" }
+        if controller.broker.hasRestartWarning { return "Restart warning" }
         if controller.broker.reachable { return "Online" }
         if controller.broker.loaded { return "Loaded, no answer" }
         if controller.broker.installed { return "Dormant" }
         return "Not installed"
+    }
+
+    private func brokerDetail() -> String {
+        var lines = [controller.broker.statusDetail]
+        if let warning = controller.broker.restartWarningSummary {
+            lines.append(warning)
+        }
+        return lines.joined(separator: "\n\n")
+    }
+
+    private func brokerRows() -> [KVEntry] {
+        var rows = [
+            KVEntry(key: "URL", value: controller.broker.brokerURL),
+            KVEntry(
+                key: "Launch agent",
+                value: controller.broker.launchAgentPath.isEmpty ? "Not installed" : controller.broker.launchAgentPath,
+                path: controller.broker.launchAgentPath.isEmpty ? nil : controller.broker.launchAgentPath
+            ),
+            KVEntry(key: "PID", value: controller.broker.pid.map(String.init) ?? "—"),
+        ]
+
+        guard let telemetry = controller.broker.restartTelemetry else {
+            return rows
+        }
+
+        if let restartCount = telemetry.restartCount {
+            rows.append(KVEntry(key: "Runtime restarts", value: "\(restartCount)"))
+        }
+        if let baseState = telemetry.baseState {
+            rows.append(KVEntry(key: "Runtime state", value: baseState))
+        }
+        if let basePid = telemetry.basePid {
+            rows.append(KVEntry(key: "Runtime PID", value: "\(basePid)"))
+        }
+        if let backoff = telemetry.backoffLabel() {
+            rows.append(KVEntry(key: "Restart backoff", value: backoff))
+        }
+        if let nextRestartAt = telemetry.nextRestartAt {
+            rows.append(KVEntry(key: "Next restart", value: formatTimestamp(nextRestartAt)))
+        }
+        if let lastExitAt = telemetry.lastExitAt {
+            rows.append(KVEntry(key: "Last exit", value: formatTimestamp(lastExitAt)))
+        }
+        if let lastRestartAt = telemetry.lastRestartAt {
+            rows.append(KVEntry(key: "Last restart", value: formatTimestamp(lastRestartAt)))
+        }
+        if let updatedAt = telemetry.updatedAt {
+            rows.append(KVEntry(key: "Runtime updated", value: formatTimestamp(updatedAt)))
+        }
+
+        return rows
     }
 
     private func relayStatus() -> ServiceLightStatus {
@@ -348,6 +393,10 @@ private struct DiagnosticsTab: View {
     private func webLogPath() -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent(".scout/logs/web-server.log").path
+    }
+
+    private func formatTimestamp(_ date: Date) -> String {
+        date.formatted(date: .abbreviated, time: .standard)
     }
 
     private func revealInFinder(_ path: String) {

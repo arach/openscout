@@ -176,6 +176,25 @@ describe("createBrokerCoreService", () => {
         closeWatch: async () => {},
       },
       isReconciledStaleFlightActivityItem: (item) => item.id === "act-2",
+      build: {
+        packageName: "@openscout/runtime",
+        version: "0.test",
+        commit: "abc123",
+        branch: "lane-c",
+        buildNumber: "42",
+        mode: "dev",
+      },
+      readChildServices: () => ({
+        web: {
+          managed: true,
+          managedBy: "broker",
+          state: "running",
+          pid: 4242,
+          port: 3200,
+          url: "http://127.0.0.1:3200",
+          healthy: null,
+        },
+      }),
       executeCommand: async (command) => {
         commands.push(command);
         return { ok: true };
@@ -239,6 +258,23 @@ describe("createBrokerCoreService", () => {
 
     expect(health.counts?.messages).toBe(1);
     expect(health.counts?.collaborationRecords).toBe(1);
+    expect(health.build).toEqual({
+      packageName: "@openscout/runtime",
+      version: "0.test",
+      commit: "abc123",
+      branch: "lane-c",
+      buildNumber: "42",
+      mode: "dev",
+    });
+    expect(health.services?.web).toEqual({
+      managed: true,
+      managedBy: "broker",
+      state: "running",
+      pid: 4242,
+      port: 3200,
+      url: "http://127.0.0.1:3200",
+      healthy: null,
+    });
     expect(messages?.map((message) => message.id)).toEqual(["msg-1"]);
     expect(activity?.map((item) => item.id)).toEqual(["act-1"]);
     expect(records).toEqual(Object.values(snapshot.collaborationRecords));

@@ -183,4 +183,134 @@ describe("getScoutConversations", () => {
 
     expect(conversations.find((entry) => entry.id === "dm.operator.hudson.main.mini")).toBeUndefined();
   });
+
+  test("reports unreadCount: 0 when the operator has no read cursor", async () => {
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: baseSnapshot(),
+    };
+
+    const conversations = await getScoutConversations();
+    const dm = conversations.find((entry) => entry.id === "dm.operator.hudson.main.mini");
+
+    expect(dm?.unreadCount).toBe(0);
+    expect(dm?.ask).toBeUndefined();
+  });
+
+  test("counts agent messages after the operator read cursor as unread", async () => {
+    const snapshot = baseSnapshot();
+    // One operator message already at createdAt 1_779_461_700_000; add two later
+    // agent messages and an operator read cursor between them.
+    snapshot.messages["msg-2"] = {
+      id: "msg-2",
+      conversationId: "dm.operator.hudson.main.mini",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "still working",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_800_000,
+    };
+    snapshot.messages["msg-3"] = {
+      id: "msg-3",
+      conversationId: "dm.operator.hudson.main.mini",
+      actorId: "hudson.main.mini",
+      originNodeId: "node-1",
+      class: "agent",
+      body: "done",
+      visibility: "private",
+      policy: "durable",
+      createdAt: 1_779_461_900_000,
+    };
+    snapshot.readCursors = {
+      "cursor-op": {
+        conversationId: "dm.operator.hudson.main.mini",
+        actorId: "operator",
+        lastReadMessageId: "msg-1",
+        lastReadAt: 1_779_461_750_000,
+        updatedAt: 1_779_461_750_000,
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations();
+    const dm = conversations.find((entry) => entry.id === "dm.operator.hudson.main.mini");
+
+    // msg-2 and msg-3 are after the cursor and authored by the agent → 2 unread.
+    expect(dm?.unreadCount).toBe(2);
+  });
+
+  test("surfaces a pending question unblock request as the conversation ask", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.unblockRequests = {
+      "ub-1": {
+        id: "ub-1",
+        kind: "question",
+        state: "open",
+        source: "harness",
+        sourceRef: "session-1",
+        title: "Need a decision",
+        summary: "Should I force-push the rebase?",
+        ownerId: "operator",
+        createdById: "hudson.main.mini",
+        agentId: "hudson.main.mini",
+        conversationId: "dm.operator.hudson.main.mini",
+        createdAt: 1_779_461_900_000,
+        updatedAt: 1_779_461_900_000,
+        actions: [{ kind: "answer", label: "Answer" }],
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations();
+    const dm = conversations.find((entry) => entry.id === "dm.operator.hudson.main.mini");
+
+    expect(dm?.ask).toEqual({
+      from: "Hudson",
+      text: "Should I force-push the rebase?",
+      state: "pending",
+    });
+  });
+
+  test("marks the conversation ask answered once the question is resolved", async () => {
+    const snapshot = baseSnapshot();
+    snapshot.unblockRequests = {
+      "ub-1": {
+        id: "ub-1",
+        kind: "question",
+        state: "resolved",
+        source: "harness",
+        sourceRef: "session-1",
+        title: "Need a decision",
+        summary: "Should I force-push the rebase?",
+        ownerId: "operator",
+        createdById: "hudson.main.mini",
+        agentId: "hudson.main.mini",
+        conversationId: "dm.operator.hudson.main.mini",
+        createdAt: 1_779_461_900_000,
+        updatedAt: 1_779_462_000_000,
+        resolvedAt: 1_779_462_000_000,
+      },
+    };
+    brokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot,
+    };
+
+    const conversations = await getScoutConversations();
+    const dm = conversations.find((entry) => entry.id === "dm.operator.hudson.main.mini");
+
+    expect(dm?.ask?.state).toBe("answered");
+  });
 });

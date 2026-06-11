@@ -46,10 +46,11 @@ import AppKit
 func repoDiffEmbedURL(worktreePath: String, theme: ScoutBranchDiffTheme) -> URL {
     var components = URLComponents(url: ScoutWeb.baseURL(), resolvingAgainstBaseURL: false)
     components?.path = "/embed/repo-diff"
+    let themeVars = ScoutEmbedTheme.themeVarsQueryItem(for: theme)
     components?.queryItems = [
         URLQueryItem(name: "path", value: worktreePath),
         URLQueryItem(name: "theme", value: theme.queryValue),
-    ]
+    ] + (themeVars.map { [$0] } ?? [])
     // `URLComponents` percent-encodes query *values* but leaves `/`, `+`, `&`,
     // `=` etc. as-is inside a value — fine for `&`/`=` separators but `+` would
     // be read as a space and bare `/` muddies logs. Re-encode the path value
@@ -58,7 +59,7 @@ func repoDiffEmbedURL(worktreePath: String, theme: ScoutBranchDiffTheme) -> URL 
         components?.percentEncodedQueryItems = [
             URLQueryItem(name: "path", value: encodedPath),
             URLQueryItem(name: "theme", value: theme.queryValue),
-        ]
+        ] + (themeVars.map { [$0] } ?? [])
     }
     // Fall back to the base URL only if component assembly somehow fails; the
     // host never renders this because the inputs above are always well-formed.
@@ -106,6 +107,21 @@ enum ScoutBranchDiffResize {
     /// e.g. `scout.conversationList.width.v2`).
     static let bottomKey = "scout.repoDiff.bottomHeightFraction.v1"
     static let rightKey = "scout.repoDiff.rightWidthFraction.v1"
+}
+
+/// Resize bounds + persistence for the **embedded** diff panel — the in-place
+/// bottom half of the Repos view (`ScoutReposDiffPanel`), distinct from the
+/// modal sheet above. The Studio's `ReposPage` stacks a full-width table over a
+/// diff body; this is the native twin, so the panel height is a fraction of the
+/// Repos *content* height (not the whole window) and clamps to a calm band so
+/// neither the table nor the diff can be squeezed to nothing.
+enum ScoutReposDiffResize {
+    /// Min/max fraction of the Repos content the docked diff panel may cover.
+    static let heightRange: ClosedRange<CGFloat> = 0.22...0.72
+    /// Sensible default — the diff fills the bottom ~40%, table keeps the rest.
+    static let defaultHeightFraction: CGFloat = 0.40
+    /// @AppStorage key (`.v1` matches the repo's fraction-persistence convention).
+    static let heightKey = "scout.reposDiff.panelHeightFraction.v1"
 }
 
 // MARK: - Sheet container
@@ -212,7 +228,12 @@ struct ScoutBranchDiffSheet: View {
     private func sheetSurface(host: CGSize) -> some View {
         VStack(spacing: 0) {
             if edge == .bottom { grabHandle(hostHeight: host.height) }
-            header
+            ScoutBranchDiffHeader(
+                worktreePath: worktreePath,
+                branchParts: branchParts,
+                closeIcon: edge == .bottom ? "chevron.down" : "chevron.right",
+                onClose: dismiss
+            )
             HudDivider(color: ScoutDesign.hairline)
             ScoutBranchDiffWebHost(url: url, reloadToken: reloadToken, onRetry: { reloadToken = UUID() })
         }
@@ -257,48 +278,6 @@ struct ScoutBranchDiffSheet: View {
         .frame(maxWidth: .infinity)
         .frame(height: 16)
         .padding(.top, HudSpacing.xs)
-    }
-
-    private var header: some View {
-        HStack(spacing: HudSpacing.md) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutPalette.accent)
-                .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
-
-            VStack(alignment: .leading, spacing: 1) {
-                branchLabel
-                Text(repoShortPath(worktreePath, segments: 4))
-                    .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(ScoutPalette.dim)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer(minLength: HudSpacing.sm)
-
-            Button(action: dismiss) {
-                Image(systemName: edge == .bottom ? "chevron.down" : "chevron.right")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(ScoutPalette.muted)
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
-            .help("Close diff")
-        }
-        .padding(.horizontal, HudSpacing.lg)
-        .frame(height: ScoutBranchDiffMetrics.headerHeight)
-        .background(ScoutDesign.chrome)
-    }
-
-    private var branchLabel: some View {
-        let parts = branchParts
-        return Text(parts.prefix)
-            .foregroundStyle(ScoutPalette.dim)
-            + Text(parts.detached ? parts.sha : parts.leaf)
-            .foregroundStyle(ScoutPalette.ink)
     }
 
     // MARK: Geometry
@@ -371,6 +350,108 @@ struct ScoutBranchDiffSheet: View {
         withAnimation(drawerAnimation) { shown = false }
         // Let the retract animation play before tearing the view down.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { onClose() }
+    }
+}
+
+// MARK: - Shared diff header (sheet + embedded panel)
+
+/// The diff panel's identity bar — branch glyph, dimmed-prefix/bright-leaf branch
+/// label, the abbreviated worktree path, and a close affordance. Shared by the
+/// slide-out `ScoutBranchDiffSheet` and the embedded `ScoutReposDiffPanel` so the
+/// two read as one component; only the close glyph differs (chevron-down for the
+/// drawer, chevron-down for the docked panel — both "fold away").
+struct ScoutBranchDiffHeader: View {
+    let worktreePath: String
+    let branchParts: RepoBranchParts
+    /// SF Symbol for the close button (caller picks the fold direction).
+    var closeIcon: String = "chevron.down"
+    let onClose: () -> Void
+
+    var body: some View {
+        HStack(spacing: HudSpacing.md) {
+            Image(systemName: "arrow.triangle.branch")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutPalette.accent)
+                .frame(width: 22, height: 22)
+                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
+
+            VStack(alignment: .leading, spacing: 1) {
+                branchLabel
+                Text(repoShortPath(worktreePath, segments: 4))
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: HudSpacing.sm)
+
+            Button(action: onClose) {
+                Image(systemName: closeIcon)
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+            .foregroundStyle(ScoutPalette.muted)
+            .frame(width: 26, height: 26)
+            .contentShape(Rectangle())
+            .help("Close diff")
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .frame(height: ScoutBranchDiffMetrics.headerHeight)
+        .background(ScoutDesign.chrome)
+    }
+
+    private var branchLabel: some View {
+        let parts = branchParts
+        return Text(parts.prefix)
+            .foregroundStyle(ScoutPalette.dim)
+            + Text(parts.detached ? parts.sha : parts.leaf)
+            .foregroundStyle(ScoutPalette.ink)
+    }
+}
+
+// MARK: - Embedded diff panel (the Repos page's docked bottom half)
+
+/// The **embedded** repo-diff panel — the in-place bottom half of the Repos view,
+/// not a modal. Ports the Studio `ReposPage` construction: the repo/worktree
+/// table stays on top, and selecting a worktree fills this panel docked below it
+/// ("drifts in the table, diffs below"). It reuses the exact same chrome-free web
+/// diff viewer the sheet hosts (`ScoutBranchDiffWebHost`, which renders the
+/// Studio's file-list | hunk split itself) — §19's "embedded web view, not a
+/// native renderer" — wrapped in the shared header so it reads as one component.
+///
+/// Unlike the sheet, this view has **no scrim, no slide transition, no offset
+/// geometry** — its size is owned by the parent split (`ScoutReposContent`), which
+/// also owns the resize divider. This view is purely the panel surface.
+struct ScoutReposDiffPanel: View {
+    let worktreePath: String
+    let branchParts: RepoBranchParts
+    /// Fold the panel away (drag the divider to the floor, or this close button).
+    let onClose: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    /// Bumped to force a fresh load (retry button after a failed/unreachable load).
+    @State private var reloadToken = UUID()
+
+    private var theme: ScoutBranchDiffTheme { ScoutBranchDiffTheme(colorScheme: colorScheme) }
+    private var url: URL { repoDiffEmbedURL(worktreePath: worktreePath, theme: theme) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScoutBranchDiffHeader(
+                worktreePath: worktreePath,
+                branchParts: branchParts,
+                closeIcon: "chevron.down",
+                onClose: onClose
+            )
+            HudDivider(color: ScoutDesign.hairline)
+            ScoutBranchDiffWebHost(url: url, reloadToken: reloadToken, onRetry: { reloadToken = UUID() })
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(ScoutDesign.bg)
+        // Re-load when the app's appearance flips so the web viewer's theme query
+        // matches light/dark live (mirrors the sheet's `onChange`).
+        .onChange(of: colorScheme) { _, _ in reloadToken = UUID() }
     }
 }
 
@@ -713,6 +794,142 @@ private struct ScoutDrawerResizeHandle: NSViewRepresentable {
 }
 #else
 private struct ScoutDrawerResizeHandle: View {
+    @Binding var fraction: Double
+    @Binding var previewFraction: CGFloat?
+    let range: ClosedRange<CGFloat>
+    let hostHeight: CGFloat
+    var body: some View { Color.clear }
+}
+#endif
+
+// MARK: - Embedded split divider (table ⇕ diff panel)
+
+/// The draggable horizontal divider between the Repos table and the docked diff
+/// panel. House style, like `ScoutConversationResizeHandle` and the drawer handle
+/// above: an AppKit `NSView` that tracks the mouse directly (no SwiftUI
+/// `DragGesture`), writes a live preview fraction on every `mouseDragged`, and
+/// commits the persisted fraction on `mouseUp`. Vertical + fraction-based so the
+/// split is resolution-independent.
+///
+/// The diff panel is bottom-anchored in the Repos column (table above, diff
+/// below), so dragging the divider **up** grows the diff and **down** shrinks it
+/// — the same sign convention as the drawer grab handle.
+struct ScoutReposDiffDividerHandle: View {
+    /// Persisted panel height fraction (of the Repos content height).
+    @Binding var fraction: Double
+    /// Live during a drag; the split prefers it so a drag doesn't write
+    /// UserDefaults per frame.
+    @Binding var previewFraction: CGFloat?
+    let range: ClosedRange<CGFloat>
+    let hostHeight: CGFloat
+
+    var body: some View {
+        ZStack {
+            ScoutDiffDividerHandleRep(
+                fraction: $fraction,
+                previewFraction: $previewFraction,
+                range: range,
+                hostHeight: hostHeight
+            )
+            // Hairline on the divider's center, plus a faint accent grip pill
+            // while dragging — quiet by default, never a heavy bar.
+            HudDivider(color: previewFraction != nil ? ScoutPalette.accent : ScoutDesign.hairlineStrong)
+            Capsule()
+                .fill(previewFraction != nil ? ScoutPalette.accent : ScoutDesign.hairlineStrong)
+                .frame(width: 36, height: 3)
+                .allowsHitTesting(false)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 11)
+    }
+}
+
+#if os(macOS)
+/// AppKit drag tracker behind `ScoutReposDiffDividerHandle`. A near-twin of the
+/// drawer's `ScoutDrawerResizeHandle`, but full-width and showing the
+/// `.resizeUpDown` cursor across the whole divider strip rather than a centered
+/// grab pill.
+private struct ScoutDiffDividerHandleRep: NSViewRepresentable {
+    @Binding var fraction: Double
+    @Binding var previewFraction: CGFloat?
+    let range: ClosedRange<CGFloat>
+    let hostHeight: CGFloat
+
+    func makeNSView(context: Context) -> HandleView {
+        let view = HandleView()
+        configure(view)
+        return view
+    }
+
+    func updateNSView(_ view: HandleView, context: Context) {
+        configure(view)
+    }
+
+    private func configure(_ view: HandleView) {
+        view.range = range
+        view.hostHeight = hostHeight
+        view.getFraction = { CGFloat(fraction) }
+        view.setPreview = { previewFraction = $0 }
+        view.commit = { fraction = Double($0) }
+        view.clearPreview = { previewFraction = nil }
+    }
+
+    final class HandleView: NSView {
+        var range: ClosedRange<CGFloat> = 0.22...0.72
+        var hostHeight: CGFloat = 1
+        var getFraction: () -> CGFloat = { 0.40 }
+        var setPreview: (CGFloat) -> Void = { _ in }
+        var commit: (CGFloat) -> Void = { _ in }
+        var clearPreview: () -> Void = {}
+
+        private var startY: CGFloat = 0
+        private var startFraction: CGFloat = 0
+
+        override init(frame frameRect: NSRect) {
+            super.init(frame: frameRect)
+            wantsLayer = true
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            wantsLayer = true
+        }
+
+        override var acceptsFirstResponder: Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeUpDown)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            window?.makeFirstResponder(self)
+            startY = event.locationInWindow.y
+            startFraction = getFraction()
+            setPreview(startFraction)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            // Diff panel is bottom-anchored, divider is on its top edge: dragging
+            // up (window y increases) grows the panel.
+            let dy = event.locationInWindow.y - startY
+            setPreview(clamp(startFraction + dy / max(hostHeight, 1)))
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            let dy = event.locationInWindow.y - startY
+            commit(clamp(startFraction + dy / max(hostHeight, 1)))
+            clearPreview()
+        }
+
+        private func clamp(_ value: CGFloat) -> CGFloat {
+            min(max(value, range.lowerBound), range.upperBound)
+        }
+    }
+}
+#else
+private struct ScoutDiffDividerHandleRep: View {
     @Binding var fraction: Double
     @Binding var previewFraction: CGFloat?
     let range: ClosedRange<CGFloat>

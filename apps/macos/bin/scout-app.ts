@@ -11,11 +11,13 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hudsonFeatureEnvironment } from "./hudson-features";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
 const repoRoot = resolve(appDir, "..", "..");
 const distDir = resolve(appDir, "dist");
+const hudsonConfigPath = resolve(appDir, "hudson-package.json");
 const bundleName = "Scout.app";
 const bundlePath = resolve(distDir, bundleName);
 const binaryDir = resolve(bundlePath, "Contents", "MacOS");
@@ -76,8 +78,8 @@ function swiftBuildEnvironment(mode: BuildMode): NodeJS.ProcessEnv {
   const hudsonSource = mode === "dev" ? "path" : "git";
   return {
     ...process.env,
+    ...hudsonFeatureEnvironment(hudsonConfigPath),
     OPENSCOUT_HUDSON_SOURCE: hudsonSource,
-    HUDSONKIT_WITH_VOICE: "1",
   };
 }
 

@@ -5,6 +5,17 @@ public enum ScoutChannelScope: Sendable, Equatable {
     case shared
 }
 
+public enum ScoutAskState: String, Decodable, Sendable, Equatable {
+    case answered
+    case pending
+}
+
+public struct ScoutChannelAsk: Decodable, Sendable, Equatable {
+    public let from: String       // who asked (display name, e.g. "Art" or an agent name)
+    public let text: String       // the originating ask text
+    public let state: ScoutAskState
+}
+
 public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let cId: String
     public let kind: String
@@ -19,6 +30,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let lastMessageAt: TimeInterval?
     public let workspaceRoot: String?
     public let currentBranch: String?
+    public let unreadCount: Int
+    public let ask: ScoutChannelAsk?
 
     public var id: String { cId }
 
@@ -110,6 +123,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         case lastMessageAt
         case workspaceRoot
         case currentBranch
+        case unreadCount
+        case ask
     }
 
     public init(from decoder: Decoder) throws {
@@ -128,6 +143,8 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         lastMessageAt = try c.decodeIfPresent(TimeInterval.self, forKey: .lastMessageAt)
         workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot)
         currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
+        unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
+        ask = try c.decodeIfPresent(ScoutChannelAsk.self, forKey: .ask)
     }
 
     private func displayName(for participant: String) -> String {

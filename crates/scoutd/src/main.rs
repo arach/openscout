@@ -3,12 +3,13 @@ compile_error!("scoutd first slice requires a Unix-like platform.");
 
 use std::collections::HashSet;
 use std::env;
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::{Child, Command, ExitCode, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -23,9 +24,11 @@ const STOP_TIMEOUT: Duration = Duration::from_secs(20);
 const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
+const CHILD_LOG_ROTATE_LIMIT: u64 = 512 * 1024;
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 const DAEMON_NAME: &str = "scoutd";
+const BUILD_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Pre-rename daemon binary name. Kept for legacy-name compatibility so doctor
 /// still sees a still-running `openscout-supervisor supervise` orphan after the
 /// openscout-supervisor → scoutd rename.
@@ -74,6 +77,13 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
+    if args
+        .iter()
+        .any(|arg| arg == "-V" || arg == "--version" || arg == "version")
+    {
+        print_version();
+        return Ok(());
+    }
     if args
         .iter()
         .any(|arg| arg == "-h" || arg == "--help" || arg == "help")
@@ -293,6 +303,24 @@ struct ServiceStatus {
 }
 
 #[derive(Clone, Debug)]
+struct ChildExitTelemetry {
+    at_ms: u128,
+    code: Option<i32>,
+    signal: Option<i32>,
+    description: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct DaemonStateTelemetry {
+    base_state: Option<String>,
+    restart_count: Option<u32>,
+    restart_backoff_ms: Option<u64>,
+    last_child_exit_description: Option<String>,
+    last_child_exit_code: Option<i32>,
+    last_child_exit_signal: Option<i32>,
+}
+
+#[derive(Clone, Debug)]
 struct ProcessInfo {
     pid: u32,
     ppid: u32,
@@ -361,6 +389,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let started_at_ms = epoch_ms();
     let mut restart_count = 0_u32;
     let mut restart_delay = RESTART_MIN_DELAY;
+    let mut last_child_exit: Option<ChildExitTelemetry> = None;
     let mut child = spawn_base_process(config)?;
     write_daemon_state(
         config,
@@ -368,13 +397,24 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         Some(child.id()),
         "running",
         restart_count,
+        Some(restart_delay),
+        last_child_exit.as_ref(),
     )?;
     let mut next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
 
     while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
         match child.try_wait().map_err(|error| error.to_string())? {
             Some(status) => {
-                write_daemon_state(config, started_at_ms, None, "exited", restart_count)?;
+                last_child_exit = Some(child_exit_telemetry(&status));
+                write_daemon_state(
+                    config,
+                    started_at_ms,
+                    None,
+                    "exited",
+                    restart_count,
+                    Some(restart_delay),
+                    last_child_exit.as_ref(),
+                )?;
                 eprintln!("[scoutd] Bun base exited: {status}");
                 restart_count = restart_count.saturating_add(1);
                 sleep_until_or_shutdown(Instant::now() + restart_delay);
@@ -389,6 +429,8 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                     Some(child.id()),
                     "running",
                     restart_count,
+                    Some(restart_delay),
+                    last_child_exit.as_ref(),
                 )?;
                 next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
             }
@@ -400,6 +442,8 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                         Some(child.id()),
                         "running",
                         restart_count,
+                        Some(restart_delay),
+                        last_child_exit.as_ref(),
                     )?;
                     next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
                 }
@@ -414,9 +458,19 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         Some(child.id()),
         "stopping",
         restart_count,
+        Some(restart_delay),
+        last_child_exit.as_ref(),
     )?;
     terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
-    write_daemon_state(config, started_at_ms, None, "stopped", restart_count)?;
+    write_daemon_state(
+        config,
+        started_at_ms,
+        None,
+        "stopped",
+        restart_count,
+        Some(restart_delay),
+        last_child_exit.as_ref(),
+    )?;
     Ok(())
 }
 
@@ -428,6 +482,9 @@ fn install_signal_handlers() {
 }
 
 fn spawn_base_process(config: &Config) -> Result<Child, String> {
+    prepare_child_logs_for_spawn(config)?;
+    let stdout_log = open_child_log(&config.stdout_log_path)?;
+    let stderr_log = open_child_log(&config.stderr_log_path)?;
     let mut command = Command::new(&config.bun_executable);
     command
         .arg(config.runtime_entrypoint())
@@ -457,8 +514,8 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .env("OPENSCOUT_BROKER_SERVICE_LABEL", &config.label)
         .env("OPENSCOUT_SERVICE_LABEL", &config.label)
         .env("OPENSCOUT_ADVERTISE_SCOPE", &config.advertise_scope)
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log));
 
     for &key in OPTIONAL_LAUNCH_ENV_KEYS {
         if let Some(value) = env_nonempty(key) {
@@ -472,6 +529,87 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
     command
         .spawn()
         .map_err(|error| format!("failed to start Bun base: {error}"))
+}
+
+fn prepare_child_logs_for_spawn(config: &Config) -> Result<(), String> {
+    rotate_child_log_if_needed(&config.stdout_log_path, &config.logs_directory)?;
+    rotate_child_log_if_needed(&config.stderr_log_path, &config.logs_directory)
+}
+
+fn open_child_log(path: &Path) -> Result<fs::File, String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| format!("failed to open child log {}: {error}", path.display()))
+}
+
+fn rotate_child_log_if_needed(path: &Path, logs_directory: &Path) -> Result<(), String> {
+    if !scoutd_owned_child_log_path(path, logs_directory) {
+        return Ok(());
+    }
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("failed to inspect log {}: {error}", path.display())),
+    };
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
+        return Ok(());
+    }
+    if metadata.len() <= CHILD_LOG_ROTATE_LIMIT {
+        return Ok(());
+    }
+
+    let mut file = fs::File::open(path)
+        .map_err(|error| format!("failed to read log {}: {error}", path.display()))?;
+    file.seek(SeekFrom::Start(
+        metadata.len().saturating_sub(CHILD_LOG_ROTATE_LIMIT),
+    ))
+    .map_err(|error| format!("failed to seek log {}: {error}", path.display()))?;
+    let mut retained_tail = Vec::new();
+    file.read_to_end(&mut retained_tail)
+        .map_err(|error| format!("failed to retain log tail {}: {error}", path.display()))?;
+
+    let rotated_path = rotated_child_log_path(path);
+    fs::write(&rotated_path, retained_tail).map_err(|error| {
+        format!(
+            "failed to write rotated log {}: {error}",
+            rotated_path.display()
+        )
+    })?;
+    OpenOptions::new()
+        .write(true)
+        .open(path)
+        .and_then(|file| file.set_len(0))
+        .map_err(|error| format!("failed to truncate log {}: {error}", path.display()))
+}
+
+fn scoutd_owned_child_log_path(path: &Path, logs_directory: &Path) -> bool {
+    path.parent() == Some(logs_directory)
+        && matches!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("stdout.log" | "stderr.log")
+        )
+}
+
+fn rotated_child_log_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "child.log".to_string());
+    path.with_file_name(format!("{file_name}.1"))
+}
+
+fn child_exit_telemetry(status: &ExitStatus) -> ChildExitTelemetry {
+    ChildExitTelemetry {
+        at_ms: epoch_ms(),
+        code: status.code(),
+        signal: status.signal(),
+        description: status.to_string(),
+    }
 }
 
 fn sleep_until_or_shutdown(deadline: Instant) {
@@ -728,6 +866,9 @@ fn doctor_report(config: &Config) -> DoctorReport {
             status.config.daemon_state_path.display(),
         ));
     }
+    if let Some(raw_state) = status.daemon_state.as_deref() {
+        warnings.extend(restart_telemetry_warnings(raw_state));
+    }
 
     let daemon_processes: Vec<&ProcessInfo> = processes
         .iter()
@@ -775,6 +916,46 @@ fn doctor_report(config: &Config) -> DoctorReport {
         status,
         processes,
         warnings,
+    }
+}
+
+fn restart_telemetry_warnings(raw_state: &str) -> Vec<String> {
+    let telemetry = parse_daemon_state_telemetry(raw_state);
+    let mut warnings = Vec::new();
+    let restart_count = telemetry.restart_count.unwrap_or(0);
+    let last_child_exit = telemetry.last_child_exit_description.as_deref();
+
+    if restart_count > 0 || last_child_exit.is_some() {
+        let mut details = format!("scout-base restart telemetry: restartCount={restart_count}");
+        if let Some(base_state) = telemetry.base_state.as_deref() {
+            details.push_str(&format!(", baseState={base_state}"));
+        }
+        if let Some(backoff_ms) = telemetry.restart_backoff_ms {
+            details.push_str(&format!(", restartBackoffMs={backoff_ms}"));
+        }
+        if let Some(description) = last_child_exit {
+            details.push_str(&format!(", lastChildExit={description}"));
+        }
+        if let Some(code) = telemetry.last_child_exit_code {
+            details.push_str(&format!(", exitCode={code}"));
+        }
+        if let Some(signal) = telemetry.last_child_exit_signal {
+            details.push_str(&format!(", signal={signal}"));
+        }
+        warnings.push(details);
+    }
+
+    warnings
+}
+
+fn parse_daemon_state_telemetry(raw_state: &str) -> DaemonStateTelemetry {
+    DaemonStateTelemetry {
+        base_state: parse_json_string_field(raw_state, "baseState"),
+        restart_count: parse_json_u32_field(raw_state, "restartCount"),
+        restart_backoff_ms: parse_json_u64_field(raw_state, "restartBackoffMs"),
+        last_child_exit_description: parse_json_string_field(raw_state, "description"),
+        last_child_exit_code: parse_json_i32_field(raw_state, "code"),
+        last_child_exit_signal: parse_json_i32_field(raw_state, "signal"),
     }
 }
 
@@ -1012,29 +1193,56 @@ fn write_daemon_state(
     base_pid: Option<u32>,
     base_state: &str,
     restart_count: u32,
+    restart_backoff: Option<Duration>,
+    last_child_exit: Option<&ChildExitTelemetry>,
 ) -> Result<(), String> {
     fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
     let payload = format!(
         "{{\
 \"schemaVersion\":1,\
 \"daemon\":\"scoutd\",\
+\"version\":{},\
+\"gitSha\":{},\
 \"scoutdPid\":{},\
 \"startedAtMs\":{},\
 \"basePid\":{},\
 \"baseState\":{},\
 \"restartCount\":{},\
+\"restartBackoffMs\":{},\
+\"lastChildExit\":{},\
 \"updatedAtMs\":{}\
 }}\n",
+        json_string(BUILD_VERSION),
+        json_opt_str(build_git_sha()),
         std::process::id(),
         started_at_ms,
         json_opt_u32(base_pid),
         json_string(base_state),
         restart_count,
+        json_opt_u64(restart_backoff.map(duration_millis)),
+        child_exit_json(last_child_exit),
         epoch_ms(),
     );
     let temporary_path = config.daemon_state_path.with_extension("json.tmp");
     fs::write(&temporary_path, payload).map_err(|error| error.to_string())?;
     fs::rename(&temporary_path, &config.daemon_state_path).map_err(|error| error.to_string())
+}
+
+fn child_exit_json(value: Option<&ChildExitTelemetry>) -> String {
+    match value {
+        Some(exit) => format!(
+            "{{\"atMs\":{},\"code\":{},\"signal\":{},\"description\":{}}}",
+            exit.at_ms,
+            json_opt_i32(exit.code),
+            json_opt_i32(exit.signal),
+            json_string(&exit.description),
+        ),
+        None => "null".to_string(),
+    }
+}
+
+fn duration_millis(duration: Duration) -> u64 {
+    duration.as_millis().min(u128::from(u64::MAX)) as u64
 }
 
 fn epoch_ms() -> u128 {
@@ -1085,6 +1293,91 @@ fn parse_launchctl_string(raw: &str, prefix: &str) -> Option<String> {
         line.strip_prefix(prefix)
             .map(|value| value.trim().to_string())
     })
+}
+
+fn parse_json_u32_field(raw: &str, key: &str) -> Option<u32> {
+    parse_json_unsigned_field(raw, key).and_then(|value| u32::try_from(value).ok())
+}
+
+fn parse_json_u64_field(raw: &str, key: &str) -> Option<u64> {
+    parse_json_unsigned_field(raw, key)
+}
+
+fn parse_json_unsigned_field(raw: &str, key: &str) -> Option<u64> {
+    let after_colon = json_field_after_colon(raw, key)?;
+    let digits = after_colon
+        .trim_start()
+        .chars()
+        .take_while(|character| character.is_ascii_digit())
+        .collect::<String>();
+    if digits.is_empty() {
+        None
+    } else {
+        digits.parse::<u64>().ok()
+    }
+}
+
+fn parse_json_i32_field(raw: &str, key: &str) -> Option<i32> {
+    let after_colon = json_field_after_colon(raw, key)?;
+    let value = after_colon.trim_start();
+    let mut chars = value.chars();
+    let mut number = String::new();
+    if matches!(chars.clone().next(), Some('-')) {
+        number.push('-');
+        chars.next();
+    }
+    number.extend(chars.take_while(|character| character.is_ascii_digit()));
+    if number.is_empty() || number == "-" {
+        None
+    } else {
+        number.parse::<i32>().ok()
+    }
+}
+
+fn parse_json_string_field(raw: &str, key: &str) -> Option<String> {
+    let after_colon = json_field_after_colon(raw, key)?;
+    parse_json_string_value(after_colon.trim_start())
+}
+
+fn json_field_after_colon<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
+    let needle = format!("\"{}\"", json_escape(key));
+    let (_, after_key) = raw.split_once(&needle)?;
+    let (_, after_colon) = after_key.split_once(':')?;
+    Some(after_colon)
+}
+
+fn parse_json_string_value(raw: &str) -> Option<String> {
+    let mut chars = raw.chars();
+    if chars.next()? != '"' {
+        return None;
+    }
+    let mut parsed = String::new();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => return Some(parsed),
+            '\\' => match chars.next()? {
+                '"' => parsed.push('"'),
+                '\\' => parsed.push('\\'),
+                '/' => parsed.push('/'),
+                'b' => parsed.push('\u{0008}'),
+                'f' => parsed.push('\u{000c}'),
+                'n' => parsed.push('\n'),
+                'r' => parsed.push('\r'),
+                't' => parsed.push('\t'),
+                'u' => {
+                    let mut hex = String::new();
+                    for _ in 0..4 {
+                        hex.push(chars.next()?);
+                    }
+                    let value = u32::from_str_radix(&hex, 16).ok()?;
+                    parsed.push(char::from_u32(value)?);
+                }
+                escaped => parsed.push(escaped),
+            },
+            value => parsed.push(value),
+        }
+    }
+    None
 }
 
 fn command_available(command: &str) -> bool {
@@ -1193,9 +1486,33 @@ fn first_nonempty(first: &str, second: &str) -> String {
     }
 }
 
+fn build_git_sha() -> Option<&'static str> {
+    option_env!("SCOUTD_GIT_SHA").filter(|value| !value.trim().is_empty())
+}
+
+fn build_identity_text() -> String {
+    match build_git_sha() {
+        Some(git_sha) => format!("{DAEMON_NAME} {BUILD_VERSION} ({git_sha})"),
+        None => format!("{DAEMON_NAME} {BUILD_VERSION}"),
+    }
+}
+
+fn build_identity_json() -> String {
+    format!(
+        "{{\"name\":{},\"version\":{},\"gitSha\":{}}}",
+        json_string(DAEMON_NAME),
+        json_string(BUILD_VERSION),
+        json_opt_str(build_git_sha()),
+    )
+}
+
+fn print_version() {
+    println!("{}", build_identity_text());
+}
+
 fn print_help() {
     println!(
-        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise> [--json]\n\n\
+        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise|version> [--json]\n\n\
          Native daemon for the OpenScout local control plane."
     );
 }
@@ -1205,6 +1522,7 @@ fn print_status(status: &ServiceStatus, json: bool) {
         println!("{}", status_json(status));
     } else {
         println!("label: {}", status.config.label);
+        println!("scoutd: {}", build_identity_text());
         println!("loaded: {}", yes_no(status.launchctl.loaded));
         println!(
             "pid: {}",
@@ -1294,6 +1612,8 @@ fn status_json(status: &ServiceStatus) -> String {
 \"health\":{},\
 \"lastLogLine\":{},\
 \"scoutdExecutable\":{},\
+\"scoutdVersion\":{},\
+\"scoutdBuild\":{},\
 \"scoutdStatePath\":{},\
 \"scoutdState\":{}\
 }}",
@@ -1321,6 +1641,8 @@ fn status_json(status: &ServiceStatus) -> String {
         health_json(&status.health),
         json_opt_str(last_log_line.as_deref()),
         json_string(&status.config.daemon_executable.to_string_lossy()),
+        json_string(BUILD_VERSION),
+        build_identity_json(),
         json_string(&status.config.daemon_state_path.to_string_lossy()),
         status.daemon_state.as_deref().unwrap_or("null"),
     )
@@ -1356,8 +1678,8 @@ fn read_last_log_line(paths: &[&Path]) -> Option<String> {
     None
 }
 
-/// Window for tailing log files. Logs are unrotated and can reach hundreds of
-/// MB, so we only read this many trailing bytes rather than the whole file.
+/// Window for tailing log files. Even with child log bounding, older files can
+/// be large, so we only read trailing bytes rather than the whole file.
 const LOG_TAIL_WINDOW: u64 = 64 * 1024;
 
 fn read_last_log_line_from(path: &Path) -> Option<String> {
@@ -1441,6 +1763,12 @@ fn json_opt_u32(value: Option<u32>) -> String {
         .unwrap_or_else(|| "null".to_string())
 }
 
+fn json_opt_u64(value: Option<u64>) -> String {
+    value
+        .map(|number| number.to_string())
+        .unwrap_or_else(|| "null".to_string())
+}
+
 fn json_opt_i32(value: Option<i32>) -> String {
     value
         .map(|number| number.to_string())
@@ -1481,8 +1809,11 @@ fn xml_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        command_invokes_scoutd_daemon, health_body_reports_ok, parse_health_response,
-        process_snapshot_filter, read_last_log_line_from, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+        build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
+        health_body_reports_ok, parse_daemon_state_telemetry, parse_health_response,
+        process_snapshot_filter, read_last_log_line_from, restart_telemetry_warnings,
+        rotate_child_log_if_needed, rotated_child_log_path, scoutd_owned_child_log_path,
+        BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
     };
     use std::env;
     use std::fs;
@@ -1552,6 +1883,53 @@ mod tests {
         assert!(!process_snapshot_filter("/bin/zsh -l"));
     }
 
+    #[test]
+    fn build_identity_reports_package_version() {
+        assert!(build_identity_text().starts_with(&format!("{DAEMON_NAME} {BUILD_VERSION}")));
+        assert!(build_identity_json().contains(&format!(r#""version":"{BUILD_VERSION}""#)));
+        assert!(build_identity_json().contains(r#""gitSha":"#));
+    }
+
+    #[test]
+    fn parse_daemon_state_telemetry_reads_restart_fields() {
+        let telemetry = parse_daemon_state_telemetry(
+            r#"{"baseState":"running","restartCount":2,"restartBackoffMs":4000,"lastChildExit":{"atMs":123,"code":1,"signal":null,"description":"exit status: 1"}}"#,
+        );
+
+        assert_eq!(telemetry.base_state.as_deref(), Some("running"));
+        assert_eq!(telemetry.restart_count, Some(2));
+        assert_eq!(telemetry.restart_backoff_ms, Some(4000));
+        assert_eq!(
+            telemetry.last_child_exit_description.as_deref(),
+            Some("exit status: 1")
+        );
+        assert_eq!(telemetry.last_child_exit_code, Some(1));
+        assert_eq!(telemetry.last_child_exit_signal, None);
+    }
+
+    #[test]
+    fn restart_telemetry_warnings_include_backoff_and_exit_context() {
+        let warnings = restart_telemetry_warnings(
+            r#"{"baseState":"exited","restartCount":1,"restartBackoffMs":1000,"lastChildExit":{"atMs":123,"code":null,"signal":9,"description":"signal: 9"}}"#,
+        );
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("restartCount=1"));
+        assert!(warnings[0].contains("baseState=exited"));
+        assert!(warnings[0].contains("restartBackoffMs=1000"));
+        assert!(warnings[0].contains("lastChildExit=signal: 9"));
+        assert!(warnings[0].contains("signal=9"));
+    }
+
+    #[test]
+    fn restart_telemetry_warnings_ignore_quiet_state() {
+        let warnings = restart_telemetry_warnings(
+            r#"{"baseState":"running","restartCount":0,"restartBackoffMs":1000,"lastChildExit":null}"#,
+        );
+
+        assert!(warnings.is_empty());
+    }
+
     fn unique_temp_path(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1599,6 +1977,56 @@ mod tests {
         let line = read_last_log_line_from(&path);
         let _ = fs::remove_file(&path);
         assert_eq!(line.as_deref(), Some("good final line"));
+    }
+
+    #[test]
+    fn rotate_child_log_if_needed_retains_tail_and_truncates_current_log() {
+        let dir = unique_temp_path("rotate-dir");
+        fs::create_dir_all(&dir).expect("create log dir");
+        let path = dir.join("stdout.log");
+        let marker = b"tail marker line\n";
+        let mut contents = vec![b'x'; CHILD_LOG_ROTATE_LIMIT as usize + 32];
+        contents.extend_from_slice(marker);
+        fs::write(&path, &contents).expect("write large log");
+
+        rotate_child_log_if_needed(&path, &dir).expect("rotate log");
+
+        assert_eq!(fs::metadata(&path).expect("current log metadata").len(), 0);
+        let rotated = fs::read(rotated_child_log_path(&path)).expect("read rotated log");
+        assert!(rotated.len() <= CHILD_LOG_ROTATE_LIMIT as usize);
+        assert!(rotated.ends_with(marker));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rotate_child_log_if_needed_ignores_unowned_log_names() {
+        let dir = unique_temp_path("rotate-ignore-dir");
+        fs::create_dir_all(&dir).expect("create log dir");
+        let path = dir.join("other.log");
+        let contents = vec![b'x'; CHILD_LOG_ROTATE_LIMIT as usize + 32];
+        fs::write(&path, &contents).expect("write large log");
+
+        rotate_child_log_if_needed(&path, &dir).expect("skip unowned log");
+
+        assert_eq!(
+            fs::metadata(&path).expect("current log metadata").len(),
+            contents.len() as u64
+        );
+        assert!(!rotated_child_log_path(&path).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scoutd_owned_child_log_path_accepts_only_expected_child_logs() {
+        let dir = PathBuf::from("/Users/example/Library/Application Support/OpenScout/logs/broker");
+
+        assert!(scoutd_owned_child_log_path(&dir.join("stdout.log"), &dir));
+        assert!(scoutd_owned_child_log_path(&dir.join("stderr.log"), &dir));
+        assert!(!scoutd_owned_child_log_path(&dir.join("other.log"), &dir));
+        assert!(!scoutd_owned_child_log_path(
+            &dir.join("nested/stdout.log"),
+            &dir
+        ));
     }
 
     #[test]

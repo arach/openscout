@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 03: Wire Cube mark</title>
+  <desc id="desc">A dark app icon with a simple white isometric wire cube and an inner cube echo.</desc>
+  <rect width="1024" height="1024" rx="220" fill="#101113"/>
+  <g transform="translate(166 138) scale(3.08)">
+    <path d="M112 8 207 63v110l-95 55-95-55V63Z" fill="none" stroke="#f7f4ea" stroke-width="7.5" stroke-linejoin="round"/>
+    <path d="M112 8v110M207 63l-95 55M17 63l95 55M112 228V118" fill="none" stroke="#f7f4ea" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M112 70 154 94v48l-42 24-42-24V94Z" fill="none" stroke="#f7f4ea" stroke-opacity="0.66" stroke-width="5.25" stroke-linejoin="round"/>
+    <path d="M112 70v96M154 94l-42 24M70 94l42 24" fill="none" stroke="#f7f4ea" stroke-opacity="0.66" stroke-width="5.25" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

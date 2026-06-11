@@ -3,6 +3,7 @@ import type {
   AgentEndpoint,
   ConversationKind,
   MessageRecord,
+  UnblockRequestRecord,
 } from "@openscout/protocol";
 import { channelNaturalKeyFromMetadata } from "@openscout/protocol";
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
@@ -16,6 +17,17 @@ export type ScoutConversationListFilters = {
   query?: string;
   limit?: number;
   kinds?: ConversationKind[];
+};
+
+/// Per-conversation ask signal surfaced to the comms list. `state` is "pending"
+/// while the originating agent is still blocked on the operator, and "answered"
+/// once the most recent ask in this conversation has been resolved. The UI only
+/// renders a chip/band while pending — an answered ask is resolved, so a chip
+/// there would be noise.
+export type ScoutConversationAsk = {
+  from: string;
+  text: string;
+  state: "pending" | "answered";
 };
 
 export type ScoutConversationSummary = {
@@ -35,6 +47,11 @@ export type ScoutConversationSummary = {
   messageCount: number;
   lastMessageAt: number | null;
   workspaceRoot: string | null;
+  /// Messages the operator has not yet read in this conversation. Always present;
+  /// 0 means fully read (or we cannot determine a read position yet).
+  unreadCount: number;
+  /// Best-effort per-conversation ask, omitted entirely when there is no signal.
+  ask?: ScoutConversationAsk;
 };
 
 const DEFAULT_CONVERSATION_KINDS: ConversationKind[] = [
@@ -240,6 +257,86 @@ function includeConversation(
   ].some((value) => value.toLowerCase().includes(query));
 }
 
+/// The operator's furthest-read timestamp per conversation. Mirrors the proven
+/// mobile-comms unread logic (core/mobile/service.ts ~L1218): a conversation can
+/// carry several operator-flavored read cursors (canonical "operator" plus the
+/// configured name/handle), so we keep the *max* `lastReadAt`. `MessageRecord`
+/// has no monotonic `seq`, so — like mobile — we count by `createdAt`, which the
+/// broker stamps and the cursor's `lastReadAt` is expressed in.
+function operatorReadAtByConversation(snapshot: ScoutBrokerSnapshot): Map<string, number> {
+  const operatorIds = new Set(configuredOperatorActorIds());
+  const readAt = new Map<string, number>();
+  for (const cursor of Object.values(snapshot.readCursors ?? {})) {
+    if (!operatorIds.has(cursor.actorId)) continue;
+    const prev = readAt.get(cursor.conversationId) ?? 0;
+    readAt.set(cursor.conversationId, Math.max(prev, cursor.lastReadAt ?? 0));
+  }
+  return readAt;
+}
+
+/// Count messages newer than the operator's read position that the operator did
+/// not author. When the operator has no cursor for the conversation we cannot
+/// tell what has been seen, so we return 0 (prefer under- over over-counting, per
+/// the data-contract note) rather than flagging the whole history as unread.
+function unreadCountForConversation(
+  messages: MessageRecord[],
+  readAt: number | undefined,
+  operatorIds: Set<string>,
+): number {
+  if (readAt == null || readAt <= 0) return 0;
+  let count = 0;
+  for (const message of messages) {
+    const createdAt = normalizeTimestampMs(message.createdAt) ?? 0;
+    if (createdAt > readAt && !operatorIds.has(message.actorId)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/// Index the most recent "question"-kind unblock request per conversation. These
+/// are the broker's record of an agent blocked on the operator (the same records
+/// that drive operator-attention), so they are the cleanest per-conversation ask
+/// signal available in the snapshot we already hold. Keyed by `conversationId`,
+/// newest by `updatedAt` wins so a fresh ask supersedes a resolved one.
+function latestQuestionAskByConversation(
+  snapshot: ScoutBrokerSnapshot,
+): Map<string, UnblockRequestRecord> {
+  const latest = new Map<string, UnblockRequestRecord>();
+  for (const request of Object.values(snapshot.unblockRequests ?? {})) {
+    if (request.kind !== "question") continue;
+    const conversationId = request.conversationId;
+    if (!conversationId) continue;
+    const prev = latest.get(conversationId);
+    if (!prev || request.updatedAt > prev.updatedAt) {
+      latest.set(conversationId, request);
+    }
+  }
+  return latest;
+}
+
+/// Map a question unblock request into the wire `ask`. `state` is "pending" while
+/// the request is still active (broker state "open"/"snoozed"), "answered" once it
+/// has reached a terminal state. `from` is the asker's display name (the agent /
+/// actor that created the request), `text` the ask itself (summary preferred over
+/// the shorter title).
+function askFromUnblockRequest(
+  snapshot: ScoutBrokerSnapshot,
+  request: UnblockRequestRecord,
+): ScoutConversationAsk | null {
+  const text = (request.summary?.trim() || request.title?.trim()) ?? "";
+  if (!text) return null;
+  const askerId = request.createdById || request.agentId || "";
+  const from = (askerId
+    && (snapshot.agents[askerId]?.displayName
+      ?? snapshot.actors[askerId]?.displayName))
+    || askerId
+    || "Agent";
+  const state: ScoutConversationAsk["state"] =
+    request.state === "open" || request.state === "snoozed" ? "pending" : "answered";
+  return { from, text, state };
+}
+
 export async function getScoutConversations(
   filters: ScoutConversationListFilters = {},
 ): Promise<ScoutConversationSummary[]> {
@@ -252,6 +349,9 @@ export async function getScoutConversations(
   const messagesByConversation = latestMessageByConversation(snapshot);
   const allowedKinds = new Set(filters.kinds ?? DEFAULT_CONVERSATION_KINDS);
   const query = normalizeQuery(filters.query);
+  const operatorIds = new Set(configuredOperatorActorIds());
+  const readAtByConversation = operatorReadAtByConversation(snapshot);
+  const askByConversation = latestQuestionAskByConversation(snapshot);
 
   const summaries = Object.values(snapshot.conversations)
     .flatMap((conversation): ScoutConversationSummary[] => {
@@ -262,6 +362,14 @@ export async function getScoutConversations(
       const messages = messagesByConversation.get(conversation.id) ?? [];
       const latestMessage = messages.at(-1) ?? null;
       const messageCount = messages.length;
+      const unreadCount = unreadCountForConversation(
+        messages,
+        readAtByConversation.get(conversation.id),
+        operatorIds,
+      );
+      const askRequest = askByConversation.get(conversation.id);
+      const ask = askRequest ? askFromUnblockRequest(snapshot, askRequest) : null;
+      const askField = ask ? { ask } : {};
 
       if (conversation.kind === "direct") {
         const { agentId, agent, endpoint } = directConversationAgent(snapshot, conversation.participantIds);
@@ -295,6 +403,8 @@ export async function getScoutConversations(
           messageCount,
           lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
           workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
+          unreadCount,
+          ...askField,
         }];
       }
 
@@ -329,6 +439,8 @@ export async function getScoutConversations(
         messageCount,
         lastMessageAt: normalizeTimestampMs(latestMessage?.createdAt),
         workspaceRoot: null,
+        unreadCount,
+        ...askField,
       }];
     })
     .filter((summary) => includeConversation(summary, query))

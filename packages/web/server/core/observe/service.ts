@@ -17,12 +17,16 @@ import {
   getLocalAgentSessionSnapshot,
 } from "@openscout/runtime/local-agents";
 import { getTailDiscovery } from "@openscout/runtime/tail";
-import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import type { AgentEndpoint } from "@openscout/protocol";
 
 import type { WebAgent } from "../../db-queries.ts";
 import { queryAgents } from "../../db-queries.ts";
 import { getScoutWebPairingSessionSnapshot } from "../../pairing.ts";
+import {
+  endpointMetadataRecord,
+  endpointSessionAliases,
+  selectPreferredAgentEndpoint,
+} from "../agent-endpoints.ts";
 import { loadScoutBrokerContext } from "../broker/service.ts";
 
 export type ObserveEventKind =
@@ -207,29 +211,20 @@ export type SessionRefObservePayload =
       data: ObserveData;
     };
 
-function activeEndpoint(
-  snapshot: RuntimeRegistrySnapshot,
-  agentId: string,
-): AgentEndpoint | null {
-  const candidates = Object.values(snapshot.endpoints ?? {}).filter(
-    (endpoint) => endpoint.agentId === agentId,
-  );
-  const rank = (state: string | undefined) => {
-    switch (state) {
-      case "active":
-        return 0;
-      case "idle":
-        return 1;
-      case "waiting":
-        return 2;
-      case "offline":
-        return 5;
-      default:
-        return 4;
-    }
-  };
+function normalizedComparableString(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
 
-  return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+function normalizedSessionAlias(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : null;
+}
+
+function normalizedFilesystemPath(value: string | null | undefined): string | null {
+  const expanded = expandHome(value)?.trim();
+  return expanded ? resolve(expanded) : null;
 }
 
 function expandHome(value: string | null | undefined): string | null {
@@ -430,6 +425,18 @@ function historyAdapterAlias(
   return null;
 }
 
+function historyAdapterForEndpoint(
+  endpoint: AgentEndpoint | null | undefined,
+): "claude-code" | "codex" | "pi" | null {
+  return historyAdapterAlias(endpoint?.harness) ?? historyAdapterAlias(endpoint?.transport);
+}
+
+function historyAdapterForAgent(
+  agent: WebAgent,
+): "claude-code" | "codex" | "pi" | null {
+  return historyAdapterAlias(agent.harness) ?? historyAdapterAlias(agent.transport);
+}
+
 function snapshotProviderMeta(snapshot: SessionState): Record<string, unknown> {
   const providerMeta = snapshot.session.providerMeta;
   return providerMeta && typeof providerMeta === "object" ? providerMeta : {};
@@ -597,10 +604,10 @@ function resolveHistoryCandidate(
   endpoint?: AgentEndpoint | null,
 ): { path: string; adapterType: "claude-code" | "codex" | "pi" } | null {
   const snapshotAdapter = historyAdapterAlias(snapshot?.session.adapterType);
-  const endpointAdapter = historyAdapterAlias(endpoint?.transport ?? endpoint?.harness);
-  const agentAdapter = historyAdapterAlias(agent.transport ?? agent.harness);
+  const endpointAdapter = historyAdapterForEndpoint(endpoint);
+  const agentAdapter = historyAdapterForAgent(agent);
   const providerMeta = snapshot ? snapshotProviderMeta(snapshot) : {};
-  const endpointMeta = endpoint?.metadata && typeof endpoint.metadata === "object" ? endpoint.metadata : {};
+  const endpointMeta = endpointMetadataRecord(endpoint);
 
   const directPath = firstString(
     providerMeta.resumeSessionPath,
@@ -630,6 +637,113 @@ function resolveHistoryCandidate(
     }
   }
 
+  return null;
+}
+
+function collectSessionRefs(
+  agent: WebAgent,
+  snapshot: SessionState | null,
+  endpoint: AgentEndpoint | null | undefined,
+): Set<string> {
+  const providerMeta = snapshot ? snapshotProviderMeta(snapshot) : {};
+  const refs = new Set([
+    snapshot?.session.id,
+    providerMeta.transportSessionId,
+    providerMeta.externalSessionId,
+    providerMeta.threadId,
+    providerMeta.nativeSessionId,
+    agent.harnessSessionId,
+  ].map(normalizedSessionAlias).filter((ref): ref is string => Boolean(ref)));
+  if (endpoint) {
+    for (const alias of endpointSessionAliases(endpoint)) {
+      refs.add(alias);
+    }
+  }
+  return refs;
+}
+
+function collectAgentCwdRefs(agent: WebAgent, snapshot: SessionState | null, endpoint: AgentEndpoint | null | undefined): Set<string> {
+  return new Set([
+    normalizedFilesystemPath(snapshot?.session.cwd),
+    normalizedFilesystemPath(endpoint?.cwd),
+    normalizedFilesystemPath(endpoint?.projectRoot),
+    normalizedFilesystemPath(agent.cwd),
+    normalizedFilesystemPath(agent.projectRoot),
+  ].filter((path): path is string => Boolean(path)));
+}
+
+async function resolveDiscoveredHistoryCandidate(
+  agent: WebAgent,
+  snapshot: SessionState | null,
+  endpoint?: AgentEndpoint | null,
+): Promise<{ path: string; adapterType: "claude-code" | "codex" | "pi" } | null> {
+  const adapterType = historyAdapterAlias(snapshot?.session.adapterType)
+    ?? historyAdapterForEndpoint(endpoint)
+    ?? historyAdapterForAgent(agent);
+  if (!adapterType) {
+    return null;
+  }
+
+  const discovery = await getTailDiscovery().catch(() => null);
+  if (!discovery?.transcripts.length) {
+    return null;
+  }
+
+  const sessionRefs = collectSessionRefs(agent, snapshot, endpoint);
+  const cwdRefs = collectAgentCwdRefs(agent, snapshot, endpoint);
+  const agentProject = normalizedComparableString(agent.project);
+  const candidates = discovery.transcripts
+    .filter((transcript) => adapterTypeFromTailSource(transcript.source) === adapterType)
+    .map((transcript) => {
+      const sessionMatch = Boolean(transcript.sessionId && sessionRefs.has(transcript.sessionId.trim().toLowerCase()));
+      const cwd = normalizedFilesystemPath(transcript.cwd);
+      const cwdMatch = Boolean(cwd && cwdRefs.has(cwd));
+      const projectMatch = Boolean(
+        agentProject
+        && normalizedComparableString(transcript.project) === agentProject
+        && cwdRefs.size > 0,
+      );
+      return {
+        transcript,
+        sessionMatch,
+        cwdMatch,
+        projectMatch,
+      };
+    })
+    .filter(({ sessionMatch, cwdMatch, projectMatch }) => sessionMatch || cwdMatch || projectMatch)
+    .sort((left, right) => {
+      const leftTuple = [
+        left.sessionMatch ? 0 : 1,
+        left.cwdMatch ? 0 : 1,
+        left.projectMatch ? 0 : 1,
+        -left.transcript.mtimeMs,
+        -left.transcript.size,
+      ];
+      const rightTuple = [
+        right.sessionMatch ? 0 : 1,
+        right.cwdMatch ? 0 : 1,
+        right.projectMatch ? 0 : 1,
+        -right.transcript.mtimeMs,
+        -right.transcript.size,
+      ];
+      for (let index = 0; index < leftTuple.length; index += 1) {
+        const leftValue = leftTuple[index]!;
+        const rightValue = rightTuple[index]!;
+        if (leftValue < rightValue) {
+          return -1;
+        }
+        if (leftValue > rightValue) {
+          return 1;
+        }
+      }
+      return left.transcript.transcriptPath.localeCompare(right.transcript.transcriptPath);
+    });
+
+  for (const { transcript } of candidates) {
+    if (supportsHistorySessionSnapshotForPath(transcript.transcriptPath, adapterType)) {
+      return { path: transcript.transcriptPath, adapterType };
+    }
+  }
   return null;
 }
 
@@ -1200,12 +1314,26 @@ async function resolveSnapshotSource(
   agent: WebAgent,
   broker: ObserveBrokerContext,
 ): Promise<SnapshotSource> {
-  const endpoint = broker ? activeEndpoint(broker.snapshot, agent.id) : null;
+  const endpoint = broker ? selectPreferredAgentEndpoint(broker.snapshot, agent.id, {
+    harness: agent.harness,
+    transport: agent.transport,
+    sessionId: agent.harnessSessionId,
+    cwd: agent.cwd,
+    projectRoot: agent.projectRoot,
+  }) : null;
   const liveSnapshot = await readLiveSnapshot(agent, endpoint);
   const live = isLiveSessionSnapshot(liveSnapshot);
 
-  const historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint);
-  const historySnapshot = readHistorySnapshot(historyCandidate);
+  let historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint);
+  let historySnapshot = readHistorySnapshot(historyCandidate);
+  if (!historySnapshot) {
+    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, liveSnapshot, endpoint);
+    const discoveredSnapshot = readHistorySnapshot(discoveredCandidate);
+    if (discoveredSnapshot) {
+      historyCandidate = discoveredCandidate;
+      historySnapshot = discoveredSnapshot;
+    }
+  }
   if (historySnapshot) {
     return {
       source: "history",
@@ -1228,7 +1356,16 @@ async function resolveSnapshotSource(
     };
   }
 
-  const agentHistorySnapshot = readHistorySnapshot(resolveHistoryCandidate(agent, null, endpoint));
+  let agentHistoryCandidate = resolveHistoryCandidate(agent, null, endpoint);
+  let agentHistorySnapshot = readHistorySnapshot(agentHistoryCandidate);
+  if (!agentHistorySnapshot) {
+    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, null, endpoint);
+    const discoveredSnapshot = readHistorySnapshot(discoveredCandidate);
+    if (discoveredSnapshot) {
+      agentHistoryCandidate = discoveredCandidate;
+      agentHistorySnapshot = discoveredSnapshot;
+    }
+  }
   if (agentHistorySnapshot) {
     return {
       source: "history",
@@ -1236,7 +1373,7 @@ async function resolveSnapshotSource(
       snapshot: agentHistorySnapshot.snapshot,
       timedEvents: agentHistorySnapshot.timedEvents,
       live: false,
-      sessionId: null,
+      sessionId: endpoint?.sessionId ?? agentHistorySnapshot.snapshot.session.id ?? null,
     };
   }
 

@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hudsonFeatureEnvironment } from "./hudson-features";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const appDir = resolve(scriptDir, "..");
@@ -30,7 +31,8 @@ const infoPlistTemplate = resolve(appDir, "Info.plist");
 const entitlementsPath = resolve(appDir, "ScoutMenu.entitlements");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
-const bundleIdentifier = "com.openscout.menu";
+const bundleIdentifier = "app.openscout.mac.menu";
+const hudsonConfigPath = resolve(appDir, "hudson-package.json");
 
 type Command =
   | "build"
@@ -360,7 +362,7 @@ function buildIconIfPossible(): void {
 function releaseBinaryPath(): string {
   const env = {
     ...process.env,
-    HUDSONKIT_WITH_VOICE: "1",
+    ...hudsonFeatureEnvironment(hudsonConfigPath),
   };
   execSync("swift build -c release", {
     cwd: appDir,

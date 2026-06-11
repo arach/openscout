@@ -318,10 +318,35 @@ struct ScoutReposContent: View {
     @ObservedObject var tree: ScoutReposTreeModel
     /// Enter / double-click on the focused row (reveal the path in Finder).
     let onActivate: () -> Void
-    /// SCO-065 — open the repo-diff sheet for a specific worktree (the row's
-    /// visible "diff" button). Web parity: the web Repo Watch row exposes the
-    /// same affordance; native previously only had the hidden double-click/⌘↩.
+    /// SCO-065 — open the repo-diff for a specific worktree (the row's visible
+    /// "diff" affordance). The diff now fills the **embedded bottom panel** in
+    /// place (`ScoutReposDiffPanel`) rather than a slide-up sheet, so this just
+    /// records which worktree the docked panel should show. Web parity: the web
+    /// Repo Watch row exposes the same affordance.
     let onOpenDiff: (RepoWorktree) -> Void
+
+    // MARK: Embedded diff panel state
+
+    /// Persisted height of the docked diff panel as a fraction of the Repos
+    /// content height (default ~40%, clamped to a calm band). Resolution-
+    /// independent so the split survives window resizes.
+    @AppStorage(ScoutReposDiffResize.heightKey)
+    private var storedDiffFraction = Double(ScoutReposDiffResize.defaultHeightFraction)
+    /// Non-nil only while dragging the divider; the split prefers it over the
+    /// stored fraction so a drag doesn't write UserDefaults per frame.
+    @State private var diffDragPreview: CGFloat?
+    /// The worktree id the user explicitly folded the diff away for. The panel
+    /// stays collapsed for that selection until they pick another worktree or
+    /// re-click the same one — so "close" sticks but never traps the panel shut.
+    @State private var dismissedDiffWorktreeID: String?
+
+    /// The worktree whose diff the docked panel should render: the cursor's
+    /// selected worktree, unless the user has folded the panel away for it.
+    private var diffWorktree: RepoWorktree? {
+        guard let id = tree.selectedWorktreeID, id != dismissedDiffWorktreeID else { return nil }
+        guard let wt = repos.worktree(id: id), !wt.path.isEmpty else { return nil }
+        return wt
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -330,9 +355,57 @@ struct ScoutReposContent: View {
                 errorBanner(error)
             }
             columnHeader
-            treeScroll
+            splitBody
         }
         .background(ScoutDesign.bg)
+        // Re-clicking a worktree row (`onOpenDiff`) re-opens the panel even if it
+        // was folded away for that same selection.
+        .onChange(of: tree.selectedWorktreeID) { _, id in
+            if id != dismissedDiffWorktreeID { dismissedDiffWorktreeID = nil }
+        }
+    }
+
+    /// The Repos view as a vertical split — the Studio `ReposPage` construction
+    /// ported to native: the repo/worktree **table on top** (`reposMain`,
+    /// border-bottom) and the **diff panel docked below** (`diff`). A draggable
+    /// horizontal divider sets the split; selecting a worktree fills the bottom
+    /// panel in place (no sheet), and folding it away returns the table to full
+    /// height. "Drifts in the table, diffs below."
+    private var splitBody: some View {
+        GeometryReader { geo in
+            let panelHeight = diffPanelHeight(in: geo.size.height)
+            VStack(spacing: 0) {
+                treeScroll
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if let worktree = diffWorktree {
+                    ScoutReposDiffDividerHandle(
+                        fraction: $storedDiffFraction,
+                        previewFraction: $diffDragPreview,
+                        range: ScoutReposDiffResize.heightRange,
+                        hostHeight: geo.size.height
+                    )
+                    ScoutReposDiffPanel(
+                        worktreePath: worktree.path,
+                        branchParts: worktree.branchParts,
+                        onClose: { dismissedDiffWorktreeID = worktree.id }
+                    )
+                    .frame(height: panelHeight)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .animation(.easeOut(duration: 0.16), value: diffWorktree?.id)
+        }
+    }
+
+    /// Docked panel height in points for the current Repos content height —
+    /// the live drag preview while dragging, else the persisted fraction, always
+    /// clamped to the calm band so neither the table nor the diff is squeezed out.
+    private func diffPanelHeight(in hostHeight: CGFloat) -> CGFloat {
+        let fraction = diffDragPreview ?? CGFloat(storedDiffFraction)
+        let clamped = min(ScoutReposDiffResize.heightRange.upperBound,
+                          max(ScoutReposDiffResize.heightRange.lowerBound, fraction))
+        return hostHeight * clamped
     }
 
     // MARK: Sortable column header
@@ -396,10 +469,6 @@ struct ScoutReposContent: View {
             lensStrip
         } trailing: {
             commandStrip
-        }
-        .background(ScoutDesign.bg)
-        .overlay(alignment: .bottom) {
-            HudDivider(color: ScoutDesign.hairlineStrong)
         }
     }
 
@@ -541,7 +610,19 @@ struct ScoutReposContent: View {
                         showClean: repos.showCleanIdle,
                         lens: repos.lens,
                         onActivate: onActivate,
-                        onOpenDiff: onOpenDiff
+                        // Clicking a worktree row fills the embedded diff panel in
+                        // place — no sheet. Clearing the dismissed id here re-opens
+                        // the panel even when the row is already selected (re-click
+                        // after a fold); `onChange(selectedWorktreeID)` only covers
+                        // the *changed*-selection case. The parent's `onOpenDiff`
+                        // (the legacy slide-up `ScoutBranchDiffSheet`) is left
+                        // wired but intentionally not driven from here, so the
+                        // primary Repos flow is the docked panel, never the sheet.
+                        onOpenDiff: { _ in
+                            withAnimation(.easeOut(duration: 0.16)) {
+                                dismissedDiffWorktreeID = nil
+                            }
+                        }
                     )
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                 }

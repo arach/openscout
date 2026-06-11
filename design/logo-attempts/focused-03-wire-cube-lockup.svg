@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 280" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 03: Wire Cube lockup</title>
+  <desc id="desc">A simple OpenScout wordmark with an isometric wire cube mark as the opening O.</desc>
+  <defs>
+    <style>
+      .edge { stroke: #25282c; }
+      .inner { stroke: #25282c; stroke-opacity: 0.54; }
+      .word { fill: #25282c; font: 760 112px Inter, "Avenir Next", "Helvetica Neue", Arial, sans-serif; }
+    </style>
+  </defs>
+  <g transform="translate(24 22)">
+    <path class="edge" d="M112 8 207 63v110l-95 55-95-55V63Z" fill="none" stroke-width="7.5" stroke-linejoin="round"/>
+    <path class="edge" d="M112 8v110M207 63l-95 55M17 63l95 55M112 228V118" fill="none" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="inner" d="M112 70 154 94v48l-42 24-42-24V94Z" fill="none" stroke-width="5.25" stroke-linejoin="round"/>
+    <path class="inner" d="M112 70v96M154 94l-42 24M70 94l42 24" fill="none" stroke-width="5.25" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text class="word" x="246" y="186">penScout</text>
+</svg>

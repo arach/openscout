@@ -35,6 +35,12 @@ final class ScoutCommsStore: ObservableObject {
     private var observeTask: Task<Void, Never>?
     private var observeRequestId: UUID?
     private var attemptedInitialChannelsLoad = false
+    private var readCursorTask: Task<Void, Never>?
+    /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
+    /// reactive advance against the steady-state poll re-firing the same POST on
+    /// every heartbeat — we only re-mark when the selection or its newest
+    /// message actually changes.
+    private var lastAdvancedReadCursor: String?
 
     var selectedChannel: ScoutChannel? {
         guard let selectedCId else { return nil }
@@ -103,10 +109,12 @@ final class ScoutCommsStore: ObservableObject {
         messagesTask?.cancel()
         agentsTask?.cancel()
         observeTask?.cancel()
+        readCursorTask?.cancel()
         channelsTask = nil
         messagesTask = nil
         agentsTask = nil
         observeTask = nil
+        readCursorTask = nil
         observeRequestId = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
@@ -126,6 +134,10 @@ final class ScoutCommsStore: ObservableObject {
         selectedAgentId = channels.first(where: { $0.cId == cId })?.agentId
         messages = []
         loadMessages()
+        // Opening a conversation reads it. Fire immediately (timestamp-based) so
+        // unread clears even before the message list lands; loadMessages() will
+        // re-advance to the exact latest id once messages arrive.
+        markConversationRead(cId: cId)
     }
 
     func selectAgent(_ agentId: String) {
@@ -135,8 +147,12 @@ final class ScoutCommsStore: ObservableObject {
     func openAgentChannel(_ agent: ScoutAgent) {
         selectedAgentId = agent.id
         if let cId = agent.conversationId ?? channels.first(where: { $0.agentId == agent.id })?.cId {
+            let isNewSelection = selectedCId != cId
             selectedCId = cId
             loadMessages()
+            if isNewSelection {
+                markConversationRead(cId: cId)
+            }
         }
     }
 
@@ -145,6 +161,37 @@ final class ScoutCommsStore: ObservableObject {
         messagesTask?.cancel()
         messagesTask = Task { [weak self] in
             await self?.loadMessages(cId: selectedCId)
+        }
+    }
+
+    /// Advance the operator's read cursor for `cId` to its newest known message.
+    /// Best-effort and fire-and-forget — the client swallows errors so this never
+    /// surfaces in the UI. Only the currently-selected conversation is marked,
+    /// and a dedup key prevents the steady-state poll (which also calls
+    /// loadMessages) from re-POSTing the same cursor on every heartbeat. The
+    /// next server refresh of `channels` clears the unread badge — we don't
+    /// locally mutate the channel here (its `unreadCount` is an immutable model
+    /// field), so there's nothing to fight the refresh.
+    private func markConversationRead(cId: String, latest: ScoutMessage? = nil) {
+        guard selectedCId == cId else { return }
+
+        let latestId = latest?.id
+        // Key = conversation + its newest message. Same key ⇒ nothing new to
+        // read ⇒ skip the POST. A different conversation, or a newer message
+        // landing while this one is open, advances the key again. The "now"
+        // placeholder lets the on-select (pre-messages) call advance once, then
+        // be superseded by the exact-id call when messages arrive.
+        let dedupKey = "\(cId):\(latestId ?? "now")"
+        guard dedupKey != lastAdvancedReadCursor else { return }
+        lastAdvancedReadCursor = dedupKey
+
+        readCursorTask?.cancel()
+        readCursorTask = Task { [latestId] in
+            await ScoutCommsClient().advanceReadCursor(
+                cId: cId,
+                lastReadMessageId: latestId,
+                lastReadSeq: nil
+            )
         }
     }
 
@@ -332,6 +379,10 @@ final class ScoutCommsStore: ObservableObject {
             guard selectedCId == cId else { return }
             setIfChanged(next, to: \.messages)
             setIfChanged(nil, to: \.lastError)
+            // Having the conversation's messages on screen reads it. Advance to
+            // the exact latest message id; the dedup key keeps the steady-state
+            // poll (which also calls loadMessages) from re-POSTing every beat.
+            markConversationRead(cId: cId, latest: next.last)
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }

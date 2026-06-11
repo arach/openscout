@@ -1,8 +1,12 @@
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
-import { parseContextRootCommandOptions } from "../options.ts";
+import { parseDoctorCommandOptions } from "../options.ts";
 import { loadScoutDoctorReport } from "../../core/setup/service.ts";
 import { resolveScoutWorkspaceRoot } from "../../shared/paths.ts";
+import {
+  loadNativeScoutdDoctorReport,
+  renderNativeScoutdDoctorSection,
+} from "../scoutd.ts";
 import {
   formatScoutDoctorStreamedProjectEntry,
   renderScoutDoctorStreamingLead,
@@ -16,7 +20,8 @@ function writeDoctorJsonLine(context: ScoutCommandContext, payload: Record<strin
 }
 
 export async function runDoctorCommand(context: ScoutCommandContext, args: string[]): Promise<void> {
-  const options = parseContextRootCommandOptions("doctor", args, defaultScoutContextDirectory(context));
+  const options = parseDoctorCommandOptions(args, defaultScoutContextDirectory(context));
+  const outputJson = context.output.mode === "json" || options.json;
   const repoRoot = (() => {
     try {
       return resolveScoutWorkspaceRoot({
@@ -28,7 +33,7 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
     }
   })();
 
-  if (context.output.mode === "plain") {
+  if (!outputJson) {
     context.output.writeText(
       renderScoutDoctorStreamingLead({
         repoRoot,
@@ -43,10 +48,19 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
         context.output.writeText(formatScoutDoctorStreamedProjectEntry(entry));
       },
     });
+    const native = await loadNativeScoutdDoctorReport({
+      fix: options.fix,
+      yes: options.yes,
+      env: context.env,
+    });
     if (report.setup.projectInventory.length === 0) {
       context.output.writeText("  No projects discovered yet.\n");
     }
     context.output.writeText(renderScoutDoctorTailAfterStream(report));
+    const nativeSection = renderNativeScoutdDoctorSection(native);
+    if (nativeSection) {
+      context.output.writeText(nativeSection);
+    }
     return;
   }
 
@@ -65,5 +79,18 @@ export async function runDoctorCommand(context: ScoutCommandContext, args: strin
     },
   });
 
-  writeDoctorJsonLine(context, { phase: "complete", report });
+  const native = await loadNativeScoutdDoctorReport({
+    fix: options.fix,
+    yes: options.yes,
+    env: context.env,
+  });
+
+  writeDoctorJsonLine(context, { phase: "native", nativeDaemon: native });
+  writeDoctorJsonLine(context, {
+    phase: "complete",
+    report: {
+      ...report,
+      nativeDaemon: native,
+    },
+  });
 }

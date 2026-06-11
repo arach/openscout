@@ -1,0 +1,216 @@
+/* Scout — Tail study. Tokens only (`--s-*`). */
+
+.tail {
+  display: flex;
+  flex-direction: column;
+  min-height: 520px;
+  font-family: var(--s-font-sans);
+}
+
+/* ── Bar ───────────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: var(--s-chrome);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--s-ok);
+  flex-shrink: 0;
+}
+
+.pip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--s-ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 70%, transparent);
+  animation: pulse 1.8s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 60%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  border: 1px solid var(--s-hairline);
+  background: var(--s-surface);
+  cursor: pointer;
+}
+
+.chip.active {
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border-color: var(--s-accent);
+}
+
+.chipDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.barRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.barHint,
+.barSearch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  color: var(--s-dim);
+  border: 1px solid var(--s-hairline);
+  background: var(--s-surface);
+}
+
+/* ── Stream ────────────────────────────────────────────────────────── */
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--s-bg);
+}
+
+.ev {
+  display: grid;
+  grid-template-columns: 64px 78px 52px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 16px;
+  border-bottom: 1px solid var(--s-hairline);
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+}
+
+.ev:hover {
+  background: color-mix(in srgb, var(--s-accent) 6%, transparent);
+}
+
+.evTime {
+  color: var(--s-dim);
+  font-size: 11px;
+}
+
+.evSrc {
+  color: var(--s-accent);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evMsg {
+  color: color-mix(in srgb, var(--s-ink) 82%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.evMsg code {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+  color: var(--s-ink);
+}
+
+/* ── KIND chip ─────────────────────────────────────────────────────── */
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--chip-tone);
+  background: color-mix(in srgb, var(--chip-tone) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-tone) 30%, transparent);
+}
+
+/* ── Vocabulary legend ─────────────────────────────────────────────── */
+
+.legendWrap {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid var(--studio-edge);
+}
+
+.legendHead {
+  font-family: var(--s-font-mono, ui-monospace);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--studio-ink-faint);
+  margin-bottom: 12px;
+}
+
+/* The legend renders its chips with `--s-*`, so give it the live skin via a
+   nested wrapper. Use juniper-l tokens as a neutral default for the spec board. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.legendTitle {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--studio-ink);
+}
+
+.legendTone {
+  font-family: ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--studio-ink-faint);
+}

@@ -161,6 +161,30 @@ describe("runScoutdServiceCommand shell-out", () => {
         ok: true,
         checkedAt: 1700000000,
         transport: "unix_socket",
+        nodeId: "node-1",
+        meshId: "mesh-1",
+        counts: {
+          nodes: 1,
+          actors: 2,
+          agents: 3,
+          conversations: 4,
+          messages: 5,
+          flights: 6,
+          collaborationRecords: 7,
+        },
+        build: {
+          packageName: "@openscout/runtime",
+          version: "0.test",
+          mode: "dev",
+        },
+        services: {
+          web: {
+            managed: true,
+            managedBy: "broker",
+            state: "running",
+            pid: 111,
+          },
+        },
       },
     };
     const scoutd = writeFakeScoutd(`#!/bin/sh\ncat <<'JSON'\n${JSON.stringify(status)}\nJSON\n`);
@@ -181,6 +205,11 @@ describe("runScoutdServiceCommand shell-out", () => {
     expect(result.health.reachable).toBe(true);
     expect(result.health.checkedAt).toBe(1700000000);
     expect(result.health.transport).toBe("unix_socket");
+    expect(result.health.nodeId).toBe("node-1");
+    expect(result.health.meshId).toBe("mesh-1");
+    expect(result.health.counts?.collaborationRecords).toBe(7);
+    expect(result.health.build?.version).toBe("0.test");
+    expect(result.health.services?.web?.pid).toBe(111);
   });
 
   test("rejects with a meaningful error on malformed JSON", async () => {

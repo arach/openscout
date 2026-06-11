@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 01: Network O mark</title>
+  <desc id="desc">A hexagonal OpenScout network mark with a central red broker dot and a small outbound scout signal.</desc>
+  <rect width="1024" height="1024" rx="220" fill="#f7f4ea"/>
+  <g transform="translate(146 102) scale(3.2)">
+    <path d="M114 14 211 70v112l-97 56-97-56V70Z" fill="none" stroke="#25282c" stroke-width="8.5" stroke-linejoin="round"/>
+    <path d="M114 14v224M17 70l97 56 97-56M17 182l97-56 97 56" fill="none" stroke="#25282c" stroke-opacity="0.62" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M114 109 130 118.25 114 127.5 98 118.25Z" fill="#ff4654"/>
+    <path d="M98 118.25 114 127.5v18.5l-16-9.25Z" fill="#e5313f"/>
+    <path d="M130 118.25 114 127.5V146l16-9.25Z" fill="#c92231"/>
+  </g>
+</svg>

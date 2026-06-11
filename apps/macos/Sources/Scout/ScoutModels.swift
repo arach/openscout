@@ -8,6 +8,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
     case agents
     case tail
     case repos
+    case settings
 
     var id: String { rawValue }
 
@@ -17,6 +18,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .agents: return "Agents"
         case .tail: return "Tail"
         case .repos: return "Repos"
+        case .settings: return "Settings"
         }
     }
 
@@ -26,6 +28,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .agents: return "person.2"
         case .tail: return "waveform.path.ecg"
         case .repos: return "arrow.triangle.branch"
+        case .settings: return "gearshape"
         }
     }
 }
@@ -49,12 +52,15 @@ extension ScoutAgentState {
 }
 
 extension ScoutTailEventKind {
+    /// Token-only tone per kind (no raw system colors), matching the
+    /// `scout-tail` study: three distinct hero hues for the high-signal kinds
+    /// and neutrals for the rest.
     var tint: Color {
         switch self {
-        case .user: return ScoutPalette.statusInfo
-        case .assistant: return ScoutPalette.accent
-        case .tool: return .cyan
-        case .toolResult: return .orange
+        case .user: return ScoutPalette.accent
+        case .assistant: return ScoutPalette.statusOk
+        case .tool: return ScoutPalette.statusWarn
+        case .toolResult: return ScoutPalette.statusInfo
         case .system: return ScoutPalette.muted
         case .other: return ScoutPalette.dim
         }
