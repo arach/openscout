@@ -219,23 +219,23 @@ struct NewSessionSurface: View {
             } label: {
                 HStack(spacing: HudSpacing.md) {
                     Glyphic(kind: .folder, size: 18)
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(projectLeaf.isEmpty ? "Choose a project" : projectLeaf)
                             .font(HudFont.ui(HudTextSize.base, weight: .medium))
-                            .foregroundStyle(projectLeaf.isEmpty ? HudPalette.dim : HudPalette.ink)
+                            .foregroundStyle(projectLeaf.isEmpty ? ScoutInk.dim : HudPalette.ink)
                             .lineLimit(1)
                         if !projectParent.isEmpty {
                             Text(projectParent)
                                 .font(HudFont.mono(HudTextSize.xxs))
-                                .foregroundStyle(HudPalette.dim)
+                                .foregroundStyle(ScoutInk.dim)
                                 .lineLimit(1)
                                 .truncationMode(.head)
                         }
                     }
                     Spacer(minLength: HudSpacing.md)
                     Glyphic.chevron(.trailing, size: 14)
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
                 .padding(HudSpacing.lg)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -276,7 +276,7 @@ struct NewSessionSurface: View {
                     if voice.isListening, !voice.partialText.isEmpty {
                         Text(voice.partialText)
                             .font(HudFont.mono(HudTextSize.xxs))
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutInk.muted)
                             .lineLimit(1)
                             .truncationMode(.head)
                     }
@@ -323,9 +323,9 @@ struct NewSessionSurface: View {
     private var micColor: Color {
         switch voice.state {
         case .listening: return HudPalette.accent
-        case .transcribing, .preparing: return HudPalette.muted
-        case .unavailable: return HudPalette.dim.opacity(0.5)
-        case .idle: return HudPalette.muted
+        case .transcribing, .preparing: return ScoutInk.muted
+        case .unavailable: return ScoutInk.dim.opacity(0.5)
+        case .idle: return ScoutInk.muted
         }
     }
 
@@ -392,7 +392,7 @@ struct NewSessionSurface: View {
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.ink)
                 Glyphic.chevron(.bottom, size: 12)
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             }
         }
     }
@@ -400,15 +400,15 @@ struct NewSessionSurface: View {
     private var tokenSeparator: some View {
         Text("·")
             .font(HudFont.ui(HudTextSize.sm))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutInk.dim)
     }
 
     private var targetToken: some View {
         HStack(spacing: HudSpacing.xs) {
-            HudStatusDot(color: targetMachineName == nil ? HudPalette.muted : HudPalette.accent, size: 6)
+            HudStatusDot(color: targetMachineName == nil ? ScoutInk.muted : HudPalette.accent, size: 6)
             Text(targetMachineName ?? "Not connected")
                 .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(targetMachineName == nil ? HudPalette.dim : HudPalette.muted)
+                .foregroundStyle(targetMachineName == nil ? ScoutInk.dim : ScoutInk.muted)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -439,7 +439,7 @@ struct NewSessionSurface: View {
                 .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
                 .tracking(0.8)
                 .textCase(.uppercase)
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
                 .frame(width: 96, alignment: .leading)
             Text(value ?? "—")
                 .font(HudFont.mono(HudTextSize.xs))
@@ -584,7 +584,7 @@ private struct ProjectPickerSheet: View {
                     ProgressView().controlSize(.small)
                     Text("Loading…")
                         .font(HudFont.ui(HudTextSize.sm))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
                 .padding(.vertical, HudSpacing.lg)
             } else if let loadError {
@@ -607,7 +607,7 @@ private struct ProjectPickerSheet: View {
                         } label: {
                             Text(group.parent)
                                 .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                                .foregroundStyle(HudPalette.muted)
+                                .foregroundStyle(ScoutInk.muted)
                                 .lineLimit(1)
                                 .truncationMode(.head)
                         }
@@ -623,7 +623,7 @@ private struct ProjectPickerSheet: View {
         } label: {
             HStack(spacing: HudSpacing.md) {
                 Glyphic(kind: .folder, size: 16)
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutInk.dim)
                 Text(project.name)
                     .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                     .foregroundStyle(HudPalette.ink)

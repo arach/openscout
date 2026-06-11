@@ -127,7 +127,7 @@ struct HomeSurface: View {
             Text("MACHINES")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .tracking(0.8)
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: HudSpacing.sm) {
                     ForEach(model.pairedMachines) { machine in
@@ -152,11 +152,11 @@ struct HomeSurface: View {
                     Capsule().frame(width: 7, height: 1.4)
                     Capsule().frame(width: 1.4, height: 7)
                 }
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
                 .frame(width: 8, height: 8)
                 Text("Add")
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             }
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, HudSpacing.xs)
@@ -580,7 +580,7 @@ private struct WorkingCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                     Text(actionText)
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                         .lineLimit(1)
                         .truncationMode(.head)
                     BlinkingCursor()
@@ -588,7 +588,7 @@ private struct WorkingCard: View {
                 if let progress = progressLine {
                     Text(progress)
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutInk.dim)
                         .lineLimit(1)
                 }
             }
@@ -699,11 +699,11 @@ private struct ActivityRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text(metaLine)
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                     .lineLimit(1)
             }
             Glyphic.chevron(isExpanded ? .bottom : .trailing, size: 13)
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
                 .padding(.top, 4)
         }
         .padding(.horizontal, HudSpacing.xl)
@@ -717,7 +717,7 @@ private struct ActivityRow: View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
             Text(expandedMetaLine)
                 .font(HudFont.mono(HudTextSize.micro))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
                 .lineLimit(1)
             Spacer(minLength: HudSpacing.md)
             if let onOpen {
@@ -770,8 +770,8 @@ private struct ActivityRow: View {
         switch event.kind {
         case .assistant: return HudPalette.accent
         case .tool, .toolResult: return HudPalette.statusWarn
-        case .user: return HudPalette.muted
-        case .system, .other: return HudPalette.dim
+        case .user: return ScoutInk.muted
+        case .system, .other: return ScoutInk.dim
         }
     }
 }
@@ -791,7 +791,7 @@ private struct MachineChip: View {
                 HudStatusDot(color: statusColor, size: 6, pulses: statusPulses)
                 Text(machine.name)
                     .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(machine.isActive ? HudPalette.ink : (machine.isOnline ? HudPalette.ink.opacity(0.82) : HudPalette.muted))
+                    .foregroundStyle(machine.isActive ? HudPalette.ink : (machine.isOnline ? HudPalette.ink.opacity(0.82) : ScoutInk.muted))
                     .lineLimit(1)
             }
             .padding(.horizontal, HudSpacing.sm)
@@ -811,7 +811,7 @@ private struct MachineChip: View {
         case .connected:  return HudPalette.accent
         case .connecting: return HudPalette.statusWarn
         case .failed:     return HudPalette.statusError
-        case .idle:       return HudPalette.dim
+        case .idle:       return ScoutInk.dim
         }
     }
 
@@ -837,7 +837,7 @@ private struct InlineRuntimePill: View {
     var body: some View {
         Text(text)
             .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutInk.dim)
             .lineLimit(1)
             .padding(.horizontal, 5)
             .padding(.vertical, 1.5)
@@ -855,7 +855,7 @@ private struct InlineRuntimeToken: View {
     var body: some View {
         Text(text)
             .font(HudFont.mono(HudTextSize.micro))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutInk.dim)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
             .layoutPriority(2)
@@ -883,7 +883,7 @@ private struct ProjectRow: View {
             // slash rather than stacking it underneath.
             HStack(alignment: .center, spacing: HudSpacing.md) {
                 Glyphic(kind: .folder, size: 15)
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                     .frame(width: 16)
                 identityLine
                 Spacer(minLength: HudSpacing.md)
@@ -895,11 +895,11 @@ private struct ProjectRow: View {
                     // rows drill straight into the agent card (a "go" arrow).
                     if soloAgent != nil {
                         Glyphic.arrow(.trailing, size: 13)
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutInk.dim)
                             .frame(width: 13)
                     } else {
                         Glyphic.chevron(isExpanded ? .bottom : .trailing, size: 13)
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutInk.dim)
                             .frame(width: 13)
                     }
                 }
@@ -938,7 +938,7 @@ private struct ProjectRow: View {
             projectName
             Text("/")
                 .font(HudFont.mono(HudTextSize.xs))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
             if let agent = soloAgent {
                 compressedAgentSegment(agent)
             } else {
@@ -953,10 +953,10 @@ private struct ProjectRow: View {
     private var countSegment: some View {
         HStack(alignment: .center, spacing: HudSpacing.xxs) {
             Glyphic(kind: .agents, size: layout.isMiniPhone ? 12 : 13)
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
             Text("\(group.agents.count) agents")
                 .font(HudFont.ui(HudTextSize.sm, weight: .regular))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .lineLimit(1)
         }
         .layoutPriority(0)
@@ -965,11 +965,11 @@ private struct ProjectRow: View {
     private func compressedAgentSegment(_ agent: AgentSummary) -> some View {
         HStack(alignment: .center, spacing: HudSpacing.xxs) {
             Glyphic(kind: .agent, size: layout.isMiniPhone ? 11 : 12)
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
             let title = compressedAgentTitle(agent)
             Text(title)
                 .font(HudFont.ui(HudTextSize.sm, weight: .regular))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .lineLimit(1)
                 .truncationMode(.middle)
             if let runtime = runtimeLabel(agent), runtime != title {
@@ -998,7 +998,7 @@ private struct ProjectRow: View {
     private func ageText(_ age: String, size: CGFloat = HudTextSize.xs) -> some View {
         Text(age)
             .font(HudFont.mono(size))
-            .foregroundStyle(HudPalette.muted)
+            .foregroundStyle(ScoutInk.muted)
             .monospacedDigit()
     }
 }
@@ -1042,14 +1042,14 @@ private struct AgentFleetRow: View {
         HStack(spacing: 2) {
             if let treeBranch {
                 AgentTreeConnector(isLast: treeBranch.isLast)
-                    .stroke(HudPalette.dim.opacity(0.55), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+                    .stroke(ScoutInk.dim.opacity(0.55), style: StrokeStyle(lineWidth: 1, lineCap: .round))
                     .frame(width: 10)
                     .frame(maxHeight: .infinity)
             } else {
                 Spacer().frame(width: 10)
             }
             Glyphic(kind: .agent, size: 13)
-                .foregroundStyle(agent.state == .live ? HudPalette.accent : HudPalette.dim)
+                .foregroundStyle(agent.state == .live ? HudPalette.accent : ScoutInk.dim)
         }
         .frame(width: 25, alignment: .leading)
     }
@@ -1068,14 +1068,14 @@ private struct AgentFleetRow: View {
             if let runtime = runtimeLabel {
                 Text("·")
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutInk.dim)
                 InlineRuntimeToken(text: runtime)
             }
             Spacer(minLength: HudSpacing.md)
             if let age = relativeAgeString(agent.lastActiveAt) {
                 Text(age)
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(agent.state == .live ? HudPalette.accent : HudPalette.muted)
+                    .foregroundStyle(agent.state == .live ? HudPalette.accent : ScoutInk.muted)
                     .monospacedDigit()
                     .frame(minWidth: 22, alignment: .trailing)
                     .layoutPriority(2)
@@ -1089,7 +1089,7 @@ private struct AgentFleetRow: View {
     /// tone down so children never visually outrank their project parent.
     private var titleColor: Color {
         if agent.state == .live { return HudPalette.ink }
-        return leadingLeaf ? HudPalette.muted : HudPalette.ink
+        return leadingLeaf ? ScoutInk.muted : HudPalette.ink
     }
 
     /// Only `live`/`offline` earn a badge; idle/unknown read via the relative age.
@@ -1118,8 +1118,8 @@ private struct AgentFleetRow: View {
     private var stateColor: Color {
         switch agent.state {
         case .live: return HudPalette.accent
-        case .idle: return HudPalette.muted
-        case .offline, .unknown: return HudPalette.dim
+        case .idle: return ScoutInk.muted
+        case .offline, .unknown: return ScoutInk.dim
         }
     }
 

@@ -22,7 +22,7 @@ struct StatusReadout: View, Identifiable {
     var glyph: GlyphShape.Kind? = nil
     var pulses: Bool = false
     let label: String
-    var tint: Color = HudPalette.muted
+    var tint: Color = ScoutInk.muted
     /// When set, the label truncates within this width instead of taking its full
     /// intrinsic size. Used for the machine readout, whose name can be long enough
     /// (a verbose hostname) to otherwise push the whole bar past the screen.
@@ -98,6 +98,6 @@ struct ScoutStatusBar: View {
     private var separator: some View {
         Text("·")
             .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-            .foregroundStyle(HudPalette.dim)
+            .foregroundStyle(ScoutInk.dim)
     }
 }

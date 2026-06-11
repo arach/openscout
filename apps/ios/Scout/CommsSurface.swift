@@ -142,7 +142,7 @@ private struct CommsRow: View {
                     // rhythm — but only when it actually marks something.
                     if showsTypeGlyph {
                         CommsTypeGlyph(kind: conversation.kind)
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutInk.muted)
                     }
 
                     Text(displayTitle)
@@ -163,7 +163,7 @@ private struct CommsRow: View {
                     if let preview = previewText {
                         Text(preview)
                             .font(HudFont.ui(HudTextSize.sm))
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutInk.muted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -175,7 +175,7 @@ private struct CommsRow: View {
                         Text(age)
                             .font(HudFont.mono(HudTextSize.xs))
                             .monospacedDigit()
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutInk.muted)
                     }
                     if unread {
                         Text("\(conversation.unreadCount)")
@@ -301,7 +301,7 @@ private struct CommsPeekCard: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                         .lineLimit(1)
                 }
             }
@@ -311,14 +311,14 @@ private struct CommsPeekCard: View {
             if recent.isEmpty {
                 Text(loaded ? "No messages yet" : "Loading…")
                     .font(HudFont.ui(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             } else {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
                     ForEach(recent) { message in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(message.authorLabel)
                                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                                .foregroundStyle(message.isOperator ? HudPalette.accent : HudPalette.muted)
+                                .foregroundStyle(message.isOperator ? HudPalette.accent : ScoutInk.muted)
                             Text(message.body)
                                 .font(HudFont.ui(HudTextSize.sm))
                                 .foregroundStyle(HudPalette.ink)
@@ -403,11 +403,11 @@ private struct CommsStatusGlyph: View {
         case .awaiting:
             Text("›")
                 .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
         case .idle:
             Text("·")
                 .font(HudFont.mono(HudTextSize.sm, weight: .bold))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
         }
     }
 }
@@ -557,7 +557,7 @@ struct CommsThreadView: View {
                 if let sub = threadSubtitle {
                     Text(sub)
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                         .lineLimit(1)
                 }
             }
@@ -641,7 +641,7 @@ struct CommsThreadView: View {
 
             Button(action: send) {
                 Glyphic.arrow(.top, size: 17)
-                    .foregroundStyle(canSend ? HudPalette.bg : HudPalette.muted)
+                    .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
                     .frame(width: 28, height: 28)
                     .background(Circle().fill(canSend ? HudPalette.accent : HudSurface.inset))
             }
@@ -695,9 +695,9 @@ struct CommsThreadView: View {
     private var micColor: Color {
         switch voice.state {
         case .listening: return HudPalette.accent
-        case .transcribing, .preparing: return HudPalette.muted
-        case .unavailable: return HudPalette.dim.opacity(0.5)
-        case .idle: return HudPalette.muted
+        case .transcribing, .preparing: return ScoutInk.muted
+        case .unavailable: return ScoutInk.dim.opacity(0.5)
+        case .idle: return ScoutInk.muted
         }
     }
 
@@ -786,7 +786,7 @@ private struct CommsBubble: View {
                             .foregroundStyle(authorColor)
                         Text(timeLabel)
                             .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutInk.dim)
                     }
                 }
                 MessageMarkupView(text: message.body)
@@ -809,7 +809,7 @@ private struct CommsBubble: View {
     private var authorColor: Color {
         switch message.authorKind {
         case .agent: return HudPalette.accent
-        case .system: return HudPalette.muted
+        case .system: return ScoutInk.muted
         default: return HudPalette.ink
         }
     }
