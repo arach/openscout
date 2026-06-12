@@ -17,7 +17,7 @@ export type DocEntry = DocMeta & {
   content: string;
 };
 
-const DOCS_DIR = join(process.cwd(), "..", "docs");
+const DOCS_DIR = join(process.cwd(), "../..", "docs");
 const TRACKS_DIR = join(DOCS_DIR, "openagents-tracks");
 const REPO_ROOT = join(DOCS_DIR, "..");
 const GITHUB_BLOB_BASE_URL = "https://github.com/arach/openscout/blob/main";
