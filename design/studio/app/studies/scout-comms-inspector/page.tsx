@@ -828,7 +828,7 @@ export default function ScoutCommsInspectorPage() {
             <tbody>
               {CONTRACT.map((row, i) => (
                 <tr
-                  key={row.field}
+                  key={`${row.block}-${row.field}`}
                   className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
                 >
                   <td className="px-3 py-2 text-studio-ink">{row.block}</td>
