@@ -4620,10 +4620,7 @@ export async function createOpenScoutWebServer(
   }
 
   app.get("/api/events", async (c) => {
-    const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
-    const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
-    const brokerUrl =
-      process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    const brokerUrl = resolveScoutBrokerUrl();
     try {
       return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
         signal: c.req.raw.signal,

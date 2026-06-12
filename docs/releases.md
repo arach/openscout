@@ -15,7 +15,8 @@ The orchestrator keeps the root `package.json` release version in sync with the
 public `@openscout/scout` package version, then runs the release train:
 
 - bump root and `@openscout/scout` manifests
-- verify the internal builds and packed public manifest
+- verify the internal builds and packed public manifest, including a Developer
+  ID signed `scoutd`
 - build the signed/notarized macOS DMG as `OpenScout-<version>.dmg`
 - commit the version bump and create `v<version>`
 - push the branch and tag
@@ -49,6 +50,11 @@ Configure npm trusted publishing for package `@openscout/scout` with:
 
 If trusted publishing is not configured yet, add a GitHub repository secret
 named `NPM_TOKEN` with publish access; the workflow supports that as a fallback.
+The workflow runs on macOS arm64 and imports the same Developer ID Application
+certificate used by the macOS release lane. Configure
+`MACOS_DEVELOPER_ID_APPLICATION_P12_BASE64`,
+`MACOS_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, and
+`MACOS_RELEASE_KEYCHAIN_PASSWORD` in the Production environment.
 
 The script refuses to execute from a dirty worktree unless `--allow-dirty` is
 passed. Prefer a clean release branch so the `Release v<version>` commit and tag
@@ -61,7 +67,8 @@ Routine pull requests run the Linux typecheck/unit workflow only. Merges to
 
 - `candidate-v*` runs `Release Candidate`: Linux checks, native macOS/iOS
   simulator checks, package dry-runs, and runtime scenarios.
-- `npm-v*` runs `Release Package npm` and publishes `@openscout/scout`.
+- `npm-v*` runs `Release Package npm` on macOS arm64, requires Developer ID
+  signing for `scoutd`, and publishes `@openscout/scout`.
 - macOS DMGs are built/notarized locally and attached to a release tag with
   `npm run ship:macos -- <tag>`.
 - `app-ios-v*` runs `Release App iOS` and uploads through App Store Connect.

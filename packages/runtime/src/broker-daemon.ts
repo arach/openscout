@@ -155,6 +155,7 @@ import {
 import { createBrokerCoreService } from "./broker-core-service.js";
 import {
   buildDefaultBrokerUrl,
+  buildLocalBrokerControlUrl,
   DEFAULT_BROKER_PORT,
   isLoopbackHost,
   resolveAdvertiseScope,
@@ -304,6 +305,7 @@ const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
 const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host, port);
+const brokerControlUrl = buildLocalBrokerControlUrl(host, port);
 const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
   ?? resolveBrokerServiceConfig().brokerSocketPath;
 const nodeId = process.env.OPENSCOUT_NODE_ID ?? `${nodeName}-${meshId}`.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
@@ -972,6 +974,7 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     OPENSCOUT_WEB_HOST: process.env.OPENSCOUT_WEB_HOST?.trim() || "0.0.0.0",
     OPENSCOUT_WEB_PORT: String(webServerPort()),
     OPENSCOUT_WEB_BUN_URL: webServerUrl(),
+    OPENSCOUT_BROKER_INTERNAL_URL: brokerControlUrl,
     ...(context.publicOrigin && !process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim()
       ? { OPENSCOUT_WEB_PUBLIC_ORIGIN: context.publicOrigin }
       : {}),
@@ -985,6 +988,7 @@ function spawnWebServer(context: WebStartContext = {}): ChildProcess {
     webUrl: webServerUrl(),
     publicOrigin: env.OPENSCOUT_WEB_PUBLIC_ORIGIN,
     advertisedHost: env.OPENSCOUT_WEB_ADVERTISED_HOST,
+    brokerInternalUrl: env.OPENSCOUT_BROKER_INTERNAL_URL,
     trustedHost: context.trustedHost,
   });
   const child = spawn(

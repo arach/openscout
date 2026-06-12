@@ -57,6 +57,7 @@
     "scoutd:check": "bash scripts/cargo.sh check --manifest-path crates/scoutd/Cargo.toml",
     "scoutd:test": "bash scripts/cargo.sh test --manifest-path crates/scoutd/Cargo.toml",
     "scoutd:build": "bash scripts/cargo.sh build --manifest-path crates/scoutd/Cargo.toml",
+    "scoutd:sign": "bash scripts/sign-scoutd.sh",
     "scoutd:run": "bash scripts/cargo.sh run --manifest-path crates/scoutd/Cargo.toml --",
     "scoutd:supervise": "bash scripts/cargo.sh run --manifest-path crates/scoutd/Cargo.toml -- supervise",
     "scoutd:verify": "bash scripts/scoutd-verify.sh",

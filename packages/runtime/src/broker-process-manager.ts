@@ -132,8 +132,21 @@ export function isLoopbackHost(host: string): boolean {
   const trimmed = host.trim();
   return trimmed === "127.0.0.1" || trimmed === "::1" || trimmed === "localhost";
 }
+
+function localBrokerControlHost(host: string): string {
+  const trimmed = host.trim();
+  if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "[::]") {
+    return DEFAULT_BROKER_HOST;
+  }
+  return trimmed;
+}
+
 export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
   return `http://${host}:${port}`;
+}
+
+export function buildLocalBrokerControlUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
+  return buildDefaultBrokerUrl(localBrokerControlHost(host), port);
 }
 
 export function buildDefaultBrokerSocketPath(runtimeDirectory: string): string {
