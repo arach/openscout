@@ -252,6 +252,22 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The HudInspectorSettings sheet — a 7-tab inspector (Connection · Routes · Identity · Voice · Alerts · Appearance · Advanced). Pushed sheet, no tab bar.",
   },
   {
+    href: "/studies/scout-macos-shell",
+    label: "Scout macOS Shell",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/scout-macos-shell/page.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+      "apps/macos/Sources/Scout/ScoutReposView.swift",
+    ],
+    blurb: "Master page for the four screens in the Scout macOS app — Comms, Agents, Tail, Repos — rendered on the shared shell chrome (titlebar · nav rail · main · right inspector · status bar) so the shell can evolve coherently. Each window is a representative slice; the dedicated study for each screen is the source of truth.",
+  },
+  {
     href: "/studies/scout-comms",
     label: "Scout Comms",
     bucket: "studies",
