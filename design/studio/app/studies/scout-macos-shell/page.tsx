@@ -1,17 +1,27 @@
 /**
- * Scout macOS Shell — the master page for the four screens in the
- * Scout macOS app: Comms, Agents, Tail, Repos.
+ * Scout macOS Shell — the design direction for the four screens in
+ * the Scout macOS app: Comms, Agents, Tail, Repos.
  *
- * The data in each window mockup is taken from the live app's current
- * state (per the recent screenshots: Agents, Repos, Tail). Comms is a
- * representative slice — the user didn't share a Comms screenshot,
- * so the rows are illustrative; the dedicated /studies/scout-comms
- * study is the source of truth.
+ * Structure:
+ *   §1  Projected state.  The design direction — one concrete
+ *                         redesign per screen, each addressing an
+ *                         open question from the live app.
+ *   §2  Current state.    The live app as it ships today, the
+ *                         baseline §1 was projected from. Real
+ *                         data from the recent screenshots for
+ *                         Agents, Repos, and Tail; Comms is
+ *                         illustrative.
+ *   §3  Shell chrome.     The five pieces every screen shares.
+ *   §4  Sections.         The ScoutSection cases mapped to source
+ *                         + inspector + dedicated study.
+ *   §5  Open questions.   What the projections raise but don't
+ *                         answer.
  *
- * The right-rail inspector on each window is the *current* treatment,
- * not the new unified grammar from /studies/inspector-grammar. Once
- * that grammar is approved, this page re-renders all four inspectors
- * from the unified treatment so the delta is visible at a glance.
+ * The §2 right-rail inspector on each window is the *current*
+ * treatment, not the new unified grammar from
+ * /studies/inspector-grammar. The port to a shared Swift
+ * InspectorFrame is the next step after at least one projection
+ * is signed off.
  *
  * Status: draft.
  */
@@ -738,13 +748,13 @@ function MacOSWindow({
 /* Compact variant for projection mockups — same chrome, smaller height.
    Inspector is narrower so the main area still has room to show the
    change being projected. */
-/* Compact variant for projection mockups — same chrome, smaller height.
-   Inspector is narrower so the main area still has room to show the
-   change being projected. */
+/* Compact variant for projection mockups — same chrome, same height
+   as the full window so projected and current are at the same scale.
+   Reuses the same 300px inspector. */
 function MacOSWindowCompact({
   active,
   children,
-  height = 380,
+  height = 720,
 }: {
   active: SectionId;
   children: React.ReactNode;
@@ -2089,82 +2099,30 @@ export default function ScoutMacOSShellPage() {
           Scout macOS shell
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          The four screens in the Scout macOS app —{" "}
-          <span className="text-studio-ink-muted">Comms</span>,{" "}
+          The design direction for the four screens in the Scout macOS
+          app — <span className="text-studio-ink-muted">Comms</span>,{" "}
           <span className="text-studio-ink-muted">Agents</span>,{" "}
           <span className="text-studio-ink-muted">Tail</span>, and{" "}
-          <span className="text-studio-ink-muted">Repos</span> — rendered on
-          the shared shell chrome (titlebar · left nav rail · main ·
-          right inspector · status bar) so the shell can evolve
-          coherently. Settings is omitted because it pushes a sheet
-          rather than owning a section.
+          <span className="text-studio-ink-muted">Repos</span> — projected
+          from the current state below. Each projection is a deliberate
+          departure rather than a polish pass; the proof is the mockup,
+          the rationale is on the card. Settle one at a time; a
+          projection becomes the new current only after the
+          corresponding Swift port ships.
         </p>
       </header>
 
       {/* ────────────────────────────────────────────────────────────
-          §1 — The four screens
+          §1 — Projected state
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §1 · The four screens
+          §1 · Projected state
         </h2>
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Each window is a representative slice of the live screen —
-          enough to evaluate the layout, not enough to drown the page.
-          The dedicated study for each screen is the source of truth.
-          Agents, Repos, and Tail are taken from the recent screenshots;
-          Comms is illustrative (no live screenshot was provided).
-        </p>
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ScreenCard
-            label="Comms"
-            href="/studies/scout-comms"
-            note="Single-pane conversation list. Header + filter + search + recency-grouped rows. The list *is* the surface; the conversation opens in a pushed view. No right inspector on the live screen."
-            illustrative
-          >
-            <CommsMock />
-          </ScreenCard>
-          <ScreenCard
-            label="Agents"
-            href="/studies/agent-inspector-card"
-            note="Project · agent tree with a per-agent row. Header + filter + Expand/Collapse + column header (AGENT / UPDATED). The right inspector follows the cursor."
-            sourceScreenshot="2026-06-12 00.07.38"
-          >
-            <AgentsMock />
-          </ScreenCard>
-          <ScreenCard
-            label="Tail"
-            href="/studies/scout-tail"
-            note="Live cross-agent firehose. Header (Live + counts + Pause) + kind filter chips + 7-column log rows. The right inspector is an *overview* of the source, not a selection."
-            sourceScreenshot="2026-06-12 00.07.57"
-          >
-            <TailMock />
-          </ScreenCard>
-          <ScreenCard
-            label="Repos"
-            href="/studies/branch-diff-sheet"
-            note="Repo · worktree table. Header with live counts (10 · 15 · dirty · attn · Quiet) + Table/Drift toggle + a flat tree of repos with their worktrees and drift bars underneath."
-            sourceScreenshot="2026-06-12 00.07.50"
-          >
-            <ReposMock />
-          </ScreenCard>
-        </div>
-      </section>
-
-      {/* ────────────────────────────────────────────────────────────
-          §2 — Projections
-          ──────────────────────────────────────────────────────────── */}
-      <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §2 · Projections
-        </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          One concrete redesign per screen, projected from the current
-          state in §1. Each is a deliberate departure — not a polish
-          pass. The <em>what & why</em> lives on the card; the mockup
-          is the proof. Settle one at a time; a projection becomes the
-          new "current" only after the corresponding Swift port ships.
+          The design direction. One concrete redesign per screen, each
+          addressing an open question from the live app. Windows are at
+          the same height as §2 so the two read at the same scale.
         </p>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -2208,6 +2166,56 @@ export default function ScoutMacOSShellPage() {
               "Quiet moves into the inspector as a labelled block, not a header glyph.",
             ]}
           />
+        </div>
+      </section>
+
+      {/* ────────────────────────────────────────────────────────────
+          §2 — Current state — baseline
+          ──────────────────────────────────────────────────────────── */}
+      <section className="mb-12">
+        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
+          §2 · Current state — baseline
+        </h2>
+        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          The live app as it ships today — the baseline §1 was projected
+          from. Each window uses real data from the recent screenshots;
+          Comms is illustrative (no live screenshot was provided). The
+          dedicated study for each screen is the source of truth.
+        </p>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <ScreenCard
+            label="Comms"
+            href="/studies/scout-comms"
+            note="Single-pane conversation list. Header + filter + search + recency-grouped rows. The list *is* the surface; the conversation opens in a pushed view. No right inspector on the live screen."
+            illustrative
+          >
+            <CommsMock />
+          </ScreenCard>
+          <ScreenCard
+            label="Agents"
+            href="/studies/agent-inspector-card"
+            note="Project · agent tree with a per-agent row. Header + filter + Expand/Collapse + column header (AGENT / UPDATED). The right inspector follows the cursor."
+            sourceScreenshot="2026-06-12 00.07.38"
+          >
+            <AgentsMock />
+          </ScreenCard>
+          <ScreenCard
+            label="Tail"
+            href="/studies/scout-tail"
+            note="Live cross-agent firehose. Header (Live + counts + Pause) + kind filter chips + 7-column log rows. The right inspector is an *overview* of the source, not a selection."
+            sourceScreenshot="2026-06-12 00.07.57"
+          >
+            <TailMock />
+          </ScreenCard>
+          <ScreenCard
+            label="Repos"
+            href="/studies/branch-diff-sheet"
+            note="Repo · worktree table. Header with live counts (10 · 15 · dirty · attn · Quiet) + Table/Drift toggle + a flat tree of repos with their worktrees and drift bars underneath."
+            sourceScreenshot="2026-06-12 00.07.50"
+          >
+            <ReposMock />
+          </ScreenCard>
         </div>
       </section>
 
@@ -2312,50 +2320,43 @@ export default function ScoutMacOSShellPage() {
           §5 · Open design questions
         </h2>
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          Things the master page is meant to surface. The dedicated
-          studies settle them; this page is the place to remember that
-          they're still open.
+          Questions the projections in §1 raise but don't answer. Three
+          questions from the prior draft (Comms w/o inspector, Tail's
+          overview inspector, agent-row density) are resolved by §1 and
+          removed from this list.
         </p>
 
         <ul className="flex max-w-prose flex-col gap-3 font-sans text-[13px] leading-relaxed text-studio-ink">
-          <Question q="Comms has no right inspector. Should it get one?">
-            The other three surfaces all own a 300px inspector column.
-            Comms owns none — the conversation list <em>is</em> the
-            surface, and the conversation opens in a pushed view. Either
-            Comms inherits the inspector pattern (e.g. pinned
-            conversations, per-conversation metadata) or the four screens
-            officially fall into "three with inspector, one without" and
-            that's documented.
+          <Question q="Does the Comms projection break the list-first read?">
+            The 300px inspector takes ~45% of the content area at the
+            live app's width. The list drops from ~6 visible rows to ~3-4
+            per group. Worth confirming on a real Comms window before
+            the port — if the list-first read breaks, the inspector
+            should collapse by default and pop on row hover, or live
+            behind a toolbar toggle.
           </Question>
-          <Question q="Tail's inspector is a global overview, not a selection. Is that the right read?">
-            The Agent and Repo inspectors are per-selection; Tail's is a
-            coverage / sources / kinds / tracks rollup of the <em>whole</em>{" "}
-            tail. The right column isn't following the cursor — it's a
-            dashboard. Worth deciding whether Tail should be a fourth
-            per-selection inspector (the selected event) or whether
-            "overview" is genuinely the right read for that surface.
+          <Question q="Does the Tail projection lose too much speaker context?">
+            Collapsing source + agent + name · id into the body drops
+            four pieces of metadata. Some of it (the pid) is noise; some
+            (the source/agent) is the disambiguation that makes the tail
+            scannable when many harnesses are writing at once. A
+            compromise: show the source in a 1-char chip prefix on the
+            row, drop the rest into the inspector.
           </Question>
-          <Question q="The agent-row density on Agents is sparse. Is that correct?">
-            The live screen shows ~9 rows in the visible area. The repo
-            view shows ~12 worktree rows. The comms view shows ~6
-            conversations. Three different densities. Settle on a row
-            height (or three intentional densities) so a future
-            compression pass has a target.
-          </Question>
-          <Question q="The right-rail inspector on this page is the *current* treatment, not the new grammar.">
-            Each window on §1 paints the inspector the way it ships
-            today. The three with screenshots (Agents, Repos, Tail) are
-            matched to those screenshots; Comms is illustrative. Once{" "}
+          <Question q="When does the inspector-grammar port happen?">
+            The §2 baseline still uses the <em>current</em> inspector
+            treatment, not the unified grammar from{" "}
             <a href="/studies/inspector-grammar" className="text-scout-accent hover:underline">
               /studies/inspector-grammar
-            </a>{" "}
-            is approved, this master page re-renders all four inspectors
-            from the unified grammar so the delta is visible at a glance.
+            </a>
+            . The port to a shared Swift <code>InspectorFrame</code> is
+            the next step after at least one projection is signed off.
+            Worth doing <em>before</em> the per-screen ports so all four
+            surfaces adopt the new chrome in lockstep.
           </Question>
           <Question q="Comms needs a live screenshot.">
-            Three of the four windows on §1 are taken from real
-            screenshots. Comms is illustrative — the rows are made up.
-            Capture a fresh Comms window and the data + layout should
+            §2 Comms is illustrative — the rows are made up. Capture a
+            fresh Comms window and the baseline data + layout should
             follow, like the other three.
           </Question>
         </ul>
@@ -2473,7 +2474,7 @@ function ProjectionCard({
           {screen}
         </div>
         <span className="rounded-[2px] bg-scout-accent-soft px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-scout-accent">
-          Projection
+          Direction
         </span>
       </div>
       {mock}
