@@ -1159,9 +1159,9 @@ function AgentsMock() {
                   {g.count} agent{g.count === 1 ? "" : "s"}
                 </span>
               </div>
-              {g.agents.map((a) => (
+              {g.agents.map((a, i) => (
                 <div
-                  key={`${g.project}-${a.name}-${a.harness ?? ""}`}
+                  key={`${g.project}-${a.name}-${a.harness ?? ""}-${i}`}
                   className={[
                     "grid grid-cols-[1fr_56px] items-baseline gap-x-2 border-l-2 px-3 py-1",
                     a.selected ? "border-scout-accent bg-studio-canvas-alt" : "border-transparent",
