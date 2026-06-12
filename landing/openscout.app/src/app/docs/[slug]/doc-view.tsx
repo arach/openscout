@@ -1,0 +1,680 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import GithubSlugger from "github-slugger";
+import Link from "next/link";
+import { ArrowLeft, ArrowRight, ArrowRightIcon, Bot, Check, Clipboard, FileText } from "lucide-react";
+import { MarkdownContent } from "@arach/dewey";
+import { MDXRemote } from "next-mdx-remote";
+import type { MDXRemoteSerializeResult } from "next-mdx-remote";
+import dynamic from "next/dynamic";
+import type { ComponentType } from "react";
+import { docsComponents } from "./mdx-components";
+import { SiteThemeToggle } from "@/components/site-theme-toggle";
+
+const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
+  () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
+  { ssr: false },
+);
+import type { NavGroup } from "@/lib/docs";
+
+type Heading = {
+  id: string;
+  title: string;
+  depth: 2 | 3;
+};
+
+type CopyAction = "markdown" | "prompt";
+
+function readSiteTheme() {
+  if (typeof document === "undefined") {
+    return "light" as const;
+  }
+
+  return document.documentElement.dataset.siteTheme === "dark"
+    ? "dark" as const
+    : "light" as const;
+}
+
+function stripLeadHeading(content: string) {
+  return content.replace(/^\s*#\s+.+\n+/, "");
+}
+
+function buildAgentPrompt({
+  title,
+  description,
+  sourcePath,
+  sourceUrl,
+  rawUrl,
+  content,
+}: {
+  title: string;
+  description: string;
+  sourcePath: string;
+  sourceUrl: string;
+  rawUrl: string;
+  content: string;
+}) {
+  return [
+    "You are working with OpenScout documentation.",
+    "",
+    `Page: ${title}`,
+    `Summary: ${description}`,
+    `Source path: ${sourcePath}`,
+    `GitHub source: ${sourceUrl}`,
+    `Raw Markdown: ${rawUrl}`,
+    "",
+    "Use the Markdown below as source context. Preserve the documented maturity/trust posture, do not infer enterprise readiness, and treat Scout-owned coordination records as distinct from observed harness transcripts.",
+    "",
+    "<openscout-doc>",
+    content.trim(),
+    "</openscout-doc>",
+  ].join("\n");
+}
+
+function cleanHeadingText(text: string) {
+  return text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .trim();
+}
+
+function extractHeadings(content: string): Heading[] {
+  const slugger = new GithubSlugger();
+  const headings: Heading[] = [];
+
+  for (const line of content.split("\n")) {
+    const match = /^(#{2,3})\s+(.+?)\s*$/.exec(line);
+    if (!match) continue;
+
+    const title = cleanHeadingText(match[2]);
+    if (!title) continue;
+
+    headings.push({
+      id: slugger.slug(title),
+      title,
+      depth: match[1].length as 2 | 3,
+    });
+  }
+
+  return headings;
+}
+
+type ContentSegment =
+  | { type: "markdown"; content: string }
+  | { type: "arc"; src: string }
+  | { type: "stateflow"; label: string; states: string[]; terminal?: string[] };
+
+function splitCustomSegments(content: string): ContentSegment[] {
+  // Match arc diagrams and state flow lines
+  const arcPattern = /!\[[^\]]*\]\(arc:([^)]+)\)/g;
+  const statePattern = /^\*\*States?:\*\*\s*(.+)$/gm;
+
+  type RawMatch = { index: number; length: number; segment: ContentSegment };
+  const matches: RawMatch[] = [];
+
+  for (const m of content.matchAll(arcPattern)) {
+    matches.push({ index: m.index, length: m[0].length, segment: { type: "arc", src: m[1] } });
+  }
+
+  for (const m of content.matchAll(statePattern)) {
+    const raw = m[1];
+    const states = raw.split(/\s*[·•|→]\s*/).map(s => s.replace(/`/g, "").trim()).filter(Boolean);
+    const terminal = ["closed", "declined", "done", "cancelled"];
+    matches.push({
+      index: m.index,
+      length: m[0].length,
+      segment: { type: "stateflow", label: "", states, terminal },
+    });
+  }
+
+  matches.sort((a, b) => a.index - b.index);
+
+  const segments: ContentSegment[] = [];
+  let last = 0;
+
+  for (const { index, length, segment } of matches) {
+    if (index > last) {
+      segments.push({ type: "markdown", content: content.slice(last, index) });
+    }
+    segments.push(segment);
+    last = index + length;
+  }
+
+  if (last < content.length) {
+    segments.push({ type: "markdown", content: content.slice(last) });
+  }
+
+  return segments.length > 0 ? segments : [{ type: "markdown", content }];
+}
+
+const STATE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  open:      { bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" },
+  answered:  { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  closed:    { bg: "#f9fafb", text: "#6b7280", border: "#e5e7eb" },
+  declined:  { bg: "#fef2f2", text: "#b91c1c", border: "#fecaca" },
+  working:   { bg: "#fefce8", text: "#a16207", border: "#fde68a" },
+  waiting:   { bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
+  review:    { bg: "#faf5ff", text: "#7e22ce", border: "#e9d5ff" },
+  done:      { bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  cancelled: { bg: "#f9fafb", text: "#6b7280", border: "#e5e7eb" },
+};
+
+function StateFlow({ states, terminal = [] }: { states: string[]; terminal?: string[] }) {
+  const [active, setActive] = useState<string | null>(null);
+
+  return (
+    <div className="my-4 flex flex-wrap items-center gap-1.5">
+      {states.map((state, i) => {
+        const isTerminal = terminal.includes(state);
+        const colors = STATE_COLORS[state] || { bg: "#f9fafb", text: "#374151", border: "#e5e7eb" };
+        const isActive = active === state;
+
+        return (
+          <span key={state} className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onMouseEnter={() => setActive(state)}
+              onMouseLeave={() => setActive(null)}
+              className="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium font-mono transition-all"
+              style={{
+                background: colors.bg,
+                color: colors.text,
+                border: `1px solid ${colors.border}`,
+                opacity: isTerminal ? 0.75 : 1,
+                transform: isActive ? "scale(1.05)" : "scale(1)",
+              }}
+            >
+              {state}
+            </button>
+            {i < states.length - 1 && (
+              <ArrowRightIcon className="h-3 w-3 flex-shrink-0 text-[var(--site-muted-soft)]" />
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+const DIAGRAM_CODES: Record<string, string> = {
+  "communication-flow": "SCOUT-001-COMM",
+  "agent-lifecycle": "SCOUT-002-LIFE",
+  "mesh-topology": "SCOUT-003-MESH",
+};
+
+function formatDiagramLabel(src: string) {
+  return DIAGRAM_CODES[src] ?? `SCOUT-${src.toUpperCase().replace(/-/g, "")}`;
+}
+
+function AgentPaths({ rawUrl }: { rawUrl: string }) {
+  const links = [
+    { href: "/agents.md", label: "agents.md" },
+    { href: "/llms.txt", label: "llms.txt" },
+    { href: "/llms-full.txt", label: "llms-full.txt" },
+    { href: "/nav.json", label: "nav.json" },
+    { href: "/install.md", label: "install.md" },
+    { href: rawUrl, label: "this page.md" },
+  ];
+
+  return (
+    <div className="mt-6 border-t border-[var(--site-border-soft)] pt-4">
+      <p className="mb-2 px-3 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+        Agent Paths
+      </p>
+      <div className="space-y-0.5">
+        {links.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="block rounded-xl px-3 py-2 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:bg-[var(--site-panel)] hover:text-[var(--site-ink)]"
+          >
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ArcDiagramEmbed({ src, mode = "light" }: { src: string; mode?: "light" | "dark" }) {
+  const [data, setData] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/diagrams/${src}.arc.json`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
+      .then(setData)
+      .catch((e) => setError(e.message));
+  }, [src]);
+
+  if (error) return null;
+  if (!data) return (
+    <div
+      className="mt-8 mb-2 aspect-[10/7] animate-pulse rounded-lg"
+      style={{ background: "var(--site-border-soft)" }}
+    />
+  );
+
+  const layout = data.layout as { width: number; height: number } | undefined;
+  const aspectRatio = layout ? `${layout.width}/${layout.height}` : '10/7';
+
+  return (
+    <div
+      className="mt-8 mb-2 arc-docs-embed overflow-hidden rounded-lg border border-[var(--site-border)]"
+      style={{ aspectRatio }}
+    >
+      <ArcDiagram
+        data={data}
+        className="w-full h-full !rounded-none !border-0 !shadow-none !bg-[var(--site-docs-bg)]"
+        mode={mode}
+        theme="cool"
+        interactive={true}
+        showArcToggle={false}
+        label={formatDiagramLabel(src)}
+        defaultZoom="fit"
+        maxFitZoom={0.95}
+        hoverEffects={{ dim: true, lift: true, glow: true, highlightEdges: true }}
+      />
+    </div>
+  );
+}
+
+export function DocView({
+  title,
+  description,
+  content,
+  sourcePath,
+  sourceUrl,
+  rawUrl,
+  mdxSource,
+  navigation,
+  slug,
+  prevPage,
+  nextPage,
+}: {
+  title: string;
+  description: string;
+  content: string;
+  sourcePath: string;
+  sourceUrl: string;
+  rawUrl: string;
+  mdxSource?: MDXRemoteSerializeResult;
+  navigation: NavGroup[];
+  slug: string;
+  prevPage?: { id: string; title: string };
+  nextPage?: { id: string; title: string };
+}) {
+  const currentGroup = navigation.find((group) => group.items.some((item) => item.id === slug));
+  const renderedContent = useMemo(() => stripLeadHeading(content), [content]);
+  const headings = useMemo(() => extractHeadings(renderedContent), [renderedContent]);
+  const segments = useMemo(() => splitCustomSegments(renderedContent), [renderedContent]);
+
+  // MDX rendering is wired up but disabled until next-mdx-remote supports React 19.
+  // For now, all pages use the segment pipeline (MarkdownContent + custom components).
+  const useMdx = false;
+
+  const [activeId, setActiveId] = useState<string>("");
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [siteTheme, setSiteTheme] = useState<"light" | "dark">("light");
+  const [copiedAction, setCopiedAction] = useState<CopyAction | null>(null);
+
+  async function writeClipboard(value: string) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  }
+
+  async function copyText(action: CopyAction, value: string) {
+    await writeClipboard(value);
+    setCopiedAction(action);
+    window.setTimeout(() => setCopiedAction(null), 1400);
+  }
+
+  useEffect(() => {
+    if (headings.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveId(entry.target.id);
+        }
+      },
+      { rootMargin: "-80px 0px -80% 0px" },
+    );
+    const elements = headings.map((h) => document.getElementById(h.id)).filter(Boolean);
+    elements.forEach((el) => observer.observe(el!));
+    return () => observer.disconnect();
+  }, [headings]);
+
+  useEffect(() => {
+    function onScroll() {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      setScrollProgress(max > 0 ? window.scrollY / max : 0);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncTheme = () => setSiteTheme(readSiteTheme());
+
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: ["data-site-theme"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div className="site-docs min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
+      {/* Header — operator console style */}
+      <header className="operator-console fixed inset-x-0 top-0 z-40">
+        <div className="mx-auto flex h-14 max-w-[92rem] items-center justify-between px-4 sm:px-6 lg:px-8 operator-row" style={{ height: 56 }}>
+          <Link href="/" className="flex items-center gap-2.5">
+            <span className="flex shrink-0 items-center justify-center text-[var(--site-ink)]" style={{ width: 26, height: 26 }} aria-hidden>
+              <svg viewBox="0 0 32 32" width={26} height={26} fill="none" stroke="currentColor">
+                <line x1="16" y1="16" x2="16" y2="6" strokeWidth="1" opacity="0.45" />
+                <line x1="16" y1="16" x2="6" y2="22" strokeWidth="1" opacity="0.45" />
+                <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
+                <circle cx="16" cy="6" r="2" fill="currentColor" stroke="none" />
+                <circle cx="6" cy="22" r="2" fill="currentColor" stroke="none" />
+                <circle cx="26" cy="22" r="2" fill="currentColor" stroke="none" />
+                <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
+                <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-docs-bg)" strokeWidth="1.2" opacity="0.9" />
+                <circle cx="16" cy="16" r="2" fill="currentColor" stroke="none" />
+              </svg>
+            </span>
+            <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
+              Scout
+            </span>
+          </Link>
+          <nav className="flex items-center gap-6">
+            <Link href="/docs" className="operator-link">
+              <span className="operator-link__sigil">:</span>docs
+            </Link>
+            <span className="operator-link hidden sm:block truncate max-w-[18rem] text-[var(--site-muted)]">{title}</span>
+            <SiteThemeToggle />
+          </nav>
+        </div>
+        <div className="absolute inset-x-0 bottom-0 h-[2px]">
+          <div className="h-full bg-[var(--site-progress)] transition-[width] duration-150" style={{ width: `${scrollProgress * 100}%` }} />
+        </div>
+      </header>
+
+      <main className="relative z-10 mx-auto max-w-[92rem] pt-14">
+        <div className="grid lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_13rem]">
+          {/* Sidebar — rail, not card */}
+          <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-[var(--site-border)] lg:block">
+            <div className="py-6 px-4">
+              <div className="space-y-0">
+                {navigation.map((group, groupIdx) => (
+                  <section key={group.title} className={groupIdx > 0 ? "mt-5 border-t border-[var(--site-border-soft)] pt-4" : ""}>
+                    <p className="mb-2 px-3 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                      {group.title}
+                    </p>
+                    <div className="space-y-0.5">
+                      {group.items.map((item) => {
+                        const isActive = item.id === slug;
+
+                        return (
+                          <Link
+                            key={item.id}
+                            href={`/docs/${item.id}`}
+                            className={`block rounded-xl px-3 py-2 text-[13px] transition-colors ${
+                              isActive
+                                ? "bg-[var(--site-ink)] font-semibold text-[var(--site-ink-contrast)]"
+                                : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
+                            }`}
+                          >
+                            {item.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              <AgentPaths rawUrl={rawUrl} />
+            </div>
+          </aside>
+
+          {/* Mobile sidebar */}
+          <div className="mb-4 px-4 pt-6 lg:hidden">
+            <details className="rounded-xl border border-[var(--site-border-soft)] p-4">
+              <summary className="cursor-pointer list-none text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                Browse Docs
+              </summary>
+              <div className="mt-4 space-y-4 border-t border-[var(--site-border-soft)] pt-4">
+                {navigation.map((group) => (
+                  <section key={group.title}>
+                    <p className="mb-2 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                      {group.title}
+                    </p>
+                    <div className="space-y-0.5">
+                      {group.items.map((item) => {
+                        const isActive = item.id === slug;
+
+                        return (
+                          <Link
+                            key={item.id}
+                            href={`/docs/${item.id}`}
+                            className={`block rounded-xl px-3 py-2 text-sm transition-colors ${
+                              isActive
+                                ? "bg-[var(--site-ink)] font-semibold text-[var(--site-ink-contrast)]"
+                                : "text-[var(--site-copy)] hover:bg-[var(--site-panel)]"
+                            }`}
+                          >
+                            {item.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+                <AgentPaths rawUrl={rawUrl} />
+              </div>
+            </details>
+          </div>
+
+          {/* Article — content region, not a card */}
+          <article className="px-6 sm:px-10 lg:px-14 pt-6 pb-24">
+            <div className="flex max-w-4xl flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+              <div className="max-w-3xl">
+                <h1
+                  className="font-[family-name:var(--font-spectral)] font-semibold text-[var(--site-ink)]"
+                  style={{ fontSize: "clamp(1.75rem, 2.8vw, 2.25rem)", lineHeight: 1.12, letterSpacing: "-0.015em" }}
+                >
+                  {title}
+                </h1>
+                <p className="mt-3 max-w-2xl font-[family-name:var(--font-mono-display)] text-[13.5px] leading-relaxed text-[var(--site-copy)]">
+                  {description}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => copyText("markdown", content)}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title="Copy this page as Markdown"
+                >
+                  {copiedAction === "markdown" ? <Check className="h-3.5 w-3.5" /> : <Clipboard className="h-3.5 w-3.5" />}
+                  <span>{copiedAction === "markdown" ? "Copied" : "Copy MD"}</span>
+                </button>
+                <a
+                  href={rawUrl}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title={`View ${sourcePath}`}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  <span>View MD</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyText("prompt", buildAgentPrompt({ title, description, sourcePath, sourceUrl, rawUrl, content }))}
+                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[var(--site-border)] bg-[var(--site-surface)] px-3 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:border-[var(--site-border-strong)] hover:bg-[var(--site-surface-strong)] hover:text-[var(--site-ink)]"
+                  title="Copy an agent-ready prompt for this page"
+                >
+                  {copiedAction === "prompt" ? <Check className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
+                  <span>{copiedAction === "prompt" ? "Copied" : "Prompt"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Inline ToC for small screens */}
+            {headings.length > 0 ? (
+              <div className="mt-8 xl:hidden">
+                <div className="rounded-xl border border-[var(--site-border-soft)] p-4">
+                  <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                    On This Page
+                  </p>
+                  <div className="mt-3 space-y-1">
+                    {headings.map((heading) => (
+                      <a
+                        key={heading.id}
+                        href={`#${heading.id}`}
+                        className={`block py-1 text-[13px] transition-colors hover:text-[var(--site-ink)] ${
+                          heading.depth === 3 ? "ml-4" : ""
+                        } ${activeId === heading.id ? "font-medium text-[var(--site-ink)]" : "text-[var(--site-copy)]"}`}
+                      >
+                        {heading.title}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="docs-markdown mt-2 max-w-none">
+              {useMdx && mdxSource ? (
+                <MDXRemote {...mdxSource} components={docsComponents} />
+              ) : (
+                segments.map((seg, i) =>
+                  seg.type === "arc" ? (
+                    <ArcDiagramEmbed key={i} src={seg.src} mode={siteTheme} />
+                  ) : seg.type === "stateflow" ? (
+                    <StateFlow key={i} states={seg.states} terminal={seg.terminal} />
+                  ) : (
+                    <MarkdownContent key={i} content={seg.content} isDark={siteTheme === "dark"} />
+                  ),
+                )
+              )}
+            </div>
+
+            {prevPage || nextPage ? (
+              <nav className="mt-12 grid gap-3 border-t border-[var(--site-border-soft)] pt-8 md:grid-cols-2">
+                {prevPage ? (
+                  <Link
+                    href={`/docs/${prevPage.id}`}
+                    className="group rounded-xl border border-[var(--site-border-soft)] p-4 transition-all hover:border-[var(--site-border-strong)]"
+                  >
+                    <span className="flex items-center gap-1.5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                      <ArrowLeft className="h-3 w-3" />
+                      Previous
+                    </span>
+                    <span className="mt-2 block text-sm font-medium text-[var(--site-ink)]">
+                      {prevPage.title}
+                    </span>
+                  </Link>
+                ) : (
+                  <div />
+                )}
+                {nextPage ? (
+                  <Link
+                    href={`/docs/${nextPage.id}`}
+                    className="group rounded-xl border border-[var(--site-border-soft)] p-4 text-left transition-all hover:border-[var(--site-border-strong)]"
+                  >
+                    <span className="flex items-center justify-end gap-1.5 text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                      Next
+                      <ArrowRight className="h-3 w-3" />
+                    </span>
+                    <span className="mt-2 block text-right text-sm font-medium text-[var(--site-ink)]">
+                      {nextPage.title}
+                    </span>
+                  </Link>
+                ) : null}
+              </nav>
+            ) : null}
+          </article>
+
+          {/* Table of Contents — rail, not card */}
+          {headings.length > 0 ? (
+            <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] overflow-y-auto border-l border-[var(--site-border-soft)] xl:block">
+              <div className="py-6 px-5">
+                <p className="text-[10px] font-mono font-bold uppercase tracking-[0.12em] text-[var(--site-muted)]">
+                  On This Page
+                </p>
+                <div className="mt-3 space-y-1">
+                  {headings.map((heading) => (
+                    <a
+                      key={heading.id}
+                      href={`#${heading.id}`}
+                      className={`block py-1 text-[13px] transition-colors hover:text-[var(--site-ink)] ${
+                        heading.depth === 3 ? "ml-3" : ""
+                      } ${activeId === heading.id ? "font-medium text-[var(--site-ink)]" : "text-[var(--site-copy)]"}`}
+                    >
+                      {heading.title}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          ) : null}
+        </div>
+      </main>
+
+      {/* Status footer — mirrors landing operator strip */}
+      <footer className="status-bar">
+        <div className="mx-auto flex max-w-[92rem] items-center px-4 sm:px-6 lg:px-8">
+          <div className="status-bar__inner overflow-x-auto whitespace-nowrap">
+            <span className="status-bar__zone">
+              <span className="status-bar__cell">
+                <span className="status-dot" aria-hidden />
+                <span>scout/Ø ready</span>
+              </span>
+              <span className="status-bar__sep hidden sm:inline">·</span>
+              <span className="status-bar__cell hidden sm:inline-flex">
+                <b>v0.2.65</b>
+              </span>
+              <span className="status-bar__sep hidden md:inline">·</span>
+              <span className="status-bar__cell hidden md:inline-flex">license pending</span>
+            </span>
+            <span className="status-bar__zone status-bar__zone--right">
+              <Link href="/" className="status-bar__link">
+                <span className="status-bar__sigil">:</span>home
+              </Link>
+              <a
+                href="https://github.com/arach/openscout"
+                className="status-bar__link"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span className="status-bar__sigil">:</span>github
+              </a>
+            </span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}

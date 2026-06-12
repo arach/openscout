@@ -1,0 +1,51 @@
+diff --git a/node_modules/@arach/arc/.bun-tag-9b18bb41401844af b/.bun-tag-9b18bb41401844af
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@arach/arc/.bun-tag-d5140a108d2785bd b/.bun-tag-d5140a108d2785bd
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/lib/arc.es.js b/lib/arc.es.js
+index dd8756cacec02073d92eba748d1763212ef4b8bb..54b14b1d891e200f1f180d74190af0cc3c312532 100644
+--- a/lib/arc.es.js
++++ b/lib/arc.es.js
+@@ -23609,10 +23609,10 @@ function voe({ children: e, initialDiagram: o, initialThemeId: a = null, initial
+       i({ type: "zoom/set", zoom: h });
+     }, []),
+     zoomIn: I(() => {
+-      i({ type: "zoom/set", zoom: r.editor.zoom * 1.25 });
++      i({ type: "zoom/set", zoom: r.editor.zoom * 1.05 });
+     }, [r.editor.zoom]),
+     zoomOut: I(() => {
+-      i({ type: "zoom/set", zoom: r.editor.zoom / 1.25 });
++      i({ type: "zoom/set", zoom: r.editor.zoom / 1.05 });
+     }, [r.editor.zoom]),
+     resetZoom: I(() => {
+       i({ type: "zoom/set", zoom: 1 });
+@@ -24859,7 +24859,8 @@ function lie({
+   showAutoLayout: s = !1,
+   hoverEffects: k,
+   onNodeHover: l,
+-  maxFitZoom: y = 1
++  maxFitZoom: y = 1,
++  initialPan: ipan = null
+ }) {
+   const u = c === "light", f = f2.useRef(null), [g, b] = O(!1), [M, m] = O(!1), [x, v] = O(null), [_, C] = O(null), L = je(() => Boe(k), [k]), S = L.enabled ? _ ?? x : null, A = je(
+     () => M ? Cw(e) : e,
+@@ -24868,7 +24869,7 @@ function lie({
+     if (!f.current) return 1;
+     const U = f.current, me = U.clientWidth, q = U.clientHeight, B = 40, E = (me - B) / N.width, Z = (q - B) / N.height;
+     return Math.min(E, Z, y);
+-  }, [N.width, N.height, y]), ie = I(() => i === "fit" ? he() : i, [i, he]), [Q, z] = O(typeof i == "number" ? i : 1), [H, V] = O({ x: 0, y: 0 }), [X, te] = O(!1), [K, oe] = O({ x: 0, y: 0 }), [J, Ue] = O(typeof i == "number");
++  }, [N.width, N.height, y]), ie = I(() => i === "fit" ? he() : i, [i, he]), [Q, z] = O(typeof i == "number" ? i : 1), [H, V] = O(ipan ?? { x: 0, y: 0 }), [X, te] = O(!1), [K, oe] = O({ x: 0, y: 0 }), [J, Ue] = O(typeof i == "number");
+   f2.useEffect(() => {
+     J || (z(ie()), Ue(!0));
+   }, [J, ie]);
+@@ -26588,7 +26589,7 @@ function Cae({ onViewportChange: e, embedConfig: o, zoomConfig: a, themeOverride
+     transformStyle: P
+   } = Roe({
+     initialZoom: a?.defaultZoom ?? 1,
+-    initialPan: { x: 0, y: 0 },
++    initialPan: a?.initialPan ?? { x: 0, y: 0 },
+     panModeActive: d.mode === "pan",
+     contentSize: i.layout,
+     zoomLevels: a?.zoomLevels,

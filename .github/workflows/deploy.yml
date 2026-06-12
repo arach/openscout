@@ -1,4 +1,4 @@
-name: Deploy Site
+name: Deploy Sites
 
 on:
   push:
@@ -14,18 +14,17 @@ permissions:
   contents: read
   deployments: write
 
-concurrency:
-  group: cloudflare-pages
-  cancel-in-progress: true
-
 jobs:
-  deploy:
+  deploy-oscout-net:
     runs-on: ubuntu-latest
     environment:
-      name: cloudflare-pages
+      name: cloudflare-pages-oscout-net
       url: https://oscout.net
+    concurrency:
+      group: cloudflare-pages-oscout-net
+      cancel-in-progress: true
     env:
-      CLOUDFLARE_PAGES_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME || 'oscout-net' }}
+      CLOUDFLARE_PAGES_PROJECT_NAME: ${{ vars.OSCOUT_NET_PAGES_PROJECT_NAME || 'oscout-net' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -33,14 +32,43 @@ jobs:
         with:
           bun-version: "1.3.11"
 
-      - name: Build static site
-        run: cd landing && bun install && bun run build
+      - name: Build oscout.net
+        run: cd landing/oscout.net && bun install && bun run build
 
       - name: Deploy to Cloudflare Pages
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          bunx wrangler pages deploy landing/out \
+          bunx wrangler pages deploy landing/oscout.net/out \
+            --project-name "$CLOUDFLARE_PAGES_PROJECT_NAME" \
+            --branch "$GITHUB_REF_NAME"
+
+  deploy-openscout-app:
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-pages-openscout-app
+      url: https://openscout.app
+    concurrency:
+      group: cloudflare-pages-openscout-app
+      cancel-in-progress: true
+    env:
+      CLOUDFLARE_PAGES_PROJECT_NAME: ${{ vars.OPENSCOUT_APP_PAGES_PROJECT_NAME || 'openscout-app' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.11"
+
+      - name: Build openscout.app
+        run: cd landing/openscout.app && bun install && bun run build
+
+      - name: Deploy to Cloudflare Pages
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          bunx wrangler pages deploy landing/openscout.app/out \
             --project-name "$CLOUDFLARE_PAGES_PROJECT_NAME" \
             --branch "$GITHUB_REF_NAME"

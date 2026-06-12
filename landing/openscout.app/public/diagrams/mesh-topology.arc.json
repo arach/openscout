@@ -1,0 +1,34 @@
+{
+  "layout": { "width": 800, "height": 420 },
+  "nodes": {
+    "broker-a":  { "x": 160, "y": 110, "size": "m" },
+    "agent-a1":  { "x": 80,  "y": 300, "size": "m" },
+    "agent-a2":  { "x": 280, "y": 300, "size": "m" },
+    "broker-b":  { "x": 600, "y": 110, "size": "m" },
+    "agent-b1":  { "x": 520, "y": 300, "size": "m" },
+    "agent-b2":  { "x": 720, "y": 300, "size": "m" }
+  },
+  "nodeData": {
+    "broker-a":  { "icon": "Database",   "name": "Broker",      "subtitle": "Workstation A", "color": "violet" },
+    "agent-a1":  { "icon": "Terminal",    "name": "Claude Code", "subtitle": "@writer",       "color": "amber" },
+    "agent-a2":  { "icon": "Terminal",    "name": "Codex",       "subtitle": "@reviewer",     "color": "emerald" },
+    "broker-b":  { "icon": "Database",   "name": "Broker",      "subtitle": "Workstation B", "color": "violet" },
+    "agent-b1":  { "icon": "Terminal",    "name": "Claude Code", "subtitle": "@indexer",      "color": "amber" },
+    "agent-b2":  { "icon": "Smartphone", "name": "Paired Device", "subtitle": "iPhone",      "color": "blue" }
+  },
+  "connectors": [
+    { "from": "broker-a",  "to": "broker-b",  "fromAnchor": "right",  "toAnchor": "left",   "style": "mesh" },
+    { "from": "agent-a1",  "to": "broker-a",  "fromAnchor": "top",    "toAnchor": "bottom", "style": "local" },
+    { "from": "agent-a2",  "to": "broker-a",  "fromAnchor": "top",    "toAnchor": "bottom", "style": "local" },
+    { "from": "agent-b1",  "to": "broker-b",  "fromAnchor": "top",    "toAnchor": "bottom", "style": "local" },
+    { "from": "agent-b2",  "to": "broker-b",  "fromAnchor": "top",    "toAnchor": "bottom", "style": "local" }
+  ],
+  "connectorStyles": {
+    "mesh":  { "color": "#3b82f6", "strokeWidth": 2.5, "bidirectional": true, "animated": true, "label": "Mesh Forwarding" },
+    "local": { "color": "#94a3b8", "strokeWidth": 1.5, "bidirectional": true }
+  },
+  "groups": [
+    { "id": "machine-a", "x": 30,  "y": 60, "width": 340, "height": 330, "type": "rect", "color": "slate", "label": "Machine A" },
+    { "id": "machine-b", "x": 430, "y": 60, "width": 360, "height": 330, "type": "rect", "color": "slate", "label": "Machine B" }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "layout": { "width": 800, "height": 400 },
+  "nodes": {
+    "register": { "x": 80,  "y": 80, "size": "m" },
+    "start":    { "x": 240, "y": 80, "size": "m" },
+    "route":    { "x": 400, "y": 80, "size": "m" },
+    "invoke":   { "x": 560, "y": 80, "size": "m" },
+    "stop":     { "x": 720, "y": 80, "size": "m" },
+    "broker":   { "x": 480, "y": 280, "size": "m" }
+  },
+  "nodeData": {
+    "register": { "icon": "FileText",  "name": "Register", "subtitle": "Override entry",  "color": "slate" },
+    "start":    { "icon": "Play",      "name": "Start",    "subtitle": "Launch harness",  "color": "amber" },
+    "route":    { "icon": "GitBranch", "name": "Route",    "subtitle": "Resolve @agent",  "color": "violet" },
+    "invoke":   { "icon": "Zap",       "name": "Invoke",   "subtitle": "Flight record",   "color": "blue" },
+    "stop":     { "icon": "Square",    "name": "Stop",     "subtitle": "Terminate",       "color": "slate" },
+    "broker":   { "icon": "Database",  "name": "Scout Broker", "subtitle": "Registry + Router", "color": "violet" }
+  },
+  "connectors": [
+    { "from": "register", "to": "start",  "fromAnchor": "right",  "toAnchor": "left", "style": "step" },
+    { "from": "start",    "to": "route",  "fromAnchor": "right",  "toAnchor": "left", "style": "step" },
+    { "from": "route",    "to": "invoke", "fromAnchor": "right",  "toAnchor": "left", "style": "step" },
+    { "from": "invoke",   "to": "stop",   "fromAnchor": "right",  "toAnchor": "left", "style": "step" },
+    { "from": "route",    "to": "broker", "fromAnchor": "bottom", "toAnchor": "top",  "style": "broker" },
+    { "from": "invoke",   "to": "broker", "fromAnchor": "bottom", "toAnchor": "top",  "style": "broker" }
+  ],
+  "connectorStyles": {
+    "step":   { "color": "#94a3b8", "strokeWidth": 1.5, "showArrow": true },
+    "broker": { "color": "#8b5cf6", "strokeWidth": 2, "bidirectional": true, "animated": true }
+  },
+  "groups": [
+    { "id": "lifecycle",    "x": 40,  "y": 30,  "width": 740, "height": 145, "type": "rect", "color": "slate",  "label": "Agent Lifecycle" },
+    { "id": "broker-group", "x": 400, "y": 230, "width": 200, "height": 130, "type": "rect", "color": "violet", "label": "Broker" }
+  ]
+}
