@@ -862,6 +862,22 @@ function labelFor(s: SectionId) {
    and proportions match what the operator sees in the live app.
    ──────────────────────────────────────────────────────────────────── */
 
+/* ────────────────────────────────────────────────────────────────────
+   v2 Inspector primitives — the redesigned look.
+   The v1 (below) renders the same data, but the v2 has:
+   - sans for data values, mono for chrome (labels, ids, paths)
+   - small icon glyphs on every section header
+   - more breathing room between sections
+   - colored badges / pills where the value is a "thing" (status,
+     kind, count) rather than a string
+   - graceful empty states with a checkmark
+   The v1 stays around for the current-state baseline (§2); v2 is
+   the projection.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* v1 — used by the current-state baseline in §2 (CommsMock,
+   AgentsMock, TailMock, ReposMock). Kept identical to the prior
+   treatment so the §2 baseline is unaffected. */
 function InspectorPane({
   kind,
   status,
@@ -895,6 +911,210 @@ function InspectorPane({
       </div>
       <div className="flex flex-1 flex-col gap-2.5 overflow-hidden p-2.5">{children}</div>
     </div>
+  );
+}
+
+
+function InspectorPaneV2({
+  kind,
+  status,
+  statusTone,
+  children,
+}: {
+  kind: string;
+  status: string;
+  statusTone: "ok" | "warn" | "info" | "error";
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex w-[300px] flex-none flex-col border-l border-studio-edge bg-studio-surface">
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div
+            aria-hidden
+            className="h-3.5 w-[2px] rounded-[1px]"
+            style={{ background: "var(--scout-accent)" }}
+          />
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+            {kind}
+          </span>
+        </div>
+        <span
+          className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+          style={{
+            background: `var(--status-${statusTone}-bg)`,
+            color: `var(--status-${statusTone}-fg)`,
+          }}
+        >
+          <span className="block h-1.5 w-1.5 rounded-full bg-current" />
+          {status}
+        </span>
+      </div>
+      <div className="h-px bg-studio-edge" />
+      <div className="flex flex-1 flex-col gap-5 overflow-hidden px-4 py-4">{children}</div>
+    </div>
+  );
+}
+
+function ISecV2({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-studio-ink-faint">{icon}</span>
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          {label}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function KVV2({
+  k,
+  v,
+  variant = "text",
+}: {
+  k: string;
+  v: string;
+  variant?: "text" | "mono" | "pill" | "badge";
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {k}
+      </span>
+      {variant === "mono" ? (
+        <span className="truncate font-mono text-[11px] text-studio-ink">{v}</span>
+      ) : variant === "pill" ? (
+        <span className="inline-flex w-fit items-center gap-1 rounded-full border border-studio-edge bg-studio-canvas-alt px-2 py-0.5 font-mono text-[9.5px] text-studio-ink-muted">
+          {v}
+        </span>
+      ) : variant === "badge" ? (
+        <span className="inline-flex w-fit items-center gap-1 rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-[10px] font-semibold text-status-info-fg">
+          {v}
+        </span>
+      ) : (
+        <span className="truncate font-sans text-[12.5px] text-studio-ink">{v}</span>
+      )}
+    </div>
+  );
+}
+
+function EmptyStateV2({ message }: { message: string }) {
+  return (
+    <div className="flex items-center gap-1.5 rounded-[5px] border border-studio-edge bg-studio-canvas-alt px-2.5 py-1.5">
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <circle cx="8" cy="8" r="7" stroke="var(--status-ok-fg)" strokeWidth="1.2" />
+        <path d="M4.8 8.2L6.8 10.2L11.2 5.4" stroke="var(--status-ok-fg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="font-sans text-[11.5px] text-studio-ink-faint">{message}</span>
+    </div>
+  );
+}
+
+function ActionRowV2({ primary, secondary }: { primary: string; secondary: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        className="rounded-[6px] border px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+        style={{
+          background: "var(--scout-accent-soft)",
+          borderColor: "var(--scout-accent)",
+          color: "var(--scout-accent)",
+        }}
+      >
+        {primary}
+      </button>
+      <button
+        type="button"
+        className="rounded-[6px] border border-studio-edge bg-transparent px-3 py-1.5 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+      >
+        {secondary}
+      </button>
+    </div>
+  );
+}
+
+function IdentityV2({
+  initial,
+  name,
+  sub,
+}: {
+  initial: string;
+  name: string;
+  sub: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div
+        className="grid h-[40px] w-[40px] shrink-0 place-items-center rounded-full font-display text-[16px] font-medium text-studio-canvas"
+        style={{
+          background:
+            "linear-gradient(135deg, var(--scout-accent) 0%, oklch(0.72 0.16 125) 100%)",
+        }}
+      >
+        {initial}
+      </div>
+      <div className="min-w-0">
+        <div className="truncate font-display text-[16px] font-medium leading-tight tracking-tight text-studio-ink">
+          {name}
+        </div>
+        <div className="truncate font-mono text-[10px] text-studio-ink-faint">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+/* Section icons — tiny 11x11 glyphs in currentColor. */
+function IconChat() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M2.5 4h11v7h-7l-3 2.5V11h-1V4z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IconProject() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M2 4.5l1.5-1.5h3l1 1H14v8H2v-7.5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M2 7h12" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+function IconAsk() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M6.2 6.2c0-1 .8-1.8 1.8-1.8s1.8.8 1.8 1.8c0 .7-.4 1.2-1 1.5-.5.3-.8.6-.8 1.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="8" cy="11.2" r="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+function IconRuntime() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <rect x="5" y="5" width="6" height="6" rx="0.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M5 2.5v-1M8 2.5v-1M11 2.5v-1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IconSession() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <ellipse cx="8" cy="8" rx="6" ry="3" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="8" cy="8" r="1.6" fill="currentColor" />
+    </svg>
   );
 }
 
@@ -1608,7 +1828,7 @@ function CommsAfterMock() {
             + New
           </span>
         </div>
-        {/* list — selected row highlighted, ask state on the row */}
+        {/* list */}
         <div className="flex-1 overflow-hidden">
           {COMMS.slice(0, 5).map((c, i) => (
             <div
@@ -1631,40 +1851,28 @@ function CommsAfterMock() {
           ))}
         </div>
       </div>
-      {/* the new right inspector — uses the unified grammar */}
-      <InspectorPane kind="DM" status="AVAILABLE" statusTone="ok">
-        <div className="flex items-center gap-2">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
-            D
+      {/* v2 inspector — redesigned for nicer typography + visual hierarchy */}
+      <InspectorPaneV2 kind="DM" status="Available" statusTone="ok">
+        <IdentityV2 initial="D" name="Dewey" sub="dewey.main.arts-mac-mini-local" />
+        <ActionRowV2 primary="Open" secondary="+ New" />
+        <ISecV2 icon={<IconChat />} label="Conversation">
+          <div className="grid grid-cols-2 gap-3">
+            <KVV2 k="Last activity" v="2 min ago" />
+            <KVV2 k="Unread" v="2 new" variant="badge" />
           </div>
-          <div>
-            <div className="font-sans text-[11px] font-semibold text-studio-ink">Dewey</div>
-            <div className="font-mono text-[8px] text-studio-ink-faint">dewey.main.arts-mac-mini-local</div>
+          <KVV2 k="Kind" v="Direct message" />
+        </ISecV2>
+        <ISecV2 icon={<IconProject />} label="Project">
+          <KVV2 k="Repo" v="dewey" />
+          <div className="grid grid-cols-2 gap-3">
+            <KVV2 k="Branch" v="main" variant="pill" />
+            <KVV2 k="Path" v="~/dev/dewey" variant="mono" />
           </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span
-            className="rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
-            style={{ background: "var(--scout-accent-soft)", color: "var(--scout-accent)" }}
-          >
-            Message
-          </span>
-          <span className="rounded-[3px] border border-studio-edge bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
-            + New
-          </span>
-        </div>
-        <ISecOverline label="Conversation">
-          <InspectorRow k="Last" v="2m" />
-          <InspectorRow k="Unread" v="2" vColor="var(--status-info-fg)" />
-        </ISecOverline>
-        <ISecOverline label="Project">
-          <InspectorRow k="Branch" v="main" />
-          <InspectorRow k="Path" v="~/dev/dewey" />
-        </ISecOverline>
-        <ISecOverline label="Ask">
-          <div className="font-mono text-[9.5px] text-studio-ink-muted">No pending ask</div>
-        </ISecOverline>
-      </InspectorPane>
+        </ISecV2>
+        <ISecV2 icon={<IconAsk />} label="Ask">
+          <EmptyStateV2 message="No active asks on this thread" />
+        </ISecV2>
+      </InspectorPaneV2>
     </MacOSWindowCompact>
   );
 }
@@ -1726,28 +1934,31 @@ function AgentsAfterMock() {
           ))}
         </div>
       </div>
-      <InspectorPane kind="AGENT" status="AVAILABLE" statusTone="ok">
-        <div className="flex items-center gap-2">
-          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
-            A
+      <InspectorPaneV2 kind="Agent" status="Available" statusTone="ok">
+        <IdentityV2 initial="A" name="Action" sub="action.codex-polished-mira-demo.arts-mac-mini-local" />
+        <ActionRowV2 primary="Message" secondary="+ New conversation" />
+        <ISecV2 icon={<IconRuntime />} label="Runtime">
+          <KVV2 k="Role" v="Relay agent" />
+          <div className="grid grid-cols-2 gap-3">
+            <KVV2 k="Harness" v="Claude" variant="pill" />
+            <KVV2 k="Transport" v="stream-json" variant="pill" />
           </div>
-          <div>
-            <div className="font-sans text-[11px] font-semibold text-studio-ink">Action</div>
-            <div className="font-mono text-[8px] text-studio-ink-faint">
-              action.codex-polished-mira-demo.arts-mac-mini-local
-            </div>
+        </ISecV2>
+        <ISecV2 icon={<IconProject />} label="Project">
+          <KVV2 k="Repo" v="action" />
+          <KVV2 k="Branch" v="(none)" />
+          <KVV2 k="Path" v="~/dev/action" variant="mono" />
+        </ISecV2>
+        <ISecV2 icon={<IconSession />} label="Session">
+          <div className="flex items-center justify-between">
+            <KVV2 k="Id" v="relay-action-claude" variant="mono" />
           </div>
-        </div>
-        <ISecOverline label="Runtime">
-          <InspectorRow k="Role" v="Relay agent" />
-          <InspectorRow k="Harness" v="claude" />
-          <InspectorRow k="Transport" v="claude_stream_json" />
-        </ISecOverline>
-        <ISecOverline label="Project">
-          <InspectorRow k="Branch" v="(none)" vColor="var(--studio-ink-faint)" />
-          <InspectorRow k="Path" v="~/dev/action" />
-        </ISecOverline>
-      </InspectorPane>
+          <div className="grid grid-cols-2 gap-3">
+            <KVV2 k="Active" v="1 day" />
+            <KVV2 k="Status" v="Live" variant="badge" />
+          </div>
+        </ISecV2>
+      </InspectorPaneV2>
     </MacOSWindowCompact>
   );
 }
