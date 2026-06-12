@@ -2220,18 +2220,33 @@ export default function ScoutMacOSShellPage() {
       </section>
 
       {/* ────────────────────────────────────────────────────────────
-          §3 — The shell chrome
+          §3 — The design language
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §3 · The shell chrome
+          §3 · The design language
         </h2>
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          The five pieces every screen shares. When a piece changes here,
-          it changes on all four screens at once.
+          The shell chrome (the bits every screen shares), the inspector
+          grammar (the chrome rules), the block library (the contents),
+          the canonical entity model, and the composition rules. The
+          Comms spec at{" "}
+          <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
+            /studies/scout-comms-inspector
+          </a>{" "}
+          is the worked example — read §3 first, then dive into the
+          Comms spec to see the blocks in context.
         </p>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+        {/* §3.1 — Shell chrome */}
+        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          §3.1 · Shell chrome
+        </h3>
+        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          The five pieces every screen shares. When a piece changes
+          here, it changes on all four screens at once.
+        </p>
+        <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
           <ChromeSpec
             label="Titlebar"
             owner="NSWindow / NSToolbar"
@@ -2254,70 +2269,196 @@ export default function ScoutMacOSShellPage() {
             label="Right inspector"
             owner="per-screen inspector view"
             token="300px wide (live) · --studio-surface bg"
-            note="Lives on Agent, Tail, Repos. Comms does not own one. Width is in @AppStorage; collapsed hides the column entirely."
+            note="Composed from the block library below. Width is in @AppStorage; collapsed hides the column entirely."
           />
           <ChromeSpec
             label="Status bar"
             owner="ScoutRootView"
             token="--studio-canvas-alt bg · 22px tall"
-            note="Bottom row. Live dot + active section name on the left. Quiet by design — the operator should be able to ignore it. The Tail surface adds a secondary line with buffered count."
+            note="Bottom row. Live dot + active section name on the left. Quiet by design — the operator should be able to ignore it."
           />
         </div>
-      </section>
 
-      {/* ────────────────────────────────────────────────────────────
-          §4 — Sections
-          ──────────────────────────────────────────────────────────── */}
-      <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §4 · Sections
-        </h2>
-        <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          The five <code className="text-studio-ink-muted">ScoutSection</code>{" "}
-          cases, in sidebar order. Four own a screen; Settings pushes a
-          sheet and is excluded from this page.
+        {/* §3.2 — Inspector grammar */}
+        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          §3.2 · Inspector grammar
+        </h3>
+        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          The chrome rules every inspector follows. Nine rules, one
+          per row. The "why" column is what survives if a future
+          implementer wants to bend a rule.
         </p>
-
-        <div className="overflow-hidden rounded-md border border-studio-edge">
-          <table className="w-full border-collapse font-mono text-[11px]">
+        <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
+          <table className="w-full border-collapse font-sans text-[12px]">
             <thead>
-              <tr className="bg-studio-canvas-alt text-left text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-                <th className="px-3 py-2">Section</th>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2">Inspector</th>
-                <th className="px-3 py-2">Dedicated study</th>
+              <tr className="bg-studio-canvas-alt text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-3 py-2 w-12">#</th>
+                <th className="px-3 py-2">Rule</th>
+                <th className="px-3 py-2">Why</th>
               </tr>
             </thead>
             <tbody>
-              {[
-                { s: "comms",  src: "ScoutCommsView",                  insp: "—",            study: "/studies/scout-comms" },
-                { s: "agents", src: "ScoutRootView (agents tree)",     insp: "per-agent",    study: "/studies/agent-inspector-card" },
-                { s: "tail",   src: "ScoutTailView",                   insp: "tail overview",study: "/studies/scout-tail" },
-                { s: "repos",  src: "ScoutReposView",                  insp: "per-repo",     study: "/studies/branch-diff-sheet" },
-              ].map((row, i) => (
+              {GRAMMAR_RULES.map((r, i) => (
                 <tr
-                  key={row.s}
+                  key={r.title}
                   className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
                 >
-                  <td className="px-3 py-2 text-studio-ink">{row.s}</td>
-                  <td className="px-3 py-2 text-studio-ink-muted">{row.src}</td>
-                  <td className="px-3 py-2 text-studio-ink-muted">{row.insp}</td>
-                  <td className="px-3 py-2 text-scout-accent">
-                    <a href={row.study} className="hover:underline">{row.study}</a>
+                  <td className="px-3 py-2 font-mono text-[9.5px] text-studio-ink-faint align-top">
+                    {String(i + 1).padStart(2, "0")}
+                  </td>
+                  <td className="px-3 py-2 text-studio-ink align-top">{r.title}</td>
+                  <td className="px-3 py-2 text-studio-ink-faint align-top">{r.why}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* §3.3 — Block library */}
+        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          §3.3 · Block library
+        </h3>
+        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          The named set of blocks every inspector is composed from.
+          The visual specimens and the per-block docs used to live at{" "}
+          <code className="text-studio-ink-muted">/studies/inspector-system</code>{" "}
+          — that page is now folded into this section. The Comms
+          spec at{" "}
+          <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
+            /studies/scout-comms-inspector
+          </a>{" "}
+          shows what the blocks look like rendered.
+        </p>
+        <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
+          <table className="w-full border-collapse font-sans text-[11.5px]">
+            <thead>
+              <tr className="bg-studio-canvas-alt text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-3 py-2">Block</th>
+                <th className="px-3 py-2">Purpose</th>
+                <th className="px-3 py-2">Reads</th>
+                <th className="px-3 py-2">Used by</th>
+                <th className="px-3 py-2">Cond?</th>
+              </tr>
+            </thead>
+            <tbody>
+              {BLOCKS.map((b, i) => (
+                <tr
+                  key={b.key}
+                  className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
+                >
+                  <td className="px-3 py-2 align-top">
+                    <code className="font-mono text-[10.5px] text-studio-ink">{b.key}</code>
+                  </td>
+                  <td className="px-3 py-2 text-studio-ink-muted align-top">{b.purpose}</td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
+                    {b.reads}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
+                    {b.usedBy.join(", ")}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
+                    {b.conditional ? "yes" : "—"}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* §3.4 — Entity model */}
+        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          §3.4 · Entity model
+        </h3>
+        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          The canonical <code className="text-studio-ink-muted">InspectorEntity</code>{" "}
+          shape every block reads from. A dot means the surface's
+          concrete model exposes the field; the InspectorEntity is a
+          structural interface, not a class — a value with the right
+          fields conforms. In Swift, a protocol with optional
+          requirements; in TypeScript, a partial type.
+        </p>
+        <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
+          <table className="w-full border-collapse font-mono text-[11px]">
+            <thead>
+              <tr className="bg-studio-canvas-alt text-left text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-3 py-2">Field</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Comms</th>
+                <th className="px-3 py-2">Agents</th>
+                <th className="px-3 py-2">Repos</th>
+                <th className="px-3 py-2">Tail</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ENTITY_FIELDS.map((row, i) => (
+                <tr
+                  key={row.field}
+                  className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
+                >
+                  <td className="px-3 py-2 text-studio-ink">{row.field}</td>
+                  <td className="px-3 py-2 text-studio-ink-muted">{row.type}</td>
+                  {(["comms", "agents", "repos", "tail"] as const).map((s) => (
+                    <td key={s} className="px-3 py-2">
+                      {row.providedBy.includes(s) ? (
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ background: "var(--status-ok-fg)" }}
+                          title="provided"
+                        />
+                      ) : (
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ background: "var(--studio-edge-strong)" }}
+                          title="not provided"
+                        />
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* §3.5 — Composition rules */}
+        <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+          §3.5 · Composition rules
+        </h3>
+        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+          How blocks are ordered, what's conditional, and how the
+          spacing rhythm works.
+        </p>
+        <ol className="mb-2 flex max-w-prose flex-col gap-3 font-sans text-[12.5px] leading-relaxed text-studio-ink">
+          {COMPOSITION_RULES.map((r, i) => (
+            <li key={r.title} className="flex gap-3">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-[3px] border border-studio-edge bg-studio-canvas-alt font-mono text-[10px] font-semibold text-studio-ink">
+                {i + 1}
+              </span>
+              <div>
+                <div className="font-medium text-studio-ink">{r.title}</div>
+                <div className="mt-0.5 text-studio-ink-faint">{r.body}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+
+        <p className="mt-6 max-w-prose font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+          See{" "}
+          <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
+            /studies/scout-comms-inspector
+          </a>{" "}
+          for the Comms composition worked end-to-end (variants,
+          data contract per block, the design decisions specific to
+          Comms).
+        </p>
       </section>
 
       {/* ────────────────────────────────────────────────────────────
-          §5 — Open design questions
+          §4 — Open design questions
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-8">
         <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §5 · Open design questions
+          §4 · Open design questions
         </h2>
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Questions the projections in §1 raise but don't answer. Three
@@ -2494,3 +2635,127 @@ function ProjectionCard({
     </div>
   );
 }
+
+/* ────────────────────────────────────────────────────────────────────
+   §3 — Design language data tables.
+   These used to live in their own studies (/studies/inspector-grammar,
+   /studies/inspector-system). They were folded into this page so the
+   whole inspector design is in one place. The Comms spec at
+   /studies/scout-comms-inspector is the only sibling that survives —
+   it's the worked example for the block library below.
+   ──────────────────────────────────────────────────────────────────── */
+
+const GRAMMAR_RULES: { title: string; why: string }[] = [
+  {
+    title: "Section title is a hairline overline + mono uppercase. Always.",
+    why: "A 16px-wide hairline (--studio-edge-strong) sits 6px above a mono uppercase 9px label. No leading dot, no leading bullet. The single most-seen piece of inspector chrome; making it identical across surfaces is what makes the inspector feel like one product.",
+  },
+  {
+    title: "Status badge is always filled. Tone changes, weight doesn't.",
+    why: "Use --status-{ok|warn|error|info|neutral}-{bg,fg}. The operator should be able to scan across three inspectors and pick out the ATTENTION ones by color alone.",
+  },
+  {
+    title: "Label-value pairs are stacked. Always.",
+    why: "Mono uppercase label on top, value right-aligned below. The label column is 100% width, the value column is auto. This holds at 300px inspector width.",
+  },
+  {
+    title: "No dividers between sections. Spacing only.",
+    why: "12px between sections, 6px title-to-first-row, 6px row-to-row. The body of the inspector is a column of sections; the rhythm is what separates them, not hairlines.",
+  },
+  {
+    title: "Identity block has no leading dot.",
+    why: "A large display name + a secondary mono line. The accent dot is reserved for the title rule (chrome) and for state markers. Putting it in front of the entity name is a stray accent.",
+  },
+  {
+    title: "The orange accent lives in two places: the title rule and the primary action.",
+    why: "Not in identity. Not in section titles. Not as decoration. Accent is expensive; spend it on the title rule (so the inspector is locatable) and on the primary CTA (so it's findable).",
+  },
+  {
+    title: "Stat callouts are used when a number is the point.",
+    why: "Boxed, label-on-top, big mono number. Reach for it when you have 1–8 numbers to surface (logs · processes · sessions · buffered). Don't reach for it when the value is just text or appears inside a key-value list.",
+  },
+  {
+    title: "Trailing description is one faint mono line, used when a section needs a definition.",
+    why: "Use it under a list group whose categories aren't obvious (Tail's TRACKS). Don't use it as filler. Don't use it under a single key-value row.",
+  },
+  {
+    title: "Action row renders only when there's a primary action.",
+    why: "Primary uses --scout-accent-soft bg + --scout-accent border + --scout-accent fg. Secondary uses a ghost border in --studio-edge. Don't reserve whitespace for an empty row.",
+  },
+];
+
+const BLOCKS: {
+  key: string;
+  purpose: string;
+  reads: string;
+  usedBy: string[];
+  conditional: boolean;
+}[] = [
+  { key: "identity",     purpose: "Entity name + ID + avatar. Every inspector leads with this.",                 reads: "name, agentId, avatar",                    usedBy: ["comms", "agents", "repos"],   conditional: false },
+  { key: "status",       purpose: "Filled tinted pill in the title row. Tone changes, weight doesn't.",         reads: "state",                                    usedBy: ["all four"],                   conditional: false },
+  { key: "action-row",   purpose: "Primary filled CTA + secondary ghost. Render only when there's an action.",   reads: "actions[primary, secondary]",             usedBy: ["comms", "agents", "repos"],   conditional: true  },
+  { key: "key-value",    purpose: "Stacked label-on-top, value right-aligned. The atomic data display.",          reads: "rows[].label, rows[].value",              usedBy: ["all four"],                   conditional: false },
+  { key: "project",      purpose: "Repo + branch + path. The 'where is this work happening' block.",              reads: "project.repo, project.branch, project.path", usedBy: ["comms", "agents", "repos"],  conditional: true  },
+  { key: "session",      purpose: "Live session id + age + Observe. Agents-specific.",                              reads: "session.id, session.started, session.observed", usedBy: ["agents"],               conditional: true  },
+  { key: "worktrees",    purpose: "Total + dirty worktree count. Repos-specific.",                                 reads: "worktrees.total, worktrees.dirty",        usedBy: ["repos"],                       conditional: false },
+  { key: "changes",      purpose: "Staged / unstaged / untracked counts. Repos-specific.",                          reads: "changes.staged, changes.unstaged, changes.untracked", usedBy: ["repos"],          conditional: false },
+  { key: "attached",     purpose: "Agents + sessions attached to the entity. Repos-specific.",                     reads: "attached.agents, attached.sessions",      usedBy: ["repos"],                       conditional: false },
+  { key: "conversation", purpose: "Last activity + unread + channel/DM. Comms-specific.",                          reads: "conversation.last, conversation.unread, conversation.kind", usedBy: ["comms"],         conditional: false },
+  { key: "ask",          purpose: "Pending or answered ask with author + body. Comms-specific today; reusable.",  reads: "ask.state, ask.from, ask.text",            usedBy: ["comms"],                       conditional: true  },
+  { key: "stats",        purpose: "2×2 stat callouts (label-on-top, big number). Used when a number is the point.", reads: "stats[].label, stats[].value",         usedBy: ["tail", "repos"],               conditional: false },
+  { key: "tracks",       purpose: "Labelled list with descriptions. Tail's per-track block; reusable.",            reads: "tracks[].label, tracks[].description",   usedBy: ["tail"],                        conditional: false },
+  { key: "description",  purpose: "Faint mono one-liner under a section title. Used when a section needs a definition.", reads: "description",                       usedBy: ["all four"],                   conditional: true  },
+];
+
+const ENTITY_FIELDS: {
+  field: string;
+  type: string;
+  providedBy: ("comms" | "agents" | "repos" | "tail")[];
+}[] = [
+  { field: "name",          type: "string",                                providedBy: ["comms", "agents", "repos"] },
+  { field: "agentId",       type: "string",                                providedBy: ["comms", "agents"] },
+  { field: "avatar",        type: "string",                                providedBy: ["comms", "agents"] },
+  { field: "state",         type: "ok | warn | error | info | neutral",   providedBy: ["agents", "repos"] },
+  { field: "project",       type: "{ repo, branch, path }",                providedBy: ["comms", "agents", "repos"] },
+  { field: "role",          type: "string",                                providedBy: ["agents"] },
+  { field: "harness",       type: "string",                                providedBy: ["agents"] },
+  { field: "transport",     type: "string",                                providedBy: ["agents"] },
+  { field: "model",         type: "string",                                providedBy: ["agents"] },
+  { field: "node",          type: "string",                                providedBy: ["agents"] },
+  { field: "session",       type: "{ id, started, observed }",             providedBy: ["agents"] },
+  { field: "worktrees",     type: "{ total, dirty }",                      providedBy: ["repos"] },
+  { field: "changes",       type: "{ staged, unstaged, untracked }",       providedBy: ["repos"] },
+  { field: "attached",      type: "{ agents, sessions }",                  providedBy: ["repos"] },
+  { field: "conversation",  type: "{ last, unread, kind }",                providedBy: ["comms"] },
+  { field: "ask",           type: "{ state, from, text }",                  providedBy: ["comms"] },
+  { field: "stats",         type: "{ label, value }[]",                    providedBy: ["tail"] },
+  { field: "tracks",        type: "{ label, description }[]",              providedBy: ["tail"] },
+  { field: "description",   type: "string",                                providedBy: ["tail"] },
+];
+
+const COMPOSITION_RULES: { title: string; body: string }[] = [
+  {
+    title: "Identity always leads.",
+    body: "When a block is identity, it renders first — at the top of the body, below the title row. The only exception is the Tail overview, which has no identity (it's a global rollup, not a per-entity inspector).",
+  },
+  {
+    title: "Action row is second, but only when there's a primary action.",
+    body: "If the entity has a primary action (Open, Message, Observe), the action row goes immediately after identity. Comms (Open), Agents (Message), Repos (Open diff) have one. Tail does not. Conditional on actions.primary being present.",
+  },
+  {
+    title: "Domain blocks come after the chrome.",
+    body: "The domain blocks (Project, Session, Conversation, Ask, Worktrees, Changes, Attached, Stats, Tracks) are composed in surface-specific order. The order is part of the surface's identity, not the block library's.",
+  },
+  {
+    title: "Conditional blocks render only when their data is present.",
+    body: "Project renders if project is non-null. Session renders if session is non-null. Ask renders if ask is non-null. Action row renders if actions.primary is present. This is what makes the library reusable: the same block serves a 3-section inspector and a 7-section inspector without changes.",
+  },
+  {
+    title: "Spacing is part of the grammar, not the block.",
+    body: "Every block takes a fixed outer gap (12px) from the previous block. Internal spacing (6px title-to-row, 6px row-to-row) is grammar-defined. Blocks don't set their own margins.",
+  },
+  {
+    title: "Width is fixed at 300px (matching the live app).",
+    body: "The inspector is 300px wide. Blocks are designed for that width and read at it. Going narrower or wider means re-validating every block; the SwiftUI InspectorFrame is the single place that owns the width.",
+  },
+];
