@@ -27,6 +27,10 @@
 /site/node_modules/
 /landing/out/
 /landing/node_modules/
+/landing/oscout.net/out/
+/landing/oscout.net/.next/
+/landing/openscout.app/out/
+/landing/openscout.app/.next/
 
 # production
 /build
