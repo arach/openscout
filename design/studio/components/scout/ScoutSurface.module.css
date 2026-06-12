@@ -1,0 +1,326 @@
+/* Shared Scout main-view chrome — the one system every main view speaks.
+ *
+ *   · ScoutPageHeader  → .pageHead   (the 52px identity bar)
+ *   · ScoutInspector   → .inspector  (head + card + groups + KV rows)
+ *
+ * Tokens only (`--s-*`). Values mirror the native Repos/Agents surfaces so the
+ * studio and the app render the same object. Tone is driven by an inline
+ * `--tone` custom property so any semantic token can flow through. */
+
+/* ── Page header ───────────────────────────────────────────────────── */
+
+.pageHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--s-hairline);
+  background: var(--s-bg);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+
+/* Inline LIVE pill, like the native Repos header. */
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-ok);
+  background: color-mix(in srgb, var(--s-ok) 13%, transparent);
+}
+
+.livePip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-ok);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 55%, transparent);
+  animation: scoutPulse 1.8s ease-out infinite;
+}
+
+@keyframes scoutPulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 50%, transparent); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+/* Inline count chips — "10 repos · 15 trees", numbers tone-able (amber for
+   attention/dirty). */
+.counts {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-left: 2px;
+}
+
+.count {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.countNum {
+  font-weight: 600;
+  color: var(--tone, var(--s-muted));
+}
+
+.right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Bordered count pill — the Agents "25 AGENTS" treatment. */
+.pill {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  padding: 4px 9px;
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 6px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  color: var(--s-muted);
+  cursor: pointer;
+}
+
+.ghostBtn:hover {
+  color: var(--s-ink);
+}
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--s-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  color: var(--s-muted);
+  background: var(--s-surface);
+}
+
+.vDivider {
+  width: 1px;
+  height: 18px;
+  background: var(--s-hairline);
+  flex-shrink: 0;
+}
+
+/* ── Inspector ─────────────────────────────────────────────────────── */
+
+.inspector {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-chrome);
+  border-left: 1px solid var(--s-border);
+}
+
+/* Grip rides the panel's own edge — no reserved gutter between content + panel. */
+.grip {
+  position: absolute;
+  left: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 30px;
+  border-radius: 2px;
+  background: var(--s-hairline-strong);
+}
+
+/* Head sits on the SAME 52px line as .pageHead: `| TYPE` left, status right. */
+.inspHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--s-hairline);
+  flex-shrink: 0;
+}
+
+.type {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.typeTick {
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--s-accent);
+}
+
+.typeLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+.status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tone, var(--s-ok));
+  background: color-mix(in srgb, var(--tone, var(--s-ok)) 13%, transparent);
+}
+
+.statusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.inspBody {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px;
+}
+
+/* The card — identity top + hairline-divided KV groups (Repos/Agents shape). */
+.card {
+  border: 1px solid var(--s-border);
+  border-radius: 12px;
+  background: var(--s-surface);
+  overflow: hidden;
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 14px;
+}
+
+.avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--s-accent-soft);
+  color: var(--s-accent);
+  flex-shrink: 0;
+  font-family: var(--s-font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ident {
+  min-width: 0;
+  flex: 1;
+}
+
+.name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group {
+  padding: 11px 14px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.groupLabel {
+  display: flex;
+  align-items: center;
+  font-family: var(--s-font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  margin-bottom: 8px;
+}
+
+.kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.kvKey {
+  font-size: 12px;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kvVal {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}

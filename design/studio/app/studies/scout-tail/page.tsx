@@ -2,17 +2,31 @@
 
 import { ScoutStudyShell } from "@/components/scout/ScoutStudyShell";
 import { ScoutWindow } from "@/components/scout/ScoutWindow";
+import {
+  ScoutPageHeader,
+  ScoutGhostButton,
+  ScoutIconButton,
+  ScoutHeaderDivider,
+  ScoutInspector,
+  ScoutInspectorCard,
+  ScoutInspectorTop,
+  ScoutGroup,
+  ScoutKV,
+} from "@/components/scout/ScoutSurface";
 import styles from "./page.module.css";
 
 /**
  * Scout — Tail.
  *
- * The implementation spec for `ScoutTailView`. The deltas from today's Swift:
- * the kind dropdown menu becomes an inline filter-chip bar, and the single-char
- * glyph in each row becomes a colored KIND chip. The chip taxonomy is faithful
- * to the real harness kinds (ScoutTailEventKind: user/assistant/tool/toolResult/
- * system/other), and the tones are token-only — moving tool/toolResult off the
- * raw `.cyan`/`.orange` they use today (ScoutModels.swift:54).
+ * The implementation spec for `ScoutTailView`, now built on the shared
+ * main-view kit (`ScoutSurface`) so its header and inspector ARE the same
+ * objects Repos/Agents render — not look-alikes:
+ *
+ *   · ScoutPageHeader — the 52px bar: "Tail" + LIVE, then the Pause follow-toggle
+ *                       and refresh / open-web as ranked-down utilities.
+ *   · one filter toolbar (view-specific): search + source + right-aligned chips.
+ *   · ScoutInspector  — `| TAIL` + LIVE head over a card of identity + labeled
+ *                       KV groups (Coverage, Sources), the Repos/Agents shape.
  */
 
 type KindKey = "user" | "assistant" | "tool" | "toolResult" | "system" | "other";
@@ -51,6 +65,22 @@ const FILTERS: ({ key: "all"; title: string } | { key: KindKey; title: string })
   ...KIND_ORDER.map((k) => ({ key: k, title: KINDS[k].title })),
 ];
 
+/* Inspector sample data — Coverage counts + the source breakdown the native
+   `ScoutTailInspector` carries. */
+const COVERAGE: { label: string; value: string }[] = [
+  { label: "Logs", value: "39" },
+  { label: "Processes", value: "19" },
+  { label: "Agents", value: "12" },
+  { label: "Harnesses", value: "4" },
+];
+
+const SOURCES: { label: string; count: number }[] = [
+  { label: "claude", count: 514 },
+  { label: "codex", count: 188 },
+  { label: "native", count: 54 },
+  { label: "scout", count: 33 },
+];
+
 export default function ScoutTailStudy() {
   return (
     <ScoutStudyShell
@@ -58,58 +88,98 @@ export default function ScoutTailStudy() {
       title="Scout — Tail"
       blurb={
         <>
-          The live event stream as it should ship. The kind dropdown becomes an
-          inline filter-chip bar, and each row&apos;s single-char glyph becomes a
-          colored KIND chip. Tones are token-only — tool/output move off the raw{" "}
-          <code className="font-mono text-[11px] text-studio-ink">.cyan</code>/
-          <code className="font-mono text-[11px] text-studio-ink">.orange</code> they
-          use today.
+          The live event stream, built on the shared <b>ScoutSurface</b> kit. The
+          header is the same 52px bar Repos/Agents render (title + LIVE, ranked
+          actions) over one <b>filter toolbar</b> (search · source · right-aligned
+          kind chips). The inspector is the system card — <b>{`| TAIL`}</b> + status
+          head over identity + labeled KV groups (Coverage, Sources). Change the
+          kit once, every surface moves together.
         </>
       }
     >
       <ScoutWindow title="scout · tail">
-        <div className={styles.tail}>
-          {/* Bar: live pill + filter chips + source/search hint */}
-          <div className={styles.bar}>
-            <span className={styles.live}>
-              <span className={styles.pip} />
-              Live
-            </span>
-            <div className={styles.chips}>
-              {FILTERS.map((f) => (
-                <span
-                  key={f.key}
-                  className={`${styles.chip} ${f.key === "all" ? styles.active : ""}`}
-                  style={f.key !== "all" ? ({ "--chip-tone": KINDS[f.key as KindKey].tone } as React.CSSProperties) : undefined}
-                >
-                  {f.key !== "all" ? (
-                    <span className={styles.chipDot} style={{ background: KINDS[f.key as KindKey].tone }} />
-                  ) : null}
-                  {f.title}
-                </span>
-              ))}
+        <div className={styles.surface}>
+          {/* ── Main: header + toolbar + stream ──────────────────────── */}
+          <div className={styles.main}>
+            <ScoutPageHeader
+              title="Tail"
+              live
+              counts={[
+                { n: 789, label: "events" },
+                { n: 4, label: "sources" },
+              ]}
+              actions={
+                <>
+                  <ScoutGhostButton>
+                    <PauseGlyph /> Pause
+                  </ScoutGhostButton>
+                  <ScoutHeaderDivider />
+                  <ScoutIconButton label="Refresh">
+                    <RefreshGlyph />
+                  </ScoutIconButton>
+                  <ScoutIconButton label="Open in web">
+                    <WebGlyph />
+                  </ScoutIconButton>
+                </>
+              }
+            />
+
+            {/* Filter toolbar (view-specific) */}
+            <div className={styles.toolbar}>
+              <span className={styles.search}>
+                <SearchGlyph /> Search
+              </span>
+              <span className={styles.source}>
+                <TagGlyph /> All sources <Caret />
+              </span>
+              <div className={styles.chips}>
+                {FILTERS.map((f) => (
+                  <span
+                    key={f.key}
+                    className={`${styles.chip} ${f.key === "all" ? styles.active : ""}`}
+                  >
+                    {f.key !== "all" ? (
+                      <span className={styles.chipDot} style={{ background: KINDS[f.key as KindKey].tone }} />
+                    ) : null}
+                    {f.title}
+                  </span>
+                ))}
+              </div>
             </div>
-            <div className={styles.barRight}>
-              <span className={styles.barHint}>
-                <TagGlyph /> All sources
-              </span>
-              <span className={styles.barSearch}>
-                <SearchGlyph /> Filter
-              </span>
+
+            {/* Stream */}
+            <div className={styles.stream}>
+              {EVENTS.map((e, i) => (
+                <div key={i} className={styles.ev}>
+                  <span className={styles.evTime}>{e.t}</span>
+                  <span className={styles.evSrc}>{e.src}</span>
+                  <KindChip kind={e.kind} />
+                  <span className={styles.evMsg} dangerouslySetInnerHTML={{ __html: e.html }} />
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Stream */}
-          <div className={styles.stream}>
-            {EVENTS.map((e, i) => (
-              <div key={i} className={styles.ev}>
-                <span className={styles.evTime}>{e.t}</span>
-                <span className={styles.evSrc}>{e.src}</span>
-                <KindChip kind={e.kind} />
-                <span className={styles.evMsg} dangerouslySetInnerHTML={{ __html: e.html }} />
-              </div>
-            ))}
-          </div>
+          {/* ── Inspector: the shared system card ────────────────────── */}
+          <ScoutInspector type="Tail" status={{ label: "Live", tone: "ok" }}>
+            <ScoutInspectorCard>
+              <ScoutInspectorTop
+                avatar={<PulseGlyph />}
+                name="Live tail"
+                sub="all sources · streaming"
+              />
+              <ScoutGroup label="Coverage">
+                {COVERAGE.map((m) => (
+                  <ScoutKV key={m.label} k={m.label} v={m.value} />
+                ))}
+              </ScoutGroup>
+              <ScoutGroup label="Sources">
+                {SOURCES.map((s) => (
+                  <ScoutKV key={s.label} k={s.label} v={s.count} />
+                ))}
+              </ScoutGroup>
+            </ScoutInspectorCard>
+          </ScoutInspector>
         </div>
       </ScoutWindow>
 
@@ -139,6 +209,14 @@ function KindChip({ kind }: { kind: KindKey }) {
   );
 }
 
+function PulseGlyph() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M3 12h3.5l2.5-6.5 4 13 2.5-6.5H21" />
+    </svg>
+  );
+}
+
 function SearchGlyph() {
   return (
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -153,6 +231,41 @@ function TagGlyph() {
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M3 7v5l9 9 5-5-9-9H3z" />
       <circle cx="7" cy="11" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function PauseGlyph() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <rect x="3.5" y="2.5" width="3" height="11" rx="1" />
+      <rect x="9.5" y="2.5" width="3" height="11" rx="1" />
+    </svg>
+  );
+}
+
+function RefreshGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
+
+function WebGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18" />
+    </svg>
+  );
+}
+
+function Caret() {
+  return (
+    <svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ marginLeft: 2 }}>
+      <path d="M4 6l4 4 4-4" />
     </svg>
   );
 }

@@ -977,8 +977,12 @@ struct ScoutRootView: View {
     // card (which lists members + cId), so they're gone here.
     private var chatHeader: some View {
         ScoutColumnHeader {
+            // The focal title of the band — larger than the list title (13) and
+            // the inspector eyebrow, but pulled down from 18 to lg (16) so the
+            // three column headers share one tighter type rhythm and their
+            // bottom-aligned baselines sit closer across the band.
             Text(store.selectedChannel?.displayHandle ?? "Scout")
-                .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -992,7 +996,7 @@ struct ScoutRootView: View {
     private var messageList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: HudSpacing.xl) {
+                LazyVStack(alignment: .leading, spacing: HudSpacing.xxxl) {
                     if store.messages.isEmpty {
                         HudEmptyState(
                             title: store.selectedChannel == nil ? "No channel selected" : "No messages yet",
@@ -1065,54 +1069,22 @@ struct ScoutRootView: View {
             if !pendingImages.isEmpty {
                 composerAttachmentStrip
             }
-            HStack(alignment: .top, spacing: HudSpacing.md) {
-                composerInputWell
-
-                if isDictating {
-                    ScoutWaveform(tint: isDictationProcessing ? ScoutPalette.muted : ScoutPalette.accent)
-                        .frame(width: 26, height: 18)
-                        .padding(.top, HudSpacing.xs + 8)
-                        .transition(.opacity)
+            composerInputWell
+                .animation(.easeOut(duration: 0.16), value: isDictating)
+                .onChange(of: voice.state) { _, newState in
+                    guard pendingSendAfterDictation else { return }
+                    switch newState {
+                    case .idle:
+                        // Final transcript has already been spliced (it lands on
+                        // $lastFinalText before state flips to idle), so send now.
+                        pendingSendAfterDictation = false
+                        sendDraft()
+                    case .unavailable:
+                        pendingSendAfterDictation = false
+                    default:
+                        break
+                    }
                 }
-
-                composerAttachButton
-                    .padding(.top, HudSpacing.xs)
-
-                ScoutMicButton(box: 34, glyph: 15, action: toggleDictation)
-                    .padding(.top, HudSpacing.xs)
-
-                ScoutSendButton(
-                    isEnabled: composerReady,
-                    isSending: store.isSending,
-                    action: requestSend
-                )
-                .padding(.top, HudSpacing.xs)
-            }
-            .animation(.easeOut(duration: 0.16), value: isDictating)
-            .onChange(of: voice.state) { _, newState in
-                guard pendingSendAfterDictation else { return }
-                switch newState {
-                case .idle:
-                    // Final transcript has already been spliced (it lands on
-                    // $lastFinalText before state flips to idle), so send now.
-                    pendingSendAfterDictation = false
-                    sendDraft()
-                case .unavailable:
-                    pendingSendAfterDictation = false
-                default:
-                    break
-                }
-            }
-
-            if let status = composerStatusText {
-                Text(status)
-                    .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(ScoutPalette.dim)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, HudSpacing.xs)
-            }
         }
         .padding(.horizontal, HudSpacing.xxl)
         .padding(.top, HudSpacing.xl)
@@ -1184,8 +1156,45 @@ struct ScoutRootView: View {
         )
     }
 
+    // Studio `.composerBox` — a single rounded box with an internal toolbar.
+    // The field rides the top with a crisp accent edge (`.composerField`); a
+    // hairline-separated bar below (`.composerBar`) carries the hint/status on
+    // the left and the harmonized attach · mic · send controls on the right.
+    // The buttons live *inside* the box rather than floating beside it.
     private var composerInputWell: some View {
-        HStack(alignment: .top, spacing: HudSpacing.md) {
+        VStack(spacing: 0) {
+            composerFieldRow
+            composerToolbarBar
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(composerWellFill)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
+        )
+        // A shallow, crisp lift — not the old floaty 14pt glow — so the well
+        // reads as a flat surface with a clean edge, matching the studio.
+        .shadow(
+            color: composerFocused ? ScoutPalette.accent.opacity(0.10) : ScoutSurface.shadow(0.12),
+            radius: composerFocused ? 6 : 3,
+            x: 0,
+            y: 1
+        )
+        .dropDestination(for: URL.self) { urls, _ in
+            addImages(from: urls)
+        }
+    }
+
+    // The compose line: the multiline field, an inline dictation waveform, and
+    // a crisp accent edge marking the active line. Keeps the original
+    // GeometryReader + ScoutComposerInputFrameKey measurement intact (the
+    // suggestions popover anchors off it) — only the surrounding chrome moved.
+    private var composerFieldRow: some View {
+        HStack(alignment: .top, spacing: HudSpacing.sm) {
             ZStack(alignment: .topLeading) {
                 TextField(showDictationPreview ? "" : composerPlaceholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -1237,8 +1246,6 @@ struct ScoutRootView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .padding(.top, HudSpacing.sm)
-            .padding(.bottom, 3)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 GeometryReader { proxy in
@@ -1248,43 +1255,73 @@ struct ScoutRootView: View {
                     )
                 }
             )
+
+            if isDictating {
+                ScoutWaveform(tint: isDictationProcessing ? ScoutPalette.muted : ScoutPalette.accent)
+                    .frame(width: 26, height: 16)
+                    .transition(.opacity)
+            }
         }
-        .padding(.leading, HudSpacing.md)
-        .padding(.trailing, HudSpacing.lg)
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.xl)
+        .padding(.top, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+        // Studio `.composerField` accent edge — a crisp 2pt rule marking the
+        // active compose line whenever a conversation is selected.
+        .overlay(alignment: .leading) {
+            if store.selectedCId != nil {
+                Rectangle()
+                    .fill(ScoutPalette.accent)
+                    .frame(width: 2)
+                    .opacity(composerFocused ? 1 : 0.45)
+            }
+        }
+    }
+
+    // Studio `.composerBar` — the internal toolbar: hint/status on the left,
+    // the harmonized control cluster on the right, set off from the field by a
+    // top hairline over a faintly recessed plane (the canvas bg, like the web).
+    private var composerToolbarBar: some View {
+        HStack(spacing: HudSpacing.sm) {
+            if let status = composerStatusText {
+                Text(status)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(composerStatusTint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: HudSpacing.sm)
+            composerAttachButton
+            ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
+            ScoutSendButton(
+                isEnabled: composerReady,
+                isSending: store.isSending,
+                action: requestSend
+            )
+        }
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.md)
         .padding(.vertical, HudSpacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(composerWellFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(composerWellBorder, lineWidth: HudStrokeWidth.thin)
-        )
-        .shadow(
-            color: composerFocused ? ScoutPalette.accent.opacity(0.12) : ScoutSurface.shadow(0.22),
-            radius: composerFocused ? 14 : 8,
-            x: 0,
-            y: 3
-        )
-        .dropDestination(for: URL.self) { urls, _ in
-            addImages(from: urls)
+        .frame(maxWidth: .infinity)
+        .background(composerBarFill)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(composerWellBorder)
+                .frame(height: HudStrokeWidth.thin)
         }
     }
 
     // MARK: - Composer attachments
 
     private var composerAttachButton: some View {
-        Button(action: presentImagePicker) {
-            Image(systemName: "paperclip")
-                .font(.system(size: HudTextSize.lgm, weight: .medium))
-                .foregroundStyle(ScoutPalette.muted)
-                .frame(width: 34, height: 34)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).scoutPointerCursor()
-        .help("Attach image")
-        .disabled(store.selectedCId == nil || store.isSending)
+        ScoutComposerIconButton(
+            systemImage: "paperclip",
+            glyph: 13,
+            help: "Attach image",
+            isEnabled: store.selectedCId != nil && !store.isSending,
+            action: presentImagePicker
+        )
     }
 
     private var composerAttachmentStrip: some View {
@@ -1371,7 +1408,21 @@ struct ScoutRootView: View {
         if store.selectedCId == nil {
             return ScoutDesign.hairline
         }
-        return composerFocused ? ScoutSurface.tintBorder(ScoutPalette.accent) : ScoutDesign.hairlineStrong
+        return composerFocused ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong
+    }
+
+    // The internal toolbar plane sits a step below the field — the canvas bg
+    // (studio `.composerBar { background: var(--s-bg) }`) so the bar reads as a
+    // recessed footer under the compose line, not part of the writing surface.
+    private var composerBarFill: Color {
+        store.selectedCId == nil ? ScoutSurface.inset : ScoutDesign.bg
+    }
+
+    // Status tints: errors/empty-state in dim, an active send in accent, the
+    // resting hint in dim. Keeps the bar quiet until something needs saying.
+    private var composerStatusTint: Color {
+        if store.isSending { return ScoutPalette.accent }
+        return ScoutPalette.dim
     }
 
     private var composerPlaceholder: String {
@@ -1744,9 +1795,10 @@ struct ScoutRootView: View {
         .help("\(title) all projects")
     }
 
-    /// Non-scrolling column header. Complaint #2: the trailing STATE / UPDATED
-    /// columns are now labeled, turning the old "pointless" right gap into a
-    /// real table. Padding + column widths match the tree rows so they align.
+    /// Non-scrolling column header. State moved to the leading row dot — a text
+    /// column of all-"AVAILABLE" carried no signal and squeezed the title — so
+    /// the header is the AGENT label and a right-aligned UPDATED column that
+    /// lines up with the rows.
     private var agentsColumnHeader: some View {
         HStack(spacing: HudSpacing.sm) {
             Text("AGENT")
@@ -1754,11 +1806,6 @@ struct ScoutRootView: View {
                 .tracking(0.8)
                 .foregroundStyle(ScoutPalette.dim)
             Spacer(minLength: HudSpacing.sm)
-            Text("STATE")
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(ScoutPalette.dim)
-                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
             Text("UPDATED")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .tracking(0.8)
@@ -2246,32 +2293,6 @@ struct ScoutRootView: View {
                 .tracking(1.4)
                 .foregroundStyle(ScoutPalette.muted)
 
-            Text("·")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-
-            Text("\(store.channels.count) cIds")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
-
-            Text("·")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-
-            Text("\(store.agents.count) agents")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
-
-            ScoutTailCountItem(tail: tail)
-
-            Text("·")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-
-            Text("\(repos.totals.worktrees) trees")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
-
             if let error = store.lastError {
                 Text("·")
                     .font(HudFont.mono(HudTextSize.xxs))
@@ -2432,20 +2453,6 @@ struct ScoutColumnHeader<Primary: View, Secondary: View, Trailing: View>: View {
 /// Status-bar tail counter — observes the tail store directly so its ~1.4s
 /// updates re-render only this label, not the whole window. (The root reaches
 /// tail through a non-publishing box precisely so this stays scoped.)
-private struct ScoutTailCountItem: View {
-    @ObservedObject var tail: ScoutTailStore
-    var body: some View {
-        HStack(spacing: HudSpacing.xl) {
-            Text("·")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
-            Text("\(tail.events.count) tail")
-                .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.muted)
-        }
-    }
-}
-
 /// Status-bar tail error — isolated so a tail error toggling on/off doesn't
 /// relayout the window.
 private struct ScoutTailErrorItem: View {
@@ -2755,6 +2762,45 @@ struct ScoutDictationPreview: View {
     }
 }
 
+/// Composer control footprint — a 26pt rounded-square shared by every button
+/// in the toolbar (attach · mic · send) so they read as one harmonized cluster
+/// instead of three mismatched shapes. The ghost variant (attach/mic) is
+/// transparent at rest and warms to a faint fill on hover; Send is the only
+/// filled one. Keep this in sync with `ScoutSendButton` / `ScoutMicButton`.
+private enum ScoutComposerControl {
+    static let box: CGFloat = 26
+    static let radius: CGFloat = HudRadius.standard
+}
+
+/// Ghost icon button for the composer toolbar (attach, and the visual base for
+/// the mic): an SF Symbol over a transparent rounded-square that warms on hover.
+private struct ScoutComposerIconButton: View {
+    let systemImage: String
+    var glyph: CGFloat = 13
+    let help: String
+    let isEnabled: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
+                    .fill(hovering && isEnabled ? ScoutSurface.hover : Color.clear)
+                Image(systemName: systemImage)
+                    .font(.system(size: glyph, weight: .medium))
+                    .foregroundStyle(hovering && isEnabled ? ScoutPalette.ink : ScoutPalette.muted)
+            }
+            .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
+            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .help(help)
+        .disabled(!isEnabled)
+    }
+}
+
 private struct ScoutSendButton: View {
     let isEnabled: Bool
     let isSending: Bool
@@ -2765,16 +2811,16 @@ private struct ScoutSendButton: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
                     .fill(fillColor)
 
-                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
                     .stroke(borderColor, lineWidth: HudStrokeWidth.thin)
 
                 content
             }
-            .frame(width: 34, height: 34)
-            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+            .frame(width: ScoutComposerControl.box, height: ScoutComposerControl.box)
+            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .disabled(!isEnabled || isSending)
@@ -2787,13 +2833,12 @@ private struct ScoutSendButton: View {
         if isSending {
             ProgressView()
                 .controlSize(.small)
-                .scaleEffect(0.62)
+                .scaleEffect(0.56)
                 .tint(ScoutPalette.dim)
         } else {
-            Image(systemName: "paperplane.fill")
-                .font(.system(size: HudTextSize.base, weight: .semibold))
+            Image(systemName: "arrow.up")
+                .font(.system(size: HudTextSize.sm, weight: .bold))
                 .foregroundStyle(iconColor)
-                .offset(x: -1, y: 1)
         }
     }
 
@@ -2883,13 +2928,16 @@ struct ScoutMicButton: View {
     }
 
     var body: some View {
+        // A rounded-square ghost matching the attach + send controls; at rest
+        // it's transparent (just the muted glyph), warms on hover, and only
+        // lights with an accent fill + ring while actively recording.
         Button(action: action) {
             ZStack {
-                Circle()
+                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
                     .fill(micFillColor)
                     .frame(width: box, height: box)
 
-                Circle()
+                RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous)
                     .stroke(
                         isRecording ? ScoutPalette.accent.opacity(0.5) : Color.clear,
                         lineWidth: HudStrokeWidth.thin
@@ -2909,7 +2957,7 @@ struct ScoutMicButton: View {
                     .frame(width: glyph, height: glyph)
             }
             .frame(width: box, height: box)
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: ScoutComposerControl.radius, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .help(tooltip)
@@ -2927,7 +2975,7 @@ struct ScoutMicButton: View {
         if hovering {
             return ScoutSurface.hover
         }
-        return ScoutSurface.inset
+        return Color.clear
     }
 }
 
@@ -3148,10 +3196,12 @@ private struct ScoutEyebrow: View {
                     .fill(ScoutPalette.accent)
                     .frame(width: 2, height: 9)
             }
+            // Studio section labels are a calm, faint mono eyebrow — they index
+            // the group without competing with the values beneath them.
             Text(text.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(ScoutPalette.muted)
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(1.4)
+                .foregroundStyle(ScoutPalette.dim)
         }
     }
 }
@@ -3177,13 +3227,14 @@ private struct ScoutPinnedAskBand: View {
                     .foregroundStyle(ScoutPalette.accent)
                 if ask.state == .pending {
                     Text("PENDING")
-                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                        .tracking(0.8)
+                        .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                        .tracking(0.6)
                         .foregroundStyle(ScoutPalette.statusWarn)
-                        .padding(.horizontal, HudSpacing.xs)
+                        .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(
-                            Capsule().fill(ScoutSurface.tintGhost(ScoutPalette.statusWarn))
+                            RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                                .fill(ScoutPalette.statusWarn.opacity(0.18))
                         )
                 }
                 Spacer(minLength: HudSpacing.sm)
@@ -3194,17 +3245,19 @@ private struct ScoutPinnedAskBand: View {
                     .truncationMode(.tail)
             }
             Text(ask.text)
-                .font(HudFont.ui(HudTextSize.xs))
+                .font(HudFont.ui(HudTextSize.sm))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(3)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 560, alignment: .leading)
         }
-        .padding(.horizontal, HudSpacing.xl)
-        .padding(.vertical, HudSpacing.md)
+        // Align the band's content with the header title + message gutter
+        // (`columnGutter`/huge) so the accent edge runs flush down the thread.
+        .padding(.horizontal, HudSpacing.huge)
+        .padding(.vertical, HudSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ScoutSurface.tintGhost(ScoutPalette.accent))
+        .background(ScoutPalette.accentSoft.opacity(0.55))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(ScoutPalette.accent)
@@ -3234,8 +3287,8 @@ private struct ScoutInspectorKVRow: View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
             Text(key.uppercased())
                 .font(HudFont.mono(9, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(ScoutPalette.muted)
+                .tracking(0.9)
+                .foregroundStyle(ScoutPalette.dim)
                 .lineLimit(1)
             Spacer(minLength: HudSpacing.sm)
             Text(value)
@@ -4005,8 +4058,8 @@ private struct ScoutCopyKVRow: View {
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                 Text(key.uppercased())
                     .font(HudFont.mono(9, weight: .semibold))
-                    .tracking(0.8)
-                    .foregroundStyle(ScoutPalette.muted)
+                    .tracking(0.9)
+                    .foregroundStyle(ScoutPalette.dim)
                     .lineLimit(1)
                 Spacer(minLength: HudSpacing.sm)
                 // No reserved copy glyph — values stay flush-right, aligned with
@@ -4124,7 +4177,7 @@ private struct ScoutInspectorSessionRow: View {
             .padding(.vertical, 1)
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
             .fixedSize()
     }
@@ -4248,7 +4301,7 @@ private struct ScoutSessionActionCell: View {
     }
     private var border: Color {
         if accent { return ScoutPalette.statusOk.opacity(0.45) }
-        return HudHairline.standard
+        return ScoutDesign.hairlineStrong
     }
 }
 
@@ -4272,10 +4325,15 @@ private struct ScoutInspectorActionButton: View {
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, HudSpacing.md)
-            .padding(.vertical, HudSpacing.xs + 1)
-            .background(Capsule().fill(fill))
-            .overlay(Capsule().stroke(border, lineWidth: HudStrokeWidth.standard))
-            .contentShape(Capsule())
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(border, lineWidth: HudStrokeWidth.thin)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
@@ -4290,8 +4348,10 @@ private struct ScoutInspectorActionButton: View {
         return hovering ? ScoutSurface.hover : Color.clear
     }
     private var border: Color {
-        if filled { return .clear }
-        return HudHairline.standard
+        // Filled (primary) carries a faint accent edge so it still reads as a
+        // crisp chip on a light surface; secondary uses a hairline.
+        if filled { return ScoutPalette.accent.opacity(0.35) }
+        return ScoutDesign.hairlineStrong
     }
 }
 
@@ -4306,10 +4366,11 @@ private struct ScoutObserveChip: View {
                     .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
                 Text("OBSERVE")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .tracking(0.4)
             }
             .foregroundStyle(hovering ? ScoutPalette.statusOk : ScoutPalette.muted)
             .padding(.horizontal, HudSpacing.sm)
-            .padding(.vertical, HudSpacing.xs)
+            .frame(height: 22)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                     .fill(hovering ? ScoutPalette.statusOk.opacity(0.12) : ScoutSurface.inset)
@@ -4318,7 +4379,7 @@ private struct ScoutObserveChip: View {
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                     .stroke(hovering ? ScoutPalette.statusOk.opacity(0.5) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
-            .contentShape(Rectangle())
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }

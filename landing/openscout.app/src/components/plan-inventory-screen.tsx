@@ -283,7 +283,7 @@ function StatusBadge({ status }: { status: PlanStatus }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] ${meta.badgeClass}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] ${meta.badgeClass}`}
     >
       <Icon className="h-3 w-3" />
       {meta.label}
@@ -309,7 +309,7 @@ function ToolbarAction({
   return (
     <button
       onClick={copy}
-      className="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--shell-line)] bg-white px-3 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--shell-dim)] transition hover:border-[var(--shell-line-strong)] hover:text-[var(--shell-ink)]"
+      className="inline-flex h-8 items-center gap-2 rounded-md border border-[var(--shell-line)] bg-white px-3 font-mono text-[10px] uppercase tracking-[0.07em] text-[var(--shell-dim)] transition hover:border-[var(--shell-line-strong)] hover:text-[var(--shell-ink)]"
     >
       {copied ? <Check className="h-3.5 w-3.5 text-[var(--shell-accent)]" /> : <Copy className="h-3.5 w-3.5" />}
       {copied ? "Copied" : label}
@@ -336,7 +336,7 @@ function MarkdownReader({ markdown }: { markdown: string }) {
             return (
               <h3
                 key={blockIndex}
-                className="pt-1 font-mono text-[11px] uppercase tracking-[0.18em] text-[var(--shell-dim)]"
+                className="pt-1 font-mono text-[11px] uppercase tracking-[0.09em] text-[var(--shell-dim)]"
               >
                 {block.text}
               </h3>
@@ -376,7 +376,7 @@ function MarkdownReader({ markdown }: { markdown: string }) {
         if (block.type === "code") {
           return (
             <div key={blockIndex} className="overflow-hidden rounded-xl border border-[#1e2228] bg-[#171a1f]">
-              <div className="border-b border-white/10 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
+              <div className="border-b border-white/10 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-white/45">
                 {block.language || "text"}
               </div>
               <pre className="overflow-x-auto px-4 py-4 font-mono text-[12px] leading-6 text-white/90">
@@ -496,15 +496,15 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
           </div>
 
           <div className="hidden items-center gap-4 md:flex">
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Helper Running
             </div>
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Broker Running
             </div>
-            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
               Mesh {agentNames.length} Peers
             </div>
@@ -551,7 +551,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                       {plans.length} files · {agentNames.length} agents
                     </p>
                   </div>
-                  <div className="rounded-md border border-[var(--shell-line)] bg-white px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--shell-dim)]">
+                  <div className="rounded-md border border-[var(--shell-line)] bg-white px-2 py-1 font-mono text-[10px] uppercase tracking-[0.07em] text-[var(--shell-dim)]">
                     Read Only
                   </div>
                 </div>
@@ -569,7 +569,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
 
               <div className="min-h-0 flex-1 overflow-auto">
                 <div className="border-b border-[var(--shell-line)] px-4 py-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--shell-dim)]">Views</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.09em] text-[var(--shell-dim)]">Views</p>
                   <div className="mt-3 space-y-1.5">
                     {views.map((item) => (
                       <button
@@ -582,14 +582,14 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                         }`}
                       >
                         <span className="text-sm font-medium">{item.label}</span>
-                        <span className="font-mono text-[10px] uppercase tracking-[0.16em]">{item.count}</span>
+                        <span className="font-mono text-[10px] uppercase tracking-[0.08em]">{item.count}</span>
                       </button>
                     ))}
                   </div>
                 </div>
 
                 <div className="border-b border-[var(--shell-line)] px-4 py-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--shell-dim)]">Inventory</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.09em] text-[var(--shell-dim)]">Inventory</p>
                   <div className="mt-3 space-y-2">
                     {filteredPlans.length === 0 ? (
                       <div className="rounded-lg border border-dashed border-[var(--shell-line-strong)] bg-white px-4 py-6 text-center">
@@ -620,11 +620,11 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                                 <div className="truncate text-[13px] font-semibold text-[var(--shell-ink)]">{plan.title}</div>
                                 <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-[var(--shell-dim)]">
                                   <span className="truncate">{plan.agent}</span>
-                                  <span className="font-mono uppercase tracking-[0.14em]">{formatShortDate(plan.updatedAt)}</span>
+                                  <span className="font-mono uppercase tracking-[0.07em]">{formatShortDate(plan.updatedAt)}</span>
                                 </div>
                                 <div className="mt-2 flex items-center gap-2">
                                   <span className={`h-1.5 w-1.5 rounded-full ${STATUS_META[plan.status].dotClass}`} />
-                                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--shell-dim)]">
+                                  <span className="font-mono text-[10px] uppercase tracking-[0.07em] text-[var(--shell-dim)]">
                                     {STATUS_META[plan.status].label}
                                   </span>
                                 </div>
@@ -644,7 +644,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                 </div>
 
                 <div className="px-4 py-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--shell-dim)]">Agents</p>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.09em] text-[var(--shell-dim)]">Agents</p>
                   <div className="mt-3 space-y-2">
                     {agentNames.map((agent, index) => {
                       const tone = AGENT_TONES[index % AGENT_TONES.length];
@@ -663,7 +663,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                             </div>
                           </div>
                           <span
-                            className={`font-mono text-[10px] uppercase tracking-[0.16em] ${
+                            className={`font-mono text-[10px] uppercase tracking-[0.08em] ${
                               active ? "text-emerald-600" : "text-[var(--shell-muted)]"
                             }`}
                           >
@@ -680,14 +680,14 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
             <main className="flex min-h-0 flex-col bg-white">
               <div className="flex items-center justify-between border-b border-[var(--shell-line)] px-5 py-3 md:px-6">
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <span className="rounded-md border border-[var(--shell-line)] bg-[var(--shell-panel)] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+                  <span className="rounded-md border border-[var(--shell-line)] bg-[var(--shell-panel)] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
                     {selectedPlan ? selectedPlan.id : "No Plan"}
                   </span>
                   <div className="truncate text-sm font-semibold text-[var(--shell-ink)]">
                     {selectedPlan ? selectedPlan.title : "Plan Reader"}
                   </div>
                 </div>
-                <div className="hidden items-center gap-4 md:flex font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+                <div className="hidden items-center gap-4 md:flex font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
                   <span>{filteredPlans.length} visible</span>
                   <span>Reader active</span>
                 </div>
@@ -703,7 +703,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                             {selectedPlan.agent.slice(0, 1).toUpperCase()}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+                            <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
                               @{selectedPlan.agentId}
                             </p>
                             <h2 className="truncate text-[1.8rem] font-semibold tracking-[-0.035em] text-[var(--shell-ink)]">
@@ -732,23 +732,23 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-[180px_220px_minmax(0,1fr)_220px]">
                       <div className="rounded-lg border border-[var(--shell-line)] bg-white px-3 py-3">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Agent</div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Agent</div>
                         <div className="mt-1 text-sm font-medium text-[var(--shell-ink)]">{selectedPlan.agent}</div>
                       </div>
                       <div className="rounded-lg border border-[var(--shell-line)] bg-white px-3 py-3">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Checklist</div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Checklist</div>
                         <div className="mt-1 text-sm font-medium text-[var(--shell-ink)]">
                           {selectedPlan.stepsCompleted}/{selectedPlan.stepsTotal} complete
                         </div>
                       </div>
                       <div className="rounded-lg border border-[var(--shell-line)] bg-white px-3 py-3">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Source</div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Source</div>
                         <div className="mt-1 truncate font-mono text-[12px] text-[var(--shell-copy)]">
                           {selectedPlan.path}
                         </div>
                       </div>
                       <div className="rounded-lg border border-[var(--shell-line)] bg-white px-3 py-3">
-                        <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Updated</div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Updated</div>
                         <div className="mt-1 text-sm font-medium text-[var(--shell-ink)]">{formatLongDate(selectedPlan.updatedAt)}</div>
                       </div>
                     </div>
@@ -757,7 +757,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                       {selectedPlan.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-md border border-[var(--shell-line)] bg-white px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-[var(--shell-dim)]"
+                          className="rounded-md border border-[var(--shell-line)] bg-white px-2 py-1 font-mono text-[10px] uppercase tracking-[0.07em] text-[var(--shell-dim)]"
                         >
                           {tag}
                         </span>
@@ -769,10 +769,10 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
                     <div className="mx-auto max-w-4xl rounded-[20px] border border-[var(--shell-line)] bg-white p-6 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
                       <div className="mb-5 flex items-center justify-between border-b border-[var(--shell-line)] pb-4">
                         <div>
-                          <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Markdown Preview</p>
+                          <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Markdown Preview</p>
                           <p className="mt-1 text-sm text-[var(--shell-dim)]">Simple reader for plan content. Editing stays in your local tools.</p>
                         </div>
-                        <span className="hidden md:inline-flex items-center gap-2 rounded-md border border-[var(--shell-line)] bg-[#fbfcfd] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">
+                        <span className="hidden md:inline-flex items-center gap-2 rounded-md border border-[var(--shell-line)] bg-[#fbfcfd] px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">
                           <FolderOpen className="h-3.5 w-3.5" />
                           {selectedPlan.path}
                         </span>
@@ -785,7 +785,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
               ) : (
                 <div className="flex flex-1 items-center justify-center px-6 py-12 text-center">
                   <div className="max-w-md">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)]">Nothing Selected</p>
+                    <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)]">Nothing Selected</p>
                     <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-[var(--shell-ink)]">Add markdown plans and they show up here automatically.</h2>
                     <p className="mt-3 text-sm leading-6 text-[var(--shell-dim)]">
                       The inventory reads directly from <code className="rounded bg-[#f5f7fa] px-1.5 py-0.5 font-mono text-[12px]">plans/</code> and{" "}
@@ -798,7 +798,7 @@ export function PlanInventoryScreen({ plans }: { plans: PlanRecord[] }) {
           </div>
         </div>
 
-        <footer className="flex items-center justify-between border-t border-[var(--shell-line)] bg-white px-4 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--shell-dim)] md:px-5">
+        <footer className="flex items-center justify-between border-t border-[var(--shell-line)] bg-white px-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-[var(--shell-dim)] md:px-5">
           <div className="flex items-center gap-3">
             <span>Relay</span>
             <span className="flex items-center gap-1.5 text-emerald-600">

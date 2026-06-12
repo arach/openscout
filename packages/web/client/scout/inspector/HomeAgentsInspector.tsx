@@ -1,7 +1,7 @@
 import { useScout } from "../Provider.tsx";
 import { openAgent } from "../slots/openAgent.ts";
 import { agentStateLabel, isAgentOnline } from "../../lib/agent-state.ts";
-import { actorColor } from "../../lib/colors.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
 
@@ -75,7 +75,6 @@ function AgentRow({
   onOpen: (agent: Agent) => void;
   dim?: boolean;
 }) {
-  const online = isAgentOnline(agent.state);
   return (
     <button
       onClick={() => onOpen(agent)}
@@ -85,15 +84,7 @@ function AgentRow({
           : "hover:bg-[var(--scout-chrome-hover)]"
       }`}
     >
-      <div
-        className="relative h-6 w-6 shrink-0 rounded-full text-[10px] font-mono flex items-center justify-center text-[var(--scout-chrome-avatar-ink)]"
-        style={{ background: actorColor(agent.name) }}
-      >
-        {agent.name[0]?.toUpperCase() ?? "?"}
-        {online && (
-          <span className="absolute -right-0.5 -bottom-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[var(--hud-bg)]" />
-        )}
-      </div>
+      <AgentAvatar agent={agent} placement="row" />
       <div className="flex flex-col min-w-0 flex-1">
         <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
           {agent.name}

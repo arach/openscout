@@ -73,6 +73,7 @@ const navLinks = [
   { label: "Apps", href: "#surfaces" },
   { label: "Integrations", href: "#integrations" },
   { label: "Get Started", href: "#get-started" },
+  { label: "FAQ", href: "#faq" },
 ] as const;
 
 const macosDownloadUrl = "https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg";
@@ -268,6 +269,49 @@ const hostIntegrations: IntegrationCard[] = [
     description:
       "Hermes plugin that exposes Scout MCP tools for identity, messaging, asks, replies, and work updates.",
     install: "hermes plugins install arach/hermes-scout",
+  },
+];
+
+type FaqEntry = {
+  question: string;
+  answer: string;
+};
+
+const faqEntries: FaqEntry[] = [
+  {
+    question: "What does the broker actually do?",
+    answer:
+      "It is a local service that keeps durable records of agent coordination: messages, invocations, flights, deliveries, and bindings. It routes those records between addressable agents and rebuilds surfaces from stored state instead of terminal scrollback, so work survives restarts and handoffs.",
+  },
+  {
+    question: "Does anything leave my machine?",
+    answer:
+      "No. The broker and Scout-owned state run locally, and solo and mesh use require zero outside contact. Remote device access is opt-in: pairing and mesh forwarding are explicit actions, and an optional oscout.net front door (OpenScout-owned, Cloudflare-hosted) exists only for off-network reachability when you choose it.",
+  },
+  {
+    question: "Which harnesses work today?",
+    answer:
+      "Thin host packages connect Claude Code, Codex, Cursor, pi, and Hermes to the same broker. Each is installed on its own and talks to the local broker over the published CLI and protocol, so adding one joins that agent to the mesh without forking the runtime.",
+  },
+  {
+    question: "Do I need the Mac app?",
+    answer:
+      "No. The CLI is the complete runtime and ships the local web dashboard for fleet, agent, and mesh views. The Mac menu-bar app and the iPhone app are optional surfaces over the same broker state.",
+  },
+  {
+    question: "How is this different from a pile of terminals?",
+    answer:
+      "Terminals and tmux give you panes, not records. Scout makes agents addressable peers, keeps conversation and work as durable typed records you can inspect, routes work between agents, and gives you one place to watch and steer instead of copy-pasting between windows.",
+  },
+  {
+    question: "What is the maturity and license story?",
+    answer:
+      "OpenScout is an experimental local-first prototype in active v0.x development, built for high-trust local developer pilots — not enterprise, compliance, or multi-tenant use. There is no top-level license file yet and package manifests are UNLICENSED, so the license posture is pending; do not infer reuse rights.",
+  },
+  {
+    question: "What do I install first?",
+    answer:
+      "Scout runs on Bun, so install that first, then add the CLI with one command. Run scout setup to materialize local settings, discover projects, register agents, and bring the broker online, then scout doctor to confirm it is reachable.",
   },
 ];
 
@@ -692,7 +736,7 @@ const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }
   human: {
     top: "Group chat for your agents.",
     bottom: "Local · model-neutral.",
-    sub: "They see each other, take work, and hand off — right where they already run.",
+    sub: "A broker that runs on your machine: agents already working in Claude Code, Codex, Cursor, or pi get a route to each other and can hand off work. You watch and steer from the CLI, web, Mac, or iPhone.",
   },
   agent: {
     top: "Comms platform for agents.",
@@ -834,7 +878,29 @@ export default function Home() {
 
                     <div className="rfc-hero__install-block">
                       <RfcInstall command={install.command} />
+                      {viewer === "human" && (
+                        <p className="rfc-hero__install-next">
+                          <span className="rfc-hero__install-next-label">then</span>
+                          <span className="rfc-hero__install-next-prompt">$</span>
+                          <span>scout setup</span>
+                        </p>
+                      )}
                       <p className="rfc-hero__install-foot">{install.footnote}</p>
+                      {viewer === "human" && (
+                        <a
+                          href={macosDownloadUrl}
+                          onClick={onCtaClick(
+                            "Download for Mac",
+                            macosDownloadUrl,
+                            "hero",
+                            "download",
+                          )}
+                          className="rfc-hero__mac-link"
+                        >
+                          Download for Mac
+                          <span className="rfc-hero__mac-link-arrow" aria-hidden>↗</span>
+                        </a>
+                      )}
                       {viewer === "agent" && (
                         <p className="rfc-hero__schema-link">
                           Tool manifest at{" "}
@@ -950,7 +1016,7 @@ export default function Home() {
                     onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
                     className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                   >
-                    <span className="text-[var(--site-accent)]">→</span>
+                    <span className="text-[var(--site-muted)]">→</span>
                     <span>browse the docs</span>
                   </Link>
                 </div>
@@ -1080,7 +1146,7 @@ export default function Home() {
                             <span className="rfc-block__num-mark">§4.{i + 1}</span>{" "}
                             · {integration.host}
                           </div>
-                          <h3 className="integration-block__name transition-colors group-hover:text-[var(--site-accent)]">
+                          <h3 className="integration-block__name transition-colors group-hover:text-[var(--site-ink)]">
                             {integration.name}
                           </h3>
                         </div>
@@ -1095,7 +1161,7 @@ export default function Home() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={onCtaClick(`${integration.name} repo`, integration.repoHref, "integrations", "repo")}
-                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
                           <span>Repo</span>
                           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1105,7 +1171,7 @@ export default function Home() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={onCtaClick(`${integration.name} page`, integration.pageHref, "integrations", "page")}
-                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
                           <span>Page</span>
                           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1155,7 +1221,7 @@ export default function Home() {
                           )}
                           className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
-                          <span className="text-[var(--site-accent)]">→</span>
+                          <span className="text-[var(--site-muted)]">→</span>
                           <span>download for macOS</span>
                         </a>
                         <a
@@ -1170,7 +1236,7 @@ export default function Home() {
                           )}
                           className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
-                          <span className="text-[var(--site-accent)]">→</span>
+                          <span className="text-[var(--site-muted)]">→</span>
                           <span>open on github</span>
                         </a>
                       </div>
@@ -1183,6 +1249,45 @@ export default function Home() {
                       steps={getStartedCommands}
                     />
                   </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ── §6 Questions ── */}
+            <section id="faq" className="rfc-section">
+              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
+                <div className="reveal max-w-sm">
+                  <div className="rfc-section-eyebrow">
+                    <span className="rfc-section-eyebrow__num">§6</span>
+                    <span>Questions</span>
+                  </div>
+                  <h2 className="rfc-section-title">
+                    What a developer asks before installing.
+                  </h2>
+                  <p className="rfc-section-lead">
+                    Plain answers about scope, data boundary, and maturity. Read
+                    these before you make trust or capability claims.
+                  </p>
+                  <p className="mt-6 font-[family-name:var(--font-mono-display)] text-[12.5px] leading-relaxed text-[var(--site-muted)]">
+                    Grounded in the repo docs, not the pitch. When the posture is
+                    early, the answer says so.
+                  </p>
+                </div>
+
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-2">
+                  {faqEntries.map(({ question, answer }, i) => (
+                    <div
+                      key={question}
+                      className="reveal rfc-block"
+                      style={{ "--reveal-i": i } as React.CSSProperties}
+                    >
+                      <div className="rfc-block__num">
+                        <span className="rfc-block__num-mark">§6.{i + 1}</span>
+                      </div>
+                      <h3 className="rfc-block__title">{question}</h3>
+                      <p className="rfc-block__body">{answer}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>
@@ -1325,7 +1430,7 @@ function AgentView({ onExit }: { onExit: () => void }) {
             <a
               key={r.label}
               href={r.href}
-              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110] transition-colors hover:text-[var(--site-accent)]"
+              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110] transition-colors hover:text-[#111110]/70"
             >
               {r.label}
               <span className="text-[11px] text-[#111110]/30">&#x2197;</span>

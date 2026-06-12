@@ -3,6 +3,7 @@ import { useOptionalFlag } from "hudsonkit/flags";
 import { WorkList } from "../components/WorkList.tsx";
 import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor, stateColor } from "../lib/colors.ts";
+import { AgentAvatar } from "../components/AgentAvatar.tsx";
 import { api } from "../lib/api.ts";
 import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { dismissOperatorAttention } from "../lib/operator-attention.ts";
@@ -1620,12 +1621,11 @@ function SignalFeed({
                 }
               }}
             >
-              <div
+              <AgentAvatar
+                name={msg.actorName ?? "?"}
+                placement="turn"
                 className="s-profile-signal-avatar"
-                style={{ background: actorColor(msg.actorName ?? "?") }}
-              >
-                {(msg.actorName ?? "?")[0].toUpperCase()}
-              </div>
+              />
               <div className="s-profile-signal-body">
                 <div className="s-profile-signal-header">
                   <span className="s-profile-signal-kind">{kindLabel}</span>
@@ -1982,12 +1982,11 @@ function AgentDetailWithRail({
         >
           <div className="s-profile-identity-top">
             <div className="s-profile-identity-avatar-wrap">
-              <div
+              <AgentAvatar
+                agent={agent}
+                placement="hero"
                 className="s-profile-identity-avatar"
-                style={{ background: actorColor(agent.name) }}
-              >
-                {agent.name[0].toUpperCase()}
-              </div>
+              />
               <span
                 className={`s-profile-identity-pulse s-profile-identity-pulse--${agentStateCssToken(state)}`}
                 style={{ background: stateColor(agent.state) }}

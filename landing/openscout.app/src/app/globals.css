@@ -21,12 +21,14 @@
   --red:      oklch(0.575 0.218 27);
   --red-soft: oklch(0.575 0.218 27 / 0.10);
 
-  /* One family. All historical font slots resolve to Archivo. */
+  /* Prose slots → Archivo grotesque (unchanged). */
   --font-geist-sans:   var(--font-archivo), system-ui, sans-serif;
-  --font-geist-mono:   var(--font-archivo), system-ui, sans-serif;
   --font-display:      var(--font-archivo), system-ui, sans-serif;
-  --font-mono-display: var(--font-archivo), system-ui, sans-serif;
   --font-spectral:     var(--font-archivo), system-ui, sans-serif;
+  /* Mono slots → IBM Plex Mono for true fixed-width (terminals, commands,
+     status bars, spec tables). Falls back to system mono on first paint. */
+  --font-geist-mono:   var(--font-plex-mono), ui-monospace, monospace;
+  --font-mono-display: var(--font-plex-mono), ui-monospace, monospace;
 
   /* Global / Tailwind theme tokens */
   --background: var(--paper);
@@ -257,7 +259,7 @@ body {
 .landing-label {
   font-family: var(--font-geist-mono);
   font-size: 0.72rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -344,11 +346,7 @@ html[data-site-theme="dark"] .dot-grid {
   display: flex;
   align-items: stretch;
   height: 24px;
-  /* The one place Basel breaks its single-family rule: a real monospace gives
-     the IDE/terminal status bar its proper machine read. System mono only —
-     no font bundle. */
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
-    "Cascadia Code", "Roboto Mono", monospace;
+  font-family: var(--font-geist-mono);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   letter-spacing: 0.02em;
@@ -624,6 +622,58 @@ html[data-site-theme="dark"] .dot-grid {
   max-width: 50ch;
 }
 
+/* Quiet next-step hint directly under the install pill — mono, muted, calm.
+   Same prompt grammar as the pill ($), no border, no accent. */
+.rfc-hero__install-next {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--site-muted);
+  margin: -0.05rem 0 0.1rem;
+  letter-spacing: 0.005em;
+}
+
+.rfc-hero__install-next-label {
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-size: 10px;
+  color: var(--site-muted-soft);
+}
+
+.rfc-hero__install-next-prompt {
+  color: var(--site-muted-soft);
+}
+
+/* Secondary "Download for Mac" — ink text-link, NOT a button, no red. Uses the
+   site's ↗ link grammar; the arrow carries the affordance, the ink carries the
+   weight. Hero red budget stays on the kicker. */
+.rfc-hero__mac-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--site-copy);
+  transition: color 0.15s ease;
+}
+
+.rfc-hero__mac-link:hover {
+  color: var(--site-ink);
+}
+
+.rfc-hero__mac-link-arrow {
+  color: var(--site-muted);
+  font-size: 11px;
+  transition: color 0.15s ease;
+}
+
+.rfc-hero__mac-link:hover .rfc-hero__mac-link-arrow {
+  color: var(--site-ink);
+}
+
 .rfc-hero__schema-link {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 11.5px;
@@ -632,7 +682,7 @@ html[data-site-theme="dark"] .dot-grid {
 }
 
 .rfc-hero__schema-link a {
-  color: var(--site-accent);
+  color: var(--site-copy);
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
@@ -673,7 +723,7 @@ html[data-site-theme="dark"] .dot-grid {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--site-muted);
 }
@@ -885,7 +935,7 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
 .rfc-doc-strip__meta {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 11px;
-  letter-spacing: 0.10em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--site-accent);
   display: flex;
@@ -1099,7 +1149,7 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
 .rfc-section-eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 10.5px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--site-muted);
   display: inline-flex;
@@ -1205,7 +1255,7 @@ main { counter-reset: rfc-section; }
 .rfc-block__num {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 10.5px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--site-muted);
   font-weight: 600;
@@ -1330,7 +1380,7 @@ main { counter-reset: rfc-section; }
 
 .rfc-figure__caption-num {
   font-size: 10.5px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--site-accent);
   font-weight: 600;
@@ -1412,7 +1462,7 @@ main { counter-reset: rfc-section; }
 .broker-stream__col-label {
   color: var(--site-muted-soft);
   font-size: 9.5px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   margin-bottom: 0.7rem;
 }
@@ -1498,7 +1548,7 @@ main { counter-reset: rfc-section; }
   padding-top: 0.75rem;
   color: var(--site-accent);
   font-size: 10.5px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
 }
 
@@ -1845,7 +1895,7 @@ main { counter-reset: rfc-section; }
 .tail-mock__strip-brand {
   color: #f4b860;
   font-weight: 700;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.10em;
 }
 
 .tail-mock__strip-dot {
@@ -1886,7 +1936,7 @@ main { counter-reset: rfc-section; }
 .tail-mock__proc-head {
   color: rgba(196, 189, 169, 0.45);
   font-size: 9.5px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   padding-bottom: 0.3rem;
 }
@@ -2085,7 +2135,7 @@ main { counter-reset: rfc-section; }
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   color: var(--site-muted);
   padding: 0.3rem 0.45rem 0.25rem;
 }
@@ -2124,7 +2174,7 @@ main { counter-reset: rfc-section; }
   font-size: 9px !important;
   font-weight: 500 !important;
   text-transform: uppercase;
-  letter-spacing: 0.14em !important;
+  letter-spacing: 0.07em !important;
   color: var(--site-muted-soft) !important;
   background: transparent !important;
   padding: 0 !important;
@@ -2708,7 +2758,7 @@ html[data-site-theme="dark"] .scout-console {
 .scout-console__palette-h {
   padding: 3px 8px 5px;
   font-size: 9px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--term-dim);
 }
@@ -3315,10 +3365,89 @@ html[data-site-theme="dark"] .scout-console {
 .mesh-figure__zoom { letter-spacing: 0.06em; }
 
 .mesh-figure__svg {
-  width: 100%;
-  height: 200px;
   display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 400 / 150;
+  padding: 0.5rem 0.75rem 0;
   color: var(--site-copy);
+}
+
+/* Links — broker routes carry the weight; peer-to-peer mesh stays quiet. */
+.mesh-figure__link {
+  stroke-linecap: round;
+}
+
+.mesh-figure__link--route {
+  stroke: var(--site-copy);
+  stroke-width: 0.9;
+  opacity: 0.85;
+}
+
+.mesh-figure__link--mesh {
+  stroke: var(--site-border-strong);
+  stroke-width: 0.7;
+  stroke-dasharray: 2.5 2.5;
+  opacity: 0.5;
+}
+
+/* Nodes — peers are solid ink; the broker is the section's one red spend. */
+.mesh-figure__node--peer {
+  fill: var(--site-ink);
+  stroke: var(--site-surface-strong);
+  stroke-width: 1;
+}
+
+.mesh-figure__node--broker {
+  fill: var(--site-accent);
+  stroke: var(--site-accent);
+  stroke-width: 0.8;
+}
+
+.mesh-figure__node-core {
+  fill: var(--site-surface-strong);
+  pointer-events: none;
+}
+
+.mesh-figure__label {
+  fill: var(--site-copy);
+  font-size: 7.5px;
+  font-weight: 500;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.01em;
+}
+
+.mesh-figure__label--broker {
+  fill: var(--site-ink);
+  font-size: 8px;
+  font-weight: 700;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+.mesh-figure__caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.6rem 0.875rem 0.7rem;
+  border-top: 1px dashed var(--site-border-soft);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+}
+
+.mesh-figure__caption-num {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--site-accent);
+  font-weight: 600;
+}
+
+.mesh-figure__caption-meta {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  color: var(--site-muted);
 }
 
 /* ══════════════════════════════════════════════════════════

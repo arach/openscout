@@ -36,29 +36,33 @@
   color: var(--s-dim);
 }
 
+/* A single segmented toggle, not separate pills: one hairline track, the active
+   segment a solid accent block. The grouped toggle reads as one control; the
+   crisp accent fill + thin track is the improved button treatment. */
 .filters {
   display: flex;
-  gap: 4px;
-  padding: 0 14px 10px;
+  gap: 2px;
+  margin: 0 14px 10px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--s-ink) 5%, transparent);
+  border: 1px solid var(--s-hairline);
 }
 
 .filter {
   flex: 1;
   text-align: center;
-  padding: 5px 0;
+  padding: 4px 0;
   border-radius: 7px;
   font-size: 12px;
   font-weight: 600;
   color: var(--s-muted);
-  background: var(--s-surface);
-  border: 1px solid var(--s-hairline);
   cursor: pointer;
 }
 
 .filter.active {
   color: var(--s-bg);
   background: var(--s-accent);
-  border-color: var(--s-accent);
 }
 
 .search {
@@ -112,6 +116,9 @@
   border-left-color: var(--s-accent);
 }
 
+/* Tinted identity chip, not a solid-accent block — keeps the avatar column calm
+   so the strong accent stays reserved for unread / selected signal. A hairline
+   keeps it crisp even when the selected row tint sits behind it. */
 .avatar {
   width: 32px;
   height: 32px;
@@ -121,8 +128,9 @@
   justify-content: center;
   font-size: 13px;
   font-weight: 700;
-  color: var(--s-bg);
-  background: var(--s-accent);
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 20%, transparent);
 }
 
 .avatar.channel {
@@ -261,8 +269,9 @@
   justify-content: center;
   font-size: 14px;
   font-weight: 700;
-  color: var(--s-bg);
-  background: var(--s-accent);
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 20%, transparent);
 }
 
 .threadIdent {
@@ -365,10 +374,10 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  padding: 14px 18px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .turn {
@@ -426,7 +435,7 @@
 
 .turnText {
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   color: color-mix(in srgb, var(--s-ink) 90%, transparent);
 }
 
@@ -504,9 +513,11 @@
   border-top: 1px solid var(--s-hairline);
 }
 
+/* Rounded well → it signals "active" with an accent-leaning border, NOT a left
+   bar (left bars are for flat/square rows only). */
 .composerBox {
   border-radius: 11px;
-  border: 1px solid var(--s-hairline-strong);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 32%, var(--s-hairline-strong));
   background: var(--s-surface);
   overflow: hidden;
 }
@@ -515,7 +526,6 @@
   padding: 12px 14px;
   font-size: 13px;
   color: var(--s-dim);
-  border-left: 2px solid var(--s-accent);
 }
 
 .composerBar {

@@ -14,6 +14,7 @@ import { useBrokerEvents } from "../../lib/sse.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import { TmuxPeekPanel } from "./TmuxPeek.tsx";
 import type {
@@ -480,21 +481,7 @@ function AgentContextPanel({
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
       {/* Identity */}
       <div className="flex items-center gap-3 border-b border-[var(--scout-chrome-border-soft)] pb-3">
-        <div
-          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-mono text-[var(--scout-chrome-avatar-ink)]"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0]?.toUpperCase() ?? "?"}
-          {online && (
-            <span
-              className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--hud-bg)]"
-              style={{
-                background: stateColor(agent.state),
-                opacity: normalizeAgentState(agent.state) === "working" ? 0.85 : 0.6,
-              }}
-            />
-          )}
-        </div>
+        <AgentAvatar agent={agent} placement="inspector" />
         <div className="flex flex-col min-w-0 flex-1">
           <span className="truncate text-[13px] text-[var(--scout-chrome-ink-strong)]">
             {agent.name}

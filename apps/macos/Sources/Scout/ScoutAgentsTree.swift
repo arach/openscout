@@ -426,6 +426,7 @@ struct ScoutAgentsTree: View {
                 Color.clear.frame(width: 12, height: 12)
             }
             ScoutTreeStateDot(state: agent.state)
+            SpriteAvatarView(agent: agent, size: 18)
             Text(agent.displayName)
                 .font(HudFont.ui(HudTextSize.sm, weight: .medium))
                 .foregroundStyle(ScoutPalette.ink)
@@ -437,13 +438,10 @@ struct ScoutAgentsTree: View {
                     .lineLimit(1)
             }
             Spacer(minLength: HudSpacing.sm)
-            Text(agent.state.label.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .tracking(0.6)
-                .foregroundStyle(stateLabelColor(agent.state))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: ScoutDesign.agentsStateColumnWidth, alignment: .trailing)
+            // State lives in the leading dot (color + sonar ping for working /
+            // needs-attention). A text column reading "AVAILABLE" on every row
+            // was ~zero-cardinality noise and squeezed the title, so the row's
+            // trailing metadata is just recency.
             Text(agent.updatedLabel)
                 .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.dim)
@@ -501,15 +499,6 @@ struct ScoutAgentsTree: View {
         if let id = row.agentID, let agent = agentsByID[id] {
             Button("Open DM") { onOpenDM(agent) }
             Button("Observe") { onObserve(agent) }
-        }
-    }
-
-    private func stateLabelColor(_ state: ScoutAgentState) -> Color {
-        switch state {
-        case .working: return ScoutPalette.accent
-        case .needsAttention: return ScoutPalette.statusWarn
-        case .available: return ScoutPalette.muted
-        case .done, .offline: return ScoutPalette.dim
         }
     }
 
