@@ -2057,6 +2057,209 @@ function ReposMock() {
    pass. The "what & why" lives on the card; the mockup is the proof.
    ──────────────────────────────────────────────────────────────────── */
 
+/* ────────────────────────────────────────────────────────────────────
+   v4 Inspector primitives — the unified document model.
+   v3 was segmented: hero card, status row, domain cards, action
+   footer. v4 strips all of that. The inspector is one continuous
+   surface. Section titles with the overline rule are the only
+   visual breaks. No cards, no left-border accents, no status
+   pill, no action footer. Just data flowing.
+
+   The user said: "three, four different distinct sections that
+   aren't really unified. And I think they should be unified.
+   They should read like the sidebar is, you know, kind of like
+   a section. But imagine if it was a distinct page."
+
+   So: a page, not a stack of cards.
+   ──────────────────────────────────────────────────────────────────── */
+
+function InspectorPaneV4({
+  kind,
+  stateTone,
+  children,
+}: {
+  kind: string;
+  stateTone: "ok" | "warn" | "info" | "error";
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex w-[300px] flex-none flex-col border-l border-studio-edge bg-studio-surface">
+      <div className="flex flex-col gap-5 px-5 py-5">
+        {/* section tag — small mono uppercase, no pill, no border accent.
+            The state is implied by a tiny dot on the identity avatar. */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: `var(--status-${stateTone}-fg)` }}
+            aria-hidden
+          />
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            {kind}
+          </span>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/* Section — just the overline + mono title + content. No card, no
+   border, no background. The overline rule is the visual anchor
+   (per the inspector grammar). Spacing is the only separator. */
+function SectionV4({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-1.5">
+        <div
+          aria-hidden
+          className="h-px w-3.5"
+          style={{ background: "var(--studio-edge-strong)" }}
+        />
+        <span className="text-studio-ink-faint">{icon}</span>
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          {label}
+        </span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/* Identity — part of the flow, not a hero. Avatar has a state-
+   colored ring to carry the state that the pill used to. */
+function IdentityV4({
+  initial,
+  name,
+  sub,
+  stateTone,
+}: {
+  initial: string;
+  name: string;
+  sub: string;
+  stateTone: "ok" | "warn" | "info" | "error";
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative shrink-0">
+        <div
+          className="grid h-[36px] w-[36px] place-items-center rounded-full font-display text-[14px] font-semibold text-studio-canvas"
+          style={{
+            background:
+              "linear-gradient(135deg, var(--scout-accent) 0%, oklch(0.72 0.16 125) 100%)",
+          }}
+        >
+          {initial}
+        </div>
+        <span
+          className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-studio-surface"
+          style={{ background: `var(--status-${stateTone}-fg)` }}
+          aria-hidden
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-display text-[16px] font-medium leading-tight tracking-tight text-studio-ink">
+          {name}
+        </div>
+        <div className="truncate font-mono text-[10px] text-studio-ink-faint">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+/* Actions — inline, no footer. */
+function ActionsV4({ primary, secondary }: { primary: string; secondary: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        className="rounded-[5px] border px-3 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow"
+        style={{
+          background: "var(--scout-accent-soft)",
+          borderColor: "var(--scout-accent)",
+          color: "var(--scout-accent)",
+        }}
+      >
+        {primary}
+      </button>
+      <button
+        type="button"
+        className="rounded-[5px] border border-studio-edge bg-transparent px-3 py-1 font-mono text-[9.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted"
+      >
+        {secondary}
+      </button>
+    </div>
+  );
+}
+
+/* Field — a single label + value pair. Label on top, value below.
+   Sans for text, mono for ids/paths. Pills/badges used sparingly. */
+function FieldV4({
+  k,
+  v,
+  variant = "text",
+}: {
+  k: string;
+  v: string;
+  variant?: "text" | "mono" | "pill" | "badge";
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {k}
+      </span>
+      {variant === "mono" ? (
+        <span className="truncate font-mono text-[11px] text-studio-ink">{v}</span>
+      ) : variant === "pill" ? (
+        <span className="inline-flex w-fit items-center rounded-full border border-studio-edge px-1.5 py-px font-mono text-[9.5px] text-studio-ink-muted">
+          {v}
+        </span>
+      ) : variant === "badge" ? (
+        <span className="inline-flex w-fit items-center rounded-[3px] bg-status-info-bg px-1.5 py-0.5 font-mono text-[9.5px] font-semibold text-status-info-fg">
+          {v}
+        </span>
+      ) : (
+        <span className="truncate font-sans text-[12.5px] text-studio-ink">{v}</span>
+      )}
+    </div>
+  );
+}
+
+/* FieldGrid — 2-col grid of fields, the atomic layout unit. */
+function FieldGridV4({
+  rows,
+}: {
+  rows: { k: string; v: string; variant?: "text" | "mono" | "pill" | "badge" }[];
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+      {rows.map((r) => (
+        <FieldV4 key={r.k} k={r.k} v={r.v} variant={r.variant} />
+      ))}
+    </div>
+  );
+}
+
+/* Empty — inline, no card. Just a checkmark + faint text. */
+function EmptyV4({ message }: { message: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-studio-ink-faint">
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none" aria-hidden>
+        <circle cx="8" cy="8" r="7" stroke="var(--status-ok-fg)" strokeWidth="1.2" />
+        <path d="M4.8 8.2L6.8 10.2L11.2 5.4" stroke="var(--status-ok-fg)" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <span className="font-sans text-[11.5px]">{message}</span>
+    </div>
+  );
+}
+
 function CommsAfterMock() {
   return (
     <MacOSWindowCompact active="comms">
@@ -2099,44 +2302,39 @@ function CommsAfterMock() {
           ))}
         </div>
       </div>
-      {/* v3 inspector — layout-first: hero, status row, card sections, action footer */}
-      <InspectorPaneV3
-        kind="DM"
-        status="Available"
-        statusTone="ok"
-        hero={
-          <IdentityHeroV3
-            initial="D"
-            name="Dewey"
-            sub="dewey.main.arts-mac-mini-local"
-            meta="Relay agent · relay-action-claude"
+      {/* v4 inspector — unified document. No cards, no hero, no footer.
+          One continuous surface; section titles are the only breaks. */}
+      <InspectorPaneV4 kind="DM" stateTone="ok">
+        <IdentityV4
+          initial="D"
+          name="Dewey"
+          sub="dewey.main.arts-mac-mini-local"
+          stateTone="ok"
+        />
+        <ActionsV4 primary="Open" secondary="+ New" />
+        <SectionV4 icon={<IconChat />} label="Conversation">
+          <FieldGridV4
+            rows={[
+              { k: "Last activity", v: "2 min ago" },
+              { k: "Unread", v: "2 new", variant: "badge" },
+              { k: "Kind", v: "Direct message" },
+              { k: "Channel", v: "#general", variant: "pill" },
+            ]}
           />
-        }
-        statusRow={
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            <StatusRowCell k="Last activity" v="2 min ago" />
-            <StatusRowCell k="Unread" v="2 new" variant="badge" />
-            <StatusRowCell k="Kind" v="Direct message" />
-            <StatusRowCell k="Channel" v="#general" variant="pill" />
-          </div>
-        }
-        actions={{ primary: "Open", secondary: "+ New" }}
-      >
-        <SectionCardKVV3
-          icon={<IconProject />}
-          label="Project"
-          rows={[
-            { k: "Repo", v: "dewey" },
-            { k: "Branch", v: "main", variant: "pill" },
-            { k: "Path", v: "~/dev/dewey", variant: "mono" },
-          ]}
-        />
-        <SectionCardEmptyV3
-          icon={<IconAsk />}
-          label="Ask"
-          message="No active asks on this thread"
-        />
-      </InspectorPaneV3>
+        </SectionV4>
+        <SectionV4 icon={<IconProject />} label="Project">
+          <FieldGridV4
+            rows={[
+              { k: "Repo", v: "dewey" },
+              { k: "Branch", v: "main", variant: "pill" },
+              { k: "Path", v: "~/dev/dewey", variant: "mono" },
+            ]}
+          />
+        </SectionV4>
+        <SectionV4 icon={<IconAsk />} label="Ask">
+          <EmptyV4 message="No active asks on this thread" />
+        </SectionV4>
+      </InspectorPaneV4>
     </MacOSWindowCompact>
   );
 }
@@ -2198,53 +2396,44 @@ function AgentsAfterMock() {
           ))}
         </div>
       </div>
-      <InspectorPaneV3
-        kind="Agent"
-        status="Available"
-        statusTone="ok"
-        hero={
-          <IdentityHeroV3
-            initial="A"
-            name="Action"
-            sub="action.codex-polished-mira-demo.arts-mac-mini-local"
-            meta="Last active 1 day ago"
+      <InspectorPaneV4 kind="Agent" stateTone="ok">
+        <IdentityV4
+          initial="A"
+          name="Action"
+          sub="action.codex-polished-mira-demo.arts-mac-mini-local"
+          stateTone="ok"
+        />
+        <ActionsV4 primary="Message" secondary="+ New" />
+        <SectionV4 icon={<IconRuntime />} label="Runtime">
+          <FieldGridV4
+            rows={[
+              { k: "State", v: "Available", variant: "badge" },
+              { k: "Last seen", v: "1d ago" },
+              { k: "Role", v: "Relay agent" },
+              { k: "Harness", v: "Claude", variant: "pill" },
+              { k: "Transport", v: "stream-json", variant: "pill" },
+              { k: "Model", v: "opus-4.7" },
+            ]}
           />
-        }
-        statusRow={
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            <StatusRowCell k="State" v="Available" variant="badge" />
-            <StatusRowCell k="Last seen" v="1d ago" />
-            <StatusRowCell k="Role" v="Relay agent" />
-            <StatusRowCell k="Harness" v="Claude" variant="pill" />
-          </div>
-        }
-        actions={{ primary: "Message", secondary: "+ New" }}
-      >
-        <SectionCardKVV3
-          icon={<IconRuntime />}
-          label="Runtime"
-          rows={[
-            { k: "Transport", v: "stream-json", variant: "pill" },
-            { k: "Model", v: "opus-4.7" },
-            { k: "Node", v: "Arts-Mac-mini.local" },
-          ]}
-        />
-        <SectionCardKVV3
-          icon={<IconProject />}
-          label="Project"
-          rows={[
-            { k: "Repo", v: "action" },
-            { k: "Branch", v: "(none)", variant: "pill" },
-            { k: "Path", v: "~/dev/action", variant: "mono" },
-          ]}
-        />
-        <SectionCardV3 icon={<IconSession />} label="Session">
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <StatusRowCell k="Id" v="relay-action-claude" variant="mono" />
-            <StatusRowCell k="Active" v="1 day" />
-          </div>
-        </SectionCardV3>
-      </InspectorPaneV3>
+        </SectionV4>
+        <SectionV4 icon={<IconProject />} label="Project">
+          <FieldGridV4
+            rows={[
+              { k: "Repo", v: "action" },
+              { k: "Branch", v: "(none)", variant: "pill" },
+              { k: "Path", v: "~/dev/action", variant: "mono" },
+            ]}
+          />
+        </SectionV4>
+        <SectionV4 icon={<IconSession />} label="Session">
+          <FieldGridV4
+            rows={[
+              { k: "Id", v: "relay-action-claude", variant: "mono" },
+              { k: "Active", v: "1 day" },
+            ]}
+          />
+        </SectionV4>
+      </InspectorPaneV4>
     </MacOSWindowCompact>
   );
 }
