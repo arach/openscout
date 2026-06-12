@@ -455,6 +455,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Per-agent sidebar card — no AVAILABLE tag, header→profile, Observe top-right, New-session CTA explored three ways.",
   },
   {
+    href: "/studies/inspector-system",
+    label: "Inspector System",
+    bucket: "studies",
+    surface: "macos",
+    family: "inspector-system",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/inspector-system/page.tsx",
+      "design/studio/app/studies/inspector-grammar/page.tsx",
+    ],
+    blurb: "The IA-level design for the Scout right-rail inspector — 14 named blocks (Identity, Status, ActionRow, KeyValue, Project, Session, Conversation, Ask, Worktrees, Changes, Attached, Stats, Tracks, Description), the composition rules, and the canonical InspectorEntity shape. Every per-screen inspector is a composition from this library.",
+  },
+  {
     href: "/studies/inspector-grammar",
     label: "Inspector Grammar",
     bucket: "studies",

@@ -1,11 +1,9 @@
 /**
- * Scout Comms · With Inspector — the design study for adding a
- * right-rail inspector to the Comms surface.
- *
- * The current Comms screen has no inspector. The other three macOS
- * surfaces all own one. This study is the focused iteration on the
- * addition — the §1 projection in /studies/scout-macos-shell is the
- * thumbnail; this is the full-size work.
+ * Scout Comms · With Inspector — the visual spec for the Comms
+ * inspector. The IA-level design (block library, composition rules,
+ * entity model) lives at /studies/inspector-system; this study is
+ * the focused iteration on how the Comms composition reads at
+ * width, what variants exist, and which decisions are Comms-specific.
  *
  * Structure:
  *   §1  The projection.    A full-size window mockup with the
@@ -15,9 +13,9 @@
  *                          integrated: always visible, pop on
  *                          row select, toolbar toggle. Each with
  *                          a small mockup + the trade-off.
- *   §3  Data contract.     What the inspector needs from
- *                          `ScoutChannel` (and what's already
- *                          there vs. what needs to be added).
+ *   §3  Composition.       The Comms inspector as a block
+ *                          composition from /studies/inspector-system,
+ *                          with the data each block reads.
  *   §4  Design decisions.  The choices that don't follow from the
  *                          other three surfaces and need their own
  *                          rationale.
@@ -26,8 +24,8 @@
  *
  * The §1 right-rail inspector uses the unified grammar from
  * /studies/inspector-grammar — overline + stacked label/value,
- * filled status badge, etc. Once that grammar is approved, this
- * study is the reference for the Comms port.
+ * filled status badge, etc. The block library is in
+ * /studies/inspector-system.
  *
  * Status: draft.
  */
@@ -711,10 +709,15 @@ export default function ScoutCommsInspectorPage() {
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           The Comms surface gains a 300px right-rail inspector. This
-          study is the focused iteration on the addition — §1 is the
-          port target, §2 weighs how the inspector integrates with the
-          list-first read, §3 is the data contract, §4 documents the
-          decisions that don't follow from the other three surfaces.
+          study is the visual spec for the Comms composition — §1 is
+          the port target, §2 weighs how the inspector integrates with
+          the list-first read, §3 is the block composition (the IA
+          lives in{" "}
+          <a href="/studies/inspector-system" className="text-scout-accent hover:underline">
+            /studies/inspector-system
+          </a>
+          ), §4 documents the decisions that don't follow from the
+          other three surfaces.
         </p>
       </header>
 
@@ -804,43 +807,54 @@ export default function ScoutCommsInspectorPage() {
       </section>
 
       {/* ────────────────────────────────────────────────────────────
-          §3 — Data contract
+          §3 — Composition
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
         <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §3 · Data contract
+          §3 · Composition
         </h2>
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          What the inspector reads from <code className="text-studio-ink-muted">ScoutChannel</code>{" "}
-          (and what it needs that isn't there today).
+          The Comms inspector as a composition of blocks from the
+          library in{" "}
+          <a href="/studies/inspector-system" className="text-scout-accent hover:underline">
+            /studies/inspector-system §1
+          </a>
+          . The full entity model is in §3 of that study. The visual
+          rendering of each block is the same across all four
+          surfaces — the Comms specificity is the <em>composition
+          order</em> and which blocks are conditional on Comms data.
         </p>
 
         <div className="overflow-hidden rounded-md border border-studio-edge">
           <table className="w-full border-collapse font-mono text-[11px]">
             <thead>
               <tr className="bg-studio-canvas-alt text-left text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                <th className="px-3 py-2">#</th>
                 <th className="px-3 py-2">Block</th>
-                <th className="px-3 py-2">Field</th>
-                <th className="px-3 py-2">Source</th>
-                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Reads from entity</th>
+                <th className="px-3 py-2">Conditional?</th>
               </tr>
             </thead>
             <tbody>
-              {CONTRACT.map((row, i) => (
+              {COMPOSITION.map((row, i) => (
                 <tr
-                  key={`${row.block}-${row.field}`}
+                  key={row.block}
                   className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
                 >
-                  <td className="px-3 py-2 text-studio-ink">{row.block}</td>
-                  <td className="px-3 py-2 text-studio-ink-muted">{row.field}</td>
-                  <td className="px-3 py-2 text-studio-ink-muted">{row.source}</td>
+                  <td className="px-3 py-2 font-mono text-[9.5px] text-studio-ink-faint">
+                    {String(i + 1).padStart(2, "0")}
+                  </td>
                   <td className="px-3 py-2">
-                    <span
-                      className="rounded-[2px] px-1 py-px text-[8.5px] font-semibold uppercase tracking-eyebrow"
-                      style={statusStyle(row.status)}
+                    <a
+                      href={`/studies/inspector-system#${row.block}`}
+                      className="text-studio-ink hover:underline"
                     >
-                      {row.status}
-                    </span>
+                      {row.block}
+                    </a>
+                  </td>
+                  <td className="px-3 py-2 text-studio-ink-muted">{row.reads}</td>
+                  <td className="px-3 py-2 text-studio-ink-muted">
+                    {row.conditional ? "yes" : "no"}
                   </td>
                 </tr>
               ))}
@@ -849,12 +863,14 @@ export default function ScoutCommsInspectorPage() {
         </div>
 
         <p className="mt-3 max-w-prose font-sans text-[11.5px] leading-snug text-studio-ink-faint">
-          Three of the new fields are already derivable from the live
-          model (<code className="text-studio-ink-muted">agentId</code>,{" "}
-          <code className="text-studio-ink-muted">lastMessageAt</code>,{" "}
-          <code className="text-studio-ink-muted">unreadCount</code>); two
-          require joining with the broker's agent registry and project
-          store respectively.
+          The first three blocks (Identity, Action row, Conversation)
+          are universal. Project is conditional — ~80% of DMs have an
+          underlying project; the other 20% skip it. Ask is
+          conditional — only renders when there's an active ask on the
+          thread. This is what makes the same composition fit a quiet
+          2-block inspector (Identity + Conversation) and a busy
+          5-block inspector (Identity + Action + Conversation + Project
+          + Ask) without code changes.
         </p>
       </section>
 
@@ -1034,33 +1050,14 @@ function OQ({ q, children }: { q: string; children: React.ReactNode }) {
   );
 }
 
-const CONTRACT: {
+const COMPOSITION: {
   block: string;
-  field: string;
-  source: string;
-  status: "ready" | "derived" | "needs-join";
+  reads: string;
+  conditional: boolean;
 }[] = [
-  { block: "Identity", field: "name",            source: "ScoutChannel.name",          status: "ready" },
-  { block: "Identity", field: "agentId",         source: "ScoutAgentRegistry.lookup", status: "needs-join" },
-  { block: "Identity", field: "avatar",          source: "ScoutChannel.avatar",       status: "ready" },
-  { block: "Conversation", field: "lastMessageAt",source: "ScoutChannel.lastMessageAt",status: "derived" },
-  { block: "Conversation", field: "unreadCount",   source: "ScoutChannel.unreadCount",  status: "derived" },
-  { block: "Conversation", field: "channel",       source: "ScoutChannel.kind",         status: "ready" },
-  { block: "Project", field: "name",              source: "ScoutProjectStore.lookup",  status: "needs-join" },
-  { block: "Project", field: "branch",            source: "ScoutProjectStore.lookup",  status: "needs-join" },
-  { block: "Project", field: "path",              source: "ScoutProjectStore.lookup",  status: "needs-join" },
-  { block: "Ask",      field: "state",            source: "ScoutChannel.askState",     status: "ready" },
-  { block: "Ask",      field: "from",             source: "ScoutAsk.author",           status: "derived" },
-  { block: "Ask",      field: "text",             source: "ScoutAsk.body",             status: "derived" },
+  { block: "identity",     reads: "name, agentId, avatar",    conditional: false },
+  { block: "action-row",   reads: "actions[primary, secondary]", conditional: true },
+  { block: "conversation", reads: "conversation.last, conversation.unread, conversation.kind", conditional: false },
+  { block: "project",      reads: "project.repo, project.branch, project.path", conditional: true },
+  { block: "ask",          reads: "ask.state, ask.from, ask.text", conditional: true },
 ];
-
-function statusStyle(s: "ready" | "derived" | "needs-join") {
-  switch (s) {
-    case "ready":
-      return { background: "var(--status-ok-bg)", color: "var(--status-ok-fg)" };
-    case "derived":
-      return { background: "var(--status-info-bg)", color: "var(--status-info-fg)" };
-    case "needs-join":
-      return { background: "var(--status-warn-bg)", color: "var(--status-warn-fg)" };
-  }
-}
