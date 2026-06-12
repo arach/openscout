@@ -9,7 +9,7 @@ This is the real QA pass, separate from the illustrative onboarding recap in
 
 Before the run, existing Scout-owned state was moved to:
 
-```text
+```plaintext
 /Users/art/Library/Application Support/OpenScout Actual Run Backups/20260604-153937
 ```
 
@@ -84,7 +84,7 @@ was offline. `scout inbox --latest 10` showed the message, but
 
 After the CLI pass, that generated state was backed up separately under:
 
-```text
+```plaintext
 /Users/art/Library/Application Support/OpenScout Actual Run Backups/20260604-153937/after-cli-pass
 ```
 
@@ -153,7 +153,7 @@ The menu helper was already installed and running after setup:
 
 - [desktop-status.log](./assets/onboarding-real-run/desktop/desktop-status.log)
 
-```text
+```plaintext
 Installed: yes
 Bundle: /Users/art/dev/openscout/apps/macos/dist/OpenScoutMenu.app
 Running: yes
@@ -162,7 +162,7 @@ Helper: /Users/art/dev/openscout/apps/macos/bin/openscout-menu.ts
 
 The full native `OpenScout.app` was launched from:
 
-```text
+```plaintext
 /Users/art/dev/openscout/apps/macos/dist/OpenScout.app
 ```
 

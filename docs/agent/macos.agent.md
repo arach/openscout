@@ -37,7 +37,7 @@ Clients: comms/agents/activity/compose/runner hit web `api/*`; tail hits broker 
 
 ## Relations
 
-```text
+```plaintext
 ScoutNativeCore ← ScoutAppCore ← ScoutHUD ← Scout (+ ScoutSharedUI, HudsonShell/UI)
                   ScoutAppCore ←──────────── OpenScoutMenu (+ ScoutHUD for hotkey/router)
 HudsonVoice ← ScoutSharedUI ← {ScoutHUD, Scout}

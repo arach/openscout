@@ -98,7 +98,7 @@ tool calls.
 
 If testing from a Codex or Claude host with `scout mcp` connected, ask the host:
 
-```text
+```plaintext
 Use Scout MCP without whoami, who, agents_search, or agents_resolve preflight.
 Call card_create for /Users/arach/dev/openscout, then call ask with
 to "@route-smoke-claude", replyMode "none", and a short status body.

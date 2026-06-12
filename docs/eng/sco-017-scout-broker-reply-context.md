@@ -8,7 +8,7 @@ Proposed.
 
 Scout can invoke a local agent directly when another agent sends a broker-backed ask. The invoked agent currently receives a normal chat turn whose prompt includes Scout-flavored text such as:
 
-```text
+```plaintext
 [scout] @sender asks @target: ...
 meta: from=... to=... action=consult
 ref: convo=... msg=...
@@ -65,7 +65,7 @@ see it:
 
 The middle operator is action-specific so repeated broker asks scan quickly:
 
-```text
+```plaintext
 ⌖ sender ≔ ask:8kj4pd      inbound ask, reply expected
 ⌖ sender ↦ task:8kj4pd     delegated/assigned work
 ⌖ sender ≈ summary:8kj4pd  summarize/synthesize
@@ -193,7 +193,7 @@ Behavior:
 
 Error example:
 
-```text
+```plaintext
 No active Scout broker reply context. Use messages_send for a new message, or pass conversationId and replyToMessageId explicitly.
 ```
 

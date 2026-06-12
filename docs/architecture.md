@@ -107,7 +107,7 @@ Also owns the file-based agent override registry, project discovery, and harness
 
 On macOS, local service ownership is intentionally layered:
 
-```text
+```plaintext
 launchd -> scoutd -> scout-base -> scout-broker -> scout-web / scout-edge / OpenScoutMenu
 ```
 

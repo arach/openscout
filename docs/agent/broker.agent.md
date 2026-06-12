@@ -43,7 +43,7 @@ Rule: `message` = Scout conversation record. Observed harness events ≠ message
 
 ## Relations
 
-```text
+```plaintext
 node 1—1 broker process
 broker 1—* agent registration
 agent 1—* endpoint (over time / harness / worktree)

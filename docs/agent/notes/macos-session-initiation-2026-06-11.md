@@ -80,7 +80,7 @@ initiation form (same rule as the one-data-layer invariant in
 Current card stays the foundation (dimmed backdrop, Esc/“click out” to close,
 dictation splice, mode picker). Target shape:
 
-```text
+```plaintext
 ┌──────────────────────────────────────────────────┐
 │ New conversation                                 │
 │                                                  │

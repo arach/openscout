@@ -36,7 +36,7 @@ should share one message-feed implementation and one route reconciliation model.
 
 ## Proposed Product Model
 
-```text
+```plaintext
 Workspace / Project
   Agents
     Runtime Sessions

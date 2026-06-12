@@ -31,7 +31,7 @@ For V1, labels apply to asks, their flights, broker-created work items, and
 broker-visible messages. The primary operator and agent primitive is a
 normalized label feed:
 
-```text
+```plaintext
 scout ask --to hudson --label release:0.2.66 "review the package bump"
 scout label feed release:0.2.66
 scout label watch release:0.2.66
@@ -104,7 +104,7 @@ feed, not a new lifecycle object.
 
 ## CLI
 
-```text
+```plaintext
 scout ask --to <agent> --label <label> ...
 scout ask --to <agent> --labels <a,b,c> ...
 scout label feed <label> [--since <timestamp-or-duration>] [--limit <n>]

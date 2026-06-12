@@ -149,7 +149,7 @@ Rules:
 
 Display grammar:
 
-```text
+```plaintext
 ⌖ <source-short> <operator> <intent>:<ref>
 ```
 

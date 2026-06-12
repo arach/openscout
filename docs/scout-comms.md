@@ -313,7 +313,7 @@ the request to the broker.
 
 Typed:
 
-```text
+```plaintext
 /scout:ask >> hudson Review the parser.
 /scout:ask >> ref:8kj4pd Continue from that result.
 /scout:ask >> project:../talkie Compare auth.
@@ -356,7 +356,7 @@ candidates or wake/register/retry guidance when available.
 
 Good failure shape:
 
-```text
+```plaintext
 @hudson#codex resolved to codex-hudai.main.air-local, but no compatible Codex
 session is attached. I found a Claude session for the same project.
 Try: scout session start --agent codex-hudai --harness codex
@@ -364,7 +364,7 @@ Try: scout session start --agent codex-hudai --harness codex
 
 Bad failure shape:
 
-```text
+```plaintext
 error: no explicit destination
 ```
 
@@ -437,13 +437,13 @@ contact line is generated from structured records; it is not the protocol.
 
 Default grammar:
 
-```text
+```plaintext
 ⌖ <source-short> <operator> <intent>:<ref>
 ```
 
 Examples:
 
-```text
+```plaintext
 ⌖ art ≔ ask:8kj4pd
 ⌖ art ↦ task:8kj4pd
 ⌖ art ≈ summary:8kj4pd
@@ -469,13 +469,13 @@ the structured context fields.
 When the contact cue is rendered next to payload text, use ` › ` as the
 payload lead-in so previews and single-line host surfaces keep the boundary:
 
-```text
+```plaintext
 ⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
 ```
 
 ASCII fallback:
 
-```text
+```plaintext
 scout art ask:8kj4pd
 ```
 

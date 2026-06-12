@@ -96,7 +96,7 @@ Broker-owned virtual addresses:
 `@scout` may delegate internally to Ranger, but senders should not need to know
 or address that implementation detail. Receipts can state the actual handler:
 
-```text
+```plaintext
 sent to @scout-feedback; handler ranger.pre-tail.mini
 ```
 
@@ -248,7 +248,7 @@ collision-resistant. The routable form is the bare reference target, for example
 If the same durable identity is bound through multiple harnesses, each harness
 binding gets a distinct reference:
 
-```text
+```plaintext
 @openscout            -> stable product/project identity
 @openscout#claude     -> harness-qualified stable identity
 ref:7f3a9c21          -> this interaction's concrete Claude session binding
@@ -351,7 +351,7 @@ that field yet.
 
 Human-facing text should be short:
 
-```text
+```plaintext
 sent as ranger.main.mini from openscout to @scout-feedback via DM (ref:7f3a9c21)
 ```
 

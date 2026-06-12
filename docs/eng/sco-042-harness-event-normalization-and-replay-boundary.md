@@ -112,7 +112,7 @@ Coordination replay MUST NOT depend on observed activity replay.
 
 Every harness adapter SHOULD have shared fixtures:
 
-```text
+```plaintext
 fixtures/harness-events/
 |-- codex/
 |   |-- command-output.raw.jsonl

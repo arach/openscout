@@ -16,7 +16,7 @@ hands results back for human review.
 
 The core loop is:
 
-```text
+```plaintext
 external issue -> Scout work item -> claim lease -> isolated workspace -> AgentRun/flight -> trace/artifacts -> review handoff
 ```
 
@@ -227,7 +227,7 @@ unavailable.
 
 The natural binding key SHOULD be:
 
-```text
+```plaintext
 profileId + source + sourceInstanceId + externalId
 ```
 
@@ -524,7 +524,7 @@ For `worktree` mode, branch naming SHOULD be deterministic and collision-safe.
 
 Recommended default:
 
-```text
+```plaintext
 codex/{identifier-slug}-{short-binding-hash}
 ```
 

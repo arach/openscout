@@ -16,7 +16,7 @@ capture, and agent revision promotion.
 
 The core loop is:
 
-```text
+```plaintext
 agent definition -> immutable revision -> run -> trace/artifacts/review -> eval/promotion
 ```
 

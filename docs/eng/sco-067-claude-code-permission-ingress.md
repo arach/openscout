@@ -182,7 +182,7 @@ notifications by themselves.
 
 Add a small host helper instead of putting broker logic directly in hook JSON:
 
-```text
+```plaintext
 scout host claude-permission ingest --event <event-name>
 ```
 
@@ -208,7 +208,7 @@ The helper must be hook-safe:
 
 Suggested spool path:
 
-```text
+```plaintext
 ~/Library/Application Support/OpenScout/host-ingress/claude-code-permissions.jsonl
 ```
 
@@ -377,7 +377,7 @@ Claude plugin state while starting or observing sessions.
 
 OpenScout MAY provide an explicit setup command, for example:
 
-```text
+```plaintext
 scout setup claude-permission-ingress
 ```
 

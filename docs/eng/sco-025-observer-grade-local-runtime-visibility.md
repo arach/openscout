@@ -95,7 +95,7 @@ coordinated tracks:
 
 The key rule is:
 
-```text
+```plaintext
 Observation can be ambitious.
 Control stays conservative.
 ```

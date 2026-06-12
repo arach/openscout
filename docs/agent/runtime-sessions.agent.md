@@ -26,7 +26,7 @@ Public noun is always **session**. Map provider `threadId` into session metadata
 
 ## Relations
 
-```text
+```plaintext
 agent 1—* sessions (over lifetime)
 agent 1—* endpoints (per harness/worktree/node)
 endpoint *—1 session (when attached)

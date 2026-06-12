@@ -45,7 +45,7 @@ Keep integration source in this repository when:
 
 Recommended sibling checkout layout:
 
-```text
+```plaintext
 ~/dev/
 ├── openscout/
 ├── pi-scout/

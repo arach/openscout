@@ -35,7 +35,7 @@ OpenScout SHOULD support extension packs.
 An extension pack is a directory or package with a manifest and optional
 subdirectories for known OpenScout extension points:
 
-```text
+```plaintext
 openscout-pack/
 |-- scout-pack.json
 |-- skills/
@@ -151,7 +151,7 @@ The broker SHOULD record:
 When Scout launches or attaches an agent session, it SHOULD be able to include a
 small active-pack summary:
 
-```text
+```plaintext
 Active OpenScout packs:
 - acme-project@0.1.0: skills, prompts, capabilities
 - user-defaults@0.3.0: skills

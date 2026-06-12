@@ -55,7 +55,7 @@ snapshot state, local agent config, debug attach metadata, and tail discovery,
 then writes a `hudson.vantage.setup` manifest under an OpenScout-owned support
 directory such as:
 
-```text
+```plaintext
 ~/Library/Application Support/OpenScout/vantage/
 ```
 
@@ -157,13 +157,13 @@ Provisioning flow:
 Managed `authorized_keys` lines should be machine-readable so revoke and rotate
 do not touch unrelated keys:
 
-```text
+```plaintext
 ssh-ed25519 AAAA... scout-ios-terminal credential=<id> device=<deviceId> bridge=<bridgePublicKey> created=<iso>
 ```
 
 Recommended bridge routes:
 
-```text
+```plaintext
 ssh.status
 ssh.provision.request
 ssh.provision.confirm

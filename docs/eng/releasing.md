@@ -202,7 +202,7 @@ GitHub release exists yet, it creates the release with `--verify-tag` and then
 uploads the assets. The website download CTA points at GitHub's latest-release
 `OpenScout.dmg` asset:
 
-```text
+```plaintext
 https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg
 ```
 

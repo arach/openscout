@@ -73,7 +73,7 @@ state, and return one of:
 Avoid sender-hostile errors such as "could not find target" when Scout has
 enough context to say something more useful. Prefer:
 
-```text
+```plaintext
 No active Codex session is attached to codex-hudai.
 I found a Claude session for the same project: relay-hudson-claude.
 Start a compatible session:
@@ -385,7 +385,7 @@ When a known on-demand agent has no active compatible session:
 If any step fails, the flight must move to `failed` or a clearly explainable
 `waiting` state. The error should name the failed layer:
 
-```text
+```plaintext
 codex-hudai is registered, but has no active codex session.
 Wake policy: on_demand.
 Start failed: configured profile points at Claude session relay-hudson-claude.
