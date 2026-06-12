@@ -86,7 +86,10 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
 
     public func start() {
         guard pollTask == nil else { return }
-        refresh()
+        // Prime a newly visible surface with recent transcript-backed events.
+        // Live polling stays cheap after that; without this first replay the HUD
+        // can look silent when the broker has not already been tailing.
+        refresh(includeTranscripts: events.isEmpty)
         let interval = pollInterval
         pollTask = Task { [weak self] in
             while !Task.isCancelled {

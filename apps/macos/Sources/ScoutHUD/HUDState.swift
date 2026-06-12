@@ -90,8 +90,12 @@ public final class HUDState: ObservableObject {
     private init() {}
 
     public func select(_ view: HUDView) {
-        guard self.view != view else { return }
+        guard self.view != view else {
+            HUDStateFile.shared.touch()
+            return
+        }
         self.view = view
+        HUDStateFile.shared.touch()
     }
 
     public func select(viewIndex raw: Int) {
@@ -99,8 +103,12 @@ public final class HUDState: ObservableObject {
     }
 
     public func setSize(_ size: HUDSize) {
-        guard self.size != size else { return }
+        guard self.size != size else {
+            HUDStateFile.shared.touch()
+            return
+        }
         self.size = size
+        HUDStateFile.shared.touch()
     }
 
     // Step the size in `direction` (-1 = down, +1 = up). Clamps at ends —

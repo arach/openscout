@@ -136,10 +136,12 @@ struct HUDTailView: View {
 
     var body: some View {
         Group {
-            if tail.isLoading && tail.events.isEmpty {
+            if let error = tail.lastError, tail.events.isEmpty {
+                TailProblemView(message: error)
+            } else if tail.isLoading && tail.events.isEmpty {
                 TailLoadingView()
             } else if rows.isEmpty {
-                TailEmptyView()
+                TailEmptyView(hasBufferedEvents: !tail.events.isEmpty)
             } else {
                 switch state.size {
                 case .compact: rowsBody(size: .compact)
@@ -613,20 +615,51 @@ private struct TailLoadingView: View {
     }
 }
 
-private struct TailEmptyView: View {
+private struct TailProblemView: View {
+    let message: String
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
 
-            HUDEyebrow(text: "FIREHOSE  ·  NO TRAFFIC", color: HUDChrome.inkFaint)
+            HUDEyebrow(text: "FIREHOSE  ·  OFFLINE", color: HUDChrome.inkFaint)
                 .padding(.top, 18)
 
-            Text("Wire is silent.")
+            Text("Broker unreachable.")
                 .font(HUDType.body(15, weight: .semibold))
                 .foregroundStyle(HUDChrome.ink)
                 .padding(.top, 6)
 
-            Text("Events will stream here as the broker hears them.")
+            Text(message)
+                .font(HUDType.body(12))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, 32)
+                .padding(.top, 6)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private struct TailEmptyView: View {
+    let hasBufferedEvents: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+
+            HUDEyebrow(text: hasBufferedEvents ? "FIREHOSE  ·  QUIET SLICE" : "FIREHOSE  ·  NO TRAFFIC", color: HUDChrome.inkFaint)
+                .padding(.top, 18)
+
+            Text(hasBufferedEvents ? "Only quiet metadata is buffered." : "Wire is silent.")
+                .font(HUDType.body(15, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+                .padding(.top, 6)
+
+            Text(hasBufferedEvents ? "Fresh work events will appear here as soon as they arrive." : "Events will stream here as the broker hears them.")
                 .font(HUDType.body(12))
                 .foregroundStyle(HUDChrome.inkMuted)
                 .multilineTextAlignment(.center)
