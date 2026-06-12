@@ -11,6 +11,7 @@ struct MainView: View {
     static let qrHeight: CGFloat = 484
     static let qrWithErrorHeight: CGFloat = 556
     static let actionLogPanelHeight: CGFloat = 168
+    static let runtimeWarningHeight: CGFloat = 36
 
     var body: some View {
         ZStack {
@@ -30,6 +31,12 @@ struct MainView: View {
                     }
 
                     Spacer(minLength: 0)
+
+                    if controller.broker.hasRestartWarning {
+                        runtimeWarningRow
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+
                     deckStrip
 
                     if !controller.actionLog.isEmpty {
@@ -79,9 +86,13 @@ struct MainView: View {
         case (false, false): base = Self.baseHeight
         }
         if !controller.actionLog.isEmpty {
-            return base + Self.actionLogPanelHeight + 10
+            return base + warningHeight + Self.actionLogPanelHeight + 10
         }
-        return base
+        return base + warningHeight
+    }
+
+    private var warningHeight: CGFloat {
+        controller.broker.hasRestartWarning ? Self.runtimeWarningHeight : 0
     }
 
     private var topBar: some View {
@@ -160,6 +171,7 @@ struct MainView: View {
     private var overallStatusColor: Color {
         if !controller.broker.reachable { return ShellPalette.error }
         if !controller.webReachable { return ShellPalette.error }
+        if controller.broker.hasRestartWarning { return ShellPalette.warning }
         if controller.tailscale.available && !controller.tailscale.running {
             return ShellPalette.warning
         }
@@ -206,6 +218,50 @@ struct MainView: View {
     }
 
     // MARK: - Deck strip
+
+    private var runtimeWarningRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(ShellPalette.warning)
+
+            Text(controller.broker.restartWarningSummary ?? "Runtime restart warning")
+                .font(MenuType.bodyMedium(11))
+                .foregroundStyle(ShellPalette.copy)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 8)
+
+            if let restartCount = controller.broker.restartTelemetry?.restartCount {
+                Text("\(restartCount)x")
+                    .font(MenuType.mono(9, weight: .bold))
+                    .foregroundStyle(ShellPalette.warning)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(ShellPalette.warningSoft)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .stroke(ShellPalette.warning.opacity(0.45), lineWidth: 1)
+                    )
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.warningSoft)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.warning.opacity(0.35), lineWidth: 1)
+        )
+        .help(controller.broker.statusDetail)
+    }
 
     /// Compact info strip shown below the service stack. Surfaces the latent
     /// data the controller already exposes (broker port, peer count, mesh
@@ -313,6 +369,7 @@ struct MainView: View {
 
     private var brokerTint: Color {
         if controller.brokerActionPending { return ShellPalette.warning }
+        if controller.broker.hasRestartWarning { return ShellPalette.warning }
         if controller.broker.reachable { return ShellPalette.ink }
         if controller.broker.loaded { return ShellPalette.warning }
         return ShellPalette.error
@@ -332,6 +389,9 @@ struct MainView: View {
     }
 
     private var brokerHelp: String {
+        if let warning = controller.broker.restartWarningSummary {
+            return warning
+        }
         if !controller.broker.reachable && !controller.brokerActionPending {
             return "Start broker"
         }

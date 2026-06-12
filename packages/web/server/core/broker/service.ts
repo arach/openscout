@@ -46,7 +46,12 @@ import {
   SCOUT_AGENT_ID,
   type ResolvedRelayAgentConfig,
 } from "@openscout/runtime/setup";
-import { requestScoutBrokerJson } from "@openscout/runtime/broker-api";
+import {
+  requestScoutBrokerJson,
+  type ScoutBrokerBuildIdentity,
+  type ScoutBrokerChildServiceSnapshots,
+  type ScoutBrokerHealthPayload,
+} from "@openscout/runtime/broker-api";
 import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
 import {
   inferLocalAgentBinding,
@@ -90,6 +95,8 @@ export type ScoutBrokerHealthState = {
   ok: boolean;
   nodeId: string | null;
   meshId: string | null;
+  build: ScoutBrokerBuildIdentity | null;
+  services: ScoutBrokerChildServiceSnapshots | null;
   counts: {
     nodes: number;
     actors: number;
@@ -108,6 +115,7 @@ export type ScoutBrokerHealthState = {
     conversations: number;
     messages: number;
     flights: number;
+    collaborationRecords: number;
   } | null;
   error: string | null;
 };
@@ -587,30 +595,9 @@ export async function readScoutBrokerHealth(
   options: { signal?: AbortSignal } = {},
 ): Promise<ScoutBrokerHealthState> {
   try {
-    const health = await brokerReadJson<{
-      ok?: boolean;
-      nodeId?: string;
-      meshId?: string;
-      counts?: {
-        nodes?: number;
-        actors?: number;
-        agents?: number;
-        agentRecords?: number;
-        rawAgentRecords?: number;
-        configuredAgents?: number;
-        scoutManagedAgents?: number;
-        currentAgentRegistrations?: number;
-        localAgentRegistrations?: number;
-        remoteAgentRegistrations?: number;
-        staleAgentRegistrations?: number;
-        retiredAgentRegistrations?: number;
-        oneTimeAgentCards?: number;
-        persistentAgentCards?: number;
-        conversations?: number;
-        messages?: number;
-        flights?: number;
-      };
-    }>(baseUrl, scoutBrokerPaths.health, { signal: options.signal });
+    const health = await brokerReadJson<ScoutBrokerHealthPayload>(baseUrl, scoutBrokerPaths.health, {
+      signal: options.signal,
+    });
 
     return {
       baseUrl,
@@ -618,6 +605,8 @@ export async function readScoutBrokerHealth(
       ok: Boolean(health.ok),
       nodeId: health.nodeId ?? null,
       meshId: health.meshId ?? null,
+      build: health.build ?? null,
+      services: health.services ?? null,
       counts: health.counts
         ? {
             nodes: health.counts.nodes ?? 0,
@@ -637,6 +626,7 @@ export async function readScoutBrokerHealth(
             conversations: health.counts.conversations ?? 0,
             messages: health.counts.messages ?? 0,
             flights: health.counts.flights ?? 0,
+            collaborationRecords: health.counts.collaborationRecords ?? 0,
           }
         : null,
       error: null,
@@ -648,6 +638,8 @@ export async function readScoutBrokerHealth(
       ok: false,
       nodeId: null,
       meshId: null,
+      build: null,
+      services: null,
       counts: null,
       error: error instanceof Error ? error.message : null,
     };

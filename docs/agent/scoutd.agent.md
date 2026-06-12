@@ -4,7 +4,7 @@ Source: `crates/scoutd/**`, `packages/runtime/src/broker-process-manager.ts`.
 
 Status: shipped first slice (SCO-062). Native service kernel only — not broker logic.
 
-Verified: 2026-06-10
+Verified: 2026-06-11
 
 ## Role
 
@@ -57,6 +57,7 @@ Operator path: `scout` CLI → shells out to `scoutd` for service commands when 
 | `stop [--json]` | one-shot | `launchctl bootout` |
 | `restart [--json]` | one-shot | stop then start |
 | `uninstall [--json]` | one-shot | stop, bootout legacy, remove plist |
+| `--version` / `version` | one-shot | print daemon package version and optional build git SHA |
 | `supervise` | long-running | spawn/restart base with backoff |
 
 ## Daemon State
@@ -65,10 +66,14 @@ Operator path: `scout` CLI → shells out to `scoutd` for service commands when 
 
 | Field | Meaning |
 |---|---|
+| `version` | `scoutd` package version from `CARGO_PKG_VERSION` |
+| `gitSha` | optional compile-time git SHA (`SCOUTD_GIT_SHA`) or null |
 | `startedAtMs` | supervise epoch |
-| `childPid` | current `scout-base` pid or null |
-| `state` | `running` \| `exited` \| `stopping` \| `stopped` |
+| `basePid` | current `scout-base` pid or null |
+| `baseState` | `running` \| `exited` \| `stopping` \| `stopped` |
 | `restartCount` | base restart tally |
+| `restartBackoffMs` | current bounded restart delay, 1000→30000 ms |
+| `lastChildExit` | last base exit `{ atMs, code, signal, description }` or null |
 
 Written every ~2s while child alive; updated on exit/restart/shutdown.
 
@@ -76,6 +81,8 @@ Written every ~2s while child alive; updated on exit/restart/shutdown.
 
 - spawn: `bun <runtime-entrypoint> base` with broker env passthrough
 - child exit → log → backoff 1s→30s → respawn unless shutdown requested
+- child stdout/stderr append to scoutd-owned `stdout.log` / `stderr.log`; before
+  each spawn, files above 512 KiB retain a bounded tail in `.1` and are truncated
 - SIGINT/SIGTERM → `stopping` → terminate child (12s budget) → `stopped`
 - forwards optional launch env: mesh, node, tailscale, web portal hosts
 
@@ -100,10 +107,17 @@ Doctor merges:
 
 - launchd loaded/running state
 - `scoutd-state.json` child pid alive?
+- restart telemetry from `scoutd-state.json` (`restartCount`, backoff, last child exit)
 - broker HTTP or unix socket `/health` (or equivalent)
 - stale orphans: legacy `openscout-supervisor supervise`, duplicate brokers, zombie base
 
 Output schema: `scout.doctor.v1` phases (CLI wraps same config).
+
+`doctor --fix` is intentionally not implemented in the current Rust slice. If
+added, keep it opt-in and conservative: ensure directories/plist, boot out the
+legacy launchd label, remove a stale broker socket only when health is
+unreachable and no broker process owns it, and terminate only exact-match
+orphaned Scout processes already reported by doctor.
 
 ## Invariants
 
@@ -135,7 +149,8 @@ Output schema: `scout.doctor.v1` phases (CLI wraps same config).
 ```bash
 cargo run --manifest-path crates/scoutd/Cargo.toml -- status --json
 cargo run --manifest-path crates/scoutd/Cargo.toml -- doctor --json
+cargo run --manifest-path crates/scoutd/Cargo.toml -- --version
 scout doctor --json
 ```
 
-Expect: broker reachable when base running; `childPid` matches live `scout-base`.
+Expect: broker reachable when base running; `basePid` matches live `scout-base`.

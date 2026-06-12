@@ -26,7 +26,7 @@ type ScoutMenuResult = {
   message: string;
 };
 
-const MENU_BUNDLE_ID = "com.openscout.menu";
+const MENU_BUNDLE_ID = "app.openscout.mac.menu";
 const MENU_BUNDLE_NAME = "ScoutMenu.app";
 const MENU_PROCESS_NAME = "ScoutMenu";
 // Installed builds ship the menu bar app as a helper embedded inside OpenScout.app.

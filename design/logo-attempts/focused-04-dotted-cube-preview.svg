@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 04 preview</title>
+  <desc id="desc">Preview of the dotted cube OpenScout lockup, mark, and small-size checks.</desc>
+  <rect width="1200" height="760" fill="#f7f4ea"/>
+  <image href="focused-04-dotted-cube-lockup.svg" x="106" y="144" width="996" height="301"/>
+  <image href="focused-04-dotted-cube-mark.svg" x="105" y="510" width="84" height="84"/>
+  <image href="focused-04-dotted-cube-mark.svg" x="241" y="486" width="132" height="132"/>
+  <image href="focused-04-dotted-cube-mark.svg" x="433" y="456" width="196" height="196"/>
+  <text x="704" y="540" fill="#25282c" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="32" font-weight="760">Focused 04: Dotted Cube</text>
+  <text x="704" y="586" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">Dotted cube planes, clean inner echo.</text>
+  <text x="704" y="620" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">Reference-inspired, still plain SVG.</text>
+</svg>

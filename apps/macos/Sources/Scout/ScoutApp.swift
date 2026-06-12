@@ -221,7 +221,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func launchMenuHelperIfNeeded() {
-        let helperBundleIdentifier = "com.openscout.menu"
+        let helperBundleIdentifier = "app.openscout.mac.menu"
         let helperAlreadyRunning = NSWorkspace.shared.runningApplications.contains {
             $0.bundleIdentifier == helperBundleIdentifier
         }

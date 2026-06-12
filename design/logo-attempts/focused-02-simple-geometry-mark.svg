@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 02: Simple Geometry mark</title>
+  <desc id="desc">A cream app icon with a precise black hex outline and a small red broker cube.</desc>
+  <rect width="1024" height="1024" rx="220" fill="#f7f4ea"/>
+  <g transform="translate(189 174) scale(3.38)">
+    <path d="M96 8 179 56v96l-83 48-83-48V56Z" fill="none" stroke="#25282c" stroke-width="9" stroke-linejoin="round"/>
+    <path d="M96 77 119 91v26l-23 14-23-14V91Z" fill="none" stroke="#e5313f" stroke-width="5" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -19,6 +19,8 @@ describe("renderScoutHelp", () => {
     expect(help).toContain("scout ask --harness codex");
     expect(help).toContain("no agent id needed");
     expect(help).toContain("quote >> in shells");
+    expect(help).toContain("Doctor flags:");
+    expect(help).toContain("scout doctor --fix --yes");
     expect(help).toContain("MCP parity:");
     expect(help).toContain("scout card create");
   });

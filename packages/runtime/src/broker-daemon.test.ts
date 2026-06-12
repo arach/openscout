@@ -535,6 +535,62 @@ async function seedBasicConversation(harness: BrokerHarness) {
 }
 
 describe("broker daemon comms layer", () => {
+  test("reports build identity and cheap child service states on health", async () => {
+    const harness = await startBroker({
+      env: {
+        OPENSCOUT_BUILD_COMMIT: "abc123",
+        OPENSCOUT_BUILD_BRANCH: "lane-c",
+        OPENSCOUT_BUILD_ID: "build-health-test",
+        OPENSCOUT_BUILD_NUMBER: "42",
+      },
+    });
+
+    const health = await getJson<{
+      ok: boolean;
+      build?: {
+        packageName?: string;
+        version?: string | null;
+        commit?: string | null;
+        branch?: string | null;
+        buildId?: string | null;
+        buildNumber?: string | null;
+      };
+      services?: {
+        web?: { managedBy?: string; state?: string; pid?: number | null; healthy?: boolean | null };
+        terminalRelay?: { managedBy?: string; state?: string; healthy?: boolean | null };
+        localEdge?: { managedBy?: string; state?: string; healthy?: boolean | null };
+      };
+      counts?: { collaborationRecords?: number };
+    }>(harness.baseUrl, "/health");
+
+    expect(health.ok).toBe(true);
+    expect(health.build).toEqual(expect.objectContaining({
+      packageName: "@openscout/runtime",
+      commit: "abc123",
+      branch: "lane-c",
+      buildId: "build-health-test",
+      buildNumber: "42",
+    }));
+    expect(health.build?.version).toBeTruthy();
+    expect(health.services?.web).toEqual(expect.objectContaining({
+      managedBy: "broker",
+      state: "stopped",
+      pid: null,
+      healthy: null,
+    }));
+    expect(health.services?.terminalRelay).toEqual(expect.objectContaining({
+      managedBy: "web",
+      state: "unknown",
+      healthy: null,
+    }));
+    expect(health.services?.localEdge).toEqual(expect.objectContaining({
+      managedBy: "base",
+      state: "unknown",
+      healthy: null,
+    }));
+    expect(health.counts?.collaborationRecords).toBe(0);
+  });
+
   test("persists posted messages and emits message events", async () => {
     const harness = await startBroker();
     await seedBasicConversation(harness);

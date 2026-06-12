@@ -222,9 +222,9 @@ struct RootView: View {
             // route + stat readouts stay intrinsic, so none of them truncate.
             items.append(
                 StatusReadout(
-                    dot: machine.isOnline ? HudPalette.accent : HudPalette.dim,
+                    dot: machine.isOnline ? HudPalette.accent : ScoutInk.dim,
                     label: machine.name,
-                    tint: machine.isOnline ? HudPalette.ink : HudPalette.muted,
+                    tint: machine.isOnline ? HudPalette.ink : ScoutInk.muted,
                     maxLabelWidth: layout.statusMachineMaxLabelWidth
                 )
             )
@@ -233,7 +233,7 @@ struct RootView: View {
             items.append(
                 StatusReadout(
                     label: sessionStatusContext,
-                    tint: HudPalette.dim,
+                    tint: ScoutInk.dim,
                     maxLabelWidth: layout.isMiniPhone ? 96 : 160
                 )
             )
@@ -245,10 +245,10 @@ struct RootView: View {
     /// many are active right now (accent when something's running).
     private func statsReadouts(_ layout: ScoutLayoutMetrics) -> [StatusReadout] {
         var items = [
-            StatusReadout(label: pluralized(model.agentCount, "agent"), tint: HudPalette.muted),
+            StatusReadout(label: pluralized(model.agentCount, "agent"), tint: ScoutInk.muted),
             StatusReadout(
                 label: "\(model.activeAgentCount) active",
-                tint: model.activeAgentCount > 0 ? HudPalette.accent : HudPalette.dim
+                tint: model.activeAgentCount > 0 ? HudPalette.accent : ScoutInk.dim
             ),
         ]
         let machineTotal = model.pairedMachines.count
@@ -257,7 +257,7 @@ struct RootView: View {
             items.insert(
                 StatusReadout(
                     label: layout.isMiniPhone ? "\(online)/\(machineTotal)" : "\(online)/\(machineTotal) online",
-                    tint: online > 0 ? HudPalette.accent : HudPalette.dim
+                    tint: online > 0 ? HudPalette.accent : ScoutInk.dim
                 ),
                 at: 1
             )
@@ -287,7 +287,7 @@ struct RootView: View {
             }
             // Active state is carried entirely by the accent glyph + label — no
             // indicator bar.
-            .foregroundStyle(isSelected ? HudPalette.accent : HudPalette.muted)
+            .foregroundStyle(isSelected ? HudPalette.accent : ScoutInk.muted)
             .frame(maxWidth: .infinity)
             .frame(height: layout.tabButtonHeight)
             .contentShape(Rectangle())
@@ -325,7 +325,7 @@ struct RootView: View {
     private var settingsButton: some View {
         Button { showSettings = true } label: {
             Glyphic(kind: .gear, size: 21)
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .frame(width: 38, height: 38)
                 .background(Circle().fill(HudSurface.inset))
                 .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))

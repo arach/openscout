@@ -63,14 +63,14 @@ struct TailSurface: View {
                     HudBadge(attributionLabel(event.harness), tint: attributionColor(event.harness), dot: true)
                     Text(event.source)
                         .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutInk.dim)
                     Text(event.kind.rawValue)
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                     Spacer(minLength: 0)
                     Text(timeLabel(event.tsMs))
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutInk.dim)
                 }
                 Text(event.summary)
                     .font(HudFont.mono(HudTextSize.xs))
@@ -98,8 +98,8 @@ struct TailSurface: View {
     private func attributionColor(_ harness: TailEvent.Harness) -> Color {
         switch harness {
         case .scoutManaged: return HudPalette.accent   // the one accent
-        case .hudsonManaged: return HudPalette.muted
-        case .unattributed: return HudPalette.dim
+        case .hudsonManaged: return ScoutInk.muted
+        case .unattributed: return ScoutInk.dim
         }
     }
 

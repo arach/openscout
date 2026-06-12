@@ -32,6 +32,7 @@ let package = Package(
             name: "ScoutAppCore",
             dependencies: [
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
             ],
             path: "Sources/ScoutAppCore"
         ),
@@ -58,10 +59,19 @@ let package = Package(
                 "ScoutAppCore",
                 "ScoutHUD",
                 "ScoutSharedUI",
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),
             ],
             path: "Sources/Scout"
+        ),
+        .testTarget(
+            name: "ScoutAppCoreTests",
+            dependencies: [
+                "ScoutAppCore",
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
+            ],
+            path: "Tests/ScoutAppCoreTests"
         ),
     ]
 )

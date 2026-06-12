@@ -17,14 +17,18 @@ The menu app is intentionally thin:
 
 ```bash
 cd apps/macos
-HUDSONKIT_WITH_VOICE=1 swift run
+bun bin/scout-app.ts dev
 ```
 
 ```bash
 cd apps/macos
-HUDSONKIT_WITH_VOICE=1 swift build
+bun bin/scout-app.ts dev-build
 ```
 
+The local scripts read `hudson-package.json` and translate declared Hudson
+features such as `"voice"` into the SwiftPM build environment. If you call
+`swift build` / `swift run` directly, SwiftPM still needs those feature env vars
+in the shell because it does not consume the Hudson package manifest itself.
 You can also open `Package.swift` directly in Xcode.
 
 ## Voice

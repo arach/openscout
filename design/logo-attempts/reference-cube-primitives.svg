@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Primitive dotted wire cube study</title>
+  <desc id="desc">A dark isometric cube rebuilt from SVG primitives: polygon faces, line edges, and dot-pattern fills.</desc>
+  <defs>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="64%">
+      <stop offset="0%" stop-color="#202222"/>
+      <stop offset="58%" stop-color="#151616"/>
+      <stop offset="100%" stop-color="#0f1010"/>
+    </radialGradient>
+    <radialGradient id="floorGlow" cx="50%" cy="52%" r="50%">
+      <stop offset="0%" stop-color="#1f2220" stop-opacity="0.36"/>
+      <stop offset="60%" stop-color="#121313" stop-opacity="0.16"/>
+      <stop offset="100%" stop-color="#0e0f0f" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dotGrid" width="7" height="7" patternUnits="userSpaceOnUse">
+      <circle cx="1.6" cy="1.6" r="0.9" fill="#f4f1e7" opacity="0.72"/>
+    </pattern>
+    <pattern id="fineDotGrid" width="6" height="6" patternUnits="userSpaceOnUse">
+      <circle cx="1.4" cy="1.4" r="0.68" fill="#f4f1e7" opacity="0.42"/>
+    </pattern>
+    <linearGradient id="edgeFade" x1="150" y1="120" x2="750" y2="880" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="58%" stop-color="#f5f1e8"/>
+      <stop offset="100%" stop-color="#b6b9b6"/>
+    </linearGradient>
+    <filter id="softLine" x="-8%" y="-8%" width="116%" height="116%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="1.2" result="blur"/>
+      <feFlood flood-color="#f8f5ec" flood-opacity="0.12" result="glow"/>
+      <feComposite in="glow" in2="blur" operator="in"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="900" height="1080" fill="url(#bgGlow)"/>
+  <rect width="900" height="1080" fill="#111212" opacity="0.22"/>
+  <ellipse cx="450" cy="772" rx="360" ry="210" fill="url(#floorGlow)"/>
+
+  <g opacity="0.2">
+    <polygon points="450,490 735,655 450,820 165,655" fill="#0b0c0c"/>
+    <polygon points="450,470 735,635 450,800 165,635" fill="none" stroke="#2a2c2c" stroke-width="2"/>
+  </g>
+
+  <g filter="url(#softLine)">
+    <!-- Outer dotted planes -->
+    <polygon points="450,98 760,278 450,458 140,278" fill="url(#dotGrid)" opacity="0.48"/>
+    <polygon points="140,278 450,458 450,866 140,686" fill="url(#fineDotGrid)" opacity="0.32"/>
+    <polygon points="760,278 760,686 450,866 450,458" fill="url(#fineDotGrid)" opacity="0.26"/>
+    <polygon points="140,686 450,866 760,686 450,506" fill="url(#fineDotGrid)" opacity="0.18"/>
+
+    <!-- Inner void / contained cube -->
+    <polygon points="450,286 592,368 450,450 308,368" fill="#0f1010" opacity="0.46"/>
+    <polygon points="308,368 450,450 450,636 308,554" fill="#0f1010" opacity="0.32"/>
+    <polygon points="592,368 592,554 450,636 450,450" fill="#0f1010" opacity="0.28"/>
+    <polygon points="308,554 450,636 592,554 450,472" fill="#0f1010" opacity="0.2"/>
+    <polygon points="450,286 592,368 450,450 308,368" fill="url(#fineDotGrid)" opacity="0.2"/>
+    <polygon points="308,368 450,450 450,636 308,554" fill="url(#fineDotGrid)" opacity="0.12"/>
+    <polygon points="592,368 592,554 450,636 450,450" fill="url(#fineDotGrid)" opacity="0.1"/>
+
+    <!-- Outer frame -->
+    <polygon points="450,98 760,278 760,686 450,866 140,686 140,278" fill="none" stroke="url(#edgeFade)" stroke-width="3" stroke-linejoin="round"/>
+    <line x1="450" y1="98" x2="450" y2="866" stroke="#f8f5ec" stroke-width="2.8" stroke-linecap="round"/>
+    <line x1="140" y1="278" x2="450" y2="458" stroke="#f8f5ec" stroke-width="2.8" stroke-linecap="round"/>
+    <line x1="760" y1="278" x2="450" y2="458" stroke="#f8f5ec" stroke-width="2.8" stroke-linecap="round"/>
+    <line x1="140" y1="686" x2="450" y2="506" stroke="#e9e7df" stroke-width="2.3" stroke-linecap="round" opacity="0.72"/>
+    <line x1="760" y1="686" x2="450" y2="506" stroke="#e9e7df" stroke-width="2.3" stroke-linecap="round" opacity="0.72"/>
+
+    <!-- Inner cube frame -->
+    <polygon points="450,286 592,368 592,554 450,636 308,554 308,368" fill="none" stroke="#f5f1e8" stroke-width="2.8" stroke-linejoin="round" opacity="0.72"/>
+    <line x1="450" y1="286" x2="450" y2="636" stroke="#f5f1e8" stroke-width="2.5" stroke-linecap="round" opacity="0.58"/>
+    <line x1="308" y1="368" x2="450" y2="450" stroke="#f5f1e8" stroke-width="2.5" stroke-linecap="round" opacity="0.62"/>
+    <line x1="592" y1="368" x2="450" y2="450" stroke="#f5f1e8" stroke-width="2.5" stroke-linecap="round" opacity="0.62"/>
+    <line x1="308" y1="554" x2="450" y2="472" stroke="#f5f1e8" stroke-width="2.2" stroke-linecap="round" opacity="0.36"/>
+    <line x1="592" y1="554" x2="450" y2="472" stroke="#f5f1e8" stroke-width="2.2" stroke-linecap="round" opacity="0.36"/>
+  </g>
+</svg>

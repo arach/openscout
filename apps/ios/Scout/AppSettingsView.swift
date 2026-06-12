@@ -288,7 +288,7 @@ struct AppSettingsView: View {
                     if recentConnectionLogEntries.isEmpty {
                         Text("No route attempts yet")
                             .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutInk.dim)
                             .padding(.vertical, 4)
                     } else {
                         ForEach(recentConnectionLogEntries) { entry in
@@ -330,12 +330,12 @@ struct AppSettingsView: View {
     private func logLine(_ entry: ConnectionLogEntry) -> some View {
         HStack(spacing: HudSpacing.sm) {
             Text(logTime(entry))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
             Text(entry.event.label)
                 .foregroundStyle(logEventColor(entry))
                 .frame(width: 68, alignment: .leading)
             Text(compactLogMessage(entry))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -358,7 +358,7 @@ struct AppSettingsView: View {
         case .error:   return HudPalette.statusError
         case .warning: return HudPalette.statusWarn
         case .success: return HudPalette.accent
-        case .info:    return entry.event == .lifecycle ? HudPalette.dim : HudPalette.muted
+        case .info:    return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
         }
     }
 
@@ -499,17 +499,17 @@ private struct TailnetPairTargetRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
-            HudStatusDot(color: target.isOnline ? HudPalette.accent : HudPalette.dim, size: 7, pulses: target.isOnline)
+            HudStatusDot(color: target.isOnline ? HudPalette.accent : ScoutInk.dim, size: 7, pulses: target.isOnline)
                 .frame(width: 12)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(target.displayName)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(target.isOnline ? HudPalette.ink : HudPalette.muted)
+                    .foregroundStyle(target.isOnline ? HudPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                 Text(target.detail)
                     .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutInk.dim)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -520,13 +520,13 @@ private struct TailnetPairTargetRow: View {
                 Text(isPairing ? "PAIRING" : "PAIR")
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(target.isOnline ? HudPalette.accent : HudPalette.dim)
+                    .foregroundStyle(target.isOnline ? HudPalette.accent : ScoutInk.dim)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xxs)
                     .overlay(
                         Capsule()
                             .strokeBorder(
-                                HudSurface.tintBorder(target.isOnline ? HudPalette.accent : HudPalette.dim),
+                                HudSurface.tintBorder(target.isOnline ? HudPalette.accent : ScoutInk.dim),
                                 lineWidth: HudStrokeWidth.thin
                             )
                     )
@@ -569,13 +569,13 @@ private struct MacConnectionRow: View {
             HStack(alignment: .center, spacing: HudSpacing.sm) {
                 Text(machine.name)
                     .font(HudFont.ui(HudTextSize.md))
-                    .foregroundStyle(machine.isOnline ? HudPalette.ink : HudPalette.muted)
+                    .foregroundStyle(machine.isOnline ? HudPalette.ink : ScoutInk.muted)
                     .lineLimit(1)
                     .layoutPriority(2)
 
                 Text("· \(hint)")
                     .font(HudFont.ui(HudTextSize.sm, weight: .light))
-                    .foregroundStyle(machine.isActive ? HudPalette.accent : HudPalette.dim)
+                    .foregroundStyle(machine.isActive ? HudPalette.accent : ScoutInk.dim)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(0)
@@ -640,7 +640,7 @@ private struct MacConnectionRow: View {
         case .failed:
             return HudPalette.statusError
         case .idle:
-            return HudPalette.dim
+            return ScoutInk.dim
         }
     }
 
@@ -653,7 +653,7 @@ private struct MacConnectionRow: View {
         case .failed:
             return HudPalette.statusError
         case .idle:
-            return HudPalette.dim
+            return ScoutInk.dim
         }
     }
 

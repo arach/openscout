@@ -132,7 +132,6 @@ struct ScoutFileViewerPanel: View {
         ) {
             VStack(spacing: 0) {
                 header
-                HudDivider(color: ScoutDesign.hairline)
                 content
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -152,65 +151,62 @@ struct ScoutFileViewerPanel: View {
     }
 
     private var header: some View {
-        HStack(spacing: HudSpacing.md) {
-            Image(systemName: glyph(forFile: fileName))
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutPalette.accent)
-                .frame(width: 22, height: 22)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
-
-            VStack(alignment: .leading, spacing: 1) {
+        ScoutColumnHeader(horizontalPadding: ScoutDesign.panelGutter, background: ScoutDesign.chrome) {
+            HStack(spacing: HudSpacing.md) {
+                Image(systemName: glyph(forFile: fileName))
+                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.accent)
+                    .frame(width: 22, height: 22)
+                    .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutPalette.accentSoft))
                 Text(fileName)
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(dirPath)
-                    .font(HudFont.mono(HudTextSize.micro))
-                    .foregroundStyle(ScoutPalette.dim)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
             }
+        } secondary: {
+            Text(dirPath)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } trailing: {
+            HStack(spacing: HudSpacing.md) {
+                if document?.isMarkdown == true {
+                    ScoutMarkdownModeToggle(showPreview: $showPreview)
+                }
 
-            Spacer(minLength: HudSpacing.sm)
+                if let line = target.line, !(document?.isMarkdown == true && showPreview) {
+                    Text("L\(line)")
+                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(ScoutPalette.muted)
+                        .padding(.horizontal, HudSpacing.sm)
+                        .padding(.vertical, HudSpacing.xxs)
+                        .background(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).fill(ScoutSurface.inset))
+                }
 
-            if document?.isMarkdown == true {
-                ScoutMarkdownModeToggle(showPreview: $showPreview)
+                Button(action: onOpenInEditor) {
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                }
+                .buttonStyle(.plain).scoutPointerCursor()
+                .foregroundStyle(ScoutPalette.muted)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .help("Open in editor")
+
+                Button(action: onClose) {
+                    Image(systemName: "sidebar.right")
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                }
+                .buttonStyle(.plain).scoutPointerCursor()
+                .foregroundStyle(ScoutPalette.muted)
+                .frame(width: 26, height: 26)
+                .contentShape(Rectangle())
+                .help("Close file viewer")
             }
-
-            if let line = target.line, !(document?.isMarkdown == true && showPreview) {
-                Text("L\(line)")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(ScoutPalette.muted)
-                    .padding(.horizontal, HudSpacing.sm)
-                    .padding(.vertical, HudSpacing.xxs)
-                    .background(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).fill(HudSurface.inset))
-            }
-
-            Button(action: onOpenInEditor) {
-                Image(systemName: "arrow.up.forward.app")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(ScoutPalette.muted)
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
-            .help("Open in editor")
-
-            Button(action: onClose) {
-                Image(systemName: "sidebar.right")
-                    .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-            .foregroundStyle(ScoutPalette.muted)
-            .frame(width: 26, height: 26)
-            .contentShape(Rectangle())
-            .help("Close file viewer")
         }
-        .padding(.horizontal, HudSpacing.lg)
-        .frame(height: 48)
-        .background(ScoutDesign.chrome)
     }
 
     @ViewBuilder
@@ -349,7 +345,7 @@ private struct ScoutMarkdownModeToggle: View {
             segment("Source", active: !showPreview) { showPreview = false }
         }
         .padding(HudSpacing.xxs)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
     }
 
@@ -362,7 +358,7 @@ private struct ScoutMarkdownModeToggle: View {
                 .frame(height: 20)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
-                        .fill(active ? HudSurface.selected(ScoutPalette.accent) : Color.clear)
+                        .fill(active ? ScoutSurface.selected(ScoutPalette.accent) : Color.clear)
                 )
                 .contentShape(Rectangle())
         }
@@ -449,7 +445,7 @@ enum ScoutCodeLanguage {
 /// line. Carries block-comment state across lines. Colors stay inside the
 /// approved cyan/blue/teal/emerald/amber family (no purple).
 enum ScoutSyntaxHighlighter {
-    private static let commentColor = ScoutPalette.dim
+    private static var commentColor: Color { ScoutPalette.dim }
     private static let stringColor = HudTint.green.color
     private static let keywordColor = HudTint.blue.color
     private static let numberColor = HudTint.amber.color

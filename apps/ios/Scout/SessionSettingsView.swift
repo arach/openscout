@@ -69,7 +69,7 @@ struct SessionSettingsView: View {
             Text("LIFECYCLE")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .tracking(2)
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
             lifecycleItem("Persistent", "Keeps its workspace, branch, and identity between sessions — you return to the same agent.")
             lifecycleItem("One-time", "Runs the task once, then closes. Nothing is kept.")
         }
@@ -84,7 +84,7 @@ struct SessionSettingsView: View {
                 .foregroundStyle(HudPalette.ink)
             Text(desc)
                 .font(HudFont.ui(HudTextSize.xs))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

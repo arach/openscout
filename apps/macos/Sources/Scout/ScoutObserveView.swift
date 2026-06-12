@@ -14,14 +14,13 @@ struct ScoutAgentObserveContent: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HudDivider(color: ScoutDesign.hairline)
             content
         }
         .background(ScoutDesign.bg)
     }
 
     private var header: some View {
-        ScoutColumnHeader(horizontalPadding: HudSpacing.huge) {
+        ScoutColumnHeader(horizontalPadding: ScoutDesign.columnGutter) {
             HStack(spacing: HudSpacing.md) {
                 Text(agent.displayName)
                     .font(HudFont.ui(HudTextSize.xxl, weight: .semibold))
@@ -56,7 +55,6 @@ struct ScoutAgentObserveContent: View {
                 HudButton("Open DM", icon: "bubble.left", style: .ghost, action: openChannel)
             }
         }
-        .background(ScoutDesign.bg)
     }
 
     @ViewBuilder
@@ -128,7 +126,7 @@ private struct ScoutObserveSourceStrip: View {
                 .truncationMode(.middle)
         }
         .padding(HudSpacing.xl)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
@@ -315,7 +313,7 @@ private struct ScoutObserveResultGrid: View {
             }
         }
         .padding(HudSpacing.md)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.control))
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.control))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                 .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
@@ -355,7 +353,7 @@ private struct ScoutObserveMonoBlock: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                 .stroke(accent.opacity(0.24), lineWidth: HudStrokeWidth.thin)
