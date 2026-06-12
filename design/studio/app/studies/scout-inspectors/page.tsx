@@ -727,6 +727,405 @@ function WorkDetail() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   CENTER VIEWS — the real main column per surface (representative content)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function CTool({ children }: { children: React.ReactNode }) {
+  return <div className="flex h-[34px] flex-none items-center gap-2 px-3.5" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>{children}</div>;
+}
+function CScroll({ children }: { children: React.ReactNode }) {
+  return <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-2">{children}</div>;
+}
+function CPill({ children, active }: { children: React.ReactNode; active?: boolean }) {
+  return <span className="inline-flex items-center rounded-[4px] px-2 py-[3px] font-mono text-[9px]" style={active ? { background: `color-mix(in oklab, ${ACCENT} 14%, transparent)`, color: ACCENT, border: `1px solid ${ACCENT}` } : { color: "var(--studio-ink-faint)", border: `1px solid ${INK.edge}` }}>{children}</span>;
+}
+function CGroupLabel({ name, path, meta }: { name: string; path?: string; meta?: string }) {
+  return (
+    <div className="mb-1 mt-3 flex items-baseline gap-2 px-1.5 first:mt-1">
+      <span className="font-mono text-[10.5px] text-studio-ink">{name}</span>
+      {path ? <span className="font-mono text-[8.5px] text-studio-ink-faint">{path}</span> : null}
+      {meta ? <span className="ml-auto font-mono text-[8.5px] tabular-nums text-studio-ink-faint">{meta}</span> : null}
+    </div>
+  );
+}
+function CRow({ sel, children }: { sel?: boolean; children: React.ReactNode }) {
+  const [hov, setHov] = React.useState(false);
+  return (
+    <div onMouseEnter={() => setHov(true)} onMouseLeave={() => setHov(false)} className="relative flex cursor-pointer items-center gap-2.5 rounded-[5px] px-2 py-[7px] transition-colors" style={{ background: sel ? `color-mix(in oklab, ${ACCENT} 10%, transparent)` : hov ? INK.module : "transparent" }}>
+      {sel ? <span className="absolute left-0 top-1/2 h-[16px] w-[2px] -translate-y-1/2 rounded-full" style={{ background: ACCENT }} /> : null}
+      {children}
+    </div>
+  );
+}
+function Mono({ label, size = 24 }: { label: string; size?: number }) {
+  return <div className="grid flex-none place-items-center rounded-[5px] font-mono text-studio-ink-muted" style={{ width: size, height: size, fontSize: size * 0.4, background: INK.module, border: `1px solid ${INK.edgeSoft}` }}>{label}</div>;
+}
+function Dotc({ on }: { on?: boolean }) {
+  return <span className="h-[7px] w-[7px] flex-none rounded-full" style={{ background: on ? ACCENT : INK.edge }} />;
+}
+
+/* AGENTS — project · agent tree */
+function AgentsCenter({ selected }: { selected?: string }) {
+  const groups = [
+    { p: "openscout", path: "~/dev/openscout", agents: [{ n: "Claude", r: "Relay agent", t: "claude · tmux", u: "10h", on: true }, { n: "Codex", r: "Relay agent", t: "codex · app-server", u: "1d", on: true }] },
+    { p: "hudson", path: "~/dev/hudson", agents: [{ n: "Grok Hudson", r: "Relay agent", t: "pi · pi_rpc", u: "1d", on: true }, { n: "Hudson", r: "Relay agent", t: "claude · stream-json", u: "1d", on: true }] },
+    { p: "action", path: "~/dev/action", agents: [{ n: "Action", r: "Relay agent", t: "claude · stream-json", u: "1d", on: true }] },
+    { p: "dewey", path: "~/dev/dewey", agents: [{ n: "Dewey", r: "Relay agent", t: "claude · stream-json", u: "1d", on: true }] },
+    { p: "iris", path: "~/dev/iris", agents: [{ n: "Iris", r: "Relay agent", t: "claude · stream-json", u: "1d", on: true }] },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool>
+        <span className="font-mono text-[10px] text-studio-ink-faint">filter · projects · agents · sessions</span>
+        <div className="ml-auto flex items-center gap-1.5"><CPill active>cards</CPill><CPill>tree</CPill><CPill>24h</CPill><CPill>claude 14</CPill></div>
+      </CTool>
+      <CScroll>
+        {groups.map((g) => (
+          <div key={g.p}>
+            <CGroupLabel name={g.p} path={g.path} meta={`${g.agents.length} agents`} />
+            {g.agents.map((a) => (
+              <CRow key={a.n} sel={a.n === selected}>
+                <Dotc on={a.on} />
+                <span className="font-mono text-[11.5px]" style={{ color: a.n === selected ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{a.n}</span>
+                <span className="font-mono text-[9px] text-studio-ink-faint">{a.r}</span>
+                <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink-faint">{a.t}</span>
+                <span className="w-7 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{a.u}</span>
+              </CRow>
+            ))}
+          </div>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* SESSIONS */
+function SessionsCenter() {
+  const rows = [
+    { n: "relay-action-claude", s: "claude · active", u: "1d", on: true, sel: false },
+    { n: "talkie · 019eb9da", s: "codex · raw", u: "1d", on: true },
+    { n: "openscout · 9919802e", s: "claude · raw", u: "2d", on: false },
+    { n: "hudson · 60e0bc94", s: "claude · live", u: "2m", on: true },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">sessions</span><div className="ml-auto flex gap-1.5"><CPill active>scout</CPill><CPill>raw</CPill><CPill>live</CPill></div></CTool>
+      <CScroll>
+        {rows.map((r) => (
+          <CRow key={r.n}>
+            <Dotc on={r.on} />
+            <span className="font-mono text-[11px] text-studio-ink-muted">{r.n}</span>
+            <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.s}</span>
+            <span className="w-7 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+          </CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* TERMINAL — full pane */
+function TerminalCenter() {
+  const lines = [
+    "art@arts-mac-mini openscout %  bun bin/scout-app.ts dev-build",
+    "→ resolving HudsonKit (HUDSONKIT_WITH_VOICE=1)…",
+    "→ compiling Scout",
+    "   • ScoutRootView.swift",
+    "   • ScoutAgentsTree.swift",
+    "   • ScoutSessionService.swift",
+    "   • SpriteAvatarView.swift",
+    "✓ build succeeded · 8.42s",
+    "› signing OpenScout.app",
+    "› relaunching Scout (pid 48213)",
+    "[scout] broker up on :6400 · mesh discoverable",
+    "[scout] 25 agents registered · 0 working",
+    "_",
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">Action</span><span className="font-mono text-[9px] text-studio-ink-faint">tmux · 132×44</span><div className="ml-auto"><CPill active>observe</CPill></div></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden p-3.5" style={{ background: INK.canvas }}>
+        <pre className="whitespace-pre-wrap font-mono text-[9.5px] leading-relaxed text-studio-ink-faint">{lines.join("\n")}</pre>
+      </div>
+    </div>
+  );
+}
+
+/* CONVERSATION / CHANNEL — message turns */
+function Turn({ who, harness, text }: { who: string; harness: string; text: string }) {
+  return (
+    <div className="flex gap-2.5 px-1.5 py-2.5">
+      <Mono label={who.charAt(0)} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2"><span className="font-mono text-[11px] text-studio-ink">{who}</span><span className="font-mono text-[8.5px] text-studio-ink-faint">{harness}</span></div>
+        <p className="mt-1 font-mono text-[10.5px] leading-relaxed text-studio-ink-muted">{text}</p>
+      </div>
+    </div>
+  );
+}
+function Composer() {
+  return <div className="flex flex-none items-center gap-2 px-3 py-2.5" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}><div className="flex-1 rounded-[6px] px-3 py-2 font-mono text-[10px] text-studio-ink-faint" style={{ border: `1px solid ${INK.edge}` }}>Message…</div><button className="rounded-[5px] px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ background: ACCENT, color: INK.canvas }}>Send</button></div>;
+}
+function ConversationCenter() {
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">Hudson</span><span className="font-mono text-[9px] text-studio-ink-faint">@hudson</span></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
+        <Turn who="You" harness="" text="Can you pull AgentRow into a shared atom? It's duplicated across three screens." />
+        <Turn who="Hudson" harness="claude" text="On it. Moving it into scout/atoms and updating the call sites." />
+        <Turn who="Hudson" harness="claude" text="Pulled AgentRow into a shared atom — three call sites updated, types check. Want me to push?" />
+      </div>
+      <Composer />
+    </div>
+  );
+}
+function ChannelCenter() {
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-muted">#general</span><span className="font-mono text-[9px] text-studio-ink-faint">4 people · project dewey</span></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
+        <Turn who="Dewey" harness="claude" text="Standup digest is ready — 5 agents active, 3 PRs awaiting review." />
+        <Turn who="Hudson" harness="claude" text="Picking up the audit trail work. Will post when the diff is clean." />
+        <Turn who="Iris" harness="claude" text="Iconography pass done; merged into main." />
+      </div>
+      <Composer />
+    </div>
+  );
+}
+
+/* SEARCH — results list */
+function SearchCenter() {
+  const rows = [
+    { t: "AgentRow shared atom", s: "Pulled AgentRow into a shared atom — three call sites…", m: "openscout · claude", sel: true },
+    { t: "Inspector slot routing", s: "ScoutInspector switches on route.view across 14 modes…", m: "openscout · claude" },
+    { t: "Repo watch churn bar", s: "Diverging churn treatment for the repo inspector…", m: "openscout · codex" },
+    { t: "Tail event normalization", s: "Mapping SYS/ASST/TOOL/OUT into a single event kind…", m: "talkie · codex" },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><div className="flex flex-1 items-center gap-2 rounded-[6px] px-2.5 py-1.5" style={{ border: `1px solid ${INK.edge}` }}><span className="font-mono text-[10px] text-studio-ink-faint">⌕</span><span className="font-mono text-[10px] text-studio-ink-muted">agent row</span></div><CPill active>knowledge</CPill></CTool>
+      <CScroll>
+        {rows.map((r) => (
+          <CRow key={r.t} sel={r.sel}>
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-[11px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.t}</div>
+              <div className="truncate font-mono text-[9px] text-studio-ink-faint">{r.s}</div>
+            </div>
+            <span className="flex-none font-mono text-[8.5px] text-studio-ink-faint">{r.m}</span>
+          </CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* MISSION — attention board */
+function MissionCenter() {
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">mission control</span><div className="ml-auto"><CPill>24h</CPill></div></CTool>
+      <CScroll>
+        <CGroupLabel name="Needs attention" meta="0" />
+        <div className="px-2 py-1.5 font-mono text-[10px] text-studio-ink-faint">No operator cues. The fleet is quiet.</div>
+        <CGroupLabel name="Active runs" meta="3" />
+        {[{ n: "repo-watch-converge-map", w: "5 workers" }, { n: "web-taxonomy", w: "8 workers" }, { n: "talkie-bridge-security-audit", w: "78 workers" }].map((r) => (
+          <CRow key={r.n}><Dotc on /><Tag>workflow</Tag><span className="font-mono text-[11px] text-studio-ink-muted">{r.n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.w}</span></CRow>
+        ))}
+        <CGroupLabel name="Agent pulse" meta="25" />
+        {["Action", "Hudson", "Grok Hudson", "Dewey"].map((n) => (
+          <CRow key={n}><Dotc on /><span className="font-mono text-[11px] text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">available · 1d</span></CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* PLAN — document */
+function PlanCenter() {
+  const steps: { m: string; t: string; done?: boolean; active?: boolean }[] = [
+    { m: "x", t: "Inventory the app's inspectors", done: true },
+    { m: "x", t: "Lift the structure vocabulary from CONTEXT", done: true },
+    { m: ">", t: "Render the full inspector set in context", active: true },
+    { m: " ", t: "Port the grammar to native SwiftUI" },
+    { m: " ", t: "Sign-off and ship" },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">docs/plan.md</span></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden px-6 py-5">
+        <div className="font-mono text-[16px] text-studio-ink">Inspector sidebar</div>
+        <p className="mt-3 max-w-prose font-mono text-[10.5px] leading-relaxed text-studio-ink-faint">The right-side inspector, in the Instrument language. Anchored on the real surfaces, structure lifted from the live CONTEXT panel, one accent.</p>
+        <div className="mt-5 font-mono text-[9px] font-semibold uppercase tracking-[0.16em] text-studio-ink-faint">Checklist</div>
+        <div className="mt-2 flex flex-col gap-1.5">
+          {steps.map((s, i) => (
+            <div key={i} className="flex items-center gap-2.5">
+              <span className="w-3 text-center font-mono text-[11px]" style={{ color: s.active ? ACCENT : "var(--studio-ink-faint)" }}>{s.m}</span>
+              <span className="font-mono text-[11px]" style={{ color: s.done ? "var(--studio-ink-faint)" : "var(--studio-ink-muted)" }}>{s.t}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* TAIL — firehose */
+function TailCenter() {
+  const rows = [
+    { t: "00:01:42", k: "tool", m: "exec_command({\"cmd\":\"git status --short\"})" },
+    { t: "00:01:42", k: "out", m: "→ Chunk ID: d4eb44 · 0.0000s" },
+    { t: "00:01:50", k: "sys", m: "[reasoning]" },
+    { t: "00:01:55", k: "asst", m: "Done. I tightened the selector geometry and quieted the idle pulse…", sel: true },
+    { t: "00:01:55", k: "sys", m: "tokens · 13,114,464" },
+    { t: "00:01:55", k: "sys", m: "task complete" },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><Dotc on /><span className="font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-[9px] text-studio-ink-faint">40 · 19 · 0.0 t/s</span><div className="ml-auto"><CPill>pause</CPill></div></CTool>
+      <CScroll>
+        {rows.map((r, i) => (
+          <CRow key={i} sel={r.sel}>
+            <span className="font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.t}</span>
+            <Tag>{r.k}</Tag>
+            <span className="truncate font-mono text-[10px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.m}</span>
+          </CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* DISPATCH — broker ledger */
+function DispatchCenter() {
+  const rows = [
+    { k: "ask", d: "arts → hudson", u: "1m", on: true },
+    { k: "channel", d: "#general", u: "2m", on: true },
+    { k: "deliver", d: "hudson → atlas · failed", u: "2m", on: false },
+    { k: "dm", d: "dewey → you", u: "4m", on: true },
+    { k: "ask", d: "arts → iris", u: "6m", on: true },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">dispatch ledger</span><span className="font-mono text-[9px] text-studio-ink-faint">142 routes</span></CTool>
+      <CScroll>
+        {rows.map((r, i) => (
+          <CRow key={i}>
+            <span className="h-[7px] w-[7px] flex-none rounded-full" style={{ background: r.on ? ACCENT : DEL }} />
+            <Tag>{r.k}</Tag>
+            <span className="font-mono text-[10.5px] text-studio-ink-muted">{r.d}</span>
+            <span className="ml-auto font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+          </CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* MESH — node list */
+function MeshCenter() {
+  const rows = [
+    { n: "arts-mac-mini", h: "this broker · 25 agents", u: "now", sel: true, on: true },
+    { n: "arts-studio", h: "peer · 4 agents", u: "1m", on: true },
+    { n: "hudson-box", h: "peer · 2 agents", u: "3m", on: true },
+    { n: "talkie-ci", h: "tailnet · offline", u: "2h", on: false },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">mesh · openscout</span><div className="ml-auto"><CPill active>discoverable</CPill></div></CTool>
+      <CScroll>
+        {rows.map((r) => (
+          <CRow key={r.n} sel={r.sel}>
+            <Dotc on={r.on} />
+            <span className="font-mono text-[11px]" style={{ color: r.sel ? "var(--studio-ink)" : "var(--studio-ink-muted)" }}>{r.n}</span>
+            <span className="ml-auto font-mono text-[9px] text-studio-ink-faint">{r.h}</span>
+            <span className="w-8 text-right font-mono text-[9px] tabular-nums text-studio-ink-faint">{r.u}</span>
+          </CRow>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* REPOS — repo · worktree table */
+function ReposCenter() {
+  const repos = [
+    { n: "lattices", path: "~/dev/lattices", sel: true, wts: [{ b: "main", a: 491, d: 102, ag: "@lattices" }] },
+    { n: "preface", path: "~/dev/preface", wts: [{ b: "main", a: 68, d: 15, ag: "@preface" }] },
+    { n: "openscout", path: "~/dev/openscout", wts: [{ b: "main", a: 12, d: 4, ag: "@claude +2" }] },
+  ];
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><Dotc on /><span className="font-mono text-[10px] uppercase tracking-[0.1em] text-studio-ink-muted">live</span><span className="font-mono text-[9px] text-studio-ink-faint">10 repos · 3 attn</span><div className="ml-auto flex gap-1.5"><CPill active>table</CPill><CPill>drift</CPill></div></CTool>
+      <CScroll>
+        {repos.map((r) => (
+          <div key={r.n}>
+            <CGroupLabel name={r.n} path={r.path} meta={r.sel ? "dirty" : "idle"} />
+            {r.wts.map((w) => (
+              <CRow key={w.b} sel={r.sel}>
+                <span className="font-mono text-[10.5px] text-studio-ink-muted">{w.b}</span>
+                <span className="ml-auto font-mono text-[9.5px] tabular-nums"><span style={{ color: ADD }}>+{w.a}</span> <span style={{ color: DEL }}>−{w.d}</span></span>
+                <span className="w-20 text-right font-mono text-[8.5px] text-studio-ink-faint">{w.ag}</span>
+              </CRow>
+            ))}
+          </div>
+        ))}
+      </CScroll>
+    </div>
+  );
+}
+
+/* WORK — case feed */
+function WorkCenter() {
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><Dotc on /><span className="font-mono text-[10px] text-studio-ink-muted">Refactor AgentRow</span><span className="font-mono text-[9px] text-studio-ink-faint">build · Hudson</span></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden px-2.5 py-1">
+        <Turn who="Hudson" harness="flight started" text="Reviewing 8 commits for type safety across the three call sites." />
+        <Turn who="Hudson" harness="message" text="Pulled AgentRow into a shared atom — three call sites updated." />
+        <Turn who="Hudson" harness="flight done" text="Types check, tests pass. Ready to merge — handing to Arach." />
+      </div>
+    </div>
+  );
+}
+
+function HomeCenter() {
+  return (
+    <div className="flex h-full flex-col">
+      <CTool><span className="font-mono text-[10px] text-studio-ink-faint">home · inbox</span></CTool>
+      <div className="min-h-0 flex-1 overflow-hidden px-5 py-4">
+        <div className="font-mono text-[13px] text-studio-ink">Morning fleet status</div>
+        <p className="mt-2 max-w-prose font-mono text-[10.5px] leading-relaxed text-studio-ink-faint">25 agents active across 15 projects. 0 working, 25 ready. 3 workflows in flight; no operator cues.</p>
+        <div className="mt-5"><CGroupLabel name="Ready" meta="5" /></div>
+        {["Action", "Hudson", "Dewey", "Iris", "Lattices"].map((n) => (
+          <CRow key={n}><Dotc on /><span className="font-mono text-[11px] text-studio-ink-muted">{n}</span><span className="ml-auto font-mono text-[9px] text-studio-ink-faint">1d</span></CRow>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function centerFor(id: string): React.ReactNode {
+  switch (id) {
+    case "roster": return <HomeCenter />;
+    case "agents-context": return <AgentsCenter />;
+    case "agent": return <AgentsCenter selected="Action" />;
+    case "sessions": return <SessionsCenter />;
+    case "terminal": return <TerminalCenter />;
+    case "conversation": return <ConversationCenter />;
+    case "channel": return <ChannelCenter />;
+    case "search": return <SearchCenter />;
+    case "mission": return <MissionCenter />;
+    case "plan": return <PlanCenter />;
+    case "tail": return <TailCenter />;
+    case "dispatch": return <DispatchCenter />;
+    case "mesh": return <MeshCenter />;
+    case "repo": return <ReposCenter />;
+    case "work": return <WorkCenter />;
+    default: return null;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    SURFACE REGISTRY + IN-CONTEXT WINDOW
    ═══════════════════════════════════════════════════════════════════════════ */
 
@@ -765,37 +1164,6 @@ function Lights() {
       <span className="h-[11px] w-[11px] rounded-full" style={{ background: "#FF5F57" }} />
       <span className="h-[11px] w-[11px] rounded-full" style={{ background: "#FEBC2E" }} />
       <span className="h-[11px] w-[11px] rounded-full" style={{ background: "#28C840" }} />
-    </div>
-  );
-}
-
-function CenterSkeleton({ shape }: { shape: Shape }) {
-  return (
-    <div className="absolute inset-0 flex flex-col gap-[9px] p-4 opacity-[0.12]">
-      {Array.from({ length: 14 }).map((_, i) => {
-        if (shape === "log") return (
-          <div key={i} className="flex items-center gap-2">
-            <div className="h-2 w-12 rounded" style={{ background: INK.edgeSoft }} />
-            <div className="h-2 w-8 rounded" style={{ background: INK.edge }} />
-            <div className="h-2 rounded" style={{ width: `${45 + ((i * 31) % 40)}%`, background: INK.edgeSoft }} />
-          </div>
-        );
-        if (shape === "table") return (
-          <div key={i} className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full" style={{ background: INK.edge }} />
-            <div className="h-2 rounded" style={{ width: `${22 + ((i * 17) % 18)}%`, background: INK.edgeSoft }} />
-            <div className="ml-auto h-2 w-10 rounded" style={{ background: INK.edgeSoft }} />
-            <div className="h-2 w-6 rounded" style={{ background: INK.edge }} />
-          </div>
-        );
-        return (
-          <div key={i} className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full" style={{ background: INK.edge }} />
-            <div className="h-2 rounded" style={{ width: `${38 + ((i * 37) % 42)}%`, background: INK.edgeSoft }} />
-            <div className="ml-auto h-2 w-8 rounded" style={{ background: INK.edgeSoft }} />
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -848,9 +1216,8 @@ function InContext() {
 
         <div className="flex h-[604px]">
           <NavPanel selected={id} onSelect={setId} />
-          <div className="relative min-w-0 flex-1" style={{ borderRight: `1px solid ${INK.edgeSoft}`, background: INK.canvas }}>
-            <CenterSkeleton shape={surface.shape} />
-            <div className="absolute left-3 top-3 z-10 font-mono text-[8px] uppercase tracking-[0.14em]" style={{ color: INK.edge }}>center · separate study</div>
+          <div className="min-w-0 flex-1 overflow-hidden" style={{ borderRight: `1px solid ${INK.edgeSoft}`, background: INK.canvas }}>
+            {centerFor(id)}
           </div>
           {surface.render()}
         </div>
@@ -882,10 +1249,10 @@ export default function ScoutInspectorsPage() {
         <h1 className="font-display text-[34px] font-medium leading-[1.05] tracking-tight text-studio-ink">The inspector, in context</h1>
         <p className="mt-4 font-sans text-[14px] leading-relaxed text-studio-ink-faint">
           Every right-side inspector the app ships today, rendered as the actual
-          right rail inside the window shell. Pick a surface in the left nav; the
-          rail re-renders for that entity. Rows, steps and controls carry their
-          real treatment — hover to highlight, click to select. The center list
-          is dimmed; it's explored separately.
+          right rail inside the window shell, beside its real main view. Pick a
+          surface in the left nav; the center and the rail both re-render for
+          that entity, and the center's selection matches what the rail
+          inspects. Rows, steps and controls hover to highlight, click to select.
         </p>
       </header>
 

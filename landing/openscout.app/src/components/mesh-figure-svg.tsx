@@ -11,20 +11,23 @@ type MeshNode = {
   dy: number;
 };
 
-// Broker sits dead-centre; peers ring it so every route reads as broker→peer.
+// Broker is the hub, but the plate is deliberately asymmetric — spokes vary in
+// length and angle so the figure reads as a survey of a real network, not a
+// clip-art star. Label offsets are tuned so no line passes through a label.
 const BROKER = 5;
 
 const NODES: MeshNode[] = [
-  { x: 70,  y: 36,  label: "cli·hudson",   anchor: "start",  dx: 9,  dy: 3 },
-  { x: 200, y: 22,  label: "mac·atlas",    anchor: "middle", dx: 0,  dy: -10 },
-  { x: 330, y: 36,  label: "iphone·orin",  anchor: "end",    dx: -9, dy: 3 },
-  { x: 70,  y: 128, label: "ide·arc",      anchor: "start",  dx: 9,  dy: 3 },
-  { x: 330, y: 128, label: "web·echo",     anchor: "end",    dx: -9, dy: 3 },
-  { x: 200, y: 82,  label: "broker",       anchor: "middle", dx: 0,  dy: 19 },
+  { x: 58,  y: 34,  label: "cli·hudson",   anchor: "start",  dx: 8,  dy: 3 },
+  { x: 232, y: 26,  label: "mac·atlas",    anchor: "start",  dx: 7,  dy: -6 },
+  { x: 346, y: 62,  label: "iphone·orin",  anchor: "end",    dx: -3, dy: -9 },
+  { x: 92,  y: 118, label: "ide·arc",      anchor: "start",  dx: 9,  dy: 4 },
+  { x: 282, y: 126, label: "web·echo",     anchor: "start",  dx: 8,  dy: 3 },
+  { x: 172, y: 80,  label: "broker",       anchor: "middle", dx: 0,  dy: 17 },
 ];
 
-// Routes through the broker (heavier, solid). Peer-to-peer mesh links are
-// rendered separately, lighter, so the hub reads as the hub.
+// Routes through the broker (solid). Peer-to-peer mesh links are rendered
+// separately, dashed and quieter, and kept clearly diagonal so they never
+// mimic the card border.
 const ROUTES: number[] = [0, 1, 2, 3, 4];
 const MESH: [number, number][] = [
   [0, 3],
@@ -74,12 +77,11 @@ export function MeshFigureSvg() {
           return (
             <g key={n.label} transform={`translate(${n.x}, ${n.y})`}>
               <circle
-                r={isBroker ? 7 : 4}
+                r={isBroker ? 4.2 : 3}
                 className={
                   isBroker ? "mesh-figure__node--broker" : "mesh-figure__node--peer"
                 }
               />
-              {isBroker && <circle r="2.6" className="mesh-figure__node-core" />}
               <text
                 x={n.dx}
                 y={n.dy}
@@ -96,7 +98,7 @@ export function MeshFigureSvg() {
       </svg>
       <div className="mesh-figure__caption">
         <span className="mesh-figure__caption-num">Fig. 1.0 · Topology</span>
-        <span className="mesh-figure__caption-meta">broker + 5 peers · 1 mesh</span>
+        <span className="mesh-figure__caption-meta">broker + 5 peers · 2 mesh links</span>
       </div>
     </div>
   );

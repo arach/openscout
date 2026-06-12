@@ -11,6 +11,7 @@ import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import { docsComponents } from "./mdx-components";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
+import { SCOUT_VERSION } from "@/lib/version";
 
 const ArcDiagram: ComponentType<Record<string, unknown>> = dynamic(
   () => import("@arach/arc").then((m) => ({ default: m.ArcDiagram })) as any,
@@ -654,7 +655,7 @@ export function DocView({
               </span>
               <span className="status-bar__sep hidden sm:inline">·</span>
               <span className="status-bar__cell hidden sm:inline-flex">
-                <b>v0.2.65</b>
+                <b>v{SCOUT_VERSION}</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
               <span className="status-bar__cell hidden md:inline-flex">license pending</span>

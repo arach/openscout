@@ -3379,34 +3379,28 @@ html[data-site-theme="dark"] .scout-console {
 }
 
 .mesh-figure__link--route {
-  stroke: var(--site-copy);
-  stroke-width: 0.9;
-  opacity: 0.85;
+  stroke: var(--site-muted);
+  stroke-width: 0.8;
 }
 
 .mesh-figure__link--mesh {
-  stroke: var(--site-border-strong);
+  stroke: var(--site-muted-soft);
   stroke-width: 0.7;
-  stroke-dasharray: 2.5 2.5;
-  opacity: 0.5;
+  stroke-dasharray: 3 3;
 }
 
-/* Nodes — peers are solid ink; the broker is the section's one red spend. */
+/* Nodes — peers are solid ink; the broker is the section's one red spend.
+   Nodes draw after lines, so the paper ring crops the spoke knot cleanly. */
 .mesh-figure__node--peer {
   fill: var(--site-ink);
   stroke: var(--site-surface-strong);
-  stroke-width: 1;
+  stroke-width: 1.2;
 }
 
 .mesh-figure__node--broker {
   fill: var(--site-accent);
-  stroke: var(--site-accent);
-  stroke-width: 0.8;
-}
-
-.mesh-figure__node-core {
-  fill: var(--site-surface-strong);
-  pointer-events: none;
+  stroke: var(--site-surface-strong);
+  stroke-width: 1.2;
 }
 
 .mesh-figure__label {
@@ -3420,7 +3414,7 @@ html[data-site-theme="dark"] .scout-console {
 .mesh-figure__label--broker {
   fill: var(--site-ink);
   font-size: 8px;
-  font-weight: 700;
+  font-weight: 600;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   letter-spacing: 0.02em;
 }

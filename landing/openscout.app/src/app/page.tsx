@@ -23,6 +23,7 @@ import { ScoutConsole } from "@/components/scout-console";
 import { MeshFigureSvg } from "@/components/mesh-figure-svg";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
+import { SCOUT_VERSION } from "@/lib/version";
 import openscoutManifest from "../../public/.well-known/scout.json";
 
 type AudienceMode = "general" | "technical" | "agent";
@@ -574,7 +575,7 @@ const SCHEMA_ORG_LD = {
   name: "OpenScout",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS, Linux",
-  softwareVersion: "0.2.65",
+  softwareVersion: SCOUT_VERSION,
   url: "https://openscout.app",
   codeRepository: "https://github.com/arach/openscout",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -1309,7 +1310,7 @@ export default function Home() {
                   <span>online</span>
                 </span>
                 <span className="status-bar__cell">
-                  <b>v0.2.65</b>
+                  <b>v{SCOUT_VERSION}</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
                   license pending
