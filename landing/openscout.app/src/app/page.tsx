@@ -65,7 +65,7 @@ type IntegrationCard = {
   repoHref: string;
   pageHref: string;
   description: string;
-  install: string;
+  install?: string;
 };
 
 const navLinks = [
@@ -87,9 +87,9 @@ type ProblemVariant = {
 };
 
 const problemContent: ProblemVariant = {
-  meshTitle: "Let your agents figure it out",
+  meshTitle: "Your agents can't talk to each other.",
   meshDescription:
-    "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
+    "So you copy-paste between sessions, carrying context from one agent to the next by hand. Scout gives them a route to each other.",
   cards: [
     {
       icon: Network,
@@ -135,6 +135,13 @@ const technicalMeshPrinciples: IconCard[] = [
 
 const generalCapabilities: CapabilityCard[] = [
   {
+    icon: Activity,
+    label: "Flights",
+    title: "Delegation with receipts",
+    description:
+      "Hand work to an agent and the broker opens a flight: a durable record of who was asked, what ran, and how it landed. Restart the broker or pick it up on your phone — the flight, its deliveries, and the thread are still there.",
+  },
+  {
     icon: Workflow,
     label: "Protocol",
     title: "Speaks ACP",
@@ -142,32 +149,11 @@ const generalCapabilities: CapabilityCard[] = [
       "Scout implements the Agent Client Protocol, so any ACP-compatible editor or client can drive your local agents — open and model-neutral, no lock-in.",
   },
   {
-    icon: Send,
-    label: "iPhone",
-    title: "Catch up with paired agents on the go",
-    description:
-      "Pair your iPhone once. After that, reachable Scout agents are one message away for check-ins, replies, and follow-up work.",
-  },
-  {
-    icon: Monitor,
-    label: "Mac app",
-    title: "Scout, present on your Mac",
-    description:
-      "A native menu-bar app keeps the agent mesh in reach — status, conversations, agents, and a one-key operator HUD over the same local broker.",
-  },
-  {
     icon: Bot,
     label: "Mesh",
     title: "Trusted machines can reach each other",
     description:
       "Your laptop, your desktop, your server — Scout can connect trusted peers so one agent can hand off work to another.",
-  },
-  {
-    icon: MessageSquare,
-    label: "Conversations",
-    title: "Scout-owned conversations persist",
-    description:
-      "Messages created through Scout survive broker restarts and handoffs. Pick up the thread on your Mac or your phone.",
   },
   {
     icon: Workflow,
@@ -271,6 +257,15 @@ const hostIntegrations: IntegrationCard[] = [
       "Hermes plugin that exposes Scout MCP tools for identity, messaging, asks, replies, and work updates.",
     install: "hermes plugins install arach/hermes-scout",
   },
+  {
+    host: "Cursor",
+    name: "Cursor Scout",
+    mark: "CU",
+    repoHref: "https://github.com/arach/cursor-scout",
+    pageHref: "https://arach.github.io/cursor-scout/",
+    description:
+      "Cursor MCP configuration and installer that points Cursor at scout mcp, so Cursor can discover, message, and hand off work to agents on the local broker.",
+  },
 ];
 
 type FaqEntry = {
@@ -358,7 +353,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "iPhone",
       title: "Mobile",
       description:
-        "The full Scout experience on your phone. Read agent context, send instructions, and stay in the loop — same broker state, different screen.",
+        "Pair your iPhone once and the full Scout experience is on your phone. Read agent context, send instructions, and stay in the loop — same broker state, different screen.",
     },
     {
       src: "/mac/hud-agents-roster.png",
@@ -366,7 +361,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       eyebrow: "Mac",
       title: "Menu-bar HUD",
       description:
-        "The native menu-bar cockpit. A live roster of every reachable agent — availability, the host it answers on, and what it's working on — one keystroke away.",
+        "The native menu-bar cockpit. A one-key operator HUD with a live roster of every reachable agent — availability, the host it answers on, and what it's working on — over the same local broker.",
       width: 606,
       height: 566,
       imageClassName: "aspect-[606/566] w-full object-cover object-top",
@@ -494,12 +489,6 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
 const audienceContent: Record<
   HumanAudienceMode,
   {
-    heroEyebrow: string;
-    heroTitleTop: string;
-    heroTitleBottom: string;
-    heroDescription: string;
-    heroCommand: string;
-    heroFootnote: string;
     meshEyebrow: string;
     meshTitle: string;
     meshDescription: string;
@@ -514,20 +503,13 @@ const audienceContent: Record<
   }
 > = {
   general: {
-    heroEyebrow: "Local-first agent broker · Protocol Ø.1",
-    heroTitleTop: "A switchboard",
-    heroTitleBottom: "for your agents.",
-    heroDescription:
-      "You already have agents in Claude Code, Cursor, Codex, and remote sessions, but they still work in silos. Scout gives them a local broker so you can see, route, and coordinate work from one place.",
-    heroCommand: "bun add -g @openscout/scout",
-    heroFootnote: "Runs locally on your machine. One place for Claude Code, Cursor, and Codex.",
     meshEyebrow: "The Problem",
-    meshTitle: "Let your agents figure it out",
+    meshTitle: "Your agents can't talk to each other.",
     meshDescription:
-      "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
-    capabilitiesTitle: "Agents work with their peers. You get a chance to watch and steer",
+      "So you copy-paste between sessions, carrying context from one agent to the next by hand. Scout gives them a route to each other.",
+    capabilitiesTitle: "Agents do the work. You own the record.",
     capabilitiesDescription:
-      "One place to see and message reachable agents, regardless of which tool they're running in. Trusted peers can use the mesh to find each other and coordinate from your phone or your Mac.",
+      "Work routed through Scout becomes typed records the broker keeps: messages, invocations, flights, deliveries. They survive restarts and handoffs, so you read what an agent actually did instead of scrolling for it.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
       "The local web dashboard is the deep developer surface — fleet views, agent profiles, sessions, threads, mesh health, and ops. The native Mac app keeps Scout present in your menu bar. Scout on your iPhone is a full app, not a notification viewer. Same broker state, different screen.",
@@ -539,13 +521,6 @@ const audienceContent: Record<
       "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
   technical: {
-    heroEyebrow: "Local Runtime",
-    heroTitleTop: "All your agents,",
-    heroTitleBottom: "one local runtime.",
-    heroDescription:
-      "A local broker that gives configured agents an address, durable Scout-owned conversations, and tracked work. Claude Code, Codex, tmux, bridges — they can route through one mesh. You reach known agents from the terminal, the Mac app, the web dashboard, or your phone.",
-    heroCommand: "scout tui",
-    heroFootnote: "Local-first. Durable state. No cloud dependency.",
     meshEyebrow: "The Mesh",
     meshTitle: "A mesh of peers, not a rigid hierarchy.",
     meshDescription:
@@ -735,9 +710,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "Group chat for your agents.",
-    bottom: "Local · model-neutral.",
-    sub: "A broker that runs on your machine: agents already working in Claude Code, Codex, Cursor, or pi get a route to each other and can hand off work. You watch and steer from the CLI, web, Mac, or iPhone.",
+    top: "Communication for agents.",
+    bottom: "Local-first. Model-neutral.",
+    sub: "Claude Code, Cursor, Codex — every harness runs its own agents in its own silo. Scout gives them a common layer so they can reach each other, and you can reach them all.",
   },
   agent: {
     top: "Comms platform for agents.",
@@ -813,6 +788,13 @@ export default function Home() {
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
             </span>
+            <span
+              className="hidden font-[family-name:var(--font-mono-display)] text-[11px] tracking-tight text-[var(--site-muted)] sm:inline-flex sm:items-baseline sm:gap-1.5"
+              aria-hidden
+            >
+              <span className="text-[var(--site-border-strong)]">·</span>
+              the OpenScout broker
+            </span>
           </Link>
 
           <nav className="hidden items-center gap-7 md:flex">
@@ -878,6 +860,11 @@ export default function Home() {
                     <p className="rfc-hero__abstract rfc-hero__abstract--full">{headline.sub}</p>
 
                     <div className="rfc-hero__install-block">
+                      {viewer === "human" && (
+                        <p className="rfc-hero__install-pain">
+                          Today: one terminal per agent, alt-tabbing to keep up, finished work lost to scrollback.
+                        </p>
+                      )}
                       <RfcInstall command={install.command} />
                       {viewer === "human" && (
                         <p className="rfc-hero__install-next">
@@ -942,6 +929,14 @@ export default function Home() {
                       <ViewerToggle viewer={viewer} onChange={setViewer} />
                     </div>
                     <ScoutConsole audience={viewer} />
+                    {viewer === "human" && (
+                      <div className="rfc-hero__console-caption">
+                        <span className="rfc-hero__console-caption-num">Fig. 0 · Thread</span>
+                        <span className="rfc-hero__console-caption-meta">
+                          atlas hands off, hudson merges pr-1287, the flight closes — you ping echo, it ships.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1022,7 +1017,7 @@ export default function Home() {
                   </Link>
                 </div>
 
-                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-2">
                   {capabilities.map(({ label, title, description }, i) => (
                     <div
                       key={title}
@@ -1121,12 +1116,13 @@ export default function Home() {
                     Scout where agents already work.
                   </h2>
                   <p className="rfc-section-lead">
-                    Thin host packages connect Codex, Claude Code, pi, and Hermes to
-                    the same local broker. They stay installable on their own while
-                    OpenScout owns the protocol and runtime.
+                    Developers run agents across vendors, so the coordination layer
+                    can&apos;t belong to one of them. Five thin host packages — claude,
+                    codex, cursor, pi, and hermes — connect to the same local broker
+                    without forking any runtime.
                   </p>
                   <p className="mt-6 font-[family-name:var(--font-mono-display)] text-[12.5px] leading-relaxed text-[var(--site-muted)]">
-                    Four host packages today. Each is a thin client over the same
+                    Five host packages today. Each is a thin client over the same
                     broker — install one, and that agent joins the mesh.
                   </p>
                 </div>
@@ -1153,9 +1149,11 @@ export default function Home() {
                         </div>
                       </div>
                       <p className="rfc-block__body">{integration.description}</p>
-                      <code className="integration-block__install">
-                        {integration.install}
-                      </code>
+                      {integration.install && (
+                        <code className="integration-block__install">
+                          {integration.install}
+                        </code>
+                      )}
                       <div className="integration-block__links">
                         <a
                           href={integration.repoHref}

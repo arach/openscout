@@ -681,6 +681,46 @@ html[data-site-theme="dark"] .dot-grid {
   margin: 0.45rem 0 0;
 }
 
+/* Pain line above the install pill — small mono, muted, no border, no accent.
+   States the status quo so the pill below answers it. */
+.rfc-hero__install-pain {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--site-muted);
+  margin: 0 0 0.15rem;
+  max-width: 52ch;
+}
+
+/* Hero console caption — same grammar as .mesh-figure__caption (dashed top
+   hairline, red caption-num, muted caption-meta) but placed below the dark
+   card. Meta line is long, so num + meta stack rather than space-between. */
+.rfc-hero__console-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0.2rem 0;
+  margin-top: 0.7rem;
+  border-top: 1px dashed var(--site-border-soft);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+}
+
+.rfc-hero__console-caption-num {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--site-accent);
+  font-weight: 600;
+}
+
+.rfc-hero__console-caption-meta {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  line-height: 1.55;
+  color: var(--site-muted);
+}
+
 .rfc-hero__schema-link a {
   color: var(--site-copy);
   text-decoration: underline;
