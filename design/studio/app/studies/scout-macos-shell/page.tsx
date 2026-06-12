@@ -2093,32 +2093,52 @@ function iconRefresh() {
 export default function ScoutMacOSShellPage() {
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <header className="mb-10 max-w-prose">
-        <EyebrowLabel size="sm">· studies · macos · shell</EyebrowLabel>
-        <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
-          Scout macOS shell
-        </h1>
-        <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-          The design direction for the four screens in the Scout macOS
-          app — <span className="text-studio-ink-muted">Comms</span>,{" "}
-          <span className="text-studio-ink-muted">Agents</span>,{" "}
-          <span className="text-studio-ink-muted">Tail</span>, and{" "}
-          <span className="text-studio-ink-muted">Repos</span> — projected
-          from the current state below. Each projection is a deliberate
-          departure rather than a polish pass; the proof is the mockup,
-          the rationale is on the card. Settle one at a time; a
-          projection becomes the new current only after the
-          corresponding Swift port ships.
-        </p>
+      {/* Hero header — the page's anchor. Gradient surface, accent strip,
+          stat row. Sets the visual tone for the whole page. */}
+      <header className="relative mb-12 overflow-hidden rounded-lg border border-studio-edge bg-gradient-to-br from-studio-surface via-studio-canvas-alt to-studio-canvas">
+        <div
+          aria-hidden
+          className="absolute left-0 top-0 h-full w-[3px]"
+          style={{ background: "var(--scout-accent)" }}
+        />
+        <div className="relative px-8 py-9 pl-10">
+          <EyebrowLabel size="sm">· studies · macos · shell</EyebrowLabel>
+          <h1 className="mt-2 font-display text-[36px] font-medium leading-[1.05] tracking-tight text-studio-ink">
+            Scout macOS shell
+          </h1>
+          <p className="mt-4 max-w-prose font-sans text-[13.5px] leading-relaxed text-studio-ink-faint">
+            The design direction for the four screens in the Scout macOS
+            app — <span className="text-studio-ink-muted">Comms</span>,{" "}
+            <span className="text-studio-ink-muted">Agents</span>,{" "}
+            <span className="text-studio-ink-muted">Tail</span>, and{" "}
+            <span className="text-studio-ink-muted">Repos</span> — projected
+            from the current state below. The design language (§3) is the
+            chrome and the block library the four screens are composed
+            from; the Comms spec at{" "}
+            <a
+              href="/studies/scout-comms-inspector"
+              className="text-scout-accent hover:underline"
+            >
+              /studies/scout-comms-inspector
+            </a>{" "}
+            is the worked example.
+          </p>
+
+          {/* Stat row — gives the page a sense of scope at a glance. */}
+          <div className="mt-7 grid max-w-2xl grid-cols-2 gap-px overflow-hidden rounded-md border border-studio-edge bg-studio-edge sm:grid-cols-4">
+            <HeroStat label="Screens" value="4" note="Comms · Agents · Tail · Repos" />
+            <HeroStat label="Grammar" value="9" note="chrome rules" />
+            <HeroStat label="Blocks" value="14" note="inspector atoms" />
+            <HeroStat label="Entity fields" value="19" note="InspectorEntity" />
+          </div>
+        </div>
       </header>
 
       {/* ────────────────────────────────────────────────────────────
           §1 — Projected state
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §1 · Projected state
-        </h2>
+        <SectionHeader n="1" title="Projected state" kicker="the design direction" />
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           The design direction. One concrete redesign per screen, each
           addressing an open question from the live app. Windows are at
@@ -2173,9 +2193,7 @@ export default function ScoutMacOSShellPage() {
           §2 — Current state — baseline
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §2 · Current state — baseline
-        </h2>
+        <SectionHeader n="2" title="Current state" kicker="the baseline" />
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           The live app as it ships today — the baseline §1 was projected
           from. Each window uses real data from the recent screenshots;
@@ -2223,9 +2241,7 @@ export default function ScoutMacOSShellPage() {
           §3 — The design language
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-12">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §3 · The design language
-        </h2>
+        <SectionHeader n="3" title="Design language" kicker="chrome · blocks · entity model" />
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           The shell chrome (the bits every screen shares), the inspector
           grammar (the chrome rules), the block library (the contents),
@@ -2318,51 +2334,21 @@ export default function ScoutMacOSShellPage() {
         <h3 className="mt-8 mb-3 font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
           §3.3 · Block library
         </h3>
-        <p className="mb-4 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
+        <p className="mb-5 max-w-prose font-sans text-[12.5px] leading-relaxed text-studio-ink-faint">
           The named set of blocks every inspector is composed from.
-          The visual specimens and the per-block docs used to live at{" "}
-          <code className="text-studio-ink-muted">/studies/inspector-system</code>{" "}
-          — that page is now folded into this section. The Comms
+          Each card shows the block rendered, the purpose, the
+          fields it reads, and which inspectors use it. The Comms
           spec at{" "}
           <a href="/studies/scout-comms-inspector" className="text-scout-accent hover:underline">
             /studies/scout-comms-inspector
           </a>{" "}
-          shows what the blocks look like rendered.
+          shows what a full inspector looks like assembled from
+          these.
         </p>
-        <div className="mb-8 overflow-hidden rounded-md border border-studio-edge">
-          <table className="w-full border-collapse font-sans text-[11.5px]">
-            <thead>
-              <tr className="bg-studio-canvas-alt text-left font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-                <th className="px-3 py-2">Block</th>
-                <th className="px-3 py-2">Purpose</th>
-                <th className="px-3 py-2">Reads</th>
-                <th className="px-3 py-2">Used by</th>
-                <th className="px-3 py-2">Cond?</th>
-              </tr>
-            </thead>
-            <tbody>
-              {BLOCKS.map((b, i) => (
-                <tr
-                  key={b.key}
-                  className={i % 2 === 0 ? "bg-studio-surface" : "bg-studio-canvas-alt"}
-                >
-                  <td className="px-3 py-2 align-top">
-                    <code className="font-mono text-[10.5px] text-studio-ink">{b.key}</code>
-                  </td>
-                  <td className="px-3 py-2 text-studio-ink-muted align-top">{b.purpose}</td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
-                    {b.reads}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
-                    {b.usedBy.join(", ")}
-                  </td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-studio-ink-faint align-top">
-                    {b.conditional ? "yes" : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mb-8 grid grid-cols-1 gap-3 md:grid-cols-2">
+          {BLOCKS.map((b) => (
+            <BlockSpecimen key={b.key} block={b} />
+          ))}
         </div>
 
         {/* §3.4 — Entity model */}
@@ -2457,9 +2443,7 @@ export default function ScoutMacOSShellPage() {
           §4 — Open design questions
           ──────────────────────────────────────────────────────────── */}
       <section className="mb-8">
-        <h2 className="mb-1 font-display text-[18px] font-medium tracking-tight text-studio-ink">
-          §4 · Open design questions
-        </h2>
+        <SectionHeader n="4" title="Open questions" kicker="what §1 + §3 don't answer" />
         <p className="mb-5 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Questions the projections in §1 raise but don't answer. Three
           questions from the prior draft (Comms w/o inspector, Tail's
@@ -2759,3 +2743,280 @@ const COMPOSITION_RULES: { title: string; body: string }[] = [
     body: "The inspector is 300px wide. Blocks are designed for that width and read at it. Going narrower or wider means re-validating every block; the SwiftUI InspectorFrame is the single place that owns the width.",
   },
 ];
+
+/* Hero stat — a single cell in the header's stat row. Big number, faint
+   label below, faint note below that. */
+function HeroStat({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="bg-studio-canvas px-4 py-3">
+      <div className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {label}
+      </div>
+      <div className="mt-1 font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">
+        {value}
+      </div>
+      <div className="mt-1 font-mono text-[9.5px] text-studio-ink-faint">{note}</div>
+    </div>
+  );
+}
+
+/* Block specimen — a card that shows a block rendered + its metadata.
+   The mini renderings are compact; the Comms spec at
+   /studies/scout-comms-inspector shows them at full inspector width. */
+function BlockSpecimen({ block }: { block: (typeof BLOCKS)[number] }) {
+  return (
+    <div className="flex flex-col gap-2.5 rounded-md border border-studio-edge bg-studio-canvas-alt p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <code className="font-mono text-[10.5px] font-semibold text-studio-ink">
+          {block.key}
+        </code>
+        <div className="flex items-center gap-1.5 font-mono text-[8.5px] uppercase tracking-eyebrow text-studio-ink-faint">
+          {block.conditional ? (
+            <span className="rounded-[2px] bg-status-warn-bg px-1 py-px text-status-warn-fg">
+              conditional
+            </span>
+          ) : null}
+          <span>{block.usedBy.length === 4 ? "all four" : block.usedBy.join(" · ")}</span>
+        </div>
+      </div>
+      <div className="rounded-md border border-studio-edge bg-studio-surface p-3">
+        {renderBlockSpecimen(block.key)}
+      </div>
+      <p className="font-sans text-[11.5px] leading-snug text-studio-ink-faint">
+        {block.purpose}
+      </p>
+      <div className="font-mono text-[9.5px] text-studio-ink-faint">
+        <span className="text-studio-ink-muted">reads </span>
+        {block.reads}
+      </div>
+    </div>
+  );
+}
+
+/* Mini specimens for each block. Compact — just enough to show the
+   shape, not full-width. */
+function renderBlockSpecimen(key: string) {
+  switch (key) {
+    case "identity":
+      return (
+        <div className="flex items-center gap-2">
+          <div className="grid h-[22px] w-[22px] place-items-center rounded-full bg-studio-canvas-alt font-mono text-[10px] text-studio-ink">
+            D
+          </div>
+          <div>
+            <div className="font-sans text-[12px] font-semibold text-studio-ink">Dewey</div>
+            <div className="font-mono text-[9px] text-studio-ink-faint">dewey.main.arts-mac-mini-local</div>
+          </div>
+        </div>
+      );
+    case "status":
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          {(["ok", "warn", "error", "info", "neutral"] as const).map((t) => (
+            <span
+              key={t}
+              className="inline-flex items-center gap-1 rounded-[3px] px-1.5 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+              style={{ background: `var(--status-${t}-bg)`, color: `var(--status-${t}-fg)` }}
+            >
+              <span className="block h-1.5 w-1.5 rounded-full bg-current" />
+              {t}
+            </span>
+          ))}
+        </div>
+      );
+    case "action-row":
+      return (
+        <div className="flex gap-1.5">
+          <span
+            className="rounded-[4px] border px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow"
+            style={{
+              background: "var(--scout-accent-soft)",
+              borderColor: "var(--scout-accent)",
+              color: "var(--scout-accent)",
+            }}
+          >
+            Open
+          </span>
+          <span className="rounded-[4px] border border-studio-edge bg-transparent px-2 py-0.5 font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+            + New
+          </span>
+        </div>
+      );
+    case "key-value":
+      return (
+        <div className="flex flex-col gap-1">
+          {kvRow("Role", "Relay agent")}
+          {kvRow("Harness", "claude")}
+          {kvRow("Transport", "claude_stream_json")}
+        </div>
+      );
+    case "project":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Project")}
+          {kvRow("Repo", "dewey")}
+          {kvRow("Branch", "main")}
+          {kvRow("Path", "~/dev/dewey")}
+        </div>
+      );
+    case "session":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Session")}
+          {kvRow("Id", "relay-action-claude")}
+          {kvRow("Active", "1d")}
+        </div>
+      );
+    case "worktrees":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Worktrees")}
+          {kvRow("Total", "1")}
+          {kvRow("Dirty", "1", "var(--status-warn-fg)")}
+        </div>
+      );
+    case "changes":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Changes")}
+          {kvRow("Staged", "0")}
+          {kvRow("Unstaged", "2", "var(--status-warn-fg)")}
+          {kvRow("Untracked", "0")}
+        </div>
+      );
+    case "attached":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Attached")}
+          {kvRow("Agents", "2")}
+          {kvRow("Sessions", "2")}
+        </div>
+      );
+    case "conversation":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Conversation")}
+          {kvRow("Last", "2m")}
+          {kvRow("Unread", "2", "var(--status-info-fg)")}
+          {kvRow("Kind", "DM")}
+        </div>
+      );
+    case "ask":
+      return (
+        <div className="flex flex-col gap-1.5">
+          {miniSectionTitle("Ask")}
+          <div className="flex items-center gap-1.5">
+            <span
+              className="rounded-[2px] px-1 py-px font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow"
+              style={{ background: "var(--status-warn-bg)", color: "var(--status-warn-fg)" }}
+            >
+              pending
+            </span>
+            <span className="font-mono text-[8.5px] text-studio-ink-faint">from Art</span>
+          </div>
+          <div className="font-sans text-[10px] leading-snug text-studio-ink-muted">
+            Review AgentHomeShellView — should overlay settings render before send?
+          </div>
+        </div>
+      );
+    case "stats":
+      return (
+        <div className="grid grid-cols-2 gap-1">
+          {[
+            ["Logs", "40"],
+            ["Processes", "19"],
+            ["Sessions", "4"],
+            ["Buffered", "700"],
+          ].map(([k, v]) => (
+            <div
+              key={k}
+              className="rounded-[4px] border border-studio-edge bg-studio-canvas-alt px-2 py-1"
+            >
+              <div className="font-mono text-[7.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+                {k}
+              </div>
+              <div className="mt-0.5 font-mono text-[15px] font-medium tabular-nums leading-none text-studio-ink">
+                {v}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    case "tracks":
+      return (
+        <div className="flex flex-col gap-1.5">
+          {miniSectionTitle("Tracks")}
+          <div>
+            <div className="font-sans text-[10px] font-semibold text-studio-ink">Transcript logs</div>
+            <div className="font-mono text-[8.5px] leading-snug text-studio-ink-faint">
+              Claude and Codex JSONL files discovered on disk.
+            </div>
+          </div>
+        </div>
+      );
+    case "description":
+      return (
+        <div className="flex flex-col gap-1">
+          {miniSectionTitle("Defaults")}
+          <div className="font-mono text-[9.5px] leading-snug text-studio-ink-faint">
+            Metadata includes records like model, title, permission-mode.
+          </div>
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+function kvRow(k: string, v: string, vColor?: string) {
+  return (
+    <div className="grid grid-cols-[56px_1fr] items-baseline gap-x-2">
+      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {k}
+      </span>
+      <span
+        className="truncate text-right font-mono text-[10px]"
+        style={{ color: vColor ?? "var(--studio-ink-muted)" }}
+      >
+        {v}
+      </span>
+    </div>
+  );
+}
+
+function miniSectionTitle(label: string) {
+  return (
+    <div>
+      <div
+        aria-hidden
+        className="mb-1 h-px w-3"
+        style={{ background: "var(--studio-edge-strong)" }}
+      />
+      <span className="font-mono text-[8.5px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+        {label}
+      </span>
+    </div>
+  );
+}
+
+/* Section header — title on the left, hairline rule in the middle, §N
+   label on the right. Creates a strong visual divider and consistent
+   rhythm across all four sections. */
+function SectionHeader({ n, title, kicker }: { n: string; title: string; kicker?: string }) {
+  return (
+    <header className="mb-4 flex items-baseline gap-4">
+      <h2 className="font-display text-[24px] font-medium leading-none tracking-tight text-studio-ink">
+        {title}
+      </h2>
+      <div className="h-px flex-1 bg-studio-edge" />
+      {kicker ? (
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          {kicker}
+        </span>
+      ) : null}
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-eyebrow text-scout-accent">
+        §{n}
+      </span>
+    </header>
+  );
+}
