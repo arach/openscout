@@ -281,6 +281,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The conversation surface broken out from the design system — recency groups, labeled filters, unread emphasis, ask answered/pending, pinned Ask, collapsible turns, composer hint. Carries the unreadCount + askState data contract for the native port.",
   },
   {
+    href: "/studies/scout-comms-inspector",
+    label: "Scout Comms · With Inspector",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-comms-inspector",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/scout-comms-inspector/page.tsx",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+      "design/studio/app/studies/inspector-grammar/page.tsx",
+    ],
+    blurb: "Focused iteration on adding a 300px right-rail inspector to the Comms surface. §1 is the port target (Dewey selected). §2 weighs three integration variants (always visible, pop on select, toolbar toggle) and recommends the always-visible one for consistency with Agents and Repos. §3 is the data contract — most fields are derivable, two need a join. §4 documents the four decisions that don't follow from the other three surfaces (primary action is 'Open', Ask is its own block, Project is its own block, status badge is 'Open' not 'available').",
+  },
+  {
     href: "/studies/scout-tail",
     label: "Scout Tail",
     bucket: "studies",
