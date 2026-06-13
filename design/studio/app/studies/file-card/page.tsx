@@ -12,12 +12,12 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import {
   FileCardCompact,
   FileCardPreview,
   FileCardStandard,
 } from "@/components/FileCard";
+import { resolveRepoPath } from "@/lib/repo-path";
 import { readFileStat, type FileStat } from "@/lib/repo-tree";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +31,14 @@ const SAMPLE_PATHS = [
   "design/studio/components/EngDocHeader.tsx",
 ] as const;
 
-const REPO_ROOT = path.resolve(process.cwd(), "..", "..");
-
 function loadExcerpt(relPath: string, lineCount = 12): string {
+  const resolved = resolveRepoPath(relPath);
+  if (!resolved) return "";
   try {
-    const raw = fs.readFileSync(path.join(REPO_ROOT, relPath), "utf8");
+    const raw = fs.readFileSync(
+      /* turbopackIgnore: true */ resolved.absolute,
+      "utf8",
+    );
     return raw.split("\n").slice(0, lineCount).join("\n");
   } catch {
     return "";
