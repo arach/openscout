@@ -26,6 +26,7 @@ import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 import { resolveScoutNativeThemeVars } from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
+import type { FocusedSession } from "../lib/session-catalog.ts";
 
 declare global {
   interface Window {
@@ -86,6 +87,11 @@ export interface ScoutContextValue {
   selectedKnowledgeQuery: string;
   inspectKnowledgeHit: (hit: KnowledgeHit, query?: string) => void;
   clearKnowledgeHit: () => void;
+
+  // The agent-profile session the center is exploring; the rail follows it so
+  // its session info + secondary actions track the center's selection.
+  focusedSession: FocusedSession | null;
+  focusSession: (agentId: string, sessionId: string) => void;
 
   openFilePreview: (path: string) => void;
   closeFilePreview: () => void;
@@ -220,6 +226,10 @@ export function ScoutProvider({
   const [selectedBrokerAttempt, setSelectedBrokerAttempt] = useState<BrokerRouteAttempt | null>(null);
   const [selectedKnowledgeHit, setSelectedKnowledgeHit] = useState<KnowledgeHit | null>(null);
   const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
+  const [focusedSession, setFocusedSession] = useState<FocusedSession | null>(null);
+  const focusSession = useCallback((agentId: string, sessionId: string) => {
+    setFocusedSession({ agentId, sessionId });
+  }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
@@ -387,6 +397,7 @@ export function ScoutProvider({
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
       selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
+      focusedSession, focusSession,
       openFilePreview, closeFilePreview,
     }),
     [
@@ -396,6 +407,7 @@ export function ScoutProvider({
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
       selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt,
       selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
+      focusedSession, focusSession,
       openFilePreview, closeFilePreview,
     ],
   );

@@ -13,6 +13,12 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
+import {
+  resolveActiveSessionId,
+  resolveSelectedSessionId,
+  sessionEngage,
+  sortSessionsByRecency,
+} from "../../lib/session-catalog.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
@@ -495,49 +501,122 @@ function AgentContextPanel({
     void load();
   });
 
-  // Focused-agent context card — no identity replay, metadata organized tightly
-  // and printed in one place (the center owns the avatar / name / state).
+  // Selection is shared with the center's session list (Provider) so the rail's
+  // session info + secondary actions follow whichever session is being explored.
+  const { focusedSession } = useScout();
+  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
+  const sortedSessions = useMemo(
+    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
+    [sessionCatalog?.sessions, activeSessionId],
+  );
+  const selectedSessionId = resolveSelectedSessionId(
+    agent.id,
+    focusedSession,
+    activeSessionId,
+    sortedSessions,
+  );
+  const selectedSession = sortedSessions.find((s) => s.id === selectedSessionId) ?? null;
+  const sessionActive = Boolean(
+    selectedSession && activeSessionId && selectedSession.id === activeSessionId,
+  );
+  const engage = selectedSession
+    ? sessionEngage(agent, sessionCatalog, selectedSession, sessionActive)
+    : { canObserve: false, canTakeover: false };
+
+  const observeTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
+  const takeoverTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+  // Take over a non-tmux harness (e.g. claude_stream_json) by replaying its
+  // resume command into a terminal; a live tmux pane is driven in place.
+  const runTakeover = () => {
+    if (agent.transport === "tmux") {
+      takeoverTerminal();
+      return;
+    }
+    const command = sessionCatalog?.resumeCommand;
+    if (command) {
+      void queueTakeover({ command, cwd: sessionCatalog?.resumeCwd, agentId: agent.id }).then(
+        () => takeoverTerminal(),
+      );
+      return;
+    }
+    takeoverTerminal();
+  };
+
+  // Focused-agent context card — session-focused: it leads with the session the
+  // center is exploring and the secondary ways to engage it. The center owns the
+  // avatar / name / state / essentials and the primary Continue, so the rail
+  // skips identity replay and high-level agent facts (mesh / capabilities).
   if (!showStaticIdentity) {
     return (
       <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-        {/* The center now owns the live-actions bar, the essentials header,
-            and the session list — so the focused rail narrows to runtime
-            detail + relationships, without echoing the center. */}
+        {selectedSession && (
+          <Section label="Session">
+            <div className="flex items-baseline justify-between gap-2">
+              <span
+                className="truncate font-mono text-[12px] text-[var(--scout-chrome-ink)]"
+                title={selectedSession.id}
+              >
+                {shortSessionId(selectedSession.id)}
+              </span>
+              <span
+                className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em]"
+                style={{ color: sessionActive ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+              >
+                {sessionActive
+                  ? "now"
+                  : selectedSession.endedAt
+                    ? `ended · ${timeAgo(selectedSession.endedAt) || "recent"}`
+                    : timeAgo(selectedSession.startedAt) || "recent"}
+              </span>
+            </div>
+            {selectedSession.cwd && (
+              <div
+                className="mt-1 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]"
+                title={selectedSession.cwd}
+              >
+                {selectedSession.cwd}
+              </div>
+            )}
+            {/* Terminal actions — watch it read-only, or grab it. The parsed
+                trace has its own top-bar tab, so it isn't duplicated here. */}
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              <SessionEngageRow label="Terminal">
+                <RailActBtn
+                  onClick={observeTerminal}
+                  disabled={!engage.canObserve}
+                  title={engage.canObserve ? "Watch the live terminal, read-only" : "No live terminal to observe"}
+                >
+                  Observe
+                </RailActBtn>
+                <RailActBtn
+                  onClick={runTakeover}
+                  disabled={!engage.canTakeover}
+                  title={engage.canTakeover ? "Grab the keyboard and drive it" : "Can't take over this session"}
+                >
+                  Take over
+                </RailActBtn>
+              </SessionEngageRow>
+            </div>
+          </Section>
+        )}
+
+        {/* What the session has been doing — flat trace summary + top files
+            touched. Only in the Profile tab; the Trace tab shows the fuller
+            ObserveStats below, so we don't double up. */}
+        {!observeMode && selectedSession && (
+          <SessionActivity agentId={agent.id} navigate={navigate} />
+        )}
+
         {agent.transport === "tmux" && (
           <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
         )}
 
-        {/* Runtime — tight 2-col readout of the facts that matter */}
+        {/* Runtime — tight 2-col readout of the facts the header doesn't carry */}
         <Section label="Runtime">
           <RuntimeGrid agent={agent} />
         </Section>
-
-        {/* Talks to — state-sorted peers, the best proxy we have */}
-        <Section label="Talks to">
-          <InspectorMesh
-            focusAgent={agent}
-            agents={agents}
-            onOpenAgent={(target) =>
-              openAgent(navigate, target, { from: "inspector", returnTo: route })
-            }
-          />
-        </Section>
-
-        {/* Capabilities */}
-        {agent.capabilities.length > 0 && (
-          <Section label={`Capabilities · ${agent.capabilities.length}`}>
-            <div className="flex flex-wrap gap-1">
-              {agent.capabilities.map((cap) => (
-                <span
-                  key={cap}
-                  className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
-                >
-                  {cap}
-                </span>
-              ))}
-            </div>
-          </Section>
-        )}
 
         {observeMode && <ObserveContext agentId={agent.id} />}
 
@@ -697,6 +776,43 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// A labeled row of session engage buttons (e.g. "Terminal · [Observe] [Take over]"),
+// grouped by the surface each action opens.
+function SessionEngageRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="w-[56px] shrink-0 font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </span>
+      <div className="flex gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function RailActBtn({
+  onClick,
+  disabled,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="rounded-[4px] border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--scout-chrome-ink-soft)]"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1011,6 +1127,124 @@ function ObserveStats({
         </Section>
       )}
     </>
+  );
+}
+
+// Compact session activity for the Profile rail — a flat readout of what the
+// session has been doing (turns · tools · edits · reads · files · window) plus
+// the top files touched, with the full feed one click away in the Trace tab.
+// Reuses the same /observe payload the Trace tab loads; renders nothing until it
+// resolves (no empty box). The Trace tab shows the fuller ObserveStats, so this
+// stays lean and flat — readout, not cards (the calm session-context language).
+function SessionActivity({
+  agentId,
+  navigate,
+}: {
+  agentId: string;
+  navigate: (r: Route) => void;
+}) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const load = useCallback(async () => {
+    const result = await api<AgentObservePayload>(
+      `/api/agents/${encodeURIComponent(agentId)}/observe`,
+    ).catch(() => null);
+    setObserve(result);
+  }, [agentId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const data = observe?.data;
+  if (!data) return null;
+
+  const events = data.events;
+  const files = data.files;
+  const metrics: Array<{ k: string; v: string }> = [
+    { k: "turns", v: fmtCompactNumber(data.metadata?.session?.turnCount ?? 0) },
+    { k: "tools", v: fmtCompactNumber(events.filter((e) => e.kind === "tool").length) },
+    {
+      k: "edits",
+      v: fmtCompactNumber(
+        events.filter((e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write")).length,
+      ),
+    },
+    {
+      k: "reads",
+      v: fmtCompactNumber(events.filter((e) => e.kind === "tool" && e.tool === "read").length),
+    },
+    { k: "files", v: fmtCompactNumber(files.length) },
+    { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
+  ];
+  const top = files.slice(0, 4);
+  const rest = files.length - top.length;
+  const openTrace = () => navigate({ view: "agents", agentId, tab: "observe" });
+
+  return (
+    <Section label="Activity">
+      {/* flat metric readout — value bright, unit faint, dot-separated. No cards. */}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 font-mono">
+        {metrics.map((m, i) => (
+          <span key={m.k} className="inline-flex items-baseline gap-1">
+            {i > 0 && <span className="mr-1 text-[var(--scout-chrome-ink-ghost)]">·</span>}
+            <span className="text-[12px] tabular-nums text-[var(--scout-chrome-ink)]">{m.v}</span>
+            <span className="text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
+              {m.k}
+            </span>
+          </span>
+        ))}
+      </div>
+
+      {top.length > 0 && (
+        <div className="mt-2.5 border-t border-[var(--scout-chrome-border-soft)] pt-2.5">
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+              Files touched
+            </span>
+            <span className="font-mono text-[8.5px] tabular-nums text-[var(--scout-chrome-ink-faint)]">
+              {files.length}
+            </span>
+          </div>
+          <div className="flex flex-col gap-1">
+            {top.map((file) => {
+              // Show parent/filename, not the absolute path — the filename is
+              // the signal, and a right-truncating absolute path would clip it
+              // away. Parent dir gives just enough locality; full path on hover.
+              const parts = file.path.replace(/\/+$/, "").split("/");
+              const name = parts.pop() ?? file.path;
+              const parent = parts.pop();
+              const dir = parent ? `${parent}/` : "";
+              return (
+                <div
+                  key={file.path}
+                  className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
+                  title={file.path}
+                >
+                  <span className="flex min-w-0 items-baseline">
+                    <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
+                    <span className="flex-none text-[var(--scout-chrome-ink-soft)]">{name}</span>
+                  </span>
+                  <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                    ×{file.touches}
+                  </span>
+                </div>
+              );
+            })}
+            {rest > 0 && (
+              <button
+                type="button"
+                onClick={openTrace}
+                className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--accent)]"
+              >
+                +{rest} more in Trace →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </Section>
   );
 }
 

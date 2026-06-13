@@ -260,6 +260,7 @@
 }
 
 .s-sess-head {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -267,6 +268,9 @@
   flex: none;
   padding: var(--space-xl) var(--space-xl) var(--space-lg);
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  /* Sober lighting: a faint neutral top sheen fading into the canvas — depth,
+     no color. The accentuated lift lives on hover (see .s-sess-avatar). */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink) 4%, transparent) 0%, transparent 70%);
 }
 
 .s-sess-id {
@@ -274,6 +278,26 @@
   align-items: center;
   gap: var(--space-lg);
   min-width: 0;
+}
+
+.s-sess-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  border-radius: 12px;
+  /* Lift the sprite tile off the panel with a thin neutral ring + shallow drop. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent),
+    0 5px 14px color-mix(in srgb, #000 32%, transparent);
+  transition: box-shadow 0.16s ease;
+}
+
+.s-sess-avatar:hover {
+  /* Accentuate the lighting on hover — a sober white lift, no color. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
+    0 0 16px color-mix(in srgb, var(--ink) 10%, transparent),
+    0 8px 20px color-mix(in srgb, #000 38%, transparent);
 }
 
 .s-sess-id-copy {
@@ -292,35 +316,50 @@
   color: var(--ink);
 }
 
-.s-sess-essentials {
+/* Essentials as a 2×2 glyph grid (Tiered+): left column = location (path / host),
+   right column = work (branch / harness·model). A faint line-glyph leads each
+   value; format carries meaning, so no word labels. Mirrors the studio rebalance
+   treatment. Wraps to stacked columns when the header is narrow. */
+.s-sess-glyph {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2xs) var(--space-lg);
+  gap: var(--space-xs) var(--space-5xl);
 }
 
-.s-sess-fact {
-  display: inline-flex;
-  align-items: baseline;
+.s-sess-glyph-col {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-xs);
   min-width: 0;
 }
 
-.s-sess-fact-k {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-md);
-  color: var(--dim);
-}
-
-.s-sess-fact-v {
+.s-sess-glyph-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--muted);
-  white-space: nowrap;
+}
+
+.s-sess-glyph-ico {
+  flex: none;
+  display: inline-flex;
+  /* faint — the glyph names the field; the value carries the weight */
+  color: var(--dim);
+}
+
+.s-sess-glyph-ico svg {
+  width: 11px;
+  height: 11px;
+}
+
+.s-sess-glyph-v {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   max-width: 280px;
 }
 
@@ -347,20 +386,17 @@
 
 .s-sess-name-row {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-sm);
   min-width: 0;
 }
 
-.s-sess-state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
+.s-sess-handle {
   flex: none;
   font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
+  font-size: var(--text-xs);
   letter-spacing: var(--tracking-sm);
+  /* sober — the handle is identity, not a status; no arbitrary color */
   color: var(--dim);
 }
 
@@ -517,61 +553,71 @@
   color: var(--accent);
 }
 
-/* ── Inline session detail (expands under the selected row) ── */
+/* ── Selected session card + inline explore strip ──
+   When a row is selected, the row and the strip below it read as ONE expanded
+   card: a single accent tint and a continuous left accent bar span both, with
+   no divider between them — so the strip is unmistakably the detail of the row
+   above, not a separate item. The strip carries a temporal property line and
+   the single most-likely action (Continue / Resume); the secondary ways to
+   engage (Observe / Take over / Trace) live in the rail. */
 
 .s-sess-item {
   display: flex;
   flex-direction: column;
 }
 
-.s-sess-detail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-md) var(--space-xl) var(--space-lg);
-  padding-left: calc(var(--space-xl) + var(--space-lg));
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+.s-sess-item--selected {
+  position: relative;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
-.s-sess-detail-meta {
+.s-sess-item--selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 1;
+}
+
+/* The selected row dissolves into the card: the item owns the tint, bar, and
+   bottom edge, so the row contributes only its content. */
+.s-sess-item--selected .s-sess-row,
+.s-sess-item--selected .s-sess-row--active,
+.s-sess-item--selected .s-sess-row:hover {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+
+.s-sess-item--selected .s-sess-row::before {
+  display: none;
+}
+
+.s-sess-explore {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2xs) var(--space-md);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  /* aligned under the row's text: row pad + dot (7px) + row gap */
+  padding: 0 var(--space-xl) var(--space-md);
+  padding-left: calc(var(--space-xl) + 7px + var(--space-md));
+}
+
+.s-sess-explore-meta {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  color: var(--dim);
-}
-
-.s-sess-detail-id {
   color: var(--muted);
-}
-
-.s-sess-detail-cwd {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 340px;
 }
 
-.s-sess-engage {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.s-sess-engage-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-md);
-  color: var(--dim);
-}
-
-.s-sess-engage-primary {
-  align-self: flex-start;
+.s-sess-explore-primary {
+  flex: none;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-weight: 600;
@@ -581,61 +627,13 @@
   background: var(--accent);
   border: none;
   border-radius: var(--radius-sm);
-  padding: var(--space-xs) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
   cursor: pointer;
   transition: filter 0.12s ease;
 }
 
-.s-sess-engage-primary:hover {
+.s-sess-explore-primary:hover {
   filter: brightness(1.06);
-}
-
-.s-sess-engage-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-}
-
-.s-sess-engage-surface {
-  flex: none;
-  width: 92px;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-md);
-  color: var(--dim);
-}
-
-.s-sess-engage-acts {
-  display: flex;
-  gap: var(--space-sm);
-}
-
-.s-sess-engage-btn {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-sm);
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-xs) var(--space-md);
-  cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.s-sess-engage-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--ink);
-}
-
-.s-sess-engage-btn:disabled {
-  color: var(--dim);
-  opacity: 0.5;
-  cursor: default;
-  border-color: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 

@@ -48,7 +48,9 @@ function Dot({ on = true, size = 6 }: { on?: boolean; size?: number }) {
 /* ── shared chrome ──────────────────────────────────────────────────────────── */
 
 function TopBar() {
-  const tabs = ["Profile", "Observe", "Message"];
+  // "Trace" = the parsed feed (its own tab); "Observe" is reserved for watching
+  // the live terminal (a rail action), so the two surfaces don't share a word.
+  const tabs = ["Profile", "Trace", "Message"];
   return (
     <div
       className="flex h-[34px] flex-none items-center justify-between px-3.5"
@@ -179,6 +181,27 @@ const SESSION_RUNTIME: Array<{ k: string; v: string }> = [
   { k: "Class", v: "general" },
 ];
 
+/* What the session has actually been doing — a summary of the trace. The full
+   feed lives one click away in the Trace tab; this is the at-a-glance readout
+   for the session context. (turns + window are cheap from the live context
+   state; tools/reads/edits + files-touched come from the parsed trace.) */
+const SESSION_STATS: Array<{ k: string; v: string }> = [
+  { k: "turns", v: "80" },
+  { k: "tools", v: "489" },
+  { k: "edits", v: "169" },
+  { k: "reads", v: "125" },
+  { k: "files", v: "71" },
+  { k: "window", v: "16h" },
+];
+
+const FILES_TOUCHED: Array<{ path: string; touches: number }> = [
+  { path: "packages/web/client/screens/AgentsScreen.tsx", touches: 73 },
+  { path: "packages/web/client/screens/agents-screen.css", touches: 41 },
+  { path: "design/studio/app/studies/agent-profile-rebalance/page.tsx", touches: 24 },
+  { path: "packages/web/client/scout/inspector/AgentsInspector.tsx", touches: 12 },
+  { path: "packages/web/client/lib/session-catalog.ts", touches: 6 },
+];
+
 /** Who started a session — a sprite for agents, plain for you / a channel. */
 function Initiator({ s, size = 12 }: { s: Session; size?: number }) {
   if (s.initiatorKind === "agent") {
@@ -199,45 +222,179 @@ function Initiator({ s, size = 12 }: { s: Session; size?: number }) {
   return <span>you</span>;
 }
 
-/** Compact essentials — the facts you care about most, always in view. */
-function ProfileHeader() {
-  const facts = [
-    { k: "cwd", v: "~/dev/hudson" },
-    { k: "branch", v: "⎇ feat/hud-markdown-renderer" },
-    { k: "harness", v: "claude" },
-    { k: "model", v: "opus-4.8" },
-    { k: "host", v: "arts-mac-mini" },
+/* ── header essentials: composition treatments ──────────────────────────────
+   The contested bit. We carry the same five facts (cwd · branch · harness ·
+   model · host) but compose them concisely instead of as a labeled word-list.
+   Switch between treatments live to pick the right one before porting. */
+
+type HeaderTreatment = "dotted" | "tiered" | "glyph" | "labeled";
+
+const ESSENTIALS = {
+  cwd: "~/dev/hudson",
+  branch: "feat/hud-markdown-renderer",
+  harness: "claude",
+  model: "opus-4.8",
+  host: "arts-mac-mini",
+};
+
+/* Tiny monochrome line-glyphs (geometric, not emoji) for the glyph treatment. */
+const ICO = "h-[11px] w-[11px] flex-none";
+function IcoFolder() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className={ICO}>
+      <path d="M2 4h4l1.4 1.6H14v6.4H2z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IcoBranch() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className={ICO}>
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="5.5" r="1.5" />
+      <path d="M4.5 5v6M4.5 11c0-3 7-1.4 7-4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoChip() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className={ICO}>
+      <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+      <path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoHost() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className={ICO}>
+      <rect x="2.5" y="3.5" width="11" height="7" rx="1" />
+      <path d="M6 13h4M8 10.5V13" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FactSep() {
+  return <span style={{ color: INK.edge }}>·</span>;
+}
+
+/** A · dotted — label-less, dot-separated. Format carries meaning. */
+function FactsDotted() {
+  const facts = [ESSENTIALS.cwd, `⎇ ${ESSENTIALS.branch}`, ESSENTIALS.harness, ESSENTIALS.model, ESSENTIALS.host];
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10px]" style={{ color: MUTED }}>
+      {facts.map((v, i) => (
+        <React.Fragment key={i}>
+          {i > 0 ? <FactSep /> : null}
+          <span className="truncate">{v}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** B · tiered — workspace (path · ⎇branch) on top, runtime faint below. */
+function FactsTiered() {
+  return (
+    <div className="flex flex-col gap-1 font-mono">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10.5px]" style={{ color: MUTED }}>
+        <span className="truncate">{ESSENTIALS.cwd}</span>
+        <FactSep />
+        <span className="truncate">⎇ {ESSENTIALS.branch}</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 text-[9px]" style={{ color: FAINT }}>
+        <span>{ESSENTIALS.harness}</span>
+        <FactSep />
+        <span>{ESSENTIALS.model}</span>
+        <FactSep />
+        <span>{ESSENTIALS.host}</span>
+      </div>
+    </div>
+  );
+}
+
+/** C · tiered + glyph — the picked direction. A 2×2 grid: location on the left
+    (path, then host beneath it), work context on the right (branch, then the
+    merged harness·model beneath it). One line-glyph per row, no word labels. */
+function FactsGlyph() {
+  const cells = [
+    { ico: <IcoFolder />, v: ESSENTIALS.cwd },
+    { ico: <IcoBranch />, v: ESSENTIALS.branch },
+    { ico: <IcoHost />, v: ESSENTIALS.host },
+    { ico: <IcoChip />, v: `${ESSENTIALS.harness} · ${ESSENTIALS.model}` },
   ];
   return (
     <div
-      className="flex items-start justify-between gap-3 px-[18px] py-3.5"
-      style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}
+      className="grid w-fit grid-cols-[auto_auto] gap-x-8 gap-y-1.5 font-mono text-[10px]"
+      style={{ color: MUTED }}
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <SpriteAvatar name={AGENT} size={36} tile />
+      {cells.map((c, i) => (
+        <span key={i} className="inline-flex min-w-0 items-center gap-1.5">
+          <span className="flex-none" style={{ color: FAINT }}>
+            {c.ico}
+          </span>
+          <span className="truncate">{c.v}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** D · labeled — the current baseline, uppercase key + value. */
+function FactsLabeled() {
+  const facts = [
+    { k: "cwd", v: ESSENTIALS.cwd },
+    { k: "branch", v: `⎇ ${ESSENTIALS.branch}` },
+    { k: "harness", v: ESSENTIALS.harness },
+    { k: "model", v: ESSENTIALS.model },
+    { k: "host", v: ESSENTIALS.host },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      {facts.map((f) => (
+        <span key={f.k} className="inline-flex items-baseline gap-1.5 font-mono">
+          <span className="text-[7.5px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>{f.k}</span>
+          <span className="text-[10px]" style={{ color: MUTED }}>{f.v}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Compact essentials header. The avatar gets a sober (neutral) lift that
+    accentuates on hover; the handle is dim (identity, not status). No live
+    dot, no accent glow, no arbitrary color — the facts compose per treatment. */
+function ProfileHeader({ treatment }: { treatment: HeaderTreatment }) {
+  return (
+    <div
+      className="flex items-start justify-between gap-3 px-[18px] py-3.5"
+      style={{
+        borderBottom: `1px solid ${INK.edgeSoft}`,
+        background: "linear-gradient(180deg, color-mix(in oklab, white 4%, transparent) 0%, transparent 70%)",
+      }}
+    >
+      <div className="flex min-w-0 items-center gap-3.5">
+        <span className="ap-avatar-light inline-flex flex-none">
+          <SpriteAvatar name={AGENT} size={46} tile />
+        </span>
         <div className="min-w-0">
-          <div className="flex items-center gap-2.5">
-            <span className="font-display text-[19px] leading-none" style={{ color: INKC }}>
+          <div className="flex items-baseline gap-2">
+            <span className="font-display text-[20px] leading-none" style={{ color: INKC }}>
               {AGENT}
             </span>
-            <span
-              className="inline-flex items-center gap-1.5 font-mono text-[8px] uppercase tracking-[0.12em]"
-              style={{ color: ACCENT }}
-            >
-              <Dot size={6} /> active
+            <span className="font-mono text-[11px]" style={{ color: FAINT }}>
+              @hudson
             </span>
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-            {facts.map((f) => (
-              <span key={f.k} className="inline-flex items-baseline gap-1.5 font-mono">
-                <span className="text-[7.5px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>
-                  {f.k}
-                </span>
-                <span className="text-[10px]" style={{ color: MUTED }}>
-                  {f.v}
-                </span>
-              </span>
-            ))}
+          <div className="mt-2">
+            {treatment === "dotted" ? (
+              <FactsDotted />
+            ) : treatment === "tiered" ? (
+              <FactsTiered />
+            ) : treatment === "glyph" ? (
+              <FactsGlyph />
+            ) : (
+              <FactsLabeled />
+            )}
           </div>
         </div>
       </div>
@@ -256,10 +413,15 @@ function SessionRow({
   s,
   selected,
   onSelect,
+  unified = false,
 }: {
   s: Session;
   selected: boolean;
   onSelect: () => void;
+  /** When the row + its rollout are wrapped in one card, the card draws the
+      border, tint and accent spine — the row defers its own so the two read as
+      a single block, not two stacked sessions. */
+  unified?: boolean;
 }) {
   const active = s.state === "active";
   const prefix = s.initiatorKind === "channel" ? "from" : "started by";
@@ -267,13 +429,16 @@ function SessionRow({
     <button
       type="button"
       onClick={onSelect}
-      className="relative flex w-full cursor-pointer gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-[oklch(0.145_0.008_80)]"
+      className={cn(
+        "relative flex w-full cursor-pointer gap-2.5 px-4 py-2.5 text-left transition-colors",
+        !unified && "hover:bg-[oklch(0.145_0.008_80)]",
+      )}
       style={{
-        background: selected ? `color-mix(in oklab, ${ACCENT} 9%, transparent)` : undefined,
-        borderTop: `1px solid ${INK.edgeSoft}`,
+        background: !unified && selected ? `color-mix(in oklab, ${ACCENT} 9%, transparent)` : undefined,
+        borderTop: unified ? undefined : `1px solid ${INK.edgeSoft}`,
       }}
     >
-      {selected ? (
+      {selected && !unified ? (
         <span className="absolute left-0 top-0 h-full w-[2px]" style={{ background: ACCENT }} />
       ) : null}
       <span className="mt-[3px] flex-none">
@@ -288,7 +453,7 @@ function SessionRow({
             className="flex-none font-mono text-[8.5px] uppercase tracking-[0.1em]"
             style={{ color: active ? ACCENT : FAINT }}
           >
-            {active ? "active" : "ended"} · {s.ago}
+            {active ? "now" : `ended · ${s.ago}`}
           </span>
         </div>
         <div className="mt-1 truncate text-[12px]" style={{ color: selected ? INKC : MUTED }}>
@@ -308,16 +473,18 @@ function SessionRow({
 function SessionsCenter({
   sel,
   onSelect,
-  inline = false,
+  centerDetail = "none",
+  headerTreatment = "dotted",
 }: {
   sel: number;
   onSelect: (i: number) => void;
-  inline?: boolean;
+  centerDetail?: "none" | "full" | "light";
+  headerTreatment?: HeaderTreatment;
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col" style={{ background: INK.canvas }}>
       <TopBar />
-      <ProfileHeader />
+      <ProfileHeader treatment={headerTreatment} />
       <div className="flex flex-none items-center justify-between px-4 pb-1 pt-3">
         <span className="font-mono text-[8px] font-semibold uppercase tracking-[0.18em]" style={{ color: FAINT }}>
           Recent sessions
@@ -327,19 +494,49 @@ function SessionsCenter({
         </span>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {SESSIONS.map((s, i) => (
-          <React.Fragment key={s.id}>
-            <SessionRow s={s} selected={i === sel} onSelect={() => onSelect(i)} />
-            {inline && i === sel ? (
-              <div
-                className="px-4 py-3.5"
-                style={{ background: `color-mix(in oklab, ${ACCENT} 5%, transparent)`, borderTop: `1px solid ${INK.edgeSoft}` }}
-              >
-                <div className="pl-[18px]"><SessionDetailBody s={s} /></div>
-              </div>
-            ) : null}
-          </React.Fragment>
-        ))}
+        {SESSIONS.map((s, i) => {
+          const isSel = i === sel;
+          const showDetail = centerDetail !== "none" && isSel;
+          if (!showDetail) {
+            return <SessionRow key={s.id} s={s} selected={isSel} onSelect={() => onSelect(i)} />;
+          }
+          const active = s.state === "active";
+          return (
+            /* Selected row + rollout as ONE card: a single accent spine running
+               the full height, a shared tint, and NO divider between them — so
+               the rollout reads as the detail OF this session, not the next one
+               in the list. (The neighbouring rows' borderTop still fences the
+               card top & bottom, matching every other row separation.) */
+            <div
+              key={s.id}
+              className="relative"
+              style={{
+                background: `color-mix(in oklab, ${ACCENT} 8%, transparent)`,
+                borderTop: `1px solid ${INK.edgeSoft}`,
+              }}
+            >
+              <span className="absolute left-0 top-0 h-full w-[2px]" style={{ background: ACCENT }} />
+              <SessionRow s={s} selected onSelect={() => onSelect(i)} unified />
+              {centerDetail === "full" ? (
+                <div className="px-4 pb-3.5"><SessionDetailBody s={s} /></div>
+              ) : (
+                <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    {/* elbow — the rollout branches off the row above it */}
+                    <span
+                      className="ml-[2px] mt-[-6px] h-[9px] w-[9px] flex-none rounded-bl-[3px]"
+                      style={{ borderLeft: `1px solid ${INK.edge}`, borderBottom: `1px solid ${INK.edge}` }}
+                    />
+                    <span className="truncate text-[11px]" style={{ color: MUTED }}>
+                      {active ? s.context[0] ?? s.snapshot : `Last · ${s.context[0] ?? s.snapshot}`}
+                    </span>
+                  </div>
+                  <EngagePrimary active={active} />
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -371,10 +568,6 @@ function EngageZone({ active }: { active: boolean }) {
         { t: "Observe", on: active, title: active ? "Watch the live terminal, read-only" : "No live terminal to observe" },
         { t: "Take over", on: active, title: active ? "Grab the keyboard and drive it" : "Can't take over an ended session" },
       ],
-    },
-    {
-      label: "Trace",
-      actions: [{ t: "Open", on: true, title: "Read the parsed turn + tool feed" }],
     },
   ];
   return (
@@ -420,8 +613,120 @@ function EngageZone({ active }: { active: boolean }) {
   );
 }
 
-/** The selected session's detail — snapshot, initiator, transcript, engage. */
-function SessionDetailBody({ s }: { s: Session }) {
+/** The single most-likely action, sized up to sit inline in the center. */
+function EngagePrimary({ active }: { active: boolean }) {
+  return (
+    <button
+      type="button"
+      className="flex-none cursor-pointer rounded-[4px] px-4 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em]"
+      style={{ background: ACCENT, color: INK.canvas }}
+      title={active ? "Send a message into this conversation" : "Reopen this conversation and message it"}
+    >
+      {active ? "Continue" : "Resume"}
+    </button>
+  );
+}
+
+/** The secondary engage surface (Terminal) — for the session rail. The parsed
+    trace has its own top-bar tab, so it isn't duplicated here. */
+function EngageSecondary({ active }: { active: boolean }) {
+  const rows: Array<{ label: string; actions: Array<{ t: string; on: boolean; title: string }> }> = [
+    {
+      label: "Terminal",
+      actions: [
+        { t: "Observe", on: active, title: active ? "Watch the live terminal, read-only" : "No live terminal to observe" },
+        { t: "Take over", on: active, title: active ? "Grab the keyboard and drive it" : "Can't take over an ended session" },
+      ],
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center gap-2.5">
+          <span className="w-[64px] flex-none font-mono text-[8px] uppercase tracking-[0.13em]" style={{ color: FAINT }}>
+            {r.label}
+          </span>
+          <div className="flex gap-1.5">
+            {r.actions.map((a) => (
+              <button
+                key={a.t}
+                type="button"
+                disabled={!a.on}
+                title={a.title}
+                className="rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
+                style={{
+                  cursor: a.on ? "pointer" : "default",
+                  border: `1px solid ${a.on ? INK.edge : INK.edgeSoft}`,
+                  color: a.on ? MUTED : INK.edge,
+                }}
+              >
+                {a.t}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The selected session's detail — snapshot, initiator, transcript, engage.
+    `engage` picks the full gradient (rail-only modes) or just the secondary
+    surfaces (hybrid, where the primary Continue lives inline in the center). */
+/** A flat metric readout — value bright, unit faint, dot-separated. No boxes:
+    the calm session context reads stats as a line, not a grid of cards. */
+function ActivityStats() {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1.5 font-mono">
+      {SESSION_STATS.map((m, i) => (
+        <span key={m.k} className="inline-flex items-baseline gap-1">
+          {i > 0 ? <span className="mr-1" style={{ color: INK.edge }}>·</span> : null}
+          <span className="text-[12px] tabular-nums" style={{ color: INKC }}>{m.v}</span>
+          <span className="text-[8.5px] uppercase tracking-[0.08em]" style={{ color: FAINT }}>{m.k}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** The most concrete "what did it do" signal — files by touch count, dir dimmed
+    so the filename reads, ×count faint and tabular. Truncates with a count-out. */
+function FilesTouched({ limit = 4 }: { limit?: number }) {
+  const shown = FILES_TOUCHED.slice(0, limit);
+  const rest = FILES_TOUCHED.length - shown.length;
+  return (
+    <div className="flex flex-col gap-1">
+      {shown.map((f) => {
+        // parent/filename — the filename is the signal; a right-truncating full
+        // path would clip it. Full path on hover.
+        const parts = f.path.replace(/\/+$/, "").split("/");
+        const name = parts.pop() ?? f.path;
+        const parent = parts.pop();
+        const dir = parent ? `${parent}/` : "";
+        return (
+          <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight" title={f.path}>
+            <span className="flex min-w-0 items-baseline">
+              <span className="truncate" style={{ color: INK.edge }}>{dir}</span>
+              <span className="flex-none" style={{ color: MUTED }}>{name}</span>
+            </span>
+            <span className="flex-none tabular-nums text-[9px]" style={{ color: FAINT }}>×{f.touches}</span>
+          </div>
+        );
+      })}
+      {rest > 0 ? (
+        <button
+          type="button"
+          className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em]"
+          style={{ color: FAINT }}
+        >
+          +{rest} more in Trace →
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionDetailBody({ s, engage = "full" }: { s: Session; engage?: "full" | "secondary" }) {
   const active = s.state === "active";
   return (
     <div className="flex flex-col gap-4">
@@ -433,7 +738,7 @@ function SessionDetailBody({ s }: { s: Session }) {
             {s.transport}
           </span>
           <span className="ml-auto font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
-            {active ? "active" : "ended"} · {s.ago}
+            {active ? "now" : `ended · ${s.ago}`}
           </span>
         </div>
         <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
@@ -447,6 +752,21 @@ function SessionDetailBody({ s }: { s: Session }) {
               <span>{line}</span>
             </div>
           ))}
+        </div>
+      </RailSection>
+
+      <RailSection label="Activity">
+        <ActivityStats />
+        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}>
+          <div className="mb-1.5 flex items-baseline justify-between">
+            <span className="font-mono text-[8px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+              Files touched
+            </span>
+            <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
+              {FILES_TOUCHED.length}
+            </span>
+          </div>
+          <FilesTouched />
         </div>
       </RailSection>
 
@@ -473,7 +793,13 @@ function SessionDetailBody({ s }: { s: Session }) {
         </RailSection>
       ) : null}
 
-      <EngageZone active={active} />
+      {engage === "full" ? (
+        <EngageZone active={active} />
+      ) : (
+        <RailSection label="Actions">
+          <EngageSecondary active={active} />
+        </RailSection>
+      )}
     </div>
   );
 }
@@ -537,7 +863,7 @@ function RailStacked({ s }: { s: Session }) {
       <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
         <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
         <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
-          {active ? "active" : "ended"} · {s.ago}
+          {active ? "now" : `ended · ${s.ago}`}
         </span>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto">
@@ -590,18 +916,64 @@ function RailContextOnly() {
   );
 }
 
-type RailMode = "stacked" | "swap" | "inline";
+/** D · hybrid — the rail is session-focused: session info + the secondary actions
+    (Terminal · Trace). The primary Continue lives inline in the center, so the
+    rail holds everything else about the session rather than high-level agent facts. */
+function RailHybrid({ s }: { s: Session }) {
+  const active = s.state === "active";
+  return (
+    <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
+      <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
+        <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+          {active ? "now" : `ended · ${s.ago}`}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col overflow-y-auto p-3.5">
+        <SessionDetailBody s={s} engage="secondary" />
+        <div className="mt-4 border-t pt-4" style={{ borderColor: INK.edgeSoft }}>
+          <RailSection label="Runtime">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+              {SESSION_RUNTIME.map((f) => (
+                <div key={f.k} className="min-w-0">
+                  <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+                    {f.k}
+                  </div>
+                  <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+                    {f.v}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </RailSection>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-export function Frame({ railMode = "stacked" }: { railMode?: RailMode }) {
+type RailMode = "hybrid" | "inline" | "stacked" | "swap";
+
+export function Frame({
+  railMode = "hybrid",
+  headerTreatment = "dotted",
+}: {
+  railMode?: RailMode;
+  headerTreatment?: HeaderTreatment;
+}) {
   const [sel, setSel] = React.useState(0);
   const s = SESSIONS[sel];
+  const centerDetail: "none" | "full" | "light" =
+    railMode === "inline" ? "full" : railMode === "hybrid" ? "light" : "none";
   return (
     <div
       className="flex overflow-hidden rounded-lg"
       style={{ border: `1px solid ${INK.edge}`, minHeight: 600, background: INK.canvas }}
     >
-      <SessionsCenter sel={sel} onSelect={setSel} inline={railMode === "inline"} />
-      {railMode === "stacked" ? (
+      <SessionsCenter sel={sel} onSelect={setSel} centerDetail={centerDetail} headerTreatment={headerTreatment} />
+      {railMode === "hybrid" ? (
+        <RailHybrid s={s} />
+      ) : railMode === "stacked" ? (
         <RailStacked s={s} />
       ) : railMode === "swap" ? (
         <RailSwap s={s} />
@@ -863,13 +1235,32 @@ type View = "current" | "rebalanced";
 
 export default function AgentProfileRebalancePage() {
   const [view, setView] = React.useState<View>("rebalanced");
-  const [railMode, setRailMode] = React.useState<RailMode>("inline");
+  const [railMode, setRailMode] = React.useState<RailMode>("hybrid");
+  const [headerTreatment, setHeaderTreatment] = React.useState<HeaderTreatment>("glyph");
   React.useEffect(() => {
-    const r = new URLSearchParams(window.location.search).get("rail");
-    if (r === "swap" || r === "inline") setRailMode(r);
+    const params = new URLSearchParams(window.location.search);
+    const r = params.get("rail");
+    if (r === "hybrid" || r === "inline" || r === "stacked" || r === "swap") setRailMode(r);
+    const h = params.get("header");
+    if (h === "dotted" || h === "tiered" || h === "glyph" || h === "labeled") setHeaderTreatment(h);
   }, []);
   return (
     <main className="mx-auto max-w-page px-7 py-8">
+      {/* Sober avatar lift — neutral ring + shallow drop, accentuated (still
+          neutral) on hover. No accent glow. */}
+      <style>{`
+        .ap-avatar-light {
+          border-radius: 12px;
+          transition: box-shadow 0.18s ease;
+          box-shadow: 0 0 0 1px color-mix(in oklab, white 9%, transparent),
+                      0 5px 14px oklch(0.06 0.006 75 / 0.5);
+        }
+        .ap-avatar-light:hover {
+          box-shadow: 0 0 0 1px color-mix(in oklab, white 20%, transparent),
+                      0 0 16px color-mix(in oklab, white 9%, transparent),
+                      0 8px 20px oklch(0.06 0.006 75 / 0.55);
+        }
+      `}</style>
       <header className="mb-6 max-w-prose">
         <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
           · studies · web · agent-profile-rebalance
@@ -924,9 +1315,10 @@ export default function AgentProfileRebalancePage() {
               style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
             >
               {([
+                { id: "hybrid", label: "Hybrid" },
+                { id: "inline", label: "Inline" },
                 { id: "stacked", label: "Stacked" },
                 { id: "swap", label: "Swap" },
-                { id: "inline", label: "Inline" },
               ] as Array<{ id: RailMode; label: string }>).map((m) => {
                 const active = railMode === m.id;
                 return (
@@ -948,17 +1340,63 @@ export default function AgentProfileRebalancePage() {
             </div>
           </div>
         ) : null}
+
+        {view === "rebalanced" ? (
+          <div className="inline-flex items-center gap-2">
+            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-studio-ink-faint">Header</span>
+            <div
+              className="inline-flex rounded-[6px] p-[3px]"
+              style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
+            >
+              {([
+                { id: "glyph", label: "Tiered+" },
+                { id: "tiered", label: "Tiered" },
+                { id: "dotted", label: "Dotted" },
+                { id: "labeled", label: "Labeled" },
+              ] as Array<{ id: HeaderTreatment; label: string }>).map((m) => {
+                const active = headerTreatment === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setHeaderTreatment(m.id)}
+                    aria-pressed={active}
+                    className={cn(
+                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                      !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
+                    )}
+                    style={active ? { background: ACCENT, color: INK.canvas } : undefined}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {view === "current" ? <CurrentFrame /> : <Frame railMode={railMode} />}
+      {view === "current" ? <CurrentFrame /> : <Frame railMode={railMode} headerTreatment={headerTreatment} />}
       <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
         {view === "current"
           ? "Recreated from the live :5180 Hudson capture — center half-empty, rail packed"
-          : railMode === "stacked"
-            ? "Stacked — session detail on top, agent context card below; one scroll"
-            : railMode === "swap"
-              ? "Swap — a Session / Context toggle picks which fills the rail"
-              : "Inline — session detail expands under the row; rail is the agent context card"}
+          : `${
+              headerTreatment === "dotted"
+                ? "Header: dotted — label-less, dot-separated"
+                : headerTreatment === "tiered"
+                  ? "Header: tiered — workspace on top, runtime faint below"
+                  : headerTreatment === "glyph"
+                    ? "Header: tiered + glyph — path · host (left), branch · harness/model (right), one glyph each"
+                    : "Header: labeled — the current baseline"
+            } · ${
+              railMode === "hybrid"
+                ? "Hybrid rail — Continue inline, session actions in the rail"
+                : railMode === "stacked"
+                  ? "Stacked rail"
+                  : railMode === "swap"
+                    ? "Swap rail"
+                    : "Inline rail"
+            }`}
       </div>
 
       <section className="mt-9 max-w-prose">

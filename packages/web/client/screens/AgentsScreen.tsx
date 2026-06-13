@@ -8,6 +8,11 @@ import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import {
+  resolveActiveSessionId,
+  resolveSelectedSessionId,
+  sortSessionsByRecency,
+} from "../lib/session-catalog.ts";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
@@ -1667,13 +1672,62 @@ function shortSessionLabel(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
-// Sessions-first center (Inline): a compact essentials header (state · cwd ·
+// Tiny monochrome line-glyphs (geometric, not emoji) for the essentials grid —
+// folder · branch · host · chip. Kept bit-for-bit with the studio rebalance
+// treatment (design/studio/.../agent-profile-rebalance) so the ports don't drift.
+function IcoFolder() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <path d="M2 4h4l1.4 1.6H14v6.4H2z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IcoBranch() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="5.5" r="1.5" />
+      <path d="M4.5 5v6M4.5 11c0-3 7-1.4 7-4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoChip() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+      <path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoHost() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <rect x="2.5" y="3.5" width="11" height="7" rx="1" />
+      <path d="M6 13h4M8 10.5V13" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// One essentials cell: a faint line-glyph + its value, truncating. Grouped into
+// two columns (location: path / host · work: branch / harness·model) so the
+// composition reads without word labels.
+function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
+  return (
+    <span className="s-sess-glyph-cell" title={v}>
+      <span className="s-sess-glyph-ico">{ico}</span>
+      <span className="s-sess-glyph-v">{v}</span>
+    </span>
+  );
+}
+
+// Sessions-first center (Hybrid): a compact essentials header (state · cwd ·
 // branch · harness · model · host), then the agent's sessions by recency (active
-// first). Clicking a session selects it and expands its detail + engage zone
-// inline — it never jumps straight into a terminal. The rail stays the stable
-// agent context card. Engage is one gradient: Continue (message into the
-// conversation) → Activity (parsed feed) → Observe (live terminal) → Take over
-// (drive). Observe / Take over are live-only.
+// first). Clicking a session selects it (shared with the rail) and expands a
+// light "exploring" strip with the one most-likely action — Continue (message
+// into the conversation) or Resume — inline, right where the eye is. The
+// secondary ways to engage (Observe / Take over / Trace) live in the rail, which
+// follows the same selection. Selecting never jumps straight into a terminal.
 function ModularProfileCenter({
   agent,
   name,
@@ -1688,93 +1742,79 @@ function ModularProfileCenter({
   navigate: (r: Route) => void;
   route: Route;
 }) {
-  const activeSessionId =
-    sessionCatalog?.activeSessionId ??
-    (agent.transport === "tmux" ? agent.harnessSessionId : null);
+  const { focusedSession, focusSession } = useScout();
+  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
 
-  const state = normalizeAgentState(agent.state);
-  const isLive = Boolean(activeSessionId) || state === "working";
+  // Essentials as a 2×2 glyph grid (Tiered+): left column is location (path /
+  // host), right column is work (branch / harness·model), one faint line-glyph
+  // per cell. Format carries meaning, so no word labels. Model drops a redundant
+  // harness prefix (claude-opus-4-8 → opus-4-8).
+  const modelShort =
+    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
+      ? agent.model.slice(agent.harness.length + 1)
+      : agent.model ?? null;
+  const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
+  const hostShort = agent.homeNodeName
+    ? agent.homeNodeName.replace(/\.local$/i, "")
+    : null;
+  const chip =
+    [agent.harness, modelShort]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ") || null;
+  const hasEssentials = Boolean(cwdShort || agent.branch || hostShort || chip);
 
-  const essentials = [
-    agent.cwd ? { k: "cwd", v: shortCwd(agent.cwd) ?? agent.cwd } : null,
-    agent.branch ? { k: "branch", v: `⎇ ${agent.branch}` } : null,
-    agent.harness ? { k: "harness", v: agent.harness } : null,
-    agent.model ? { k: "model", v: agent.model } : null,
-    agent.homeNodeName ? { k: "host", v: agent.homeNodeName } : null,
-  ].filter((f): f is { k: string; v: string } => Boolean(f));
+  const sessions = useMemo(
+    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
+    [sessionCatalog?.sessions, activeSessionId],
+  );
 
-  const sessions = useMemo(() => {
-    const list = [...(sessionCatalog?.sessions ?? [])];
-    return list.sort((a, b) => {
-      const aActive = a.id === activeSessionId ? 1 : 0;
-      const bActive = b.id === activeSessionId ? 1 : 0;
-      if (aActive !== bActive) return bActive - aActive;
-      return (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt);
-    });
-  }, [sessionCatalog?.sessions, activeSessionId]);
-
-  // Selection defaults to the active (or most recent) session, so opening the
-  // profile already shows that session's engage zone. Clicking only selects.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selectedSessionId = selectedId ?? activeSessionId ?? sessions[0]?.id ?? null;
+  // Selection is shared with the rail (Provider): it defaults to the active (or
+  // most recent) session, and clicking a row only re-points it — never jumps.
+  const selectedSessionId = resolveSelectedSessionId(
+    agent.id,
+    focusedSession,
+    activeSessionId,
+    sessions,
+  );
 
   const openMessage = () =>
     navigate({ view: "agents", agentId: agent.id, tab: "message" });
-  const openActivity = () =>
-    openContent(navigate, { view: "agents", agentId: agent.id, tab: "observe" }, { returnTo: route });
-  const observeTerminal = () =>
-    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
-  const takeoverTerminal = () =>
-    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
   const resumeSession = (s: SessionCatalogEntry) =>
     openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
-  // Take over a non-tmux harness (e.g. claude_stream_json) by replaying its
-  // resume command into a terminal; a live tmux pane is driven in place.
-  const runTakeover = () => {
-    if (agent.transport === "tmux") {
-      takeoverTerminal();
-      return;
-    }
-    const command = sessionCatalog?.resumeCommand;
-    if (command) {
-      void queueTakeover({ command, cwd: sessionCatalog?.resumeCwd, agentId: agent.id }).then(
-        () => takeoverTerminal(),
-      );
-      return;
-    }
-    takeoverTerminal();
-  };
 
   return (
     <div className="s-sess-root">
       <header className="s-sess-head">
         <div className="s-sess-id">
-          <AgentAvatar agent={agent} size={42} tile presence={false} />
+          <span className="s-sess-avatar">
+            <AgentAvatar agent={agent} size={54} tile presence={false} />
+          </span>
           <div className="s-sess-id-copy">
-            <span className="s-sess-name-row">
+            <div className="s-sess-name-row">
               <span className="s-sess-name">{name}</span>
-              <span className="s-sess-state">
-                <span
-                  className="s-mod-dot"
-                  style={{ background: isLive ? "var(--accent)" : "var(--dim)", opacity: isLive ? 1 : 0.55 }}
-                />
-                {agentStateLabel(state)}
-              </span>
-            </span>
-            {essentials.length > 0 && (
-              <div className="s-sess-essentials">
-                {essentials.map((f) => (
-                  <span key={f.k} className="s-sess-fact">
-                    <span className="s-sess-fact-k">{f.k}</span>
-                    <span className="s-sess-fact-v">{f.v}</span>
-                  </span>
-                ))}
+              {agent.handle && (
+                <span className="s-sess-handle">@{agent.handle.replace(/^@+/, "")}</span>
+              )}
+            </div>
+            {hasEssentials && (
+              <div className="s-sess-glyph">
+                <div className="s-sess-glyph-col">
+                  {cwdShort && <EssentialCell ico={<IcoFolder />} v={cwdShort} />}
+                  {hostShort && <EssentialCell ico={<IcoHost />} v={hostShort} />}
+                </div>
+                <div className="s-sess-glyph-col">
+                  {agent.branch && <EssentialCell ico={<IcoBranch />} v={agent.branch} />}
+                  {chip && <EssentialCell ico={<IcoChip />} v={chip} />}
+                </div>
               </div>
             )}
           </div>
         </div>
+        {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
+            distinct action from per-session Continue and the Message tab, so
+            "Message" isn't duplicated across the tab, the header, and Continue. */}
         <button type="button" className="s-sess-action" onClick={openMessage}>
-          Message
+          + New session
         </button>
       </header>
 
@@ -1792,25 +1832,32 @@ function ModularProfileCenter({
             sessions.map((s) => {
               const active = s.id === activeSessionId;
               const selected = s.id === selectedSessionId;
-              // Per-session catalog signals, not the transport string.
-              const canObserve = active && (s.canObserve ?? agent.transport === "tmux");
-              const canTakeover =
-                active &&
-                (s.canTakeover ??
-                  (agent.transport === "tmux" || Boolean(sessionCatalog?.resumeCommand)));
               const harnessLabel =
                 s.transport ?? s.harness ?? agent.transport ?? agent.harness ?? "session";
+              // No status words (active/ready/live) — the live session reads as
+              // `now` in the accent; ended ones show how long ago, dim.
               const when = active
-                ? "active"
+                ? "now"
                 : s.endedAt
                   ? `ended · ${timeAgo(s.endedAt) || "recent"}`
                   : timeAgo(s.startedAt) || "recent";
+              // A property line for the expanded card — temporal detail about
+              // *this* session, never a repeat of the id already on the row.
+              const startedAgo = timeAgo(s.startedAt);
+              const endedAgo = s.endedAt ? timeAgo(s.endedAt) : null;
+              const exploreMeta = active
+                ? startedAgo && startedAgo !== "now"
+                  ? `Started ${startedAgo} ago`
+                  : "Just started"
+                : endedAgo && endedAgo !== "now"
+                  ? `Ended ${endedAgo} ago`
+                  : "Ended recently";
               return (
-                <div key={s.id} className="s-sess-item">
+                <div key={s.id} className={`s-sess-item${selected ? " s-sess-item--selected" : ""}`}>
                   <button
                     type="button"
                     className={`s-sess-row${active ? " s-sess-row--active" : ""}${selected ? " s-sess-row--selected" : ""}`}
-                    onClick={() => setSelectedId(s.id)}
+                    onClick={() => focusSession(agent.id, s.id)}
                     aria-expanded={selected}
                   >
                     <span
@@ -1837,63 +1884,20 @@ function ModularProfileCenter({
                     </span>
                   </button>
                   {selected && (
-                    <div className="s-sess-detail">
-                      <div className="s-sess-detail-meta">
-                        <span className="s-sess-detail-id">{s.id}</span>
-                        {s.cwd && <span className="s-sess-detail-cwd">{s.cwd}</span>}
-                      </div>
-                      <div className="s-sess-engage">
-                        <span className="s-sess-engage-label">Engage</span>
-                        <div className="s-sess-engage-row">
-                          <span className="s-sess-engage-surface">Conversation</span>
-                          <button
-                            type="button"
-                            className="s-sess-engage-primary"
-                            onClick={() => (active ? openMessage() : resumeSession(s))}
-                            title={
-                              active
-                                ? "Send a message into this conversation"
-                                : "Reopen this conversation and message it"
-                            }
-                          >
-                            {active ? "Continue" : "Resume"}
-                          </button>
-                        </div>
-                        <div className="s-sess-engage-row">
-                          <span className="s-sess-engage-surface">Terminal</span>
-                          <div className="s-sess-engage-acts">
-                            <button
-                              type="button"
-                              className="s-sess-engage-btn"
-                              onClick={observeTerminal}
-                              disabled={!canObserve}
-                              title={canObserve ? "Watch the live terminal, read-only" : "No live terminal to observe"}
-                            >
-                              Observe
-                            </button>
-                            <button
-                              type="button"
-                              className="s-sess-engage-btn"
-                              onClick={runTakeover}
-                              disabled={!canTakeover}
-                              title={canTakeover ? "Grab the keyboard and drive it" : "Can't take over this session"}
-                            >
-                              Take over
-                            </button>
-                          </div>
-                        </div>
-                        <div className="s-sess-engage-row">
-                          <span className="s-sess-engage-surface">Trace</span>
-                          <button
-                            type="button"
-                            className="s-sess-engage-btn"
-                            onClick={openActivity}
-                            title="Read the parsed turn + tool feed"
-                          >
-                            Open
-                          </button>
-                        </div>
-                      </div>
+                    <div className="s-sess-explore">
+                      <span className="s-sess-explore-meta">{exploreMeta}</span>
+                      <button
+                        type="button"
+                        className="s-sess-explore-primary"
+                        onClick={() => (active ? openMessage() : resumeSession(s))}
+                        title={
+                          active
+                            ? "Send a message into this conversation"
+                            : "Reopen this conversation and message it"
+                        }
+                      >
+                        {active ? "Continue" : "Resume"}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2193,7 +2197,10 @@ function AgentProfileBar({
 }) {
   const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
     { key: "profile", label: "Profile" },
-    { key: "observe", label: "Observe" },
+    // "Trace" = the parsed turn/tool feed (route stays `observe`). "Observe" is
+    // reserved for watching the live terminal (the rail's Terminal action), so
+    // the two surfaces no longer share a word.
+    { key: "observe", label: "Trace" },
     { key: "message", label: "Message", disabled: !conversationId },
   ];
   const navigateToTab = (tab: AgentTab) =>
