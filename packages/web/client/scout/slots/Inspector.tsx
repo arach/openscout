@@ -319,7 +319,7 @@ function BrokerContextPanel() {
 
       <BrokerContextSection label="Needs attention">
         {attentionRows.length === 0 ? (
-          <BrokerEmptyLine>No failed routes in this window.</BrokerEmptyLine>
+          <BrokerEmptyLine>No failed routes in history.</BrokerEmptyLine>
         ) : (
           <div className="flex flex-col gap-1.5">
             {attentionRows.map((attempt) => (

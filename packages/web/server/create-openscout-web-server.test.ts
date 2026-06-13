@@ -246,6 +246,23 @@ function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<
   return {
     generatedAt: Date.now(),
     windowMs: 86_400_000,
+    ledger: {
+      mode: "latest",
+      limit: 160,
+      cursor: null,
+      cursors: {
+        attempts: null,
+        failedQueries: null,
+        failedDeliveries: null,
+        dialogue: null,
+      },
+      hasMore: {
+        attempts: false,
+        failedQueries: false,
+        failedDeliveries: false,
+        dialogue: false,
+      },
+    },
     totals: {
       successfulDispatches: 0,
       failedQueries: 0,

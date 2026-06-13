@@ -306,6 +306,12 @@
   text-transform: uppercase;
 }
 
+.sys-ledger-footer {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-lg) 0 var(--space-sm);
+}
+
 .sys-broker-table {
   --sys-broker-ledger-grid: 54px 44px minmax(240px, 2.1fr) minmax(80px, 0.65fr) minmax(150px, 1.05fr) 34px minmax(78px, 0.4fr);
 

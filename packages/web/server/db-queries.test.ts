@@ -9,6 +9,7 @@ import {
   queryActivity,
   queryAgentById,
   queryAgents,
+  queryBrokerDiagnostics,
   queryFleet,
   queryFollowTarget,
   queryFlights,
@@ -559,6 +560,115 @@ describe("web db query runs", () => {
       });
       expect(run?.flightIds).toBeUndefined();
       expect(run?.output).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("web db query broker diagnostics", () => {
+  test("shows latest history even when the health window is empty", () => {
+    const store = createSeededStore();
+    const old = Date.now() - 2 * 24 * 60 * 60_000;
+
+    try {
+      store.recordMessage({
+        id: "msg-routed-old",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "A routed reply from before the health window.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: old,
+        metadata: {
+          source: "scout-cli",
+          relayTarget: "operator",
+          relayChannel: "dm",
+        },
+      });
+
+      const diagnostics = queryBrokerDiagnostics({ limit: 10, windowMs: 1_000 });
+
+      expect(diagnostics.totals).toMatchObject({
+        successfulDispatches: 0,
+        dialogueMessages: 0,
+      });
+      expect(diagnostics.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-routed-old"]);
+      expect(diagnostics.dialogue.map((message) => message.id)).toEqual(["msg-routed-old"]);
+      expect(diagnostics.ledger.mode).toBe("latest");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("paginates the merged dispatch ledger with a stable cursor", () => {
+    const store = createSeededStore();
+    const old = Date.now() - 2 * 24 * 60 * 60_000;
+
+    try {
+      store.recordMessage({
+        id: "msg-routed-newer",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Newest routed reply.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: old + 300,
+        metadata: {
+          source: "scout-cli",
+          relayTarget: "operator",
+          relayChannel: "dm",
+        },
+      });
+      store.recordScoutDispatch({
+        id: "dispatch-cursor",
+        kind: "unknown",
+        askedLabel: "@missing",
+        detail: "no agent matches @missing",
+        candidates: [],
+        dispatchedAt: old + 200,
+        dispatcherNodeId: "node-1",
+        requesterId: "operator",
+      });
+      store.recordMessage({
+        id: "msg-routed-older",
+        conversationId: "conv-1",
+        actorId: "agent-1",
+        originNodeId: "node-1",
+        class: "agent",
+        body: "Older routed reply.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: old + 100,
+        metadata: {
+          source: "scout-cli",
+          relayTarget: "operator",
+          relayChannel: "dm",
+        },
+      });
+
+      const first = queryBrokerDiagnostics({ limit: 1, windowMs: 1_000 });
+      const second = queryBrokerDiagnostics({
+        limit: 1,
+        windowMs: 1_000,
+        cursor: first.ledger.cursors.attempts,
+      });
+      const third = queryBrokerDiagnostics({
+        limit: 1,
+        windowMs: 1_000,
+        cursor: second.ledger.cursors.attempts,
+      });
+
+      expect(first.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-routed-newer"]);
+      expect(first.ledger.hasMore.attempts).toBe(true);
+      expect(second.attempts.map((attempt) => attempt.id)).toEqual(["dispatch:dispatch-cursor"]);
+      expect(second.ledger.hasMore.attempts).toBe(true);
+      expect(third.attempts.map((attempt) => attempt.id)).toEqual(["message:msg-routed-older"]);
+      expect(third.ledger.hasMore.attempts).toBe(false);
     } finally {
       store.close();
     }

@@ -3582,6 +3582,7 @@ export async function createOpenScoutWebServer(
       queryBrokerDiagnostics({
         limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
         windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
+        cursor: c.req.query("cursor") ?? null,
       }),
     ),
   );

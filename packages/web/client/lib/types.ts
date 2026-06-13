@@ -276,9 +276,18 @@ export type BrokerDialogueItem = {
   class: string;
 };
 
+export type BrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
+
 export type BrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  ledger: {
+    mode: "latest";
+    limit: number;
+    cursor: string | null;
+    cursors: Record<BrokerHistoryKey, string | null>;
+    hasMore: Record<BrokerHistoryKey, boolean>;
+  };
   totals: {
     successfulDispatches: number;
     failedQueries: number;
