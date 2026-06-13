@@ -445,6 +445,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Info-dense agent tile — identity · state · task · project · capabilities.",
   },
   {
+    href: "/studies/agent-view-before-after",
+    label: "Agent View Before / After",
+    bucket: "studies",
+    surface: "web",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-view-before-after/page.tsx",
+      "packages/web/client/screens/AgentsScreen.tsx",
+      "packages/web/client/screens/agents-screen.css",
+    ],
+    blurb: "Studio-mode pilot: clone the Agents board, compare before/after with a button or Option hold, and mark candidate insertion points.",
+  },
+  {
     href: "/studies/agent-inspector-card",
     label: "Agent Inspector Card",
     bucket: "studies",
