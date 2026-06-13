@@ -171,6 +171,10 @@ html[data-site-theme="dark"] {
 
 html {
   scroll-behavior: smooth;
+  /* Thin, inked scrollbar — the OS default gray bar reads loud and chunky
+     against the paper field. Firefox. */
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.205 0 0 / 0.28) transparent;
 }
 
 body {
@@ -180,9 +184,39 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* WebKit (Safari/Chrome/Edge): a slim, inset thumb that floats on the page.
+   The transparent border + padding-box clip makes the visible bar ~5px and
+   keeps it off the very edge. Works on both paper and paper-2 surfaces. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: oklch(0.205 0 0 / 0.24);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: oklch(0.205 0 0 / 0.42);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Selection — a quiet branded wash. A soft red tint keeps the one accent in
+   play without painting solid red on every drag; text stays ink for contrast,
+   so prose reads as selectable everywhere it lives. */
 ::selection {
-  background: var(--red);
-  color: #fff;
+  background: var(--site-accent-soft-strong);
+  color: var(--site-ink);
+}
+::-moz-selection {
+  background: var(--site-accent-soft-strong);
+  color: var(--site-ink);
 }
 
 /* ── entrance animations ── */
@@ -221,17 +255,36 @@ body {
 
 /* ── scroll reveal ── */
 
+/* Scroll reveal — a fast fade only, no translate. Tuned to feel instant:
+   short duration, capped near-zero stagger so dense grids don't "pour" in. */
 .reveal {
   opacity: 0;
-  transition: opacity 0.5s ease-out;
+  transition: opacity 0.22s ease-out;
 }
 
 .reveal.visible {
   opacity: 1;
 }
 
+/* Stagger trimmed hard (24ms/step, ceiling ~96ms) so a grid lands almost
+   together instead of cascading. */
 .reveal-stagger > .reveal {
-  transition-delay: calc(var(--reveal-i, 0) * 0.05s);
+  transition-delay: calc(min(var(--reveal-i, 0), 4) * 0.024s);
+}
+
+/* Reduced motion: no fade, no stagger, no entrance — content is just present,
+   never held at opacity 0 waiting on the intersection observer. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transition: none;
+  }
+  .reveal-stagger > .reveal {
+    transition-delay: 0s;
+  }
+  .hero-animate {
+    animation: none;
+  }
 }
 
 /* ── landing surfaces ── */
@@ -313,13 +366,18 @@ html[data-site-theme="dark"] .dot-grid {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 12px;
   color: var(--site-copy);
-  transition: color 0.15s ease;
+  transition: color 0.13s ease;
   letter-spacing: 0.01em;
   position: relative;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .operator-link:hover {
   color: var(--site-ink);
+  text-decoration-color: currentColor;
 }
 
 .operator-link:hover .operator-link__sigil {
@@ -427,105 +485,160 @@ html[data-site-theme="dark"] .dot-grid {
 
 
 /* ──────────────────────────────────────────────────────────
-   RFC hero — front matter on the left, broker stream on the right
+   Hero — editorial column on the left, live console on the right.
+   Each fold gets one dark artifact (the console), one alive thing
+   (its live thread), one scale jump (the headline / the readouts).
    ────────────────────────────────────────────────────────── */
 
-.rfc-hero__bar {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 10.5px;
+.hero-split {
+  display: grid;
+  /* The console is the live artifact of the fold and needs room to breathe:
+     a fixed 168px peers rail means the thread only gets (console − 168px), so
+     a cramped console wraps the script badly. Give it the larger share and
+     cap the editorial column so the headline stays a composed stack. */
+  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+  gap: 3.25rem;
+  /* The console is a tall artifact (540px); centering the editorial column
+     against it balances the fold instead of stranding the text at the top
+     with a void underneath. */
+  align-items: center;
+}
+
+.hero-editorial {
+  min-width: 0;
+}
+
+.hero-console-col {
+  min-width: 0;
+  position: relative;
+}
+
+/* The "are you an agent?" toggle perches on the console's top-left shoulder —
+   a small playful control on the live system, not a chip floating over the
+   right margin. Absolutely placed so it never pushes the headline down. */
+.hero-viewer-perch {
+  position: absolute;
+  left: 2px;
+  bottom: calc(100% + 0.55rem);
+  z-index: 4;
+}
+
+@media (max-width: 920px) {
+  .hero-split {
+    /* minmax(0, …) lets the track shrink below the console's intrinsic
+       min-content width — otherwise a single 1fr track inflates to the
+       console's min-content and pushes the whole fold past the viewport. */
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3.25rem;
+  }
+  /* On the stacked layout the perch sits in the gap above the console. */
+  .hero-viewer-perch {
+    bottom: calc(100% + 0.65rem);
+  }
+}
+
+/* Headline: the fold's scale jump. Both lines share the size; the second
+   line drops to muted ink — statement, then qualifier. */
+.hero-title {
+  font-family: var(--font-display), system-ui, sans-serif;
+  /* Sized so each statement line ("Communication for agents." /
+     "Local-first. Model-neutral.") holds on one line in the editorial
+     column — a composed two-line stack, not a four-line ramp. */
+  font-size: clamp(1.9rem, 3.1vw, 2.5rem);
+  line-height: 1.06;
+  letter-spacing: -0.026em;
+  font-weight: 600;
+  font-feature-settings: "ss01", "kern", "liga", "calt";
+  color: var(--site-ink);
+  text-wrap: pretty;
+}
+
+.hero-title__line {
+  display: block;
+}
+
+.hero-title__line + .hero-title__line {
+  color: var(--site-muted);
+}
+
+.hero-sub {
+  font-size: clamp(14px, 1.2vw, 15.5px);
+  line-height: 1.6;
+  max-width: 48ch;
+  margin-top: 1.25rem;
+  color: var(--site-copy);
+}
+
+/* Neutrality triad — a small mono "spec stamp" under the sub. The three axes
+   of neutrality (model · harness · framework), led by the hero's single
+   rationed-red registration mark. This is the one accent the paper-side hero
+   spends; everything else stays monochrome. */
+.hero-neutral {
+  list-style: none;
+  margin: 1.35rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--site-muted);
-  padding-bottom: 1.5rem;
-  border-bottom: 1px solid var(--site-border-soft);
+  color: var(--site-copy);
+}
+
+.hero-neutral::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  margin-right: 0.7rem;
+  background: var(--site-accent);
+}
+
+.hero-neutral li {
+  white-space: nowrap;
+}
+
+.hero-neutral li + li::before {
+  content: "·";
+  margin: 0 0.6rem;
+  color: var(--site-muted-soft);
+}
+
+/* Install lives in the hero column, directly under the sub — a flat,
+   crisp box on the ink border, no rounding, no fill. */
+.hero-install-block {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
 }
 
-.rfc-hero__bar-sep {
-  color: var(--site-accent);
-  opacity: 0.5;
-  user-select: none;
-}
-
-.rfc-hero__title {
-  font-family: var(--font-spectral), ui-serif, Georgia, serif;
-  font-weight: 600;
-  font-size: clamp(2rem, 3.5vw, 2.75rem);
-  line-height: 1.1;
-  letter-spacing: -0.018em;
-  color: var(--site-ink);
-  margin-top: 2rem;
-  max-width: 24ch;
-}
-
-.rfc-hero__authors {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 12.5px;
-  color: var(--site-copy);
-  margin-top: 1.25rem;
-  letter-spacing: 0.005em;
-}
-
-.rfc-hero__abstract {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 14px;
-  line-height: 1.7;
-  color: var(--site-copy);
-  margin-top: 1.75rem;
-  max-width: 58ch;
-}
-
-.rfc-hero__abstract-label {
-  font-weight: 600;
-  color: var(--site-ink);
-  margin-right: 0.4rem;
-}
-
-.rfc-hero__records-inline {
-  color: var(--site-ink);
-  font-weight: 500;
-}
-
-.rfc-hero__memo {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--site-muted);
-  margin-top: 1.5rem;
-  max-width: 58ch;
-  padding-top: 1rem;
-  border-top: 1px solid var(--site-border-soft);
-}
-
-.rfc-hero__install {
+.hero-install {
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
-  margin-top: 1.25rem;
-  padding: 0.55rem 0.85rem;
+  padding: 0.6rem 0.9rem;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 13px;
   color: var(--site-ink);
-  background: var(--site-panel-muted);
-  border: 1px solid var(--site-border);
-  border-radius: 9px;
+  background: transparent;
+  border: 1px solid var(--site-ink);
   cursor: pointer;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition: background-color 0.18s ease;
 }
 
-.rfc-hero__install:hover {
-  border-color: var(--site-border-strong);
-  background: var(--site-surface-strong);
+.hero-install:hover {
+  background: var(--site-panel-muted);
 }
 
-.rfc-hero__install-prompt {
+.hero-install__prompt {
   color: var(--site-muted);
 }
 
-.rfc-hero__install-copy {
+.hero-install__copy {
   color: var(--site-muted);
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -535,86 +648,15 @@ html[data-site-theme="dark"] .dot-grid {
   padding-left: 0.65rem;
 }
 
-.rfc-hero__install:hover .rfc-hero__install-copy {
+.hero-install:hover .hero-install__copy {
   color: var(--site-copy);
 }
 
-.rfc-hero__install--copied .rfc-hero__install-copy {
-  color: var(--site-accent);
-}
-
-.rfc-hero__title--two-line {
-  font-size: clamp(2.4rem, 4.4vw, 3.6rem);
-  line-height: 1.04;
-  letter-spacing: -0.022em;
-  font-weight: 500;
-  max-width: 16ch;
-  text-wrap: pretty;
-}
-
-.rfc-hero__title-line {
-  display: block;
-}
-
-/* Full-width hero (story above, console below) */
-.rfc-hero__story {
-  margin-top: 0.5rem;
-}
-
-.rfc-hero__viewer-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 0.5rem;
-}
-
-.rfc-hero__title--full {
-  font-family: var(--font-spectral), ui-serif, Georgia, serif;
-  font-size: clamp(1.85rem, 3.6vw, 3.25rem);
-  line-height: 1.0;
-  letter-spacing: -0.034em;
-  font-weight: 500;
-  font-feature-settings: "ss01", "kern", "liga", "calt";
-  max-width: none;
-  margin-top: 0;
-  text-wrap: balance;
-}
-
-/* Second visual line is a tactical kicker — uppercase mono in the rust
-   accent, much smaller and thinner than the serif top line. Sets up
-   contrast: serif statement → mono punchline. */
-.rfc-hero__title--full .rfc-hero__title-line + .rfc-hero__title-line {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: clamp(0.95rem, 1.4vw, 1.25rem);
-  font-weight: 300;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--site-accent);
-  margin-top: 0.85rem;
-  line-height: 1.2;
-}
-
-.rfc-hero__abstract--full {
-  font-size: clamp(14px, 1.2vw, 15.5px);
-  line-height: 1.55;
-  max-width: 48ch;
-  margin-top: 1rem;
+.hero-install--copied .hero-install__copy {
   color: var(--site-ink);
 }
 
-/* Install lives in the hero column, directly under the subtext */
-.rfc-hero__install-block {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.4rem;
-  margin-top: 1rem;
-}
-
-.rfc-hero__install-block .rfc-hero__install {
-  margin-top: 0;
-}
-
-.rfc-hero__install-foot {
+.hero-install-foot {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 11.5px;
   color: var(--site-muted);
@@ -624,7 +666,7 @@ html[data-site-theme="dark"] .dot-grid {
 
 /* Quiet next-step hint directly under the install pill — mono, muted, calm.
    Same prompt grammar as the pill ($), no border, no accent. */
-.rfc-hero__install-next {
+.hero-install-next {
   display: flex;
   align-items: baseline;
   gap: 0.45rem;
@@ -635,93 +677,27 @@ html[data-site-theme="dark"] .dot-grid {
   letter-spacing: 0.005em;
 }
 
-.rfc-hero__install-next-label {
+.hero-install-next__label {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-size: 10px;
   color: var(--site-muted-soft);
 }
 
-.rfc-hero__install-next-prompt {
+.hero-install-next__prompt {
   color: var(--site-muted-soft);
 }
 
-/* Secondary "Download for Mac" — ink text-link, NOT a button, no red. Uses the
-   site's ↗ link grammar; the arrow carries the affordance, the ink carries the
-   weight. Hero red budget stays on the kicker. */
-.rfc-hero__mac-link {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.3rem;
-  margin-top: 0.15rem;
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 12.5px;
-  color: var(--site-copy);
-  transition: color 0.15s ease;
-}
-
-.rfc-hero__mac-link:hover {
-  color: var(--site-ink);
-}
-
-.rfc-hero__mac-link-arrow {
-  color: var(--site-muted);
-  font-size: 11px;
-  transition: color 0.15s ease;
-}
-
-.rfc-hero__mac-link:hover .rfc-hero__mac-link-arrow {
-  color: var(--site-ink);
-}
-
-.rfc-hero__schema-link {
+/* Quiet mono link row under the footnote — schema links for agents,
+   the Mac download for humans. Ink, not red: hero red is for live signals. */
+.hero-links {
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 11.5px;
   color: var(--site-muted);
   margin: 0.45rem 0 0;
 }
 
-/* Pain line above the install pill — small mono, muted, no border, no accent.
-   States the status quo so the pill below answers it. */
-.rfc-hero__install-pain {
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--site-muted);
-  margin: 0 0 0.15rem;
-  max-width: 52ch;
-}
-
-/* Hero console caption — same grammar as .mesh-figure__caption (dashed top
-   hairline, red caption-num, muted caption-meta) but placed below the dark
-   card. Meta line is long, so num + meta stack rather than space-between. */
-.rfc-hero__console-caption {
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
-  padding: 0.6rem 0.2rem 0;
-  margin-top: 0.7rem;
-  border-top: 1px dashed var(--site-border-soft);
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-}
-
-.rfc-hero__console-caption-num {
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--site-accent);
-  font-weight: 600;
-}
-
-.rfc-hero__console-caption-meta {
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
-  line-height: 1.55;
-  color: var(--site-muted);
-}
-
-.rfc-hero__schema-link a {
+.hero-links a {
   color: var(--site-copy);
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -729,130 +705,46 @@ html[data-site-theme="dark"] .dot-grid {
   transition: color 0.15s ease;
 }
 
-.rfc-hero__schema-link a:hover {
+.hero-links a:hover {
   color: var(--site-ink);
 }
 
-/* Hero masthead — RFC-style header fields grounding the editorial column so it
-   carries weight down the page beside the taller live console. Definition list:
-   uppercase key column, dot-delimited values, hairline-ruled rows. */
-.rfc-hero__masthead {
-  margin: 2.25rem 0 0;
-  padding-top: 1.15rem;
-  border-top: 1px solid var(--site-border);
-  display: flex;
-  flex-direction: column;
-  max-width: 46ch;
-}
-
-.rfc-hero__masthead-row {
-  display: grid;
-  grid-template-columns: 7rem minmax(0, 1fr);
-  gap: 1rem;
-  align-items: baseline;
-  padding: 0.62rem 0;
-  border-bottom: 1px solid var(--site-border-soft);
-}
-
-.rfc-hero__masthead-row:last-child {
-  border-bottom: 0;
-}
-
-.rfc-hero__masthead-key {
-  margin: 0;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--site-muted);
-}
-
-.rfc-hero__masthead-val {
-  margin: 0;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 12.5px;
-  letter-spacing: 0.01em;
-  line-height: 1.5;
-  color: var(--site-ink);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-}
-
-.rfc-hero__masthead-token {
-  white-space: nowrap;
-}
-
-.rfc-hero__masthead-sep {
-  color: var(--site-muted-soft);
-  margin: 0 0.5rem;
-}
-
-/* Hero split: editorial left, console right, console top-aligned with the
-   headline for that "page-of-the-spec next to the live system" feel. */
-.rfc-hero__split {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-  gap: 2.5rem;
-  align-items: start;
-}
-
-.rfc-hero__editorial {
-  min-width: 0;
-}
-
-.rfc-hero__console-col {
-  min-width: 0;
+/* Dot-grid mat the console sits on — a soft dot field for depth, no hard
+   edges. The field lives on a ::before so it can fade toward the rim (never
+   a dashed outline box) while the console itself stays fully opaque. */
+.hero-console-mat {
   position: relative;
+  padding: 1rem;
 }
 
-/* The "are you an agent?" toggle perches on the console's top-left shoulder —
-   a small playful control on the live system, not a chip floating over the
-   right margin. Absolutely placed so it never pushes the headline down. */
-.rfc-hero__viewer-perch {
+.hero-console-mat::before {
+  content: "";
   position: absolute;
-  left: 2px;
-  bottom: calc(100% + 0.55rem);
-  z-index: 4;
+  inset: 0;
+  z-index: 0;
+  background-image: radial-gradient(
+    var(--site-muted-soft) 0.7px,
+    transparent 0.7px
+  );
+  background-size: 13px 13px;
+  opacity: 0.45;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 85% at 50% 50%,
+    #000 50%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 85% at 50% 50%,
+    #000 50%,
+    transparent 100%
+  );
+  pointer-events: none;
 }
 
-@media (max-width: 920px) {
-  .rfc-hero__split {
-    grid-template-columns: 1fr;
-    gap: 3.25rem;
-  }
-  /* On the stacked layout the perch sits in the gap above the console. */
-  .rfc-hero__viewer-perch {
-    bottom: calc(100% + 0.65rem);
-  }
+.hero-console-mat > * {
+  position: relative;
+  z-index: 1;
 }
-
-/* Floating viewer toggle — fixed bottom-right above the status bar */
-.viewer-toggle-floater {
-  position: fixed;
-  right: 1.25rem;
-  bottom: 3.5rem;
-  z-index: 60;
-  padding: 5px 8px;
-  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
-  border: 1px solid var(--site-border);
-  border-radius: 999px;
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.6),
-    0 12px 28px -14px rgba(26, 22, 18, 0.3),
-    0 4px 10px -6px rgba(26, 22, 18, 0.18);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  backdrop-filter: blur(10px) saturate(140%);
-}
-
-html[data-site-theme="dark"] .viewer-toggle-floater {
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.04),
-    0 12px 28px -14px rgba(0, 0, 0, 0.6);
-}
-
-/* "I'm a — human / agent" segmented toggle, sits above the hero headline */
 
 /* "I'm a bot" — single on/off switch with a hand-drawn bot icon */
 
@@ -929,246 +821,14 @@ html[data-site-theme="dark"] .viewer-toggle-floater {
   .viewer-toggle__track { transition: none; }
 }
 
-/* Document strip — unified spec-doc nav. Sticky once scrolled past hero.
-   Stuck state is detected by an IntersectionObserver in page.tsx (works in
-   all modern browsers, not just Chromium with animation-timeline). The
-   sentinel below is a zero-height marker placed just above the strip's
-   resting position; when it leaves the viewport from the top, JS adds
-   .is-stuck to the strip and the collapsed-meta + shadow look kicks in. */
-
-.rfc-doc-strip__sentinel {
-  height: 1px;
-  margin-bottom: -1px; /* don't add layout space */
-  pointer-events: none;
-}
-
-.rfc-doc-strip {
-  position: sticky;
-  top: 52px;            /* under operator-console */
-  z-index: 40;
-  border-top: 1px solid var(--site-border);
-  border-bottom: 1px solid var(--site-border);
-  padding: 0.6rem 0 0.55rem;
-  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
-  backdrop-filter: blur(10px) saturate(140%);
-  transition:
-    box-shadow 0.28s ease,
-    background 0.28s ease,
-    border-color 0.28s ease,
-    padding 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
-}
-
-/* Stuck: tighten chrome, raise the surface with a soft shadow, deepen the
-   backdrop so it reads as a layer on top of the doc rather than part of it. */
-.rfc-doc-strip.is-stuck {
-  padding: 0.55rem 0;
-  background: color-mix(in srgb, var(--site-page-bg) 96%, transparent);
-  border-bottom-color: var(--site-border-strong);
-  box-shadow: 0 6px 18px -12px rgba(17, 17, 16, 0.22);
-}
-
-html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
-  box-shadow: 0 8px 22px -14px rgba(0, 0, 0, 0.55);
-}
-
-.rfc-doc-strip__meta {
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--site-accent);
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding-bottom: 0.55rem;
-  flex-wrap: wrap;
-  /* Animatable so we can collapse it on stick. max-height is large enough
-     to fit a wrapped meta line on narrow screens. */
-  max-height: 6rem;
-  overflow: hidden;
-  transition:
-    max-height 0.32s cubic-bezier(0.4, 0.05, 0.2, 1),
-    padding-bottom 0.28s ease,
-    border-color 0.28s ease,
-    margin-bottom 0.28s ease;
-}
-
-.rfc-doc-strip__meta-text {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  transition:
-    opacity 0.22s ease,
-    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
-}
-
-/* Stuck: meta line is redundant (the user is reading the doc). Collapse
-   the draft-id text and shrink the toggle so the §-chips dominate.
-   The toggle stays clickable — it's a global control — just visually
-   demoted with a slight scale + dim. */
-.rfc-doc-strip.is-stuck .rfc-doc-strip__meta {
-  max-height: 1.6rem;
-  padding-bottom: 0;
-  border-bottom-color: transparent;
-  margin-bottom: -0.25rem;
-}
-
-.rfc-doc-strip.is-stuck .rfc-doc-strip__meta-text {
-  opacity: 0;
-  transform: translateY(-4px);
-  pointer-events: none;
-}
-
-.rfc-doc-strip .viewer-toggle {
-  transition:
-    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1),
-    opacity 0.22s ease;
-  transform-origin: right center;
-}
-
-.rfc-doc-strip.is-stuck .viewer-toggle {
-  transform: scale(0.9);
-  opacity: 0.78;
-}
-
-.rfc-doc-strip.is-stuck .viewer-toggle:hover,
-.rfc-doc-strip.is-stuck .viewer-toggle:focus-within {
-  opacity: 1;
-}
-
-.rfc-doc-strip__toc {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.55rem;
-  padding-top: 0.65rem;
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  transition: padding-top 0.28s ease;
-}
-
-.rfc-doc-strip.is-stuck .rfc-doc-strip__toc {
-  padding-top: 0.4rem;
-}
-
-.rfc-doc-strip__toc a {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.45rem;
-  padding: 0.4rem 0.75rem;
-  font-size: 12.5px;
-  color: var(--site-copy);
-  border: 1px solid var(--site-border-soft);
-  border-radius: 6px;
-  background: var(--site-panel-muted);
-  white-space: nowrap;
-  transition:
-    color 0.18s ease,
-    background 0.18s ease,
-    border-color 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.rfc-doc-strip__toc a:hover {
-  color: var(--site-ink);
-  background: var(--site-surface-strong);
-  border-color: var(--site-border-strong);
-  transform: translateY(-1px);
-}
-
-/* Scroll-spy active state — applied by page.tsx when the matching section
-   is in view. Rust accent border + ink text + a slightly stronger panel so
-   the chip reads as "you are here" without shouting. */
-.rfc-doc-strip__toc a.is-active {
-  color: var(--site-ink);
-  background: var(--site-accent-soft);
-  border-color: var(--site-accent-border);
-  box-shadow: inset 0 0 0 1px var(--site-accent-border);
-}
-
-.rfc-doc-strip__toc a.is-active .rfc-hero__toc-num {
-  color: var(--site-accent);
-}
-
-.rfc-doc-strip__toc a.is-active:hover {
-  background: var(--site-accent-soft-strong);
-  border-color: var(--site-accent);
-}
-
-.rfc-doc-strip__toc a:focus-visible {
-  outline: 2px solid var(--site-accent);
-  outline-offset: 2px;
-}
-
-.rfc-doc-strip__toc-item {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 0.2rem;
-}
-
-/* Tighter horizontal spacing because each item now holds two pieces */
-.rfc-doc-strip__toc {
-  gap: 0.55rem;
-}
-
-.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.4rem 0.55rem;
-  font-size: 10.5px;
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  color: var(--site-muted);
-  border: 1px solid var(--site-border-soft);
-  border-radius: 6px;
-  background: transparent;
-  letter-spacing: 0.06em;
-  text-transform: lowercase;
-}
-
-.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs:hover {
-  color: var(--site-accent);
-  border-color: var(--site-accent-border);
-  background: var(--site-accent-soft);
-  transform: none;
-}
-
-.rfc-doc-strip__toc-label {
-  font-weight: 500;
-}
-
-.rfc-hero__toc-num {
-  color: var(--site-accent);
-  font-weight: 600;
-  font-size: 11.5px;
-  letter-spacing: 0.04em;
-}
-
-/* Reduce-motion: keep the visual states (collapsed meta, active chip,
-   stuck shadow) but skip the in-between animation. */
-@media (prefers-reduced-motion: reduce) {
-  .rfc-doc-strip,
-  .rfc-doc-strip__meta,
-  .rfc-doc-strip__meta-text,
-  .rfc-doc-strip__toc,
-  .rfc-doc-strip__toc a,
-  .rfc-doc-strip .viewer-toggle {
-    transition: none;
-  }
-  .rfc-doc-strip__toc a:hover {
-    transform: none;
-  }
-}
-
 /* ──────────────────────────────────────────────────────────
-   RFC document sections (Problem, Capabilities, Surfaces, Get Started)
+   Page sections (The problem, Records, The apps, Works with,
+   Getting started)
    ────────────────────────────────────────────────────────── */
 
-/* §-section composition — editorial unit, not a stack.
-     – serif title is the dominant voice (ink)
-     – eyebrow is a quiet label that attaches to the title (muted)
-     – §N hangs near the title as marginalia (accent — appears once)
+/* Section composition — editorial unit, not a stack.
+     – title is the dominant voice (ink)
+     – eyebrow is a quiet plain small-caps label attached to the title
      – lead breathes from the title; figure/blocks sit on a real beat below
      – enumerated blocks read as children of the title column, sharing a
        single column rule instead of three redundant per-card rules
@@ -1177,16 +837,31 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
      title   → lead        = grouped but breathing (1.35rem)
      lead    → figure/blks = real beat (3rem)                              */
 
-.rfc-section {
+.section-band {
+  background: var(--site-page-bg);
+  /* Air scales with the viewport so dense mono blocks breathe on large
+     screens without feeling cramped on small ones. */
+  padding-top: clamp(4.5rem, 6vw, 6.5rem);
+  padding-bottom: clamp(5rem, 6.5vw, 7rem);
+}
+
+/* Alternating paper / paper-2 rhythm down the page, each band opening on a
+   hairline so consecutive sections read as distinct sheets rather than one
+   uninterrupted gray field. nth-of-type counts the hero <section> as 1, so the
+   first band (The problem) is 2 → paper, Records is 3 → paper-2, and so on. */
+.section-band:nth-of-type(odd) {
   background: var(--site-panel-muted);
-  padding-top: 4.5rem;
-  padding-bottom: 5rem;
+}
+
+main > .section-band {
+  border-top: 1px solid var(--site-border);
 }
 
 /* Eyebrow: a quiet label attached to the title, not a competing banner.
-   No bottom border, no rust on §N — restraint. The §N gets promoted to a
-   marginalia marker on the title itself (see below). */
-.rfc-section-eyebrow {
+   (.rfc-section-eyebrow lives on for the docs / blog / manifest pages,
+   which still wear the spec costume.) */
+.rfc-section-eyebrow,
+.section-eyebrow {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 10.5px;
   letter-spacing: 0.07em;
@@ -1197,8 +872,7 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
   gap: 0.5rem;
 }
 
-/* The inline §N is replaced visually by the marginalia marker on the title;
-   keep it in the markup for screen readers / CSS-counter-less fallback. */
+/* Visually-hidden §N inside the docs/blog/manifest eyebrows. */
 .rfc-section-eyebrow__num {
   position: absolute;
   width: 1px;
@@ -1212,8 +886,7 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
 }
 
 /* Title is the loudest element. Margin-top tight to eyebrow → one unit. */
-.rfc-section-title {
-  position: relative;
+.section-title {
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
   font-size: clamp(1.5rem, 2.6vw, 2.0625rem);
@@ -1226,27 +899,8 @@ html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
   text-wrap: balance;
 }
 
-/* Marginalia §-marker: small mono §N sitting just above the serif title's
-   first line, slightly inset. The accent fires here exactly once in the
-   opener — the editorial tell that this is a numbered section of the
-   spec, without a banner-y eyebrow rule fighting the title. */
-.rfc-section-title::before {
-  content: "§" counter(rfc-section);
-  display: inline-block;
-  font-family: var(--font-mono-display), ui-monospace, monospace;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--site-accent);
-  vertical-align: 0.6em;
-  margin-right: 0.5rem;
-}
-
-/* Auto-number §-sections in document order. */
-main { counter-reset: rfc-section; }
-.rfc-section { counter-increment: rfc-section; }
-
-.rfc-section-lead {
+.rfc-section-lead,
+.section-lead {
   font-family: var(--font-mono-display), ui-monospace, monospace;
   font-size: 13.5px;
   line-height: 1.75;
@@ -1272,13 +926,13 @@ main { counter-reset: rfc-section; }
   left: 0;
   width: 2.25rem;
   height: 1px;
-  background: var(--site-accent);
+  background: var(--site-ink);
   opacity: 0.7;
 }
 
-/* Standalone .rfc-block (used outside the row, e.g. §3 Note + §4 Apps)
-   keeps a soft top rule for separation but no longer competes with the
-   row treatment. */
+/* Standalone .rfc-block (used outside the row, e.g. the apps Note + the
+   Getting-started Apps block) keeps a soft top rule for separation but no
+   longer competes with the row treatment. */
 .rfc-block {
   border-top: 1px solid var(--site-border-soft);
   padding-top: 1.5rem;
@@ -1301,8 +955,7 @@ main { counter-reset: rfc-section; }
   font-weight: 600;
 }
 
-/* Only the §x.N portion gets accent — keeps the trail of rust readable as
-   "section markers, nothing else." */
+/* §x.N accent marker — still worn by the manifest page's spec costume. */
 .rfc-block__num-mark {
   color: var(--site-accent);
 }
@@ -1323,28 +976,122 @@ main { counter-reset: rfc-section; }
   color: var(--site-copy);
 }
 
-/* §4 host-integration cards — boxed, equal-height, softened corners. */
+/* ── How-it-works contrast — problem → solution, side by side. Flat Basel:
+   two columns split by a single hairline seam, no fills, no rounding. The
+   "after" (solution) side carries emphasis through ink weight alone — a
+   heavier seam and a stronger title — never colour or fill. ── */
+.contrast-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: stretch;
+  position: relative;
+}
+
+.contrast-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.2rem 2rem 0.4rem 0;
+}
+
+/* The seam: a single hairline between the two columns. The "after" side
+   owns it and weights it to ink — structure, not colour, marks emphasis. */
+.contrast-card--after {
+  padding: 0.2rem 0 0.4rem 2rem;
+  border-left: 1px solid var(--site-ink);
+}
+
+.contrast-card__label {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.contrast-card__title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: 1.0625rem;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  color: var(--site-ink);
+}
+
+.contrast-card--before .contrast-card__title {
+  color: var(--site-copy);
+}
+
+.contrast-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.contrast-list__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--site-copy);
+}
+
+.contrast-card--before .contrast-list__row {
+  color: var(--site-muted);
+}
+
+/* Bullet: a small ink dot. No colour coding — both sides read the same mark,
+   the after side just slightly firmer to match its heavier ink. */
+.contrast-list__dot {
+  flex: none;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--site-muted-soft);
+  transform: translateY(-2px);
+}
+
+.contrast-card--after .contrast-list__dot {
+  background: var(--site-muted);
+}
+
+@media (max-width: 720px) {
+  .contrast-panel {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+  }
+  .contrast-card {
+    padding: 0;
+  }
+  /* Stacked: the seam moves to the top edge of the "after" block. */
+  .contrast-card--after {
+    padding: 1.75rem 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--site-ink);
+  }
+}
+
+/* §4 host-integration cards — flat Basel: square corners, hairline border,
+   no fill that fights the band. The host eyebrow + name carry identity, so
+   the monogram tile is gone. Hover firms the hairline to ink. */
 .integration-block {
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
   height: 100%;
-  padding: 1.15rem 1.2rem 1.05rem;
-  background: var(--site-panel-muted);
+  padding: 1.2rem 1.25rem 1.1rem;
+  background: transparent;
   border: 1px solid var(--site-border);
-  border-radius: 14px;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
+  transition: border-color 0.15s ease;
 }
 
 .integration-block:hover {
-  border-color: var(--site-accent-border);
-  background: var(--site-surface);
-}
-
-.integration-block__header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  border-color: var(--site-ink);
 }
 
 .integration-block__heading {
@@ -1363,16 +1110,17 @@ main { counter-reset: rfc-section; }
   color: var(--site-ink);
 }
 
+/* Install line — flat mono row, square, hairline, matching the hero install
+   box. No rounded input, no inner fill that lifts off the band. */
 .integration-block__install {
   display: block;
   font-family: var(--font-geist-mono), ui-monospace, monospace;
   font-size: 11px;
   line-height: 1.5;
   color: var(--site-copy);
-  background: var(--site-page-bg);
-  border: 1px solid var(--site-border-soft);
-  border-radius: 8px;
-  padding: 0.45rem 0.6rem;
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  padding: 0.5rem 0.65rem;
   overflow-wrap: anywhere;
 }
 
@@ -1384,27 +1132,8 @@ main { counter-reset: rfc-section; }
   gap: 0.35rem 1.1rem;
 }
 
-.integration-block__mark {
-  width: 2.25rem;
-  height: 2.25rem;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--site-border);
-  border-radius: 7px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--site-accent) 10%, transparent), transparent),
-    var(--site-surface-strong);
-  color: var(--site-ink);
-  font-family: var(--font-geist-mono), ui-monospace, monospace;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, white 34%, transparent);
-}
-
-.rfc-figure {
+/* App-surface screenshots with annotation captions (The apps). */
+.surface-figure {
   border: 1px solid var(--site-border);
   border-radius: 8px;
   background: var(--site-surface-strong);
@@ -1412,13 +1141,13 @@ main { counter-reset: rfc-section; }
   box-shadow: var(--site-card-shadow);
 }
 
-.rfc-figure__caption {
+.surface-figure__caption {
   border-top: 1px solid var(--site-border-soft);
   padding: 1rem;
   font-family: var(--font-mono-display), ui-monospace, monospace;
 }
 
-.rfc-figure__caption-num {
+.surface-figure__caption-tag {
   font-size: 10.5px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1426,7 +1155,7 @@ main { counter-reset: rfc-section; }
   font-weight: 600;
 }
 
-.rfc-figure__caption-title {
+.surface-figure__caption-title {
   font-family: var(--font-spectral), ui-serif, Georgia, serif;
   font-weight: 600;
   font-size: 0.9rem;
@@ -1434,11 +1163,659 @@ main { counter-reset: rfc-section; }
   margin-top: 0.35rem;
 }
 
-.rfc-figure__caption-body {
+.surface-figure__caption-body {
   font-size: 12px;
   line-height: 1.55;
   color: var(--site-copy);
   margin-top: 0.4rem;
+}
+
+/* Window chrome above each non-phone shot — matches the operator-console
+   vocabulary used by the console / topo / broker-stream surfaces, so the
+   product screenshots stop reading as raw full-bleed crops. */
+.surface-figure__chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 30px;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+}
+
+.surface-figure__dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.surface-figure__dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+}
+
+.surface-figure__chrome-id {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--site-muted);
+}
+
+/* Phone shot — a minimal device bezel on a quiet mat instead of a hard crop.
+   The full screenshot shows, no cropping. */
+.surface-figure--phone .surface-phone__stage {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1.6rem 1rem 0.85rem;
+  background: var(--site-panel);
+  border-bottom: 1px solid var(--site-border-soft);
+}
+
+/* The phone is portrait; let it span both rows of the gallery so its top and
+   bottom align with the stacked landscape cards beside it. */
+@media (min-width: 640px) {
+  .surface-figure--phone {
+    grid-row: span 2;
+    display: flex;
+    flex-direction: column;
+  }
+  .surface-figure--phone .surface-phone__stage {
+    flex: 1;
+  }
+}
+
+.surface-phone__device {
+  position: relative;
+  width: min(224px, 70%);
+  padding: 7px;
+  border-radius: 32px;
+  background: #1c1d22;
+  box-shadow:
+    0 1px 1px rgba(18, 20, 26, 0.24),
+    0 12px 28px rgba(18, 20, 26, 0.14);
+}
+
+.surface-phone__screen-wrap {
+  position: relative;
+  border-radius: 23px;
+  overflow: hidden;
+  background: #000;
+  line-height: 0;
+}
+
+.surface-phone__screen {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.surface-phone__island {
+  position: absolute;
+  z-index: 4;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 44px;
+  height: 13px;
+  border-radius: 999px;
+  background: #050506;
+}
+
+html[data-site-theme="dark"] .surface-phone__device {
+  background: #2a2b32;
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.4),
+    0 12px 28px rgba(0, 0, 0, 0.32);
+}
+
+/* Expanded phone — keep the bezel, on a light page-matched backdrop so it
+   doesn't jar from light page to dark lightbox. */
+.surface-phone__lightbox {
+  background: color-mix(in oklab, var(--site-page-bg) 90%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.surface-phone__lightbox-close {
+  position: absolute;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--site-ink);
+  color: var(--site-ink-contrast);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.surface-phone__lightbox-close:hover {
+  opacity: 0.85;
+}
+
+.surface-phone__device--lightbox {
+  display: inline-block;
+  width: auto;
+  padding: 11px;
+  border-radius: 52px;
+  box-shadow:
+    0 2px 4px rgba(18, 20, 26, 0.18),
+    0 30px 80px rgba(18, 20, 26, 0.28);
+}
+
+.surface-phone__device--lightbox .surface-phone__screen-wrap {
+  display: block;
+  border-radius: 41px;
+}
+
+.surface-phone__device--lightbox .surface-phone__screen {
+  display: block;
+  width: auto;
+  height: min(84vh, 860px);
+}
+
+.surface-phone__device--lightbox .surface-phone__island {
+  top: 19px;
+  width: 64px;
+  height: 18px;
+}
+
+/* Mesh diagram seated under the section lead in "How it works". */
+.how-it-works__figure {
+  margin-top: 1.75rem;
+}
+
+/* Live traffic on the mesh diagram — the one rationed red, in motion. */
+.mesh-figure__packet {
+  fill: var(--site-accent);
+}
+
+/* How it works — before → after: frantic silo switching resolves into the
+   calm mesh. Two matched plates with a transition arrow between them. */
+.how-it-works__contrast {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 2.25rem;
+  margin-top: 2.5rem;
+}
+
+.how-it-works__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.how-it-works__panel-label {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.how-it-works__panel--after .how-it-works__panel-label {
+  color: var(--site-accent);
+}
+
+.how-it-works__panel-title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--site-ink);
+  margin-top: -0.15rem;
+}
+
+.how-it-works__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.how-it-works__row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--site-copy);
+}
+
+.how-it-works__row-dot {
+  flex: 0 0 auto;
+  width: 4px;
+  height: 4px;
+  margin-top: 0.45em;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+}
+
+.how-it-works__panel--after .how-it-works__row-dot {
+  background: var(--site-accent);
+}
+
+.how-it-works__panel-stage {
+  margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+  .how-it-works__contrast {
+    grid-template-columns: 1fr;
+    gap: 2.5rem;
+  }
+}
+
+/* The loop — a deadpan numbered headline for the Records section. */
+.loop-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.loop-steps__item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.85rem;
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--site-ink);
+}
+
+.loop-steps__num {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--site-muted);
+}
+
+.loop-steps__item--muted .loop-steps__text {
+  color: var(--site-muted);
+}
+
+/* How it works — before → after as two stacked rows, text beside illustration. */
+.how-it-works__eyebrow {
+  display: block;
+  margin-bottom: 2.5rem;
+}
+
+.hiw-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: center;
+}
+
+.hiw-row + .hiw-row {
+  margin-top: 4rem;
+}
+
+.hiw-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-width: 30rem;
+}
+
+.hiw-row__title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: clamp(1.5rem, 2.4vw, 2rem);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  color: var(--site-ink);
+}
+
+/* The "before" is the contrast, not the headline — smaller and muted so the
+   eye lands on the With Scout positioning above it, not on the problem. */
+.hiw-row__title--before {
+  font-size: clamp(1.2rem, 1.7vw, 1.45rem);
+  color: var(--site-copy);
+}
+
+.hiw-row--after .how-it-works__panel-label {
+  color: var(--site-accent);
+}
+
+.hiw-row__body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--site-copy);
+}
+
+.hiw-caps {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.hiw-caps__item {
+  display: flex;
+  gap: 0.7rem;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.hiw-caps__label {
+  flex: 0 0 auto;
+  width: 4.25rem;
+  padding-top: 0.1rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--site-ink);
+}
+
+.hiw-caps__text {
+  color: var(--site-copy);
+}
+
+@media (max-width: 860px) {
+  .hiw-row {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+}
+
+/* Without Scout — a cluttered desktop of tool windows; focus jumps between
+   them, only one ever in front. */
+.silo-desktop {
+  border: 1px solid var(--site-border);
+  border-radius: 8px;
+  background: var(--site-panel);
+  overflow: hidden;
+}
+
+.silo-desktop__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 26px;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.silo-desktop__bar-app {
+  color: var(--site-copy);
+}
+
+.silo-desktop__stage {
+  position: relative;
+  height: 204px;
+}
+
+.silo-win {
+  position: absolute;
+  width: 58%;
+  border: 1px solid var(--site-border);
+  border-radius: 7px;
+  background: var(--site-surface-strong);
+  overflow: hidden;
+  opacity: 0.5;
+  box-shadow: 0 1px 2px rgba(18, 20, 26, 0.06);
+  transition: opacity 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.silo-win.is-active {
+  opacity: 1;
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(18, 20, 26, 0.16);
+}
+
+.silo-win__chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 27px;
+  padding: 0 0.6rem;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+}
+
+.silo-win__dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.silo-win__dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+}
+
+.silo-win.is-active .silo-win__dots i:first-child {
+  background: var(--site-accent);
+}
+
+.silo-win__app {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--site-ink);
+  white-space: nowrap;
+}
+
+.silo-win__ctx {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  color: var(--site-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.silo-win__body {
+  padding: 9px 11px;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--site-copy);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .silo-win {
+    transition: none;
+  }
+}
+
+/* The silo simulation — a terminal whose active tab keeps flipping. */
+.silo-switch {
+  border: 1px solid var(--site-border);
+  border-radius: 8px;
+  background: var(--site-surface-strong);
+  overflow: hidden;
+}
+
+.silo-switch__chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  height: 30px;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+}
+
+.silo-switch__dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.silo-switch__dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--site-border-strong);
+}
+
+.silo-switch__chrome-id {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--site-muted);
+}
+
+.silo-switch__tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--site-border-soft);
+  overflow: hidden;
+}
+
+.silo-switch__tab {
+  flex: 0 0 auto;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  padding: 4px 8px;
+  border-radius: 5px 5px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--site-muted);
+  white-space: nowrap;
+}
+
+.silo-switch__tab.is-active {
+  color: var(--site-ink);
+  background: var(--site-panel);
+  border-color: var(--site-border-soft);
+  box-shadow: inset 0 2px 0 var(--site-accent);
+}
+
+.silo-switch__screen {
+  position: relative;
+  min-height: 168px;
+  padding: 12px 14px;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--site-copy);
+  animation: silo-flip 0.2s ease-out;
+}
+
+.silo-switch__line {
+  line-height: 1.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.silo-switch__cursor {
+  display: inline-block;
+  margin-top: 0.2rem;
+  color: var(--site-accent);
+  animation: silo-blink 1s steps(2, end) infinite;
+}
+
+@keyframes silo-flip {
+  from {
+    opacity: 0.25;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes silo-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .silo-switch__screen {
+    animation: none;
+  }
+  .silo-switch__cursor {
+    animation: none;
+  }
+}
+
+/* macOS download — a quiet, solid ink button with the Apple glyph. */
+.mac-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.95rem;
+  border-radius: 9px;
+  background: var(--site-ink);
+  color: var(--site-ink-contrast);
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.mac-download:hover {
+  background: var(--site-ink-hover);
+}
+
+.mac-download__glyph {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  margin-bottom: 2px;
+}
+
+.mac-download__glyph svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+.mac-download__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.mac-download__label {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.mac-download__meta {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--site-ink-contrast);
+  opacity: 0.6;
+}
+
+.hero-download {
+  margin-top: 1rem;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -3514,43 +3891,14 @@ html[data-site-theme="dark"] .scout-console {
     0 6px 16px -12px rgba(28, 22, 16, 0.20) !important;
 }
 
-/* No frosted chrome — surfaces sit on the grid, not floating above it. */
-.site-marketing .rfc-doc-strip,
-.site-marketing .viewer-toggle-floater {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-  background: var(--site-page-bg) !important;
-}
-
-/* When the doc-strip sticks, mark it with the heavy black structural rule
-   that opens every Basel section, not a soft tinted hairline. */
-.site-marketing .rfc-doc-strip.is-stuck {
-  border-bottom-color: var(--rule) !important;
-}
-
-/* Display type — Archivo, kept on the lighter side of the ramp. The headline
-   reads as a calm grotesque statement; weight is a nudge, never a slab. */
-.site-marketing .rfc-hero__title--full {
-  font-weight: 400;
-  letter-spacing: -0.03em;
-  /* A touch smaller — calm grotesque, lets the hero breathe. */
-  font-size: clamp(1.6rem, 3vw, 2.7rem);
-}
-.site-marketing
-  .rfc-hero__title--full
-  .rfc-hero__title-line
-  + .rfc-hero__title-line {
-  font-weight: 400; /* red mono kicker line stays light */
-}
-.site-marketing .rfc-section-title {
+/* Display type — Archivo, hierarchy from scale + weight. Section titles
+   stay a notch lighter than the hero statement. */
+.site-marketing .section-title {
   font-weight: 500;
 }
 .site-marketing .rfc-block__title,
-.site-marketing .rfc-figure__caption-title {
+.site-marketing .surface-figure__caption-title {
   font-weight: 500;
-}
-.site-marketing .integration-block__mark {
-  font-weight: 600;
 }
 
 /* Whitespace does the separating — keep the ambient dot-grid barely there. */

@@ -1,0 +1,343 @@
+/* Scout — Comms · Channels study. Tokens only (`--s-*`).
+   Kept deliberately quiet — one sprite per row, unread = bold name, the
+   active channel marked by a thin left accent rule. The sprites carry
+   identity; everything else recedes. Matches the scout-comms baseline. */
+
+.comms {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: 620px;
+  font-family: var(--s-font-sans);
+}
+
+/* ── List ──────────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--s-chrome);
+  border-right: 1px solid var(--s-hairline);
+}
+
+.listHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+}
+
+.listTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.listCount {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--s-dim);
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline);
+}
+
+.rows {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 4px 0 8px;
+}
+
+/* Channel mark + name + preview. Group channels show a facepile (two sprites
+   overlapping); DMs show a single sprite. The grid column is wide enough for
+   both — the facepile spans ~38px. Active row = thin left accent rule only. */
+.row {
+  display: grid;
+  grid-template-columns: 38px 1fr;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
+}
+
+.row.selected {
+  border-left-color: var(--s-accent);
+}
+
+.rowSprite {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+/* Facepile: two sprites overlapping — back one recedes slightly, front one
+   carries a thin chrome halo so the two creatures read as separate. */
+.facepile {
+  position: relative;
+  width: 38px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
+.facepileBack {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  opacity: 0.65;
+}
+
+.facepileFront {
+  position: absolute;
+  left: 16px;
+  top: 4px;
+  z-index: 1;
+  /* Chrome halo separates the front sprite from the back without a border */
+  box-shadow: 0 0 0 2px var(--s-chrome);
+  border-radius: 3px;
+}
+
+.body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.topline {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.name {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hash {
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  margin-right: 1px;
+}
+
+/* Unread is carried entirely by a bolder name — no dot, no count badge. */
+.unread .name {
+  font-weight: 700;
+}
+
+.time {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  flex-shrink: 0;
+}
+
+.preview {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--s-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.unread .preview {
+  color: color-mix(in srgb, var(--s-ink) 80%, transparent);
+}
+
+/* ── Thread ────────────────────────────────────────────────────────── */
+
+.thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-bg);
+}
+
+.threadHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.threadIdent {
+  min-width: 0;
+  flex: 1;
+}
+
+.threadName {
+  display: inline-flex;
+  align-items: baseline;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.threadSub {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Stream */
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.turn {
+  display: flex;
+  gap: 12px;
+}
+
+/* The avatar slot holds a sprite. The operator gets a thin accent ring so
+   "you" is unmistakable in a multi-agent thread — focus-ring style, not a
+   filled block, and nothing else marks "you". */
+.turnAvatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.turnAvatar.turnOp {
+  box-shadow: 0 0 0 1.5px var(--s-accent);
+  background: var(--s-bg);
+}
+
+.turnBody {
+  min-width: 0;
+  flex: 1;
+  max-width: 64ch;
+}
+
+.turnHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.turnAuthor {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.turnTime {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.turnText {
+  font-size: 13px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--s-ink) 90%, transparent);
+}
+
+.turnText p {
+  margin: 0 0 8px;
+}
+
+.turnText code {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+.fileCard {
+  margin-top: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--s-hairline-strong);
+  background: var(--s-surface);
+  overflow: hidden;
+}
+
+.fileCardHead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-ink);
+  border-bottom: 1px solid var(--s-hairline);
+  background: var(--s-bg);
+}
+
+.fileCardBody {
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--s-muted);
+}
+
+/* Composer — a flat, simple input box. No extra chrome. */
+.composer {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.composerField {
+  padding: 12px 14px;
+  border-radius: 11px;
+  font-size: 13px;
+  color: var(--s-dim);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}

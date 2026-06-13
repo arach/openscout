@@ -171,6 +171,14 @@ const TAIL = [
   "✓ idle — awaiting next task",
 ];
 
+/* Agent-level runtime for the rail's lower Context card. cwd · branch · harness ·
+   model · host already live in the header, so this keeps only what they don't. */
+const SESSION_RUNTIME: Array<{ k: string; v: string }> = [
+  { k: "Transport", v: "tmux" },
+  { k: "Role", v: "relay agent" },
+  { k: "Class", v: "general" },
+];
+
 /** Who started a session — a sprite for agents, plain for you / a channel. */
 function Initiator({ s, size = 12 }: { s: Session; size?: number }) {
   if (s.initiatorKind === "agent") {
@@ -195,9 +203,10 @@ function Initiator({ s, size = 12 }: { s: Session; size?: number }) {
 function ProfileHeader() {
   const facts = [
     { k: "cwd", v: "~/dev/hudson" },
+    { k: "branch", v: "⎇ feat/hud-markdown-renderer" },
     { k: "harness", v: "claude" },
     { k: "model", v: "opus-4.8" },
-    { k: "branch", v: "⎇ feat/hud-markdown-renderer" },
+    { k: "host", v: "arts-mac-mini" },
   ];
   return (
     <div
@@ -207,8 +216,16 @@ function ProfileHeader() {
       <div className="flex min-w-0 items-center gap-3">
         <SpriteAvatar name={AGENT} size={36} tile />
         <div className="min-w-0">
-          <div className="font-display text-[19px] leading-none" style={{ color: INKC }}>
-            {AGENT}
+          <div className="flex items-center gap-2.5">
+            <span className="font-display text-[19px] leading-none" style={{ color: INKC }}>
+              {AGENT}
+            </span>
+            <span
+              className="inline-flex items-center gap-1.5 font-mono text-[8px] uppercase tracking-[0.12em]"
+              style={{ color: ACCENT }}
+            >
+              <Dot size={6} /> active
+            </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
             {facts.map((f) => (
@@ -288,7 +305,15 @@ function SessionRow({
   );
 }
 
-function SessionsCenter({ sel, onSelect }: { sel: number; onSelect: (i: number) => void }) {
+function SessionsCenter({
+  sel,
+  onSelect,
+  inline = false,
+}: {
+  sel: number;
+  onSelect: (i: number) => void;
+  inline?: boolean;
+}) {
   return (
     <div className="flex min-w-0 flex-1 flex-col" style={{ background: INK.canvas }}>
       <TopBar />
@@ -298,114 +323,291 @@ function SessionsCenter({ sel, onSelect }: { sel: number; onSelect: (i: number) 
           Recent sessions
         </span>
         <span className="font-mono text-[8.5px] tabular-nums" style={{ color: FAINT }}>
-          {SESSIONS.length} · by recency
+          {SESSIONS.length} sessions
         </span>
       </div>
       <div className="flex-1 overflow-y-auto">
         {SESSIONS.map((s, i) => (
-          <SessionRow key={s.id} s={s} selected={i === sel} onSelect={() => onSelect(i)} />
+          <React.Fragment key={s.id}>
+            <SessionRow s={s} selected={i === sel} onSelect={() => onSelect(i)} />
+            {inline && i === sel ? (
+              <div
+                className="px-4 py-3.5"
+                style={{ background: `color-mix(in oklab, ${ACCENT} 5%, transparent)`, borderTop: `1px solid ${INK.edgeSoft}` }}
+              >
+                <div className="pl-[18px]"><SessionDetailBody s={s} /></div>
+              </div>
+            ) : null}
+          </React.Fragment>
         ))}
       </div>
     </div>
   );
 }
 
-/** The selected session, in detail — context snapshot, initiator, the action. */
-function SessionDetail({ s }: { s: Session }) {
+/* ── rail building blocks ─────────────────────────────────────────────────── */
+
+/** Engage, grouped by the surface each action opens — so Continue (conversation)
+    reads as distinct from Take over (terminal), without leaning on clever words. */
+function EngageZone({ active }: { active: boolean }) {
+  const rows: Array<{
+    label: string;
+    actions: Array<{ t: string; on: boolean; primary?: boolean; title: string }>;
+  }> = [
+    {
+      label: "Conversation",
+      actions: [
+        {
+          t: active ? "Continue" : "Resume",
+          on: true,
+          primary: true,
+          title: active ? "Send a message into this conversation" : "Reopen this conversation and message it",
+        },
+      ],
+    },
+    {
+      label: "Terminal",
+      actions: [
+        { t: "Observe", on: active, title: active ? "Watch the live terminal, read-only" : "No live terminal to observe" },
+        { t: "Take over", on: active, title: active ? "Grab the keyboard and drive it" : "Can't take over an ended session" },
+      ],
+    },
+    {
+      label: "Trace",
+      actions: [{ t: "Open", on: true, title: "Read the parsed turn + tool feed" }],
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-2 pt-1">
+      <div className="font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+        Engage
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center gap-2.5">
+            <span
+              className="w-[78px] flex-none font-mono text-[8px] uppercase tracking-[0.13em]"
+              style={{ color: FAINT }}
+            >
+              {r.label}
+            </span>
+            <div className="flex gap-1.5">
+              {r.actions.map((a) => (
+                <button
+                  key={a.t}
+                  type="button"
+                  disabled={!a.on}
+                  title={a.title}
+                  className="rounded-[4px] px-2.5 py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em] disabled:cursor-default"
+                  style={
+                    a.primary && a.on
+                      ? { background: ACCENT, color: INK.canvas, cursor: "pointer" }
+                      : {
+                          cursor: a.on ? "pointer" : "default",
+                          border: `1px solid ${a.on ? INK.edge : INK.edgeSoft}`,
+                          color: a.on ? MUTED : INK.edge,
+                        }
+                  }
+                >
+                  {a.t}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** The selected session's detail — snapshot, initiator, transcript, engage. */
+function SessionDetailBody({ s }: { s: Session }) {
   const active = s.state === "active";
   return (
-    <div className="flex w-[300px] flex-none flex-col" style={{ background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
-      <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
-        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
-          Session
-        </span>
-        <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
-          {active ? "active" : "ended"} · {s.ago}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-3.5">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <Dot on={active} size={6} />
-            <span className="font-mono text-[12px]" style={{ color: INKC }}>{s.id}</span>
-            <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
-              {s.transport}
-            </span>
-          </div>
-          <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
+    <div className="flex flex-col gap-4">
+      <div>
+        <div className="flex items-center gap-1.5">
+          <Dot on={active} size={6} />
+          <span className="font-mono text-[12px]" style={{ color: INKC }}>{s.id}</span>
+          <span className="rounded-sm px-1 font-mono text-[7px] uppercase tracking-[0.08em]" style={{ background: INK.module, color: FAINT }}>
+            {s.transport}
+          </span>
+          <span className="ml-auto font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+            {active ? "active" : "ended"} · {s.ago}
+          </span>
         </div>
+        <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
+      </div>
 
-        <RailSection label="Context snapshot">
-          <div className="flex flex-col gap-1.5">
-            {s.context.map((line, i) => (
-              <div key={i} className="flex gap-2 text-[11px] leading-snug" style={{ color: MUTED }}>
-                <span className="flex-none" style={{ color: INK.edge }}>—</span>
-                <span>{line}</span>
+      <RailSection label="Context snapshot">
+        <div className="flex flex-col gap-1.5">
+          {s.context.map((line, i) => (
+            <div key={i} className="flex gap-2 text-[11px] leading-snug" style={{ color: MUTED }}>
+              <span className="flex-none" style={{ color: INK.edge }}>—</span>
+              <span>{line}</span>
+            </div>
+          ))}
+        </div>
+      </RailSection>
+
+      <RailSection label="Initiated by">
+        <div className="flex items-center gap-2 font-mono text-[10px]" style={{ color: MUTED }}>
+          <Initiator s={s} size={16} />
+          <span style={{ color: INK.edge }}>·</span>
+          <span style={{ color: FAINT }}>{s.ago} ago</span>
+        </div>
+      </RailSection>
+
+      {active ? (
+        <RailSection label="Transcript">
+          <div
+            className="rounded-[5px] p-2.5 font-mono text-[8.5px] leading-[1.5]"
+            style={{ background: "oklch(0.09 0.006 80)", border: `1px solid ${INK.edgeSoft}`, color: MUTED }}
+          >
+            {TAIL.map((l, i) => (
+              <div key={i} className="truncate" style={{ color: i === TAIL.length - 1 ? ACCENT : MUTED }}>
+                {l}
               </div>
             ))}
           </div>
         </RailSection>
+      ) : null}
 
-        <RailSection label="Initiated by">
-          <div className="flex items-center gap-2 font-mono text-[10px]" style={{ color: MUTED }}>
-            <Initiator s={s} size={16} />
-            <span style={{ color: INK.edge }}>·</span>
-            <span style={{ color: FAINT }}>{s.ago} ago</span>
-          </div>
-        </RailSection>
+      <EngageZone active={active} />
+    </div>
+  );
+}
 
-        {active ? (
-          <RailSection label="Transcript">
-            <div
-              className="rounded-[5px] p-2.5 font-mono text-[8.5px] leading-[1.5]"
-              style={{ background: "oklch(0.09 0.006 80)", border: `1px solid ${INK.edgeSoft}`, color: MUTED }}
-            >
-              {TAIL.map((l, i) => (
-                <div key={i} className="truncate" style={{ color: i === TAIL.length - 1 ? ACCENT : MUTED }}>
-                  {l}
-                </div>
-              ))}
+/** The agent context card — runtime detail + relationships (no header dupes). */
+function ContextBody() {
+  return (
+    <div className="flex flex-col gap-4">
+      <RailSection label="Runtime">
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+          {SESSION_RUNTIME.map((f) => (
+            <div key={f.k} className="min-w-0">
+              <div className="font-mono text-[7px] font-semibold uppercase tracking-[0.14em]" style={{ color: FAINT }}>
+                {f.k}
+              </div>
+              <div className="truncate font-mono text-[10px]" style={{ color: INKC }}>
+                {f.v}
+              </div>
             </div>
-          </RailSection>
-        ) : null}
-
-        <div className="mt-auto flex flex-col gap-1.5 pt-2">
-          <button
-            type="button"
-            className="w-full cursor-pointer rounded-[4px] py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.12em]"
-            style={{ background: ACCENT, color: INK.canvas }}
-          >
-            {active ? "Continue session" : "Resume session"}
-          </button>
-          {active ? (
-            <div className="flex gap-1.5">
-              {["Observe", "Trace", "Takeover"].map((b) => (
-                <button
-                  key={b}
-                  type="button"
-                  className="flex-1 cursor-pointer rounded-[4px] py-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.1em]"
-                  style={{ border: `1px solid ${INK.edge}`, color: MUTED }}
-                >
-                  {b}
-                </button>
-              ))}
+          ))}
+        </div>
+      </RailSection>
+      <RailSection label="Talks to" meta={`${TALKS_TO.length}`}>
+        <TalksToMesh />
+        <div className="flex flex-col gap-[2px]">
+          {TALKS_TO.map((p) => (
+            <div key={p.name} className="flex items-center gap-2 px-1.5 py-1">
+              <Dot on={p.state !== "idle"} size={5} />
+              <span className="min-w-0 flex-1 truncate font-mono text-[9.5px]" style={{ color: MUTED }}>
+                {p.name}
+              </span>
+              <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
+                {p.count}
+              </span>
             </div>
-          ) : null}
+          ))}
+        </div>
+      </RailSection>
+      <RailSection label="Capabilities" meta="3">
+        <div className="flex flex-wrap gap-1">
+          {["chat", "invoke", "deliver"].map((c) => (
+            <span key={c} className="rounded-[3px] px-1.5 py-[2px] font-mono text-[8px]" style={{ background: INK.module, color: MUTED }}>
+              {c}
+            </span>
+          ))}
+        </div>
+      </RailSection>
+    </div>
+  );
+}
+
+const RAIL_W = 300;
+
+/* ── three rail solutions ─────────────────────────────────────────────────── */
+
+/** A · stacked — session detail on top, agent context card below. One scroll. */
+function RailStacked({ s }: { s: Session }) {
+  const active = s.state === "active";
+  return (
+    <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
+      <div className="flex h-[34px] flex-none items-center justify-between px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Session</span>
+        <span className="font-mono text-[8px] uppercase tracking-[0.12em]" style={{ color: active ? ACCENT : FAINT }}>
+          {active ? "active" : "ended"} · {s.ago}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <div className="p-3.5"><SessionDetailBody s={s} /></div>
+        <div className="flex flex-col gap-4 p-3.5" style={{ borderTop: `1px solid ${INK.edge}`, background: "oklch(0.132 0.008 80)" }}>
+          <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
+          <ContextBody />
         </div>
       </div>
     </div>
   );
 }
 
-export function Frame() {
+/** B · swap — a [Session | Context] toggle picks which one fills the rail. */
+function RailSwap({ s }: { s: Session }) {
+  const [tab, setTab] = React.useState<"session" | "context">("session");
+  return (
+    <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
+      <div className="flex h-[34px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
+        <div className="flex gap-0.5 rounded-[5px] p-[2px]" style={{ background: INK.canvas, border: `1px solid ${INK.edgeSoft}` }}>
+          {(["session", "context"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className="cursor-pointer rounded-[3px] px-2.5 py-[3px] font-mono text-[8px] font-semibold uppercase tracking-[0.12em] transition-colors"
+              style={tab === t ? { background: ACCENT, color: INK.canvas } : { color: FAINT }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3.5">
+        {tab === "session" ? <SessionDetailBody s={s} /> : <ContextBody />}
+      </div>
+    </div>
+  );
+}
+
+/** C · context-only — rail is the agent card; session detail lives inline in center. */
+function RailContextOnly() {
+  return (
+    <div className="flex flex-none flex-col" style={{ width: RAIL_W, background: INK.panel, borderLeft: `1px solid ${INK.edge}` }}>
+      <div className="flex h-[34px] flex-none items-center px-3" style={{ borderBottom: `1px solid ${INK.edgeSoft}` }}>
+        <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>Context</span>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3.5"><ContextBody /></div>
+    </div>
+  );
+}
+
+type RailMode = "stacked" | "swap" | "inline";
+
+export function Frame({ railMode = "stacked" }: { railMode?: RailMode }) {
   const [sel, setSel] = React.useState(0);
+  const s = SESSIONS[sel];
   return (
     <div
       className="flex overflow-hidden rounded-lg"
       style={{ border: `1px solid ${INK.edge}`, minHeight: 600, background: INK.canvas }}
     >
-      <SessionsCenter sel={sel} onSelect={setSel} />
-      <SessionDetail s={SESSIONS[sel]} />
+      <SessionsCenter sel={sel} onSelect={setSel} inline={railMode === "inline"} />
+      {railMode === "stacked" ? (
+        <RailStacked s={s} />
+      ) : railMode === "swap" ? (
+        <RailSwap s={s} />
+      ) : (
+        <RailContextOnly />
+      )}
     </div>
   );
 }
@@ -661,6 +863,11 @@ type View = "current" | "rebalanced";
 
 export default function AgentProfileRebalancePage() {
   const [view, setView] = React.useState<View>("rebalanced");
+  const [railMode, setRailMode] = React.useState<RailMode>("inline");
+  React.useEffect(() => {
+    const r = new URLSearchParams(window.location.search).get("rail");
+    if (r === "swap" || r === "inline") setRailMode(r);
+  }, []);
   return (
     <main className="mx-auto max-w-page px-7 py-8">
       <header className="mb-6 max-w-prose">
@@ -672,46 +879,86 @@ export default function AgentProfileRebalancePage() {
         </h1>
         <p className="mt-3 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
           Sessions-first. When you open an agent you care, in order, about{" "}
-          <span className="text-studio-ink">the essentials (cwd · harness · model)</span>, then{" "}
-          <span className="text-studio-ink">its recent sessions by recency</span> — which are active or
-          recently active — and for a session, a{" "}
-          <span className="text-studio-ink">context snapshot + who initiated it</span>. The action is
-          simply: continue an existing session, or start a new one. So the profile is a compact
-          essentials header over a recency-ordered session list, with the selected session&apos;s
-          detail in the rail. No giant idle &ldquo;Now&rdquo; hero — idle reads as a calm list, active
-          lights its top session.
+          <span className="text-studio-ink">the essentials (state · cwd · branch · harness · model)</span>,
+          then <span className="text-studio-ink">its recent sessions by recency</span> — which are active
+          or recently active — and for a session, a{" "}
+          <span className="text-studio-ink">context snapshot + who initiated it</span>. Selecting a
+          session opens its detail in the rail, where every way to engage lives in one place as a
+          gradient — <span className="text-studio-ink">Continue → Activity → Observe → Take over</span>
+          {" "}— or you start a new one. No giant idle &ldquo;Now&rdquo; hero, and no floating
+          &ldquo;Terminal&rdquo; bar that just restates the active session — idle reads as a calm list,
+          active lights its top session.
         </p>
       </header>
 
-      <div
-        className="mb-3 inline-flex rounded-[6px] p-[3px]"
-        style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
-      >
-        {(["current", "rebalanced"] as View[]).map((v) => {
-          const active = view === v;
-          return (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setView(v)}
-              aria-pressed={active}
-              className={cn(
-                "cursor-pointer rounded-[4px] px-3.5 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
-                !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
-              )}
-              style={active ? { background: ACCENT, color: INK.canvas } : undefined}
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <div
+          className="inline-flex rounded-[6px] p-[3px]"
+          style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
+        >
+          {(["current", "rebalanced"] as View[]).map((v) => {
+            const active = view === v;
+            return (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                aria-pressed={active}
+                className={cn(
+                  "cursor-pointer rounded-[4px] px-3.5 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                  !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
+                )}
+                style={active ? { background: ACCENT, color: INK.canvas } : undefined}
+              >
+                {v === "current" ? "Current (live)" : "Rebalanced"}
+              </button>
+            );
+          })}
+        </div>
+
+        {view === "rebalanced" ? (
+          <div className="inline-flex items-center gap-2">
+            <span className="font-mono text-[8px] uppercase tracking-[0.16em] text-studio-ink-faint">Rail</span>
+            <div
+              className="inline-flex rounded-[6px] p-[3px]"
+              style={{ background: "var(--studio-canvas-alt, oklch(0.16 0.006 80))", border: "1px solid var(--studio-edge, oklch(0.27 0.008 80))" }}
             >
-              {v === "current" ? "Current (live)" : "Rebalanced"}
-            </button>
-          );
-        })}
+              {([
+                { id: "stacked", label: "Stacked" },
+                { id: "swap", label: "Swap" },
+                { id: "inline", label: "Inline" },
+              ] as Array<{ id: RailMode; label: string }>).map((m) => {
+                const active = railMode === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setRailMode(m.id)}
+                    aria-pressed={active}
+                    className={cn(
+                      "cursor-pointer rounded-[4px] px-3 py-[6px] font-mono text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors",
+                      !active && "text-studio-ink-faint hover:bg-studio-canvas hover:text-studio-ink",
+                    )}
+                    style={active ? { background: ACCENT, color: INK.canvas } : undefined}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {view === "current" ? <CurrentFrame /> : <Frame />}
+      {view === "current" ? <CurrentFrame /> : <Frame railMode={railMode} />}
       <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
         {view === "current"
           ? "Recreated from the live :5180 Hudson capture — center half-empty, rail packed"
-          : "Sessions-first — essentials header, recency-ordered sessions, selected session in the rail"}
+          : railMode === "stacked"
+            ? "Stacked — session detail on top, agent context card below; one scroll"
+            : railMode === "swap"
+              ? "Swap — a Session / Context toggle picks which fills the rail"
+              : "Inline — session detail expands under the row; rail is the agent context card"}
       </div>
 
       <section className="mt-9 max-w-prose">
@@ -720,22 +967,27 @@ export default function AgentProfileRebalancePage() {
         </div>
         <ul className="flex flex-col gap-2 text-[12px] leading-relaxed text-studio-ink-faint">
           <li>
-            <span className="text-studio-ink">Essentials, always in view.</span> cwd · harness · model ·
-            branch sit in a single compact line under the name — no big block, no scrolling for them.
+            <span className="text-studio-ink">Essentials, always in view.</span> A state dot by the
+            name, then cwd · ⎇branch · harness · model · host in a single compact line — no big block,
+            no scrolling for them.
           </li>
           <li>
-            <span className="text-studio-ink">Sessions are the spine.</span> Ordered by recency; the
-            active one carries a live dot, ended ones show how long ago. Idle no longer inflates into a
-            hero — it&apos;s just a calm list.
+            <span className="text-studio-ink">Sessions are the spine.</span> Ordered by recency (no
+            &ldquo;by recency&rdquo; label — the order says it); the active one carries a live dot, ended
+            ones show how long ago. The active row <em>is</em> the live/terminal indicator — no separate
+            floating &ldquo;Terminal&rdquo; bar restating it.
           </li>
           <li>
-            <span className="text-studio-ink">Each session reads at a glance.</span> A one-line context
-            snapshot + who initiated it (a sprite for agents, plain for you / a channel).
+            <span className="text-studio-ink">Click selects, never jumps.</span> Clicking a session
+            opens its detail in the rail (snapshot · who initiated · transcript) — it does not drop you
+            into a live terminal. Entering a terminal is always a deliberate second click.
           </li>
           <li>
-            <span className="text-studio-ink">The decision is explicit.</span> Continue an existing
-            session (rail, on the selected one) or <em>+ New session</em> (header). The selected
-            session&apos;s fuller context + transcript live in the rail.
+            <span className="text-studio-ink">One world to engage.</span> All the ways to engage a
+            session live together in the rail, as a gradient: <em>Continue</em> (message into the
+            conversation) → <em>Activity</em> (read the parsed feed) → <em>Observe</em> (watch the live
+            terminal) → <em>Take over</em> (drive it). Observe / Take over grey out when the session
+            isn&apos;t live. The other branch — <em>+ New session</em> — sits in the header.
           </li>
         </ul>
       </section>

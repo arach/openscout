@@ -952,29 +952,16 @@ struct ScoutMemberStrip: View {
     }
 
     private func avatarGlyph(for member: ScoutMemberIdentity) -> some View {
-        Text(member.name.first.map { String($0).uppercased() } ?? "?")
-            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-            .foregroundStyle(ScoutPalette.bg)
-            .frame(width: 18, height: 18)
-            .background(Circle().fill(memberTint(member.name)))
+        SpriteAvatarView(name: member.name, size: 18, tile: true)
             .overlay(
-                Circle()
-                    .stroke(member.agent == nil ? ScoutPalette.bg : ScoutPalette.accent.opacity(0.82), lineWidth: member.agent == nil ? 1.2 : 1.4)
+                Group {
+                    if member.agent == nil {
+                        RoundedRectangle(cornerRadius: HudRadius.sm, style: .continuous)
+                            .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
+                    }
+                }
             )
-            .contentShape(Circle())
-    }
-
-    private func memberTint(_ name: String) -> Color {
-        if name.lowercased() == "operator" { return ScoutPalette.accent }
-        return Color(hue: Double(stableHueSeed(for: name)) / 360.0, saturation: 0.55, brightness: 0.82)
-    }
-
-    private func stableHueSeed(for text: String) -> Int {
-        var hash: UInt64 = 5381
-        for byte in text.lowercased().utf8 {
-            hash = (hash &* 33) &+ UInt64(byte)
-        }
-        return Int(hash % 360)
+            .contentShape(Rectangle())
     }
 }
 
@@ -1030,28 +1017,19 @@ struct ScoutMessageRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// Studio `.turnAvatar` — a 28×28 tile leading each turn. The operator ("me")
-    /// reads as a surface tile with a hairline; agents fill solid accent. Replaces
-    /// the old right-aligned operator bubble; role now reads from the avatar.
+    /// Studio `.turnAvatar` — a 28×28 sprite tile leading each turn. Operator gets
+    /// the same deterministic sprite as any agent; a thin accent ring marks "you".
     @ViewBuilder
     private var turnAvatar: some View {
-        if message.isOperator {
-            Text(message.actorName.first.map { String($0).uppercased() } ?? "?")
-                .font(HudFont.ui(HudTextSize.sm, weight: .bold))
-                .foregroundStyle(ScoutPalette.muted)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(ScoutPalette.surface)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .stroke(ScoutPalette.hairlineStrong, lineWidth: HudStrokeWidth.standard)
-                )
-        } else {
-            // Agent turn — a deterministic sprite from the actor name.
-            SpriteAvatarView(name: message.actorName, size: 28, tile: true)
-        }
+        SpriteAvatarView(name: message.actorName, size: 28, tile: true)
+            .overlay(
+                Group {
+                    if message.isOperator {
+                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                            .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
+                    }
+                }
+            )
     }
 
     /// The constrained reading measure (Studio `.turnText`) — long prose wraps at

@@ -36,6 +36,7 @@ import {
   AGENT_STATE_COLOR,
   type AgentState,
 } from "@/components/AgentPresenceDot";
+import { SpriteAvatar } from "@/components/SpriteAvatar";
 
 // ── Data model ───────────────────────────────────────────────────────
 
@@ -322,10 +323,13 @@ const STATE_LABEL: Record<AgentState, string> = {
   error: "error",
 };
 
+// The only state that earns a signal: an agent actively alive on the work.
+const isLiveState = (s: AgentState) =>
+  s === "working" || s === "needs-attention";
+
 // Calm by default; accent only where an operator must look.
 function stateLabelColor(state: AgentState): string {
-  if (state === "working" || state === "needs-attention")
-    return "var(--scout-accent)";
+  if (isLiveState(state)) return "var(--scout-accent)";
   if (state === "available") return "var(--studio-ink-muted)";
   return "var(--studio-ink-faint)";
 }
@@ -448,6 +452,47 @@ function StateDot({ state, size = 7 }: { state: AgentState; size?: number }) {
         animation: live ? "at-pulse 1.9s ease-in-out infinite" : undefined,
       }}
     />
+  );
+}
+
+// ── Page-header atoms — the identity-bar vocabulary every main surface
+//    shares (lifted from the native Repos header: title · Live · counts) ──
+
+function LivePill() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-studio-edge px-1.5 py-[1px] font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-muted">
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{
+          background: "var(--scout-accent)",
+          boxShadow:
+            "0 0 0 2px color-mix(in oklab, var(--scout-accent) 22%, transparent)",
+        }}
+      />
+      Live
+    </span>
+  );
+}
+
+function HeadCount({
+  n,
+  label,
+  tone,
+}: {
+  n: React.ReactNode;
+  label: string;
+  tone?: string;
+}) {
+  return (
+    <span className="inline-flex shrink-0 items-baseline gap-1">
+      <span
+        className="font-mono text-[12px] font-semibold tabular-nums"
+        style={{ color: tone ?? "var(--studio-ink)" }}
+      >
+        {n}
+      </span>
+      <span className="font-sans text-[11px] text-studio-ink-faint">{label}</span>
+    </span>
   );
 }
 
@@ -699,12 +744,26 @@ export default function AgentsTreePage() {
       <div className="flex overflow-hidden rounded-lg border border-studio-edge bg-studio-canvas-alt shadow-[0_18px_50px_-20px_rgba(0,0,0,0.6)]">
         {/* Tree column */}
         <div className="flex min-w-0 flex-1 flex-col border-r border-studio-edge">
-          {/* Title bar / filter */}
+          {/* Page header — the identity bar every main surface speaks:
+              title · Live · counts | filter. Ported from the native Repos
+              header so Agents reads as the same system. */}
           <div className="flex items-center gap-3 border-b border-studio-edge px-3 py-2">
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span className="shrink-0 font-sans text-[14px] font-semibold leading-none text-studio-ink">
               Agents
             </span>
-            <div className="relative flex-1">
+            <LivePill />
+            <span className="flex items-center gap-3">
+              <HeadCount n={PROJECTS.length} label="repos" />
+              <HeadCount n={total} label="agents" />
+              {working ? (
+                <HeadCount
+                  n={working}
+                  label="live"
+                  tone="var(--scout-accent)"
+                />
+              ) : null}
+            </span>
+            <div className="relative ml-auto w-[230px]">
               <input
                 ref={inputRef}
                 value={filter}
@@ -727,17 +786,15 @@ export default function AgentsTreePage() {
                 </span>
               ) : null}
             </div>
-            <span className="shrink-0 font-mono text-[10px] tabular-nums text-studio-ink-faint">
-              {total} agents
-              {working ? (
-                <>
-                  {" · "}
-                  <span style={{ color: "var(--scout-accent)" }}>
-                    {working} live
-                  </span>
-                </>
-              ) : null}
-            </span>
+          </div>
+
+          {/* Column header — the spine label + the trailing UPDATED column,
+              mirroring the Repos table head so the timestamps read as a column.
+              pl-[30px] aligns the spine under the project name (8 base + 14
+              chevron + 8 gap); pr-3 + w-[68px] aligns UPDATED over the Age cell. */}
+          <div className="flex items-center border-b border-studio-edge py-1 pl-[30px] pr-3 font-mono text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+            <span>Project · Agent · Session</span>
+            <span className="ml-auto w-[68px] text-right">Updated</span>
           </div>
 
           {/* Rows */}
@@ -930,7 +987,19 @@ function TreeRow({
         </>
       ) : row.kind === "agent" ? (
         <>
-          <StateDot state={row.agent.state} />
+          {/* The creature carries identity; a live agent earns a single
+              accent pulse on its shoulder — no categorical gray dot. */}
+          <SpriteAvatar
+            name={row.agent.name}
+            size={18}
+            className="shrink-0"
+            corner={
+              isLiveState(row.agent.state)
+                ? "var(--scout-accent)"
+                : undefined
+            }
+            cornerPulse={isLiveState(row.agent.state)}
+          />
           <span className="min-w-0 flex-1 truncate">
             <span className="font-sans text-[13px] font-medium text-studio-ink">
               {row.agent.name}

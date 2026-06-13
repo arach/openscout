@@ -345,9 +345,23 @@
   color: var(--ink);
 }
 
-.s-sess-live {
+.s-sess-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.s-sess-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   flex: none;
-  margin: var(--space-md) var(--space-xl) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-sm);
+  color: var(--dim);
 }
 
 .s-sess-band {
@@ -413,6 +427,16 @@
 
 .s-sess-row:hover {
   background: var(--surface-hover);
+}
+
+.s-sess-row--selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
 }
 
 .s-sess-row--active {
@@ -492,6 +516,128 @@
 .s-sess-row-when--active {
   color: var(--accent);
 }
+
+/* ── Inline session detail (expands under the selected row) ── */
+
+.s-sess-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-sess-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-xl) var(--space-lg);
+  padding-left: calc(var(--space-xl) + var(--space-lg));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.s-sess-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-sess-detail-id {
+  color: var(--muted);
+}
+
+.s-sess-detail-cwd {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
+.s-sess-engage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.s-sess-engage-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--dim);
+}
+
+.s-sess-engage-primary {
+  align-self: flex-start;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-lg);
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.s-sess-engage-primary:hover {
+  filter: brightness(1.06);
+}
+
+.s-sess-engage-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.s-sess-engage-surface {
+  flex: none;
+  width: 92px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--dim);
+}
+
+.s-sess-engage-acts {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.s-sess-engage-btn {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-sm);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.s-sess-engage-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.s-sess-engage-btn:disabled {
+  color: var(--dim);
+  opacity: 0.5;
+  cursor: default;
+  border-color: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
 
 /* ── Empty selection state ── */
 

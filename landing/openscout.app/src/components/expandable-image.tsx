@@ -16,6 +16,9 @@ type ExpandableImageProps = {
   src: string;
   width: number;
   height: number;
+  // When "phone", the expanded view keeps the device bezel and uses a light
+  // backdrop instead of the dark lightbox, so it doesn't jar against the page.
+  frame?: "phone";
 };
 
 export function ExpandableImage({
@@ -28,6 +31,7 @@ export function ExpandableImage({
   src,
   width,
   height,
+  frame,
 }: ExpandableImageProps) {
   const [open, setOpen] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -88,39 +92,76 @@ export function ExpandableImage({
       </div>
 
       {open ? createPortal(
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/78 p-4 backdrop-blur-sm sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-label={alt}
-          onClick={() => setOpen(false)}
-        >
+        frame === "phone" ? (
           <div
-            className="relative w-full max-w-[min(96vw,120rem)]"
-            onClick={(event) => event.stopPropagation()}
+            className="surface-phone__lightbox fixed inset-0 z-[100] flex items-center justify-center p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-label={alt}
+            onClick={() => setOpen(false)}
           >
             <button
               ref={closeButtonRef}
               type="button"
               onClick={() => setOpen(false)}
-              className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white transition-colors hover:bg-black/70"
+              className="surface-phone__lightbox-close"
               aria-label="Close expanded image"
             >
               <X className="h-5 w-5" />
             </button>
 
-            <div className="overflow-hidden rounded-[28px] border border-white/12 bg-[#0f1012] shadow-[0_32px_100px_rgba(0,0,0,0.45)]">
-              <Image
-                src={src}
-                alt={alt}
-                width={width}
-                height={height}
-                priority={priority}
-                className="max-h-[88vh] w-full object-contain"
-              />
+            <div
+              className="surface-phone__device surface-phone__device--lightbox"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <span className="surface-phone__island" aria-hidden />
+              <div className="surface-phone__screen-wrap">
+                <Image
+                  src={src}
+                  alt={alt}
+                  width={width}
+                  height={height}
+                  priority
+                  className="surface-phone__screen"
+                />
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/78 p-4 backdrop-blur-sm sm:p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-label={alt}
+            onClick={() => setOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-[min(96vw,120rem)]"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <button
+                ref={closeButtonRef}
+                type="button"
+                onClick={() => setOpen(false)}
+                className="absolute right-3 top-3 z-10 inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white transition-colors hover:bg-black/70"
+                aria-label="Close expanded image"
+              >
+                <X className="h-5 w-5" />
+              </button>
+
+              <div className="overflow-hidden rounded-[28px] border border-white/12 bg-[#0f1012] shadow-[0_32px_100px_rgba(0,0,0,0.45)]">
+                <Image
+                  src={src}
+                  alt={alt}
+                  width={width}
+                  height={height}
+                  priority={priority}
+                  className="max-h-[88vh] w-full object-contain"
+                />
+              </div>
+            </div>
+          </div>
+        )
       , document.body) : null}
     </>
   );

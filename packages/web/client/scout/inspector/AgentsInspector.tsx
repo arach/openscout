@@ -677,12 +677,11 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
   const push = (label: string, value: string | null | undefined) => {
     if (value && value.trim()) cells.push({ label, value: value.trim() });
   };
-  push("Harness", agent.harness);
-  push("Model", agent.model);
+  // Harness · model · host live in the profile header now — keep the rail's
+  // Runtime to what the header doesn't carry, to avoid re-printing facts.
   push("Transport", agent.transport);
   push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
   push("Class", agent.agentClass);
-  push("Host", shortHostLabel(agent.homeNodeName ?? agent.homeNodeId ?? ""));
 
   if (cells.length === 0) return null;
   return (

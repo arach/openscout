@@ -121,11 +121,89 @@ private struct TailRowModel: Identifiable {
     let kind: TailKind
     let source: String    // handle/name without "@"
     let line: String
+    let sessionId: String
+    let project: String
+    let cwd: String
+    let agentId: String?
+    let agentName: String?
+    let agentHandle: String?
+    let conversationId: String?
     let emphasized: Bool
+}
+
+private extension TailRowModel {
+    var hasSession: Bool {
+        !clean(sessionId).isEmpty
+    }
+
+    var routingHandle: String {
+        clean(agentHandle) ?? clean(agentName) ?? source
+    }
+
+    var routingLabel: String {
+        clean(agentName) ?? clean(agentHandle) ?? source
+    }
+
+    var sessionURL: URL {
+        guard hasSession else { return tailRelativeURL("/sessions") }
+        return tailRelativeURL("/sessions/\(tailPercentPath(sessionId))")
+    }
+
+    var followURL: URL {
+        var components = URLComponents(
+            url: ScoutWeb.baseURL().appending(path: "follow"),
+            resolvingAgainstBaseURL: false
+        )
+        var queryItems = [URLQueryItem(name: "view", value: "tail")]
+        if hasSession {
+            queryItems.append(URLQueryItem(name: "sessionId", value: clean(sessionId)))
+        }
+        if let agentId = clean(agentId) {
+            queryItems.append(URLQueryItem(name: "targetAgentId", value: agentId))
+        }
+        components?.queryItems = queryItems
+        return components?.url ?? tailRelativeURL("/follow")
+    }
+
+    var agentURL: URL? {
+        guard let agentId = clean(agentId) else { return nil }
+        return tailRelativeURL("/agents/\(tailPercentPath(agentId))?tab=profile")
+    }
+
+    var messagesURL: URL? {
+        if let conversationId = clean(conversationId) {
+            return tailRelativeURL("/c/\(tailPercentPath(conversationId))")
+        }
+        guard let agentId = clean(agentId) else { return nil }
+        return tailRelativeURL("/agents/\(tailPercentPath(agentId))?tab=message")
+    }
+
+    private func clean(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private func clean(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private func tailRelativeURL(_ path: String) -> URL {
+    URL(string: path, relativeTo: ScoutWeb.baseURL())?.absoluteURL ?? ScoutWeb.baseURL()
+}
+
+private func tailPercentPath(_ value: String) -> String {
+    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+}
+
+private func copyToPasteboard(_ value: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(value, forType: .string)
 }
 
 struct HUDTailView: View {
     @ObservedObject var tail: ScoutTailStore
+    let agents: [HudAgent]
 
     @ObservedObject private var state = HUDState.shared
     @StateObject private var engage = HUDEngageState()
@@ -201,7 +279,7 @@ struct HUDTailView: View {
             if engage.engagedId != cursoredId {
                 engage.toggle(cursoredId)
             } else {
-                HUDDockState.shared.setTarget(handle: row.source, label: row.source)
+                HUDDockState.shared.setTarget(handle: row.routingHandle, label: row.routingLabel)
                 HUDDockState.shared.focus()
             }
         }
@@ -281,14 +359,30 @@ struct HUDTailView: View {
         Array(tail.filteredEvents.suffix(80)).map { event in
             let source = event.sourceLabel
             let kind = TailKind.from(event)
+            let agent = matchedAgent(for: event)
             return TailRowModel(
                 id: event.id,
                 at: event.clockLabel,
                 kind: kind,
                 source: source.hasPrefix("@") ? String(source.dropFirst()) : source,
                 line: Self.line(for: event),
+                sessionId: event.sessionId,
+                project: event.projectLabel,
+                cwd: event.cwd,
+                agentId: agent?.id,
+                agentName: agent?.name,
+                agentHandle: agent?.handle,
+                conversationId: agent?.conversationId,
                 emphasized: kind == .ask || kind == .err
             )
+        }
+    }
+
+    private func matchedAgent(for event: ScoutTailEvent) -> HudAgent? {
+        let sessionId = event.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sessionId.isEmpty else { return nil }
+        return agents.first { agent in
+            agent.harnessSessionId?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionId
         }
     }
 
@@ -473,13 +567,34 @@ private struct TailRow: View {
         .onHover { hovered = $0 }
         .onTapGesture(perform: onTap)
         .contextMenu {
+            Button("Open session") {
+                NSWorkspace.shared.open(row.sessionURL)
+            }
+            .disabled(!row.hasSession)
+            Button("Follow live tail") {
+                NSWorkspace.shared.open(row.followURL)
+            }
+            .disabled(!row.hasSession)
+            if let agentURL = row.agentURL {
+                Button("Agent profile") {
+                    NSWorkspace.shared.open(agentURL)
+                }
+            }
+            if let messagesURL = row.messagesURL {
+                Button("Message thread") {
+                    NSWorkspace.shared.open(messagesURL)
+                }
+            }
+            Divider()
+            Button("Copy session ID") {
+                copyToPasteboard(row.sessionId)
+            }
+            .disabled(!row.hasSession)
             Button("Copy event ID") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(row.id, forType: .string)
+                copyToPasteboard(row.id)
             }
             Button("Copy line") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(row.line, forType: .string)
+                copyToPasteboard(row.line)
             }
         }
     }
@@ -547,13 +662,39 @@ private struct TailDetailInline: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HUDEyebrow(text: "RAW", color: HUDChrome.inkFaint)
+            HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkFaint)
             Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
                 .font(HUDType.mono(bodyFont))
                 .foregroundStyle(HUDChrome.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
                 .lineSpacing(2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                metaRow(label: "SESSION", value: row.hasSession ? row.sessionId : "—")
+                metaRow(label: "PROJECT", value: row.project)
+                if !row.cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    metaRow(label: "CWD", value: row.cwd)
+                }
+                if let agentName = row.agentName {
+                    metaRow(label: "AGENT", value: agentName)
+                }
+            }
+            .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                if row.hasSession {
+                    HUDDrillLink(label: "OPEN SESSION", url: row.sessionURL)
+                    HUDDrillLink(label: "FOLLOW LIVE", url: row.followURL)
+                }
+                if let agentURL = row.agentURL {
+                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
+                }
+                if let messagesURL = row.messagesURL {
+                    HUDDrillLink(label: "MESSAGE THREAD", url: messagesURL)
+                }
+            }
+            .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: 2) {
                 if let prev {
@@ -569,6 +710,22 @@ private struct TailDetailInline: View {
         .padding(.vertical, size == .compact ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HUDChrome.canvasAlt.opacity(0.55))
+    }
+
+    private func metaRow(label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(HUDType.mono(10, weight: .bold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.inkDeep)
+                .frame(width: 58, alignment: .leading)
+            Text(value.isEmpty ? "—" : value)
+                .font(HUDType.mono(10))
+                .foregroundStyle(HUDChrome.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
     }
 
     private func neighborLine(label: String, row r: TailRowModel) -> some View {

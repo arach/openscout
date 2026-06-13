@@ -3,7 +3,6 @@ import { useOptionalFlag } from "hudsonkit/flags";
 import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
 import { actorColor } from "../lib/colors.ts";
 import { AgentAvatar } from "../components/AgentAvatar.tsx";
-import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -1668,10 +1667,13 @@ function shortSessionLabel(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
-// Sessions-first center: a compact essentials header (cwd · harness · model ·
-// branch), the live-actions bar for the active session, then the agent's
-// sessions ordered by recency (active first). No idle "Now" hero — idle reads
-// as a calm list; the action is open an existing session or message the agent.
+// Sessions-first center (Inline): a compact essentials header (state · cwd ·
+// branch · harness · model · host), then the agent's sessions by recency (active
+// first). Clicking a session selects it and expands its detail + engage zone
+// inline — it never jumps straight into a terminal. The rail stays the stable
+// agent context card. Engage is one gradient: Continue (message into the
+// conversation) → Activity (parsed feed) → Observe (live terminal) → Take over
+// (drive). Observe / Take over are live-only.
 function ModularProfileCenter({
   agent,
   name,
@@ -1690,11 +1692,15 @@ function ModularProfileCenter({
     sessionCatalog?.activeSessionId ??
     (agent.transport === "tmux" ? agent.harnessSessionId : null);
 
+  const state = normalizeAgentState(agent.state);
+  const isLive = Boolean(activeSessionId) || state === "working";
+
   const essentials = [
     agent.cwd ? { k: "cwd", v: shortCwd(agent.cwd) ?? agent.cwd } : null,
+    agent.branch ? { k: "branch", v: `⎇ ${agent.branch}` } : null,
     agent.harness ? { k: "harness", v: agent.harness } : null,
     agent.model ? { k: "model", v: agent.model } : null,
-    agent.branch ? { k: "branch", v: `⎇ ${agent.branch}` } : null,
+    agent.homeNodeName ? { k: "host", v: agent.homeNodeName } : null,
   ].filter((f): f is { k: string; v: string } => Boolean(f));
 
   const sessions = useMemo(() => {
@@ -1707,14 +1713,36 @@ function ModularProfileCenter({
     });
   }, [sessionCatalog?.sessions, activeSessionId]);
 
+  // Selection defaults to the active (or most recent) session, so opening the
+  // profile already shows that session's engage zone. Clicking only selects.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedSessionId = selectedId ?? activeSessionId ?? sessions[0]?.id ?? null;
+
   const openMessage = () =>
     navigate({ view: "agents", agentId: agent.id, tab: "message" });
-  const openSession = (s: SessionCatalogEntry) => {
-    if (s.id === activeSessionId && agent.transport === "tmux") {
-      openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
-    } else {
-      openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+  const openActivity = () =>
+    openContent(navigate, { view: "agents", agentId: agent.id, tab: "observe" }, { returnTo: route });
+  const observeTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
+  const takeoverTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+  const resumeSession = (s: SessionCatalogEntry) =>
+    openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+  // Take over a non-tmux harness (e.g. claude_stream_json) by replaying its
+  // resume command into a terminal; a live tmux pane is driven in place.
+  const runTakeover = () => {
+    if (agent.transport === "tmux") {
+      takeoverTerminal();
+      return;
     }
+    const command = sessionCatalog?.resumeCommand;
+    if (command) {
+      void queueTakeover({ command, cwd: sessionCatalog?.resumeCwd, agentId: agent.id }).then(
+        () => takeoverTerminal(),
+      );
+      return;
+    }
+    takeoverTerminal();
   };
 
   return (
@@ -1723,7 +1751,16 @@ function ModularProfileCenter({
         <div className="s-sess-id">
           <AgentAvatar agent={agent} size={42} tile presence={false} />
           <div className="s-sess-id-copy">
-            <span className="s-sess-name">{name}</span>
+            <span className="s-sess-name-row">
+              <span className="s-sess-name">{name}</span>
+              <span className="s-sess-state">
+                <span
+                  className="s-mod-dot"
+                  style={{ background: isLive ? "var(--accent)" : "var(--dim)", opacity: isLive ? 1 : 0.55 }}
+                />
+                {agentStateLabel(state)}
+              </span>
+            </span>
             {essentials.length > 0 && (
               <div className="s-sess-essentials">
                 {essentials.map((f) => (
@@ -1741,20 +1778,11 @@ function ModularProfileCenter({
         </button>
       </header>
 
-      <AgentLiveActions
-        agent={agent}
-        catalog={sessionCatalog}
-        navigate={navigate}
-        returnTo={route}
-        variant="compact"
-        className="s-sess-live"
-      />
-
       <section className="s-sess-band">
         <header className="s-sess-band-head">
           <span className="s-sess-band-label">Recent sessions</span>
           {sessions.length > 0 && (
-            <span className="s-sess-band-meta">{sessions.length} · by recency</span>
+            <span className="s-sess-band-meta">{sessions.length} sessions</span>
           )}
         </header>
         <div className="s-sess-list">
@@ -1763,6 +1791,13 @@ function ModularProfileCenter({
           ) : (
             sessions.map((s) => {
               const active = s.id === activeSessionId;
+              const selected = s.id === selectedSessionId;
+              // Per-session catalog signals, not the transport string.
+              const canObserve = active && (s.canObserve ?? agent.transport === "tmux");
+              const canTakeover =
+                active &&
+                (s.canTakeover ??
+                  (agent.transport === "tmux" || Boolean(sessionCatalog?.resumeCommand)));
               const harnessLabel =
                 s.transport ?? s.harness ?? agent.transport ?? agent.harness ?? "session";
               const when = active
@@ -1771,35 +1806,97 @@ function ModularProfileCenter({
                   ? `ended · ${timeAgo(s.endedAt) || "recent"}`
                   : timeAgo(s.startedAt) || "recent";
               return (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`s-sess-row${active ? " s-sess-row--active" : ""}`}
-                  onClick={() => openSession(s)}
-                >
-                  <span
-                    className="s-mod-dot s-sess-row-dot"
-                    style={{
-                      background: active ? "var(--accent)" : "var(--dim)",
-                      opacity: active ? 1 : 0.55,
-                    }}
-                  />
-                  <span className="s-sess-row-main">
-                    <span className="s-sess-row-top">
-                      <span className="s-sess-row-id">{shortSessionLabel(s.id)}</span>
-                      <span className="s-sess-row-tag">{harnessLabel}</span>
-                    </span>
-                    <span className="s-sess-row-sub">
-                      {s.cwd ? pathLeaf(s.cwd) : "workspace"}
-                      {s.model ? ` · ${s.model}` : ""}
-                    </span>
-                  </span>
-                  <span
-                    className={`s-sess-row-when${active ? " s-sess-row-when--active" : ""}`}
+                <div key={s.id} className="s-sess-item">
+                  <button
+                    type="button"
+                    className={`s-sess-row${active ? " s-sess-row--active" : ""}${selected ? " s-sess-row--selected" : ""}`}
+                    onClick={() => setSelectedId(s.id)}
+                    aria-expanded={selected}
                   >
-                    {when}
-                  </span>
-                </button>
+                    <span
+                      className="s-mod-dot s-sess-row-dot"
+                      style={{
+                        background: active ? "var(--accent)" : "var(--dim)",
+                        opacity: active ? 1 : 0.55,
+                      }}
+                    />
+                    <span className="s-sess-row-main">
+                      <span className="s-sess-row-top">
+                        <span className="s-sess-row-id">{shortSessionLabel(s.id)}</span>
+                        <span className="s-sess-row-tag">{harnessLabel}</span>
+                      </span>
+                      <span className="s-sess-row-sub">
+                        {s.cwd ? pathLeaf(s.cwd) : "workspace"}
+                        {s.model ? ` · ${s.model}` : ""}
+                      </span>
+                    </span>
+                    <span
+                      className={`s-sess-row-when${active ? " s-sess-row-when--active" : ""}`}
+                    >
+                      {when}
+                    </span>
+                  </button>
+                  {selected && (
+                    <div className="s-sess-detail">
+                      <div className="s-sess-detail-meta">
+                        <span className="s-sess-detail-id">{s.id}</span>
+                        {s.cwd && <span className="s-sess-detail-cwd">{s.cwd}</span>}
+                      </div>
+                      <div className="s-sess-engage">
+                        <span className="s-sess-engage-label">Engage</span>
+                        <div className="s-sess-engage-row">
+                          <span className="s-sess-engage-surface">Conversation</span>
+                          <button
+                            type="button"
+                            className="s-sess-engage-primary"
+                            onClick={() => (active ? openMessage() : resumeSession(s))}
+                            title={
+                              active
+                                ? "Send a message into this conversation"
+                                : "Reopen this conversation and message it"
+                            }
+                          >
+                            {active ? "Continue" : "Resume"}
+                          </button>
+                        </div>
+                        <div className="s-sess-engage-row">
+                          <span className="s-sess-engage-surface">Terminal</span>
+                          <div className="s-sess-engage-acts">
+                            <button
+                              type="button"
+                              className="s-sess-engage-btn"
+                              onClick={observeTerminal}
+                              disabled={!canObserve}
+                              title={canObserve ? "Watch the live terminal, read-only" : "No live terminal to observe"}
+                            >
+                              Observe
+                            </button>
+                            <button
+                              type="button"
+                              className="s-sess-engage-btn"
+                              onClick={runTakeover}
+                              disabled={!canTakeover}
+                              title={canTakeover ? "Grab the keyboard and drive it" : "Can't take over this session"}
+                            >
+                              Take over
+                            </button>
+                          </div>
+                        </div>
+                        <div className="s-sess-engage-row">
+                          <span className="s-sess-engage-surface">Trace</span>
+                          <button
+                            type="button"
+                            className="s-sess-engage-btn"
+                            onClick={openActivity}
+                            title="Read the parsed turn + tool feed"
+                          >
+                            Open
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               );
             })
           )}
