@@ -38,6 +38,7 @@ import type {
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import { AgentsSubnav } from "./AgentsSubnav.tsx";
+import { AgentDirectoryStudioInjection } from "../studio/AgentDirectoryStudioInjection.tsx";
 import "./agents-screen.css";
 import "./ops-atop.css";
 import "./ops-screen.css";
@@ -2403,16 +2404,18 @@ export function AgentsScreen({
 
   return (
     <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
-      <AgentsLibrary
-        agents={scopedAgents}
-        fleet={fleet}
-        sessionByAgentId={sessionByAgentId}
-        conversationByAgentId={conversationByAgentId}
-        sessions={sessions}
-        discovery={discovery}
-        topologySnapshot={topologySnapshot}
-        navigate={navigate}
-      />
+      <AgentDirectoryStudioInjection>
+        <AgentsLibrary
+          agents={scopedAgents}
+          fleet={fleet}
+          sessionByAgentId={sessionByAgentId}
+          conversationByAgentId={conversationByAgentId}
+          sessions={sessions}
+          discovery={discovery}
+          topologySnapshot={topologySnapshot}
+          navigate={navigate}
+        />
+      </AgentDirectoryStudioInjection>
     </AgentsRouteFrame>
   );
 }
