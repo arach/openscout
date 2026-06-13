@@ -47,10 +47,13 @@ target picked up the work. `output` is only populated for terminal results; use
 `invocations_wait` or `invocations_get` to observe the later completion.
 
 When `replyMode` is `notify`, the tool returns immediately with durable
-`conversationId`, `messageId`, `flightId`, and optional `workId` data, then the
-MCP server waits in the background and emits `notifications/scout/reply` when the
-flight completes or fails. This is the native MCP callback path for hosts that
-surface server notifications.
+`conversationId`, `messageId`, `flightId`, and optional `workId` data. The MCP
+server only waits in the background and emits `notifications/scout/reply` when
+the server was launched with `scout mcp --notifications` or
+`OPENSCOUT_MCP_ENABLE_NOTIFICATIONS=1`. Without that opt-in, callers should use
+`invocations_wait` or `invocations_get` with the returned `flightId`. This keeps
+terminal-host stdio sessions quiet by default while preserving the native MCP
+callback path for hosts that explicitly surface server notifications.
 
 Important implication: `inline` is an acknowledgement wait, not a completion
 wait. `notify` is push-style from the MCP server to the connected host, but it

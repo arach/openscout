@@ -109,7 +109,7 @@ struct ConversationSurface: View {
 
             Button(action: send) {
                 Glyphic.arrow(.top, size: 17)
-                    .foregroundStyle(canSend ? HudPalette.bg : HudPalette.muted)
+                    .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
                     .frame(width: 28, height: 28)
                     .background(
                         Circle().fill(canSend ? HudPalette.accent : HudSurface.inset)
@@ -186,9 +186,9 @@ struct ConversationSurface: View {
     private var micColor: Color {
         switch voice.state {
         case .listening:                return HudPalette.accent
-        case .transcribing, .preparing: return HudPalette.muted
-        case .unavailable:              return HudPalette.dim.opacity(0.5)
-        case .idle:                     return HudPalette.muted
+        case .transcribing, .preparing: return ScoutInk.muted
+        case .unavailable:              return ScoutInk.dim.opacity(0.5)
+        case .idle:                     return ScoutInk.muted
         }
     }
 
@@ -249,7 +249,7 @@ struct ConversationSurface: View {
                 if let model = projection.state?.session.model {
                     Text(model)
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
             }
             Spacer()
@@ -261,7 +261,7 @@ struct ConversationSurface: View {
             }
             Button { showSettings = true } label: {
                 Glyphic(kind: .gear, size: 18)
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             }
             .buttonStyle(.plain)
         }
@@ -557,7 +557,7 @@ private struct TurnView: View {
     }
 
     // User turns read as neutral; the agent is the one accented voice.
-    private var roleColor: Color { isUser ? HudPalette.muted : HudPalette.accent }
+    private var roleColor: Color { isUser ? ScoutInk.muted : HudPalette.accent }
 }
 
 // MARK: - Block
@@ -613,11 +613,11 @@ private struct BlockView: View {
 
     private func reasoning(_ text: String) -> some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
-            Rectangle().fill(HudPalette.muted.opacity(0.5)).frame(width: 2)
+            Rectangle().fill(ScoutInk.muted.opacity(0.5)).frame(width: 2)
             Text(text.isEmpty ? "thinking…" : text)
                 .font(HudFont.ui(HudTextSize.xs))
                 .italic()
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -629,7 +629,7 @@ private struct BlockView: View {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: actionIcon(action?.kind))
                         .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                     Text(actionTitle(action))
                         .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
                         .foregroundStyle(HudPalette.ink)
@@ -642,7 +642,7 @@ private struct BlockView: View {
                 if let output = action?.output, !output.isEmpty {
                     Text(output)
                         .font(HudFont.mono(HudTextSize.xxs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if action?.status == .awaitingApproval, let approval = action?.approval {
@@ -681,7 +681,7 @@ private struct BlockView: View {
 
     private func riskColor(_ risk: ApprovalRisk) -> Color {
         switch risk {
-        case .low: return HudPalette.muted
+        case .low: return ScoutInk.muted
         case .medium: return HudPalette.statusWarn
         case .high: return HudPalette.statusError
         }
@@ -710,7 +710,7 @@ private struct BlockView: View {
                 if let answer = block.answer, !answer.isEmpty {
                     Text("answered: \(answer.joined(separator: ", "))")
                         .font(HudFont.mono(HudTextSize.xxs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
             }
         }
@@ -739,7 +739,7 @@ private struct BlockView: View {
     private func actionStatusColor(_ status: ActionStatus) -> Color {
         switch status {
         case .completed: return HudPalette.accent        // green == success
-        case .running, .pending: return HudPalette.muted
+        case .running, .pending: return ScoutInk.muted
         case .failed: return HudPalette.statusError       // red == genuine failure
         case .awaitingApproval: return HudPalette.statusWarn  // amber == needs you
         }

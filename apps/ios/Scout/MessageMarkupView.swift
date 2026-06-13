@@ -83,7 +83,7 @@ struct MessageMarkupView: View {
                 HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                     Text(ordered ? "\(idx + 1)." : "•")
                         .font(HudFont.mono(HudTextSize.sm, weight: ordered ? .regular : .bold))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                         .frame(minWidth: ordered ? 20 : 12, alignment: .leading)
                     Text(inline(item))
                         .font(HudFont.ui(HudTextSize.md))
@@ -104,7 +104,7 @@ struct MessageMarkupView: View {
                 .frame(width: 2)
             Text(inline(text))
                 .font(HudFont.ui(HudTextSize.md))
-                .foregroundStyle(HudPalette.muted)
+                .foregroundStyle(ScoutInk.muted)
                 .lineSpacing(3)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,7 +117,7 @@ struct MessageMarkupView: View {
                 Text(language.uppercased())
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -166,7 +166,7 @@ struct MessageMarkupView: View {
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                 Text(inline(cell))
                     .font(HudFont.ui(HudTextSize.sm, weight: isHeader ? .semibold : .regular))
-                    .foregroundStyle(isHeader ? HudPalette.ink : HudPalette.muted)
+                    .foregroundStyle(isHeader ? HudPalette.ink : ScoutInk.muted)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

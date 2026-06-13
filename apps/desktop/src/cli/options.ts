@@ -99,6 +99,12 @@ export type ScoutTuiCommandOptions = ContextRootOptions & {
   intervalMs: number;
 };
 
+export type ScoutDoctorCommandOptions = ContextRootOptions & {
+  json: boolean;
+  fix: boolean;
+  yes: boolean;
+};
+
 function missingFlagValue(flag: string): never {
   throw new ScoutCliError(`missing value for ${flag}`);
 }
@@ -403,6 +409,44 @@ export function parseContextRootCommandOptions(
     unexpectedArgs(commandName, args);
   }
   return parsed;
+}
+
+export function parseDoctorCommandOptions(
+  args: string[],
+  defaultCurrentDirectory: string,
+): ScoutDoctorCommandOptions {
+  const parsed = parseContextRootPrefix(args, defaultCurrentDirectory);
+  let json = false;
+  let fix = false;
+  let yes = false;
+
+  for (const current of parsed.args) {
+    if (current === "--json") {
+      json = true;
+      continue;
+    }
+    if (current === "--fix") {
+      fix = true;
+      continue;
+    }
+    if (current === "--yes" || current === "-y") {
+      yes = true;
+      continue;
+    }
+    unexpectedArgs("doctor", args);
+  }
+
+  if (yes && !fix) {
+    throw new ScoutCliError("--yes requires --fix");
+  }
+
+  return {
+    currentDirectory: parsed.currentDirectory,
+    args: parsed.args,
+    json,
+    fix,
+    yes,
+  };
 }
 
 export function parseSendCommandOptions(

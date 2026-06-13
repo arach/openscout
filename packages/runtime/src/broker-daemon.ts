@@ -150,6 +150,7 @@ import {
   requestScoutBrokerJson,
   registerActiveScoutBrokerService,
   unregisterActiveScoutBrokerService,
+  type ScoutBrokerChildServiceSnapshots,
 } from "./broker-api.js";
 import { createBrokerCoreService } from "./broker-core-service.js";
 import {
@@ -371,7 +372,7 @@ const WEB_START_POLL_TIMEOUT_MS = 15_000;
 const WEB_START_POLL_INTERVAL_MS = 250;
 const SHUTDOWN_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 let webServerProcess: ChildProcess | null = null;
-let webStartInFlight: Promise<WebSupervisorStatus> | null = null;
+let webStartInFlight: Promise<WebControlStatus> | null = null;
 let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 let parentWatcher: ReturnType<typeof setInterval> | null = null;
 
@@ -804,7 +805,7 @@ async function brokerPostJson<TResponse>(
   return await response.json() as TResponse;
 }
 
-type WebSupervisorStatus = {
+type WebControlStatus = {
   ok: boolean;
   running: boolean;
   starting: boolean;
@@ -1045,7 +1046,7 @@ const WEB_RESPAWN_MAX_FAILURES = 5;
 const WEB_RESPAWN_FAILURE_WINDOW_MS = 60_000;
 const webRespawnFailures: number[] = [];
 
-async function webSupervisorStatus(error: string | null = null): Promise<WebSupervisorStatus> {
+async function webControlStatus(error: string | null = null): Promise<WebControlStatus> {
   const running = await isWebServerHealthy();
   return {
     ok: running,
@@ -1058,9 +1059,49 @@ async function webSupervisorStatus(error: string | null = null): Promise<WebSupe
   };
 }
 
-async function startWebServerIfNeeded(context: WebStartContext = {}): Promise<WebSupervisorStatus> {
+function isChildProcessRunning(child: ChildProcess | null): boolean {
+  return Boolean(child && child.exitCode === null && child.signalCode === null);
+}
+
+function readBrokerChildServiceSnapshots(): ScoutBrokerChildServiceSnapshots {
+  const webRunning = isChildProcessRunning(webServerProcess);
+  return {
+    web: {
+      managed: true,
+      managedBy: "broker",
+      state: webStartInFlight ? "starting" : webRunning ? "running" : "stopped",
+      pid: webServerProcess?.pid ?? null,
+      port: webServerPort(),
+      url: webServerUrl(),
+      healthy: null,
+      detail: webStartInFlight
+        ? "web startup is in flight"
+        : webRunning
+          ? "web child process is active; broker /health does not probe /api/health"
+          : "web child has not been started by this broker",
+    },
+    terminalRelay: {
+      managed: true,
+      managedBy: "web",
+      state: "unknown",
+      pid: null,
+      healthy: null,
+      detail: "terminal relay is managed inside scout-web; broker /health does not probe it",
+    },
+    localEdge: {
+      managed: true,
+      managedBy: "base",
+      state: "unknown",
+      pid: null,
+      healthy: null,
+      detail: "local edge/Caddy is managed by scout-base; no broker-visible cached state is available",
+    },
+  };
+}
+
+async function startWebServerIfNeeded(context: WebStartContext = {}): Promise<WebControlStatus> {
   if (await isWebServerHealthy()) {
-    return webSupervisorStatus();
+    return webControlStatus();
   }
   if (webStartInFlight) {
     return webStartInFlight;
@@ -1074,13 +1115,13 @@ async function startWebServerIfNeeded(context: WebStartContext = {}): Promise<We
       const deadline = Date.now() + WEB_START_POLL_TIMEOUT_MS;
       while (Date.now() < deadline) {
         if (await isWebServerHealthy()) {
-          return webSupervisorStatus();
+          return webControlStatus();
         }
         await sleep(WEB_START_POLL_INTERVAL_MS);
       }
-      return webSupervisorStatus("Timed out waiting for Scout web to become healthy.");
+      return webControlStatus("Timed out waiting for Scout web to become healthy.");
     } catch (error) {
-      return webSupervisorStatus(error instanceof Error ? error.message : String(error));
+      return webControlStatus(error instanceof Error ? error.message : String(error));
     } finally {
       webStartInFlight = null;
     }
@@ -1089,7 +1130,7 @@ async function startWebServerIfNeeded(context: WebStartContext = {}): Promise<We
   return webStartInFlight;
 }
 
-function scoutWebSupervisorCorsHeaders(request: IncomingMessage): Record<string, string> {
+function scoutWebControlCorsHeaders(request: IncomingMessage): Record<string, string> {
   const origin = request.headers.origin;
   if (typeof origin !== "string") {
     return {};
@@ -5608,6 +5649,7 @@ const brokerService = createBrokerCoreService({
   journal,
   threadEvents,
   isReconciledStaleFlightActivityItem,
+  readChildServices: readBrokerChildServiceSnapshots,
   readHome: brokerHomePayload,
   executeCommand: handleCommand,
   postConversationMessage,
@@ -5639,7 +5681,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     ? url.pathname.match(/^\/v1\/thread-watches\/([^/]+)\/stream$/)
     : null;
   if ((url.pathname === "/v1/web/status" || url.pathname === "/v1/web/start") && method === "OPTIONS") {
-    response.writeHead(204, scoutWebSupervisorCorsHeaders(request));
+    response.writeHead(204, scoutWebControlCorsHeaders(request));
     response.end();
     return;
   }
@@ -5650,7 +5692,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
   }
 
   if (method === "GET" && url.pathname === "/v1/web/status") {
-    jsonWithHeaders(response, 200, await webSupervisorStatus(), scoutWebSupervisorCorsHeaders(request));
+    jsonWithHeaders(response, 200, await webControlStatus(), scoutWebControlCorsHeaders(request));
     return;
   }
 
@@ -5660,7 +5702,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
         response,
         200,
         await startWebServerIfNeeded(webStartContextFromRequest(request)),
-        scoutWebSupervisorCorsHeaders(request),
+        scoutWebControlCorsHeaders(request),
       );
     } catch (error) {
       jsonWithHeaders(
@@ -5675,7 +5717,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
           pid: webServerProcess?.pid ?? null,
           error: error instanceof Error ? error.message : String(error),
         },
-        scoutWebSupervisorCorsHeaders(request),
+        scoutWebControlCorsHeaders(request),
       );
     }
     return;

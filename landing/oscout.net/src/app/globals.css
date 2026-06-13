@@ -1,0 +1,3444 @@
+@import "tailwindcss";
+
+:root {
+  /* ── Basel — reductive system: near-monochrome on white, one grotesque,
+        a single rationed red. Token names are kept stable so the whole site
+        re-themes from this block; every legacy "warm/RFC" value is gone. ── */
+
+  /* Monochrome ramp — paper → near-black ink */
+  --paper:     oklch(0.993 0 0);
+  --paper-2:   oklch(0.972 0 0);
+  --paper-3:   oklch(0.940 0 0);
+  --ink:       oklch(0.205 0 0);
+  --ink-2:     oklch(0.400 0 0);
+  --ink-3:     oklch(0.560 0 0);
+  --ink-faint: oklch(0.720 0 0);
+  --line:      oklch(0.885 0 0);   /* hairline divider */
+  --line-soft: oklch(0.925 0 0);   /* faintest divider */
+  --rule:      oklch(0.205 0 0);   /* heavy structural rule = ink */
+
+  /* The one chromatic colour — spent once per view */
+  --red:      oklch(0.575 0.218 27);
+  --red-soft: oklch(0.575 0.218 27 / 0.10);
+
+  /* One family. All historical font slots resolve to Archivo. */
+  --font-geist-sans:   var(--font-archivo), system-ui, sans-serif;
+  --font-geist-mono:   var(--font-archivo), system-ui, sans-serif;
+  --font-display:      var(--font-archivo), system-ui, sans-serif;
+  --font-mono-display: var(--font-archivo), system-ui, sans-serif;
+  --font-spectral:     var(--font-archivo), system-ui, sans-serif;
+
+  /* Global / Tailwind theme tokens */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --muted: var(--ink-3);
+  --secondary: var(--ink-2);
+  --accent: var(--red);
+  --accent-soft: var(--red-soft);
+  --border: var(--line);
+  --border-strong: var(--rule);
+  --surface: var(--paper);
+  --surface-elevated: var(--paper-2);
+
+  /* App-shell demo surfaces (broker console, etc.) */
+  --shell-bg: var(--paper-2);
+  --shell-panel: var(--paper);
+  --shell-ink: var(--ink);
+  --shell-copy: var(--ink-2);
+  --shell-dim: var(--ink-3);
+  --shell-muted: var(--ink-faint);
+  --shell-line: var(--line);
+  --shell-line-strong: var(--rule);
+  --shell-accent: var(--red);
+
+  /* Marketing-site surfaces */
+  --site-page-bg: var(--paper);
+  --site-page-bg-strong: var(--paper);
+  --site-docs-bg: var(--paper-2);
+  --site-docs-bg-strong: var(--paper-2);
+  --site-surface: var(--paper);
+  --site-surface-strong: var(--paper);
+  --site-panel: var(--paper-2);
+  --site-panel-muted: var(--paper-2);
+  --site-panel-rail: var(--paper-2);
+  --site-border: var(--line);
+  --site-border-strong: var(--rule);
+  --site-border-soft: var(--line-soft);
+  --site-ink: var(--ink);
+  --site-copy: var(--ink-2);
+  --site-muted: var(--ink-3);
+  --site-muted-soft: var(--ink-faint);
+  --site-accent: var(--red);
+  --site-accent-soft: var(--red-soft);
+  --site-accent-soft-strong: oklch(0.575 0.218 27 / 0.16);
+  --site-accent-border: oklch(0.575 0.218 27 / 0.40);
+  --site-ink-contrast: var(--paper);
+  --site-ink-hover: oklch(0 0 0);
+  --site-overlay: oklch(0.205 0 0 / 0.72);
+  --site-progress: oklch(0.205 0 0 / 0.20);
+  --site-grid: var(--line);
+  /* No glows in Basel */
+  --site-glow-a: transparent;
+  --site-glow-b: transparent;
+  --site-glow-c: transparent;
+  /* Idle status is neutral ink — red is reserved for the active mark */
+  --site-status-online: var(--ink-3);
+  --site-status-online-soft: oklch(0.560 0 0 / 0.18);
+  /* No shadows in Basel — separation comes from hairlines + whitespace */
+  --site-card-shadow: none;
+  --site-card-shadow-hover: none;
+  --site-panel-shadow: none;
+  --site-toggle-shadow: none;
+  --site-danger: var(--red);
+}
+
+html[data-site-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-site-theme="dark"] {
+  color-scheme: dark;
+  /* warm graphite base — distinct from generic infra-navy */
+  --site-page-bg: #14151a;
+  --site-page-bg-strong: rgba(20, 21, 26, 0.96);
+  --site-docs-bg: #181a20;
+  --site-docs-bg-strong: rgba(24, 26, 32, 0.92);
+  /* surface ladder: each step ≥ 8 luma above page-bg so cards actually separate */
+  --site-surface: rgba(35, 38, 49, 0.94);
+  --site-surface-strong: #2a2e3a;
+  --site-panel: #1c1e25;
+  --site-panel-muted: #1f2229;
+  --site-panel-rail: #181a20;
+  /* warm-tinted borders to harmonize with amber accent */
+  --site-border: rgba(214, 200, 170, 0.13);
+  --site-border-strong: rgba(214, 200, 170, 0.24);
+  --site-border-soft: rgba(214, 200, 170, 0.08);
+  /* warm cream ink — ties dark mode to the cream-paper light mode */
+  --site-ink: #ebe6dc;
+  --site-copy: #c4bda9;
+  --site-muted: #8a8472;
+  --site-muted-soft: #9c9684;
+  /* CRT amber — broker/transmit signal color */
+  --site-accent: #f4b860;
+  --site-accent-soft: rgba(244, 184, 96, 0.10);
+  --site-accent-soft-strong: rgba(244, 184, 96, 0.16);
+  --site-accent-border: rgba(244, 184, 96, 0.32);
+  --site-ink-contrast: #14151a;
+  --site-ink-hover: #ffffff;
+  --site-overlay: rgba(8, 9, 12, 0.78);
+  --site-progress: rgba(235, 230, 220, 0.18);
+  --site-grid: rgba(214, 200, 170, 0.22);
+  /* glows: faint amber, not blue */
+  --site-glow-a: rgba(244, 184, 96, 0.06);
+  --site-glow-b: rgba(244, 184, 96, 0.09);
+  --site-glow-c: rgba(212, 140, 70, 0.05);
+  /* luminous rims, not drop shadows — drop-shadows do nothing on dark */
+  --site-card-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 1px 0 rgba(0, 0, 0, 0.4);
+  --site-card-shadow-hover:
+    0 1px 0 rgba(255, 255, 255, 0.10) inset,
+    0 0 0 1px rgba(244, 184, 96, 0.12),
+    0 1px 0 rgba(0, 0, 0, 0.4);
+  --site-panel-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 1px 0 rgba(0, 0, 0, 0.4);
+  --site-toggle-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 12px 32px rgba(0, 0, 0, 0.5);
+  --site-danger: #ff8d7b;
+  --site-status-online: #6dd49a;
+  --site-status-online-soft: rgba(109, 212, 154, 0.22);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--red);
+  color: #fff;
+}
+
+/* ── entrance animations ── */
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hero-scale-in {
+  from { opacity: 0; transform: scale(0.97) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.animate-in {
+  animation: fade-up 0.5s ease-out both;
+}
+
+.hero-animate {
+  animation: hero-fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.hero-showcase {
+  animation: hero-scale-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+}
+
+.delay-1 { animation-delay: 0.08s; }
+.delay-2 { animation-delay: 0.16s; }
+.delay-3 { animation-delay: 0.24s; }
+.delay-4 { animation-delay: 0.32s; }
+
+/* ── scroll reveal ── */
+
+.reveal {
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+
+.reveal.visible {
+  opacity: 1;
+}
+
+.reveal-stagger > .reveal {
+  transition-delay: calc(var(--reveal-i, 0) * 0.05s);
+}
+
+/* ── landing surfaces ── */
+
+.landing-panel {
+  background: var(--site-surface);
+  border: 1px solid var(--site-border);
+  box-shadow: var(--site-panel-shadow);
+}
+
+.landing-card {
+  background: var(--site-surface);
+  border: 1px solid var(--site-border);
+  box-shadow: var(--site-card-shadow);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+              border-color 0.25s ease;
+}
+
+.landing-card:hover {
+  box-shadow: var(--site-card-shadow-hover);
+  border-color: var(--site-border-strong);
+}
+
+.landing-label {
+  font-family: var(--font-geist-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* ── dot grid background ── */
+
+.dot-grid {
+  background-image: radial-gradient(circle, var(--site-grid) 0.8px, transparent 0.8px);
+  background-size: 28px 28px;
+  opacity: 0.35;
+}
+
+html[data-site-theme="dark"] .dot-grid {
+  opacity: 0.18;
+}
+
+/* ── operator console (header) ── */
+
+.operator-console {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--site-page-bg);
+  border-bottom: 1px solid var(--site-border);
+}
+
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--site-status-online);
+  box-shadow: 0 0 0 0 var(--site-status-online-soft);
+  animation: status-pulse 2.6s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--site-status-online-soft); }
+  50% { box-shadow: 0 0 0 4px transparent; }
+}
+
+.operator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  gap: 1.5rem;
+}
+
+.operator-link {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--site-copy);
+  transition: color 0.15s ease;
+  letter-spacing: 0.01em;
+  position: relative;
+}
+
+.operator-link:hover {
+  color: var(--site-ink);
+}
+
+.operator-link:hover .operator-link__sigil {
+  color: var(--site-accent);
+}
+
+.operator-link__sigil {
+  color: var(--site-muted-soft);
+  margin-right: 1px;
+  transition: color 0.15s ease;
+}
+
+/* ── status footer (Cursor-style IDE status bar) ── */
+
+.status-bar {
+  border-top: 1px solid var(--site-border);
+  background: var(--site-panel-rail);
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+}
+
+.status-bar__inner {
+  display: flex;
+  align-items: stretch;
+  height: 24px;
+  /* The one place Basel breaks its single-family rule: a real monospace gives
+     the IDE/terminal status bar its proper machine read. System mono only —
+     no font bundle. */
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+    "Cascadia Code", "Roboto Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.status-bar__inner::-webkit-scrollbar { display: none; }
+.status-bar__inner { scrollbar-width: none; }
+
+/* A cell is the atomic unit — like Cursor's status bar segments */
+.status-bar__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0 0.625rem;
+  border-right: 1px solid var(--site-border-soft);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.status-bar__cell:first-child {
+  padding-left: 0;
+}
+
+/* Clickable / link cells get hover treatment */
+.status-bar__cell--link {
+  color: var(--site-copy);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.status-bar__cell--link:hover {
+  background: var(--site-border-soft);
+  color: var(--site-ink);
+}
+
+.status-bar__cell--link:hover .status-bar__sigil {
+  color: var(--site-accent);
+}
+
+/* Right-zone group pushed to the end */
+.status-bar__zone--right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.status-bar__cell b {
+  color: var(--site-ink);
+  font-weight: 500;
+}
+
+/* Remove trailing border on the last visible cell in each group */
+.status-bar__inner > .status-bar__cell:last-child,
+.status-bar__zone--right > .status-bar__cell:last-child {
+  border-right: none;
+}
+
+/* Retained for any inline separators we still want */
+.status-bar__sep {
+  color: var(--site-border-strong);
+  user-select: none;
+}
+
+.status-bar__sigil {
+  color: var(--site-muted-soft);
+  transition: color 0.12s ease;
+}
+
+.status-bar__brand {
+  color: var(--site-ink);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+
+/* ──────────────────────────────────────────────────────────
+   RFC hero — front matter on the left, broker stream on the right
+   ────────────────────────────────────────────────────────── */
+
+.rfc-hero__bar {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--site-border-soft);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.rfc-hero__bar-sep {
+  color: var(--site-accent);
+  opacity: 0.5;
+  user-select: none;
+}
+
+.rfc-hero__title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(2rem, 3.5vw, 2.75rem);
+  line-height: 1.1;
+  letter-spacing: -0.018em;
+  color: var(--site-ink);
+  margin-top: 2rem;
+  max-width: 24ch;
+}
+
+.rfc-hero__authors {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--site-copy);
+  margin-top: 1.25rem;
+  letter-spacing: 0.005em;
+}
+
+.rfc-hero__abstract {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--site-copy);
+  margin-top: 1.75rem;
+  max-width: 58ch;
+}
+
+.rfc-hero__abstract-label {
+  font-weight: 600;
+  color: var(--site-ink);
+  margin-right: 0.4rem;
+}
+
+.rfc-hero__records-inline {
+  color: var(--site-ink);
+  font-weight: 500;
+}
+
+.rfc-hero__memo {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--site-muted);
+  margin-top: 1.5rem;
+  max-width: 58ch;
+  padding-top: 1rem;
+  border-top: 1px solid var(--site-border-soft);
+}
+
+.rfc-hero__install {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+  padding: 0.55rem 0.85rem;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--site-ink);
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.rfc-hero__install:hover {
+  border-color: var(--site-border-strong);
+  background: var(--site-surface-strong);
+}
+
+.rfc-hero__install-prompt {
+  color: var(--site-muted);
+}
+
+.rfc-hero__install-copy {
+  color: var(--site-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-left: 0.25rem;
+  border-left: 1px solid var(--site-border);
+  padding-left: 0.65rem;
+}
+
+.rfc-hero__install:hover .rfc-hero__install-copy {
+  color: var(--site-copy);
+}
+
+.rfc-hero__install--copied .rfc-hero__install-copy {
+  color: var(--site-accent);
+}
+
+.rfc-hero__title--two-line {
+  font-size: clamp(2.4rem, 4.4vw, 3.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  font-weight: 500;
+  max-width: 16ch;
+  text-wrap: pretty;
+}
+
+.rfc-hero__title-line {
+  display: block;
+}
+
+/* Full-width hero (story above, console below) */
+.rfc-hero__story {
+  margin-top: 0.5rem;
+}
+
+.rfc-hero__viewer-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.rfc-hero__title--full {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: clamp(1.85rem, 3.6vw, 3.25rem);
+  line-height: 1.0;
+  letter-spacing: -0.034em;
+  font-weight: 500;
+  font-feature-settings: "ss01", "kern", "liga", "calt";
+  max-width: none;
+  margin-top: 0;
+  text-wrap: balance;
+}
+
+/* Second visual line is a tactical kicker — uppercase mono in the rust
+   accent, much smaller and thinner than the serif top line. Sets up
+   contrast: serif statement → mono punchline. */
+.rfc-hero__title--full .rfc-hero__title-line + .rfc-hero__title-line {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: clamp(0.95rem, 1.4vw, 1.25rem);
+  font-weight: 300;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--site-accent);
+  margin-top: 0.85rem;
+  line-height: 1.2;
+}
+
+.rfc-hero__abstract--full {
+  font-size: clamp(14px, 1.2vw, 15.5px);
+  line-height: 1.55;
+  max-width: 48ch;
+  margin-top: 1rem;
+  color: var(--site-ink);
+}
+
+/* Install lives in the hero column, directly under the subtext */
+.rfc-hero__install-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+
+.rfc-hero__install-block .rfc-hero__install {
+  margin-top: 0;
+}
+
+.rfc-hero__install-foot {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--site-muted);
+  margin: 0;
+  max-width: 50ch;
+}
+
+.rfc-hero__schema-link {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--site-muted);
+  margin: 0.45rem 0 0;
+}
+
+.rfc-hero__schema-link a {
+  color: var(--site-accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+.rfc-hero__schema-link a:hover {
+  color: var(--site-ink);
+}
+
+/* Hero masthead — RFC-style header fields grounding the editorial column so it
+   carries weight down the page beside the taller live console. Definition list:
+   uppercase key column, dot-delimited values, hairline-ruled rows. */
+.rfc-hero__masthead {
+  margin: 2.25rem 0 0;
+  padding-top: 1.15rem;
+  border-top: 1px solid var(--site-border);
+  display: flex;
+  flex-direction: column;
+  max-width: 46ch;
+}
+
+.rfc-hero__masthead-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 1rem;
+  align-items: baseline;
+  padding: 0.62rem 0;
+  border-bottom: 1px solid var(--site-border-soft);
+}
+
+.rfc-hero__masthead-row:last-child {
+  border-bottom: 0;
+}
+
+.rfc-hero__masthead-key {
+  margin: 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+}
+
+.rfc-hero__masthead-val {
+  margin: 0;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+  color: var(--site-ink);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.rfc-hero__masthead-token {
+  white-space: nowrap;
+}
+
+.rfc-hero__masthead-sep {
+  color: var(--site-muted-soft);
+  margin: 0 0.5rem;
+}
+
+/* Hero split: editorial left, console right, console top-aligned with the
+   headline for that "page-of-the-spec next to the live system" feel. */
+.rfc-hero__split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.rfc-hero__editorial {
+  min-width: 0;
+}
+
+.rfc-hero__console-col {
+  min-width: 0;
+  position: relative;
+}
+
+/* The "are you an agent?" toggle perches on the console's top-left shoulder —
+   a small playful control on the live system, not a chip floating over the
+   right margin. Absolutely placed so it never pushes the headline down. */
+.rfc-hero__viewer-perch {
+  position: absolute;
+  left: 2px;
+  bottom: calc(100% + 0.55rem);
+  z-index: 4;
+}
+
+@media (max-width: 920px) {
+  .rfc-hero__split {
+    grid-template-columns: 1fr;
+    gap: 3.25rem;
+  }
+  /* On the stacked layout the perch sits in the gap above the console. */
+  .rfc-hero__viewer-perch {
+    bottom: calc(100% + 0.65rem);
+  }
+}
+
+/* Floating viewer toggle — fixed bottom-right above the status bar */
+.viewer-toggle-floater {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 3.5rem;
+  z-index: 60;
+  padding: 5px 8px;
+  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6),
+    0 12px 28px -14px rgba(26, 22, 18, 0.3),
+    0 4px 10px -6px rgba(26, 22, 18, 0.18);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+
+html[data-site-theme="dark"] .viewer-toggle-floater {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 28px -14px rgba(0, 0, 0, 0.6);
+}
+
+/* "I'm a — human / agent" segmented toggle, sits above the hero headline */
+
+/* "I'm a bot" — single on/off switch with a hand-drawn bot icon */
+
+.viewer-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--site-muted);
+}
+
+.viewer-toggle:hover { color: var(--site-ink); }
+
+.viewer-toggle__icon {
+  display: inline-flex;
+  color: var(--site-muted);
+  transition: color 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__icon {
+  color: var(--site-accent);
+}
+
+.viewer-toggle__text {
+  white-space: nowrap;
+}
+
+.viewer-toggle[data-on="true"] {
+  color: var(--site-ink);
+}
+
+.viewer-toggle__track {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  flex-shrink: 0;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__track {
+  background: var(--site-accent);
+  border-color: var(--site-accent);
+}
+
+.viewer-toggle__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(17, 17, 16, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.viewer-toggle[data-on="true"] .viewer-toggle__knob {
+  transform: translateX(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewer-toggle__knob,
+  .viewer-toggle__track { transition: none; }
+}
+
+/* Document strip — unified spec-doc nav. Sticky once scrolled past hero.
+   Stuck state is detected by an IntersectionObserver in page.tsx (works in
+   all modern browsers, not just Chromium with animation-timeline). The
+   sentinel below is a zero-height marker placed just above the strip's
+   resting position; when it leaves the viewport from the top, JS adds
+   .is-stuck to the strip and the collapsed-meta + shadow look kicks in. */
+
+.rfc-doc-strip__sentinel {
+  height: 1px;
+  margin-bottom: -1px; /* don't add layout space */
+  pointer-events: none;
+}
+
+.rfc-doc-strip {
+  position: sticky;
+  top: 52px;            /* under operator-console */
+  z-index: 40;
+  border-top: 1px solid var(--site-border);
+  border-bottom: 1px solid var(--site-border);
+  padding: 0.6rem 0 0.55rem;
+  background: color-mix(in srgb, var(--site-page-bg) 92%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: blur(10px) saturate(140%);
+  transition:
+    box-shadow 0.28s ease,
+    background 0.28s ease,
+    border-color 0.28s ease,
+    padding 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
+}
+
+/* Stuck: tighten chrome, raise the surface with a soft shadow, deepen the
+   backdrop so it reads as a layer on top of the doc rather than part of it. */
+.rfc-doc-strip.is-stuck {
+  padding: 0.55rem 0;
+  background: color-mix(in srgb, var(--site-page-bg) 96%, transparent);
+  border-bottom-color: var(--site-border-strong);
+  box-shadow: 0 6px 18px -12px rgba(17, 17, 16, 0.22);
+}
+
+html[data-site-theme="dark"] .rfc-doc-strip.is-stuck {
+  box-shadow: 0 8px 22px -14px rgba(0, 0, 0, 0.55);
+}
+
+.rfc-doc-strip__meta {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--site-accent);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding-bottom: 0.55rem;
+  flex-wrap: wrap;
+  /* Animatable so we can collapse it on stick. max-height is large enough
+     to fit a wrapped meta line on narrow screens. */
+  max-height: 6rem;
+  overflow: hidden;
+  transition:
+    max-height 0.32s cubic-bezier(0.4, 0.05, 0.2, 1),
+    padding-bottom 0.28s ease,
+    border-color 0.28s ease,
+    margin-bottom 0.28s ease;
+}
+
+.rfc-doc-strip__meta-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1);
+}
+
+/* Stuck: meta line is redundant (the user is reading the doc). Collapse
+   the draft-id text and shrink the toggle so the §-chips dominate.
+   The toggle stays clickable — it's a global control — just visually
+   demoted with a slight scale + dim. */
+.rfc-doc-strip.is-stuck .rfc-doc-strip__meta {
+  max-height: 1.6rem;
+  padding-bottom: 0;
+  border-bottom-color: transparent;
+  margin-bottom: -0.25rem;
+}
+
+.rfc-doc-strip.is-stuck .rfc-doc-strip__meta-text {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+
+.rfc-doc-strip .viewer-toggle {
+  transition:
+    transform 0.28s cubic-bezier(0.4, 0.05, 0.2, 1),
+    opacity 0.22s ease;
+  transform-origin: right center;
+}
+
+.rfc-doc-strip.is-stuck .viewer-toggle {
+  transform: scale(0.9);
+  opacity: 0.78;
+}
+
+.rfc-doc-strip.is-stuck .viewer-toggle:hover,
+.rfc-doc-strip.is-stuck .viewer-toggle:focus-within {
+  opacity: 1;
+}
+
+.rfc-doc-strip__toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.55rem;
+  padding-top: 0.65rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  transition: padding-top 0.28s ease;
+}
+
+.rfc-doc-strip.is-stuck .rfc-doc-strip__toc {
+  padding-top: 0.4rem;
+}
+
+.rfc-doc-strip__toc a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 12.5px;
+  color: var(--site-copy);
+  border: 1px solid var(--site-border-soft);
+  border-radius: 6px;
+  background: var(--site-panel-muted);
+  white-space: nowrap;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.rfc-doc-strip__toc a:hover {
+  color: var(--site-ink);
+  background: var(--site-surface-strong);
+  border-color: var(--site-border-strong);
+  transform: translateY(-1px);
+}
+
+/* Scroll-spy active state — applied by page.tsx when the matching section
+   is in view. Rust accent border + ink text + a slightly stronger panel so
+   the chip reads as "you are here" without shouting. */
+.rfc-doc-strip__toc a.is-active {
+  color: var(--site-ink);
+  background: var(--site-accent-soft);
+  border-color: var(--site-accent-border);
+  box-shadow: inset 0 0 0 1px var(--site-accent-border);
+}
+
+.rfc-doc-strip__toc a.is-active .rfc-hero__toc-num {
+  color: var(--site-accent);
+}
+
+.rfc-doc-strip__toc a.is-active:hover {
+  background: var(--site-accent-soft-strong);
+  border-color: var(--site-accent);
+}
+
+.rfc-doc-strip__toc a:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
+.rfc-doc-strip__toc-item {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+/* Tighter horizontal spacing because each item now holds two pieces */
+.rfc-doc-strip__toc {
+  gap: 0.55rem;
+}
+
+.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 10.5px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  color: var(--site-muted);
+  border: 1px solid var(--site-border-soft);
+  border-radius: 6px;
+  background: transparent;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.rfc-doc-strip__toc a.rfc-doc-strip__toc-docs:hover {
+  color: var(--site-accent);
+  border-color: var(--site-accent-border);
+  background: var(--site-accent-soft);
+  transform: none;
+}
+
+.rfc-doc-strip__toc-label {
+  font-weight: 500;
+}
+
+.rfc-hero__toc-num {
+  color: var(--site-accent);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Reduce-motion: keep the visual states (collapsed meta, active chip,
+   stuck shadow) but skip the in-between animation. */
+@media (prefers-reduced-motion: reduce) {
+  .rfc-doc-strip,
+  .rfc-doc-strip__meta,
+  .rfc-doc-strip__meta-text,
+  .rfc-doc-strip__toc,
+  .rfc-doc-strip__toc a,
+  .rfc-doc-strip .viewer-toggle {
+    transition: none;
+  }
+  .rfc-doc-strip__toc a:hover {
+    transform: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────
+   RFC document sections (Problem, Capabilities, Surfaces, Get Started)
+   ────────────────────────────────────────────────────────── */
+
+/* §-section composition — editorial unit, not a stack.
+     – serif title is the dominant voice (ink)
+     – eyebrow is a quiet label that attaches to the title (muted)
+     – §N hangs near the title as marginalia (accent — appears once)
+     – lead breathes from the title; figure/blocks sit on a real beat below
+     – enumerated blocks read as children of the title column, sharing a
+       single column rule instead of three redundant per-card rules
+   Rhythm ladder (proximity = relationship):
+     eyebrow → title       = tight (0.45rem)
+     title   → lead        = grouped but breathing (1.35rem)
+     lead    → figure/blks = real beat (3rem)                              */
+
+.rfc-section {
+  background: var(--site-panel-muted);
+  padding-top: 4.5rem;
+  padding-bottom: 5rem;
+}
+
+/* Eyebrow: a quiet label attached to the title, not a competing banner.
+   No bottom border, no rust on §N — restraint. The §N gets promoted to a
+   marginalia marker on the title itself (see below). */
+.rfc-section-eyebrow {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+/* The inline §N is replaced visually by the marginalia marker on the title;
+   keep it in the markup for screen readers / CSS-counter-less fallback. */
+.rfc-section-eyebrow__num {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Title is the loudest element. Margin-top tight to eyebrow → one unit. */
+.rfc-section-title {
+  position: relative;
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(1.5rem, 2.6vw, 2.0625rem);
+  line-height: 1.12;
+  letter-spacing: -0.014em;
+  color: var(--site-ink);
+  font-feature-settings: "ss01", "kern", "liga", "calt";
+  max-width: 24ch;
+  margin-top: 0.45rem;
+  text-wrap: balance;
+}
+
+/* Marginalia §-marker: small mono §N sitting just above the serif title's
+   first line, slightly inset. The accent fires here exactly once in the
+   opener — the editorial tell that this is a numbered section of the
+   spec, without a banner-y eyebrow rule fighting the title. */
+.rfc-section-title::before {
+  content: "§" counter(rfc-section);
+  display: inline-block;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--site-accent);
+  vertical-align: 0.6em;
+  margin-right: 0.5rem;
+}
+
+/* Auto-number §-sections in document order. */
+main { counter-reset: rfc-section; }
+.rfc-section { counter-increment: rfc-section; }
+
+.rfc-section-lead {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--site-copy);
+  margin-top: 1.35rem;
+  max-width: 56ch;
+}
+
+/* Block row: a single shared hairline anchors the enumerated cards, with
+   a small rust tick at the start as the only second use of accent in the
+   section. Cards inside the row drop their own borders. */
+.rfc-block-row {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--site-border-soft);
+  position: relative;
+}
+
+.rfc-block-row::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  width: 2.25rem;
+  height: 1px;
+  background: var(--site-accent);
+  opacity: 0.7;
+}
+
+/* Standalone .rfc-block (used outside the row, e.g. §3 Note + §4 Apps)
+   keeps a soft top rule for separation but no longer competes with the
+   row treatment. */
+.rfc-block {
+  border-top: 1px solid var(--site-border-soft);
+  padding-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.rfc-block-row .rfc-block {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.rfc-block__num {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--site-muted);
+  font-weight: 600;
+}
+
+/* Only the §x.N portion gets accent — keeps the trail of rust readable as
+   "section markers, nothing else." */
+.rfc-block__num-mark {
+  color: var(--site-accent);
+}
+
+.rfc-block__title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: 1.0625rem;
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  color: var(--site-ink);
+}
+
+.rfc-block__body {
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--site-copy);
+}
+
+/* §4 host-integration cards — boxed, equal-height, softened corners. */
+.integration-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  height: 100%;
+  padding: 1.15rem 1.2rem 1.05rem;
+  background: var(--site-panel-muted);
+  border: 1px solid var(--site-border);
+  border-radius: 14px;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.integration-block:hover {
+  border-color: var(--site-accent-border);
+  background: var(--site-surface);
+}
+
+.integration-block__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.integration-block__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.integration-block__name {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: 1rem;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+  color: var(--site-ink);
+}
+
+.integration-block__install {
+  display: block;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--site-copy);
+  background: var(--site-page-bg);
+  border: 1px solid var(--site-border-soft);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  overflow-wrap: anywhere;
+}
+
+.integration-block__links {
+  margin-top: auto;
+  padding-top: 0.15rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+}
+
+.integration-block__mark {
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--site-border);
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--site-accent) 10%, transparent), transparent),
+    var(--site-surface-strong);
+  color: var(--site-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 34%, transparent);
+}
+
+.rfc-figure {
+  border: 1px solid var(--site-border);
+  border-radius: 8px;
+  background: var(--site-surface-strong);
+  overflow: hidden;
+  box-shadow: var(--site-card-shadow);
+}
+
+.rfc-figure__caption {
+  border-top: 1px solid var(--site-border-soft);
+  padding: 1rem;
+  font-family: var(--font-mono-display), ui-monospace, monospace;
+}
+
+.rfc-figure__caption-num {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--site-accent);
+  font-weight: 600;
+}
+
+.rfc-figure__caption-title {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--site-ink);
+  margin-top: 0.35rem;
+}
+
+.rfc-figure__caption-body {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--site-copy);
+  margin-top: 0.4rem;
+}
+
+/* ──────────────────────────────────────────────────────────
+   Broker stream demo
+   ────────────────────────────────────────────────────────── */
+
+.broker-stream {
+  background: var(--site-surface-strong);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  box-shadow: var(--site-card-shadow);
+}
+
+.broker-stream__chrome {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.875rem;
+  height: 32px;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+  color: var(--site-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.broker-stream__chrome-id {
+  color: var(--site-copy);
+}
+
+.broker-stream__demo-tag {
+  color: var(--site-muted-soft);
+  opacity: 0.7;
+}
+
+.broker-stream__body {
+  display: grid;
+  grid-template-columns: minmax(0, 9.5rem) 1fr;
+  height: 400px;
+}
+
+.broker-stream__peers {
+  border-right: 1px solid var(--site-border-soft);
+  padding: 1rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  background: color-mix(in srgb, var(--site-panel-rail) 50%, transparent);
+}
+
+.broker-stream__records {
+  padding: 1rem 0.875rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.broker-stream__col-label {
+  color: var(--site-muted-soft);
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  margin-bottom: 0.7rem;
+}
+
+.broker-stream__peer {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--site-copy);
+  transition: color 0.3s ease;
+  font-size: 12px;
+}
+
+.broker-stream__peer-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--site-status-online);
+  flex-shrink: 0;
+  transition: background 0.3s ease, box-shadow 0.4s ease, transform 0.4s ease;
+}
+
+.broker-stream__peer--bridge .broker-stream__peer-mark {
+  background: transparent;
+  border: 1.5px solid var(--site-status-online);
+  width: 9px;
+  height: 9px;
+}
+
+.broker-stream__peer--self .broker-stream__peer-mark {
+  background: var(--site-muted-soft);
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+.broker-stream__peer.is-active {
+  color: var(--site-ink);
+}
+
+.broker-stream__peer.is-active .broker-stream__peer-mark {
+  background: var(--site-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--site-accent) 25%, transparent);
+  transform: scale(1.05);
+}
+
+.broker-stream__peer--sender.is-active .broker-stream__peer-mark {
+  animation: peer-emit 1.4s ease-out;
+}
+
+.broker-stream__peer--recipient.is-active .broker-stream__peer-mark {
+  animation: peer-receive 1.4s ease-out 0.4s;
+}
+
+@keyframes peer-emit {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--site-accent) 55%, transparent); transform: scale(1.05); }
+  60%  { box-shadow: 0 0 0 10px color-mix(in srgb, var(--site-accent) 0%, transparent); transform: scale(1.0); }
+  100% { box-shadow: 0 0 0 4px  color-mix(in srgb, var(--site-accent) 25%, transparent); transform: scale(1.05); }
+}
+
+@keyframes peer-receive {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--site-accent) 0%, transparent); }
+  50%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--site-accent) 35%, transparent); }
+  100% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--site-accent) 25%, transparent); }
+}
+
+.broker-stream__peer--bridge.is-active .broker-stream__peer-mark {
+  border-color: var(--site-accent);
+}
+
+.broker-stream__peer-id {
+  font-weight: 500;
+}
+
+.broker-stream__peer-runtime {
+  color: var(--site-muted-soft);
+  margin-left: auto;
+  font-size: 10.5px;
+}
+
+.broker-stream__join {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  color: var(--site-accent);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.broker-stream__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.broker-stream__record {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  position: relative;
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+  border-left: 2px solid transparent;
+  transition: border-color 1.4s ease, background 1.4s ease;
+}
+
+.broker-stream__record--latest {
+  animation: stream-land 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  border-left-color: var(--site-accent);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--site-accent) 9%, transparent),
+    transparent 55%
+  );
+}
+
+@keyframes stream-land {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.broker-stream__cursor {
+  display: inline-block;
+  width: 6px;
+  height: 11px;
+  margin-left: 3px;
+  vertical-align: -1px;
+  background: var(--site-accent);
+  animation: cursor-blink 0.9s steps(2, end) infinite;
+}
+
+@keyframes cursor-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+.broker-stream__record--latest .broker-stream__arrow {
+  color: var(--site-accent);
+  animation: arrow-shift 1.2s ease-out;
+}
+
+@keyframes arrow-shift {
+  0%   { transform: translateX(-3px); opacity: 0.4; }
+  50%  { transform: translateX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 1; }
+}
+
+.broker-stream__record-line {
+  display: grid;
+  grid-template-columns: 4.2rem auto 1fr;
+  align-items: baseline;
+  gap: 0 0.85rem;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.broker-stream__ts {
+  color: var(--site-muted-soft);
+}
+
+.broker-stream__kind {
+  color: var(--site-accent);
+  font-weight: 500;
+}
+
+.broker-stream__route {
+  color: var(--site-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.broker-stream__arrow {
+  color: var(--site-muted);
+  margin: 0 0.05rem;
+}
+
+.broker-stream__body-text {
+  color: var(--site-copy);
+  padding-left: 5.05rem;
+  font-size: 11.5px;
+  line-height: 1.4;
+  display: flex;
+  gap: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.broker-stream__body-mark {
+  color: var(--site-muted-soft);
+}
+
+.broker-stream__record--failed .broker-stream__kind {
+  color: var(--site-danger);
+}
+
+.broker-stream__record--failed .broker-stream__body-text {
+  color: var(--site-danger);
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .broker-stream__record,
+  .broker-stream__record--latest,
+  .broker-stream__cursor,
+  .broker-stream__record--latest .broker-stream__arrow,
+  .broker-stream__peer--sender.is-active .broker-stream__peer-mark,
+  .broker-stream__peer--recipient.is-active .broker-stream__peer-mark {
+    animation: none;
+  }
+  .broker-stream__peer-mark { transition: none; }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Live mocks — Topology + Tail firehose (off-landing — kept
+   for blog / ops surface usage)
+   ────────────────────────────────────────────────────────── */
+
+/* Topology */
+
+.topo-mock {
+  background: var(--site-surface-strong);
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  box-shadow: var(--site-card-shadow);
+}
+
+.topo-mock__chrome {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 0.875rem;
+  height: 32px;
+  border-bottom: 1px solid var(--site-border-soft);
+  background: var(--site-panel-rail);
+  color: var(--site-muted);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.topo-mock__chrome-id { color: var(--site-copy); }
+
+.topo-mock__chrome-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--site-status-online);
+}
+
+.topo-mock__chrome-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--site-status-online);
+  box-shadow: 0 0 0 3px var(--site-status-online-soft);
+}
+
+.topo-mock__body { padding: 0.5rem 0.5rem 0.75rem; }
+
+.topo-mock__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.topo-mock__edge {
+  stroke: var(--site-border-strong);
+  stroke-width: 1;
+  transition: stroke 0.4s ease, stroke-width 0.4s ease;
+}
+
+.topo-mock__edge--active {
+  stroke: var(--site-accent);
+  stroke-width: 1.4;
+}
+
+.topo-mock__pulse {
+  fill: var(--site-accent);
+  filter: drop-shadow(0 0 4px var(--site-accent));
+}
+
+.topo-mock__node {
+  fill: var(--site-surface-strong);
+  stroke: var(--site-copy);
+  stroke-width: 1.5;
+  transition: stroke 0.3s ease, fill 0.3s ease;
+}
+
+.topo-mock__node--broker {
+  fill: var(--site-accent);
+  stroke: var(--site-accent);
+}
+
+.topo-mock__node--bridge {
+  stroke: var(--site-copy);
+  stroke-dasharray: 2 2;
+}
+
+.topo-mock__node--self {
+  fill: var(--site-ink);
+  stroke: var(--site-ink);
+}
+
+.topo-mock__node.is-active {
+  stroke: var(--site-accent);
+  fill: var(--site-accent-soft);
+}
+
+.topo-mock__node-core {
+  fill: var(--site-surface-strong);
+  pointer-events: none;
+}
+
+.topo-mock__label {
+  fill: var(--site-copy);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  transition: fill 0.3s ease;
+}
+
+.topo-mock__label.is-active {
+  fill: var(--site-ink);
+}
+
+.topo-mock__sub {
+  fill: var(--site-muted-soft);
+  font-size: 8px;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.topo-mock__legend {
+  display: flex;
+  justify-content: center;
+  gap: 1.4rem;
+  padding: 0.4rem 0 0.2rem;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--site-muted-soft);
+}
+
+.topo-mock__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.topo-mock__legend-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: 1.5px solid var(--site-copy);
+  background: var(--site-surface-strong);
+}
+
+.topo-mock__legend-mark--online {
+  background: var(--site-accent);
+  border-color: var(--site-accent);
+}
+
+.topo-mock__legend-mark--bridge {
+  background: var(--site-surface-strong);
+  border-style: dashed;
+}
+
+.topo-mock__legend-mark--self {
+  background: var(--site-ink);
+  border-color: var(--site-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-mock__pulse { display: none; }
+  .topo-mock__edge--active { stroke: var(--site-border-strong); stroke-width: 1; }
+}
+
+/* Tail firehose */
+
+.tail-mock {
+  background: #14151a;
+  color: #ebe6dc;
+  border: 1px solid var(--site-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 11.5px;
+  box-shadow: var(--site-card-shadow);
+}
+
+.tail-mock__strip {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 28px;
+  padding: 0 0.5rem;
+  border-bottom: 1px solid rgba(214, 200, 170, 0.13);
+  background: #181a20;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(196, 189, 169, 0.7);
+}
+
+.tail-mock__strip-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0 0.6rem;
+  border-right: 1px solid rgba(214, 200, 170, 0.08);
+  height: 100%;
+}
+
+.tail-mock__strip-cell:last-child { border-right: 0; }
+
+.tail-mock__strip-cell b {
+  color: #f4b860;
+  font-weight: 600;
+}
+
+.tail-mock__strip-brand {
+  color: #f4b860;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+}
+
+.tail-mock__strip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #6dd49a;
+  box-shadow: 0 0 0 3px rgba(109, 212, 154, 0.18);
+}
+
+.tail-mock__strip-cell--warn b { color: #ff8d7b; }
+
+.tail-mock__strip-cell--mute {
+  color: rgba(196, 189, 169, 0.4);
+  border-right: 0;
+}
+
+.tail-mock__strip-spacer {
+  flex: 1;
+  border-right: 0;
+}
+
+.tail-mock__procs {
+  border-bottom: 1px solid rgba(214, 200, 170, 0.13);
+  padding: 0.4rem 0.6rem;
+}
+
+.tail-mock__proc-head,
+.tail-mock__proc {
+  display: grid;
+  grid-template-columns: minmax(0, 6.5rem) 4rem 7rem 1fr 7rem;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.18rem 0;
+  font-size: 11px;
+}
+
+.tail-mock__proc-head {
+  color: rgba(196, 189, 169, 0.45);
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding-bottom: 0.3rem;
+}
+
+.tail-mock__proc--idle { opacity: 0.5; }
+
+.tail-mock__proc-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  color: #ebe6dc;
+}
+
+.tail-mock__proc-mark {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #6dd49a;
+  box-shadow: 0 0 0 3px rgba(109, 212, 154, 0.16);
+}
+
+.tail-mock__proc--idle .tail-mock__proc-mark {
+  background: rgba(196, 189, 169, 0.4);
+  box-shadow: none;
+}
+
+.tail-mock__proc-pid {
+  color: rgba(196, 189, 169, 0.55);
+}
+
+.tail-mock__proc-repo {
+  color: rgba(196, 189, 169, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tail-mock__proc-rate {
+  position: relative;
+  height: 14px;
+  background: rgba(214, 200, 170, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.tail-mock__proc-bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(244, 184, 96, 0.35), rgba(244, 184, 96, 0.6));
+  transition: width 0.6s ease;
+}
+
+.tail-mock__proc-rate-val {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 0.4rem;
+  font-size: 9.5px;
+  color: #ebe6dc;
+  letter-spacing: 0.04em;
+}
+
+.tail-mock__tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500;
+  background: rgba(214, 200, 170, 0.1);
+  color: rgba(196, 189, 169, 0.8);
+}
+
+.tail-mock__tag--scout         { background: rgba(244, 184, 96, 0.16); color: #f4b860; }
+.tail-mock__tag--hudson        { background: rgba(91, 132, 255, 0.18); color: #8aa6ff; }
+.tail-mock__tag--codex-gui     { background: rgba(109, 212, 154, 0.16); color: #6dd49a; }
+.tail-mock__tag--claude-cli    { background: rgba(212, 140, 70, 0.18); color: #d48c46; }
+.tail-mock__tag--unattributed  { background: rgba(255, 141, 123, 0.16); color: #ff8d7b; }
+
+.tail-mock__stream {
+  padding: 0.4rem 0.6rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-height: 200px;
+}
+
+.tail-mock__line {
+  display: grid;
+  grid-template-columns: 5.2rem minmax(0, 5rem) 7rem 1fr;
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  animation: tail-line-in 0.35s ease-out;
+}
+
+@keyframes tail-line-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tail-mock__col-ts        { color: rgba(196, 189, 169, 0.45); }
+.tail-mock__col-agent     { color: #ebe6dc; font-weight: 500; }
+.tail-mock__col-body      { color: rgba(196, 189, 169, 0.85); overflow: hidden; text-overflow: ellipsis; }
+
+.tail-mock__line--sys  .tail-mock__col-body { color: rgba(196, 189, 169, 0.55); }
+.tail-mock__line--tool .tail-mock__col-body { color: #6dd49a; }
+.tail-mock__line--warn .tail-mock__col-body { color: #f4b860; }
+.tail-mock__line--err  .tail-mock__col-body { color: #ff8d7b; }
+.tail-mock__line--user .tail-mock__col-body { color: #8aa6ff; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tail-mock__line { animation: none; }
+  .tail-mock__proc-bar { transition: none; }
+}
+
+/* ── hero accent gradient ── */
+
+.hero-glow {
+  background: radial-gradient(
+      ellipse 60% 50% at 15% 20%,
+      var(--site-glow-a),
+      transparent
+    ),
+    radial-gradient(
+      ellipse 50% 60% at 85% 15%,
+      var(--site-glow-b),
+      transparent
+    ),
+    radial-gradient(
+      ellipse 40% 40% at 60% 5%,
+      var(--site-glow-c),
+      transparent
+    );
+}
+
+.site-theme-toggle {
+  position: relative;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+}
+
+.site-theme-toggle__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--site-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--site-surface-strong) 92%, transparent);
+  color: var(--site-copy);
+  box-shadow: 0 1px 2px rgba(17, 17, 16, 0.04);
+  transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  backdrop-filter: blur(18px);
+}
+
+.site-theme-toggle__button:hover {
+  border-color: var(--site-border-strong);
+  background: var(--site-surface-strong);
+  color: var(--site-ink);
+  transform: translateY(-1px);
+}
+
+.site-theme-toggle__button:focus-visible {
+  outline: 2px solid var(--site-accent);
+  outline-offset: 2px;
+}
+
+.site-theme-toggle__menu {
+  position: absolute;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  min-width: 9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem;
+  border: 1px solid var(--site-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--site-surface-strong) 94%, transparent);
+  box-shadow: var(--site-toggle-shadow);
+  backdrop-filter: blur(18px);
+}
+
+.site-theme-toggle__label {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--site-muted);
+  padding: 0.3rem 0.45rem 0.25rem;
+}
+
+.site-theme-toggle__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-content: flex-start;
+  min-height: 2rem;
+  padding: 0 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--site-copy);
+  font-size: 12px;
+  font-weight: 500;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.site-theme-toggle__option:hover {
+  background: var(--site-panel);
+  color: var(--site-ink);
+}
+
+.site-theme-toggle__option.is-active {
+  background: var(--site-ink);
+  border-color: var(--site-ink);
+  color: var(--site-ink-contrast);
+}
+
+/* ── arc diagram embeds (docs + landing) ── */
+
+/* diagram label — bottom left */
+.arc-docs-embed .absolute.bottom-3.left-3 {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 9px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.14em !important;
+  color: var(--site-muted-soft) !important;
+  background: transparent !important;
+  padding: 0 !important;
+  bottom: 4px !important;
+  left: 6px !important;
+}
+
+/* zoom controls pill — bottom right */
+.arc-docs-embed .absolute.bottom-3.right-3 {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 1px !important;
+  padding: 3px !important;
+  background: var(--site-surface) !important;
+  border: 1px solid var(--site-border) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+  backdrop-filter: blur(8px);
+  transform: none !important;
+  opacity: 1 !important;
+  bottom: 4px !important;
+  right: 6px !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3:hover {
+  border-color: var(--site-border-strong) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* zoom buttons */
+.arc-docs-embed .absolute.bottom-3.right-3 button {
+  width: 24px !important;
+  height: 24px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-radius: 4px !important;
+  color: var(--site-muted) !important;
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 11px !important;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button:hover {
+  background: var(--site-panel) !important;
+  border-color: var(--site-border-soft) !important;
+  color: var(--site-ink) !important;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button:active {
+  background: var(--site-panel-rail) !important;
+}
+
+.arc-docs-embed .absolute.bottom-3.right-3 button svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+/* zoom percentage indicator — the non-button child between the buttons */
+.arc-docs-embed .absolute.bottom-3.right-3 > span,
+.arc-docs-embed .absolute.bottom-3.right-3 > div:not(button) {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 10px !important;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em !important;
+  color: var(--site-muted) !important;
+  padding: 0 7px !important;
+  user-select: none;
+}
+
+/* ── docs markdown ── */
+
+.docs-markdown {
+  line-height: 1.6;
+}
+
+.docs-markdown p {
+  margin-bottom: 0.6em;
+}
+
+.blog-index-post:first-child {
+  padding-top: 0;
+}
+
+.blog-article-markdown {
+  font-family: var(--font-spectral), ui-serif, Georgia, serif;
+  font-size: 18px;
+  line-height: 1.78;
+  color: var(--site-copy);
+}
+
+.blog-article-markdown p {
+  margin-bottom: 1.15em;
+}
+
+.blog-article-markdown p:first-child {
+  color: var(--site-ink);
+  font-size: 20px;
+  line-height: 1.65;
+}
+
+.blog-article-markdown strong {
+  color: var(--site-ink);
+  font-weight: 600;
+}
+
+.blog-article-markdown img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 2rem 0;
+  border: 1px solid var(--site-border);
+  border-radius: 6px;
+  background: var(--site-panel-muted);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--site-ink) 10%, transparent);
+}
+
+html[data-site-theme="dark"] .site-docs {
+  --site-copy: #e3ddcc;
+  --site-muted: #b8b09a;
+  --site-muted-soft: #c6bfac;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(p, li) {
+  color: var(--site-copy) !important;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(p, li) :is(strong, b) {
+  color: var(--site-ink) !important;
+  font-weight: 600;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h1, h2, h3, h4) {
+  color: var(--site-ink) !important;
+}
+
+html[data-site-theme="dark"] .docs-markdown :not(pre) > code {
+  background: #262934 !important;
+  border-color: rgba(214, 200, 170, 0.18) !important;
+  color: #f3edd9 !important;
+}
+
+.docs-markdown h2 {
+  margin-top: 2rem;
+  margin-bottom: 0.6rem;
+}
+
+.docs-markdown h3 {
+  margin-top: 1.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.docs-markdown h4 {
+  margin-top: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.docs-markdown ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.docs-markdown ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.docs-markdown li {
+  margin-bottom: 0.3rem;
+}
+
+.docs-markdown li::marker {
+  color: var(--site-muted);
+}
+
+.docs-markdown :is(h1, h2, h3, h4) {
+  scroll-margin-top: 6rem;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h2, h3, h4) {
+  border-top-color: var(--site-border-soft) !important;
+}
+
+.docs-markdown :is(h3, h4) {
+  gap: 0.375rem;
+}
+
+/* code blocks — warm palette override for dewey CodeBlock */
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) {
+  background: var(--site-panel-muted) !important;
+  border: 1px solid var(--site-border) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+/* language label (BASH, TS, etc.) */
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) span[class*="uppercase"],
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) [class*="label"],
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) [class*="lang"] {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.07em !important;
+  text-transform: uppercase !important;
+  color: var(--site-muted) !important;
+}
+
+/* copy button */
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) button {
+  color: var(--site-muted) !important;
+  background: transparent !important;
+  border: 1px solid var(--site-border) !important;
+  border-radius: 4px !important;
+}
+
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) button:hover {
+  color: var(--site-ink) !important;
+  border-color: var(--site-border-strong) !important;
+}
+
+/* chrome bar above the code */
+.docs-markdown .rounded-lg.overflow-hidden:has(pre) > div:first-child:not(:has(pre)) {
+  background: var(--site-panel-rail) !important;
+  border-bottom: 1px solid var(--site-border-soft) !important;
+  padding: 0 0.875rem !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* code itself */
+.docs-markdown pre {
+  background: transparent !important;
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 12.5px !important;
+  line-height: 1.65 !important;
+  color: var(--site-ink) !important;
+}
+
+.docs-markdown code {
+  font-family: var(--font-geist-mono), ui-monospace, monospace !important;
+  font-size: 12.5px !important;
+}
+
+/* inline code */
+.docs-markdown :not(pre) > code {
+  background: var(--site-panel-muted) !important;
+  border: 1px solid var(--site-border) !important;
+  border-radius: 4px !important;
+  padding: 0.1em 0.4em !important;
+  font-size: 0.875em !important;
+  color: var(--site-ink) !important;
+}
+
+/* prose links — accent color with subtle underline */
+.docs-markdown a {
+  color: var(--site-accent);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--site-accent) 40%, transparent);
+  text-underline-offset: 2px;
+  transition: color 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+.docs-markdown a:hover {
+  color: var(--site-ink);
+  text-decoration-color: color-mix(in srgb, var(--site-ink) 40%, transparent);
+}
+
+/* heading anchor link — breathing room and baseline alignment */
+.docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
+  flex-shrink: 0;
+}
+
+html[data-site-theme="dark"] .docs-markdown :is(h1, h2, h3, h4) > a[title="Link to this section"] {
+  color: var(--site-muted-soft) !important;
+}
+
+.docs-markdown .hljs-keyword { color: #9a6e4a; font-weight: 500; }
+.docs-markdown .hljs-string { color: #5a8a6a; }
+.docs-markdown .hljs-number { color: #6a8caa; }
+.docs-markdown .hljs-property { color: #8a7a9a; }
+.docs-markdown .hljs-comment { color: #8a9090; font-style: italic; }
+.docs-markdown .hljs-type,
+.docs-markdown .hljs-title { color: #8a7a9a; }
+.docs-markdown .hljs-title.function_,
+.docs-markdown .hljs-function { color: #7a7a9a; }
+.docs-markdown .hljs-punctuation { color: #5c5c5c; }
+.docs-markdown .hljs-attr { color: #7a8a7a; }
+.docs-markdown .hljs-built_in { color: #aa8a6a; }
+.docs-markdown .hljs-literal { color: #6a8caa; }
+.docs-markdown .hljs-variable { color: #aa8a6a; }
+.docs-markdown .hljs-params { color: #4a4a4a; }
+.docs-markdown .hljs-meta { color: #8a9090; }
+.docs-markdown .hljs-name,
+.docs-markdown .hljs-tag,
+.docs-markdown .hljs-selector-tag { color: #5a8a6a; }
+.docs-markdown .hljs-selector-class { color: #8a7a9a; }
+
+/* ──────────────────────────────────────────────────────────
+   Scout console — terminal interlude with three tabs
+   (thread / resolve / send). Dark warm shell on light paper.
+   ────────────────────────────────────────────────────────── */
+
+.scout-console {
+  /* Tuned to match the native menu-bar HUD: neutral near-black, green accent. */
+  --term-bg: #0E100D;
+  --term-bg-2: #14171260;
+  --term-rule: #23271F;
+  --term-ink: #D7DACE;
+  --term-dim: #7F8674;
+  /* "rust" is the historical accent token — repointed to the HUD green so the
+     active tab, live dot, send action, and operator mark all read green. */
+  --term-rust: #86BC63;
+  --term-rust-soft: rgba(134, 188, 99, 0.12);
+  --term-rust-soft-strong: rgba(134, 188, 99, 0.20);
+  --term-blue: #7AA4C9;
+  --term-green: #86BC63;
+  --term-amber: #D5B070;
+
+  background: var(--term-bg);
+  color: var(--term-ink);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 12px;
+  border: 1px solid #0a0805;
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 540px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.4),
+    inset 0 0 0 1px rgba(255, 240, 210, 0.04),
+    inset 0 1px 0 rgba(255, 240, 210, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 24px 48px -28px rgba(40, 25, 10, 0.45),
+    0 6px 16px -10px rgba(40, 25, 10, 0.25);
+}
+
+html[data-site-theme="dark"] .scout-console {
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.6),
+    inset 0 0 0 1px rgba(255, 240, 210, 0.05),
+    inset 0 1px 0 rgba(255, 240, 210, 0.07),
+    0 24px 48px -28px rgba(0, 0, 0, 0.7);
+}
+
+.scout-console__chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #000;
+  background: linear-gradient(to bottom, #1B1E18 0%, #15171300 55%, #101210 100%);
+  box-shadow:
+    inset 0 -1px 0 rgba(230, 240, 220, 0.04),
+    inset 0 1px 0 rgba(230, 240, 220, 0.07);
+  color: var(--term-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.scout-console__dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.scout-console__dots i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.18), transparent 55%),
+    #3a302a;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.4);
+}
+
+.scout-console__dots i:nth-child(1) { background-color: #C45A38; }
+.scout-console__dots i:nth-child(2) { background-color: #C99A3F; }
+.scout-console__dots i:nth-child(3) { background-color: #6E9A52; }
+
+.scout-console__pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 240, 210, 0.06);
+  border-radius: 999px;
+  color: var(--term-ink);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.4);
+}
+
+.scout-console__pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--term-rust);
+  box-shadow: 0 0 6px var(--term-rust);
+  animation: scout-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes scout-pulse {
+  0%, 100% { opacity: 0.6; }
+  50%      { opacity: 1; }
+}
+
+.scout-console__flag {
+  color: var(--term-rust);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.scout-console__tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--term-rule);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.25), transparent);
+}
+
+.scout-console__tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--term-rule);
+  color: var(--term-dim);
+  padding: 11px 18px;
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.scout-console__tab:hover { color: var(--term-ink); }
+
+.scout-console__tab-mark {
+  display: inline-block;
+  width: 8px;
+  color: var(--term-dim);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.scout-console__tab.is-on {
+  color: var(--term-rust);
+  background: var(--term-rust-soft);
+}
+
+.scout-console__tab.is-on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--term-rust);
+}
+
+/* Numbered slot marks, like the HUD's "1 agents · 2 activity ·" tab strip. */
+.scout-console__tab-mark {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.scout-console__tab.is-on .scout-console__tab-mark {
+  color: var(--term-rust);
+}
+
+.scout-console__tab-spacer {
+  flex: 1;
+  border-bottom: 0;
+}
+
+/* Composer bar pinned to the bottom of the console — reads like a modern
+   message input (rounded field + send affordance) rather than a flat strip. */
+.scout-console__cmdbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--term-rule);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.30), transparent);
+  flex-shrink: 0;
+}
+
+.scout-console__cmdbar-field {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 7px 11px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--term-rule);
+  border-radius: 9px;
+  transition: border-color 0.18s ease;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 0.5px rgba(255, 240, 210, 0.02);
+}
+
+/* Once live, the field warms toward the green accent to invite a line. */
+.scout-console__cmdbar.is-live .scout-console__cmdbar-field {
+  border-color: rgba(134, 188, 99, 0.32);
+}
+
+/* Real input layered with a decorative "ghost" (caret + hint) shown only when
+   empty and unfocused. On focus the native green caret takes over, left-aligned. */
+.scout-console__cmdbar-inputwrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.scout-console__cmdbar-input {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  color: var(--term-ink);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  caret-color: var(--term-green);
+}
+
+.scout-console__cmdbar-input:disabled {
+  cursor: default;
+}
+
+.scout-console__cmdbar-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+/* Grammar palette — pops up above the input as you type /, @, or session: */
+.scout-console__palette {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: #181C16;
+  border: 1px solid var(--term-rule);
+  border-radius: 11px;
+  animation: scout-fadein 0.14s ease;
+}
+
+.scout-console__palette-h {
+  padding: 3px 8px 5px;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--term-dim);
+}
+
+.scout-console__palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-family: inherit;
+  transition: background 0.12s ease;
+}
+
+.scout-console__palette-row:hover {
+  background: var(--term-rust-soft);
+}
+
+.scout-console__palette-label {
+  flex-shrink: 0;
+  color: var(--term-rust);
+  font-size: 12px;
+}
+
+.scout-console__palette-hint {
+  color: var(--term-dim);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Blinking insertion caret — sits at the start of the field, like a real
+   text input waiting for a line. */
+.scout-console__cmdbar-caret {
+  width: 1.5px;
+  height: 13px;
+  margin-right: 3px;
+  background: var(--term-green);
+  border-radius: 1px;
+  flex-shrink: 0;
+  animation: scout-caret 1.1s steps(1) infinite;
+}
+
+@keyframes scout-caret {
+  0%, 50% { opacity: 0.9; }
+  51%, 100% { opacity: 0; }
+}
+
+.scout-console__cmdbar-hint {
+  color: var(--term-dim);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-console__cmdbar-cue {
+  color: var(--term-ink);
+}
+
+/* Voice-input affordance — trailing mic inside the field. */
+.scout-console__cmdbar-mic {
+  width: 14px;
+  height: 14px;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--term-dim);
+  flex-shrink: 0;
+}
+
+/* Send is a paper plane, nothing more. */
+.scout-console__cmdbar-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--term-rust-soft);
+  border: 1px solid rgba(134, 188, 99, 0.30);
+  color: var(--term-rust);
+}
+
+.scout-console__cmdbar-send svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* stage = rail + body */
+.scout-console__stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.scout-console__body {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+/* peers rail */
+.scout-console__rail {
+  width: 168px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--term-rule);
+  background: linear-gradient(to right, rgba(0, 0, 0, 0.18), transparent);
+  padding: 14px 12px 14px 14px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.scout-console__rail-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--term-rule);
+}
+
+.scout-console__rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.scout-console__rail-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.scout-console__rail-node-glyph {
+  color: var(--term-dim);
+  font-size: 9px;
+}
+
+.scout-console__rail-node--off {
+  color: var(--term-dim);
+}
+
+.scout-console__rail-peer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 11px;
+  padding: 1px 0 1px 6px;
+  line-height: 1.5;
+  min-width: 0;
+}
+
+.scout-console__rail-peer--off {
+  color: var(--term-dim);
+}
+
+.scout-console__rail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--term-rule);
+  flex-shrink: 0;
+}
+
+.scout-console__rail-dot--on {
+  background: var(--term-green);
+  box-shadow: 0 0 4px rgba(143, 179, 106, 0.55);
+}
+
+.scout-console__rail-dot--you {
+  background: var(--term-rust);
+  box-shadow: 0 0 4px rgba(226, 133, 78, 0.55);
+}
+
+.scout-console__rail-name {
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-console__rail-tag {
+  flex-shrink: 0;
+  max-width: 5.5rem;
+  font-size: 9.5px;
+  color: var(--term-dim);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  border: 1px dashed var(--term-rule);
+  padding: 0 4px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scout-console__rail-tag--self {
+  border-color: rgba(226, 133, 78, 0.4);
+  color: var(--term-rust);
+}
+
+.scout-console__rail-self {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--term-ink);
+  font-size: 11px;
+  padding: 8px 6px 0;
+  border-top: 1px dashed var(--term-rule);
+  margin-top: auto;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .scout-console__rail {
+    display: none;
+  }
+}
+
+/* thread tab */
+
+.scout-console__thread {
+  flex: 1;
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.scout-console__thread-head {
+  display: flex;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--term-ink);
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--term-rule);
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+
+.scout-console__dim { color: var(--term-dim); }
+
+.scout-console__line {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 12px;
+  align-items: baseline;
+  font-size: 12.5px;
+  line-height: 1.55;
+  animation: scout-fadein 0.4s ease;
+}
+
+@keyframes scout-fadein {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.scout-console__who {
+  font-size: 11px;
+  color: var(--term-dim);
+  text-align: right;
+  letter-spacing: 0.01em;
+  padding-top: 1px;
+}
+
+.scout-console__body--text { color: var(--term-ink); }
+
+.scout-console__line .scout-console__body {
+  color: var(--term-ink);
+  font-size: 12.5px;
+}
+
+.scout-console__line--out .scout-console__who { color: var(--term-rust); }
+
+/* system event dividers */
+.scout-console__sys {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10.5px;
+  color: var(--term-dim);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  margin: 2px 0;
+  animation: scout-fadein 0.4s ease;
+}
+
+.scout-console__rule {
+  flex: 1;
+  height: 1px;
+  background: var(--term-rule);
+}
+
+.scout-console__sys--flight .scout-console__sys-text { color: var(--term-blue); }
+.scout-console__sys--inv    .scout-console__sys-text { color: var(--term-amber); }
+.scout-console__sys--ok     .scout-console__sys-text { color: var(--term-green); }
+.scout-console__sys--warn   .scout-console__sys-text { color: var(--term-amber); }
+.scout-console__sys--err    .scout-console__sys-text { color: #D08D6E; }
+
+.scout-console__typing {
+  display: inline-flex;
+  gap: 4px;
+  padding-left: 82px;
+  margin-top: -2px;
+}
+
+.scout-console__dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--term-dim);
+}
+
+.scout-console__dot:nth-child(1) { animation: scout-bounce 1.2s infinite ease-in-out; }
+.scout-console__dot:nth-child(2) { animation: scout-bounce 1.2s infinite ease-in-out 0.15s; }
+.scout-console__dot:nth-child(3) { animation: scout-bounce 1.2s infinite ease-in-out 0.30s; }
+
+@keyframes scout-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-2px); }
+}
+
+/* resolve & send panes */
+
+.scout-console__pane {
+  flex: 1;
+  padding: 14px 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.scout-console__pane-h {
+  color: var(--term-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.scout-console__input {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--term-rule);
+  background: var(--term-bg-2);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.scout-console__prompt {
+  color: var(--term-rust);
+  margin-right: 4px;
+}
+
+.scout-console__input input,
+.scout-console__form input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  flex: 1;
+  color: var(--term-ink);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+
+.scout-console__input input::placeholder,
+.scout-console__form input::placeholder {
+  color: var(--term-dim);
+}
+
+.scout-console__hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--term-dim);
+  font-size: 10.5px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+
+.scout-console__hint button {
+  background: transparent;
+  border: 1px dashed var(--term-rule);
+  color: var(--term-dim);
+  font-family: inherit;
+  font-size: 10.5px;
+  padding: 3px 7px;
+  cursor: pointer;
+  border-radius: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.scout-console__hint button:hover {
+  color: var(--term-rust);
+  border-color: var(--term-rust);
+}
+
+.scout-console__resolve {
+  border-top: 1px dashed var(--term-rule);
+  padding-top: 12px;
+}
+
+.scout-console__resolve.scout-console__empty,
+.scout-console__empty {
+  color: var(--term-dim);
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.scout-console__row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 11.5px;
+}
+
+.scout-console__label {
+  color: var(--term-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10.5px;
+}
+
+.scout-console__val { color: var(--term-ink); }
+.scout-console__val b { color: var(--term-ink); font-weight: 500; }
+.scout-console__val--mono { font-family: inherit; }
+.scout-console__val--accent b { color: var(--term-rust); }
+.scout-console__val--warn { color: #D08D6E; }
+
+.scout-console__state {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--term-rule);
+}
+
+.scout-console__state--resolved  { color: var(--term-green); border-color: rgba(143, 179, 106, 0.5); }
+.scout-console__state--alias     { color: var(--term-rust);  border-color: rgba(226, 133, 78, 0.5); }
+.scout-console__state--ambiguous { color: var(--term-amber); border-color: rgba(213, 176, 112, 0.5); }
+.scout-console__state--unknown   { color: #D08D6E;          border-color: rgba(208, 141, 110, 0.5); }
+.scout-console__state--empty     { color: var(--term-dim);  border-color: var(--term-rule); }
+
+.scout-console__ambig { margin-top: 4px; }
+
+.scout-console__cand {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  font-size: 11.5px;
+  color: var(--term-ink);
+  padding: 1px 0;
+}
+
+.scout-console__cand-arrow { color: var(--term-dim); }
+.scout-console__cand .scout-console__val--mono { color: var(--term-rust); }
+
+/* send tab */
+
+.scout-console__form {
+  display: flex;
+  margin-bottom: 8px;
+  border: 1px solid var(--term-rule);
+  background: var(--term-bg-2);
+}
+
+.scout-console__form input {
+  padding: 8px 10px;
+}
+
+.scout-console__send {
+  background: var(--term-rust-soft);
+  border: 0;
+  border-left: 1px solid var(--term-rule);
+  padding: 0 14px;
+  color: var(--term-rust);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.scout-console__send:hover { background: var(--term-rust-soft-strong); }
+
+.scout-console__sendlog {
+  border-top: 1px dashed var(--term-rule);
+  padding-top: 10px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scout-console__sendlog-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--term-dim);
+  font-style: normal;
+}
+
+.scout-console__sendlog-empty-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.scout-console__sendlog-empty-row {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.scout-console__sendlog-empty-mark {
+  color: var(--term-rule);
+}
+
+.scout-console__resolve-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--term-rule);
+}
+
+.scout-console__resolve-foot-h {
+  color: var(--term-dim);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.scout-console__resolve-grammar {
+  margin: 0;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--term-dim);
+  white-space: pre;
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scout-console__line,
+  .scout-console__sys,
+  .scout-console__pill-dot,
+  .scout-console__dot {
+    animation: none;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────
+   Mesh figure — hand-drawn SVG topology snippet
+   ────────────────────────────────────────────────────────── */
+
+.mesh-figure {
+  border: 1px solid var(--site-border);
+  background: var(--site-surface-strong);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--site-copy);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.mesh-figure__chrome {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  color: var(--site-muted);
+  border-bottom: 1px dashed var(--site-border-soft);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.mesh-figure__zoom { letter-spacing: 0.06em; }
+
+.mesh-figure__svg {
+  width: 100%;
+  height: 200px;
+  display: block;
+  color: var(--site-copy);
+}
+
+/* ══════════════════════════════════════════════════════════
+   BASEL — reductive enforcement layer
+   Scoped to the marketing landing (.site-marketing). Sharp corners, no
+   shadows, no glows, no frosted chrome — separation comes from hairlines
+   and whitespace. One grotesque (Archivo); hierarchy from scale + weight,
+   kept deliberately light rather than poster-black.
+   ══════════════════════════════════════════════════════════ */
+
+/* Basel stays flat and quiet — no shadows, no glows, no frosted chrome — but
+   corners are no longer hard-zeroed. Each component keeps its own modest radius
+   so the system reads as intentionally soft, not brittle. */
+.site-marketing,
+.site-marketing *,
+.site-marketing *::before,
+.site-marketing *::after {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+
+/* The dark "windows" — broker console and the setup terminal — are the
+   surfaces allowed depth; they float on the page instead of sitting flat on
+   the grid like every other Basel panel. */
+.site-marketing .scout-console,
+.site-marketing .scout-terminal {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5),
+    0 18px 40px -24px rgba(28, 22, 16, 0.32),
+    0 6px 16px -12px rgba(28, 22, 16, 0.20) !important;
+}
+
+/* No frosted chrome — surfaces sit on the grid, not floating above it. */
+.site-marketing .rfc-doc-strip,
+.site-marketing .viewer-toggle-floater {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: var(--site-page-bg) !important;
+}
+
+/* When the doc-strip sticks, mark it with the heavy black structural rule
+   that opens every Basel section, not a soft tinted hairline. */
+.site-marketing .rfc-doc-strip.is-stuck {
+  border-bottom-color: var(--rule) !important;
+}
+
+/* Display type — Archivo, kept on the lighter side of the ramp. The headline
+   reads as a calm grotesque statement; weight is a nudge, never a slab. */
+.site-marketing .rfc-hero__title--full {
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  /* A touch smaller — calm grotesque, lets the hero breathe. */
+  font-size: clamp(1.6rem, 3vw, 2.7rem);
+}
+.site-marketing
+  .rfc-hero__title--full
+  .rfc-hero__title-line
+  + .rfc-hero__title-line {
+  font-weight: 400; /* red mono kicker line stays light */
+}
+.site-marketing .rfc-section-title {
+  font-weight: 500;
+}
+.site-marketing .rfc-block__title,
+.site-marketing .rfc-figure__caption-title {
+  font-weight: 500;
+}
+.site-marketing .integration-block__mark {
+  font-weight: 600;
+}
+
+/* Whitespace does the separating — keep the ambient dot-grid barely there. */
+.site-marketing .dot-grid {
+  opacity: 0.2;
+}
+
+/* Registration / corner crosses — a small Swiss "design control" placed just
+   inside the corners of framed surfaces (commands, figures, the terminal).
+   Eight thin accent strokes form a "+" at each corner; subtle by size + alpha. */
+.basel-crosses {
+  position: relative;
+}
+
+/* Overlay holding the four corner marks; sits above the framed surface. */
+.basel-crosses__marks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Each mark is a small "+" built from two 1px bars in the accent. */
+.basel-cross {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  opacity: 0.6;
+  color: var(--site-accent);
+}
+.basel-cross::before,
+.basel-cross::after {
+  content: "";
+  position: absolute;
+  background: currentColor;
+}
+.basel-cross::before {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+.basel-cross::after {
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+.basel-cross--tl { top: 6px; left: 6px; }
+.basel-cross--tr { top: 6px; right: 6px; }
+.basel-cross--bl { bottom: 6px; left: 6px; }
+.basel-cross--br { bottom: 6px; right: 6px; }

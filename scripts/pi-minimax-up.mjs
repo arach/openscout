@@ -32,7 +32,7 @@ const PI_SCOUT_EXTENSION_CANDIDATES = [
   join(homedir(), ".pi", "agent", "extensions", "pi-scout"),
   join(homedir(), "dev", "pi-scout"),
 ].filter(Boolean);
-const PAIR_SUPERVISOR_ENV_KEYS = [
+const PAIRING_RUNTIME_CONTROLLER_ENV_KEYS = [
   "PATH",
   "HOME",
   "USER",
@@ -62,12 +62,12 @@ Options:
   --cwd <path>          Session working directory (default: repo root)
   --alias <alias>       Scout alias to attach (default: ${DEFAULT_ALIAS})
   --name <name>         Session display name (default: ${DEFAULT_NAME})
-  --restart             Restart the pair supervisor before starting
+  --restart             Restart the pairing runtime controller before starting
   --no-pi-scout         Do not load the Pi Scout extension
   --no-attach           Start the pairing session but skip broker attachment
   --no-broker-start     Do not start the broker service automatically
   --configure-only      Only write ~/.scout/pairing/config.json
-  --down                Stop the pair supervisor
+  --down                Stop the pairing runtime controller
   --timeout-ms <ms>     Wait timeout (default: ${DEFAULT_TIMEOUT_MS})
   --help                Show this help
 
@@ -307,7 +307,7 @@ async function waitForProcessExit(pid, timeoutMs = 5_000) {
   return !isProcessAlive(pid);
 }
 
-async function stopPairSupervisor() {
+async function stopPairingRuntimeController() {
   const pid = readPid();
   if (!pid || !isProcessAlive(pid)) {
     return false;
@@ -315,7 +315,7 @@ async function stopPairSupervisor() {
   process.kill(pid, "SIGTERM");
   const stopped = await waitForProcessExit(pid);
   if (!stopped) {
-    throw new Error(`Pair supervisor pid ${pid} did not stop after SIGTERM.`);
+    throw new Error(`Pairing runtime controller pid ${pid} did not stop after SIGTERM.`);
   }
   return true;
 }
@@ -343,9 +343,9 @@ function resolveMiniMaxKey() {
     || readLocalSecret("MINIMAX_API_KEY");
 }
 
-function buildPairSupervisorEnv() {
+function buildPairingRuntimeControllerEnv() {
   const env = {};
-  for (const key of PAIR_SUPERVISOR_ENV_KEYS) {
+  for (const key of PAIRING_RUNTIME_CONTROLLER_ENV_KEYS) {
     const value = readProcessEnv(key);
     if (value) {
       env[key] = value;
@@ -360,11 +360,11 @@ function buildPairSupervisorEnv() {
   return env;
 }
 
-async function startPairSupervisor(options) {
+async function startPairingRuntimeController(options) {
   const paths = pairingPaths();
   const existingPid = readPid();
   if (options.restart && existingPid && isProcessAlive(existingPid)) {
-    await stopPairSupervisor();
+    await stopPairingRuntimeController();
   }
 
   const pid = readPid();
@@ -372,11 +372,11 @@ async function startPairSupervisor(options) {
     return { started: false, pid };
   }
 
-  const env = buildPairSupervisorEnv();
+  const env = buildPairingRuntimeControllerEnv();
   mkdirSync(paths.rootDir, { recursive: true });
-  appendFileSync(paths.upLogPath, `\n[${new Date().toISOString()}] starting pi-minimax pair supervisor\n`);
+  appendFileSync(paths.upLogPath, `\n[${new Date().toISOString()}] starting pi-minimax pairing runtime controller\n`);
   const logFd = openSync(paths.upLogPath, "a");
-  const child = spawn(process.execPath || "bun", [join(REPO_ROOT, "packages", "web", "server", "pair-supervisor.ts")], {
+  const child = spawn(process.execPath || "bun", [join(REPO_ROOT, "packages", "web", "server", "pairing-runtime-controller.ts")], {
     cwd: REPO_ROOT,
     env,
     detached: true,
@@ -468,7 +468,7 @@ async function waitForPiSession(brokerUrl, options) {
 
   throw new Error(
     `Pi MiniMax session did not appear in the broker. ${lastError}. `
-      + "If the pair supervisor was already running, rerun with --restart so it reloads the new config and environment.",
+      + "If the pairing runtime controller was already running, rerun with --restart so it reloads the new config and environment.",
   );
 }
 
@@ -503,8 +503,8 @@ async function main() {
 
   if (options.down) {
     const detached = await detachSession(options);
-    const stopped = await stopPairSupervisor();
-    console.log(stopped ? "Stopped Pi MiniMax pair supervisor." : "Pi MiniMax pair supervisor was not running.");
+    const stopped = await stopPairingRuntimeController();
+    console.log(stopped ? "Stopped Pi MiniMax pairing runtime controller." : "Pi MiniMax pairing runtime controller was not running.");
     if (detached?.detached) {
       console.log(`Detached ${options.alias} from Scout.`);
     }
@@ -518,11 +518,11 @@ async function main() {
     return;
   }
 
-  const pairSupervisor = await startPairSupervisor(options);
+  const pairingRuntimeController = await startPairingRuntimeController(options);
   console.log(
-    pairSupervisor.started
-      ? `Started pair supervisor pid ${pairSupervisor.pid ?? "unknown"}.`
-      : `Pair supervisor already running pid ${pairSupervisor.pid}.`,
+    pairingRuntimeController.started
+      ? `Started pairing runtime controller pid ${pairingRuntimeController.pid ?? "unknown"}.`
+      : `Pairing runtime controller already running pid ${pairingRuntimeController.pid}.`,
   );
 
   const pairing = await waitForPairingHealth(options.timeoutMs);

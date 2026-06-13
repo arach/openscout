@@ -1,4 +1,5 @@
 import HudsonUI
+import ScoutAppCore
 import SwiftUI
 import WebKit
 #if os(macOS)
@@ -31,6 +32,8 @@ struct ScoutObserveSidecarPanel: View {
     let onClose: () -> Void
     let onOpenWeb: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     @State private var phase: ScoutObserveSidecarPhase = .materializing
     @State private var reloadToken = UUID()
     @State private var revealToken = UUID()
@@ -60,17 +63,23 @@ struct ScoutObserveSidecarPanel: View {
         return min(max(previewWidth ?? width, range.lowerBound), range.upperBound)
     }
 
+    /// The chrome-free observe embed, tagged with the app's resolved palette so
+    /// the web viewer renders with the *same* surfaces, accent, and status colors
+    /// as the native app — not the web's generic light/dark (warm + green accent).
+    /// See `ScoutEmbedTheme`.
     private var observeURL: URL {
-        ScoutWeb.baseURL()
+        let base = ScoutWeb.baseURL()
             .appending(path: "embed")
             .appending(path: "observe")
             .appending(path: agent.id)
+        var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+        components?.queryItems = ScoutEmbedTheme.queryItems(for: colorScheme)
+        return components?.url ?? base
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            HudDivider(color: ScoutDesign.hairline)
 
             ZStack {
                 ScoutObserveEmbedWebView(
@@ -115,10 +124,15 @@ struct ScoutObserveSidecarPanel: View {
         .onChange(of: agent.id) { _, _ in
             restart()
         }
+        // Re-load when the app's appearance flips so the embed's theme query
+        // tracks light/dark live (mirrors the diff + session sheets).
+        .onChange(of: colorScheme) { _, _ in
+            reloadToken = UUID()
+        }
     }
 
     private var header: some View {
-        ScoutColumnHeader(horizontalPadding: panelWidth > 120 ? HudSpacing.lg : HudSpacing.sm) {
+        ScoutColumnHeader(horizontalPadding: panelWidth > 120 ? ScoutDesign.panelGutter : HudSpacing.sm, background: ScoutDesign.chrome) {
             if panelWidth <= 120 {
                 Image(systemName: phase == .snapping ? "eye.circle.fill" : "eye.fill")
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
@@ -167,7 +181,6 @@ struct ScoutObserveSidecarPanel: View {
                 }
             }
         }
-        .background(ScoutDesign.chrome)
     }
 
     private func handleReady() {

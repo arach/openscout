@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ScoutAppCore
 import SwiftUI
 #if os(macOS)
 import AppKit
@@ -32,7 +33,14 @@ final class ScoutCommsStore: ObservableObject {
     private var messagesTask: Task<Void, Never>?
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
+    private var observeRequestId: UUID?
     private var attemptedInitialChannelsLoad = false
+    private var readCursorTask: Task<Void, Never>?
+    /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
+    /// reactive advance against the steady-state poll re-firing the same POST on
+    /// every heartbeat — we only re-mark when the selection or its newest
+    /// message actually changes.
+    private var lastAdvancedReadCursor: String?
 
     var selectedChannel: ScoutChannel? {
         guard let selectedCId else { return nil }
@@ -88,7 +96,8 @@ final class ScoutCommsStore: ObservableObject {
             while !Task.isCancelled {
                 let interval = self?.pollIntervalNanoseconds ?? 10_000_000_000
                 try? await Task.sleep(nanoseconds: interval)
-                self?.refresh()
+                guard let self else { return }
+                refresh()
             }
         }
     }
@@ -100,10 +109,15 @@ final class ScoutCommsStore: ObservableObject {
         messagesTask?.cancel()
         agentsTask?.cancel()
         observeTask?.cancel()
+        readCursorTask?.cancel()
         channelsTask = nil
         messagesTask = nil
         agentsTask = nil
         observeTask = nil
+        readCursorTask = nil
+        observeRequestId = nil
+        setIfChanged(false, to: \.isLoading)
+        setIfChanged(false, to: \.isObserveLoading)
     }
 
     func refresh(force: Bool = false) {
@@ -120,6 +134,10 @@ final class ScoutCommsStore: ObservableObject {
         selectedAgentId = channels.first(where: { $0.cId == cId })?.agentId
         messages = []
         loadMessages()
+        // Opening a conversation reads it. Fire immediately (timestamp-based) so
+        // unread clears even before the message list lands; loadMessages() will
+        // re-advance to the exact latest id once messages arrive.
+        markConversationRead(cId: cId)
     }
 
     func selectAgent(_ agentId: String) {
@@ -129,8 +147,12 @@ final class ScoutCommsStore: ObservableObject {
     func openAgentChannel(_ agent: ScoutAgent) {
         selectedAgentId = agent.id
         if let cId = agent.conversationId ?? channels.first(where: { $0.agentId == agent.id })?.cId {
+            let isNewSelection = selectedCId != cId
             selectedCId = cId
             loadMessages()
+            if isNewSelection {
+                markConversationRead(cId: cId)
+            }
         }
     }
 
@@ -142,17 +164,57 @@ final class ScoutCommsStore: ObservableObject {
         }
     }
 
+    /// Advance the operator's read cursor for `cId` to its newest known message.
+    /// Best-effort and fire-and-forget — the client swallows errors so this never
+    /// surfaces in the UI. Only the currently-selected conversation is marked,
+    /// and a dedup key prevents the steady-state poll (which also calls
+    /// loadMessages) from re-POSTing the same cursor on every heartbeat. The
+    /// next server refresh of `channels` clears the unread badge — we don't
+    /// locally mutate the channel here (its `unreadCount` is an immutable model
+    /// field), so there's nothing to fight the refresh.
+    private func markConversationRead(cId: String, latest: ScoutMessage? = nil) {
+        guard selectedCId == cId else { return }
+
+        let latestId = latest?.id
+        // Key = conversation + its newest message. Same key ⇒ nothing new to
+        // read ⇒ skip the POST. A different conversation, or a newer message
+        // landing while this one is open, advances the key again. The "now"
+        // placeholder lets the on-select (pre-messages) call advance once, then
+        // be superseded by the exact-id call when messages arrive.
+        let dedupKey = "\(cId):\(latestId ?? "now")"
+        guard dedupKey != lastAdvancedReadCursor else { return }
+        lastAdvancedReadCursor = dedupKey
+
+        readCursorTask?.cancel()
+        readCursorTask = Task { [latestId] in
+            await ScoutCommsClient().advanceReadCursor(
+                cId: cId,
+                lastReadMessageId: latestId,
+                lastReadSeq: nil
+            )
+        }
+    }
+
     func loadObserve(agentId: String, force: Bool = false) {
-        if observeTask != nil { return }
-        if !force, observeAgentId == agentId, observePayload != nil { return }
-        if observeAgentId != agentId {
+        let isSwitchingAgent = observeAgentId != agentId
+        if let observeTask {
+            if isSwitchingAgent {
+                observeTask.cancel()
+            } else {
+                return
+            }
+        }
+        if !force, !isSwitchingAgent, observePayload != nil { return }
+        if isSwitchingAgent {
             observePayload = nil
             observeError = nil
         }
         observeAgentId = agentId
         isObserveLoading = observePayload == nil
+        let requestId = UUID()
+        observeRequestId = requestId
         observeTask = Task { [weak self] in
-            await self?.fetchObserve(agentId: agentId)
+            await self?.fetchObserve(agentId: agentId, requestId: requestId)
         }
     }
 
@@ -197,6 +259,7 @@ final class ScoutCommsStore: ObservableObject {
             refresh(force: true)
             loadMessages()
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
@@ -266,14 +329,7 @@ final class ScoutCommsStore: ObservableObject {
         }
 
         do {
-            let base = ScoutWeb.baseURL()
-            let commsURL = base
-                .appending(path: "api/comms")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "160")])
-            let fallbackURL = base
-                .appending(path: "api/conversations")
-                .appending(queryItems: [URLQueryItem(name: "limit", value: "160")])
-            let next = try await fetchWithFallback([ScoutChannel].self, primary: commsURL, fallback: fallbackURL)
+            let next = try await ScoutCommsClient().fetchChannels(limit: 160)
             let incomingIds = Set(next.map(\.cId))
             // The first successful population shouldn't flash every row as "new".
             setIfChanged(knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds), to: \.newChannelIds)
@@ -297,6 +353,7 @@ final class ScoutCommsStore: ObservableObject {
             setIfChanged(nil, to: \.lastError)
             loadMessages()
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
@@ -304,10 +361,11 @@ final class ScoutCommsStore: ObservableObject {
     private func fetchAgents() async {
         defer { agentsTask = nil }
         do {
-            let next = try await fetch([ScoutAgent].self, from: ScoutWeb.baseURL().appending(path: "api/agents"))
+            let next = try await ScoutCommsClient().fetchAgents()
             setIfChanged(next, to: \.agents)
             setIfChanged(nil, to: \.lastError)
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             if channels.isEmpty {
                 setIfChanged(Self.userFacingError(error), to: \.lastError)
             }
@@ -317,38 +375,39 @@ final class ScoutCommsStore: ObservableObject {
     private func loadMessages(cId: String) async {
         defer { messagesTask = nil }
         do {
-            let url = ScoutWeb.baseURL()
-                .appending(path: "api/messages")
-                .appending(queryItems: [
-                    URLQueryItem(name: "cId", value: cId),
-                    URLQueryItem(name: "conversationId", value: cId),
-                    URLQueryItem(name: "limit", value: "260"),
-                ])
-            let next = try await fetch([ScoutMessage].self, from: url)
+            let next = try await ScoutCommsClient().fetchMessages(cId: cId, limit: 260)
             guard selectedCId == cId else { return }
-            setIfChanged(next.sorted { $0.createdAt < $1.createdAt }, to: \.messages)
+            setIfChanged(next, to: \.messages)
             setIfChanged(nil, to: \.lastError)
+            // Having the conversation's messages on screen reads it. Advance to
+            // the exact latest message id; the dedup key keeps the steady-state
+            // poll (which also calls loadMessages) from re-POSTing every beat.
+            markConversationRead(cId: cId, latest: next.last)
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             guard selectedCId == cId else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }
 
-    private func fetchObserve(agentId: String) async {
+    private func fetchObserve(agentId: String, requestId: UUID) async {
         defer {
-            isObserveLoading = false
-            observeTask = nil
+            if observeRequestId == requestId {
+                isObserveLoading = false
+                observeTask = nil
+            }
         }
 
         do {
             let url = ScoutWeb.baseURL().appending(path: "api/agents/\(agentId)/observe")
             let next = try await fetch(ScoutObservePayload.self, from: url)
-            guard observeAgentId == agentId else { return }
+            guard observeRequestId == requestId, observeAgentId == agentId else { return }
             observePayload = next
             observeError = nil
             setIfChanged(nil, to: \.lastError)
         } catch {
-            guard observeAgentId == agentId else { return }
+            guard !ScoutAppError.isCancellation(error) else { return }
+            guard observeRequestId == requestId, observeAgentId == agentId else { return }
             observeError = Self.userFacingError(error)
         }
     }
@@ -364,19 +423,11 @@ final class ScoutCommsStore: ObservableObject {
         return try decoder.decode(type, from: data)
     }
 
-    private func fetchWithFallback<T: Decodable>(_ type: T.Type, primary: URL, fallback: URL) async throws -> T {
-        do {
-            return try await fetch(type, from: primary)
-        } catch {
-            return try await fetch(type, from: fallback)
-        }
-    }
-
     private static func userFacingError(_ error: Error) -> String {
         if let scoutError = error as? ScoutCommsError {
             return scoutError.localizedDescription
         }
-        return error.localizedDescription
+        return ScoutAppError.userFacing(error)
     }
 }
 
@@ -480,66 +531,3 @@ enum ScoutImageIntake {
     }
 }
 #endif
-
-enum ScoutWeb {
-    private static let fallbackURL = URL(string: "http://127.0.0.1:3200")!
-
-    static func baseURL() -> URL {
-        if let url = readWebURLFromEnvironment() {
-            return url
-        }
-        if let url = readWebURLFromConfig() {
-            return url
-        }
-        return fallbackURL
-    }
-
-    static func open(path: String) {
-        var normalized = path
-        if !normalized.hasPrefix("/") {
-            normalized = "/" + normalized
-        }
-        guard let url = URL(string: normalized, relativeTo: baseURL())?.absoluteURL else { return }
-        #if os(macOS)
-        NSWorkspace.shared.open(url)
-        #endif
-    }
-
-    private static func readWebURLFromEnvironment() -> URL? {
-        let env = ProcessInfo.processInfo.environment
-        for key in ["OPENSCOUT_WEB_URL", "OPENSCOUT_WEB_BUN_URL", "OPENSCOUT_WEB_PUBLIC_ORIGIN"] {
-            guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty,
-                  let url = URL(string: value) else {
-                continue
-            }
-            return url
-        }
-
-        let portValue = env["OPENSCOUT_WEB_PORT"] ?? env["SCOUT_WEB_PORT"]
-        guard let portText = portValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let port = Int(portText),
-              (1...65_535).contains(port) else {
-            return nil
-        }
-        let rawHost = env["OPENSCOUT_WEB_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = (rawHost?.isEmpty == false && rawHost != "0.0.0.0" && rawHost != "::")
-            ? rawHost!
-            : "127.0.0.1"
-        return URL(string: "http://\(host):\(port)")
-    }
-
-    private static func readWebURLFromConfig() -> URL? {
-        struct OpenScoutConfig: Decodable {
-            struct Ports: Decodable { let web: Int? }
-            let host: String?
-            let ports: Ports?
-        }
-        let path = ("~/.openscout/config.json" as NSString).expandingTildeInPath
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
-        guard let cfg = try? JSONDecoder().decode(OpenScoutConfig.self, from: data) else { return nil }
-        let host = cfg.host ?? "127.0.0.1"
-        guard let port = cfg.ports?.web else { return nil }
-        return URL(string: "http://\(host):\(port)")
-    }
-}

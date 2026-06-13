@@ -1,0 +1,11 @@
+[package]
+name = "scoutd"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "scoutd"
+path = "src/main.rs"
+
+[dependencies]

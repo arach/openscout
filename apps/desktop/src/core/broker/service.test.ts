@@ -491,6 +491,22 @@ describe("loadScoutBrokerContext", () => {
         ok: true,
         nodeId: "node-1",
         meshId: "mesh-1",
+        build: {
+          packageName: "@openscout/runtime",
+          version: "0.test",
+          mode: "dev",
+        },
+        services: {
+          web: {
+            managed: true,
+            managedBy: "broker",
+            state: "starting",
+            pid: 1234,
+            port: 3200,
+            url: "http://127.0.0.1:3200",
+            healthy: null,
+          },
+        },
         counts: {
           nodes: 1,
           actors: 1,
@@ -526,6 +542,13 @@ describe("loadScoutBrokerContext", () => {
     expect(health.reachable).toBe(true);
     expect(health.transport).toBe("in_process");
     expect(health.socketFallbackError).toBeNull();
+    expect(health.build).toEqual({
+      packageName: "@openscout/runtime",
+      version: "0.test",
+      mode: "dev",
+    });
+    expect(health.services?.web?.state).toBe("starting");
+    expect(health.services?.web?.pid).toBe(1234);
     expect(health.counts?.collaborationRecords).toBe(6);
     expect(health.checkedAt).toBeGreaterThan(0);
   });

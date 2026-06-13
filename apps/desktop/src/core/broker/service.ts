@@ -57,6 +57,9 @@ import {
   maybeReadJsonFromActiveScoutBrokerService,
   requestScoutBrokerJson,
   requestScoutBrokerJsonWithTrace,
+  type ScoutBrokerBuildIdentity,
+  type ScoutBrokerChildServiceSnapshots,
+  type ScoutBrokerHealthPayload,
   type ScoutBrokerJsonRequestTrace,
 } from "@openscout/runtime/broker-api";
 import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
@@ -129,6 +132,8 @@ export type ScoutBrokerHealthState = {
   socketFallbackError: string | null;
   nodeId: string | null;
   meshId: string | null;
+  build: ScoutBrokerBuildIdentity | null;
+  services: ScoutBrokerChildServiceSnapshots | null;
   counts: {
     nodes: number;
     actors: number;
@@ -989,31 +994,7 @@ export async function readScoutBrokerHealth(
 ): Promise<ScoutBrokerHealthState> {
   const checkedAt = Date.now();
   try {
-    const direct = await maybeReadJsonFromActiveScoutBrokerService<{
-      ok?: boolean;
-      nodeId?: string;
-      meshId?: string;
-      counts?: {
-        nodes?: number;
-        actors?: number;
-        agents?: number;
-        agentRecords?: number;
-        rawAgentRecords?: number;
-        configuredAgents?: number;
-        scoutManagedAgents?: number;
-        currentAgentRegistrations?: number;
-        localAgentRegistrations?: number;
-        remoteAgentRegistrations?: number;
-        staleAgentRegistrations?: number;
-        retiredAgentRegistrations?: number;
-        oneTimeAgentCards?: number;
-        persistentAgentCards?: number;
-        conversations?: number;
-        messages?: number;
-        flights?: number;
-        collaborationRecords?: number;
-      };
-    }>(
+    const direct = await maybeReadJsonFromActiveScoutBrokerService<ScoutBrokerHealthPayload>(
       baseUrl,
       scoutBrokerPaths.health,
     );
@@ -1025,31 +1006,7 @@ export async function readScoutBrokerHealth(
           socketFallbackError: null,
         }
       : await (async () => {
-          const result = await requestScoutBrokerJsonWithTrace<{
-            ok?: boolean;
-            nodeId?: string;
-            meshId?: string;
-            counts?: {
-              nodes?: number;
-              actors?: number;
-              agents?: number;
-              agentRecords?: number;
-              rawAgentRecords?: number;
-              configuredAgents?: number;
-              scoutManagedAgents?: number;
-              currentAgentRegistrations?: number;
-              localAgentRegistrations?: number;
-              remoteAgentRegistrations?: number;
-              staleAgentRegistrations?: number;
-              retiredAgentRegistrations?: number;
-              oneTimeAgentCards?: number;
-              persistentAgentCards?: number;
-              conversations?: number;
-              messages?: number;
-              flights?: number;
-              collaborationRecords?: number;
-            };
-          }>(baseUrl, scoutBrokerPaths.health, {
+          const result = await requestScoutBrokerJsonWithTrace<ScoutBrokerHealthPayload>(baseUrl, scoutBrokerPaths.health, {
             socketPath: resolveBrokerSocketPathForBaseUrl(baseUrl),
           });
           return {
@@ -1071,6 +1028,8 @@ export async function readScoutBrokerHealth(
       socketFallbackError: healthResult.socketFallbackError,
       nodeId: health.nodeId ?? null,
       meshId: health.meshId ?? null,
+      build: health.build ?? null,
+      services: health.services ?? null,
       counts: health.counts
         ? {
             nodes: health.counts.nodes ?? 0,
@@ -1106,6 +1065,8 @@ export async function readScoutBrokerHealth(
       socketFallbackError: null,
       nodeId: null,
       meshId: null,
+      build: null,
+      services: null,
       counts: null,
       error: error instanceof Error ? error.message : null,
     };

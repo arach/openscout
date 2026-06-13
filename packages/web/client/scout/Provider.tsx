@@ -24,6 +24,7 @@ import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
+import { resolveScoutNativeThemeVars } from "../lib/theme.ts";
 import type { KnowledgeHit } from "../lib/knowledge-search.ts";
 
 declare global {
@@ -235,7 +236,16 @@ export function ScoutProvider({
     setSelectedKnowledgeHit(null);
     setSelectedKnowledgeQuery("");
   }, []);
-  const themeVars = initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS;
+  // Base web light/dark vars, with the native app's resolved palette layered on
+  // top when hosted in the macOS embed (so the viewer matches the app exactly).
+  const nativeThemeVars = useMemo(() => resolveScoutNativeThemeVars(), []);
+  const themeVars = useMemo(
+    () => ({
+      ...(initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS),
+      ...(nativeThemeVars ?? {}),
+    }),
+    [initialTheme, nativeThemeVars],
+  );
   const scoutbotAgentId = useMemo(() => resolveScoutbotAgentId(agents), [agents]);
   const scoutbotDmConversationId = useMemo(() => scoutbotConversationId(scoutbotAgentId), [scoutbotAgentId]);
   const reloadInFlightRef = useRef<Promise<void> | null>(null);

@@ -7,10 +7,10 @@ let hudsonDependency: Package.Dependency = hudsonSource == "git"
     : .package(path: "../../../hudson")
 
 let package = Package(
-    name: "OpenScoutMenu",
+    name: "ScoutMenu",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "OpenScoutMenu", targets: ["OpenScoutMenu"]),
+        .executable(name: "ScoutMenu", targets: ["ScoutMenu"]),
         .executable(name: "Scout", targets: ["Scout"]),
     ],
     dependencies: [
@@ -19,12 +19,31 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "OpenScoutMenu",
+            name: "ScoutMenu",
             dependencies: [
+                "ScoutAppCore",
+                "ScoutHUD",
                 "ScoutSharedUI",
                 .product(name: "ScoutNativeCore", package: "scout-native-core"),
             ],
-            path: "Sources/OpenScoutMenu"
+            path: "Sources/ScoutMenu"
+        ),
+        .target(
+            name: "ScoutAppCore",
+            dependencies: [
+                .product(name: "ScoutNativeCore", package: "scout-native-core"),
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
+            ],
+            path: "Sources/ScoutAppCore"
+        ),
+        .target(
+            name: "ScoutHUD",
+            dependencies: [
+                "ScoutAppCore",
+                "ScoutSharedUI",
+                .product(name: "ScoutNativeCore", package: "scout-native-core"),
+            ],
+            path: "Sources/ScoutHUD"
         ),
         .target(
             name: "ScoutSharedUI",
@@ -37,11 +56,22 @@ let package = Package(
         .executableTarget(
             name: "Scout",
             dependencies: [
+                "ScoutAppCore",
+                "ScoutHUD",
                 "ScoutSharedUI",
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
                 .product(name: "HudsonShell", package: "hudson"),
                 .product(name: "HudsonUI", package: "hudson"),
             ],
             path: "Sources/Scout"
+        ),
+        .testTarget(
+            name: "ScoutAppCoreTests",
+            dependencies: [
+                "ScoutAppCore",
+                .product(name: "ScoutCapabilities", package: "scout-native-core"),
+            ],
+            path: "Tests/ScoutAppCoreTests"
         ),
     ]
 )

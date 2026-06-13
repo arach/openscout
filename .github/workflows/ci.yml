@@ -18,7 +18,7 @@ on:
       - "packages/session-trace-react/**"
       - "packages/web/**"
       - "scripts/cargo.sh"
-      - "scripts/supervisor-verify.sh"
+      - "scripts/scoutd-verify.sh"
       - "scripts/**"
       - "package.json"
       - "bun.lock"
@@ -75,8 +75,8 @@ jobs:
             bun test packages/session-trace/src/*.test.ts packages/session-trace-react/src/*.test.tsx
           fi
 
-  rust-supervisor:
-    name: Supervisor verification
+  rust-scoutd:
+    name: scoutd verification
     runs-on: macos-latest
     timeout-minutes: 10
 
@@ -88,4 +88,4 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Verify
-        run: bash scripts/supervisor-verify.sh
+        run: bash scripts/scoutd-verify.sh

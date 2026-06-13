@@ -386,7 +386,7 @@ private struct SortToggle: View {
                     Text(mode.label)
                         .font(HudFont.mono(HudTextSize.micro, weight: sort == mode ? .bold : .regular))
                         .tracking(0.6)
-                        .foregroundStyle(sort == mode ? HudPalette.accent : HudPalette.muted)
+                        .foregroundStyle(sort == mode ? HudPalette.accent : ScoutInk.muted)
                         .padding(.horizontal, HudSpacing.sm)
                         .padding(.vertical, 3)
                         .background(
@@ -506,7 +506,7 @@ private struct ProjectHeaderRow: View {
         Button(action: onTap) {
             HStack(spacing: HudSpacing.md) {
                 ProjectGlyph()
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                     .frame(width: 13, height: 13)
                 Text(project.name)
                     .font(HudFont.ui(HudTextSize.md, weight: .semibold))
@@ -518,9 +518,9 @@ private struct ProjectHeaderRow: View {
                 }
                 Text("\(project.agents.count)")
                     .font(HudFont.mono(HudTextSize.xs)).monospacedDigit()
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                 Glyphic.chevron(.trailing, size: 13)
-                    .foregroundStyle(HudPalette.dim)
+                    .foregroundStyle(ScoutInk.dim)
             }
             .padding(.horizontal, HudSpacing.xxl)
             .padding(.top, HudSpacing.lg)
@@ -560,7 +560,7 @@ private struct AgentRow: View {
                     if let session = sessionLine {
                         Text(session)
                             .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(HudPalette.muted)
+                            .foregroundStyle(ScoutInk.muted)
                             .lineLimit(1).truncationMode(.middle)
                     }
                 }
@@ -568,12 +568,12 @@ private struct AgentRow: View {
                 if let age = machineRelativeAge(agent.lastActiveAt) {
                     Text(age)
                         .font(HudFont.mono(HudTextSize.micro)).monospacedDigit()
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutInk.dim)
                 }
                 if let harness = agent.harness, !harness.isEmpty {
                     Text(harness.lowercased())
                         .font(HudFont.mono(HudTextSize.xs))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
             }
             .padding(.leading, connector == nil ? HudSpacing.xxl : HudSpacing.lg)
@@ -606,9 +606,9 @@ private struct AgentStateDot: View {
         case .live:
             HudStatusDot(color: HudPalette.accent, size: 6, pulses: true)
         case .idle:
-            Circle().fill(HudPalette.muted).frame(width: 5, height: 5)
+            Circle().fill(ScoutInk.muted).frame(width: 5, height: 5)
         case .offline, .unknown:
-            Circle().stroke(HudPalette.dim, lineWidth: 1).frame(width: 5, height: 5)
+            Circle().stroke(ScoutInk.dim, lineWidth: 1).frame(width: 5, height: 5)
         }
     }
 }
@@ -667,7 +667,7 @@ private struct ProjectDetailSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }.foregroundStyle(HudPalette.muted)
+                    Button("Done") { dismiss() }.foregroundStyle(ScoutInk.muted)
                 }
             }
         }
@@ -684,9 +684,9 @@ private struct ProjectDetailSheet: View {
                             .font(HudFont.ui(HudTextSize.base, weight: .medium))
                             .foregroundStyle(HudPalette.ink)
                         Spacer(minLength: HudSpacing.sm)
-                        if let h = agent.harness { Text(h.lowercased()).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(HudPalette.muted) }
+                        if let h = agent.harness { Text(h.lowercased()).font(HudFont.mono(HudTextSize.xs)).foregroundStyle(ScoutInk.muted) }
                         if agent.sessionId != nil {
-                            Glyphic.chevron(.trailing, size: 13).foregroundStyle(HudPalette.dim)
+                            Glyphic.chevron(.trailing, size: 13).foregroundStyle(ScoutInk.dim)
                         }
                     }
                     .padding(.vertical, HudSpacing.sm)
@@ -709,7 +709,7 @@ private struct ProjectDetailSheet: View {
                     Button { harness = h } label: {
                         Text(h)
                             .font(HudFont.mono(HudTextSize.sm, weight: harness == h ? .bold : .regular))
-                            .foregroundStyle(harness == h ? HudPalette.bg : HudPalette.muted)
+                            .foregroundStyle(harness == h ? HudPalette.bg : ScoutInk.muted)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, HudSpacing.md)
                             .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -734,7 +734,7 @@ private struct ProjectDetailSheet: View {
                     if instructions.isEmpty {
                         Text("First instruction (optional)…")
                             .font(HudFont.ui(HudTextSize.base))
-                            .foregroundStyle(HudPalette.dim)
+                            .foregroundStyle(ScoutInk.dim)
                             .padding(.horizontal, HudSpacing.md + 4)
                             .padding(.vertical, HudSpacing.md + 8)
                             .allowsHitTesting(false)

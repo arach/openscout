@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import ScoutAppCore
 
 /// Polls the broker's Repo Watch snapshot for the Repos section. Mirrors
 /// `ScoutTailStore`'s lifecycle (start/stop/refresh + a single in-flight fetch)
@@ -82,7 +83,8 @@ final class ScoutRepoStore: ObservableObject {
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                self?.refresh()
+                guard let self else { return }
+                refresh()
             }
         }
     }
@@ -130,6 +132,7 @@ final class ScoutRepoStore: ObservableObject {
             setIfChanged(Date(), to: \.lastFetchedAt)
             setIfChanged(nil, to: \.lastError)
         } catch {
+            guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
         }
     }

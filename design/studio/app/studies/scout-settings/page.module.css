@@ -1,0 +1,369 @@
+/* Scout — Settings study. Tokens only (`--s-*`). */
+
+.settings {
+  display: flex;
+  min-height: 540px;
+  font-family: var(--s-font-sans);
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+
+.nav {
+  width: 190px;
+  flex-shrink: 0;
+  padding: 18px 12px;
+  background: var(--s-chrome);
+  border-right: 1px solid var(--s-hairline);
+}
+
+.navTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--s-ink);
+  padding: 4px 8px 16px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-muted);
+  position: relative;
+}
+
+.navItem .navGlyph {
+  color: var(--s-dim);
+  display: inline-flex;
+}
+
+.navItem.active {
+  background: var(--s-accent-soft);
+  color: var(--s-ink);
+  font-weight: 600;
+}
+
+.navItem.active .navGlyph {
+  color: var(--s-accent);
+}
+
+.navItem.active::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--s-accent);
+}
+
+/* ── Pane ──────────────────────────────────────────────────────────── */
+
+.pane {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 32px;
+  overflow: hidden;
+}
+
+.pageHead {
+  margin-bottom: 26px;
+}
+
+.pageHeadIcon {
+  color: var(--s-accent);
+}
+
+.pageTitle {
+  margin: 6px 0 2px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.pageSub {
+  font-size: 13px;
+  color: var(--s-muted);
+}
+
+.block {
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.block:last-child {
+  border-bottom: none;
+}
+
+.blockTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--s-ink);
+  margin-bottom: 4px;
+}
+
+.blockHint {
+  font-size: 12px;
+  color: var(--s-muted);
+  margin-bottom: 16px;
+}
+
+/* ── Theme presets ─────────────────────────────────────────────────── */
+
+.presetGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 240px));
+  gap: 12px;
+}
+
+.presetCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 13px;
+  border-radius: 10px;
+  border: 1px solid var(--s-hairline);
+  background: var(--s-surface);
+}
+
+.presetCard.active {
+  border-color: color-mix(in srgb, var(--s-accent) 45%, transparent);
+  background: var(--s-accent-soft);
+}
+
+.swatch {
+  position: relative;
+  width: 58px;
+  height: 38px;
+  border-radius: 6px;
+  border: 1px solid var(--s-hairline-strong);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.swatchChrome {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+}
+
+.swatchSurface {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  bottom: 7px;
+  width: 32%;
+  border-radius: 3px;
+}
+
+.swatchAccent {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.presetMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.presetName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.presetTone {
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--s-dim);
+}
+
+.check {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--s-dim);
+  flex-shrink: 0;
+}
+
+.check.checkOn {
+  border-color: var(--s-accent);
+  background:
+    radial-gradient(circle at center, var(--s-surface) 0 2.5px, transparent 3px),
+    var(--s-accent);
+  box-shadow: inset 0 0 0 4px var(--s-accent);
+}
+
+/* ── Rows (mode / accent / opacity / toggle) ───────────────────────── */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 46px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--s-hairline);
+}
+
+.rowLabelCol {
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.rowLabel {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--s-ink);
+}
+
+.rowHint {
+  font-size: 11.5px;
+  color: var(--s-muted);
+  margin-top: 1px;
+}
+
+.rowControl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Segmented mode control */
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 8px;
+  background: var(--s-chrome);
+  border: 1px solid var(--s-hairline);
+}
+
+.segBtn {
+  padding: 5px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+}
+
+.segBtn.active {
+  background: var(--s-surface);
+  color: var(--s-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+/* Inline accent dots — the delta from today's big tiles */
+.accentRow {
+  display: inline-flex;
+  gap: 12px;
+}
+
+.accentDot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+}
+
+.accentDot.active {
+  box-shadow:
+    0 0 0 2px var(--s-bg),
+    0 0 0 4px var(--s-accent);
+}
+
+/* Opacity slider */
+.sliderWrap {
+  width: 340px;
+}
+
+.slider {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--s-hairline-strong);
+}
+
+.sliderFill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--s-accent);
+}
+
+.sliderKnob {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transform: translate(-50%, -50%);
+}
+
+.sliderEnds {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--s-dim);
+}
+
+/* Toggle */
+.toggle {
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--s-hairline-strong);
+  position: relative;
+  transition: background 0.15s;
+}
+
+.toggle.on {
+  background: var(--s-accent);
+}
+
+.toggleKnob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: left 0.15s;
+}
+
+.toggle.on .toggleKnob {
+  left: 18px;
+}

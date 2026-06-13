@@ -1,15 +1,21 @@
-import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import {
-  requestScoutBrokerJsonWithTrace,
-  type ScoutBrokerJsonRequestTrace,
+import type {
+  ScoutBrokerBuildIdentity,
+  ScoutBrokerChildServiceSnapshots,
+  ScoutBrokerJsonRequestTrace,
 } from "./broker-api.js";
-import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
-import { resolveBunExecutable as resolveResolvedBunExecutable } from "./tool-resolution.js";
+import { resolveOpenScoutSupportPaths } from "./support-paths.js";
+import {
+  expandHomePath,
+  isExecutablePath,
+  resolveBunExecutable as resolveResolvedBunExecutable,
+  resolveExecutableFromSearch,
+} from "./tool-resolution.js";
 
 /** True for paths under /tmp or /private/tmp — transient remote-install dirs. */
 function isTmpPath(p: string): boolean {
@@ -52,6 +58,8 @@ export type BrokerHealthSnapshot = {
   socketFallbackError?: string;
   nodeId?: string;
   meshId?: string;
+  build?: ScoutBrokerBuildIdentity;
+  services?: ScoutBrokerChildServiceSnapshots;
   counts?: {
     nodes: number;
     actors: number;
@@ -98,19 +106,7 @@ export type BrokerServiceStatus = {
   lastLogLine: string | null;
 };
 
-type CommandResult = {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-};
-
-type LaunchctlStatus = {
-  loaded: boolean;
-  pid: number | null;
-  launchdState: string | null;
-  lastExitStatus: number | null;
-  raw: string;
-};
+export type BrokerServiceCommand = "install" | "start" | "stop" | "restart" | "uninstall" | "status";
 
 export const DEFAULT_BROKER_HOST = "127.0.0.1";
 export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
@@ -136,10 +132,6 @@ export function isLoopbackHost(host: string): boolean {
   const trimmed = host.trim();
   return trimmed === "127.0.0.1" || trimmed === "::1" || trimmed === "localhost";
 }
-const BROKER_SERVICE_POLL_INTERVAL_MS = 100;
-const DEFAULT_BROKER_START_TIMEOUT_MS = 15_000;
-const DEFAULT_BROKER_STOP_TIMEOUT_MS = 20_000;
-
 export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
   return `http://${host}:${port}`;
 }
@@ -284,22 +276,6 @@ function resolveBrokerServiceMode(): BrokerServiceMode {
   return "dev";
 }
 
-function resolveBrokerStartTimeoutMs(): number {
-  const explicit = Number.parseInt(process.env.OPENSCOUT_BROKER_START_TIMEOUT_MS ?? "", 10);
-  if (Number.isFinite(explicit) && explicit > 0) {
-    return Math.max(explicit, BROKER_SERVICE_POLL_INTERVAL_MS);
-  }
-  return DEFAULT_BROKER_START_TIMEOUT_MS;
-}
-
-function resolveBrokerStopTimeoutMs(): number {
-  const explicit = Number.parseInt(process.env.OPENSCOUT_BROKER_STOP_TIMEOUT_MS ?? "", 10);
-  if (Number.isFinite(explicit) && explicit > 0) {
-    return Math.max(explicit, BROKER_SERVICE_POLL_INTERVAL_MS);
-  }
-  return DEFAULT_BROKER_STOP_TIMEOUT_MS;
-}
-
 function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
   const explicit = process.env.OPENSCOUT_SERVICE_LABEL?.trim()
     || process.env.OPENSCOUT_BROKER_SERVICE_LABEL?.trim();
@@ -315,18 +291,6 @@ function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
     case "dev":
     default:
       return "dev.openscout";
-  }
-}
-
-function legacyBrokerServiceLabel(mode: BrokerServiceMode): string {
-  switch (mode) {
-    case "prod":
-      return "com.openscout.broker";
-    case "custom":
-      return "com.openscout.broker.custom";
-    case "dev":
-    default:
-      return "dev.openscout.broker";
   }
 }
 
@@ -376,83 +340,309 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   };
 }
 
-export function renderLaunchAgentPlist(config: BrokerServiceConfig): string {
-  const launchPath = resolveLaunchAgentPATH();
-  const coreAgentsValue = (config.coreAgents ?? []).join(",");
-  const envEntries: Record<string, string> = {
+type ScoutdCommand = {
+  path: string;
+  source: "env" | "package" | "workspace" | "path";
+};
+
+type NativeServiceStatus = Record<string, unknown> & {
+  health?: unknown;
+};
+
+function executableCandidate(path: string | undefined | null): string | null {
+  return isExecutablePath(path) ? path : null;
+}
+
+function resolveExecutableName(name: string): string | null {
+  return resolveExecutableFromSearch({ names: [name] })?.path ?? null;
+}
+
+function resolveEnvExecutable(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes("/") || trimmed.startsWith(".")) {
+    const expanded = resolve(expandHomePath(trimmed));
+    return executableCandidate(expanded);
+  }
+  return resolveExecutableName(trimmed);
+}
+
+function findWorkspaceRootFromRuntimeDir(runtimePackageDir: string): string | null {
+  let current = resolve(runtimePackageDir);
+  while (true) {
+    if (
+      existsSync(join(current, "Cargo.toml"))
+      && existsSync(join(current, "crates", "scoutd", "Cargo.toml"))
+    ) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBrokerServiceConfig()): ScoutdCommand | null {
+  const explicit = resolveEnvExecutable(process.env.OPENSCOUT_SCOUTD_BIN);
+  if (explicit) {
+    return { path: explicit, source: "env" };
+  }
+
+  const packageCandidates = [
+    join(config.runtimePackageDir, "bin", "scoutd"),
+    join(config.runtimePackageDir, "native", "scoutd"),
+    join(config.runtimePackageDir, "scoutd"),
+  ];
+  for (const candidate of packageCandidates) {
+    const resolved = executableCandidate(candidate);
+    if (resolved) {
+      return { path: resolved, source: "package" };
+    }
+  }
+
+  const workspaceRoot = findWorkspaceRootFromRuntimeDir(config.runtimePackageDir);
+  if (workspaceRoot) {
+    for (const candidate of [
+      join(workspaceRoot, "target", "debug", "scoutd"),
+      join(workspaceRoot, "target", "release", "scoutd"),
+    ]) {
+      const resolved = executableCandidate(candidate);
+      if (resolved) {
+        return { path: resolved, source: "workspace" };
+      }
+    }
+  }
+
+  const fromPath = resolveExecutableName("scoutd");
+  return fromPath ? { path: fromPath, source: "path" } : null;
+}
+
+function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OPENSCOUT_SCOUTD_BIN: scoutdPath,
+    OPENSCOUT_RUNTIME_PACKAGE_DIR: config.runtimePackageDir,
+    OPENSCOUT_BUN_BIN: config.bunExecutable,
+    OPENSCOUT_SUPPORT_DIRECTORY: config.supportDirectory,
+    OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_HOST: config.brokerHost,
     OPENSCOUT_BROKER_PORT: String(config.brokerPort),
     OPENSCOUT_BROKER_URL: config.brokerUrl,
     OPENSCOUT_BROKER_SOCKET_PATH: config.brokerSocketPath,
-    OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_SERVICE_MODE: config.mode,
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
     OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
-    HOME: homedir(),
-    PATH: launchPath,
-    ...collectOptionalEnvVars([
-      "OPENSCOUT_MESH_ID",
-      "OPENSCOUT_MESH_SEEDS",
-      "OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS",
-      "OPENSCOUT_NODE_NAME",
-      "OPENSCOUT_NODE_ID",
-      "OPENSCOUT_NODE_QUALIFIER",
-      "OPENSCOUT_TAILSCALE_BIN",
-      "OPENSCOUT_TAILSCALE_STATUS_JSON",
-      "OPENSCOUT_SSE_KEEPALIVE_MS",
-      "OPENSCOUT_WEB_EDGE_SCHEME",
-      "OPENSCOUT_WEB_PUBLIC_ORIGIN",
-      "OPENSCOUT_WEB_PORTAL_HOST",
-      "OPENSCOUT_WEB_LOCAL_NAME",
-      "OPENSCOUT_WEB_ADVERTISED_HOST",
-      "OPENSCOUT_WEB_TRUSTED_HOSTS",
-      "OPENSCOUT_WEB_TRUSTED_ORIGINS",
-      "OPENSCOUT_WEB_PORT",
-      "OPENSCOUT_WEB_FLAG_BUNDLE",
-      "OPENSCOUT_WEB_EXPERIENCE",
-      "OPENSCOUT_WEB_AB_VARIANT",
-    ]),
   };
-  if (coreAgentsValue) {
-    envEntries["OPENSCOUT_CORE_AGENTS"] = coreAgentsValue;
+  if (config.coreAgents.length > 0) {
+    env.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");
+  }
+  return env;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readHealthTransport(value: unknown): BrokerHealthTransport | undefined {
+  return value === "unix_socket" || value === "http" || value === "in_process" ? value : undefined;
+}
+
+function normalizeNativeServiceStatus(input: NativeServiceStatus, config: BrokerServiceConfig): BrokerServiceStatus {
+  const healthRecord = isRecord(input.health) ? input.health : {};
+  const healthReachable = readBoolean(healthRecord.reachable) ?? readBoolean(input.reachable) ?? false;
+  const healthOk = readBoolean(healthRecord.ok)
+    ?? (typeof input.health === "boolean" ? input.health : undefined)
+    ?? false;
+  const healthError = readString(healthRecord.error) ?? readString(input.healthError);
+  const healthTransport = readHealthTransport(healthRecord.transport) ?? readHealthTransport(input.healthTransport);
+  const healthNodeId = readString(healthRecord.nodeId);
+  const healthMeshId = readString(healthRecord.meshId);
+  const healthSocketFallbackError = readString(healthRecord.socketFallbackError);
+  const healthCounts = isRecord(healthRecord.counts)
+    ? healthRecord.counts as BrokerHealthSnapshot["counts"]
+    : undefined;
+  const installed = readBoolean(input.installed) ?? existsSync(config.launchAgentPath);
+  const loaded = readBoolean(input.loaded) ?? false;
+  const stdoutLogPath = readString(input.stdoutLogPath) ?? config.stdoutLogPath;
+  const stderrLogPath = readString(input.stderrLogPath) ?? config.stderrLogPath;
+  const lastLogLine = readString(input.lastLogLine)
+    ?? (healthReachable
+      ? readLastLogLine([stdoutLogPath, stderrLogPath])
+      : readLastLogLine([stderrLogPath, stdoutLogPath]));
+
+  return {
+    label: readString(input.label) ?? config.label,
+    mode: (readString(input.mode) as BrokerServiceMode | undefined) ?? config.mode,
+    launchAgentPath: readString(input.launchAgentPath) ?? config.launchAgentPath,
+    bootoutCommand: readString(input.bootoutCommand) ?? bootoutCommand(config),
+    brokerUrl: readString(input.brokerUrl) ?? config.brokerUrl,
+    brokerSocketPath: readString(input.brokerSocketPath) ?? config.brokerSocketPath,
+    supportDirectory: readString(input.supportDirectory) ?? config.supportDirectory,
+    runtimeDirectory: readString(input.runtimeDirectory) ?? config.runtimeDirectory,
+    controlHome: readString(input.controlHome) ?? config.controlHome,
+    stdoutLogPath,
+    stderrLogPath,
+    installed,
+    loaded,
+    pid: readNumber(input.pid) ?? null,
+    launchdState: readString(input.launchdState) ?? null,
+    lastExitStatus: readNumber(input.lastExitStatus) ?? null,
+    usesLaunchAgent: readBoolean(input.usesLaunchAgent) ?? (installed || loaded),
+    reachable: healthReachable,
+    health: {
+      reachable: healthReachable,
+      ok: healthOk,
+      checkedAt: readNumber(healthRecord.checkedAt) ?? Date.now(),
+      transport: healthTransport,
+      socketPath: config.brokerSocketPath,
+      ...(healthSocketFallbackError ? { socketFallbackError: healthSocketFallbackError } : {}),
+      ...(healthNodeId ? { nodeId: healthNodeId } : {}),
+      ...(healthMeshId ? { meshId: healthMeshId } : {}),
+      ...(healthCounts ? { counts: healthCounts } : {}),
+      ...(isRecord(healthRecord.build)
+        ? { build: healthRecord.build as ScoutBrokerBuildIdentity }
+        : {}),
+      ...(isRecord(healthRecord.services)
+        ? { services: healthRecord.services as ScoutBrokerChildServiceSnapshots }
+        : {}),
+      error: healthError,
+    },
+    lastLogLine,
+  };
+}
+
+/** Cap on combined stdout/stderr captured from scoutd. */
+const SCOUTD_MAX_BUFFER = 2 * 1024 * 1024;
+/**
+ * Default timeout for a scoutd service command. scoutd's `start` waits up to
+ * 15s internally and `stop` up to 20s; 45s sits comfortably above both so we
+ * only fire on a genuinely wedged process.
+ */
+const SCOUTD_DEFAULT_TIMEOUT_MS = 45_000;
+/** Grace period between SIGTERM and SIGKILL when terminating a wedged scoutd. */
+const SCOUTD_KILL_GRACE_MS = 250;
+
+/**
+ * Run `scoutd <command> --json` and return its parsed stdout. Uses an async
+ * `spawn` (not `spawnSync`) so a wedged scoutd can never block the host event
+ * loop: output is bounded by {@link SCOUTD_MAX_BUFFER}, and the call is bounded
+ * by `timeoutMs` with SIGTERM→SIGKILL escalation on timeout.
+ */
+function spawnScoutdJson(
+  scoutdPath: string,
+  command: BrokerServiceCommand,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(scoutdPath, [command, "--json"], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+
+    const killTimer = setTimeout(() => {
+      timedOut = true;
+      terminate();
+      fail(new Error(`scoutd ${command} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    killTimer.unref?.();
+
+    function terminate(): void {
+      child.kill("SIGTERM");
+      const hardKillTimer = setTimeout(() => child.kill("SIGKILL"), SCOUTD_KILL_GRACE_MS);
+      hardKillTimer.unref?.();
+    }
+
+    function cleanup(): void {
+      clearTimeout(killTimer);
+    }
+
+    function fail(error: Error): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    function succeed(output: string): void {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolvePromise(output);
+    }
+
+    function append(kind: "stdout" | "stderr", chunk: unknown): void {
+      const text = typeof chunk === "string" ? chunk : String(chunk);
+      if (kind === "stdout") stdout += text;
+      else stderr += text;
+      if (stdout.length + stderr.length > SCOUTD_MAX_BUFFER) {
+        terminate();
+        fail(new Error(`scoutd ${command} exceeded output limit`));
+      }
+    }
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => append("stdout", chunk));
+    child.stderr.on("data", (chunk) => append("stderr", chunk));
+    child.on("error", (error) => fail(new Error(`scoutd ${command} failed: ${error.message}`)));
+    child.on("close", (code, signal) => {
+      if (settled || timedOut) return;
+      const trimmedStdout = stdout.trim();
+      const trimmedStderr = stderr.trim();
+      if ((code ?? 1) !== 0) {
+        const detail = trimmedStderr || trimmedStdout || `exit ${signal ?? code ?? "unknown status"}`;
+        fail(new Error(`scoutd ${command} failed: ${detail}`));
+        return;
+      }
+      succeed(trimmedStdout);
+    });
+  });
+}
+
+export async function runScoutdServiceCommand(
+  command: BrokerServiceCommand,
+  config: BrokerServiceConfig,
+  timeoutMs: number = SCOUTD_DEFAULT_TIMEOUT_MS,
+): Promise<BrokerServiceStatus> {
+  const scoutd = resolveScoutdCommand(config);
+  if (!scoutd) {
+    throw new Error(
+      "Unable to locate scoutd for broker service management. Build scoutd with `npm run scoutd:build`, install a package that includes scoutd, or set OPENSCOUT_SCOUTD_BIN.",
+    );
   }
 
-  const envBlock = Object.entries(envEntries)
-    .map(([key, value]) => `\n    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`)
-    .join("");
+  const stdout = await spawnScoutdJson(
+    scoutd.path,
+    command,
+    nativeServiceEnvironment(config, scoutd.path),
+    timeoutMs,
+  );
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>${xmlEscape(config.label)}</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>${xmlEscape(config.bunExecutable)}</string>
-    <string>${xmlEscape(join(config.runtimePackageDir, "bin", "openscout-runtime.mjs"))}</string>
-    <string>base</string>
-  </array>
-  <key>WorkingDirectory</key>
-  <string>${xmlEscape(config.runtimePackageDir)}</string>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-  <key>StandardOutPath</key>
-  <string>${xmlEscape(config.stdoutLogPath)}</string>
-  <key>StandardErrorPath</key>
-  <string>${xmlEscape(config.stderrLogPath)}</string>
-  <key>EnvironmentVariables</key>
-  <dict>${envBlock}
-  </dict>
-</dict>
-</plist>
-`;
+  let parsed: NativeServiceStatus;
+  try {
+    parsed = JSON.parse(stdout) as NativeServiceStatus;
+  } catch {
+    throw new Error(`scoutd ${command} returned non-JSON stdout: ${stdout.slice(0, 400)}`);
+  }
+  return normalizeNativeServiceStatus(parsed, config);
 }
 
 function readCoreAgentsSync(): string[] {
@@ -470,107 +660,8 @@ function readCoreAgentsSync(): string[] {
   return [];
 }
 
-function collectOptionalEnvVars(keys: string[]): Record<string, string> {
-  const entries: Record<string, string> = {};
-
-  for (const key of keys) {
-    const value = process.env[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      entries[key] = value;
-    }
-  }
-
-  return entries;
-}
-
-function resolveLaunchAgentPATH(): string {
-  const entries = [
-    // Always prefer bun bin first — stale ~/.local/bin symlinks can shadow
-    // the current scout shim if bun's $PATH entry comes after.
-    join(homedir(), ".bun", "bin"),
-    ...(process.env.PATH ?? "").split(":").filter(Boolean),
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin",
-  ];
-
-  // Strip transient tmp dirs from PATH — remote-install sessions prepend them.
-  return Array.from(new Set(entries)).filter((e) => !isTmpPath(e)).join(":");
-}
-
-function xmlEscape(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("\"", "&quot;")
-    .replaceAll("'", "&apos;");
-}
-
-function ensureParentDirectory(filePath: string): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-}
-
-function ensureServiceDirectories(config: BrokerServiceConfig): void {
-  ensureOpenScoutCleanSlateSync();
-  mkdirSync(config.supportDirectory, { recursive: true });
-  mkdirSync(config.runtimeDirectory, { recursive: true, mode: 0o700 });
-  chmodSync(config.runtimeDirectory, 0o700);
-  mkdirSync(config.logsDirectory, { recursive: true });
-  mkdirSync(config.controlHome, { recursive: true });
-  ensureParentDirectory(config.launchAgentPath);
-}
-
-function writeLaunchAgentPlist(config: BrokerServiceConfig): void {
-  ensureServiceDirectories(config);
-  writeFileSync(config.launchAgentPath, renderLaunchAgentPlist(config), "utf8");
-}
-
 function bootoutCommand(config: BrokerServiceConfig): string {
-  return `${launchctlPath()} bootout ${config.serviceTarget}`;
-}
-
-function legacyLaunchAgentPath(config: BrokerServiceConfig): string {
-  return join(homedir(), "Library", "LaunchAgents", `${legacyBrokerServiceLabel(config.mode)}.plist`);
-}
-
-function legacyServiceTarget(config: BrokerServiceConfig): string {
-  return `${config.domainTarget}/${legacyBrokerServiceLabel(config.mode)}`;
-}
-
-function bootoutLegacyBrokerService(config: BrokerServiceConfig): void {
-  const legacyTarget = legacyServiceTarget(config);
-  if (legacyTarget === config.serviceTarget) {
-    return;
-  }
-  runCommand(launchctlPath(), ["bootout", legacyTarget], { allowFailure: true });
-}
-
-function runCommand(command: string, args: string[], options?: { allowFailure?: boolean; env?: Record<string, string> }): CommandResult {
-  const result = spawnSync(command, args, {
-    env: {
-      ...process.env,
-      ...(options?.env ?? {}),
-    },
-    encoding: "utf8",
-  });
-
-  const stdout = (result.stdout ?? "").trim();
-  const stderr = (result.stderr ?? "").trim();
-  const exitCode = result.status ?? 1;
-
-  if (exitCode !== 0 && !options?.allowFailure) {
-    throw new Error(stderr || stdout || `${command} exited with status ${exitCode}`);
-  }
-
-  return { exitCode, stdout, stderr };
-}
-
-function launchctlPath(): string {
-  return "/bin/launchctl";
+  return `/bin/launchctl bootout ${config.serviceTarget}`;
 }
 
 function readLogLines(path: string): string[] {
@@ -620,198 +711,32 @@ function readLastLogLine(paths: string[]): string | null {
   return fallback;
 }
 
-export function parseLaunchctlPrint(output: string): Omit<LaunchctlStatus, "loaded" | "raw"> {
-  const pidMatch = output.match(/\bpid = (\d+)/);
-  const stateMatch = output.match(/\bstate = ([^\n]+)/);
-  const lastExitMatch = output.match(/\blast exit code = (-?\d+)/i) || output.match(/\blast exit status = (-?\d+)/i);
-
-  return {
-    pid: pidMatch ? Number.parseInt(pidMatch[1] ?? "0", 10) : null,
-    launchdState: stateMatch?.[1]?.trim() ?? null,
-    lastExitStatus: lastExitMatch ? Number.parseInt(lastExitMatch[1] ?? "0", 10) : null,
-  };
-}
-
-function inspectLaunchctl(config: BrokerServiceConfig): LaunchctlStatus {
-  const printResult = runCommand(launchctlPath(), ["print", config.serviceTarget], { allowFailure: true });
-  if (printResult.exitCode !== 0) {
-    return {
-      loaded: false,
-      pid: null,
-      launchdState: null,
-      lastExitStatus: null,
-      raw: printResult.stderr || printResult.stdout,
-    };
-  }
-
-  return {
-    loaded: true,
-    raw: printResult.stdout,
-    ...parseLaunchctlPrint(printResult.stdout),
-  };
-}
-
-async function fetchHealthSnapshot(config: BrokerServiceConfig): Promise<BrokerHealthSnapshot> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1000);
-  const checkedAt = Date.now();
-  try {
-    const { value: payload, trace } =
-      await requestScoutBrokerJsonWithTrace<BrokerHealthSnapshot & { ok: boolean }>(
-        config.brokerUrl,
-        "/health",
-        {
-          signal: controller.signal,
-          socketPath: config.brokerSocketPath,
-        },
-      );
-    return {
-      reachable: true,
-      ok: Boolean(payload.ok),
-      checkedAt,
-      transport: trace.transport,
-      socketPath: trace.socketPath,
-      socketFallbackError: trace.socketFallbackError,
-      nodeId: payload.nodeId,
-      meshId: payload.meshId,
-      counts: payload.counts
-        ? {
-            nodes: payload.counts.nodes ?? 0,
-            actors: payload.counts.actors ?? 0,
-            agents: payload.counts.agents ?? 0,
-            agentRecords: payload.counts.agentRecords,
-            rawAgentRecords: payload.counts.rawAgentRecords,
-            configuredAgents: payload.counts.configuredAgents,
-            scoutManagedAgents: payload.counts.scoutManagedAgents,
-            currentAgentRegistrations: payload.counts.currentAgentRegistrations,
-            localAgentRegistrations: payload.counts.localAgentRegistrations,
-            remoteAgentRegistrations: payload.counts.remoteAgentRegistrations,
-            staleAgentRegistrations: payload.counts.staleAgentRegistrations,
-            retiredAgentRegistrations: payload.counts.retiredAgentRegistrations,
-            oneTimeAgentCards: payload.counts.oneTimeAgentCards,
-            persistentAgentCards: payload.counts.persistentAgentCards,
-            conversations: payload.counts.conversations ?? 0,
-            messages: payload.counts.messages ?? 0,
-            flights: payload.counts.flights ?? 0,
-            collaborationRecords: payload.counts.collaborationRecords ?? 0,
-          }
-        : undefined,
-    };
-  } catch (error) {
-    return {
-      reachable: false,
-      ok: false,
-      checkedAt,
-      socketPath: config.brokerSocketPath,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export async function brokerServiceStatus(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  ensureServiceDirectories(config);
-  const launchctl = inspectLaunchctl(config);
-  const health = await fetchHealthSnapshot(config);
-  const installed = existsSync(config.launchAgentPath);
-  const lastLogLine = health.reachable
-    ? readLastLogLine([config.stdoutLogPath, config.stderrLogPath])
-    : readLastLogLine([config.stderrLogPath, config.stdoutLogPath]);
-
-  return {
-    label: config.label,
-    mode: config.mode,
-    launchAgentPath: config.launchAgentPath,
-    bootoutCommand: bootoutCommand(config),
-    brokerUrl: config.brokerUrl,
-    brokerSocketPath: config.brokerSocketPath,
-    supportDirectory: config.supportDirectory,
-    runtimeDirectory: config.runtimeDirectory,
-    controlHome: config.controlHome,
-    stdoutLogPath: config.stdoutLogPath,
-    stderrLogPath: config.stderrLogPath,
-    installed,
-    loaded: launchctl.loaded,
-    pid: launchctl.pid,
-    launchdState: launchctl.launchdState,
-    lastExitStatus: launchctl.lastExitStatus,
-    usesLaunchAgent: installed || launchctl.loaded,
-    reachable: health.reachable,
-    health,
-    lastLogLine,
-  };
+  return runScoutdServiceCommand("status", config);
 }
 
 export async function installBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  bootoutLegacyBrokerService(config);
-  writeLaunchAgentPlist(config);
-  return brokerServiceStatus(config);
+  return runScoutdServiceCommand("install", config);
 }
 
 export async function startBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  bootoutLegacyBrokerService(config);
-  writeLaunchAgentPlist(config);
-  runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
-  await waitForBrokerServiceStopped(config);
-  runCommand(launchctlPath(), ["bootstrap", config.domainTarget, config.launchAgentPath], { allowFailure: true });
-  runCommand(launchctlPath(), ["kickstart", "-k", config.serviceTarget], { allowFailure: true });
-
-  const attempts = Math.ceil(resolveBrokerStartTimeoutMs() / BROKER_SERVICE_POLL_INTERVAL_MS);
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const status = await brokerServiceStatus(config);
-    if (status.health.reachable) {
-      return status;
-    }
-    await sleep(BROKER_SERVICE_POLL_INTERVAL_MS);
-  }
-
-  const status = await brokerServiceStatus(config);
-  throw new Error(status.lastLogLine ?? status.health.error ?? "Broker service did not become healthy.");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForBrokerServiceStopped(config: BrokerServiceConfig): Promise<BrokerServiceStatus> {
-  let status = await brokerServiceStatus(config);
-  const attempts = Math.ceil(resolveBrokerStopTimeoutMs() / BROKER_SERVICE_POLL_INTERVAL_MS);
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    status = await brokerServiceStatus(config);
-    if (!status.loaded && !status.health.reachable) {
-      return status;
-    }
-    await sleep(BROKER_SERVICE_POLL_INTERVAL_MS);
-  }
-  return status;
+  return runScoutdServiceCommand("start", config);
 }
 
 export async function stopBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  runCommand(launchctlPath(), ["bootout", config.serviceTarget], { allowFailure: true });
-  return waitForBrokerServiceStopped(config);
+  return runScoutdServiceCommand("stop", config);
 }
 
 export async function restartBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  await stopBrokerService(config);
-  return startBrokerService(config);
+  return runScoutdServiceCommand("restart", config);
 }
 
 export async function uninstallBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  await stopBrokerService(config);
-  if (existsSync(config.launchAgentPath)) {
-    rmSync(config.launchAgentPath, { force: true });
-  }
-  const legacyPath = legacyLaunchAgentPath(config);
-  bootoutLegacyBrokerService(config);
-  if (existsSync(legacyPath)) {
-    rmSync(legacyPath, { force: true });
-  }
-  return brokerServiceStatus(config);
+  return runScoutdServiceCommand("uninstall", config);
 }
 
 async function main() {
-  const command = process.argv[2] ?? "status";
+  const command = (process.argv[2] ?? "status") as BrokerServiceCommand | string;
   const json = process.argv.includes("--json");
   const config = resolveBrokerServiceConfig();
 

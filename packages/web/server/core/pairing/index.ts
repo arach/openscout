@@ -1,2 +1,2 @@
 export * from "./service.ts";
-export * from "./supervisor.ts";
+export * from "./pairing-runtime-controller.ts";

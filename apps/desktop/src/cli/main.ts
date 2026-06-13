@@ -10,8 +10,21 @@ import { loadScoutCommandHandler } from "./commands/index.ts";
 import { renderScoutHelp } from "./help.ts";
 import { parseImplicitAskCommandOptions } from "./options.ts";
 import { findScoutCommandRegistration } from "./registry.ts";
-import { normalizeCliBinaryMtimeMs, shouldRestartBrokerForCliMtime } from "./uptodate.ts";
+import {
+  canCompareBrokerBuildIdentity,
+  extractBuildIdentityPartsFromScoutdPayload,
+  normalizeCliBinaryMtimeMs,
+  resolveCurrentCliBuildIdentityParts,
+  shouldEnsureBrokerUptodateForCommand,
+  shouldRestartBrokerForBuildIdentity,
+  shouldRestartBrokerForCliMtime,
+} from "./uptodate.ts";
+import { runNativeScoutdJson } from "./scoutd.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
+import {
+  resolveBrokerServiceConfig,
+  type BrokerServiceMode,
+} from "@openscout/runtime/broker-process-manager";
 
 async function main() {
   const input = parseScoutArgv(process.argv.slice(2));
@@ -19,8 +32,12 @@ async function main() {
   let command = input.command;
   let commandArgs = input.args;
 
-  // Restart broker if CLI was updated since last run
-  await ensureBrokerUptodate();
+  // MCP stdio hosts expect the protocol handshake immediately; broker
+  // maintenance here can leave the host terminal waiting with input disabled.
+  if (shouldEnsureBrokerUptodateForCommand(command)) {
+    // Restart broker if CLI was updated since last run
+    await ensureBrokerUptodate((message) => context.stderr(message));
+  }
 
   if (input.versionRequested) {
     context.output.writeText(SCOUT_APP_VERSION);
@@ -81,39 +98,104 @@ function getScoutBinPath(): string {
 }
 
 /**
+ * Returns the legacy launchd service label for a given service mode.
+ *
+ * Mirrors crates/scoutd/src/main.rs `legacy_service_label` (~line 805) — keep in sync.
+ */
+function legacyBrokerServiceLabel(mode: BrokerServiceMode): string {
+  switch (mode) {
+    case "prod":
+      return "com.openscout.broker";
+    case "custom":
+      return "com.openscout.broker.custom";
+    case "dev":
+    default:
+      return "dev.openscout.broker";
+  }
+}
+
+/**
  * Detects if the CLI binary was updated (newer mtime than our checkpoint)
  * and silently restarts the broker to pick up the fresh runtime.
  */
-async function ensureBrokerUptodate(): Promise<void> {
+async function ensureBrokerUptodate(report: (message: string) => void = () => undefined): Promise<void> {
   try {
-    const mtime = normalizeCliBinaryMtimeMs(statSync(getScoutBinPath()).mtimeMs);
-    const checkpointDir = join(homedir(), ".scout");
-    const mtimePath = join(checkpointDir, "cli-mtime");
+    const currentIdentity = resolveCurrentCliBuildIdentityParts(process.env, SCOUT_APP_VERSION);
+    const nativeStatus = await runNativeScoutdJson("status", { timeoutMs: 5_000 });
+    if (nativeStatus.ok) {
+      const runningIdentity = extractBuildIdentityPartsFromScoutdPayload(nativeStatus.raw);
+      if (shouldRestartBrokerForBuildIdentity(currentIdentity, runningIdentity)) {
+        report("Scout CLI build changed; restarting the broker service to load the updated runtime.");
+        const restarted = await runNativeScoutdJson("restart");
+        if (!restarted.ok) {
+          await restartBrokerServiceWithLaunchctl();
+        }
+        writeCliMtimeCheckpointIfAvailable();
+        return;
+      }
+      if (canCompareBrokerBuildIdentity(currentIdentity, runningIdentity)) {
+        writeCliMtimeCheckpointIfAvailable();
+        return;
+      }
+    }
 
+    const mtime = readCurrentCliMtime();
+    if (mtime === null) {
+      return;
+    }
+    const mtimePath = cliMtimeCheckpointPath();
     const lastMtime = existsSync(mtimePath) ? Number(readFileSync(mtimePath, "utf8").trim()) : 0;
 
     if (shouldRestartBrokerForCliMtime(mtime, lastMtime)) {
-      // CLI was updated — bounce the broker
-      const uid = typeof process.getuid === "function" ? process.getuid() : null;
-      if (uid === null) {
-        return;
-      }
-      const plistPath = join(homedir(), "Library", "LaunchAgents", "dev.openscout.plist");
-      spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout.broker`], { stdio: "ignore" });
-      spawnSync("launchctl", ["bootout", `gui/${uid}/dev.openscout`], { stdio: "ignore" });
-      await new Promise<void>((resolve) => setTimeout(resolve, 1500));
-      spawnSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "ignore" });
-      await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+      report("Scout CLI changed on disk; restarting the broker service to load the updated runtime.");
+      await restartBrokerServiceWithLaunchctl();
     }
 
-    // Update checkpoint on every run
-    if (!existsSync(checkpointDir)) {
-      mkdirSync(checkpointDir, { recursive: true });
-    }
-    writeFileSync(mtimePath, String(mtime), { encoding: "utf8", flag: "w" });
+    writeCliMtimeCheckpoint(mtime);
   } catch {
     // Non-fatal: don't block command execution if broker check fails
   }
+}
+
+function readCurrentCliMtime(): number | null {
+  try {
+    return normalizeCliBinaryMtimeMs(statSync(getScoutBinPath()).mtimeMs);
+  } catch {
+    return null;
+  }
+}
+
+function cliMtimeCheckpointPath(): string {
+  return join(homedir(), ".scout", "cli-mtime");
+}
+
+function writeCliMtimeCheckpoint(mtime: number): void {
+  const checkpointDir = join(homedir(), ".scout");
+  if (!existsSync(checkpointDir)) {
+    mkdirSync(checkpointDir, { recursive: true });
+  }
+  writeFileSync(cliMtimeCheckpointPath(), String(mtime), { encoding: "utf8", flag: "w" });
+}
+
+function writeCliMtimeCheckpointIfAvailable(): void {
+  const mtime = readCurrentCliMtime();
+  if (mtime !== null) {
+    writeCliMtimeCheckpoint(mtime);
+  }
+}
+
+async function restartBrokerServiceWithLaunchctl(): Promise<void> {
+  const config = resolveBrokerServiceConfig();
+  const uid = config.uid;
+  if (!uid) {
+    return;
+  }
+  const legacyLabel = legacyBrokerServiceLabel(config.mode);
+  spawnSync("launchctl", ["bootout", `gui/${uid}/${legacyLabel}`], { stdio: "ignore" });
+  spawnSync("launchctl", ["bootout", `gui/${uid}/${config.label}`], { stdio: "ignore" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+  spawnSync("launchctl", ["bootstrap", `gui/${uid}`, config.launchAgentPath], { stdio: "ignore" });
+  await new Promise<void>((resolve) => setTimeout(resolve, 2000));
 }
 
 try {

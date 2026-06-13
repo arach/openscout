@@ -27,8 +27,8 @@ consume packages; packages should not consume apps.
   Current server work belongs in `packages/web/server`.
 - `apps/desktop/src/app/desktop`: old desktop shell state/model. Native-specific
   behavior should move to `apps/macos`; shared state should move to packages.
-- `apps/desktop/bin/pair-supervisor.ts`: legacy source wrapper. Package builds
-  should use `packages/web/server/pair-supervisor.ts`.
+- `apps/desktop/bin/pairing-runtime-controller.ts`: transitional source wrapper.
+  Package builds should use `packages/web/server/pairing-runtime-controller.ts`.
 
 ## Transitional Areas
 

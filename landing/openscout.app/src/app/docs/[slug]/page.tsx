@@ -1,0 +1,66 @@
+import { getAllDocs, getDocBySlug, getNavigation } from "@/lib/docs";
+import { DocView } from "./doc-view";
+import { notFound } from "next/navigation";
+import { serialize } from "next-mdx-remote/serialize";
+
+export function generateStaticParams() {
+  return getAllDocs().map((doc) => ({ slug: doc.slug }));
+}
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
+  if (!doc) return {};
+  return {
+    title: `${doc.title} — Scout Docs`,
+    description: doc.description,
+    openGraph: {
+      title: `${doc.title} — Scout Docs`,
+      description: doc.description,
+      url: `https://openscout.app/docs/${slug}`,
+      images: [{ url: "/og-docs.png", width: 1200, height: 630 }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      images: ["/og-docs.png"],
+    },
+  };
+}
+
+export default async function DocPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
+  if (!doc) notFound();
+
+  const navigation = getNavigation();
+  const allDocs = getAllDocs();
+  const idx = allDocs.findIndex((d) => d.slug === slug);
+  const prevPage = idx > 0 ? { id: allDocs[idx - 1].slug, title: allDocs[idx - 1].title } : undefined;
+  const nextPage = idx < allDocs.length - 1 ? { id: allDocs[idx + 1].slug, title: allDocs[idx + 1].title } : undefined;
+
+  let mdxSource;
+  try {
+    mdxSource = await serialize(doc.content, {
+      parseFrontmatter: false,
+    });
+  } catch {
+    // MDX compilation failed (e.g., angle brackets in prose) — fall back to MarkdownContent
+    mdxSource = undefined;
+  }
+
+  return (
+    <DocView
+      title={doc.title}
+      description={doc.description}
+      content={doc.content}
+      sourcePath={doc.sourcePath}
+      sourceUrl={doc.sourceUrl}
+      rawUrl={doc.rawUrl}
+      mdxSource={mdxSource}
+      navigation={navigation}
+      slug={doc.slug}
+      prevPage={prevPage}
+      nextPage={nextPage}
+    />
+  );
+}

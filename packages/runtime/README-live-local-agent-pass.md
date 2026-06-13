@@ -80,10 +80,10 @@ bun run pi:minimax:restart
 bun run pi:minimax:down
 ```
 
-`pi:minimax:up` writes the local pairing session config, starts the pair
-supervisor, starts the broker if needed, and attaches the live pairing session
-to Scout. The pairing config and broker attach payload contain provider/model
-metadata only. The pair supervisor receives a minimal environment, and only the
+`pi:minimax:up` writes the local pairing session config, starts the pairing
+runtime controller, starts the broker if needed, and attaches the live pairing
+session to Scout. The pairing config and broker attach payload contain
+provider/model metadata only. The pairing runtime controller receives a minimal environment, and only the
 Pi adapter child receives the provider key. The managed session loads the local
 Pi-Scout extension by default so the Pi runtime has Scout coordination tools;
 pass `--no-pi-scout` when you need a plain Pi/MiniMax session.

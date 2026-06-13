@@ -27,8 +27,8 @@ const RESTART_MAX_DELAY_MS = 30_000;
 const BROKER_HEALTH_TIMEOUT_MS = 30_000;
 const BROKER_HEALTH_POLL_MS = 250;
 const CHILD_SHUTDOWN_TIMEOUT_MS = 12_000;
-const MENU_BUNDLE_ID = "com.openscout.menu";
-const MENU_PROCESS_NAME = "OpenScoutMenu";
+const MENU_BUNDLE_ID = "app.openscout.mac.menu";
+const MENU_PROCESS_NAME = "ScoutMenu";
 const PROCESS_NAME = "scout-base";
 const BROKER_LAUNCHER_PROCESS_NAME = "scout-broker-run";
 const EDGE_PROCESS_NAME = "scout-edge";
@@ -43,7 +43,7 @@ let mdnsProcesses: ChildProcess[] = [];
 let brokerRestartDelayMs = RESTART_MIN_DELAY_MS;
 let edgeRestartDelayMs = RESTART_MIN_DELAY_MS;
 let supervisedWebPid: number | null = null;
-let supervisorKeepAlive: ReturnType<typeof setInterval> | null = null;
+let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
 
 const config = resolveBrokerServiceConfig();
 
@@ -379,7 +379,7 @@ function resolvePortListenerPid(port: number): number | null {
 function findRepoMenuBundle(): string | null {
   let current = dirname(fileURLToPath(import.meta.url));
   while (true) {
-    const candidate = resolve(current, "apps", "macos", "dist", "OpenScoutMenu.app");
+    const candidate = resolve(current, "apps", "macos", "dist", "ScoutMenu.app");
     if (existsSync(candidate)) {
       return candidate;
     }
@@ -479,9 +479,9 @@ async function shutdown(exitCode = 0): Promise<void> {
     return;
   }
   shuttingDown = true;
-  if (supervisorKeepAlive) {
-    clearInterval(supervisorKeepAlive);
-    supervisorKeepAlive = null;
+  if (baseKeepAlive) {
+    clearInterval(baseKeepAlive);
+    baseKeepAlive = null;
   }
   stopSupervisedWeb();
   stopMenuBarApp();
@@ -496,15 +496,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
-function keepSupervisorAlive(): void {
-  if (supervisorKeepAlive) {
+function keepBaseDaemonAlive(): void {
+  if (baseKeepAlive) {
     return;
   }
 
-  // Bun does not consistently keep this supervisor alive just because it has
+  // Bun does not consistently keep scout-base alive just because it has
   // spawned child processes. Keep a tiny referenced timer so launchd does not
   // see a clean base-daemon exit and tear down broker/web with it.
-  supervisorKeepAlive = setInterval(() => undefined, 60_000);
+  baseKeepAlive = setInterval(() => undefined, 60_000);
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -521,7 +521,7 @@ log("starting Scout base service", {
   brokerUrl: config.brokerUrl,
   bootout: `launchctl bootout ${config.serviceTarget}`,
 });
-keepSupervisorAlive();
+keepBaseDaemonAlive();
 spawnBroker();
 startLocalEdge();
 startMenuBarApp();

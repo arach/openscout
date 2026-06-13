@@ -35,7 +35,7 @@ This builds:
 
 - `dist/client/` via Vite
 - `dist/openscout-web-server.mjs` via `bun build`
-- `dist/pair-supervisor.mjs` for the pairing runtime
+- `dist/pairing-runtime-controller.mjs` for the pairing runtime
 - `dist/openscout-terminal-relay.mjs` for the Node-hosted PTY relay
 
 When Hudson updates the relay session runtime, refresh the vendored fallback with:

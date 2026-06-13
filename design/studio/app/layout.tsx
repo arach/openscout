@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import "./globals.css";
+import "./scout-skins.css";
 import { StudioShell } from "@/components/StudioShell";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/components/ThemeToggle";
 import { listPlans, plansToStudioPages } from "@/lib/plans";

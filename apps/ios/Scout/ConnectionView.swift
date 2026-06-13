@@ -67,16 +67,16 @@ struct ConnectionView: View {
             ForEach(["LAN", "TSN", "OSN"], id: \.self) { label in
                 Text(label)
                     .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(isActiveRoute(label) ? HudPalette.accent : HudPalette.dim)
+                    .foregroundStyle(isActiveRoute(label) ? HudPalette.accent : ScoutInk.dim)
                 if label != "OSN" {
                     Glyphic.arrow(.trailing, size: 12)
-                        .foregroundStyle(HudPalette.dim)
+                        .foregroundStyle(ScoutInk.dim)
                 }
             }
             Spacer()
             Text("priority order")
                 .font(HudFont.mono(HudTextSize.micro))
-                .foregroundStyle(HudPalette.dim)
+                .foregroundStyle(ScoutInk.dim)
         }
     }
 
@@ -95,7 +95,7 @@ struct ConnectionView: View {
                 if !model.connectionLog.entries.isEmpty {
                     Button("Clear") { model.connectionLog.clear() }
                         .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.muted)
+                        .foregroundStyle(ScoutInk.muted)
                 }
             }
             if model.connectionLog.entries.isEmpty {
@@ -114,7 +114,7 @@ struct ConnectionView: View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
             Text(routeLabel(entry))
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(entry.route == nil ? HudPalette.dim : HudPalette.accent)
+                .foregroundStyle(entry.route == nil ? ScoutInk.dim : HudPalette.accent)
                 .frame(width: 34, alignment: .leading)
             Text(entry.event.label)
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
@@ -138,13 +138,13 @@ struct ConnectionView: View {
         case .connected: return HudPalette.accent
         case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
         case .handshake, .resolve, .discover, .fallback, .pairing, .trust, .auth: return levelColor(level)
-        case .lifecycle: return HudPalette.dim
+        case .lifecycle: return ScoutInk.dim
         }
     }
 
     private func levelColor(_ level: ConnectionLogLevel) -> Color {
         switch level {
-        case .info: return HudPalette.muted
+        case .info: return ScoutInk.muted
         case .success: return HudPalette.accent
         case .warning: return HudPalette.statusWarn
         case .error: return HudPalette.statusError

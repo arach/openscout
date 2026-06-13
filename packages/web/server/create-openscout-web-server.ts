@@ -35,6 +35,11 @@ import {
   type ScoutWebAssetMode,
 } from "./server-core.ts";
 import {
+  endpointMetadataRecord,
+  selectPreferredAgentEndpoint,
+  type EndpointPreference,
+} from "./core/agent-endpoints.ts";
+import {
   getImageBlob,
   ImageBlobError,
   putImageBlob,
@@ -178,6 +183,10 @@ import {
   type OpenScoutVantageHandoff,
   type OpenScoutVantageHandoffInput,
 } from "./vantage-handoff.ts";
+import {
+  createSignedScoutServicesRestartUrl,
+  parseScoutServicesRestartTarget,
+} from "./scout-services-deeplink.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -986,33 +995,15 @@ function metadataTimestampMs(value: unknown): number | undefined {
 }
 
 function agentEndpointMetadata(endpoint: AgentEndpoint | null | undefined): Record<string, unknown> {
-  return endpoint?.metadata && typeof endpoint.metadata === "object" && !Array.isArray(endpoint.metadata)
-    ? endpoint.metadata
-    : {};
+  return endpointMetadataRecord(endpoint);
 }
 
 function activeEndpointForAgent(
   snapshot: { endpoints?: Record<string, AgentEndpoint> },
   agentId: string,
+  preference?: EndpointPreference,
 ): AgentEndpoint | null {
-  const candidates = Object.values(snapshot.endpoints ?? {}).filter(
-    (endpoint) => endpoint.agentId === agentId,
-  );
-  const rank = (state: string | undefined) => {
-    switch (state) {
-      case "active":
-        return 0;
-      case "idle":
-        return 1;
-      case "waiting":
-        return 2;
-      case "offline":
-        return 5;
-      default:
-        return 4;
-    }
-  };
-  return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+  return selectPreferredAgentEndpoint(snapshot, agentId, preference);
 }
 
 const TMUX_PEEK_DEFAULT_LINES = 44;
@@ -1347,6 +1338,9 @@ function buildAgentSessionCatalogPayload(input: {
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
+  const catalogActiveSession = catalog.activeSessionId
+    ? catalog.sessions.find((session) => session.id === catalog.activeSessionId) ?? null
+    : null;
   const endpointMetadata = agentEndpointMetadata(input.endpoint);
   const endpointSessionId = firstMetadataString(
     input.activeSessionId,
@@ -1357,7 +1351,14 @@ function buildAgentSessionCatalogPayload(input: {
   const fallbackTmuxSessionId = input.transport === "tmux"
     ? input.activeSessionId ?? null
     : null;
-  const sessionId = catalog.activeSessionId ?? endpointSessionId ?? fallbackTmuxSessionId;
+  const catalogActiveMatchesProfile = Boolean(
+    catalogActiveSession
+    && (!input.harness || !catalogActiveSession.harness || catalogActiveSession.harness === input.harness)
+    && (!input.transport || !catalogActiveSession.transport || catalogActiveSession.transport === input.transport),
+  );
+  const sessionId = catalogActiveMatchesProfile
+    ? catalog.activeSessionId
+    : endpointSessionId ?? fallbackTmuxSessionId ?? catalog.activeSessionId;
   const harnessEntry = findHarnessEntry(input.harness);
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
@@ -3455,7 +3456,13 @@ export async function createOpenScoutWebServer(
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const broker = await loadScoutBrokerContext().catch(() => null);
-    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
+      harness: agent.harness,
+      transport: agent.transport,
+      sessionId: agent.harnessSessionId,
+      cwd: agent.cwd,
+      projectRoot: agent.projectRoot,
+    }) : null;
     const cwd = endpoint?.cwd ?? endpoint?.projectRoot ?? agent.cwd ?? agent.projectRoot ?? ".";
     return c.json(
       buildAgentSessionCatalogPayload({
@@ -3477,7 +3484,13 @@ export async function createOpenScoutWebServer(
     if (!agent) return c.json({ error: "agent not found" }, 404);
 
     const broker = await loadScoutBrokerContext().catch(() => null);
-    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
+      harness: agent.harness,
+      transport: agent.transport,
+      sessionId: agent.harnessSessionId,
+      cwd: agent.cwd,
+      projectRoot: agent.projectRoot,
+    }) : null;
     const target = resolveTmuxPeekTarget(agent, endpoint);
     const capturedAt = Date.now();
     const lines = parseTmuxPeekLineCount(c.req.query("lines"));
@@ -4651,6 +4664,24 @@ export async function createOpenScoutWebServer(
     } catch {
       return c.json({ error: "broker repo-watch unavailable" }, 502);
     }
+  });
+
+  app.post("/api/scout-services/restart-link", async (c) => {
+    let target = parseScoutServicesRestartTarget(c.req.query("target"));
+    if (!target) {
+      try {
+        const body = await c.req.json<{ target?: string }>();
+        target = parseScoutServicesRestartTarget(body.target);
+      } catch {
+        // Body is optional; query-string target is enough.
+      }
+    }
+
+    if (!target) {
+      return c.json({ error: "unsupported Scout Services restart target" }, 400);
+    }
+
+    return c.json(createSignedScoutServicesRestartUrl(target));
   });
 
   app.get("/api/repo-diff/worktree", async (c) => {

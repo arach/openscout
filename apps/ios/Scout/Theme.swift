@@ -64,6 +64,22 @@ extension ScoutCanvas {
     static let cardEdgeBottom = HudPalette.border                              // #272727
 }
 
+// MARK: - Text contrast
+//
+// Scout lifts hudson's two faint text rungs a notch for the phone. On the
+// near-black cockpit canvas the shared `muted`/`dim` read too soft — the small
+// mono labels (section headers, row details, activity meta) sit around the AA
+// floor. These brighten the secondary/tertiary tiers while keeping the
+// ink → muted → dim hierarchy distinct. App-level only; hudson's palette (and
+// the macOS app) stays untouched. One place to tune the whole iOS app's contrast.
+enum ScoutInk {
+    /// Secondary text. ↑ from hudson `muted` #A3A3A3 (163).
+    static let muted = Color(red: 184.0/255, green: 184.0/255, blue: 184.0/255)
+    /// Tertiary text / faint labels. ↑ from hudson `dim` #737373 (115) — the real
+    /// offender; this clears WCAG AA against the canvas.
+    static let dim   = Color(red: 150.0/255, green: 150.0/255, blue: 150.0/255)
+}
+
 // MARK: - Card depth
 
 extension View {

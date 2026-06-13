@@ -1,5 +1,6 @@
 import AppKit
 import HudsonUI
+import ScoutAppCore
 import SwiftUI
 
 struct ScoutTailContent: View {
@@ -20,6 +21,7 @@ struct ScoutTailContent: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            kindFilterBar
             if let error = tail.lastError {
                 errorBanner(error)
             }
@@ -36,10 +38,6 @@ struct ScoutTailContent: View {
             filterStrip
         } trailing: {
             commandStrip
-        }
-        .background(ScoutDesign.bg)
-        .overlay(alignment: .bottom) {
-            HudDivider(color: ScoutDesign.hairlineStrong)
         }
     }
 
@@ -90,7 +88,6 @@ struct ScoutTailContent: View {
                 .frame(width: 264)
 
             sourceMenu
-            kindMenu
         }
         .layoutPriority(2)
     }
@@ -121,28 +118,75 @@ struct ScoutTailContent: View {
         .help("Filter by source")
     }
 
-    private var kindMenu: some View {
-        ScoutTailFilterMenu(
-            value: tail.selectedKind?.title ?? "All kinds",
-            icon: "tag",
-            tint: tail.selectedKind?.tint ?? ScoutPalette.muted,
-            width: 126
-        ) {
-            Button {
-                tail.selectedKind = nil
-            } label: {
-                Label("All kinds", systemImage: tail.selectedKind == nil ? "checkmark" : "tag")
-            }
-            Divider()
+    /// Inline kind filter — replaces the kind dropdown with a chip bar so the
+    /// active filter (and the full kind vocabulary) is always visible. Each chip
+    /// carries its kind tone; the selected one fills with it.
+    private var kindFilterBar: some View {
+        HStack(spacing: HudSpacing.xs) {
+            kindChip(nil)
             ForEach(ScoutTailEventKind.allCases) { kind in
+                kindChip(kind)
+            }
+
+            Spacer(minLength: 0)
+
+            if tail.selectedKind != nil || tail.selectedSource != nil || !tail.query.isEmpty {
                 Button {
-                    tail.selectedKind = kind
+                    tail.selectedKind = nil
+                    tail.selectedSource = nil
+                    tail.query = ""
                 } label: {
-                    Label(kind.title, systemImage: tail.selectedKind == kind ? "checkmark" : "circle")
+                    Text("Clear")
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.muted)
                 }
+                .buttonStyle(.plain)
+                .help("Clear filters")
             }
         }
-        .help("Filter by event kind")
+        .padding(.horizontal, ScoutTailMetrics.pageGutter)
+        .frame(height: 36)
+        .background(ScoutDesign.chrome)
+        .overlay(alignment: .bottom) {
+            HudDivider(color: ScoutDesign.hairline)
+        }
+    }
+
+    private func kindChip(_ kind: ScoutTailEventKind?) -> some View {
+        let selected = tail.selectedKind == kind
+        let tint = kind?.tint ?? ScoutPalette.accent
+        let label = kind?.title ?? "All"
+        return Button {
+            if let kind {
+                tail.selectedKind = (tail.selectedKind == kind) ? nil : kind
+            } else {
+                tail.selectedKind = nil
+            }
+        } label: {
+            HStack(spacing: HudSpacing.xxs) {
+                if let kind {
+                    Circle()
+                        .fill(kind.tint)
+                        .frame(width: HudDotSize.tiny, height: HudDotSize.tiny)
+                }
+                Text(label)
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+            }
+            .foregroundStyle(selected ? tint : ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(selected ? HudSurface.tint(tint, opacity: 0.14) : ScoutDesign.surface)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(selected ? HudSurface.tintBorder(tint) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Filter: \(label)")
     }
 
     private var commandStrip: some View {
@@ -396,7 +440,7 @@ struct ScoutTailInspector: View {
         .padding(.horizontal, HudSpacing.md)
         .padding(.vertical, HudSpacing.sm)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
         .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard))
     }
 
@@ -458,8 +502,8 @@ private struct ScoutTailHeaderRow: View {
                 .frame(width: ScoutTailColumns.context, alignment: .leading)
             Text("PID")
                 .frame(width: ScoutTailColumns.pid, alignment: .leading)
-            Text("")
-                .frame(width: ScoutTailColumns.glyph, alignment: .center)
+            Text("KIND")
+                .frame(width: ScoutTailColumns.kind, alignment: .leading)
             Text("SUMMARY")
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -519,10 +563,8 @@ private struct ScoutTailRow: View {
                     .lineLimit(1)
                     .frame(width: ScoutTailColumns.pid, alignment: .leading)
 
-                Text(event.kind.glyph)
-                    .font(HudFont.mono(HudTextSize.sm, weight: .bold))
-                    .foregroundStyle(event.kind.tint)
-                    .frame(width: ScoutTailColumns.glyph, alignment: .center)
+                ScoutTailChip(event.kind.label, tint: event.kind.tint)
+                    .frame(width: ScoutTailColumns.kind, alignment: .leading)
 
                 Text(event.summary)
                     .font(HudFont.mono(HudTextSize.sm))
@@ -564,10 +606,10 @@ private struct ScoutTailRow: View {
 
     private var rowBackground: Color {
         if isSelected {
-            return HudSurface.selected(ScoutPalette.accent)
+            return ScoutSurface.selected(ScoutPalette.accent)
         }
         if isHovering {
-            return HudSurface.hover
+            return ScoutSurface.hover
         }
         return Color.clear
     }
@@ -631,7 +673,7 @@ private struct ScoutTailDetail: View {
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
         .padding(.vertical, HudSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HudSurface.inset)
+        .background(ScoutSurface.inset)
         .overlay(alignment: .bottom) {
             HudDivider(color: ScoutDesign.hairlineStrong)
         }
@@ -684,7 +726,7 @@ private enum ScoutTailColumns {
     static let origin: CGFloat = 66
     static let context: CGFloat = 210
     static let pid: CGFloat = 48
-    static let glyph: CGFloat = 18
+    static let kind: CGFloat = 54
 }
 
 private struct ScoutTailChip: View {
@@ -742,7 +784,7 @@ private struct ScoutTailSearchField: View {
         HStack(spacing: HudSpacing.sm) {
             Image(systemName: "magnifyingglass")
                 .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(isFocused ? ScoutPalette.statusInfo : ScoutPalette.dim)
+                .foregroundStyle(isFocused ? ScoutPalette.accent : ScoutPalette.dim)
 
             TextField("Search", text: $text)
                 .textFieldStyle(.plain)
@@ -755,11 +797,11 @@ private struct ScoutTailSearchField: View {
         .frame(height: ScoutTailMetrics.controlHeight)
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(isFocused ? HudSurface.controlHover(isHovering: true) : (isHovering ? HudSurface.hover : HudSurface.control))
+                .fill(isFocused ? ScoutSurface.controlFocused : (isHovering ? ScoutSurface.hover : ScoutSurface.control))
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(isFocused ? HudFocus.ring : (isHovering ? ScoutDesign.hairlineStrong : ScoutDesign.hairline), lineWidth: isFocused ? HudFocus.ringWidth : HudStrokeWidth.standard)
+                .stroke(isFocused ? ScoutPalette.accent.opacity(0.70) : (isHovering ? ScoutDesign.hairlineStrong : ScoutDesign.hairline), lineWidth: isFocused ? HudFocus.ringWidth : HudStrokeWidth.standard)
         )
         .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         .onHover { isHovering = $0 }
@@ -804,7 +846,7 @@ private struct ScoutTailFilterMenu<MenuItems: View>: View {
             .frame(width: width, height: ScoutTailMetrics.controlHeight)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .fill(isHovering ? HudSurface.hover : HudSurface.control)
+                    .fill(isHovering ? ScoutSurface.hover : ScoutSurface.control)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -839,11 +881,11 @@ private struct ScoutTailToolbarButton: View {
             .frame(height: ScoutTailMetrics.controlHeight)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .fill(isHovering ? HudSurface.hover : HudSurface.control)
+                    .fill(isHovering ? ScoutSurface.hover : ScoutSurface.control)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .stroke(isActive ? HudSurface.tintBorder(ScoutPalette.accent) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
+                    .stroke(isActive ? ScoutSurface.tintBorder(ScoutPalette.accent) : ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
             )
         }
         .buttonStyle(.plain).scoutPointerCursor()
@@ -868,7 +910,7 @@ private struct ScoutTailIconButton: View {
                 .frame(width: ScoutTailMetrics.controlHeight, height: ScoutTailMetrics.controlHeight)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                        .fill(isHovering ? HudSurface.hover : Color.clear)
+                        .fill(isHovering ? ScoutSurface.hover : Color.clear)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)

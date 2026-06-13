@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,9 +8,9 @@ import {
   DEFAULT_BROKER_HOST,
   DEFAULT_BROKER_PORT,
   DEFAULT_BROKER_URL,
-  parseLaunchctlPrint,
-  renderLaunchAgentPlist,
   resolveBundledRuntimeDirFromModuleDir,
+  resolveScoutdCommand,
+  runScoutdServiceCommand,
   selectLastRelevantLogLine,
   type BrokerServiceConfig,
 } from "./broker-process-manager";
@@ -35,66 +35,50 @@ const config: BrokerServiceConfig = {
   brokerUrl: DEFAULT_BROKER_URL,
   brokerSocketPath: "/Users/arach/Library/Application Support/OpenScout/runtime/broker.sock",
   advertiseScope: "local",
+  coreAgents: [],
 };
 
-describe("broker launch agent config", () => {
-  test("renders a launch agent plist with the expected command and environment", () => {
-    const plist = renderLaunchAgentPlist(config);
+function writeExecutable(path: string): string {
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(path, 0o755);
+  return path;
+}
 
-    expect(plist).toContain("<string>dev.openscout</string>");
-    expect(plist).toContain("<string>/Users/arach/.bun/bin/bun</string>");
-    expect(plist).toContain(
-      "<string>/Users/arach/dev/openscout/packages/runtime/bin/openscout-runtime.mjs</string>",
-    );
-    expect(plist).toContain("<string>base</string>");
-    expect(plist).toContain("<key>WorkingDirectory</key>");
-    expect(plist).toContain("<string>/Users/arach/dev/openscout/packages/runtime</string>");
-    expect(plist).toContain("<key>RunAtLoad</key>");
-    expect(plist).toContain("<key>KeepAlive</key>");
-    expect(plist).toContain("<key>SuccessfulExit</key>");
-    expect(plist).toContain("<false/>");
-    expect(plist).toContain("<key>OPENSCOUT_BROKER_URL</key>");
-    expect(plist).toContain(`<string>${DEFAULT_BROKER_URL}</string>`);
-    expect(plist).toContain("<key>OPENSCOUT_BROKER_SOCKET_PATH</key>");
-    expect(plist).toContain("<string>/Users/arach/Library/Application Support/OpenScout/runtime/broker.sock</string>");
-  });
+/** Write a fake `scoutd` whose body is the given shell script and return its path. */
+function writeFakeScoutd(script: string): string {
+  const dir = mkdtempSync(join(tmpdir(), "openscout-fake-scoutd-"));
+  const path = join(dir, "scoutd");
+  writeFileSync(path, script, "utf8");
+  chmodSync(path, 0o755);
+  return path;
+}
 
-  test("preserves optional web edge environment overrides", () => {
-    const originalEdgeScheme = process.env.OPENSCOUT_WEB_EDGE_SCHEME;
-    const originalPublicOrigin = process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
-    const originalFlagBundle = process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
-    try {
-      process.env.OPENSCOUT_WEB_EDGE_SCHEME = "both";
-      process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = "https://scout.local";
-      process.env.OPENSCOUT_WEB_FLAG_BUNDLE = "light-prod";
+function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
+  const previous = new Map<string, string | undefined>();
+  for (const [key, value] of Object.entries(patch)) {
+    previous.set(key, process.env[key]);
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
 
-      const plist = renderLaunchAgentPlist(config);
-
-      expect(plist).toContain("<key>OPENSCOUT_WEB_EDGE_SCHEME</key>");
-      expect(plist).toContain("<string>both</string>");
-      expect(plist).toContain("<key>OPENSCOUT_WEB_PUBLIC_ORIGIN</key>");
-      expect(plist).toContain("<string>https://scout.local</string>");
-      expect(plist).toContain("<key>OPENSCOUT_WEB_FLAG_BUNDLE</key>");
-      expect(plist).toContain("<string>light-prod</string>");
-    } finally {
-      if (originalEdgeScheme === undefined) {
-        delete process.env.OPENSCOUT_WEB_EDGE_SCHEME;
+  try {
+    return fn();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) {
+        delete process.env[key];
       } else {
-        process.env.OPENSCOUT_WEB_EDGE_SCHEME = originalEdgeScheme;
-      }
-      if (originalPublicOrigin === undefined) {
-        delete process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN;
-      } else {
-        process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN = originalPublicOrigin;
-      }
-      if (originalFlagBundle === undefined) {
-        delete process.env.OPENSCOUT_WEB_FLAG_BUNDLE;
-      } else {
-        process.env.OPENSCOUT_WEB_FLAG_BUNDLE = originalFlagBundle;
+        process.env[key] = value;
       }
     }
-  });
+  }
+}
 
+describe("broker service scoutd adapter", () => {
   test("resolves the package root from a bundled scout dist runtime module", () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-runtime-package-"));
     const packageRoot = join(root, "scout");
@@ -108,27 +92,36 @@ describe("broker launch agent config", () => {
     expect(resolveBundledRuntimeDirFromModuleDir(moduleDir)).toBe(packageRoot);
   });
 
-  test("parses launchctl print output for pid and state", () => {
-    const parsed = parseLaunchctlPrint(`
-system/com.example.job = {
-    active count = 1
-    path = /Users/arach/Library/LaunchAgents/dev.openscout.plist
-    type = LaunchAgent
-    state = running
+  test("resolves scoutd from an explicit environment override", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-env-"));
+    const scoutd = writeExecutable(join(root, "custom-scoutd"));
 
-    program = /Users/arach/.bun/bin/bun
-    arguments = {
-        /Users/arach/.bun/bin/bun
-    }
+    const resolved = withEnv({
+      OPENSCOUT_SCOUTD_BIN: scoutd,
+      PATH: "",
+    }, () => resolveScoutdCommand(config));
 
-    pid = 12345
-    last exit code = 0
-}
-`);
+    expect(resolved).toEqual({ path: scoutd, source: "env" });
+  });
 
-    expect(parsed.pid).toBe(12345);
-    expect(parsed.launchdState).toBe("running");
-    expect(parsed.lastExitStatus).toBe(0);
+  test("resolves a workspace-built scoutd binary before PATH", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-workspace-"));
+    mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
+    writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
+    writeFileSync(join(root, "crates", "scoutd", "Cargo.toml"), "[package]\nname = \"scoutd\"\n");
+    const scoutd = writeExecutable(join(root, "target", "debug", "scoutd"));
+    writeExecutable(join(root, "bin", "scoutd"));
+    const workspaceConfig: BrokerServiceConfig = {
+      ...config,
+      runtimePackageDir: join(root, "packages", "runtime"),
+    };
+
+    const resolved = withEnv({
+      OPENSCOUT_SCOUTD_BIN: undefined,
+      PATH: join(root, "bin"),
+    }, () => resolveScoutdCommand(workspaceConfig));
+
+    expect(resolved).toEqual({ path: scoutd, source: "workspace" });
   });
 
   test("prefers informative runtime log lines over package script banners", () => {
@@ -150,5 +143,99 @@ system/com.example.job = {
         "$ bun run src/broker-daemon.ts",
       ]),
     ).toBe("$ bun run src/broker-daemon.ts");
+  });
+});
+
+describe("runScoutdServiceCommand shell-out", () => {
+  test("parses scoutd JSON into the normalized status shape", async () => {
+    const status = {
+      label: "dev.openscout",
+      mode: "dev",
+      installed: true,
+      loaded: true,
+      pid: 4242,
+      launchdState: "running",
+      lastExitStatus: 0,
+      health: {
+        reachable: true,
+        ok: true,
+        checkedAt: 1700000000,
+        transport: "unix_socket",
+        nodeId: "node-1",
+        meshId: "mesh-1",
+        counts: {
+          nodes: 1,
+          actors: 2,
+          agents: 3,
+          conversations: 4,
+          messages: 5,
+          flights: 6,
+          collaborationRecords: 7,
+        },
+        build: {
+          packageName: "@openscout/runtime",
+          version: "0.test",
+          mode: "dev",
+        },
+        services: {
+          web: {
+            managed: true,
+            managedBy: "broker",
+            state: "running",
+            pid: 111,
+          },
+        },
+      },
+    };
+    const scoutd = writeFakeScoutd(`#!/bin/sh\ncat <<'JSON'\n${JSON.stringify(status)}\nJSON\n`);
+
+    const result = await withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
+      runScoutdServiceCommand("status", config),
+    );
+
+    expect(result.label).toBe("dev.openscout");
+    expect(result.mode).toBe("dev");
+    expect(result.installed).toBe(true);
+    expect(result.loaded).toBe(true);
+    expect(result.pid).toBe(4242);
+    expect(result.launchdState).toBe("running");
+    expect(result.lastExitStatus).toBe(0);
+    expect(result.reachable).toBe(true);
+    expect(result.health.ok).toBe(true);
+    expect(result.health.reachable).toBe(true);
+    expect(result.health.checkedAt).toBe(1700000000);
+    expect(result.health.transport).toBe("unix_socket");
+    expect(result.health.nodeId).toBe("node-1");
+    expect(result.health.meshId).toBe("mesh-1");
+    expect(result.health.counts?.collaborationRecords).toBe(7);
+    expect(result.health.build?.version).toBe("0.test");
+    expect(result.health.services?.web?.pid).toBe(111);
+  });
+
+  test("rejects with a meaningful error on malformed JSON", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\nprintf 'not json at all'\n");
+
+    await expect(
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("status", config)),
+    ).rejects.toThrow(/returned non-JSON stdout/);
+  });
+
+  test("rejects with stderr detail on non-zero exit", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\necho 'boom: launchd refused' 1>&2\nexit 3\n");
+
+    await expect(
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("start", config)),
+    ).rejects.toThrow(/scoutd start failed: boom: launchd refused/);
+  });
+
+  test("rejects on timeout without hanging", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\nsleep 5\necho '{}'\n");
+
+    const started = Date.now();
+    await expect(
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("start", config, 200)),
+    ).rejects.toThrow(/scoutd start timed out after 200ms/);
+    // Must reject promptly, not after the fake's 5s sleep.
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

@@ -354,16 +354,16 @@ build_process_targets() {
     append_process_target_if_exists "${repo_root}/packages/web/server/index.ts"
     append_process_target_if_exists "${repo_root}/packages/cli/dist/scout-control-plane-web.mjs"
     append_process_target_if_exists "${repo_root}/packages/web/dist/openscout-web-server.mjs"
-    append_process_target_if_exists "${repo_root}/packages/cli/dist/pair-supervisor.mjs"
-    append_process_target_if_exists "${repo_root}/packages/web/dist/pair-supervisor.mjs"
-    append_process_target_if_exists "${repo_root}/packages/web/server/pair-supervisor.ts"
+    append_process_target_if_exists "${repo_root}/packages/cli/dist/pairing-runtime-controller.mjs"
+    append_process_target_if_exists "${repo_root}/packages/web/dist/pairing-runtime-controller.mjs"
+    append_process_target_if_exists "${repo_root}/packages/web/server/pairing-runtime-controller.ts"
   fi
 
   for node_root in "${GLOBAL_NODE_MODULE_ROOTS[@]:-}"; do
     append_process_target_if_exists "${node_root}/@openscout/scout/dist/scout-control-plane-web.mjs"
     append_process_target_if_exists "${node_root}/@openscout/web/dist/openscout-web-server.mjs"
-    append_process_target_if_exists "${node_root}/@openscout/scout/dist/pair-supervisor.mjs"
-    append_process_target_if_exists "${node_root}/@openscout/web/dist/pair-supervisor.mjs"
+    append_process_target_if_exists "${node_root}/@openscout/scout/dist/pairing-runtime-controller.mjs"
+    append_process_target_if_exists "${node_root}/@openscout/web/dist/pairing-runtime-controller.mjs"
   done
 }
 
@@ -548,10 +548,10 @@ command_matches_scout_dev() {
     *"/packages/web/node_modules/vite/bin/vite.js"*|\
     *"/packages/web/server/terminal-relay-node.ts"*|\
     *"/packages/web/dist/openscout-terminal-relay.mjs"*|\
-    *"/packages/web/server/pair-supervisor.ts"*|\
-    *"/packages/web/dist/pair-supervisor.mjs"*|\
+    *"/packages/web/server/pairing-runtime-controller.ts"*|\
+    *"/packages/web/dist/pairing-runtime-controller.mjs"*|\
     *"openscout-terminal-relay.mjs"*|\
-    *"pair-supervisor.mjs"*)
+    *"pairing-runtime-controller.mjs"*)
       return 0
       ;;
   esac
@@ -731,9 +731,17 @@ cleanup_scout_dev_fallback_ports() {
 
 quit_menu_app() {
   if [ "${DRY_RUN}" -eq 1 ]; then
-    log "[dry-run] quit OpenScoutMenu"
+    log "[dry-run] quit ScoutMenu"
   else
-    osascript -e 'tell application "OpenScoutMenu" to quit' >/dev/null 2>&1 || true
+    osascript -e 'tell application "Scout Menu" to quit' >/dev/null 2>&1 || true
+  fi
+
+  if command -v pgrep >/dev/null 2>&1 && pgrep -x ScoutMenu >/dev/null 2>&1; then
+    if [ "${DRY_RUN}" -eq 1 ]; then
+      log "[dry-run] pkill -x ScoutMenu"
+    else
+      pkill -x ScoutMenu >/dev/null 2>&1 || record_failure "failed to terminate ScoutMenu"
+    fi
   fi
 
   if command -v pgrep >/dev/null 2>&1 && pgrep -x OpenScoutMenu >/dev/null 2>&1; then
@@ -752,6 +760,9 @@ cleanup_support_state() {
 }
 
 cleanup_menu_bundles() {
+  remove_path "${REPO_ROOT}/apps/macos/dist/ScoutMenu.app"
+  remove_path "${HOME_DIR}/Applications/ScoutMenu.app"
+  remove_path "/Applications/ScoutMenu.app"
   remove_path "${REPO_ROOT}/apps/macos/dist/OpenScoutMenu.app"
   remove_path "${HOME_DIR}/Applications/OpenScoutMenu.app"
   remove_path "/Applications/OpenScoutMenu.app"
@@ -795,7 +806,7 @@ cleanup_global_installs() {
     remove_path "${bin_dir}/scout"
     remove_path "${bin_dir}/openscout-runtime"
     remove_path "${bin_dir}/openscout-web"
-    remove_path "${bin_dir}/pair-supervisor"
+    remove_path "${bin_dir}/pairing-runtime-controller"
   done
 }
 
@@ -821,7 +832,7 @@ stop_pairing_runtime() {
 
   if [ -f "${SCOUT_PAIRING_PID_FILE}" ]; then
     pid="$(tr -d '[:space:]' < "${SCOUT_PAIRING_PID_FILE}" 2>/dev/null || true)"
-    kill_pid_if_scout_dev "${pid}" "pair supervisor pid file" "${REPO_ROOT}" "${REPO_ROOT}/packages/web"
+    kill_pid_if_scout_dev "${pid}" "pairing runtime controller pid file" "${REPO_ROOT}" "${REPO_ROOT}/packages/web"
   fi
 }
 

@@ -4,12 +4,31 @@ import {
   parseAskCommandOptions,
   parseCardCreateCommandOptions,
   parseChannelCommandOptions,
+  parseDoctorCommandOptions,
   parseInboxCommandOptions,
   parseImplicitAskCommandOptions,
   parseLatestCommandOptions,
   parseSendCommandOptions,
   parseWatchCommandOptions,
 } from "./options.ts";
+
+describe("parseDoctorCommandOptions", () => {
+  test("accepts context, json, and native repair flags", () => {
+    const options = parseDoctorCommandOptions(
+      ["--context-root", "/tmp/repo", "--json", "--fix", "--yes"],
+      "/tmp/workspace",
+    );
+
+    expect(options.currentDirectory).toBe("/tmp/repo");
+    expect(options.json).toBe(true);
+    expect(options.fix).toBe(true);
+    expect(options.yes).toBe(true);
+  });
+
+  test("requires --fix before --yes", () => {
+    expect(() => parseDoctorCommandOptions(["--yes"], "/tmp/workspace")).toThrow("--yes requires --fix");
+  });
+});
 
 describe("parseSendCommandOptions", () => {
   test("accepts a message file as the primary body source", () => {

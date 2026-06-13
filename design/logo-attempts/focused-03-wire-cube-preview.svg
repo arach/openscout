@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout focused logo attempt 03 preview</title>
+  <desc id="desc">Preview of the wire cube OpenScout lockup, mark, and small-size checks.</desc>
+  <rect width="1200" height="760" fill="#f7f4ea"/>
+  <image href="focused-03-wire-cube-lockup.svg" x="106" y="144" width="988" height="301"/>
+  <rect x="105" y="510" width="84" height="84" rx="18" fill="#101113"/>
+  <image href="focused-03-wire-cube-mark.svg" x="105" y="510" width="84" height="84"/>
+  <rect x="241" y="486" width="132" height="132" rx="28" fill="#101113"/>
+  <image href="focused-03-wire-cube-mark.svg" x="241" y="486" width="132" height="132"/>
+  <rect x="433" y="456" width="196" height="196" rx="42" fill="#101113"/>
+  <image href="focused-03-wire-cube-mark.svg" x="433" y="456" width="196" height="196"/>
+  <text x="704" y="540" fill="#25282c" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="32" font-weight="760">Focused 03: Wire Cube</text>
+  <text x="704" y="586" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">A simple cube frame with a smaller cube echo inside.</text>
+  <text x="704" y="620" fill="#6f6b62" font-family="Inter, Avenir Next, Helvetica Neue, Arial, sans-serif" font-size="20">Closer to the spatial reference, still vector-simple.</text>
+</svg>

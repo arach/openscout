@@ -31,6 +31,11 @@ scout ask --to dewey "can you review our docs?"
 
 It also discovers local and project-backed agents from your configured workspace roots, installs the base Scout service, attempts to start it, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`.
 
+`scout doctor --fix` asks the native `scoutd` daemon to run conservative repairs
+when that daemon version exposes them. Use `scout doctor --fix --yes` for
+non-interactive install scripts; older or missing `scoutd` binaries simply leave
+the normal doctor report intact.
+
 For a CLI-only onboarding pass, save the same identity, workspace roots, and
 runtime choice used by the app flows:
 

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.openscout.menu</string>
+    <string>app.openscout.mac.menu</string>
     <key>CFBundleName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleDisplayName</key>
-    <string>OpenScout Menu</string>
+    <string>Scout Menu</string>
     <key>CFBundleExecutable</key>
-    <string>OpenScoutMenu</string>
+    <string>ScoutMenu</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -39,7 +39,7 @@
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>com.openscout.menu.scout-url</string>
+            <string>app.openscout.mac.menu.scout-url</string>
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>scout</string>

@@ -30,10 +30,47 @@ import type {
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 
+export type ScoutBrokerBuildIdentity = {
+  packageName: string;
+  version: string | null;
+  commit?: string | null;
+  branch?: string | null;
+  buildId?: string | null;
+  buildNumber?: string | null;
+  mode?: "dev" | "production";
+};
+
+export type ScoutBrokerChildServiceState =
+  | "running"
+  | "starting"
+  | "stopped"
+  | "unknown"
+  | "unavailable";
+
+export type ScoutBrokerChildServiceSnapshot = {
+  state: ScoutBrokerChildServiceState;
+  managed: boolean;
+  managedBy?: "broker" | "web" | "base" | "external" | "unknown";
+  pid?: number | null;
+  port?: number | null;
+  url?: string | null;
+  healthy?: boolean | null;
+  detail?: string | null;
+};
+
+export type ScoutBrokerChildServiceSnapshots = {
+  web?: ScoutBrokerChildServiceSnapshot;
+  terminalRelay?: ScoutBrokerChildServiceSnapshot;
+  localEdge?: ScoutBrokerChildServiceSnapshot;
+  [name: string]: ScoutBrokerChildServiceSnapshot | undefined;
+};
+
 export type ScoutBrokerHealthPayload = {
   ok: boolean;
   nodeId: string | null;
   meshId: string | null;
+  build?: ScoutBrokerBuildIdentity;
+  services?: ScoutBrokerChildServiceSnapshots;
   counts: {
     nodes: number;
     actors: number;

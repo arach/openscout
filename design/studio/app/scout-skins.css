@@ -1,0 +1,83 @@
+/*
+ * Scout design-system skins — shared `--s-*` token set.
+ *
+ * One semantic token set that mirrors the native `ScoutThemeColors` shape, so
+ * what reads well in a study ports straight to ScoutPalette. The skin is chosen
+ * by `data-scout-skin` on any wrapper element; everything in the Scout studies
+ * (scout-shell, scout-comms, scout-tail, scout-settings) reads only from these
+ * vars, never hard-coded color.
+ *
+ * Keyed on `[data-scout-skin]` (not `.shell`) so every Scout study can adopt the
+ * same tokens by setting the attribute on its root. Imported once in layout.tsx.
+ */
+
+[data-scout-skin] {
+  --s-font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --s-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* Juniper · Light — the live app theme (themePreset=juniper, mode=light,
+   accent=blue). Values are the exact sRGB of ScoutThemeColors.juniper.light
+   with the blue accent applied, so this skin IS what the app renders today. */
+[data-scout-skin="juniper-l"] {
+  --s-bg: #f4f5f7;
+  --s-chrome: #e7e9ed;
+  --s-surface: #fdfdfe;
+  --s-ink: #121418;
+  --s-muted: #585f6b;
+  --s-dim: #828895;
+  --s-border: #cdd2db;
+  --s-hairline: #dfe3e9;
+  --s-hairline-strong: #bbc2cd;
+  --s-accent: #4954c4;
+  --s-accent-soft: #e8ebfa;
+  --s-ok: #2f7d55;
+  --s-warn: #a66112;
+  --s-error: #b83845;
+  --s-info: #4954c4;
+}
+
+/* Juniper · Dark — higher-contrast treatment of the juniper dark preset.
+   Surface is lifted off the canvas so cards separate, dim/muted are raised so
+   secondary text stays legible, hairlines/borders are cool-tinted and stronger,
+   and the accent is brighter. Ported to native ScoutThemeColors.juniper.dark
+   (and the Indigo dark accent in ScoutAccentPalette). */
+[data-scout-skin="juniper-d"] {
+  --s-bg: #0f131b;
+  --s-chrome: #090c12;
+  --s-surface: #222c3b;
+  --s-ink: #f3f6fc;
+  --s-muted: #b2bccd;
+  --s-dim: #828da1;
+  --s-border: rgba(150, 172, 208, 0.24);
+  --s-hairline: rgba(150, 172, 208, 0.13);
+  --s-hairline-strong: rgba(150, 172, 208, 0.28);
+  --s-accent: #6d7ae8;
+  --s-accent-soft: rgba(109, 122, 232, 0.26);
+  --s-ok: #54c98e;
+  --s-warn: #efa044;
+  --s-error: #f15a60;
+  --s-info: #6d7ae8;
+}
+
+/* Graphite · Dark — higher-contrast treatment of the neutral dark preset.
+   Same intent as juniper-d but hueless: deeper canvas, a clearly raised card
+   surface, brighter ink/muted/dim, and stronger white hairlines. Ported to
+   native ScoutThemeColors.graphite.dark. */
+[data-scout-skin="graphite"] {
+  --s-bg: #121214;
+  --s-chrome: #08080a;
+  --s-surface: #242428;
+  --s-ink: rgba(255, 255, 255, 0.97);
+  --s-muted: rgba(255, 255, 255, 0.69);
+  --s-dim: rgba(255, 255, 255, 0.49);
+  --s-border: rgba(255, 255, 255, 0.17);
+  --s-hairline: rgba(255, 255, 255, 0.1);
+  --s-hairline-strong: rgba(255, 255, 255, 0.22);
+  --s-accent: #6d7ae8;
+  --s-accent-soft: rgba(109, 122, 232, 0.26);
+  --s-ok: #54c98e;
+  --s-warn: #efa044;
+  --s-error: #f15a60;
+  --s-info: #6d7ae8;
+}

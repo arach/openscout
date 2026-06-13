@@ -1,0 +1,63 @@
+/* macOS window chrome for the focused Scout studies. Tokens only (`--s-*`). */
+
+.win {
+  border-radius: 12px;
+  border: 1px solid var(--s-hairline-strong);
+  background: var(--s-bg);
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+  overflow: hidden;
+  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.55);
+}
+
+.titlebar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  height: 38px;
+  padding: 0 14px;
+  background: var(--s-chrome);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.lights {
+  display: flex;
+  gap: 8px;
+}
+
+.light {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.red {
+  background: #ff5f57;
+}
+.yellow {
+  background: #febc2e;
+}
+.green {
+  background: #28c840;
+}
+
+.title {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--s-dim);
+  white-space: nowrap;
+}
+
+.body {
+  display: flex;
+  min-height: 0;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  background: var(--s-bg);
+}

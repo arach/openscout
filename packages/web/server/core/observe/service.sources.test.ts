@@ -443,6 +443,93 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.data.events.some((event) => event.text.includes("configured full instance snapshot"))).toBe(true);
   });
 
+  test("uses harness-adapted discovered history for Claude agents carried by tmux", async () => {
+    const tempRoot = makeTempDir("openscout-observe-claude-tmux-");
+    process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT = join(tempRoot, "empty-projects");
+    const historyPath = join(tempRoot, "claude-upstream-session.jsonl");
+    writeClaudeHistory(historyPath, "hello from discovered Claude history");
+
+    queryAgentsResult = [
+      makeAgent({
+        harness: "claude",
+        transport: "tmux",
+        cwd: "/Users/arach/dev/talkie",
+        projectRoot: "/Users/arach/dev/talkie",
+        project: "talkie",
+        harnessSessionId: "relay-talkie-claude",
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-stale-codex": {
+            id: "endpoint-stale-codex",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "active",
+            sessionId: "019ead09-5750-7862-99c3-78c804b34c84",
+            cwd: "/Users/arach/dev/talkie",
+            projectRoot: "/Users/arach/dev/talkie",
+            metadata: {
+              threadId: "019ead09-5750-7862-99c3-78c804b34c84",
+              runtimeInstanceId: "relay-talkie-codex",
+              lastCompletedAt: Date.parse("2026-04-22T12:00:00.000Z"),
+            },
+          },
+          "endpoint-current-claude": {
+            id: "endpoint-current-claude",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "idle",
+            sessionId: "relay-talkie-claude",
+            cwd: "/Users/arach/dev/talkie",
+            projectRoot: "/Users/arach/dev/talkie",
+            metadata: {
+              runtimeInstanceId: "relay-talkie-claude",
+              tmuxSession: "relay-talkie-claude",
+              startedAt: Date.parse("2026-04-22T12:01:00.000Z"),
+            },
+          },
+        },
+      },
+    };
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "claude",
+          transcriptPath: historyPath,
+          sessionId: "claude-upstream-session",
+          cwd: "/Users/arach/dev/talkie",
+          project: "talkie",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.sessionId).toBe("relay-talkie-claude");
+    expect(payload?.data.events.some((event) => event.text.includes("hello from discovered Claude history"))).toBe(true);
+  });
+
   test("maps a Claude session ref id directly to its history file", async () => {
     const home = makeTempDir("openscout-observe-home-");
     process.env.HOME = home;

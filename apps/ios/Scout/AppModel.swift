@@ -88,6 +88,26 @@ final class AppModel {
     var tailnetPairDiscoveryOrigin: String?
     var tailnetPairingTargetId: String?
 
+    /// A Scout Mac found on the local network (Bonjour `_scout-pair._tcp`). The
+    /// nicest first-run path: same Wi-Fi, one tap, no QR. Carries the Mac's
+    /// stable identity + relay host; the live pairing payload (room) is fetched
+    /// from its `/pair` endpoint at pair time.
+    struct LanPairTarget: Identifiable, Equatable {
+        let id: String            // public key hex — stable per Mac
+        let publicKeyHex: String
+        let fingerprint: String
+        let hostName: String      // resolved, e.g. "arts-mac-mini.local"
+        let relayPort: Int
+
+        var displayName: String { AppModel.prettyMachineName(hostName) }
+        var detail: String { "on your network · \(hostName)" }
+    }
+
+    var lanPairTargets: [LanPairTarget] = []
+    var isRefreshingLanPairTargets = false
+    var lanPairError: String?
+    var lanPairingTargetId: String?
+
     /// Fleet rollup for the bottom status bar (`N agents · Y active`). Polled
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
@@ -598,6 +618,66 @@ final class AppModel {
             }
         }
         tailnetPairError = "Pairing failed for \(target.displayName)"
+        return false
+    }
+
+    // MARK: - LAN pairing (same Wi-Fi, one tap)
+
+    /// Browse the local network for Scout Macs advertising `_scout-pair._tcp`.
+    /// Cheap and idempotent; the Connect screen runs it on appear and offers a
+    /// manual rescan. Finding nothing is not an error (the QR path stays).
+    func refreshLanPairTargets() async {
+        guard !isRefreshingLanPairTargets else { return }
+        isRefreshingLanPairTargets = true
+        lanPairError = nil
+        defer { isRefreshingLanPairTargets = false }
+
+        let macs = await BonjourMacDiscovery.discover()
+        lanPairTargets = macs.map {
+            LanPairTarget(
+                id: $0.publicKeyHex,
+                publicKeyHex: $0.publicKeyHex,
+                fingerprint: $0.fingerprint,
+                hostName: $0.hostName,
+                relayPort: $0.relayPort
+            )
+        }
+        connectionLog.log(
+            "LAN scan found \(macs.count) Scout Mac(s)",
+            event: .discover,
+            level: .info,
+            route: .lan
+        )
+    }
+
+    /// Pair with a Mac discovered on the LAN: fetch its live `/pair` payload over
+    /// the local network (which carries the relay room), then run the standard
+    /// handshake. Reuses `pairFromLink` — an `http://host/pair` link resolves the
+    /// 302 → `scout://pair?…` payload through the existing web-link path.
+    @discardableResult
+    func pairWithLanTarget(_ target: LanPairTarget) async -> Bool {
+        lanPairingTargetId = target.id
+        lanPairError = nil
+        defer { lanPairingTargetId = nil }
+
+        // Try the default web port first so the common case is a clean
+        // connecting → connected with no transient failure flicker; fall back to
+        // the bare-port / https variants only if that misses.
+        let host = Self.cleanTailnetHost(target.hostName) ?? target.hostName
+        let preferred = scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort)
+        let candidates = ([preferred].compactMap { $0 }) + scoutWebOriginCandidates(host: host)
+        for origin in dedupeURLs(candidates) {
+            guard let url = scoutWebURL(
+                origin: origin,
+                path: Self.scoutWebPairPath,
+                queryItems: [URLQueryItem(name: "route", value: "lan")]
+            ) else { continue }
+            if await pairFromLink(url.absoluteString) {
+                lanPairError = nil
+                return true
+            }
+        }
+        lanPairError = "Couldn’t reach \(target.displayName) on your network"
         return false
     }
 
@@ -1154,9 +1234,9 @@ final class AppModel {
         }
         switch connectionState {
         case .connected: return HudPalette.accent
-        case .connecting: return HudPalette.muted
+        case .connecting: return ScoutInk.muted
         case .failed: return HudPalette.statusError
-        case .idle: return HudPalette.muted
+        case .idle: return ScoutInk.muted
         }
     }
 

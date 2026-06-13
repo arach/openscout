@@ -20,7 +20,7 @@ struct PairingView: View {
             VStack(spacing: HudSpacing.xl) {
                 Text("Scan the pairing QR shown in Scout on your Mac.")
                     .font(HudFont.ui(HudTextSize.sm))
-                    .foregroundStyle(HudPalette.muted)
+                    .foregroundStyle(ScoutInk.muted)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, HudSpacing.xxl)
 
@@ -56,7 +56,7 @@ struct PairingView: View {
                         }
                         Text(status)
                             .font(HudFont.mono(HudTextSize.xs))
-                            .foregroundStyle(isFailure ? HudPalette.statusError : HudPalette.muted)
+                            .foregroundStyle(isFailure ? HudPalette.statusError : ScoutInk.muted)
                     }
                     if isFailure {
                         HudButton("Scan again", icon: "qrcode.viewfinder", style: .secondary) {

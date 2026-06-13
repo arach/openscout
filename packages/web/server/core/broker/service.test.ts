@@ -13,6 +13,7 @@ import {
   askScoutQuestion,
   loadScoutMessages,
   openScoutPeerSession,
+  readScoutBrokerHealth,
   sendScoutConversationMessage,
   sendScoutMessage,
 } from "./service.ts";
@@ -80,6 +81,64 @@ function jsonResponse(body: unknown, status = 200): Response {
     },
   });
 }
+
+describe("readScoutBrokerHealth", () => {
+  test("preserves broker build identity and child service states", async () => {
+    useIsolatedOpenScoutHome();
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({
+          ok: true,
+          nodeId: "node-1",
+          meshId: "mesh-1",
+          build: {
+            packageName: "@openscout/runtime",
+            version: "0.test",
+            mode: "dev",
+          },
+          services: {
+            web: {
+              managed: true,
+              managedBy: "broker",
+              state: "running",
+              pid: 4321,
+              port: 3200,
+              url: "http://127.0.0.1:3200",
+              healthy: null,
+            },
+            localEdge: {
+              managed: true,
+              managedBy: "base",
+              state: "unknown",
+              healthy: null,
+            },
+          },
+          counts: {
+            nodes: 1,
+            actors: 2,
+            agents: 3,
+            conversations: 4,
+            messages: 5,
+            flights: 6,
+            collaborationRecords: 7,
+          },
+        });
+      }
+      return jsonResponse({ error: "unexpected request" }, 404);
+    }) as unknown as typeof fetch;
+
+    const health = await readScoutBrokerHealth();
+
+    expect(health.reachable).toBe(true);
+    expect(health.build?.version).toBe("0.test");
+    expect(health.services?.web?.state).toBe("running");
+    expect(health.services?.web?.pid).toBe(4321);
+    expect(health.services?.localEdge?.managedBy).toBe("base");
+    expect(health.counts?.collaborationRecords).toBe(7);
+  });
+});
 
 describe("askScoutQuestion", () => {
   test("registers discovered targets and lets the broker wake them on demand", async () => {
