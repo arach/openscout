@@ -6,6 +6,7 @@ import { StudioShell } from "@/components/StudioShell";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/components/ThemeToggle";
 import { listPlans, plansToStudioPages } from "@/lib/plans";
 import { engDocsToStudioPages, listEngDocs } from "@/lib/eng-docs";
+import { studyMtimes } from "@/lib/study-mtimes";
 
 export const metadata: Metadata = {
   title: "OpenScout Studio",
@@ -27,6 +28,7 @@ export default function RootLayout({
     ...plansToStudioPages(plans),
     ...engDocsToStudioPages(engDocs),
   ];
+  const mtimes = studyMtimes();
 
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
@@ -55,7 +57,7 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <StudioShell extraPages={extraPages}>{children}</StudioShell>
+        <StudioShell extraPages={extraPages} studyMtimes={mtimes}>{children}</StudioShell>
       </body>
     </html>
   );
