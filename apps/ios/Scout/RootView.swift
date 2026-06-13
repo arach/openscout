@@ -80,8 +80,9 @@ struct RootView: View {
                                 HomeSurface(
                                     model: model,
                                     onSelectMachine: { machine in
-                                        Task { await model.connect(toMachineId: machine.id) }
+                                        Task { await model.selectMachineFilter(.machine(machine.id)) }
                                     },
+                                    onSelectAll: { model.machineFilter = .all },
                                     onConversationStatusContext: { sessionStatusContext = $0 },
                                     onSeeAllAgents: {
                                         withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
@@ -92,8 +93,7 @@ struct RootView: View {
                                 )
                             case .agents:
                                 AgentsSurface(
-                                    client: client,
-                                    reloadToken: model.dataReadyToken,
+                                    model: model,
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
                             case .comms:    CommsSurface(client: client, reloadToken: model.dataReadyToken)
