@@ -28,8 +28,16 @@ tool call or host connection from staying open indefinitely; they do not cancel
 broker work, mark a flight failed, or define protocol completion.
 
 When the caller knows the project but not the concrete agent, use
-`ask({ projectPath })`. The broker resolves or creates the concrete instance for
-that project. Do not make the caller run discovery just to invent a target.
+`ask({ projectPath })`; add `harness` when the desired capability matters. The
+broker resolves or creates the concrete worker for that project. Do not make
+the caller run discovery just to invent a target, and do not train agents to
+guess generic names such as `claude.main`.
+
+MCP receipts should make follow-up cheap: return durable ids such as
+`flightId`, `conversationId`, `messageId`, `workId`, `targetSessionId`/`sessionId`,
+and any short `ref` or broker-suggested friendly worker handle the server can
+provide. Follow-up uses those handles; naming/pinning is an explicit later
+promotion.
 
 `messages_reply` is the threaded-message form of `messages_send`. It should
 preserve the ask conversation instead of creating a fresh ask. Quiet or
@@ -91,8 +99,10 @@ layer:
 | `session_attach_current` | Attach the current host session to Scout. |
 
 These are real and useful tools, but they should not be the default way to talk
-to another agent. Core agents should use `ask({ projectPath })` and let the
-broker create or bind cards and sessions when needed.
+to another agent. Core agents should use `ask({ projectPath, harness })` for
+capability requests and let the broker create or bind cards and sessions when
+needed. Pro tools are for deliberate promotion, pinning, or lifecycle
+management after the routed worker is known good.
 
 ## Identity Model
 

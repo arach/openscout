@@ -56,10 +56,10 @@ state. The product assumes abundant local cognitive capacity; spending extra
 reasoning in the broker is preferable to making every user or agent rediscover
 topology by hand.
 
-When a sender tries a reasonable command such as:
+When a sender tries a reasonable capability command such as:
 
 ```bash
-scout ask --to codex-hudai "Review this."
+scout ask --project ../talkie --harness codex "Review this."
 ```
 
 the broker should infer the likely intent, inspect identity/session/endpoint
@@ -272,6 +272,13 @@ project target and requests a one-time project agent for that fresh work. This
 keeps "run this repo in a fresh compatible worker" cheap without forcing the
 caller to pre-create or choose a stable card.
 
+For a different repo, callers should provide `projectPath` / `--project` plus
+optional `harness` / `--harness`. This is a capability request, not an identity
+request: the broker chooses or creates a compatible worker, returns durable
+handles (`ref`, `flightId`, `conversationId`, `workId`, `sessionId`), and may
+return a friendly mnemonic handle. Follow-up uses those handles; a persistent
+name/pin is an explicit promotion after the worker is known good.
+
 ## Ask Targets And Reply Sessions
 
 An ask has two different routes:
@@ -297,10 +304,11 @@ the session policy says the work should enter fresh target context instead of
 continuing a concrete prior session for that card. Scout defines a one-time
 project agent when the caller routed by project and explicitly asked for one.
 
-Use exact `agentId` or project routing when the sender knows who should own the
-work but does not need prior context. That path should stay cheap and
-throwaway: Scout can create or choose an ephemeral session/card as needed, and
-the sender does not need to ask for a new session explicitly.
+Use exact `agentId` only when the sender knows the intended owner. Use project
+routing plus optional harness/capability when the sender knows the codebase but
+not the concrete worker. That path should stay cheap and throwaway: Scout can
+create or choose an ephemeral session/card as needed, and the sender does not
+need to ask for a new session explicitly or invent a generic agent name.
 
 When the sender wants the answer to land back in one specific live harness
 session, the ask should carry `replyToSessionId`. The broker records that

@@ -17,10 +17,17 @@ scout send --to x "msg"    # durable message/update; returns ids
 scout ask --to x "msg"     # card/label ask; fresh session, returns ids + lifecycle
 scout ask --to session:<id> "msg" # continue one exact existing session
 scout ask --project ../x "msg" # project known; concrete agent/session chosen by Scout
+scout ask --project ../x --harness claude "msg" # capability known; broker picks/creates worker
 ```
 
 When the workspace is known and there is one intended recipient, use that direct path first. Do not run `whoami`, `who`, or `latest` unless the sender is unclear, the target is ambiguous, or the command fails.
-When the project is known but the concrete agent is not, use `scout ask --project <path>` instead of discovering an agent name first.
+When the project is known but the concrete agent is not, use `scout ask --project <path>` instead of discovering an agent name first. When the desired capability matters, add `--harness <claude|codex|...>`. Do **not** guess generic handles such as `claude.main` as a first move.
+
+Default routing ladder:
+
+1. **Capability request:** project path + harness/capability, e.g. `scout ask --project /Users/art/dev/talkie --harness claude "Review the spec."`
+2. **Continuity request:** a returned `ref`, `flightId`, `conversationId`, `workId`, or `session:<id>` from the broker receipt.
+3. **Named sibling:** promote/name/pin a known-good dispatched worker only after Scout has routed it; prefer broker-suggested mnemonic handles over invented generic names.
 
 Scout can answer four questions when the route is not already obvious:
 
@@ -52,9 +59,10 @@ When the workspace is known and there is one intended recipient, do not burn ext
 - CLI message/update: `scout send --to x "msg"`
 - CLI invocation: `scout ask --to x "msg"`
 - CLI project-routed invocation: `scout ask --project ../x "msg"`
+- CLI capability-routed invocation: `scout ask --project ../x --harness claude "msg"`
 - Known offline / on-demand agents are supposed to wake on first delivery. Do not ask the operator to bring up a known target just to send the first message.
 
-The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, or `workId`. Use those handles for follow-up. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
+The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, `workId`, or a short `ref`. Use those handles for follow-up. When the broker also returns a friendly handle for the dispatched worker, treat it as the human mnemonic; do not invent a generic agent name. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
 
 Use `scout send --to ...` instead of placing the route inside the message body. Legacy `scout send "@x msg"` exists for compatibility, but body mention parsing can turn quoted agent names into route candidates. With `--to`, text such as `@codex` inside the body remains payload.
 
@@ -99,7 +107,7 @@ The semantics do not change by host. Only the verbs change:
 | Message / status / reply | `scout send --to x "msg"` | `messages_send` with explicit target fields | one target -> DM |
 | Invocation / requested reply | `scout ask --to x "msg"` | `ask` with `to` | one target -> DM; card target starts fresh |
 | Continue exact prior context | `scout ask --to session:<id> "msg"` | `ask` with `targetSessionId` | only path that reuses/stickies a harness session |
-| Project-routed invocation | `scout ask --project ../x "msg"` | `ask` with `projectPath` | use when the project is known but no concrete agent/session is selected |
+| Project/capability-routed invocation | `scout ask --project ../x --harness claude "msg"` | `ask` with `projectPath` plus optional `harness` | use when the project/capability is known but no concrete agent/session is selected |
 | Progress / waiting / review / done | same DM, plus work handle when available | `work_update` | stay in the same DM or channel |
 | Fresh reply-ready identity | `scout card create` | `card_create` | pro integration layer; identity and return address, not normal work routing |
 | Harness session lifecycle | `scout session ...` / `scout up` alias | `sessions_*` once available | pro integration layer; start/attach/inspect concrete sessions |
@@ -119,7 +127,7 @@ Do not invent a second routing model for Claude, Codex, the CLI, MCP, or the UI.
 
 Scout agents are stable identities. Scout sessions are concrete harness
 conversations/processes that can receive work. Use **session** as the noun when
-talking about Claude, Codex, or future harness lifecycle.
+talking about Claude, Codex, or future harness lifecycle. The cheapest fresh-start path is usually project + harness; Scout can choose/create the concrete worker and return the durable handle.
 
 Agent cards, labels, and exact agent ids are fresh-session targets for new
 work. They carry identity, project, harness/profile/model hints, and return
@@ -309,11 +317,13 @@ Command:
 ```bash
 scout ask --to x "msg"
 scout ask --project ../x "msg"
+scout ask --project ../x --harness claude "msg"
 ```
 
 Use `--project` when you know the codebase path but do not care which concrete
-agent/session handles it. Scout resolves or creates the right instance for that
-project.
+agent/session handles it. Add `--harness` when the capability matters. Scout
+resolves or creates the right instance for that project and should return the
+`ref`/ids/friendly handle to use for follow-up.
 
 If your host has a background worker or subagent primitive, **run Ask there instead of blocking the parent**. The parent should keep working and surface the reply when the background task completes.
 
@@ -456,7 +466,9 @@ When in doubt, use Ask.
 Use `scout card create` when you are intentionally managing Scout identity
 infrastructure and need a project-scoped relay identity with its own inbox and
 return address. This is not the default way to ask for work; use `scout ask`
-or MCP `ask` for that.
+or MCP `ask` for that. For new capability work, route by project/harness first;
+name or pin a durable sibling only after Scout has returned a known-good worker
+and, when available, a broker-suggested mnemonic handle.
 
 Use it when:
 

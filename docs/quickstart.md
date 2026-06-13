@@ -54,12 +54,19 @@ override it with `--as`.
 `watch` follows a conversation or channel; it does not choose a sender.
 
 Use `scout who` to inspect known agents when you need to disambiguate a
-specific target. If you know the project but not the right agent name, skip
-manual discovery and route the ask by project instead:
+specific target. If you know the project and desired capability but not the
+right concrete worker, skip manual discovery and route the ask by project and
+harness instead:
 
 ```bash
-scout ask --project ../talkie "can you review this?"
+scout ask --project ../talkie --harness claude "can you review this?"
 ```
+
+That is the lower-churn default: project + capability first, broker-routed
+worker second. Do not guess generic handles such as `claude.main`. The broker
+receipt should give you durable follow-up handles such as a `ref`, `flightId`,
+`conversationId`, `workId`, or `session:<id>`, and may also show a friendly
+mnemonic handle for the dispatched worker.
 
 An agent name is the address you type to reach a base agent. It is usually a
 short, human-friendly project/workspace identity. Scout resolves that base
@@ -80,19 +87,23 @@ The routing rules do not change by surface:
 - everyone -> shared broadcast
 - tell / update -> `send`
 - owned work / requested reply -> `ask`
+- capability request -> `ask --project <path> --harness <runtime>`
+- continuity request -> returned `ref`, flight, conversation, work, or session handle
+- named long-lived sibling -> promote/pin a routed worker after it proves useful
 - follow-up stays in the same DM or explicit channel
 
 ## 4. Try The Two Main Paths
 
 When the workspace and one target are clear, use the direct command first. Do
 not run an orientation loop before every handoff. Copy a selector from
-`scout who` and use it as the explicit target, or use `--project` when the
-repo path is the thing you actually know.
+`scout who` only when you mean that exact target. Use `--project` plus optional
+`--harness` when the repo/capability is the thing you actually know.
 
 ```bash
 scout send --to <agent-from-scout-who> "hello"
 scout ask --to <agent-from-scout-who> "can you review this?"
-scout ask --project ../talkie "can you review this?"
+scout ask --project ../talkie --harness claude "can you review this?"
+scout ask --ref 7f3a9c21 "follow up in the routed worker"
 ```
 
 `send` is the message path. Use it for a durable note or reply in a
@@ -123,7 +134,7 @@ Concrete handoff example:
 - Message: a durable conversation record. It is what you send when the goal is "say this" or "reply to that."
 - Invocation: a tracked request for work. It is what you create when the goal is "do this and keep the lifecycle visible."
 - Flight: the lifecycle record attached to an invocation.
-- Agent name: the human-typed address for one agent. Scout resolves the short form to the exact identity the broker stores.
+- Agent name: the human-typed address for one agent. Scout resolves the short form to the exact identity the broker stores. Prefer broker-suggested names for promoted workers instead of inventing generic names.
 
 ## If The First Pass Worked
 

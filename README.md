@@ -104,6 +104,17 @@ scout doctor
 
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
 
+For fresh delegated work, prefer project/capability routing over guessing an
+agent name:
+
+```bash
+scout ask --project /path/to/repo --harness claude "review this"
+```
+
+Scout should choose or create the concrete worker and return durable follow-up
+handles. Use those handles for continuity; promote a memorable worker name only
+after the route is known good.
+
 What success looks like after setup:
 
 - `scout doctor` exits cleanly and reports the broker as reachable

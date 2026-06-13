@@ -49,11 +49,24 @@ That mismatch matters because future prompts, sweeps, notifications, and analyti
 
 ## Current Best-Available CLI Pattern
 
-Today, the best available Scout CLI pattern for a one-to-one work handoff is:
+Today, the best available Scout CLI pattern for a one-to-one work handoff to a
+known owner is:
 
 ```bash
 scout ask --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
 ```
+
+When the sender does not know the exact owner and only knows the project plus
+capability, start by project/harness instead and let the broker route or create
+the worker:
+
+```bash
+scout ask --project /Users/art/dev/talkie --harness claude "Review docs/specs/tlk-030-modular-build-architecture.md."
+```
+
+Follow up with the returned `ref`, flight, conversation, work, or session handle.
+Do not pick a generic name such as `claude.main` as a first guess; promote or
+pin a memorable sibling only after the broker-routed worker is known good.
 
 This is intentionally one command. Run `scout whoami` first only when the shell might not be in the intended project, or when the sender needs to be audited before the handoff.
 

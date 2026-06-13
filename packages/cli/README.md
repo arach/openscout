@@ -20,7 +20,7 @@ scout whoami
 scout who
 scout latest
 scout runtimes
-scout ask --to dewey "can you review our docs?"
+scout ask --project ../talkie --harness claude "can you review our docs?"
 ```
 
 `scout setup` is the canonical onboarding entry point. It creates or updates:
@@ -65,6 +65,13 @@ The routing rules do not change by harness, UI, or host:
 - tell / update -> `scout send`
 - owned work / requested reply -> `scout ask`
 - follow-up stays in the same DM or explicit channel
+
+The lowest-churn fresh start is **capability first**: pass the project path and
+optional harness, then let the broker choose or create the concrete worker.
+Do not guess generic names like `claude.main` just because you want Claude. Use
+the returned `ref`, flight, conversation, work, or session handle for follow-up.
+If the worker proves useful, promote it to a named/pinned sibling after the fact
+using the broker-suggested handle when one is returned.
 
 When sender, target, or recent activity is unclear, the shortest orientation loop is:
 
@@ -114,6 +121,7 @@ That keeps ordinary collaboration simple:
 ```bash
 scout send --to vox "heads up: I’m on the runtime side"
 scout ask --to vox "can you confirm the broker fix?"
+scout ask --project ../talkie --harness claude "review the build spec"
 scout ask --harness codex "review this in a fresh Codex worker"
 ```
 
@@ -217,16 +225,23 @@ Aliases: `runtime:` = `harness:`, `persona:` = `profile:`, `branch:` / `worktree
 If direct send/ask still comes back unresolved, treat that as a routing problem, not a mere "target is offline" problem. The right follow-up is to disambiguate the target, inspect broker context with `scout who` / `scout latest`, or create/register the missing identity. Do not default to pushing the bring-up step back onto the operator for a known target.
 
 For current-project work where the harness is the only important choice, omit
-`--to` and `--project`:
+`--to` and `--project`; Scout infers the current project and creates or chooses
+a compatible worker:
 
 ```bash
 scout ask --harness codex "take a fresh pass on this repo"
 ```
 
 That routes by the current project path and asks the broker to create or choose
-a compatible worker. Add `--new` with an explicit `--project` when a different
-repo path should start fresh, and use an exact session/ref when the intent is
-to continue prior context.
+a compatible worker. For another repo, pass the repo path explicitly:
+
+```bash
+scout ask --project ../talkie --harness claude "review the modular build spec"
+```
+
+Use an exact `--ref` or `session:<id>` only when the intent is to continue prior
+context. If the broker returns a friendly worker handle, treat it as the human
+mnemonic; promote/pin it only after the routed worker proves useful.
 
 Local product handoffs use the public Scout address:
 

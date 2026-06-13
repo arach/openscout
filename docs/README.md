@@ -79,6 +79,7 @@ After that, choose the role-specific next read:
 - "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
 - "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
 - "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
+- "How should an agent ask for fresh work in a project?" Use [`quickstart.md`](./quickstart.md), [`scout-comms.md`](./scout-comms.md), and [`mcp-api-posture.md`](./mcp-api-posture.md): project + harness first, returned handle for follow-up.
 - "Which MCP tools are core versus pro integration?" Read [`mcp-api-posture.md`](./mcp-api-posture.md).
 - "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
 - "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).

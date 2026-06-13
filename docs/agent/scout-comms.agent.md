@@ -46,7 +46,7 @@ transcripts.
 |---|---|---|
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
-| project-routed ask | project known, concrete agent/session unknown | `scout ask --project`, `ask({ projectPath })` |
+| project/capability-routed ask | project known, concrete agent/session unknown | `scout ask --project --harness`, `ask({ projectPath, harness })` |
 | exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `ask({ targetSessionId })` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
@@ -87,8 +87,11 @@ transcripts.
 - one explicit target -> DM
 - default to the base agent/project identity; harness, model, profile, node,
   and session details are instance constraints layered on only when needed
-- when you know the project but not the concrete agent, use `projectPath` /
-  `--project` instead of running discovery first
+- when you know the project/capability but not the concrete agent, use
+  `projectPath` / `--project` plus optional `harness` / `--harness` instead of
+  running discovery first or guessing names like `claude.main`
+- follow-up uses returned `ref`, flight, conversation, work, or session handles;
+  naming/pinning comes after a broker-routed worker is known good
 - group -> explicit channel
 - shared broadcast -> opt-in
 - body text is payload, not routing metadata
@@ -111,6 +114,7 @@ Examples:
 | `/scout:ask >> hudson Review the parser.` | `targetLabel: "hudson"` | `Review the parser.` |
 | `/scout:ask >> ref:8kj4pd Continue.` | `target: { kind: "binding_ref", ref: "8kj4pd" }` | `Continue.` |
 | `/scout:ask >> project:../talkie Compare auth.` | `projectPath: "../talkie"` | `Compare auth.` |
+| `/scout:ask --project ../talkie --harness claude Review.` | `projectPath: "../talkie", harness: "claude"` | `Review.` |
 | `/scout:send >> channel:ops Status is green.` | `target: { kind: "channel", channel: "ops" }` | `Status is green.` |
 
 Supported route target forms: agent labels, `agent:<label>`, `ref:<id>`,

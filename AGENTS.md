@@ -48,6 +48,9 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - Use `scout ask` or MCP `ask` for owned work or requested replies.
 - Use `invocations_get` / `invocations_wait` only to observe flights created by asks.
 - Use `replyMode: "notify"` for longer-running agent work that should return quickly and report back later.
+- Capability requests start with project + harness/capability, not a guessed generic agent name: `scout ask --project /path/to/repo --harness claude "..."`.
+- Continuity requests use the returned handle (`ref`, `flightId`, `conversationId`, `workId`, or `session:<id>`), not a fresh short-name guess.
+- Named long-lived siblings are deliberate promotions after routing is known good; prefer broker-suggested handles over inventing names like `claude.main`.
 
 ## Must-Read Docs
 

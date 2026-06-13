@@ -273,7 +273,7 @@ async function resolveMcpSenderId(
 
 const targetLabelInputSchema = z
   .string()
-  .describe("Scout agent handle to contact, such as @talkie. Treat harness/model/profile as instance constraints, not the base agent identity.")
+  .describe("Scout agent handle to contact when a specific target is known, such as @talkie. For fresh capability work prefer projectPath plus optional harness; do not guess generic handles like claude.main. Treat harness/model/profile as instance constraints, not the base agent identity.")
   .optional();
 
 const targetAgentIdInputSchema = z
@@ -289,7 +289,7 @@ const targetSessionIdInputSchema = z
 const projectPathInputSchema = z
   .string()
   .min(1)
-  .describe("Project root to ask when you do not have a specific agent in mind; Scout resolves or creates the concrete agent instance.")
+  .describe("Project root to ask when you do not have a specific agent in mind; pair with harness when the capability matters. Scout resolves or creates the concrete worker and returns durable follow-up handles.")
   .optional();
 
 const mentionAgentIdsInputSchema = z
@@ -3677,7 +3677,7 @@ export function createScoutMcpServer(options: {
     {
       title: "Ask",
       description:
-        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: pass an agent card/label in `to` for a fresh harness session, pass `projectPath` when you know the project root and want Scout to choose/create the concrete instance, or pass `targetSessionId` to continue one exact existing session. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records. Use discovery tools only when you need broker help rather than agent work.",
+        "Ask another agent to answer, review, try, build, compare, or give feedback. This is the single broker front door for requested work: for fresh capability work pass `projectPath` plus optional `harness` and let Scout choose/create the concrete worker; pass an agent card/label in `to` only when a specific target is known; pass `targetSessionId` to continue one exact existing session. Do not guess generic names like claude.main. Ask may create message, invocation, flight, delivery, and work records as side effects; use invocations_get/invocations_wait to observe flight records and returned refs/ids for follow-up. Use discovery tools only when you need broker help rather than agent work.",
       inputSchema: z.object({
         to: z
           .string()

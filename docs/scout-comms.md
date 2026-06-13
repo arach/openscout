@@ -130,6 +130,7 @@ Examples:
 ```bash
 scout ask --to hudson "Review the auth module and report risks."
 scout ask --project ../talkie "Review the auth module and report risks."
+scout ask --project ../talkie --harness claude "Review the auth module and report risks."
 ```
 
 MCP equivalent:
@@ -142,6 +143,7 @@ ask({
 
 ask({
   projectPath: "../talkie",
+  harness: "claude",
   body: "Review the auth module and report risks.",
 })
 ```
@@ -150,9 +152,12 @@ Expected client behavior:
 
 - create or display a durable message for the ask
 - use `projectPath` / `--project` when the project is known but the concrete
-  agent or session is not; Scout resolves or creates the right project agent
-  instance
-- surface returned ids such as `flightId` and `workId`
+  agent or session is not; add `harness` / `--harness` when the capability
+  matters. Scout resolves or creates the right project worker.
+- do not teach agents to guess generic names such as `claude.main`; start from
+  project + capability, then trust the broker receipt
+- surface returned ids such as `flightId` and `workId`, plus any `ref`,
+  `sessionId`, or broker-suggested friendly handle for follow-up
 - treat the initial `ask` response as the broker receipt, not as the target
   agent's acknowledgement
 - expect the target agent to promptly post a broker-visible acknowledgement in
@@ -400,6 +405,12 @@ records and superseded endpoint records are not candidates for ordinary card
 routing. If the caller names `session:<id>`/`targetSessionId`, Scout should
 continue that exact session or return a dispatch/lifecycle failure that says
 "session reference not attachable" or "session not currently reachable".
+
+The normal fresh-start workflow is therefore: capability request by
+`projectPath` + optional `harness`; broker dispatch to an existing or new
+compatible worker; receipt with durable ids/ref and, when available, a friendly
+mnemonic handle; follow-up by that handle/ref; optional pin/name after the worker
+proves useful.
 
 ## Coordination Cost
 
