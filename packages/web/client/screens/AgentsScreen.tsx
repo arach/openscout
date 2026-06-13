@@ -1,12 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { WorkList } from "../components/WorkList.tsx";
-import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
-import { actorColor, stateColor } from "../lib/colors.ts";
+import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { actorColor } from "../lib/colors.ts";
 import { AgentAvatar } from "../components/AgentAvatar.tsx";
+import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import { api } from "../lib/api.ts";
-import { copyTextToClipboard } from "../lib/clipboard.ts";
-import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
@@ -15,10 +13,8 @@ import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
-import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
-import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import type {
   AgentTab,
@@ -31,6 +27,7 @@ import type {
   Message,
   Route,
   SessionEntry,
+  SessionCatalogEntry,
   SessionCatalogWithResume,
   TailDiscoveredProcess,
   TailDiscoverySnapshot,
@@ -1647,6 +1644,171 @@ function SignalFeed({
   );
 }
 
+// ── Modular agent profile ──────────────────────────────────────────────────
+// Control surface made of stacked bands: a calm identity header (sprite + name),
+// then full-width module bands (Now · Recent work · Signal) that flow to fill the
+// canvas. Runtime/workspace metadata and collaborators live in the rail context
+// card, not here. Instrument language: near-black, mono-first, one emerald accent
+// for live signal, status as a small dot.
+
+function shortCwd(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  return cwd.startsWith("/Users/")
+    ? "~/" + cwd.split("/").slice(3).join("/")
+    : cwd;
+}
+
+function pathLeaf(p: string): string {
+  const parts = p.replace(/\/+$/, "").split("/");
+  return parts[parts.length - 1] || p;
+}
+
+function shortSessionLabel(id: string): string {
+  // Human session ids (e.g. "relay-hu") read fine; long hashes get elided.
+  return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+// Sessions-first center: a compact essentials header (cwd · harness · model ·
+// branch), the live-actions bar for the active session, then the agent's
+// sessions ordered by recency (active first). No idle "Now" hero — idle reads
+// as a calm list; the action is open an existing session or message the agent.
+function ModularProfileCenter({
+  agent,
+  name,
+  sessionCatalog,
+  navigate,
+  route,
+}: {
+  agent: Agent;
+  name: string;
+  sessionCatalog: SessionCatalogWithResume | null;
+  conversationId: string | null;
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const activeSessionId =
+    sessionCatalog?.activeSessionId ??
+    (agent.transport === "tmux" ? agent.harnessSessionId : null);
+
+  const essentials = [
+    agent.cwd ? { k: "cwd", v: shortCwd(agent.cwd) ?? agent.cwd } : null,
+    agent.harness ? { k: "harness", v: agent.harness } : null,
+    agent.model ? { k: "model", v: agent.model } : null,
+    agent.branch ? { k: "branch", v: `⎇ ${agent.branch}` } : null,
+  ].filter((f): f is { k: string; v: string } => Boolean(f));
+
+  const sessions = useMemo(() => {
+    const list = [...(sessionCatalog?.sessions ?? [])];
+    return list.sort((a, b) => {
+      const aActive = a.id === activeSessionId ? 1 : 0;
+      const bActive = b.id === activeSessionId ? 1 : 0;
+      if (aActive !== bActive) return bActive - aActive;
+      return (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt);
+    });
+  }, [sessionCatalog?.sessions, activeSessionId]);
+
+  const openMessage = () =>
+    navigate({ view: "agents", agentId: agent.id, tab: "message" });
+  const openSession = (s: SessionCatalogEntry) => {
+    if (s.id === activeSessionId && agent.transport === "tmux") {
+      openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
+    } else {
+      openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+    }
+  };
+
+  return (
+    <div className="s-sess-root">
+      <header className="s-sess-head">
+        <div className="s-sess-id">
+          <AgentAvatar agent={agent} size={42} tile presence={false} />
+          <div className="s-sess-id-copy">
+            <span className="s-sess-name">{name}</span>
+            {essentials.length > 0 && (
+              <div className="s-sess-essentials">
+                {essentials.map((f) => (
+                  <span key={f.k} className="s-sess-fact">
+                    <span className="s-sess-fact-k">{f.k}</span>
+                    <span className="s-sess-fact-v">{f.v}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <button type="button" className="s-sess-action" onClick={openMessage}>
+          Message
+        </button>
+      </header>
+
+      <AgentLiveActions
+        agent={agent}
+        catalog={sessionCatalog}
+        navigate={navigate}
+        returnTo={route}
+        variant="compact"
+        className="s-sess-live"
+      />
+
+      <section className="s-sess-band">
+        <header className="s-sess-band-head">
+          <span className="s-sess-band-label">Recent sessions</span>
+          {sessions.length > 0 && (
+            <span className="s-sess-band-meta">{sessions.length} · by recency</span>
+          )}
+        </header>
+        <div className="s-sess-list">
+          {sessions.length === 0 ? (
+            <div className="s-sess-empty">No sessions yet — message {name} to start one.</div>
+          ) : (
+            sessions.map((s) => {
+              const active = s.id === activeSessionId;
+              const harnessLabel =
+                s.transport ?? s.harness ?? agent.transport ?? agent.harness ?? "session";
+              const when = active
+                ? "active"
+                : s.endedAt
+                  ? `ended · ${timeAgo(s.endedAt) || "recent"}`
+                  : timeAgo(s.startedAt) || "recent";
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`s-sess-row${active ? " s-sess-row--active" : ""}`}
+                  onClick={() => openSession(s)}
+                >
+                  <span
+                    className="s-mod-dot s-sess-row-dot"
+                    style={{
+                      background: active ? "var(--accent)" : "var(--dim)",
+                      opacity: active ? 1 : 0.55,
+                    }}
+                  />
+                  <span className="s-sess-row-main">
+                    <span className="s-sess-row-top">
+                      <span className="s-sess-row-id">{shortSessionLabel(s.id)}</span>
+                      <span className="s-sess-row-tag">{harnessLabel}</span>
+                    </span>
+                    <span className="s-sess-row-sub">
+                      {s.cwd ? pathLeaf(s.cwd) : "workspace"}
+                      {s.model ? ` · ${s.model}` : ""}
+                    </span>
+                  </span>
+                  <span
+                    className={`s-sess-row-when${active ? " s-sess-row-when--active" : ""}`}
+                  >
+                    {when}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AgentDetailWithRail({
   agent,
   allAgents,
@@ -1662,57 +1824,18 @@ function AgentDetailWithRail({
   navigate: (r: Route) => void;
   activeTab: AgentTab;
 }) {
-  const { name, qualifier } = agentLabel(agent, allAgents);
-  const [work, setWork] = useState<WorkItem[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [fleet, setFleet] = useState<FleetState | null>(null);
+  const { name } = agentLabel(agent, allAgents);
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
-  const [contextState, setContextState] = useState<LocalAgentContextState | null>(null);
-  const [resettingContext, setResettingContext] = useState(false);
-  const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
-  const state = normalizeAgentState(agent.state);
-  const showContextMenu = useContextMenu();
   const { route } = useScout();
 
   const load = useCallback(async () => {
-    const [workResult, fleetResult] = await Promise.allSettled([
-      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}&active=false&limit=12`),
-      api<FleetState>("/api/fleet"),
-    ]);
-    if (workResult.status === "fulfilled") setWork(workResult.value);
-    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
+    const catalogResult = await api<SessionCatalogWithResume>(
+      `/api/agents/${encodeURIComponent(agent.id)}/session-catalog`,
+    ).catch(() => null);
+    setSessionCatalog(catalogResult);
   }, [agent.id]);
-
-  const dismissWorkAttention = useCallback(async (item: WorkItem) => {
-    setDismissingWorkId(item.id);
-    try {
-      await dismissOperatorAttention({
-        recordKind: "work_item",
-        recordId: item.id,
-        itemUpdatedAt: item.updatedAt,
-      });
-      await load();
-    } finally {
-      setDismissingWorkId(null);
-    }
-  }, [load]);
-
-  const loadMessages = useCallback(async () => {
-    if (!conversationId) {
-      setMessages([]);
-      return;
-    }
-    try {
-      const result = await api<Message[]>(
-        `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=20`,
-      );
-      setMessages(result);
-    } catch {
-      setMessages([]);
-    }
-  }, [conversationId]);
 
   const loadObserve = useCallback(async () => {
     setObserveLoading(true);
@@ -1749,53 +1872,13 @@ function AgentDetailWithRail({
     }
   }, [agent.id]);
 
-  const loadContextState = useCallback(async () => {
-    if (!agent.transport) {
-      setContextState(null);
-      return;
-    }
-    try {
-      const result = await api<LocalAgentContextState>(
-        `/api/agents/${encodeURIComponent(agent.id)}/session/context`,
-      );
-      setContextState(result);
-    } catch {
-      setContextState(null);
-    }
-  }, [agent.id, agent.transport]);
-
-  const resetAgentContext = useCallback(async () => {
-    setResettingContext(true);
-    try {
-      const result = await api<{ ok: boolean; catalog: SessionCatalogWithResume }>(
-        `/api/agents/${encodeURIComponent(agent.id)}/session/reset`,
-        { method: "POST" },
-      );
-      setSessionCatalog(result.catalog);
-      await loadContextState();
-      if (activeTab === "observe") {
-        await loadObserve();
-      }
-    } catch {
-      await loadContextState();
-    } finally {
-      setResettingContext(false);
-    }
-  }, [activeTab, agent.id, loadContextState, loadObserve]);
-
   useEffect(() => {
     void load();
-    void loadMessages();
-    void loadContextState();
-    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
-      .then(setSessionCatalog)
-      .catch(() => {});
-  }, [load, loadMessages, loadContextState, agent.id]);
+  }, [load]);
 
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
-    setContextState(null);
   }, [agent.id]);
 
   useEffect(() => {
@@ -1807,8 +1890,6 @@ function AgentDetailWithRail({
 
   useBrokerEvents(() => {
     void load();
-    void loadMessages();
-    void loadContextState();
     if (activeTab === "observe") {
       void loadObserve();
     }
@@ -1824,446 +1905,21 @@ function AgentDetailWithRail({
     return () => clearInterval(timer);
   }, [activeTab, observe?.data.live, loadObserve]);
 
-  const currentWork = work.find(
-    (w) => w.state === "working" || w.state === "review",
-  );
-  const activeWork = work.filter(
-    (w) =>
-      (w.state === "working" || w.state === "review" || w.state === "waiting") &&
-      w.id !== currentWork?.id,
-  );
-  const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
-
-  const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
-  const harnessLabel = agent.harness;
-  const machineLabel = agent.authorityNodeName
-    ?? agent.homeNodeName
-    ?? agent.authorityNodeId
-    ?? agent.homeNodeId;
-  const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
-    ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
-    : null;
-  const selectorLabel = primaryAgentSelector(agent);
-  const authorityLabel = agent.authorityNodeName && agent.authorityNodeId
-    ? `${agent.authorityNodeName} (${agent.authorityNodeId})`
-    : agent.authorityNodeName ?? agent.authorityNodeId;
-  const homeLabel = agent.homeNodeName && agent.homeNodeId
-    ? `${agent.homeNodeName} (${agent.homeNodeId})`
-    : agent.homeNodeName ?? agent.homeNodeId;
-  const qualifierParts = [
-    agent.workspaceQualifier ? `workspace ${agent.workspaceQualifier}` : null,
-    agent.nodeQualifier ? `node ${agent.nodeQualifier}` : null,
-  ].filter(Boolean);
-  const eyebrowParts = [roleLabel, harnessLabel]
-    .filter(Boolean)
-    .filter((v, i, arr) => arr.indexOf(v) === i);
-
-  const teammateCount = useMemo(
-    () => allAgents.filter((a) => a.project === agent.project).length,
-    [allAgents, agent.project],
-  );
-
-  const taskProgress = currentWork?.currentPhase === "review"
-    ? 85
-    : currentWork?.currentPhase === "working"
-      ? 50
-      : 20;
-  const currentWorkAgeMs = currentWork ? Date.now() - currentWork.lastMeaningfulAt : 0;
-  const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
-  const currentTaskStatus = currentWork
-    ? currentWorkIsStale
-      ? `no recent signal · ${timeAgo(currentWork.lastMeaningfulAt)}`
-      : `${taskProgress}% · live`
-    : "";
-
-  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
-    { key: "profile", label: "Profile" },
-    { key: "observe", label: "Observe" },
-    { key: "message", label: "Message", disabled: !conversationId },
-  ];
-
-  const navigateToTab = (tab: AgentTab) => {
-    navigate({
-      view: "agents",
-      agentId: agent.id,
-      ...(conversationId ? { conversationId } : {}),
-      tab,
-    });
-  };
-
-  const renderTabs = (className = "") => (
-    <nav className={`s-profile-tabs${className ? ` ${className}` : ""}`}>
-      {tabs.map((t) => (
-        <button
-          key={t.key}
-          type="button"
-          className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
-          disabled={t.disabled}
-          onClick={() => navigateToTab(t.key)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </nav>
-  );
-
   return (
-    <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
-      <div className="s-profile-return-row">
-        <BackToPicker
-          slot="agents"
-          fallback={{ view: "agents" }}
-          navigate={navigate}
-          className="s-profile-back-position"
-        />
-      </div>
-
-
-      {activeTab === "profile" ? (
-        <section
-          className="s-profile-identity"
-          onContextMenu={(e) => {
-            const sel = window.getSelection()?.toString().trim();
-            const items: MenuItem[] = [];
-            if (sel) {
-              items.push({
-                kind: "action",
-                label: "Copy Selection",
-                shortcut: "⌘C",
-                onSelect: () => {
-                  void copyTextToClipboard(sel);
-                },
-              });
-              items.push({ kind: "separator" });
-            }
-            items.push({
-              kind: "action",
-              label: "Copy Agent Name",
-              onSelect: () => {
-                void copyTextToClipboard(name);
-              },
-            });
-            items.push({
-              kind: "action",
-              label: "Copy Agent ID",
-              onSelect: () => {
-                void copyTextToClipboard(agent.id);
-              },
-            });
-            if (agent.handle) {
-              items.push({
-                kind: "action",
-                label: `Copy @${agent.handle}`,
-                onSelect: () => {
-                  void copyTextToClipboard(`@${agent.handle}`);
-                },
-              });
-            }
-            if (agent.selector) {
-              items.push({
-                kind: "action",
-                label: "Copy Selector",
-                onSelect: () => {
-                  void copyTextToClipboard(agent.selector ?? "");
-                },
-              });
-            }
-            if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
-              items.push({
-                kind: "action",
-                label: "Copy Default Selector",
-                onSelect: () => {
-                  void copyTextToClipboard(agent.defaultSelector ?? "");
-                },
-              });
-            }
-            showContextMenu(e, items);
-          }}
-        >
-          <div className="s-profile-identity-top">
-            <div className="s-profile-identity-avatar-wrap">
-              <AgentAvatar
-                agent={agent}
-                placement="hero"
-                className="s-profile-identity-avatar"
-              />
-              <span
-                className={`s-profile-identity-pulse s-profile-identity-pulse--${agentStateCssToken(state)}`}
-                style={{ background: stateColor(agent.state) }}
-              />
-            </div>
-            <div className="s-profile-identity-copy">
-              {eyebrowParts.length > 0 && (
-                <div className="s-profile-identity-eyebrow">
-                  {eyebrowParts.join(" · ")}
-                </div>
-              )}
-              <h1 className="s-profile-identity-name">
-                {name}
-                {qualifier && (
-                  <span className="s-profile-identity-name-qualifier">
-                    {qualifier}
-                  </span>
-                )}
-                {agent.handle && (
-                  <span className="s-profile-identity-name-handle">
-                    @{agent.handle}
-                  </span>
-                )}
-              </h1>
-              <div className="s-profile-identity-state-row">
-                <span className="s-profile-identity-state">
-                  <span
-                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
-                    style={{ background: stateColor(agent.state) }}
-                  />
-                  <span className="s-profile-identity-state-label">
-                    {agentStateLabel(agent.state)}
-                  </span>
-                  {agent.updatedAt && (
-                    <span className="s-profile-identity-state-detail">
-                      &mdash; {timeAgo(agent.updatedAt)}
-                    </span>
-                  )}
-                  {agent.staleLocalRegistration && (
-                    <span className="s-profile-identity-state-detail">
-                      superseded registration
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="s-profile-identity-qualified">
-                <span>{agent.id}</span>
-                {selectorLabel && <span>{selectorLabel}</span>}
-                {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
-                  <span>{agent.defaultSelector}</span>
-                )}
-              </div>
-              <AgentLiveActions
-                agent={agent}
-                catalog={sessionCatalog}
-                navigate={navigate}
-                returnTo={route}
-                variant="inline"
-              />
-            </div>
-            {renderTabs()}
-          </div>
-        </section>
-      ) : (
-        <div className="s-profile-compact-tabs">
-          {renderTabs("s-profile-tabs--compact")}
-        </div>
-      )}
-
+    <div
+      className={`s-profile-center${
+        activeTab !== "profile" ? " s-profile-center--tabbed" : " s-profile-center--modular"
+      }`}
+    >
       {activeTab === "profile" && (
-        <div className="s-profile-tab-content">
-          {(agent.id || selectorLabel || machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
-            <div className="s-profile-facets">
-              <div className="s-profile-facet s-profile-facet--identity">
-                <div className="s-profile-facet-label">Agent ID</div>
-                <div className="s-profile-facet-value s-profile-facet-value--mono">{agent.id}</div>
-                <div className="s-profile-facet-detail">
-                  definition {agent.definitionId}
-                </div>
-              </div>
-              {selectorLabel && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Selector</div>
-                  <div className="s-profile-facet-value s-profile-facet-value--mono">{selectorLabel}</div>
-                  {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
-                    <div className="s-profile-facet-detail">
-                      default {agent.defaultSelector}
-                    </div>
-                  )}
-                </div>
-              )}
-              {(qualifierParts.length > 0 || authorityLabel || homeLabel) && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Authority</div>
-                  <div className="s-profile-facet-value">{authorityLabel ?? machineLabel ?? "local"}</div>
-                  <div className="s-profile-facet-detail">
-                    {qualifierParts.length > 0
-                      ? qualifierParts.join(" · ")
-                      : homeLabel && homeLabel !== authorityLabel
-                        ? `home ${homeLabel}`
-                        : "qualified route"}
-                  </div>
-                </div>
-              )}
-              {machineLabel && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Machine</div>
-                  <div className="s-profile-facet-value">{machineLabel}</div>
-                  {machineDetail && (
-                    <div className="s-profile-facet-detail">{machineDetail}</div>
-                  )}
-                </div>
-              )}
-              {agent.project && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Workspace</div>
-                  <div className="s-profile-facet-value">{agent.project}</div>
-                  {teammateCount > 1 && (
-                    <div className="s-profile-facet-detail">
-                      {teammateCount} teammates
-                    </div>
-                  )}
-                </div>
-              )}
-              {(agent.branch || agent.projectRoot) && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Repo / Branch</div>
-                  <div className="s-profile-facet-value">
-                    {agent.projectRoot
-                      ? agent.projectRoot.split("/").pop()
-                      : agent.project ?? "—"}
-                  </div>
-                  {agent.branch && (
-                    <div className="s-profile-facet-detail">
-                      <span className="s-profile-facet-accent">⎇</span> {agent.branch}
-                    </div>
-                  )}
-                </div>
-              )}
-              {agent.cwd && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Working Dir</div>
-                  <div className="s-profile-facet-value">
-                    {agent.cwd.startsWith("/Users/")
-                      ? "~/" + agent.cwd.split("/").slice(3).join("/")
-                      : agent.cwd}
-                  </div>
-                  {agent.updatedAt && (
-                    <div className="s-profile-facet-detail">
-                      uptime {timeAgo(agent.updatedAt)}
-                    </div>
-                  )}
-                </div>
-              )}
-              {sessionCatalog?.activeSessionId && (
-                <SessionFacet catalog={sessionCatalog} agentId={agent.id} />
-              )}
-              {contextState && (
-                <ContextFacet
-                  context={contextState}
-                  lastActivityAt={agent.updatedAt ?? null}
-                  resetting={resettingContext}
-                  onReset={() => void resetAgentContext()}
-                />
-              )}
-            </div>
-          )}
-          {currentWork && state === "working" && (
-            <>
-              <SectionRule
-                label="Current task"
-                right={currentTaskStatus}
-              />
-              <div className="s-profile-task">
-                <div className="s-profile-task-title">{currentWork.title}</div>
-                {currentWork.lastMeaningfulSummary && (
-                  <>
-                    <div className="s-profile-task-progress">
-                      <div
-                        className="s-profile-task-progress-bar"
-                        style={{ width: `${taskProgress}%` }}
-                      />
-                    </div>
-                    <div className="s-profile-task-action">
-                      <span className="s-profile-task-action-chevron">
-                        &rsaquo;
-                      </span>
-                      <span>{currentWork.lastMeaningfulSummary}</span>
-                      <span className="s-profile-task-cursor" />
-                    </div>
-                  </>
-                )}
-                <div className="s-profile-task-meta">
-                  <span>{currentWork.currentPhase}</span>
-                  <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
-                </div>
-                <div className="s-profile-task-controls" aria-label="Current task actions">
-                  <button
-                    type="button"
-                    className="s-profile-task-btn s-profile-task-btn--primary"
-                    onClick={() =>
-                      openContent(
-                        navigate,
-                        { view: "work", workId: currentWork.id },
-                        { returnTo: route },
-                      )}
-                  >
-                    Open work
-                  </button>
-                  <button
-                    type="button"
-                    className="s-profile-task-btn"
-                    onClick={() => navigateToTab("observe")}
-                  >
-                    Observe
-                  </button>
-                  {conversationId && (
-                    <button
-                      type="button"
-                      className="s-profile-task-btn"
-                      onClick={() => navigateToTab("message")}
-                    >
-                      Message
-                    </button>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeWork.length > 0 && (
-            <>
-              <SectionRule
-                label="Active work"
-                right={`${activeWork.length} in flight`}
-              />
-              <div className="s-profile-work">
-                <WorkList
-                  items={activeWork}
-                  navigate={navigate}
-                  emptyTitle="Nothing in flight"
-                  onDismissAttention={(item) => void dismissWorkAttention(item)}
-                  dismissingId={dismissingWorkId}
-                />
-              </div>
-            </>
-          )}
-
-          {recentDone.length > 0 && (
-            <>
-              <SectionRule
-                label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
-                right={`${recentDone.length}`}
-              />
-              <div className="s-profile-work">
-                <WorkList
-                  items={recentDone}
-                  navigate={navigate}
-                  emptyTitle=""
-                />
-              </div>
-            </>
-          )}
-
-          <AgentActivityFeed
-            agent={agent}
-            fleet={fleet}
-            navigate={navigate}
-          />
-
-          <SignalFeed
-            messages={messages}
-            navigate={navigate}
-            conversationId={conversationId}
-            agentId={agent.id}
-          />
-        </div>
+        <ModularProfileCenter
+          agent={agent}
+          name={name}
+          sessionCatalog={sessionCatalog}
+          conversationId={conversationId}
+          navigate={navigate}
+          route={route}
+        />
       )}
 
       {activeTab === "observe" && (
@@ -2387,7 +2043,18 @@ export function AgentsScreen({
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (
-      <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
+      <AgentsRouteFrame
+        activeRoute={activeRoute ?? route}
+        navigate={navigate}
+        bar={
+          <AgentProfileBar
+            agent={selectedAgent}
+            conversationId={resolvedConversationId}
+            activeTab={resolvedTab}
+            navigate={navigate}
+          />
+        }
+      >
         <AgentDetailWithRail
           agent={selectedAgent}
           allAgents={scopedAgents}
@@ -2416,19 +2083,69 @@ export function AgentsScreen({
   );
 }
 
+function AgentProfileBar({
+  agent,
+  conversationId,
+  activeTab,
+  navigate,
+}: {
+  agent: Agent;
+  conversationId: string | null;
+  activeTab: AgentTab;
+  navigate: (r: Route) => void;
+}) {
+  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
+    { key: "profile", label: "Profile" },
+    { key: "observe", label: "Observe" },
+    { key: "message", label: "Message", disabled: !conversationId },
+  ];
+  const navigateToTab = (tab: AgentTab) =>
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      ...(conversationId ? { conversationId } : {}),
+      tab,
+    });
+  return (
+    <div className="s-agent-bar">
+      <BackToPicker
+        slot="agents"
+        fallback={{ view: "agents" }}
+        navigate={navigate}
+        className="s-agent-bar-back"
+      />
+      <nav className="s-profile-tabs s-agent-bar-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
+            disabled={t.disabled}
+            onClick={() => navigateToTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 function AgentsRouteFrame({
   activeRoute,
   children,
   navigate,
+  bar,
 }: {
   activeRoute: Route;
   children: ReactNode;
   navigate: (r: Route) => void;
+  bar?: ReactNode;
 }) {
   return (
     <div className="s-secondary-nav-shell">
       <div className="s-secondary-nav-bar">
-        <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />
+        {bar ?? <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />}
       </div>
       <div className="s-secondary-nav-body">{children}</div>
     </div>
@@ -3109,6 +2826,80 @@ function ProjectLabeledAgentSessionList({
   );
 }
 
+// One accent only — brightness encodes state, not hue (working brightest,
+// ready mid, everything else dim). Replaces the categorical stateColor() dots
+// on the Agents page per the locked Instrument direction.
+function treeDotColor(state: string | null): string {
+  switch (normalizeAgentState(state)) {
+    case "working":
+      return "var(--accent)";
+    case "ready":
+      return "color-mix(in srgb, var(--accent) 52%, var(--dim))";
+    default:
+      return "var(--dim)";
+  }
+}
+
+// Collapsible group of project-level sessions (workflow runs, native processes)
+// so low-signal rows don't render at the same weight as the agents above them.
+function ProjectTreeSessionGroup({
+  label,
+  noun,
+  nounPlural,
+  sessions,
+  open,
+  onToggle,
+  onOpenSession,
+}: {
+  label: string;
+  noun: string;
+  nounPlural: string;
+  sessions: ProjectTreeSessionNode[];
+  open: boolean;
+  onToggle: () => void;
+  onOpenSession: (session: ProjectTreeSessionNode) => void;
+}) {
+  if (sessions.length === 0) return null;
+  const count = sessions.length;
+  return (
+    <Fragment>
+      <div className="s-agent-project-tree-row s-agent-project-tree-row--group" role="row">
+        <div className="s-agent-project-tree-target">
+          <button
+            type="button"
+            className="s-agent-project-tree-toggle"
+            aria-label={`${open ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
+            aria-expanded={open}
+            onClick={onToggle}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+          <span className="s-agent-project-tree-copy">
+            <span className="s-agent-project-tree-primary">{label}</span>
+            <span className="s-agent-project-tree-secondary">
+              {count} {count === 1 ? noun : nounPlural}
+            </span>
+          </span>
+        </div>
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-mono">
+          {sessions[0]?.lastActivityAt ? timeAgo(sessions[0].lastActivityAt) : "—"}
+        </span>
+      </div>
+      {open && sessions.map((session) => (
+        <ProjectTreeSessionRow
+          key={session.key}
+          session={session}
+          compact
+          onOpen={() => onOpenSession(session)}
+        />
+      ))}
+    </Fragment>
+  );
+}
+
 function ProjectLabeledAgentTree({
   project,
   navigate,
@@ -3128,6 +2919,45 @@ function ProjectLabeledAgentTree({
     ].filter(showProjectLevelSessionInOverview)),
     [project.workflows, tree.unassignedSessions],
   );
+  const workflowSessions = useMemo(
+    () => projectLevelSessions.filter((session) => session.kind === "workflow"),
+    [projectLevelSessions],
+  );
+  const otherSessions = useMemo(
+    () => projectLevelSessions.filter((session) => session.kind !== "workflow"),
+    [projectLevelSessions],
+  );
+
+  // Workflows and native processes each collapse into a group node, persisted
+  // per project. Default both to collapsed on first visit (each gated by its own
+  // marker) so the run/process lists don't bury the agents above them.
+  const collapsedStorageKey = `openscout.agents.labeledTree.collapsed:${project.key}`;
+  const workflowsKey = `${project.key}:workflows`;
+  const nativeKey = `${project.key}:native`;
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const stored = readCollapsedProjectTreeRows(collapsedStorageKey);
+    for (const key of [workflowsKey, nativeKey]) {
+      const marker = `${key}:default`;
+      if (!stored.has(marker)) {
+        stored.add(key);
+        stored.add(marker);
+      }
+    }
+    return stored;
+  });
+  useEffect(() => {
+    writeCollapsedProjectTreeRows(collapsedStorageKey, collapsed);
+  }, [collapsed, collapsedStorageKey]);
+  const workflowsOpen = !collapsed.has(workflowsKey);
+  const nativeOpen = !collapsed.has(nativeKey);
+  const toggleRow = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const openSession = (session: ProjectTreeSessionNode) => {
     if (!session.route) return;
@@ -3154,7 +2984,7 @@ function ProjectLabeledAgentTree({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: stateColor(row.agent.state) }}
+                        style={{ background: treeDotColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3183,14 +3013,25 @@ function ProjectLabeledAgentTree({
           );
         })}
 
-        {projectLevelSessions.map((session) => (
-          <ProjectTreeSessionRow
-            key={session.key}
-            session={session}
-            compact
-            onOpen={() => openSession(session)}
-          />
-        ))}
+        <ProjectTreeSessionGroup
+          label="Workflows"
+          noun="run"
+          nounPlural="runs"
+          sessions={workflowSessions}
+          open={workflowsOpen}
+          onToggle={() => toggleRow(workflowsKey)}
+          onOpenSession={openSession}
+        />
+
+        <ProjectTreeSessionGroup
+          label="Native processes"
+          noun="process"
+          nounPlural="processes"
+          sessions={otherSessions}
+          open={nativeOpen}
+          onToggle={() => toggleRow(nativeKey)}
+          onOpenSession={openSession}
+        />
       </div>
     </div>
   );
@@ -3354,7 +3195,7 @@ function ProjectTreeTable({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: stateColor(row.agent.state) }}
+                        style={{ background: treeDotColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3440,14 +3281,17 @@ function ProjectTreeSessionRow({
   );
 
   if (compact) {
+    // These rows live under a labeled group ("Workflows" / "Native processes"),
+    // so the per-row kind is redundant. Workflows surface their worker/task
+    // progress (status is always "workflow"); native rows keep their live state.
     return (
       <div className={rowClass} role="row">
         {target}
         <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-          {session.status}
+          {session.kind === "workflow" ? "" : session.status}
         </span>
-        <span className="s-agent-project-tree-muted">{session.kind}</span>
-        <span className="s-agent-project-tree-muted">—</span>
+        <span className="s-agent-project-tree-muted">{session.subLabel ?? ""}</span>
+        <span className="s-agent-project-tree-muted" />
         <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
       </div>
     );
@@ -3501,7 +3345,7 @@ function ProjectAgentCard({
       <span className="s-agent-project-card-top">
         <span
           className="s-agent-project-card-dot"
-          style={{ background: stateColor(row.agent.state) }}
+          style={{ background: treeDotColor(row.agent.state) }}
           aria-hidden="true"
         />
         <span className="s-agent-project-card-name">{row.agent.name}</span>

@@ -160,6 +160,8 @@ export function AgentsInspector() {
     );
   }
 
+  // A focused agent always gets the context card (no identity replay) on every
+  // tab — the center owns identity, the rail owns the organized context facts.
   return (
     <AgentContextPanel
       agent={agent}
@@ -167,6 +169,7 @@ export function AgentsInspector() {
       navigate={navigate}
       route={route}
       observeMode={route.tab === "observe"}
+      showStaticIdentity={false}
     />
   );
 }
@@ -207,24 +210,21 @@ function AgentsDirectoryContextPanel({
   );
   const activeNow = working.slice(0, 5);
   const projectCount = new Set(agents.map(agentProjectLabel)).size;
-  const surfaceLabel = working.length > 0 ? "Live routing surface" : "Quiet routing surface";
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
-        <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
-          Directory context
+      <Section label="Directory context">
+        <StatRow
+          stats={[
+            { label: "Agents", value: `${agents.length}` },
+            { label: "Projects", value: `${projectCount}` },
+            { label: "Working", value: `${working.length}` },
+          ]}
+        />
+        <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          {readyCount} ready · {projectCount} {projectCount === 1 ? "project" : "projects"}
         </div>
-        <div className="mt-2 grid grid-cols-3 gap-1">
-          <MiniStat label="Agents" value={`${agents.length}`} />
-          <MiniStat label="Projects" value={`${projectCount}`} />
-          <MiniStat label="Working" value={`${working.length}`} />
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-          <span>{surfaceLabel}</span>
-          <span>{readyCount} ready</span>
-        </div>
-      </div>
+      </Section>
 
       <Section label="Project mix">
         <PillList items={projectMix} empty="No projects visible" />
@@ -236,34 +236,31 @@ function AgentsDirectoryContextPanel({
 
       <Section label="Active now">
         {activeNow.length === 0 ? (
-          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            No agents are currently marked working.
-          </div>
+          <EmptyLine>No agents currently working.</EmptyLine>
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-0.5">
             {activeNow.map((candidate) => (
               <button
                 key={candidate.id}
                 type="button"
-                className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5 text-left transition-colors hover:border-[var(--scout-chrome-border)]"
+                className="flex w-full items-center gap-2 rounded-[4px] px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--scout-chrome-hover)]"
                 onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
               >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: stateColor(candidate.state) }}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
-                    {candidate.name}
-                  </span>
-                  {candidate.updatedAt && (
-                    <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
-                      {timeAgo(candidate.updatedAt)}
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--accent)" }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+                      {candidate.name}
                     </span>
-                  )}
-                </div>
-                <div className="mt-0.5 truncate pl-3.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
-                  {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
+                    {candidate.updatedAt && (
+                      <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                        {timeAgo(candidate.updatedAt)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
+                  </div>
                 </div>
               </button>
             ))}
@@ -273,21 +270,19 @@ function AgentsDirectoryContextPanel({
 
       <Section label="Recent">
         {recentAgents.length === 0 ? (
-          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            No recent agent activity in this scope.
-          </div>
+          <EmptyLine>No recent agent activity in this scope.</EmptyLine>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {recentAgents.map((candidate) => (
               <button
                 key={candidate.id}
                 type="button"
-                className="flex items-center gap-2 bg-transparent px-0 py-0.5 text-left"
+                className="flex w-full items-center gap-2 rounded-[4px] px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--scout-chrome-hover)]"
                 onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
               >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: stateColor(candidate.state), opacity: isAgentOnline(candidate.state) ? 1 : 0.45 }}
+                  style={{ background: isAgentOnline(candidate.state) ? "var(--accent)" : "var(--dim)" }}
                 />
                 <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink-soft)]">
                   {candidate.name}
@@ -304,15 +299,36 @@ function AgentsDirectoryContextPanel({
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+/* ── Instrument structure kit ──────────────────────────────────────────────
+   Flat stat readout · border-only tag distributions · plain empty lines.
+   The signed-off vocabulary (studio: scout-inspectors). To be lifted into a
+   shared inspector kit as the other inspectors adopt it. */
+
+function StatRow({ stats }: { stats: Array<{ label: string; value: string }> }) {
   return (
-    <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
-      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
-        {label}
-      </div>
-      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
-        {value}
-      </div>
+    <div className="flex">
+      {stats.map((stat, i) => (
+        <div
+          key={stat.label}
+          className="flex min-w-0 flex-1 flex-col gap-1"
+          style={i ? { paddingLeft: 11, marginLeft: 11, borderLeft: "1px solid var(--scout-chrome-border-soft)" } : undefined}
+        >
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+            {stat.label}
+          </span>
+          <span className="truncate font-mono text-[18px] leading-none text-[var(--scout-chrome-ink-strong)]">
+            {stat.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="font-mono text-[10px] tracking-[0.02em] text-[var(--scout-chrome-ink-ghost)]">
+      {children}
     </div>
   );
 }
@@ -325,21 +341,18 @@ function PillList({
   empty: string;
 }) {
   if (items.length === 0) {
-    return (
-      <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-        {empty}
-      </div>
-    );
+    return <EmptyLine>{empty}</EmptyLine>;
   }
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <span
           key={item.label}
-          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          className="inline-flex items-center gap-1.5 rounded-[3px] border border-[var(--scout-chrome-border-soft)] px-1.5 py-[2.5px] font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
           title={`${item.count} ${item.label}`}
         >
-          {item.label} {item.count}
+          <span>{item.label}</span>
+          <span className="text-[var(--scout-chrome-ink-faint)]">{item.count}</span>
         </span>
       ))}
     </div>
@@ -445,12 +458,17 @@ function AgentContextPanel({
   navigate,
   route,
   observeMode,
+  showStaticIdentity = true,
 }: {
   agent: Agent;
   agents: Agent[];
   navigate: (r: Route) => void;
   route: Route;
   observeMode: boolean;
+  // When the center profile is on screen it already owns the static facts
+  // (state · identity · project). The rail then narrows to a live instrument
+  // and hides those blocks to avoid echoing the center.
+  showStaticIdentity?: boolean;
 }) {
   const online = isAgentOnline(agent.state);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -477,6 +495,65 @@ function AgentContextPanel({
     void load();
   });
 
+  // Focused-agent context card — no identity replay, metadata organized tightly
+  // and printed in one place (the center owns the avatar / name / state).
+  if (!showStaticIdentity) {
+    return (
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        {/* The center now owns the live-actions bar, the essentials header,
+            and the session list — so the focused rail narrows to runtime
+            detail + relationships, without echoing the center. */}
+        {agent.transport === "tmux" && (
+          <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+        )}
+
+        {/* Runtime — tight 2-col readout of the facts that matter */}
+        <Section label="Runtime">
+          <RuntimeGrid agent={agent} />
+        </Section>
+
+        {/* Talks to — state-sorted peers, the best proxy we have */}
+        <Section label="Talks to">
+          <InspectorMesh
+            focusAgent={agent}
+            agents={agents}
+            onOpenAgent={(target) =>
+              openAgent(navigate, target, { from: "inspector", returnTo: route })
+            }
+          />
+        </Section>
+
+        {/* Capabilities */}
+        {agent.capabilities.length > 0 && (
+          <Section label={`Capabilities · ${agent.capabilities.length}`}>
+            <div className="flex flex-wrap gap-1">
+              {agent.capabilities.map((cap) => (
+                <span
+                  key={cap}
+                  className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
+                >
+                  {cap}
+                </span>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {observeMode && <ObserveContext agentId={agent.id} />}
+
+        {fleet && (
+          <InspectorAsks
+            asks={fleet.activeAsks}
+            agentId={agent.id}
+            navigate={navigate}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Agent-info / multi-agent pick context — an identity header earns its place
+  // here because the center isn't already focused on this agent.
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
       {/* Identity */}
@@ -591,6 +668,35 @@ function AgentContextPanel({
         navigate={navigate}
         returnTo={route}
       />
+    </div>
+  );
+}
+
+function RuntimeGrid({ agent }: { agent: Agent }) {
+  const cells: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: string | null | undefined) => {
+    if (value && value.trim()) cells.push({ label, value: value.trim() });
+  };
+  push("Harness", agent.harness);
+  push("Model", agent.model);
+  push("Transport", agent.transport);
+  push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
+  push("Class", agent.agentClass);
+  push("Host", shortHostLabel(agent.homeNodeName ?? agent.homeNodeId ?? ""));
+
+  if (cells.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+      {cells.map((cell) => (
+        <div key={cell.label} className="min-w-0">
+          <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+            {cell.label}
+          </div>
+          <div className="truncate font-mono text-[11px] text-[var(--scout-chrome-ink)]">
+            {cell.value}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
