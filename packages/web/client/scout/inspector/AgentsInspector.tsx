@@ -1178,8 +1178,16 @@ function SessionActivity({
     { k: "files", v: fmtCompactNumber(files.length) },
     { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
   ];
-  const top = files.slice(0, 4);
+  // Surface what it CHANGED first (created/modified), then what it only read —
+  // so the durable output reads at the top, not whatever was touched most.
+  const ordered = [...files].sort((a, b) => {
+    const ra = a.state === "read" ? 0 : 1;
+    const rb = b.state === "read" ? 0 : 1;
+    return ra !== rb ? rb - ra : b.touches - a.touches;
+  });
+  const top = ordered.slice(0, 4);
   const rest = files.length - top.length;
+  const changedCount = files.filter((f) => f.state !== "read").length;
   const openTrace = () => navigate({ view: "agents", agentId, tab: "observe" });
 
   return (
@@ -1204,7 +1212,7 @@ function SessionActivity({
               Files touched
             </span>
             <span className="font-mono text-[8.5px] tabular-nums text-[var(--scout-chrome-ink-faint)]">
-              {files.length}
+              {changedCount > 0 ? `${changedCount} changed · ${files.length}` : files.length}
             </span>
           </div>
           <div className="flex flex-col gap-1">
@@ -1216,15 +1224,32 @@ function SessionActivity({
               const name = parts.pop() ?? file.path;
               const parent = parts.pop();
               const dir = parent ? `${parent}/` : "";
+              // Changed (created/modified) gets an accent +/~ and brighter name;
+              // read-only stays dim — signal via contrast, single accent.
+              const changed = file.state !== "read";
+              const mark = file.state === "created" ? "+" : file.state === "modified" ? "~" : "·";
               return (
                 <div
                   key={file.path}
                   className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
-                  title={file.path}
+                  title={`${file.path} · ${file.state}`}
                 >
-                  <span className="flex min-w-0 items-baseline">
-                    <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
-                    <span className="flex-none text-[var(--scout-chrome-ink-soft)]">{name}</span>
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    <span
+                      className="flex-none tabular-nums"
+                      style={{ color: changed ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
+                    >
+                      {mark}
+                    </span>
+                    <span className="flex min-w-0 items-baseline">
+                      <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
+                      <span
+                        className="flex-none"
+                        style={{ color: changed ? "var(--scout-chrome-ink-soft)" : "var(--scout-chrome-ink-faint)" }}
+                      >
+                        {name}
+                      </span>
+                    </span>
                   </span>
                   <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
                     ×{file.touches}

@@ -194,12 +194,13 @@ const SESSION_STATS: Array<{ k: string; v: string }> = [
   { k: "window", v: "16h" },
 ];
 
-const FILES_TOUCHED: Array<{ path: string; touches: number }> = [
-  { path: "packages/web/client/screens/AgentsScreen.tsx", touches: 73 },
-  { path: "packages/web/client/screens/agents-screen.css", touches: 41 },
-  { path: "design/studio/app/studies/agent-profile-rebalance/page.tsx", touches: 24 },
-  { path: "packages/web/client/scout/inspector/AgentsInspector.tsx", touches: 12 },
-  { path: "packages/web/client/lib/session-catalog.ts", touches: 6 },
+type TouchState = "read" | "created" | "modified";
+const FILES_TOUCHED: Array<{ path: string; touches: number; state: TouchState }> = [
+  { path: "packages/web/client/screens/AgentsScreen.tsx", touches: 73, state: "modified" },
+  { path: "packages/web/client/screens/agents-screen.css", touches: 41, state: "modified" },
+  { path: "packages/web/client/lib/session-catalog.ts", touches: 6, state: "created" },
+  { path: "design/studio/app/studies/agent-profile-rebalance/page.tsx", touches: 24, state: "read" },
+  { path: "packages/web/client/scout/inspector/AgentsInspector.tsx", touches: 12, state: "read" },
 ];
 
 /** Who started a session — a sprite for agents, plain for you / a channel. */
@@ -689,10 +690,16 @@ function ActivityStats() {
   );
 }
 
-/** The most concrete "what did it do" signal — files by touch count, dir dimmed
-    so the filename reads, ×count faint and tabular. Truncates with a count-out. */
+/** The most concrete "what did it do" signal — files split into what it CHANGED
+    (created/modified, accent +/~ mark, bright) vs what it only READ (dim), so the
+    durable output reads first. Sorted changed-first, then by touch count. */
 function FilesTouched({ limit = 4 }: { limit?: number }) {
-  const shown = FILES_TOUCHED.slice(0, limit);
+  const ordered = [...FILES_TOUCHED].sort((a, b) => {
+    const ra = a.state === "read" ? 0 : 1;
+    const rb = b.state === "read" ? 0 : 1;
+    return ra !== rb ? rb - ra : b.touches - a.touches;
+  });
+  const shown = ordered.slice(0, limit);
   const rest = FILES_TOUCHED.length - shown.length;
   return (
     <div className="flex flex-col gap-1">
@@ -703,11 +710,16 @@ function FilesTouched({ limit = 4 }: { limit?: number }) {
         const name = parts.pop() ?? f.path;
         const parent = parts.pop();
         const dir = parent ? `${parent}/` : "";
+        const changed = f.state !== "read";
+        const mark = f.state === "created" ? "+" : f.state === "modified" ? "~" : "·";
         return (
-          <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight" title={f.path}>
-            <span className="flex min-w-0 items-baseline">
-              <span className="truncate" style={{ color: INK.edge }}>{dir}</span>
-              <span className="flex-none" style={{ color: MUTED }}>{name}</span>
+          <div key={f.path} className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight" title={`${f.path} · ${f.state}`}>
+            <span className="flex min-w-0 items-baseline gap-1.5">
+              <span className="flex-none tabular-nums" style={{ color: changed ? ACCENT : INK.edge }}>{mark}</span>
+              <span className="flex min-w-0 items-baseline">
+                <span className="truncate" style={{ color: INK.edge }}>{dir}</span>
+                <span className="flex-none" style={{ color: changed ? MUTED : FAINT }}>{name}</span>
+              </span>
             </span>
             <span className="flex-none tabular-nums text-[9px]" style={{ color: FAINT }}>×{f.touches}</span>
           </div>
@@ -763,7 +775,10 @@ function SessionDetailBody({ s, engage = "full" }: { s: Session; engage?: "full"
               Files touched
             </span>
             <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
-              {FILES_TOUCHED.length}
+              {(() => {
+                const changed = FILES_TOUCHED.filter((f) => f.state !== "read").length;
+                return changed > 0 ? `${changed} changed · ${FILES_TOUCHED.length}` : `${FILES_TOUCHED.length}`;
+              })()}
             </span>
           </div>
           <FilesTouched />
