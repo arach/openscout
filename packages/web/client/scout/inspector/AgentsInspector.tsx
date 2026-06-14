@@ -606,7 +606,11 @@ function AgentContextPanel({
             touched. Only in the Profile tab; the Trace tab shows the fuller
             ObserveStats below, so we don't double up. */}
         {!observeMode && selectedSession && (
-          <SessionActivity agentId={agent.id} navigate={navigate} />
+          <SessionActivity
+            agentId={agent.id}
+            navigate={navigate}
+            cwd={selectedSession.cwd ?? agent.cwd}
+          />
         )}
 
         {agent.transport === "tmux" && (
@@ -1130,18 +1134,19 @@ function ObserveStats({
   );
 }
 
-// Compact session activity for the Profile rail — a flat readout of what the
-// session has been doing (turns · tools · edits · reads · files · window) plus
-// the top files touched, with the full feed one click away in the Trace tab.
-// Reuses the same /observe payload the Trace tab loads; renders nothing until it
-// resolves (no empty box). The Trace tab shows the fuller ObserveStats, so this
-// stays lean and flat — readout, not cards (the calm session-context language).
+// Files changed — the file-level detail for the focused session, in the rail.
+// (The session summary — rhythm chart, stats, context — now lives in the center;
+// this side is the detail.) Changed-first (created/modified marked accent, read
+// dimmed), parent/filename, and an "Open full diff" bridge to the repo-diff view.
+// Reuses the /observe payload; renders nothing until it resolves.
 function SessionActivity({
   agentId,
   navigate,
+  cwd,
 }: {
   agentId: string;
   navigate: (r: Route) => void;
+  cwd?: string | null;
 }) {
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const load = useCallback(async () => {
@@ -1158,26 +1163,9 @@ function SessionActivity({
   });
 
   const data = observe?.data;
-  if (!data) return null;
+  if (!data || data.files.length === 0) return null;
 
-  const events = data.events;
   const files = data.files;
-  const metrics: Array<{ k: string; v: string }> = [
-    { k: "turns", v: fmtCompactNumber(data.metadata?.session?.turnCount ?? 0) },
-    { k: "tools", v: fmtCompactNumber(events.filter((e) => e.kind === "tool").length) },
-    {
-      k: "edits",
-      v: fmtCompactNumber(
-        events.filter((e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write")).length,
-      ),
-    },
-    {
-      k: "reads",
-      v: fmtCompactNumber(events.filter((e) => e.kind === "tool" && e.tool === "read").length),
-    },
-    { k: "files", v: fmtCompactNumber(files.length) },
-    { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
-  ];
   // Surface what it CHANGED first (created/modified), then what it only read —
   // so the durable output reads at the top, not whatever was touched most.
   const ordered = [...files].sort((a, b) => {
@@ -1185,90 +1173,72 @@ function SessionActivity({
     const rb = b.state === "read" ? 0 : 1;
     return ra !== rb ? rb - ra : b.touches - a.touches;
   });
-  const top = ordered.slice(0, 4);
+  const top = ordered.slice(0, 6);
   const rest = files.length - top.length;
   const changedCount = files.filter((f) => f.state !== "read").length;
-  const openTrace = () => navigate({ view: "agents", agentId, tab: "observe" });
+  const diffPath = data.metadata?.session?.cwd ?? cwd ?? null;
+  // Bridge to the actual diff — the repo-diff view for the worktree. Falls back
+  // to the Trace feed only when we don't know the working directory.
+  const openDiff = () =>
+    diffPath
+      ? navigate({ view: "repo-diff", path: diffPath })
+      : navigate({ view: "agents", agentId, tab: "observe" });
 
   return (
-    <Section label="Activity">
-      {/* flat metric readout — value bright, unit faint, dot-separated. No cards. */}
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 font-mono">
-        {metrics.map((m, i) => (
-          <span key={m.k} className="inline-flex items-baseline gap-1">
-            {i > 0 && <span className="mr-1 text-[var(--scout-chrome-ink-ghost)]">·</span>}
-            <span className="text-[12px] tabular-nums text-[var(--scout-chrome-ink)]">{m.v}</span>
-            <span className="text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-faint)]">
-              {m.k}
-            </span>
-          </span>
-        ))}
+    <Section label="Files changed">
+      <div className="mb-1.5 flex items-baseline justify-between font-mono text-[8.5px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+        <span>{changedCount > 0 ? `${changedCount} changed` : "touched"}</span>
+        <span className="tabular-nums">{files.length}</span>
       </div>
-
-      {top.length > 0 && (
-        <div className="mt-2.5 border-t border-[var(--scout-chrome-border-soft)] pt-2.5">
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <span className="font-mono text-[8.5px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
-              Files touched
-            </span>
-            <span className="font-mono text-[8.5px] tabular-nums text-[var(--scout-chrome-ink-faint)]">
-              {changedCount > 0 ? `${changedCount} changed · ${files.length}` : files.length}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            {top.map((file) => {
-              // Show parent/filename, not the absolute path — the filename is
-              // the signal, and a right-truncating absolute path would clip it
-              // away. Parent dir gives just enough locality; full path on hover.
-              const parts = file.path.replace(/\/+$/, "").split("/");
-              const name = parts.pop() ?? file.path;
-              const parent = parts.pop();
-              const dir = parent ? `${parent}/` : "";
-              // Changed (created/modified) gets an accent +/~ and brighter name;
-              // read-only stays dim — signal via contrast, single accent.
-              const changed = file.state !== "read";
-              const mark = file.state === "created" ? "+" : file.state === "modified" ? "~" : "·";
-              return (
-                <div
-                  key={file.path}
-                  className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
-                  title={`${file.path} · ${file.state}`}
+      <div className="flex flex-col gap-1">
+        {top.map((file) => {
+          // parent/filename — the filename is the signal; an absolute path would
+          // right-truncate it away. Full path on hover.
+          const parts = file.path.replace(/\/+$/, "").split("/");
+          const name = parts.pop() ?? file.path;
+          const parent = parts.pop();
+          const dir = parent ? `${parent}/` : "";
+          // Changed (created/modified) gets an accent +/~ and brighter name;
+          // read-only stays dim — signal via contrast, single accent.
+          const changed = file.state !== "read";
+          const mark = file.state === "created" ? "+" : file.state === "modified" ? "~" : "·";
+          return (
+            <div
+              key={file.path}
+              className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
+              title={`${file.path} · ${file.state}`}
+            >
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span
+                  className="flex-none tabular-nums"
+                  style={{ color: changed ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
                 >
-                  <span className="flex min-w-0 items-baseline gap-1.5">
-                    <span
-                      className="flex-none tabular-nums"
-                      style={{ color: changed ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
-                    >
-                      {mark}
-                    </span>
-                    <span className="flex min-w-0 items-baseline">
-                      <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
-                      <span
-                        className="flex-none"
-                        style={{ color: changed ? "var(--scout-chrome-ink-soft)" : "var(--scout-chrome-ink-faint)" }}
-                      >
-                        {name}
-                      </span>
-                    </span>
+                  {mark}
+                </span>
+                <span className="flex min-w-0 items-baseline">
+                  <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
+                  <span
+                    className="flex-none"
+                    style={{ color: changed ? "var(--scout-chrome-ink-soft)" : "var(--scout-chrome-ink-faint)" }}
+                  >
+                    {name}
                   </span>
-                  <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
-                    ×{file.touches}
-                  </span>
-                </div>
-              );
-            })}
-            {rest > 0 && (
-              <button
-                type="button"
-                onClick={openTrace}
-                className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--accent)]"
-              >
-                +{rest} more in Trace →
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+                </span>
+              </span>
+              <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                ×{file.touches}
+              </span>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={openDiff}
+          className="mt-1 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
+        >
+          Open full diff{rest > 0 ? ` · +${rest}` : ""} →
+        </button>
+      </div>
     </Section>
   );
 }

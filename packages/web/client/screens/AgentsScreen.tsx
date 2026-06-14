@@ -1721,6 +1721,194 @@ function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
   );
 }
 
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return `${n}`;
+}
+
+function fmtCompactNumber(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  if (Math.abs(value) < 1_000) return `${Math.round(value)}`;
+  if (Math.abs(value) < 1_000_000) {
+    return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
+  }
+  return `${(value / 1_000_000).toFixed(1)}m`;
+}
+
+function fmtWindowSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const whole = Math.round(seconds);
+  const hours = Math.floor(whole / 3_600);
+  const minutes = Math.floor((whole % 3_600) / 60);
+  const secs = whole % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes >= 10 || secs === 0) return `${minutes}m`;
+  return `${minutes}m ${secs}s`;
+}
+
+// Bin trace events into intensity buckets across the session window, so the
+// sparkline reads the session's rhythm (warm-up · bursts · idle).
+function binEvents(events: { t: number }[], n = 32): number[] {
+  if (events.length === 0) return [];
+  const last = events[events.length - 1]!.t || 1;
+  const buckets = new Array<number>(n).fill(0);
+  for (const e of events) {
+    const idx = Math.min(n - 1, Math.max(0, Math.floor((e.t / last) * n)));
+    buckets[idx] += 1;
+  }
+  return buckets;
+}
+
+// A little chart of the session's rhythm — intensity bars, brighter where busier
+// (single accent, opacity = intensity). Matches the studio rebalance treatment.
+function ActivitySparkline({ buckets }: { buckets: number[] }) {
+  if (buckets.length === 0) return null;
+  const max = Math.max(...buckets, 1);
+  const W = 240;
+  const H = 20;
+  const gap = 1;
+  const bw = (W - gap * (buckets.length - 1)) / buckets.length;
+  return (
+    <div className="s-sum-spark">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="s-sum-spark-svg" aria-hidden>
+        {buckets.map((v, i) => {
+          const h = Math.max(1, (v / max) * H);
+          return (
+            <rect
+              key={i}
+              x={i * (bw + gap)}
+              y={H - h}
+              width={bw}
+              height={h}
+              fill="var(--accent)"
+              opacity={0.22 + 0.62 * (v / max)}
+            />
+          );
+        })}
+      </svg>
+      <div className="s-sum-spark-axis">
+        <span>session start</span>
+        <span>now</span>
+      </div>
+    </div>
+  );
+}
+
+// The center summary band for the focused session: the rhythm chart + key stats +
+// quantifiable context, then the primary action. Kept shallow on purpose — the
+// file detail and the rest live in the rail. Mirrors the studio SessionSummary.
+function SessionSummary({
+  agentId,
+  active,
+  onPrimary,
+  primaryLabel,
+  primaryTitle,
+}: {
+  agentId: string;
+  active: boolean;
+  onPrimary: () => void;
+  primaryLabel: string;
+  primaryTitle: string;
+}) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const [ctx, setCtx] = useState<LocalAgentContextState | null>(null);
+
+  const load = useCallback(async () => {
+    const [o, c] = await Promise.all([
+      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agentId)}/observe`).catch(() => null),
+      api<LocalAgentContextState>(`/api/agents/${encodeURIComponent(agentId)}/session/context`).catch(() => null),
+    ]);
+    setObserve(o);
+    setCtx(c);
+  }, [agentId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const data = observe?.data;
+  const events = data?.events ?? [];
+  const stats: Array<{ k: string; v: string }> = [
+    { k: "turns", v: fmtCompactNumber(ctx?.turnCount ?? data?.metadata?.session?.turnCount ?? 0) },
+    { k: "tools", v: fmtCompactNumber(events.filter((e) => e.kind === "tool").length) },
+    {
+      k: "edits",
+      v: fmtCompactNumber(
+        events.filter((e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write")).length,
+      ),
+    },
+    {
+      k: "reads",
+      v: fmtCompactNumber(events.filter((e) => e.kind === "tool" && e.tool === "read").length),
+    },
+    { k: "files", v: fmtCompactNumber(data?.files.length ?? 0) },
+    { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
+  ];
+
+  // Context, quantifiable: prefer real token fill (used / window) when the usage
+  // metadata carries a window; otherwise fall back to turn-load vs the policy.
+  const usage = data?.metadata?.usage;
+  const win = usage?.contextWindowTokens ?? 0;
+  const used = usage?.totalTokens ?? usage?.inputTokens ?? 0;
+  const tokenPct = win > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
+  const turnPct = ctx ? contextLoadPercent(ctx) : null;
+  const fillPct = tokenPct ?? turnPct ?? 0;
+  const ctxHead =
+    tokenPct !== null
+      ? `${fmtTokens(used)} / ${fmtTokens(win)} ctx`
+      : ctx
+        ? contextTurnLabel(ctx)
+        : "context";
+  // When the gauge already shows tokens, the runway adds turns + age. When it
+  // fell back to turn-load (head already shows turns), the runway is just age —
+  // don't print the turns twice.
+  const ctxAge = ctx && ctx.sessionAgeMs !== null ? formatContextAge(ctx.sessionAgeMs) : null;
+  const ctxRunway =
+    tokenPct !== null && ctx
+      ? `${contextTurnLabel(ctx)}${ctxAge ? ` · ${ctxAge}` : ""}`
+      : ctxAge;
+
+  return (
+    <div className="s-sum">
+      <div className="s-sum-cols">
+        <div className="s-sum-col s-sum-col--activity">
+          <div className="s-sum-label">Activity</div>
+          <ActivitySparkline buckets={binEvents(events)} />
+        </div>
+        <div className="s-sum-col s-sum-col--context">
+          <div className="s-sum-label">Context</div>
+          <div className="s-sum-ctx-head">
+            <span className="s-sum-ctx-size">{ctxHead}</span>
+            <span className="s-sum-ctx-pct">{fillPct}%</span>
+          </div>
+          <div className="s-sum-gauge" aria-label={`Context ${fillPct}%`}>
+            <div className="s-sum-gauge-fill" style={{ width: `${fillPct}%` }} />
+          </div>
+          {ctxRunway && <div className="s-sum-ctx-runway">{ctxRunway}</div>}
+        </div>
+      </div>
+      <div className="s-sum-foot">
+        <div className="s-sum-stats">
+          {stats.map((m, i) => (
+            <span key={m.k} className="s-sum-stat">
+              {i > 0 && <span className="s-sum-stat-sep">·</span>}
+              <span className="s-sum-stat-v">{m.v}</span>
+              <span className="s-sum-stat-k">{m.k}</span>
+            </span>
+          ))}
+        </div>
+        <button type="button" className="s-sess-explore-primary" onClick={onPrimary} title={primaryTitle}>
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Sessions-first center (Hybrid): a compact essentials header (state · cwd ·
 // branch · harness · model · host), then the agent's sessions by recency (active
 // first). Clicking a session selects it (shared with the rail) and expands a
@@ -1841,17 +2029,6 @@ function ModularProfileCenter({
                 : s.endedAt
                   ? `ended · ${timeAgo(s.endedAt) || "recent"}`
                   : timeAgo(s.startedAt) || "recent";
-              // A property line for the expanded card — temporal detail about
-              // *this* session, never a repeat of the id already on the row.
-              const startedAgo = timeAgo(s.startedAt);
-              const endedAgo = s.endedAt ? timeAgo(s.endedAt) : null;
-              const exploreMeta = active
-                ? startedAgo && startedAgo !== "now"
-                  ? `Started ${startedAgo} ago`
-                  : "Just started"
-                : endedAgo && endedAgo !== "now"
-                  ? `Ended ${endedAgo} ago`
-                  : "Ended recently";
               return (
                 <div key={s.id} className={`s-sess-item${selected ? " s-sess-item--selected" : ""}`}>
                   <button
@@ -1884,21 +2061,17 @@ function ModularProfileCenter({
                     </span>
                   </button>
                   {selected && (
-                    <div className="s-sess-explore">
-                      <span className="s-sess-explore-meta">{exploreMeta}</span>
-                      <button
-                        type="button"
-                        className="s-sess-explore-primary"
-                        onClick={() => (active ? openMessage() : resumeSession(s))}
-                        title={
-                          active
-                            ? "Send a message into this conversation"
-                            : "Reopen this conversation and message it"
-                        }
-                      >
-                        {active ? "Continue" : "Resume"}
-                      </button>
-                    </div>
+                    <SessionSummary
+                      agentId={agent.id}
+                      active={active}
+                      onPrimary={() => (active ? openMessage() : resumeSession(s))}
+                      primaryLabel={active ? "Continue" : "Resume"}
+                      primaryTitle={
+                        active
+                          ? "Send a message into this conversation"
+                          : "Reopen this conversation and message it"
+                      }
+                    />
                   )}
                 </div>
               );
