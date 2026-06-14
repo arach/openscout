@@ -34,6 +34,13 @@ const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
 const isSessionEmbed = window.location.pathname === "/embed/session";
 const scoutApp = createScoutApp({ initialTheme });
 
+// Dev-only: load overrides so studio variants can be toggled via ?override=<id>.
+// Excluded from production builds — `import.meta.env.DEV` is statically false, so
+// this branch and the module it imports are dead-code-eliminated.
+if (import.meta.env.DEV) {
+  void import("./dev/studio-overrides.tsx");
+}
+
 createRoot(el).render(
   <StrictMode>
     {isScoutbotFxLab ? (
