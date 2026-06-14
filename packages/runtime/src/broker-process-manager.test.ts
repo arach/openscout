@@ -99,6 +99,25 @@ describe("broker service scoutd adapter", () => {
     expect(resolveBundledRuntimeDirFromModuleDir(moduleDir)).toBe(packageRoot);
   });
 
+  test("resolves packaged scoutd from the bundled package bin directory", () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-packaged-scoutd-"));
+    const packageRoot = join(root, "scout");
+    const scoutd = writeExecutable(join(packageRoot, "bin", "scoutd"));
+    writeExecutable(join(root, "path", "scoutd"));
+
+    const packagedConfig: BrokerServiceConfig = {
+      ...config,
+      runtimePackageDir: packageRoot,
+    };
+
+    const resolved = withEnv({
+      OPENSCOUT_SCOUTD_BIN: undefined,
+      PATH: join(root, "path"),
+    }, () => resolveScoutdCommand(packagedConfig));
+
+    expect(resolved).toEqual({ path: scoutd, source: "package" });
+  });
+
   test("resolves scoutd from an explicit environment override", () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-env-"));
     const scoutd = writeExecutable(join(root, "custom-scoutd"));

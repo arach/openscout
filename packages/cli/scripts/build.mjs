@@ -40,8 +40,11 @@ const clientDir = resolve(outputDirectory, "client");
 // The published @openscout/scout package root is what broker-process-manager's
 // resolveScoutdCommand() treats as `runtimePackageDir` at runtime, and its first
 // (preferred) package candidate is `<runtimePackageDir>/bin/scoutd`. Drop the
-// prebuilt scoutd there so npm-installed users (no monorepo, no Rust toolchain)
-// get a working broker service without falling back to building from source.
+// prebuilt scoutd release artifact there so npm-installed users (no monorepo,
+// no Rust toolchain) get a working broker service without falling back to
+// building from source. The current package artifact is Apple Silicon macOS;
+// support for other architectures should add first-class platform artifacts,
+// not loosen this install path into source-build or cross-arch fallbacks.
 const scoutdReleaseBinary = resolve(repoRoot, "target", "release", "scoutd");
 const scoutdPackagedBinary = resolve(packageDirectory, "bin", "scoutd");
 const scoutdSignScript = resolve(repoRoot, "scripts", "sign-scoutd.sh");
@@ -183,7 +186,7 @@ function buildAndPackageScoutd() {
 
   if (!scoutdIsExpectedPackageBinary(scoutdReleaseBinary)) {
     const description = describeBinary(scoutdReleaseBinary) || "unknown binary format";
-    const message = `scoutd package binary must be a macOS arm64 Mach-O, got: ${description}`;
+    const message = `scoutd package binary must be a macOS arm64 Mach-O (the current Apple Silicon release artifact), got: ${description}`;
     if (required) {
       console.error(`  ERROR: ${message}.`);
       console.error("  Publishing this binary would ship the wrong native executable for the current package.");
@@ -195,9 +198,9 @@ function buildAndPackageScoutd() {
   }
 
   // NOTE/STOPGAP: we copy the host-built darwin-arm64 binary straight into the
-  // package. This repo only ships macOS arm64 today; once platform-split
-  // optional dependencies exist, this should select the right prebuilt per
-  // {os, cpu} instead of bundling a single architecture.
+  // package. Apple Silicon macOS is the first-class release path today. If
+  // platform support expands, select first-class prebuilts per {os, cpu}
+  // instead of accepting mismatched binaries or source-build fallbacks.
   mkdirSync(dirname(scoutdPackagedBinary), { recursive: true });
   copyFileSync(scoutdReleaseBinary, scoutdPackagedBinary);
   chmodSync(scoutdPackagedBinary, 0o755);
