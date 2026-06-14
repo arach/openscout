@@ -130,6 +130,10 @@ function isExternalHref(href: string) {
   return href.startsWith("http://") || href.startsWith("https://");
 }
 
+function opensInNewTab(href: string) {
+  return isExternalHref(href) && href !== githubNativeAuthStartUrl;
+}
+
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
@@ -157,12 +161,13 @@ export default function HomePage() {
                 </>
               );
               if (isExternalHref(link.href)) {
+                const newTab = opensInNewTab(link.href);
                 return (
                   <a
                     key={link.href}
                     href={link.href}
-                    target="_blank"
-                    rel="noreferrer"
+                    target={newTab ? "_blank" : undefined}
+                    rel={newTab ? "noreferrer" : undefined}
                     className={className}
                   >
                     {content}
@@ -204,8 +209,6 @@ export default function HomePage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <a
                 href={githubNativeAuthStartUrl}
-                target="_blank"
-                rel="noreferrer"
                 className="inline-flex h-11 items-center gap-2 rounded-[6px] bg-white px-4 font-sans text-sm font-semibold text-black transition hover:bg-white/88"
               >
                 <LogIn className="h-4 w-4" aria-hidden />
@@ -299,12 +302,13 @@ export default function HomePage() {
                 "block min-h-[132px] bg-[var(--site-surface)] p-5 transition hover:bg-[var(--site-panel)]";
 
               if (isExternalHref(link.href)) {
+                const newTab = opensInNewTab(link.href);
                 return (
                   <a
                     key={link.href}
                     href={link.href}
-                    target="_blank"
-                    rel="noreferrer"
+                    target={newTab ? "_blank" : undefined}
+                    rel={newTab ? "noreferrer" : undefined}
                     className={className}
                   >
                     {content}
@@ -328,8 +332,6 @@ export default function HomePage() {
           <div className="flex flex-wrap gap-4">
             <a
               href={githubNativeAuthStartUrl}
-              target="_blank"
-              rel="noreferrer"
               className="inline-flex items-center gap-1.5 hover:text-[var(--site-ink)]"
             >
               <LogIn className="h-3.5 w-3.5" aria-hidden />

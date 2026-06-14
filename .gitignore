@@ -26,6 +26,7 @@
 /site/out/
 /site/node_modules/
 /landing/out/
+/landing/*/out/
 /landing/node_modules/
 
 # production
@@ -114,6 +115,8 @@ apps/ios/build/
 !.github/workflows/*.yml
 !landing/public/.well-known/
 !landing/public/.well-known/scout.json
+!landing/*/public/.well-known/
+!landing/*/public/.well-known/scout.json
 
 # tracked env examples
 !.env.example

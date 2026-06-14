@@ -6,6 +6,7 @@
       "name": "@openscout/app-landing",
       "dependencies": {
         "@arach/arc": "^0.4.1",
+        "@arach/dewey": "0.3.6",
         "@next/third-parties": "16.1.6",
         "lucide-react": "^0.577.0",
         "next": "16.1.6",
@@ -32,7 +33,7 @@
 
     "@arach/arc": ["@arach/arc@0.4.1", "", { "dependencies": { "@arach/dewey": "^0.2.0", "@base-ui/react": "^1.0.0", "js-yaml": "^4.1.1", "react": "^19.2.0", "react-dom": "^19.2.0", "react-router-dom": "^7.12.0" }, "peerDependencies": { "lucide-react": ">=0.400.0" }, "bin": { "arc-ascii": "bin/arc-ascii.mjs" } }, "sha512-gygvhNyUBgRPeMBmUbmDAOEGENwDA4ecGHwgPOCDsf1WepDcsbO6mPYieS1CyHpVyEzaGs9Wuxalu0w4N4ABEg=="],
 
-    "@arach/dewey": ["@arach/dewey@0.2.0", "", { "dependencies": { "chalk": "^5.3.0", "class-variance-authority": "^0.7.0", "clsx": "^2.1.0", "commander": "^12.0.0", "cosmiconfig": "^9.0.0", "gray-matter": "^4.0.3", "highlight.js": "^11.9.0", "lucide-react": "^0.400.0", "react-markdown": "^9.0.0", "rehype-slug": "^6.0.0", "remark-gfm": "^4.0.0", "tailwind-merge": "^2.2.0", "zod": "^3.23.0" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "react-router-dom": "^6.0.0 || ^7.0.0", "tailwindcss": "^3.0.0 || ^4.0.0" }, "optionalPeers": ["tailwindcss"], "bin": { "dewey": "dist/cli/index.js" } }, "sha512-TrCSlelZx5LLFoMjAOicdQAO9QNlEogpDJfHgvAeEG3LPtfe+BetcPCV0Z2zMfDqvzqrgO4YQNvYTEPxgs0l6g=="],
+    "@arach/dewey": ["@arach/dewey@0.3.6", "", { "dependencies": { "chalk": "^5.3.0", "class-variance-authority": "^0.7.0", "commander": "^12.0.0", "cosmiconfig": "^9.0.0", "gray-matter": "^4.0.3", "highlight.js": "^11.9.0", "lucide-react": "^0.400.0", "react-markdown": "^9.0.0", "rehype-slug": "^6.0.0", "remark-gfm": "^4.0.0", "zod": "^3.23.0" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "react-router-dom": "^6.0.0 || ^7.0.0", "tailwindcss": "^3.0.0 || ^4.0.0" }, "optionalPeers": ["tailwindcss"], "bin": { "dewey": "dist/cli/index.js" } }, "sha512-KtVd1pMKHhxpVm3G6IAG7GX+hMn7HyYQOikSZOmms8TNLiLFu0O25QCVQwjpTfdsgIs1Rt/ItI5FnUPMuq8xAw=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.7", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.29.7", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw=="],
 
@@ -744,6 +745,8 @@
 
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
+    "@arach/arc/@arach/dewey": ["@arach/dewey@0.2.0", "", { "dependencies": { "chalk": "^5.3.0", "class-variance-authority": "^0.7.0", "clsx": "^2.1.0", "commander": "^12.0.0", "cosmiconfig": "^9.0.0", "gray-matter": "^4.0.3", "highlight.js": "^11.9.0", "lucide-react": "^0.400.0", "react-markdown": "^9.0.0", "rehype-slug": "^6.0.0", "remark-gfm": "^4.0.0", "tailwind-merge": "^2.2.0", "zod": "^3.23.0" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0", "react-dom": "^18.0.0 || ^19.0.0", "react-router-dom": "^6.0.0 || ^7.0.0", "tailwindcss": "^3.0.0 || ^4.0.0" }, "optionalPeers": ["tailwindcss"], "bin": { "dewey": "dist/cli/index.js" } }, "sha512-TrCSlelZx5LLFoMjAOicdQAO9QNlEogpDJfHgvAeEG3LPtfe+BetcPCV0Z2zMfDqvzqrgO4YQNvYTEPxgs0l6g=="],
+
     "@arach/dewey/chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
 
     "@arach/dewey/lucide-react": ["lucide-react@0.400.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-rpp7pFHh3Xd93KHixNgB0SqThMHpYNzsGUu69UaQbSZ75Q/J3m5t6EhKyMT3m4w2WOxmJ2mY0tD3vebnXqQryQ=="],
@@ -769,6 +772,10 @@
     "next/postcss": ["postcss@8.4.31", "", { "dependencies": { "nanoid": "^3.3.6", "picocolors": "^1.0.0", "source-map-js": "^1.0.2" } }, "sha512-PS08Iboia9mts/2ygV3eLpY5ghnUcfLV/EXTOW1E2qYxJKGGBUtNjN76FYHnMs36RmARn41bC0AZmn+rR0OVpQ=="],
 
     "parse-entities/@types/unist": ["@types/unist@2.0.11", "", {}, "sha512-CmBKiL6NNo/OqgmMn95Fk9Whlp2mtvIv+KNpQKN2F4SjvrEesubTRWGYSg+BnWZOnlCaSTU1sMpsBOzgbYhnsA=="],
+
+    "@arach/arc/@arach/dewey/chalk": ["chalk@5.6.2", "", {}, "sha512-7NzBL0rN6fMUW+f7A6Io4h40qQlG+xGmtMxfbnH/K7TAtt8JQWVQK+6g0UXKMeVJoyV5EkkNsErQ8pVD3bLHbA=="],
+
+    "@arach/arc/@arach/dewey/lucide-react": ["lucide-react@0.400.0", "", { "peerDependencies": { "react": "^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-rpp7pFHh3Xd93KHixNgB0SqThMHpYNzsGUu69UaQbSZ75Q/J3m5t6EhKyMT3m4w2WOxmJ2mY0tD3vebnXqQryQ=="],
 
     "gray-matter/js-yaml/argparse": ["argparse@1.0.10", "", { "dependencies": { "sprintf-js": "~1.0.2" } }, "sha512-o5Roy6tNG4SL/FOkCAN6RzjiakZS25RLYFrcMttJqbdd8BWrnA+fGz57iN5Pb06pvBGvl5gQ0B48dJlslXvoTg=="],
   }
