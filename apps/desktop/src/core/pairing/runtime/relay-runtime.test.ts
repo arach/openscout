@@ -5,7 +5,7 @@ import { resolveRelayEndpointForTailscaleStatus } from "./relay-runtime";
 describe("resolveRelayEndpointForTailscaleStatus", () => {
   const tls = { cert: "/tmp/scout-test.crt", key: "/tmp/scout-test.key" };
 
-  test("prefers the local network address when tailscale is running", () => {
+  test("uses the tailscale hostname when trusted TLS is available", () => {
     const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
       backendState: "Running",
       dnsName: "relay.example.ts.net",
@@ -16,9 +16,10 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
       tls,
     });
 
-    expect(endpoint.relayUrl).toBe("wss://192.168.1.25:7889");
+    expect(endpoint.relayUrl).toBe("wss://relay.example.ts.net:7889");
     expect(endpoint.connectUrl).toBe("wss://127.0.0.1:7889");
-    expect(endpoint.fallbackRelayUrls).toEqual(["wss://relay.example.ts.net:7889"]);
+    expect(endpoint.fallbackRelayUrls).toEqual([]);
+    expect(endpoint.options).toEqual({ tls });
   });
 
   test("uses tailscale hostname when no local address is available", () => {
