@@ -1,6 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
+import ScoutAppCore
 
 /// Routes `scout://` URLs to menu-app actions. Wired from AppDelegate's
 /// NSAppleEventManager kAEGetURL handler.
@@ -27,14 +28,18 @@ enum HUDURLRouter {
         guard let host = url.host?.lowercased() else { return }
 
         let parts = url.pathComponents.filter { $0 != "/" }
-        guard let head = parts.first?.lowercased() else { return }
+        let head = parts.first?.lowercased()
         let tail = Array(parts.dropFirst())
-        NSLog("[scout://] %@/%@/%@", host, head, tail.joined(separator: "/"))
+        NSLog("[scout://] %@/%@/%@", host, head ?? "", tail.joined(separator: "/"))
 
         switch host {
+        case "osn-auth":
+            handleOpenScoutNetworkAuth(url: url)
         case "hud":
+            guard let head else { return }
             forwardHUD(head: head, tail: tail)
         case "services":
+            guard let head else { return }
             handleServices(url: url, head: head, tail: tail)
         default:
             NSLog("[scout://] unhandled host: %@", host)
@@ -75,6 +80,16 @@ enum HUDURLRouter {
             controller.restartWebApp()
         default:
             NSLog("[scout://] services/restart: unrecognized target %@", target)
+        }
+    }
+
+    private static func handleOpenScoutNetworkAuth(url: URL) {
+        do {
+            try OpenScoutNetworkSessionStore.saveSession(from: url)
+            NSLog("[scout://] OpenScout Network session saved")
+            OpenScoutAppController.shared.restartPairing()
+        } catch {
+            NSLog("[scout://] OpenScout Network auth failed: %@", error.localizedDescription)
         }
     }
 

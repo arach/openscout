@@ -4,6 +4,7 @@ import {
 } from "./runtime/config.ts";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { renderQRCode } from "./runtime/bridge/qr.ts";
+import { startPairingRendezvousPublisher } from "./runtime/rendezvous.ts";
 import { startManagedRelay, type StartedManagedRelay } from "./runtime/relay-runtime.ts";
 import {
   clearPairingRuntimePid,
@@ -26,6 +27,7 @@ import {
   startPairingRuntime,
   type StartedPairingRuntime,
 } from "./runtime/runtime.ts";
+import type { MeshRendezvousPublisher } from "@openscout/runtime";
 
 const SCOUT_PAIR_REFRESH_LEEWAY_MS = 30_000;
 const SCOUT_PAIR_RESTART_DELAY_MS = 2_000;
@@ -39,6 +41,7 @@ type PairingRuntimeControllerState = {
   runtime: StartedPairingRuntime | null;
   relay: StartedManagedRelay | null;
   bonjour: BonjourAdvertisement | null;
+  rendezvousPublisher: MeshRendezvousPublisher | null;
 };
 
 type BonjourAdvertisement = {
@@ -74,6 +77,7 @@ export async function runPairingRuntimeController(): Promise<void> {
     runtime: null,
     relay: null,
     bonjour: null,
+    rendezvousPublisher: null,
   };
 
   const shutdown = async () => {
@@ -189,6 +193,7 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
       trustedPeerCount: trustedPeerCount(),
     });
 
+    state.rendezvousPublisher = startPairingRendezvousPublisher(() => state.current);
     schedulePairingRefresh(state, payload);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -307,6 +312,11 @@ function clearRefreshTimer(state: PairingRuntimeControllerState): void {
 
 async function stopControlledPairingRuntime(state: PairingRuntimeControllerState): Promise<void> {
   try {
+    state.rendezvousPublisher?.stop();
+  } catch {
+    // noop
+  }
+  try {
     state.bonjour?.stop();
   } catch {
     // noop
@@ -324,6 +334,7 @@ async function stopControlledPairingRuntime(state: PairingRuntimeControllerState
   state.runtime = null;
   state.relay = null;
   state.bonjour = null;
+  state.rendezvousPublisher = null;
 }
 
 function startBonjourRelayAdvertisement(input: {

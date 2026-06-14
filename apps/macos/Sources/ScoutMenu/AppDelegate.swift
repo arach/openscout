@@ -29,6 +29,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             name: ScoutServiceURLRelay.notificationName,
             object: nil
         )
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleOpenScoutNetworkAuthSaved(_:)),
+            name: ScoutServiceURLRelay.openScoutNetworkAuthSavedNotificationName,
+            object: nil
+        )
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
@@ -70,6 +76,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         DistributedNotificationCenter.default().removeObserver(
             self,
             name: ScoutServiceURLRelay.notificationName,
+            object: nil
+        )
+        DistributedNotificationCenter.default().removeObserver(
+            self,
+            name: ScoutServiceURLRelay.openScoutNetworkAuthSavedNotificationName,
             object: nil
         )
         controller.stop()
@@ -132,6 +143,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openTailscaleItem.target = self
         menu.addItem(openTailscaleItem)
 
+        let openScoutNetworkItem = NSMenuItem(title: "Sign In to OpenScout Network", action: #selector(signInOpenScoutNetwork), keyEquivalent: "")
+        openScoutNetworkItem.target = self
+        menu.addItem(openScoutNetworkItem)
+
         let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshState), keyEquivalent: "r")
         refreshItem.target = self
         menu.addItem(refreshItem)
@@ -183,6 +198,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc
+    private func signInOpenScoutNetwork() {
+        guard let url = URL(string: "https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    @objc
     private func openLogsView() {
         controller.openLogsView()
     }
@@ -225,5 +248,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             let url = URL(string: urlString)
         else { return }
         HUDURLRouter.handle(url: url)
+    }
+
+    @objc
+    private func handleOpenScoutNetworkAuthSaved(_ notification: Notification) {
+        controller.restartPairing()
     }
 }

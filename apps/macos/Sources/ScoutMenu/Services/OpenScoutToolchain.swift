@@ -103,16 +103,16 @@ struct OpenScoutToolchain {
 
     func pairingRuntimeControllerCommand() throws -> CommandDescriptor {
         if let explicit = resolver.resolvePath(fromEnvironmentKey: "OPENSCOUT_PAIRING_RUNTIME_CONTROLLER_BIN") {
-            return try command(forPairingControllerAt: explicit.standardizedFileURL)
+            return try command(forPairingControllerAt: explicit.standardizedFileURL, environment: pairingRuntimeEnvironment())
         }
 
         if let installedBinary = resolver.resolveExecutable(envKeys: [], names: ["pairing-runtime-controller"]) {
-            return try command(forPairingControllerAt: installedBinary.url)
+            return try command(forPairingControllerAt: installedBinary.url, environment: pairingRuntimeEnvironment())
         }
 
         for candidate in installedPairingRuntimeControllerCandidates() {
             if FileManager.default.fileExists(atPath: candidate.path) {
-                return try command(forPairingControllerAt: candidate.standardizedFileURL)
+                return try command(forPairingControllerAt: candidate.standardizedFileURL, environment: pairingRuntimeEnvironment())
             }
         }
 
@@ -124,7 +124,11 @@ struct OpenScoutToolchain {
 
         for relativePath in repoCandidates {
             if let candidate = resolver.resolveRepoEntrypoint(relativePath: relativePath) {
-                return try command(forPairingControllerAt: candidate, currentDirectoryURL: resolver.resolveRepoRoot())
+                return try command(
+                    forPairingControllerAt: candidate,
+                    currentDirectoryURL: resolver.resolveRepoRoot(),
+                    environment: pairingRuntimeEnvironment()
+                )
             }
         }
 
@@ -163,8 +167,10 @@ struct OpenScoutToolchain {
 
     private func command(
         forPairingControllerAt url: URL,
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        environment: [String: String]? = nil
     ) throws -> CommandDescriptor {
+        let commandEnvironment = environment ?? defaultEnvironment()
         let ext = url.pathExtension.lowercased()
         if ext == "ts" || ext == "js" || ext == "mjs" || ext == "cjs" {
             guard let bun = resolver.resolveBunExecutable() else {
@@ -174,7 +180,7 @@ struct OpenScoutToolchain {
             return CommandDescriptor(
                 executableURL: bun.url,
                 arguments: [url.path],
-                environment: defaultEnvironment(),
+                environment: commandEnvironment,
                 currentDirectoryURL: currentDirectoryURL ?? workspaceContextRoot()
             )
         }
@@ -182,7 +188,7 @@ struct OpenScoutToolchain {
         return CommandDescriptor(
             executableURL: url,
             arguments: [],
-            environment: defaultEnvironment(),
+            environment: commandEnvironment,
             currentDirectoryURL: currentDirectoryURL ?? workspaceContextRoot()
         )
     }
@@ -237,6 +243,45 @@ struct OpenScoutToolchain {
             env["OPENSCOUT_RUNTIME_PACKAGE_DIR"] = runtimePackageDirectory.path
         }
         return env
+    }
+
+    private func pairingRuntimeEnvironment() -> [String: String] {
+        var env = defaultEnvironment()
+        guard let session = OpenScoutNetworkSessionStore.loadSessionToken() else {
+            return env
+        }
+
+        let processEnv = ProcessInfo.processInfo.environment
+        if !hasProcessEnv("OPENSCOUT_MESH_RENDEZVOUS_URL", processEnv) {
+            env["OPENSCOUT_MESH_RENDEZVOUS_URL"] = "https://mesh.oscout.net"
+        }
+        if !hasProcessEnv("OPENSCOUT_MESH_RENDEZVOUS_SESSION", processEnv) {
+            env["OPENSCOUT_MESH_RENDEZVOUS_SESSION"] = session
+        }
+        if !hasProcessEnv("OPENSCOUT_PAIRING_RELAY_URL", processEnv),
+           !hasProcessEnv("OPENSCOUT_MOBILE_PAIRING_RELAY_URL", processEnv),
+           !hasConfiguredPairingRelay() {
+            env["OPENSCOUT_PAIRING_RELAY_URL"] = "wss://mesh.oscout.net/v1/relay"
+        }
+        return env
+    }
+
+    private func hasProcessEnv(_ key: String, _ env: [String: String]) -> Bool {
+        guard let value = env[key]?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !value.isEmpty
+    }
+
+    private func hasConfiguredPairingRelay() -> Bool {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".scout/pairing/config.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let relay = object["relay"] as? String else {
+            return false
+        }
+        return !relay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func runtimePackageDirectory() -> URL? {

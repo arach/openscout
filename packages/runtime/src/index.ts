@@ -10,6 +10,7 @@ export * from "./broker.js";
 export * from "./sqlite-store.js";
 export * from "./mesh-discovery.js";
 export * from "./mesh-forwarding.js";
+export * from "./mesh-rendezvous.js";
 export * from "./iroh-bridge.js";
 export * from "./tailscale.js";
 export * from "./broker-process-manager.js";
