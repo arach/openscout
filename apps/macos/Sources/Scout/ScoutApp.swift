@@ -157,6 +157,9 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         if ScoutHUDRouter.handle(url: url) {
             return
         }
+        if handleOpenScoutNetworkAuth(url) {
+            return
+        }
         if url.host?.lowercased() == "services" {
             forwardServiceURLToHelper(url)
         } else {
@@ -176,6 +179,26 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         if !ScoutHUDRouter.handle(command: command, value: value) {
             NSLog("[hud] Scout ignored command: %@ %@", command, value ?? "")
         }
+    }
+
+    private func handleOpenScoutNetworkAuth(_ url: URL) -> Bool {
+        let host = url.host?.lowercased()
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        guard host == "osn-auth" || path == "osn-auth" else {
+            return false
+        }
+
+        do {
+            try OpenScoutNetworkSessionStore.saveSession(from: url)
+            NSLog("[scout://] Scout saved OpenScout Network session")
+            DistributedNotificationCenter.default().post(
+                name: ScoutServiceURLRelay.openScoutNetworkAuthSavedNotificationName,
+                object: nil
+            )
+        } catch {
+            NSLog("[scout://] Scout OpenScout Network auth failed: %@", error.localizedDescription)
+        }
+        return true
     }
 
     private func handleAppCommand(command: String, value: String?) -> Bool {
