@@ -1,176 +1,498 @@
-/* Scout — Tail study. Tokens only (`--s-*`). */
+/* Scout — Tail study. Tokens only (`--s-*`).
+ *
+ * The header + inspector now come from the shared kit (`ScoutSurface`); what's
+ * left here is Tail-specific content: the surface grid, the filter toolbar, and
+ * the event stream. The stream matches the shell's `.ev` grid + tone chips. */
 
-.tail {
-  display: flex;
-  flex-direction: column;
-  min-height: 520px;
+.surface {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 560px;
   font-family: var(--s-font-sans);
 }
 
-/* ── Bar ───────────────────────────────────────────────────────────── */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-bg);
+}
 
-.bar {
+/* ── Filter toolbar ────────────────────────────────────────────────── */
+
+.toolbar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 9px 18px;
   background: var(--s-chrome);
   border-bottom: 1px solid var(--s-hairline);
 }
 
-.live {
+.search {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--s-ok);
+  gap: 7px;
+  width: 190px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--s-dim);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
   flex-shrink: 0;
 }
 
-.pip {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--s-ok);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 70%, transparent);
-  animation: pulse 1.8s ease-out infinite;
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-@keyframes pulse {
-  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-ok) 60%, transparent); }
-  70% { box-shadow: 0 0 0 6px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
-}
-
+/* Filters right-align — search + source stay left, chips push to the edge. */
 .chips {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .chip {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
+  padding: 4px 9px;
   border-radius: 999px;
-  font-size: 11.5px;
+  border: 1px solid var(--s-border);
+  background: transparent;
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
   font-weight: 600;
+  letter-spacing: 0.03em;
   color: var(--s-muted);
-  border: 1px solid var(--s-hairline);
-  background: var(--s-surface);
   cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  color: var(--s-ink);
+  border-color: var(--s-border-strong, var(--s-muted));
 }
 
 .chip.active {
-  color: var(--s-bg);
-  background: var(--s-accent);
-  border-color: var(--s-accent);
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border-color: transparent;
 }
 
-.chipDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
+/* ── Active-filter banner (shown when a facet pick narrows the stream) ─ */
 
-.barRight {
+.filterBanner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 10px;
+  padding: 6px 18px;
+  background: var(--s-accent-soft);
+  border-bottom: 1px solid var(--s-hairline);
 }
 
-.barHint,
-.barSearch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 7px;
+.filterText {
   font-size: 11.5px;
-  color: var(--s-dim);
-  border: 1px solid var(--s-hairline);
-  background: var(--s-surface);
+  color: var(--s-accent);
 }
 
-/* ── Stream ────────────────────────────────────────────────────────── */
+.filterText b {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.filterCount {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.filterClear {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  cursor: pointer;
+}
+
+.filterClear:hover {
+  color: var(--s-ink);
+}
+
+/* ── Stream (the shell's .ev grid + tone chips) ────────────────────── */
 
 .stream {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  background: var(--s-bg);
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
 }
 
 .ev {
   display: grid;
-  grid-template-columns: 64px 78px 52px 1fr;
-  align-items: center;
+  grid-template-columns: 62px 96px 72px minmax(0, 1fr);
   gap: 12px;
-  padding: 7px 16px;
+  align-items: baseline;
+  padding: 6px 18px;
   border-bottom: 1px solid var(--s-hairline);
-  font-family: var(--s-font-mono);
-  font-size: 12px;
 }
 
 .ev:hover {
-  background: color-mix(in srgb, var(--s-accent) 6%, transparent);
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
 }
 
 .evTime {
   color: var(--s-dim);
-  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .evSrc {
   color: var(--s-accent);
-  font-weight: 600;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.kind {
+  justify-self: start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--chip-tone);
+  background: color-mix(in srgb, var(--chip-tone) 15%, transparent);
 }
 
 .evMsg {
-  color: color-mix(in srgb, var(--s-ink) 82%, transparent);
+  color: var(--s-muted);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .evMsg code {
+  color: var(--s-ink);
   font-family: var(--s-font-mono);
   font-size: 11px;
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+/* ── Inspector: restructured (Vitals · Distribution · footer) ──────── */
+
+.insp {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* Shared section head — one quiet mono label for every block. */
+.groupLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* Vitals — flat stat readouts, Instrument language: no boxes, value over a
+   micro label, separated by hairline dividers. */
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--s-hairline);
+}
+
+.stat:first-child {
+  padding-left: 0;
+}
+
+.statValue {
+  font-family: var(--s-font-mono);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--s-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  font-family: var(--s-font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* Distribution — faceted; one breakdown on screen at a time. */
+.dist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.distHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.distTotal {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.segs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+}
+
+.seg {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.seg:hover {
   color: var(--s-ink);
 }
 
-/* ── KIND chip ─────────────────────────────────────────────────────── */
-
-.kind {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
-  padding: 2px 8px;
-  border-radius: 5px;
-  font-family: var(--s-font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  color: var(--chip-tone);
-  background: color-mix(in srgb, var(--chip-tone) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--chip-tone) 30%, transparent);
+.segOn {
+  color: var(--s-ink);
+  background: var(--s-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 
-/* ── Vocabulary legend ─────────────────────────────────────────────── */
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: 78px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bar:hover {
+  background: color-mix(in srgb, var(--s-accent) 7%, transparent);
+}
+
+.barOn {
+  background: var(--s-accent-soft);
+}
+
+.barLabel {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barOn .barLabel {
+  color: var(--s-accent);
+}
+
+.barTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--s-ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--s-accent) 55%, transparent);
+}
+
+.barOn .barFill {
+  background: var(--s-accent);
+}
+
+.barMetric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.barCount {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.barOn .barCount {
+  color: var(--s-accent);
+}
+
+.barPct {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+  width: 26px;
+  text-align: right;
+}
+
+/* Footer — settings + collapsed glossary, ranked below the live signal. */
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.toggleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.check {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--s-border);
+  color: var(--s-bg);
+  background: var(--s-surface);
+}
+
+.check[data-on="true"] {
+  background: var(--s-accent);
+  border-color: transparent;
+}
+
+.toggleText {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--s-muted);
+}
+
+.disc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discHead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.discCaret {
+  display: inline-flex;
+  color: var(--s-dim);
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
+}
+
+.discCaret[data-open="true"] {
+  transform: rotate(0deg);
+}
+
+.tracks {
+  display: flex;
+  flex-direction: column;
+}
+
+.track {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.trackLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+}
+
+.trackDetail {
+  font-size: 11px;
+  color: var(--s-dim);
+  line-height: 1.4;
+}
+
+/* ── Vocabulary legend (implementation spec for ScoutModels.swift) ──── */
 
 .legendWrap {
   margin-top: 18px;
@@ -189,8 +511,6 @@
   margin-bottom: 12px;
 }
 
-/* The legend renders its chips with `--s-*`, so give it the live skin via a
-   nested wrapper. Use juniper-l tokens as a neutral default for the spec board. */
 .legend {
   display: flex;
   flex-wrap: wrap;

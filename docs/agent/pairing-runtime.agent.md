@@ -38,7 +38,7 @@ Canonical implementation path: `packages/web/server/core/pairing/`. `apps/deskto
 
 ## Relations
 
-```text
+```plaintext
 controller 1—1 bridge process tree (in-process)
 controller 0—1 managed_relay
 controller 0—1 bonjour_advertisement
@@ -54,7 +54,7 @@ Pairing does **not** own: broker messages, invocations, flights, deliveries, age
 
 ## Process Shape
 
-```text
+```plaintext
 PairingService / CLI
   → pairing-runtime-controller (singleton)
       → [managed relay @ port+1] (optional)

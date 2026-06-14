@@ -163,7 +163,7 @@ projects**, with **active now** nearby when the user is doing operational work.
 
 For the 2026-05-22 local snapshot, that would read closer to:
 
-```text
+```plaintext
 87 configured agents across 55 projects
 9 active or idle now
 ```

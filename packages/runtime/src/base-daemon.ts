@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  buildLocalBrokerControlUrl,
   resolveBrokerServiceConfig,
   type BrokerServiceConfig,
 } from "./broker-process-manager.js";
@@ -46,6 +47,7 @@ let supervisedWebPid: number | null = null;
 let baseKeepAlive: ReturnType<typeof setInterval> | null = null;
 
 const config = resolveBrokerServiceConfig();
+const brokerControlUrl = buildLocalBrokerControlUrl(config.brokerHost, config.brokerPort);
 
 function log(message: string, details?: unknown): void {
   if (details === undefined) {
@@ -161,7 +163,7 @@ async function waitForBrokerHealth(timeoutMs = BROKER_HEALTH_TIMEOUT_MS): Promis
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(new URL("/health", config.brokerUrl), {
+      const response = await fetch(new URL("/health", brokerControlUrl), {
         headers: { accept: "application/json" },
         signal: AbortSignal.timeout(1_000),
       });
@@ -342,7 +344,7 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
   try {
     const edgeConfig = resolveEdgeConfig();
     const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
-    const response = await fetch(new URL("/v1/web/start", config.brokerUrl), {
+    const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
       method: "POST",
       headers: {
         accept: "application/json",

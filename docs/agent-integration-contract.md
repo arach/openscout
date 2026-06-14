@@ -156,18 +156,25 @@ Agents connected through Scout's MCP server should prefer:
   and stop operations
 
 Use `ask` for requested work. It returns a compact receipt and lets Scout resolve, route,
-and wake the target when possible. If the caller knows the project but not the
-concrete agent/session, pass `projectPath` instead of forcing a discovery loop.
-Invocation and flight records are created as side effects of the ask; use
-`invocations_get` and `invocations_wait` only to observe those records.
+and wake the target when possible. If the caller knows the project/capability
+but not the concrete agent/session, pass `projectPath` and optional `harness`
+instead of forcing a discovery loop or guessing a generic name. Invocation and
+flight records are created as side effects of the ask; use `invocations_get`
+and `invocations_wait` only to observe those records.
+
+Integration receipts should preserve the broker-chosen handle set: `ref`,
+`flightId`, `conversationId`, `messageId`, `workId`, session id, and any
+broker-suggested friendly worker handle. Continue by those handles; create or
+pin a memorable long-lived name only after the route is known good.
 
 Base identity is the vanilla project/workspace identity. Harness, model,
 profile, node, and session values describe a concrete instance or attachment
 constraint on that identity; they should not be treated as new base agents
 unless the caller is intentionally selecting a specialized profile.
 
-Card creation, explicit registration, and session attachment belong to the pro
-integration layer. They are appropriate for hosts and Scout-native agents that
+Card creation, explicit registration, session attachment, and future worker
+pinning/naming belong to the pro integration layer. They are appropriate for
+hosts and Scout-native agents that
 need to manage durable return addresses or explicit session attachments, but they
 are not the default way to ask another agent for work.
 

@@ -130,6 +130,7 @@ Examples:
 ```bash
 scout ask --to hudson "Review the auth module and report risks."
 scout ask --project ../talkie "Review the auth module and report risks."
+scout ask --project ../talkie --harness claude "Review the auth module and report risks."
 ```
 
 MCP equivalent:
@@ -142,6 +143,7 @@ ask({
 
 ask({
   projectPath: "../talkie",
+  harness: "claude",
   body: "Review the auth module and report risks.",
 })
 ```
@@ -150,9 +152,12 @@ Expected client behavior:
 
 - create or display a durable message for the ask
 - use `projectPath` / `--project` when the project is known but the concrete
-  agent or session is not; Scout resolves or creates the right project agent
-  instance
-- surface returned ids such as `flightId` and `workId`
+  agent or session is not; add `harness` / `--harness` when the capability
+  matters. Scout resolves or creates the right project worker.
+- do not teach agents to guess generic names such as `claude.main`; start from
+  project + capability, then trust the broker receipt
+- surface returned ids such as `flightId` and `workId`, plus any `ref`,
+  `sessionId`, or broker-suggested friendly handle for follow-up
 - treat the initial `ask` response as the broker receipt, not as the target
   agent's acknowledgement
 - expect the target agent to promptly post a broker-visible acknowledgement in
@@ -313,7 +318,7 @@ the request to the broker.
 
 Typed:
 
-```text
+```plaintext
 /scout:ask >> hudson Review the parser.
 /scout:ask >> ref:8kj4pd Continue from that result.
 /scout:ask >> project:../talkie Compare auth.
@@ -356,7 +361,7 @@ candidates or wake/register/retry guidance when available.
 
 Good failure shape:
 
-```text
+```plaintext
 @hudson#codex resolved to codex-hudai.main.air-local, but no compatible Codex
 session is attached. I found a Claude session for the same project.
 Try: scout session start --agent codex-hudai --harness codex
@@ -364,7 +369,7 @@ Try: scout session start --agent codex-hudai --harness codex
 
 Bad failure shape:
 
-```text
+```plaintext
 error: no explicit destination
 ```
 
@@ -400,6 +405,12 @@ records and superseded endpoint records are not candidates for ordinary card
 routing. If the caller names `session:<id>`/`targetSessionId`, Scout should
 continue that exact session or return a dispatch/lifecycle failure that says
 "session reference not attachable" or "session not currently reachable".
+
+The normal fresh-start workflow is therefore: capability request by
+`projectPath` + optional `harness`; broker dispatch to an existing or new
+compatible worker; receipt with durable ids/ref and, when available, a friendly
+mnemonic handle; follow-up by that handle/ref; optional pin/name after the worker
+proves useful.
 
 ## Coordination Cost
 
@@ -437,13 +448,13 @@ contact line is generated from structured records; it is not the protocol.
 
 Default grammar:
 
-```text
+```plaintext
 ⌖ <source-short> <operator> <intent>:<ref>
 ```
 
 Examples:
 
-```text
+```plaintext
 ⌖ art ≔ ask:8kj4pd
 ⌖ art ↦ task:8kj4pd
 ⌖ art ≈ summary:8kj4pd
@@ -469,13 +480,13 @@ the structured context fields.
 When the contact cue is rendered next to payload text, use ` › ` as the
 payload lead-in so previews and single-line host surfaces keep the boundary:
 
-```text
+```plaintext
 ⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
 ```
 
 ASCII fallback:
 
-```text
+```plaintext
 scout art ask:8kj4pd
 ```
 

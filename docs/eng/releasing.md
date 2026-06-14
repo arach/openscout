@@ -27,6 +27,11 @@ Before your first release, make sure the following are set up locally.
   - allowed action: `npm publish`
 - Fallback: add a GitHub repository secret named `NPM_TOKEN` with publish
   access.
+- The npm release workflow runs on macOS arm64 because the package includes the
+  native `scoutd` executable. Configure
+  `MACOS_DEVELOPER_ID_APPLICATION_P12_BASE64`,
+  `MACOS_DEVELOPER_ID_APPLICATION_P12_PASSWORD`, and
+  `MACOS_RELEASE_KEYCHAIN_PASSWORD` in the Production environment.
 - For local emergency publishing, `~/.npmrc` must contain
   `//registry.npmjs.org/:_authToken=...`, or export `NPM_TOKEN` in the shell
   before publishing. Confirm publish access with `npm whoami`.
@@ -108,7 +113,9 @@ npm run ship -- 0.2.68 --execute --yes --github-npm
 This verifies the internal builds and packed public manifest locally, pushes the
 tag, creates the GitHub release, then dispatches
 `.github/workflows/release-package-npm.yml` to publish `@openscout/scout` from
-the release tag.
+the release tag. The workflow imports the Developer ID Application certificate
+and requires the packaged `scoutd` binary to be a Developer ID signed macOS
+arm64 Mach-O before publishing.
 
 For manual recovery or an emergency local publish, the lower-level helper still
 builds the internal packages, verifies the packed public manifest, and publishes
@@ -122,6 +129,10 @@ bash scripts/ship-npm.sh
 The public package carries the bundled broker/runtime and web UI. Installing it
 does not start anything automatically; `scout setup`, `scout up`, and
 `scout server start` are explicit activation paths.
+
+`scripts/ship-npm.sh` exports `OPENSCOUT_REQUIRE_SCOUTD_SIGN=1` by default, so
+both local dry runs and npm's publish-time `prepack` rebuild verify the native
+broker signature.
 
 Verify:
 
@@ -157,6 +168,13 @@ env, then the repo root `package.json`. It will:
 6. Submit to `notarytool` with `--wait`, then `stapler staple` the result.
 7. `spctl --assess` the final DMG.
 
+The native `scoutd` daemon is signed separately when the public CLI package
+stages `packages/cli/bin/scoutd`. The signing helper uses
+`OPENSCOUT_SCOUTD_SIGN_IDENTITY` first, then `OPENSCOUT_SIGN_IDENTITY`, then
+the first keychain Developer ID Application identity. Local builds can fall back
+to Apple Development or ad hoc signing. Release lanes that must enforce
+Developer ID signing set `OPENSCOUT_REQUIRE_SCOUTD_SIGN=1`.
+
 `apps/macos/dist/` is gitignored — artifacts do not land in git. Attach the
 DMG to a GitHub release (or similar) for distribution.
 
@@ -184,7 +202,7 @@ GitHub release exists yet, it creates the release with `--verify-tag` and then
 uploads the assets. The website download CTA points at GitHub's latest-release
 `OpenScout.dmg` asset:
 
-```text
+```plaintext
 https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg
 ```
 

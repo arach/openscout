@@ -108,6 +108,13 @@ Release DMG signing/notarization environment:
 - `OPENSCOUT_NOTARY_PROFILE`
 - `SKIP_NOTARIZE=1` for local packaging without notarization
 
+`scoutd` is signed as its own native executable when it is staged for the
+public CLI package. It uses `OPENSCOUT_SCOUTD_SIGN_IDENTITY` when set,
+otherwise `OPENSCOUT_SIGN_IDENTITY`, otherwise the first keychain Developer ID
+Application identity, otherwise Apple Development for local builds, otherwise an
+ad hoc signature. The npm ship path sets `OPENSCOUT_REQUIRE_SCOUTD_SIGN=1`, so
+release builds fail instead of falling back below Developer ID signing.
+
 The release artifacts are:
 
 - `apps/macos/dist/OpenScout-<version>.dmg`

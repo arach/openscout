@@ -1744,3 +1744,123 @@ button.s-thread-sidebar-participant:focus-visible {
   width: 28px;
   height: 28px;
 }
+
+/* ── Conversations zero state (no conversation selected) ── */
+
+.s-conv-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5xl);
+  background: var(--bg);
+}
+
+.s-conv-empty-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: min(100%, 420px);
+}
+
+.s-conv-empty-mesh {
+  width: 72px;
+  height: 72px;
+  margin-bottom: var(--space-4xl);
+  color: var(--border);
+}
+
+.s-conv-empty-mesh-node {
+  fill: currentColor;
+}
+
+.s-conv-empty-mesh-node--accent {
+  fill: var(--accent);
+}
+
+.s-conv-empty-mesh-link {
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: 0.7;
+}
+
+.s-conv-empty-eyebrow {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xl);
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  margin-bottom: var(--space-md);
+}
+
+.s-conv-empty-title {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  color: var(--muted);
+  line-height: var(--leading-tight);
+  margin: 0;
+}
+
+.s-conv-empty-detail {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  color: var(--dim);
+  margin: var(--space-sm) 0 0;
+}
+
+.s-conv-empty-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xl);
+  margin-top: var(--space-5xl);
+}
+
+.s-conv-empty-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+  color: var(--dim);
+}
+
+.s-conv-empty-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 var(--space-2xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  color: var(--muted);
+  line-height: var(--leading-none);
+}
+
+.s-conv-empty-ambient {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-5xl);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-lg);
+  color: var(--dim);
+}
+
+.s-conv-empty-ambient-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}

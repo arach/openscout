@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   buildDefaultBrokerUrl,
+  buildLocalBrokerControlUrl,
   DEFAULT_BROKER_HOST,
   DEFAULT_BROKER_PORT,
   DEFAULT_BROKER_URL,
@@ -79,6 +80,12 @@ function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
 }
 
 describe("broker service scoutd adapter", () => {
+  test("builds local broker control URLs from wildcard bind hosts", () => {
+    expect(buildLocalBrokerControlUrl("0.0.0.0", 65535)).toBe("http://127.0.0.1:65535");
+    expect(buildLocalBrokerControlUrl("::", 65535)).toBe("http://127.0.0.1:65535");
+    expect(buildLocalBrokerControlUrl("192.168.1.12", 65535)).toBe("http://192.168.1.12:65535");
+  });
+
   test("resolves the package root from a bundled scout dist runtime module", () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-runtime-package-"));
     const packageRoot = join(root, "scout");

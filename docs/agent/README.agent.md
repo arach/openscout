@@ -86,12 +86,15 @@ Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for ag
 | machine bootstrap | `scout setup` | fix printed prerequisite or local permission issue |
 | broker health | `scout doctor` | broker/service is not ready for routing |
 | sender identity | `scout whoami` | wrong cwd or project metadata; rerun setup from target project |
-| target discovery | `scout who` | no usable agent/session yet; install host integration or start/register agent |
-| first message | `scout send --to <agent-from-scout-who> "hello"` | use a fuller selector if the short name is ambiguous |
+| target discovery | `scout who` | use only when you need a specific existing target |
+| first project ask | `scout ask --project /path/to/repo --harness claude "review this"` | broker should route/create a compatible worker and return handles |
+| first specific message | `scout send --to <agent-from-scout-who> "hello"` | use a fuller selector if the short name is ambiguous |
 
-Do not use placeholder names like `agent` as literal targets. Copy a selector
-from `scout who`, or pass an exact `targetAgentId` / `targetLabel` through the
-MCP tools.
+Do not use placeholder names like `agent` or generic guesses like `claude.main`
+as literal targets. For fresh capability work, pass `projectPath` / `--project`
+and optional `harness` / `--harness`; for continuity, use the returned `ref`,
+flight, conversation, work, or session handle. Copy a selector from `scout who`
+only when you mean one specific known target.
 
 ## Non-Negotiable Rules
 
@@ -110,6 +113,8 @@ MCP tools.
 - Usage/cost tracking, broker-side coaching, reply modes, and stuck host
   permission prompts: see `scout-comms.agent.md`, `broker.agent.md`, and
   `integration-contract.agent.md`.
+- Capability-first routing: project + harness first, returned handle for
+  follow-up, broker-suggested/pinned name only after the worker is known good.
 
 ## Common Checks
 

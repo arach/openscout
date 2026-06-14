@@ -18,6 +18,10 @@ mkdir -p "$npm_config_cache"
 [[ -f .env.local ]] && set -a && source .env.local && set +a
 [[ -f .env ]] && set -a && source .env && set +a
 
+# Public package builds must carry a distribution-signed native broker. Keep this
+# exported so npm's publish/pack prepack rebuilds inherit the same release gate.
+export OPENSCOUT_REQUIRE_SCOUTD_SIGN="${OPENSCOUT_REQUIRE_SCOUTD_SIGN:-1}"
+
 DRY_RUN=false
 if [[ "${1:-}" == "--dry-run" ]]; then
   DRY_RUN=true
@@ -88,7 +92,8 @@ echo "  runtime…"
 
 echo "  cli…"
 # Require the prebuilt scoutd broker service binary in published artifacts —
-# build.mjs fails loudly here if cargo is unavailable (see OPENSCOUT_REQUIRE_SCOUTD).
+# build.mjs fails loudly here if cargo is unavailable or scoutd cannot be
+# Developer ID signed (see OPENSCOUT_REQUIRE_SCOUTD and OPENSCOUT_REQUIRE_SCOUTD_SIGN).
 (cd packages/cli && OPENSCOUT_REQUIRE_SCOUTD=1 node ./scripts/build.mjs)
 
 echo "  web…"

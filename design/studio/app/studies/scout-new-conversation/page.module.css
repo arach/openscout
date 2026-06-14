@@ -1,0 +1,895 @@
+/* Scout — New Conversation modal study.
+ * Reads only --s-* tokens (app/scout-skins.css) so it ports straight to
+ * ScoutPalette. Hairlines are 1px (= native HudStrokeWidth.thin on 2× Retina);
+ * shadows stay shallow; the message well signals focus with a border, never a
+ * left bar (rounded element). */
+
+.stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 560px;
+  padding: 36px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline);
+  font-family: var(--s-font-sans);
+}
+
+/* ── Faint app behind the scrim — context, not detail ─────────────────── */
+.backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  filter: saturate(0.9);
+}
+.ghostRail {
+  width: 56px;
+  background: var(--s-chrome);
+  border-right: 1px solid var(--s-hairline);
+}
+.ghostBody {
+  flex: 1;
+  display: flex;
+}
+.ghostList {
+  width: 38%;
+  background: var(--s-surface);
+  border-right: 1px solid var(--s-hairline);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0 18px,
+    var(--s-hairline) 18px 19px,
+    transparent 19px 64px
+  );
+}
+.ghostThread {
+  flex: 1;
+  background: var(--s-bg);
+}
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 14, 0.46);
+  backdrop-filter: blur(1.5px);
+}
+
+/* ── Modal ────────────────────────────────────────────────────────────── */
+.modal {
+  position: relative;
+  width: 520px;
+  display: flex;
+  flex-direction: column;
+  /* Pacing: generous breathing room between the big zones (header · Target ·
+     Message); each section keeps its own tighter internal rhythm (.section). */
+  gap: 26px;
+  padding: 24px;
+  border-radius: 13px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  box-shadow: 0 14px 40px rgba(8, 10, 14, 0.34), 0 2px 6px rgba(8, 10, 14, 0.18);
+}
+
+/* Header */
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+.headMark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 8px;
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 24%, transparent);
+}
+.headText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+.subtitle {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.closeBtn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: 7px;
+  color: var(--s-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.closeBtn:hover {
+  color: var(--s-ink);
+  background: var(--s-chrome);
+  border-color: var(--s-hairline-strong);
+}
+
+.sep {
+  height: 1px;
+  background: var(--s-hairline);
+  /* Hug the header so the big modal gap breathes *after* the divider, not around
+     it — the header stays one unit, the content sections get the air. */
+  margin-top: -8px;
+}
+
+/* Section */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.label {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* ── Segmented toggle (grouped; solid-accent active segment) ──────────── */
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline);
+}
+.segOn,
+.segOff {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  border: 0;
+  transition: background 0.12s, color 0.12s;
+}
+.segOn {
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+.segOff {
+  color: var(--s-muted);
+  background: transparent;
+}
+.segOff:hover {
+  color: var(--s-ink);
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+}
+.segOn svg,
+.segOff svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ── Agent inline card (harness · model + target token) ───────────────── */
+.agentCard {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+}
+.stateDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+.inlineMenu {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-ink);
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  border-radius: 5px;
+  transition: background 0.12s;
+}
+.inlineMenu:hover {
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+.caret {
+  font-size: 10px;
+  color: var(--s-dim);
+  transform: translateY(-1px);
+}
+.dotSep {
+  color: var(--s-dim);
+  font-size: 12px;
+}
+.targetTok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+.tokDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-accent);
+}
+
+/* ── Agent combobox (type-to-filter + suggest + dropdown) ─────────────── */
+.combo {
+  position: relative;
+}
+.comboField {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  padding: 0 8px 0 12px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.comboFieldOpen {
+  border-color: color-mix(in srgb, var(--s-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
+}
+.comboInputWrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.comboInput {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-ink);
+  caret-color: var(--s-accent);
+}
+.comboInput::placeholder {
+  color: var(--s-dim);
+  font-weight: 500;
+}
+/* ghost autocomplete — sits exactly under the input; typed part is invisible
+   so the dim remainder begins right after the caret */
+.comboGhost {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: flex;
+  align-items: center;
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-dim);
+  pointer-events: none;
+  white-space: pre;
+}
+.comboGhostTyped {
+  color: transparent;
+}
+.comboTab {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-muted);
+  background: var(--s-chrome);
+  border: 1px solid var(--s-hairline);
+}
+.comboCaret {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--s-dim);
+  background: transparent;
+  border: 0;
+  transition: transform 0.15s, background 0.12s, color 0.12s;
+}
+.comboCaret:hover {
+  color: var(--s-ink);
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+}
+.comboCaretOpen {
+  transform: rotate(180deg);
+}
+
+/* dropdown */
+.comboMenu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  box-shadow: 0 12px 30px rgba(8, 10, 14, 0.28), 0 2px 6px rgba(8, 10, 14, 0.16);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* project group (project first, then its agents) */
+.comboGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.comboGroup + .comboGroup {
+  margin-top: 5px;
+}
+.comboGroupLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 3px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+.comboGroupCount {
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--s-muted);
+  opacity: 0.65;
+}
+.comboCheck {
+  display: grid;
+  place-items: center;
+  flex: none;
+  color: var(--s-accent);
+}
+.comboRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  transition: background 0.1s;
+}
+.comboRowActive {
+  background: var(--s-accent-soft);
+}
+.comboName {
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+.comboHi {
+  color: var(--s-accent);
+  font-weight: 700;
+}
+.comboRowMeta {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+.comboMeta {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+  white-space: nowrap;
+}
+.comboEmpty {
+  padding: 10px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+/* create-new-agent row — sits below the roster, under a hairline */
+.comboCreate {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 36px;
+  margin-top: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-top: 1px solid var(--s-hairline);
+  border-radius: 0 0 7px 7px;
+  background: transparent;
+  text-align: left;
+  transition: background 0.1s;
+}
+.comboCreateActive {
+  background: var(--s-accent-soft);
+}
+.comboCreateIcon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 24%, transparent);
+}
+.comboCreateText {
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+  color: var(--s-ink);
+}
+.comboCreateText strong {
+  font-weight: 700;
+}
+
+/* ── Harness + model selectors (linked chips) ─────────────────────────── */
+.configRow {
+  display: flex;
+  gap: 8px;
+}
+.configChip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.configField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 38px;
+  padding: 0 9px 0 11px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.configField:hover {
+  border-color: var(--s-border);
+}
+.configFieldOpen {
+  border-color: color-mix(in srgb, var(--s-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
+}
+.configKey {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  flex: none;
+}
+.configVal {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+.configVal svg {
+  color: var(--s-dim);
+}
+.harnessDot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--s-accent);
+}
+.configMenu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px;
+  border-radius: 9px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  box-shadow: 0 12px 30px rgba(8, 10, 14, 0.28), 0 2px 6px rgba(8, 10, 14, 0.16);
+}
+.configOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-ink);
+  transition: background 0.1s;
+}
+.configOption:hover {
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+}
+.configOptionActive,
+.configOptionActive:hover {
+  background: var(--s-accent-soft);
+}
+.configOptionDim {
+  font-weight: 600;
+  color: var(--s-dim);
+}
+.configGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.configGroup + .configGroup {
+  margin-top: 4px;
+}
+.configGroupLabel {
+  padding: 5px 9px 3px;
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* ── Picker field (Project / Harness) ─────────────────────────────────── */
+.field {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  height: 48px;
+  padding: 0 13px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+  transition: border-color 0.12s, background 0.12s;
+}
+.field:hover {
+  border-color: var(--s-border);
+}
+.fieldIcon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  color: var(--s-accent);
+  flex: none;
+}
+.fieldText {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.fieldTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-ink);
+  line-height: 1.25;
+}
+.fieldDetail {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.spacer {
+  flex: 1;
+}
+.chev {
+  display: grid;
+  place-items: center;
+  color: var(--s-dim);
+  flex: none;
+  transition: transform 0.15s;
+}
+.chevOpen {
+  transform: rotate(180deg);
+}
+
+/* ── Message well — focus border, NO left bar, ~2.5 lines ─────────────── */
+.well {
+  position: relative;
+  display: block;
+  min-height: 96px;
+  /* extra bottom room for the floating mic */
+  padding: 13px 14px 44px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.wellFocus {
+  border-color: color-mix(in srgb, var(--s-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
+}
+.wellText {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--s-dim);
+}
+/* Floating mic — bottom-center of the well, not a column */
+.mic {
+  position: absolute;
+  bottom: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  box-shadow: 0 1px 3px rgba(8, 10, 14, 0.13);
+  transition: color 0.12s, background 0.12s, border-color 0.12s, transform 0.12s;
+}
+.mic:hover {
+  color: var(--s-accent);
+  border-color: color-mix(in srgb, var(--s-accent) 40%, transparent);
+  transform: translateX(-50%) translateY(-1px);
+}
+.hint {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+.hint kbd {
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-muted);
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--s-chrome);
+  border: 1px solid var(--s-hairline);
+}
+
+/* ── Consolidated message box (input top / toolbar bottom) ────────────── */
+.box {
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+  overflow: hidden;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.boxFocus {
+  border-color: color-mix(in srgb, var(--s-accent) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
+}
+.boxField {
+  /* the input zone — ~80% of the box */
+  min-height: 98px;
+  padding: 13px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--s-dim); /* placeholder tone */
+}
+.boxBar {
+  /* the guides + buttons zone — ~20%, a faintly recessed plane under a hairline */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 12px;
+  background: color-mix(in srgb, var(--s-ink) 4%, var(--s-bg));
+  border-top: 1px solid var(--s-hairline);
+}
+.barCancel {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: transparent;
+  border: 0;
+  padding: 4px 7px;
+  border-radius: 5px;
+  transition: color 0.12s, background 0.12s;
+}
+.barCancel:hover {
+  color: var(--s-ink);
+  background: color-mix(in srgb, var(--s-ink) 6%, transparent);
+}
+.barHint {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+.barHint kbd {
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-muted);
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--s-chrome);
+  border: 1px solid var(--s-hairline);
+}
+.barIcon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.barIcon:hover {
+  color: var(--s-accent);
+  border-color: color-mix(in srgb, var(--s-accent) 40%, transparent);
+}
+.barSend {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 6px;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+  transition: background 0.12s, transform 0.12s;
+}
+.barSend:hover {
+  background: color-mix(in srgb, var(--s-accent) 92%, #000);
+  transform: translateY(-1px);
+}
+
+/* ── Options disclosure ───────────────────────────────────────────────── */
+.optionsToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.optionsToggle:hover .label {
+  color: var(--s-muted);
+}
+.optionsBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+.miniField {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--s-bg);
+  border: 1px solid var(--s-hairline-strong);
+}
+.miniLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+.miniValue {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  color: var(--s-ink);
+}
+
+/* ── Footer — harmonized button family ────────────────────────────────── */
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ghostBtn,
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+.ghostBtn {
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+.ghostBtn:hover {
+  color: var(--s-ink);
+  border-color: var(--s-border);
+}
+.primaryBtn {
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+}
+.primaryBtn:hover {
+  background: color-mix(in srgb, var(--s-accent) 92%, #000);
+}
+.kbd {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}

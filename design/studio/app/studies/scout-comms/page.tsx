@@ -65,6 +65,11 @@ type Message = {
   long?: boolean;
   html: string;
   card?: { head: string; body: string };
+  // The `[ask:<flightId>]` correlation tag the agent echoes (and the broker
+  // matches on) stays in the stored body — but at render we resolve the flight
+  // to its originating ask and lift it into a clickable backlink: a short
+  // resolved title · requester · live status. Machine token → useful reference.
+  ask?: { id: string; title: string; from: string; status: "working" | "done" };
 };
 
 const MESSAGES: Message[] = [
@@ -73,6 +78,7 @@ const MESSAGES: Message[] = [
     author: "Talkie",
     time: "2:15 PM",
     long: true,
+    ask: { id: "ask:f-mq8ubzy0-8qm0", title: "overlay settings: render or defer?", from: "Art", status: "done" },
     html: `<p>Three changes, highest-impact first:</p>
 <ol>
 <li><strong>Make Library a full-height, first-class pane.</strong> Today <code>ScopeLibraryList</code> nests its own ScrollView inside a fixed <code>.frame(height: 460)</code> — a double scroll with a clipped value. Drop the wrapper and let the list fill the content area.</li>
@@ -114,6 +120,13 @@ export default function ScoutCommsStudy() {
           list also defines the new data the native side needs —{" "}
           <code className="font-mono text-[11px] text-studio-ink">unreadCount</code>{" "}
           and <code className="font-mono text-[11px] text-studio-ink">askState</code>.
+          The raw{" "}
+          <code className="font-mono text-[11px] text-studio-ink">[ask:&lt;flightId&gt;]</code>{" "}
+          tag agents echo (and the broker matches on) stays in the body, but at
+          render it&rsquo;s lifted into a clickable{" "}
+          <strong className="text-studio-ink">reply-context backlink</strong> on the
+          turn — resolved title · requester · live status — instead of leaking hex
+          into the prose.
         </>
       }
     >
@@ -258,6 +271,26 @@ function Turn({ m }: { m: Message }) {
           <span className={styles.turnAuthor}>{m.author}</span>
           <span className={styles.turnTime}>{m.time}</span>
         </div>
+        {m.ask ? (
+          <button
+            type="button"
+            className={styles.replyCtx}
+            title={`Open the originating ask · ${m.ask.id}`}
+          >
+            <ReplyGlyph />
+            <span className={styles.replyLabel}>reply to</span>
+            <span className={styles.replyTitle}>{m.ask.title}</span>
+            <span className={styles.replyFrom}>· {m.ask.from}</span>
+            {m.ask.status === "working" ? (
+              <span className={styles.replyWorking}>
+                <span className={styles.replyDot} />
+                working
+              </span>
+            ) : (
+              <span className={styles.replyDone}>· done</span>
+            )}
+          </button>
+        ) : null}
         <div
           className={`${styles.turnText} ${clamped ? styles.clamped : ""}`}
           dangerouslySetInnerHTML={{ __html: m.html }}
@@ -353,6 +386,15 @@ function PinGlyph() {
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M9 4h6l-1 6 3 3H7l3-3-1-6z" />
       <path d="M12 16v4" />
+    </svg>
+  );
+}
+
+function ReplyGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="9 17 4 12 9 7" />
+      <path d="M4 12h11a4 4 0 0 1 4 4v2" />
     </svg>
   );
 }

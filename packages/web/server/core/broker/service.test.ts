@@ -14,6 +14,7 @@ import {
   loadScoutMessages,
   openScoutPeerSession,
   readScoutBrokerHealth,
+  resolveScoutBrokerUrl,
   sendScoutConversationMessage,
   sendScoutMessage,
 } from "./service.ts";
@@ -23,6 +24,7 @@ const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
+const originalBrokerInternalUrl = process.env.OPENSCOUT_BROKER_INTERNAL_URL;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
 const originalFetch = globalThis.fetch;
 const testDirectories = new Set<string>();
@@ -48,6 +50,11 @@ afterEach(() => {
     delete process.env.OPENSCOUT_BROKER_URL;
   } else {
     process.env.OPENSCOUT_BROKER_URL = originalBrokerUrl;
+  }
+  if (originalBrokerInternalUrl === undefined) {
+    delete process.env.OPENSCOUT_BROKER_INTERNAL_URL;
+  } else {
+    process.env.OPENSCOUT_BROKER_INTERNAL_URL = originalBrokerInternalUrl;
   }
   if (originalSkipUserProjectHints === undefined) {
     delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
@@ -81,6 +88,16 @@ function jsonResponse(body: unknown, status = 200): Response {
     },
   });
 }
+
+describe("resolveScoutBrokerUrl", () => {
+  test("prefers the same-machine internal broker URL when present", () => {
+    useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_BROKER_URL = "http://mesh.example.test:65535";
+    process.env.OPENSCOUT_BROKER_INTERNAL_URL = "http://127.0.0.1:65535";
+
+    expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:65535");
+  });
+});
 
 describe("readScoutBrokerHealth", () => {
   test("preserves broker build identity and child service states", async () => {

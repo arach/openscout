@@ -8,6 +8,7 @@ import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../../
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { actorColor } from "../../lib/colors.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { AgentsInspector } from "../inspector/AgentsInspector.tsx";
@@ -318,7 +319,7 @@ function BrokerContextPanel() {
 
       <BrokerContextSection label="Needs attention">
         {attentionRows.length === 0 ? (
-          <BrokerEmptyLine>No failed routes in this window.</BrokerEmptyLine>
+          <BrokerEmptyLine>No failed routes in history.</BrokerEmptyLine>
         ) : (
           <div className="flex flex-col gap-1.5">
             {attentionRows.map((attempt) => (
@@ -744,9 +745,7 @@ function ChannelActivityButton({
 }) {
   const content = (
     <>
-      <div className="ctx-panel-avatar" style={{ background: actorColor(item.actorName) }}>
-        {item.actorName[0]?.toUpperCase() ?? "?"}
-      </div>
+      <AgentAvatar name={item.actorName} placement="list" className="ctx-panel-avatar" />
       <div className="ctx-panel-body">
         <span className="ctx-panel-name">{item.actorName}</span>
         <span className="ctx-panel-sub">

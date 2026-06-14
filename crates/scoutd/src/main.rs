@@ -25,6 +25,9 @@ const CHILD_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(12);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATE_WRITE_INTERVAL: Duration = Duration::from_secs(2);
 const CHILD_LOG_ROTATE_LIMIT: u64 = 512 * 1024;
+const DEFAULT_REPO_WATCH_INTERVAL: Duration = Duration::from_secs(10 * 60);
+const REPO_WATCH_WARM_START_DELAY: Duration = Duration::from_secs(2);
+const REPO_WATCH_WARM_PATH: &str = "/v1/repo-watch/warm";
 const SIGINT: i32 = 2;
 const SIGTERM: i32 = 15;
 const DAEMON_NAME: &str = "scoutd";
@@ -55,6 +58,16 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_WEB_FLAG_BUNDLE",
     "OPENSCOUT_WEB_EXPERIENCE",
     "OPENSCOUT_WEB_AB_VARIANT",
+    "OPENSCOUT_REPO_WATCH_INTERVAL_MS",
+    "OPENSCOUT_REPO_WATCH_ROOTS",
+    "OPENSCOUT_REPO_WATCH_NATIVE",
+    "OPENSCOUT_REPO_WATCH_MAX_ROOTS",
+    "OPENSCOUT_REPO_WATCH_MAX_WORKTREES",
+    "OPENSCOUT_REPO_WATCH_MAX_FILES_PER_WORKTREE",
+    "OPENSCOUT_REPO_WATCH_SCAN_BUDGET_MS",
+    "OPENSCOUT_REPO_WATCH_CACHE_TTL_MS",
+    "OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS",
+    "OPENSCOUT_REPO_SERVICE_BIN",
 ];
 
 unsafe extern "C" {
@@ -164,6 +177,7 @@ struct Config {
     broker_url: String,
     broker_socket_path: PathBuf,
     advertise_scope: String,
+    repo_watch_interval: Option<Duration>,
 }
 
 impl Config {
@@ -246,6 +260,7 @@ impl Config {
             }),
         );
         let daemon_state_path = runtime_directory.join("scoutd-state.json");
+        let repo_watch_interval = repo_watch_interval_from_env();
 
         Ok(Self {
             label: label.clone(),
@@ -268,6 +283,7 @@ impl Config {
             broker_url,
             broker_socket_path,
             advertise_scope,
+            repo_watch_interval,
         })
     }
 
@@ -391,6 +407,7 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let mut restart_delay = RESTART_MIN_DELAY;
     let mut last_child_exit: Option<ChildExitTelemetry> = None;
     let mut child = spawn_base_process(config)?;
+    let _repo_watch_warmer = start_repo_watch_warmer(config.clone());
     write_daemon_state(
         config,
         started_at_ms,
@@ -618,6 +635,94 @@ fn sleep_until_or_shutdown(deadline: Instant) {
     }
 }
 
+fn start_repo_watch_warmer(config: Config) -> Option<thread::JoinHandle<()>> {
+    let interval = config.repo_watch_interval?;
+    match thread::Builder::new()
+        .name("scoutd-repo-watch-warmer".to_string())
+        .spawn(move || {
+            sleep_until_or_shutdown(Instant::now() + REPO_WATCH_WARM_START_DELAY);
+            while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+                if let Err(error) = warm_repo_watch_snapshot(&config) {
+                    eprintln!("[scoutd] repo-watch warm failed: {error}");
+                }
+                sleep_until_or_shutdown(Instant::now() + interval);
+            }
+        }) {
+        Ok(handle) => Some(handle),
+        Err(error) => {
+            eprintln!("[scoutd] failed to start repo-watch warmer: {error}");
+            None
+        }
+    }
+}
+
+fn warm_repo_watch_snapshot(config: &Config) -> Result<(), String> {
+    match warm_repo_watch_unix(&config.broker_socket_path) {
+        Ok(()) => Ok(()),
+        Err(socket_error) => warm_repo_watch_tcp(config)
+            .map_err(|http_error| format!("{socket_error}; http fallback: {http_error}")),
+    }
+}
+
+fn warm_repo_watch_unix(socket_path: &Path) -> Result<(), String> {
+    let mut stream = UnixStream::connect(socket_path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| error.to_string())?;
+    warm_repo_watch_http(&mut stream, "localhost")
+}
+
+fn warm_repo_watch_tcp(config: &Config) -> Result<(), String> {
+    let mut stream = TcpStream::connect((&config.broker_host[..], config.broker_port))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| error.to_string())?;
+    warm_repo_watch_http(&mut stream, &config.broker_host)
+}
+
+fn warm_repo_watch_http<T: Read + Write>(stream: &mut T, host: &str) -> Result<(), String> {
+    let response = fetch_http_response(stream, host, REPO_WATCH_WARM_PATH, "application/json")?;
+    match parse_http_status_code(&response) {
+        Some(status) if (200..300).contains(&status) => Ok(()),
+        Some(status) => Err(format!("repo-watch warm returned HTTP {status}")),
+        None => Err("repo-watch warm response missing HTTP status".to_string()),
+    }
+}
+
+fn fetch_http_response<T: Read + Write>(
+    stream: &mut T,
+    host: &str,
+    path: &str,
+    accept: &str,
+) -> Result<String, String> {
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nAccept: {accept}\r\nConnection: close\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|error| error.to_string())?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|error| error.to_string())?;
+    Ok(response)
+}
+
+fn parse_http_status_code(response: &str) -> Option<u16> {
+    response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .and_then(|value| value.parse::<u16>().ok())
+}
+
 fn doubled_delay(delay: Duration) -> Duration {
     let doubled = delay.as_millis().saturating_mul(2);
     Duration::from_millis(doubled.min(RESTART_MAX_DELAY.as_millis()) as u64)
@@ -786,25 +891,12 @@ fn fetch_tcp_health(config: &Config) -> Result<HealthStatus, String> {
 }
 
 fn fetch_http_health<T: Read + Write>(stream: &mut T, host: &str) -> Result<HealthStatus, String> {
-    let request = format!(
-        "GET /health HTTP/1.1\r\nHost: {host}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
-    );
-    stream
-        .write_all(request.as_bytes())
-        .map_err(|error| error.to_string())?;
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .map_err(|error| error.to_string())?;
+    let response = fetch_http_response(stream, host, "/health", "application/json")?;
     parse_health_response(&response)
 }
 
 fn parse_health_response(response: &str) -> Result<HealthStatus, String> {
-    let status_line = response.lines().next().unwrap_or_default();
-    let status_code = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|value| value.parse::<u16>().ok());
+    let status_code = parse_http_status_code(response);
     let body = response
         .split_once("\r\n\r\n")
         .map(|(_, body)| body.to_string())
@@ -1397,6 +1489,17 @@ fn env_nonempty(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn repo_watch_interval_from_env() -> Option<Duration> {
+    let Some(raw) = env_nonempty("OPENSCOUT_REPO_WATCH_INTERVAL_MS") else {
+        return Some(DEFAULT_REPO_WATCH_INTERVAL);
+    };
+    match raw.parse::<i64>() {
+        Ok(value) if value <= 0 => None,
+        Ok(value) => Some(Duration::from_millis(value as u64)),
+        Err(_) => Some(DEFAULT_REPO_WATCH_INTERVAL),
+    }
+}
+
 fn is_tmp_path(path: &Path) -> bool {
     let value = path.to_string_lossy();
     value == "/tmp"
@@ -1811,9 +1914,10 @@ mod tests {
     use super::{
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
         health_body_reports_ok, parse_daemon_state_telemetry, parse_health_response,
-        process_snapshot_filter, read_last_log_line_from, restart_telemetry_warnings,
-        rotate_child_log_if_needed, rotated_child_log_path, scoutd_owned_child_log_path,
-        BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+        parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
+        restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
+        scoutd_owned_child_log_path, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
+        LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -1846,6 +1950,20 @@ mod tests {
         assert!(health.reachable);
         assert!(health.ok);
         assert_eq!(health.status_code, Some(200));
+    }
+
+    #[test]
+    fn parse_http_status_code_reads_status_line() {
+        assert_eq!(
+            parse_http_status_code("HTTP/1.1 202 Accepted\r\ncontent-length: 0\r\n\r\n"),
+            Some(202)
+        );
+        assert_eq!(parse_http_status_code("not an http response"), None);
+    }
+
+    #[test]
+    fn repo_watch_warm_path_is_a_runtime_nudge() {
+        assert_eq!(REPO_WATCH_WARM_PATH, "/v1/repo-watch/warm");
     }
 
     #[test]

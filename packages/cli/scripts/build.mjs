@@ -44,6 +44,7 @@ const clientDir = resolve(outputDirectory, "client");
 // get a working broker service without falling back to building from source.
 const scoutdReleaseBinary = resolve(repoRoot, "target", "release", "scoutd");
 const scoutdPackagedBinary = resolve(packageDirectory, "bin", "scoutd");
+const scoutdSignScript = resolve(repoRoot, "scripts", "sign-scoutd.sh");
 
 mkdirSync(outputDirectory, { recursive: true });
 
@@ -128,6 +129,19 @@ function scoutdIsRequired() {
   return false;
 }
 
+function describeBinary(file) {
+  const result = spawnSync("file", [file], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return (result.stdout || result.stderr || "").trim();
+}
+
+function scoutdIsExpectedPackageBinary(file) {
+  return describeBinary(file).includes("Mach-O 64-bit executable arm64");
+}
+
 function buildAndPackageScoutd() {
   const required = scoutdIsRequired();
   const cargoScript = resolve(repoRoot, "scripts", "cargo.sh");
@@ -167,6 +181,19 @@ function buildAndPackageScoutd() {
     return !required;
   }
 
+  if (!scoutdIsExpectedPackageBinary(scoutdReleaseBinary)) {
+    const description = describeBinary(scoutdReleaseBinary) || "unknown binary format";
+    const message = `scoutd package binary must be a macOS arm64 Mach-O, got: ${description}`;
+    if (required) {
+      console.error(`  ERROR: ${message}.`);
+      console.error("  Publishing this binary would ship the wrong native executable for the current package.");
+      return false;
+    }
+    console.warn(`  WARN: ${message}; skipping scoutd packaging (dev build).`);
+    rmSync(scoutdPackagedBinary, { force: true });
+    return true;
+  }
+
   // NOTE/STOPGAP: we copy the host-built darwin-arm64 binary straight into the
   // package. This repo only ships macOS arm64 today; once platform-split
   // optional dependencies exist, this should select the right prebuilt per
@@ -174,6 +201,18 @@ function buildAndPackageScoutd() {
   mkdirSync(dirname(scoutdPackagedBinary), { recursive: true });
   copyFileSync(scoutdReleaseBinary, scoutdPackagedBinary);
   chmodSync(scoutdPackagedBinary, 0o755);
+  const sign = spawnSync(
+    "bash",
+    [scoutdSignScript, scoutdReleaseBinary, scoutdPackagedBinary],
+    { cwd: repoRoot, stdio: "inherit" },
+  );
+  if ((sign.status ?? 1) !== 0) {
+    if (required || process.env.OPENSCOUT_REQUIRE_SCOUTD_SIGN === "1") {
+      console.error("  ERROR: scoutd signing failed.");
+      return false;
+    }
+    console.warn("  WARN: scoutd signing failed; continuing because this is a dev build.");
+  }
   const sizeMb = (statSync(scoutdPackagedBinary).size / (1024 * 1024)).toFixed(1);
   console.log(`  packaged scoutd -> ${scoutdPackagedBinary} (${sizeMb} MB, darwin-arm64)`);
   return true;

@@ -87,7 +87,7 @@ or builds its `ScoutAgentCard`, and renders a manual-style view.
 If no card is found for the resolved address, the command prints a clear
 message and exits cleanly — for example:
 
-```text
+```plaintext
 No card registered for @missionwriter. Run `scout card create` to register one.
 ```
 
@@ -162,7 +162,7 @@ would type after addressing the agent. They are not full `scout ask` commands.
 The `SYNOPSIS` section of the manual is the canonical form for a full
 invocation. For example:
 
-```text
+```plaintext
 SYNOPSIS
   scout ask --to missionwriter "run /path/to/file.mission.md"
 
@@ -178,7 +178,7 @@ SKILLS
 
 Example output:
 
-```text
+```plaintext
 MISSIONWRITER(1)               Scout Agent Manual               MISSIONWRITER(1)
 
 NAME
@@ -235,7 +235,7 @@ SEE ALSO
 If an agent has no `skills`, the command should still render addressability and
 say:
 
-```text
+```plaintext
 SKILLS
   No skills advertised.
 
@@ -261,7 +261,7 @@ derived from `securitySchemes` and `securityRequirements` on the card:
 Example: the `cursorApiKey` scheme has `"in": "env"` and `"name":
 "CURSOR_API_KEY"` and appears in `securityRequirements`. The renderer emits:
 
-```text
+```plaintext
 REQUIRES
   CURSOR_API_KEY  (cursorApiKey — env)
 ```
@@ -274,7 +274,7 @@ suppressed.
 The `INTERFACES` section lists entries from `supportedInterfaces`. If the
 field is absent or empty, render:
 
-```text
+```plaintext
 INTERFACES
   (none)
 ```

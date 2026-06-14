@@ -92,13 +92,13 @@ Scout-aware composers should support `>>` as the route operator for cases where
 
 Default typed grammar:
 
-```text
+```plaintext
 /scout:ask >> <target> <body>
 ```
 
 Examples:
 
-```text
+```plaintext
 /scout:ask >> hudson Review the parser.
 /scout:ask >> ref:8kj4pd Continue from that result.
 /scout:send >> channel:ops Status is green.
@@ -130,13 +130,13 @@ cooperate with Scout's agent picker.
 
 The default first-line grammar is:
 
-```text
+```plaintext
 ⌖ <source-short> <operator> <intent>:<ref>
 ```
 
 Example:
 
-```text
+```plaintext
 ⌖ art ≔ ask:8kj4pd › I am writing a Hermes...
 ```
 
@@ -262,7 +262,7 @@ ScoutReplyContext:
 
 Surfaces that cannot render Unicode reliably should fall back to ASCII:
 
-```text
+```plaintext
 scout art ask:8kj4pd
 scout art task:8kj4pd
 scout art summary:8kj4pd

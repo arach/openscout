@@ -106,10 +106,12 @@ checks pass.
    If this fails or reports the wrong sender, rerun setup from the intended
    project directory and inspect local project metadata.
 5. `scout who`
-   If this lists no usable agents, install the relevant companion host
-   integration or start/register an agent for this project before sending work.
-6. `scout send --to <agent-from-scout-who> "hello"`
-   If routing is ambiguous, copy the fuller selector shown by `scout who`.
+   Use this only when you need a specific existing target. If you know the
+   project and capability instead, skip naming and ask by project/harness.
+6. `scout ask --project /path/to/repo --harness claude "can you review this?"`
+   Scout should resolve or create a compatible worker and return durable
+   follow-up handles. Use `scout send --to <agent-from-scout-who> "hello"`
+   when the first test is a specific known agent.
 
 ## Support Footprint
 
@@ -131,7 +133,8 @@ That footprint is appropriate for a trusted developer pilot. It should be disclo
 scout whoami
 scout who
 scout send --to <agent-from-scout-who> "hello"
-scout ask --to <agent-from-scout-who> "can you review this?"
+scout ask --project /path/to/repo --harness claude "can you review this?"
+scout ask --to <agent-from-scout-who> "can you review this?" # when you mean that exact target
 ```
 
 Routing rules:
@@ -141,6 +144,8 @@ Routing rules:
 - everyone -> shared broadcast
 - tell/update -> `send`
 - owned work or requested reply -> `ask`
+- capability request -> `ask --project <path> --harness <runtime>`; do not guess generic names like `claude.main`
+- continuity request -> use the returned `ref`, flight, conversation, work, or session handle
 
 For long-running work, prefer callback-style semantics where the surface
 supports it. MCP callers should use `replyMode: "notify"` when they want the

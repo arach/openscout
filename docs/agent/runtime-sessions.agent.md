@@ -26,7 +26,7 @@ Public noun is always **session**. Map provider `threadId` into session metadata
 
 ## Relations
 
-```text
+```plaintext
 agent 1—* sessions (over lifetime)
 agent 1—* endpoints (per harness/worktree/node)
 endpoint *—1 session (when attached)
@@ -50,10 +50,15 @@ scout up / session start → runtime creates or attaches session → broker regi
 |---|---|
 | `--to <label>` / `--to <agentId>` | fresh session for new ask work |
 | `--to session:<id>` | continue exact harness context |
-| `--project <path>` | broker/runtime pick concrete agent+session for project |
+| `--project <path> --harness <rt>` | broker/runtime pick or create concrete worker+session for project/capability |
 | `scout card create` | mint identity; does not start session unless commanded |
 
 Mismatch example: Codex-targeted ask + only Claude endpoint attached → `harness_mismatch` diagnostic, not silent routing.
+
+Fresh capability work should be project-routed first. The broker returns durable
+follow-up handles (`ref`, flight, conversation, work, session) and may return a
+friendly worker handle. Exact session routing is only for continuity; card/name
+promotion happens after the worker is known good.
 
 ## Endpoint States
 

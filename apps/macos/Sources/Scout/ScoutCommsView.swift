@@ -185,25 +185,13 @@ struct ScoutConversationListBar: View {
         } secondary: {
             EmptyView()
         } trailing: {
-            HStack(spacing: HudSpacing.md) {
+            // The list header's controls speak the same button language as the
+            // inspector's action chips (`ScoutInspectorActionButton`): rounded-rect
+            // at HudRadius.standard, thin (0.5pt) borders, the same 24pt baseline.
+            // Refresh = secondary ghost icon chip; New = primary filled accent CTA.
+            HStack(spacing: HudSpacing.sm) {
                 ScoutListRefreshButton(isLoading: isLoading, action: onRefresh)
-
-                Button(action: onNewConversation) {
-                    HStack(spacing: HudSpacing.xs) {
-                        Image(systemName: "square.and.pencil")
-                            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        Text("New")
-                            .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                    }
-                    .foregroundStyle(ScoutPalette.accent)
-                    .padding(.horizontal, HudSpacing.md)
-                    .padding(.vertical, HudSpacing.xs)
-                    .background(Capsule().fill(ScoutSurface.tintGhost(ScoutPalette.accent)))
-                    .overlay(Capsule().stroke(ScoutSurface.tintBorder(ScoutPalette.accent), lineWidth: HudStrokeWidth.standard))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain).scoutPointerCursor()
-                .help("New conversation")
+                ScoutListNewButton(action: onNewConversation)
             }
         }
     }
@@ -258,9 +246,9 @@ struct ScoutConversationListBar: View {
     private func recencyHeader(_ bucket: RecencyBucket) -> some View {
         HStack(spacing: 0) {
             Text(bucket.label.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
                 .foregroundStyle(ScoutPalette.dim)
-                .tracking(0.6)
+                .tracking(1.0)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, HudSpacing.xxl)
@@ -370,6 +358,11 @@ struct ScoutListLivePulse: View {
 /// Manual refresh for the conversation list. The data refreshes itself every
 /// few seconds; this gives a deliberate "I pulled it" gesture — a one-shot
 /// spin for tactile reassurance that the list is live.
+///
+/// A secondary ghost chip in the shared button family: a square rounded-rect at
+/// HudRadius.standard with a thin (0.5pt) hairlineStrong border, matching the
+/// inspector's `ScoutInspectorActionButton` secondary treatment and sitting on
+/// the same 24pt baseline as the primary `ScoutListNewButton` beside it.
 struct ScoutListRefreshButton: View {
     let isLoading: Bool
     let action: () -> Void
@@ -382,17 +375,64 @@ struct ScoutListRefreshButton: View {
             action()
         } label: {
             Image(systemName: "arrow.clockwise")
-                .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.micro, weight: .bold))
                 .foregroundStyle(hovering ? ScoutPalette.ink : ScoutPalette.muted)
                 .rotationEffect(.degrees(angle))
                 .frame(width: 24, height: 24)
-                .background(Circle().fill(hovering ? ScoutSurface.hover : Color.clear))
-                .contentShape(Circle())
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .fill(hovering ? ScoutSurface.hover : Color.clear)
+                )
+                .overlay(
+                    // hairlineStrong at rest (like the inspector's secondary
+                    // chips) so it reads as a crisp sibling of the New CTA, not a
+                    // bare glyph.
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
         .help("Refresh conversations")
         .accessibilityLabel("Refresh conversations")
+    }
+}
+
+/// New-conversation CTA — the primary in the shared button family: a solid
+/// accent fill with a bg-color label and a faint accent edge, mirroring
+/// `ScoutInspectorActionButton(filled: true)`. Title-case "New" (a clear action,
+/// like the studio `.primaryBtn`'s "Message"/"Send"), not an uppercased eyebrow.
+struct ScoutListNewButton: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "square.and.pencil")
+                    .font(HudFont.ui(HudTextSize.micro, weight: .bold))
+                Text("New")
+                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(ScoutPalette.bg)
+            .padding(.horizontal, HudSpacing.md)
+            .frame(height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(ScoutPalette.accent.opacity(hovering ? 1 : 0.92))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(ScoutPalette.accent.opacity(0.35), lineWidth: HudStrokeWidth.thin)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .help("New conversation")
+        .accessibilityLabel("New conversation")
     }
 }
 
@@ -402,20 +442,29 @@ struct ScoutListRefreshButton: View {
 struct ScoutConversationFilterControl: View {
     @Binding var selection: ScoutChannelFilter
 
+    /// A single crisp segmented toggle: one hairline-thin track, the active
+    /// segment a solid accent block with a bg-color label. Replaces both the old
+    /// muddy 12%-tint active state and the short-lived separate-pill experiment —
+    /// the grouped toggle is the better treatment; it just needed a crisp active
+    /// fill and a thin (0.5pt) border to match the studio's line weight.
+    private let trackRadius: CGFloat = HudRadius.card
+    private var segmentRadius: CGFloat { trackRadius - 2 }
+
     var body: some View {
         HStack(spacing: HudSpacing.xxs) {
             ForEach(ScoutChannelFilter.allCases) { option in
+                let isActive = selection == option
                 Button {
                     selection = option
                 } label: {
                     Text(option.title)
-                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(selection == option ? ScoutPalette.ink : ScoutPalette.muted)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(isActive ? ScoutPalette.bg : ScoutPalette.muted)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 24)
+                        .frame(height: 22)
                         .background(
-                            RoundedRectangle(cornerRadius: HudRadius.standard - 2, style: .continuous)
-                                .fill(selection == option ? ScoutSurface.selected(ScoutPalette.accent) : Color.clear)
+                            RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
+                                .fill(isActive ? ScoutPalette.accent : Color.clear)
                         )
                         .contentShape(Rectangle())
                 }
@@ -423,10 +472,16 @@ struct ScoutConversationFilterControl: View {
                 .help(option.title)
             }
         }
-        .padding(HudSpacing.xxs)
+        .padding(2)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
-        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+        .background(
+            RoundedRectangle(cornerRadius: trackRadius, style: .continuous)
+                .fill(ScoutSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: trackRadius, style: .continuous)
+                .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+        )
     }
 }
 
@@ -577,77 +632,53 @@ struct ScoutConversationRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: HudSpacing.md) {
-                Image(systemName: channel.scope == .direct ? "person.crop.circle" : "number")
-                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
-                    .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutPalette.muted)
-                    .frame(width: 20, height: 20)
-                    .padding(.top, 1)
+            HStack(alignment: .center, spacing: HudSpacing.lg) {
+                // Avatar + body stay top-aligned as a group; the count badge sits
+                // in the outer `.center` HStack so it vertically centers against
+                // the whole row (Studio's 3-track grid with `align-self: center`).
+                HStack(alignment: .top, spacing: HudSpacing.lg) {
+                    avatarTile
 
-                VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                    HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-                        // Unread marker — a small accent dot leads the title so the
-                        // row reads as "has something for you" before any text.
-                        if isUnread {
-                            Circle()
-                                .fill(ScoutPalette.accent)
-                                .frame(width: 6, height: 6)
-                                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                    VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+                        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                            // Unread marker — a small accent dot leads the title so the
+                            // row reads as "has something for you" before any text.
+                            if isUnread {
+                                Circle()
+                                    .fill(ScoutPalette.accent)
+                                    .frame(width: 6, height: 6)
+                                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+                            }
+
+                            Text(channel.rowTitle)
+                                .font(HudFont.ui(HudTextSize.base, weight: isUnread ? .bold : .medium))
+                                .foregroundStyle(ScoutPalette.ink)
+                                .lineLimit(1)
+
+                            // Pending-ask chip — only while the ask is unresolved. An
+                            // answered ask is noise here, so it never shows a chip.
+                            if channel.ask?.state == .pending {
+                                pendingChip
+                            }
+
+                            Spacer(minLength: HudSpacing.sm)
+
+                            Text(channel.ageLabel)
+                                .font(HudFont.mono(HudTextSize.xxs))
+                                .foregroundStyle(ScoutPalette.dim)
+                                .lineLimit(1)
                         }
 
-                        Text(channel.rowTitle)
-                            .font(HudFont.ui(HudTextSize.base, weight: (isSelected || isUnread) ? .semibold : .medium))
-                            .foregroundStyle(ScoutPalette.ink)
-                            .lineLimit(1)
-
-                        // Pending-ask chip — only while the ask is unresolved. An
-                        // answered ask is noise here, so it never shows a chip.
-                        if channel.ask?.state == .pending {
-                            pendingChip
-                        }
-
-                        Spacer(minLength: HudSpacing.sm)
-
-                        Text(channel.ageLabel)
-                            .font(HudFont.mono(HudTextSize.micro))
-                            .foregroundStyle(ScoutPalette.dim)
+                        Text(channel.preview?.nilIfEmpty ?? channel.participantDisplayNames.joined(separator: " + "))
+                            .font(HudFont.ui(HudTextSize.sm))
+                            .foregroundStyle(isUnread ? ScoutPalette.ink.opacity(0.8) : ScoutPalette.muted)
                             .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                    Text(channel.preview?.nilIfEmpty ?? channel.participantDisplayNames.joined(separator: " + "))
-                        .font(HudFont.ui(HudTextSize.xs))
-                        .foregroundStyle(ScoutPalette.muted)
-                        .lineLimit(2)
-
-                    // cId is demoted to the focused row only — in the list it's
-                    // noise; the message count keeps its place when present.
-                    if isSelected || channel.messageCount > 0 {
-                        HStack(spacing: HudSpacing.sm) {
-                            if isSelected {
-                                Text(channel.cIdShort)
-                                    .font(HudFont.mono(HudTextSize.micro))
-                                    .foregroundStyle(ScoutPalette.dim)
-                                    .lineLimit(1)
-                            }
-                            Spacer(minLength: 0)
-                            if channel.messageCount > 0 {
-                                // Unread rows fill the count with accent so the
-                                // badge pops; read rows keep the dim plain count.
-                                if isUnread {
-                                    Text("\(channel.messageCount)")
-                                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                                        .foregroundStyle(ScoutPalette.bg)
-                                        .padding(.horizontal, HudSpacing.sm)
-                                        .padding(.vertical, 1)
-                                        .background(Capsule().fill(ScoutPalette.accent))
-                                } else {
-                                    Text("\(channel.messageCount)")
-                                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                                        .foregroundStyle(ScoutPalette.dim)
-                                }
-                            }
-                        }
-                    }
+                if channel.messageCount > 0 {
+                    countBadge
                 }
             }
             .padding(.horizontal, HudSpacing.xxl)
@@ -699,16 +730,63 @@ struct ScoutConversationRow: View {
 
     private var isUnread: Bool { channel.unreadCount > 0 }
 
+    private var isChannel: Bool { channel.scope != .direct }
+
+    /// Studio `.avatar` — a 32×32 rounded tile. DMs fill solid accent with a
+    /// bg-color initial; channels read as a `#` glyph on a surface tile with a
+    /// hairline-strong edge. Replaces the old 20pt SF Symbol.
+    @ViewBuilder
+    private var avatarTile: some View {
+        if isChannel {
+            Text("#")
+                .font(HudFont.mono(HudTextSize.base, weight: .bold))
+                .foregroundStyle(ScoutPalette.muted)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(ScoutPalette.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(ScoutPalette.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+                )
+        } else {
+            // DM — a deterministic sprite from the conversation title.
+            SpriteAvatarView(name: channel.rowTitle, size: 32, tile: true)
+        }
+    }
+
+    /// Studio `.countBadge` — a centered trailing pill (min 20×20). Unread fills
+    /// solid accent with bg-color digits; read keeps a quiet surface pill with a
+    /// hairline so the column still reads as a badge, not a bare number.
+    private var countBadge: some View {
+        Text("\(channel.messageCount)")
+            .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+            .foregroundStyle(isUnread ? ScoutPalette.bg : ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(
+                Capsule().fill(isUnread ? ScoutPalette.accent : ScoutPalette.surface)
+            )
+            .overlay(
+                Capsule().stroke(isUnread ? ScoutPalette.accent : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            )
+    }
+
     /// Tiny warn-tinted "pending" pill after the title — signals an open ask
     /// awaiting an answer. Mono + uppercase to read as a status token, not prose.
+    /// Studio `.askChip.pending`: 8px, radius 3, warn text on a 18% warn wash.
     private var pendingChip: some View {
         Text("pending".uppercased())
-            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-            .tracking(0.4)
+            .font(HudFont.mono(8, weight: .bold))
+            .tracking(0.3)
             .foregroundStyle(ScoutPalette.statusWarn)
-            .padding(.horizontal, HudSpacing.sm)
+            .padding(.horizontal, 5)
             .padding(.vertical, 1)
-            .background(Capsule().fill(ScoutSurface.tintGhost(ScoutPalette.statusWarn)))
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(ScoutPalette.statusWarn.opacity(0.18))
+            )
             .fixedSize()
     }
 
@@ -874,29 +952,16 @@ struct ScoutMemberStrip: View {
     }
 
     private func avatarGlyph(for member: ScoutMemberIdentity) -> some View {
-        Text(member.name.first.map { String($0).uppercased() } ?? "?")
-            .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-            .foregroundStyle(ScoutPalette.bg)
-            .frame(width: 18, height: 18)
-            .background(Circle().fill(memberTint(member.name)))
+        SpriteAvatarView(name: member.name, size: 18, tile: true)
             .overlay(
-                Circle()
-                    .stroke(member.agent == nil ? ScoutPalette.bg : ScoutPalette.accent.opacity(0.82), lineWidth: member.agent == nil ? 1.2 : 1.4)
+                Group {
+                    if member.agent == nil {
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                            .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
+                    }
+                }
             )
-            .contentShape(Circle())
-    }
-
-    private func memberTint(_ name: String) -> Color {
-        if name.lowercased() == "operator" { return ScoutPalette.accent }
-        return Color(hue: Double(stableHueSeed(for: name)) / 360.0, saturation: 0.55, brightness: 0.82)
-    }
-
-    private func stableHueSeed(for text: String) -> Int {
-        var hash: UInt64 = 5381
-        for byte in text.lowercased().utf8 {
-            hash = (hash &* 33) &+ UInt64(byte)
-        }
-        return Int(hash % 360)
+            .contentShape(Rectangle())
     }
 }
 
@@ -913,27 +978,21 @@ struct ScoutMessageRow: View {
     @State private var expanded = false
 
     var body: some View {
-        HStack(alignment: .top) {
-            if message.isOperator { Spacer(minLength: 80) }
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            turnAvatar
+
             VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
-                HStack(spacing: HudSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
                     actorChip
                     Text(ScoutRelativeTime.format(message.createdAt))
-                        .font(HudFont.mono(HudTextSize.micro))
+                        .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
                 }
                 messageBody
             }
-            .padding(HudSpacing.xxl)
-            .frame(maxWidth: ScoutCommsMetrics.messageBubbleMaxWidth, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.card)
-                    .fill(bubbleFill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.card)
-                    .stroke(message.isOperator ? ScoutSurface.tintBorder(ScoutPalette.accent) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.standard)
-            )
+            // The turn body caps at the reading measure (Studio `.turnBody`); the
+            // trailing Spacer keeps every turn flush-left instead of stretched.
+            .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
             .contextMenu {
                 Button {
                     onNewFromMessage()
@@ -952,9 +1011,25 @@ struct ScoutMessageRow: View {
                     Label("Copy message ID", systemImage: "number")
                 }
             }
-            if !message.isOperator { Spacer(minLength: 80) }
+
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: message.isOperator ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Studio `.turnAvatar` — a 28×28 sprite tile leading each turn. Operator gets
+    /// the same deterministic sprite as any agent; a thin accent ring marks "you".
+    @ViewBuilder
+    private var turnAvatar: some View {
+        SpriteAvatarView(name: message.actorName, size: 28, tile: true)
+            .overlay(
+                Group {
+                    if message.isOperator {
+                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                            .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
+                    }
+                }
+            )
     }
 
     /// The constrained reading measure (Studio `.turnText`) — long prose wraps at
@@ -974,7 +1049,7 @@ struct ScoutMessageRow: View {
                         // while collapsed.
                         if !expanded {
                             LinearGradient(
-                                colors: [bubbleFill.opacity(0), bubbleFill],
+                                colors: [ScoutPalette.bg.opacity(0), ScoutPalette.bg],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -1010,12 +1085,6 @@ struct ScoutMessageRow: View {
         return newlines > 10
     }
 
-    /// The bubble's own fill, reused for the collapse fade so the gradient melts
-    /// into the surface instead of introducing a new color.
-    private var bubbleFill: Color {
-        message.isOperator ? ScoutSurface.tintGhost(ScoutPalette.accent) : ScoutPalette.surface
-    }
-
     private func copyToPasteboard(_ value: String) {
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -1049,14 +1118,15 @@ struct ScoutMessageRow: View {
 
     private var actorLabel: some View {
         HStack(spacing: HudSpacing.xs) {
-            Text(message.actorName.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+            Text(message.actorName)
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
             if agent != nil {
                 Image(systemName: "info.circle")
                     .font(HudFont.ui(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
             }
         }
-        .foregroundStyle(message.isOperator ? ScoutPalette.accent : (agent == nil ? ScoutPalette.muted : ScoutPalette.accent))
         .contentShape(Rectangle())
         .animation(.easeOut(duration: 0.10), value: isHoveringAgent)
     }

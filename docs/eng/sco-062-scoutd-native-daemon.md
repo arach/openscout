@@ -51,7 +51,7 @@ stop the daemon.
 
 Process ownership is intentionally layered:
 
-```text
+```plaintext
 launchd -> scoutd -> scout-base -> scout-broker -> scout-web / scout-edge / OpenScoutMenu
 ```
 

@@ -1,23 +1,24 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { WorkList } from "../components/WorkList.tsx";
-import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
-import { actorColor, stateColor } from "../lib/colors.ts";
+import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { actorColor } from "../lib/colors.ts";
+import { AgentAvatar } from "../components/AgentAvatar.tsx";
 import { api } from "../lib/api.ts";
-import { copyTextToClipboard } from "../lib/clipboard.ts";
-import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
+import {
+  resolveActiveSessionId,
+  resolveSelectedSessionId,
+  sortSessionsByRecency,
+} from "../lib/session-catalog.ts";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
-import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
-import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import type {
   AgentTab,
@@ -30,6 +31,7 @@ import type {
   Message,
   Route,
   SessionEntry,
+  SessionCatalogEntry,
   SessionCatalogWithResume,
   TailDiscoveredProcess,
   TailDiscoverySnapshot,
@@ -1621,12 +1623,11 @@ function SignalFeed({
                 }
               }}
             >
-              <div
+              <AgentAvatar
+                name={msg.actorName ?? "?"}
+                placement="turn"
                 className="s-profile-signal-avatar"
-                style={{ background: actorColor(msg.actorName ?? "?") }}
-              >
-                {(msg.actorName ?? "?")[0].toUpperCase()}
-              </div>
+              />
               <div className="s-profile-signal-body">
                 <div className="s-profile-signal-header">
                   <span className="s-profile-signal-kind">{kindLabel}</span>
@@ -1648,6 +1649,441 @@ function SignalFeed({
   );
 }
 
+// ── Modular agent profile ──────────────────────────────────────────────────
+// Control surface made of stacked bands: a calm identity header (sprite + name),
+// then full-width module bands (Now · Recent work · Signal) that flow to fill the
+// canvas. Runtime/workspace metadata and collaborators live in the rail context
+// card, not here. Instrument language: near-black, mono-first, one emerald accent
+// for live signal, status as a small dot.
+
+function shortCwd(cwd: string | null | undefined): string | null {
+  if (!cwd) return null;
+  return cwd.startsWith("/Users/")
+    ? "~/" + cwd.split("/").slice(3).join("/")
+    : cwd;
+}
+
+function pathLeaf(p: string): string {
+  const parts = p.replace(/\/+$/, "").split("/");
+  return parts[parts.length - 1] || p;
+}
+
+function shortSessionLabel(id: string): string {
+  // Human session ids (e.g. "relay-hu") read fine; long hashes get elided.
+  return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+// Tiny monochrome line-glyphs (geometric, not emoji) for the essentials grid —
+// folder · branch · host · chip. Kept bit-for-bit with the studio rebalance
+// treatment (design/studio/.../agent-profile-rebalance) so the ports don't drift.
+function IcoFolder() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <path d="M2 4h4l1.4 1.6H14v6.4H2z" strokeLinejoin="round" />
+    </svg>
+  );
+}
+function IcoBranch() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="5.5" r="1.5" />
+      <path d="M4.5 5v6M4.5 11c0-3 7-1.4 7-4" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoChip() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
+      <path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2" strokeLinecap="round" />
+    </svg>
+  );
+}
+function IcoHost() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
+      <rect x="2.5" y="3.5" width="11" height="7" rx="1" />
+      <path d="M6 13h4M8 10.5V13" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// One essentials cell: a faint line-glyph + its value, truncating. Grouped into
+// two columns (location: path / host · work: branch / harness·model) so the
+// composition reads without word labels.
+function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
+  return (
+    <span className="s-sess-glyph-cell" title={v}>
+      <span className="s-sess-glyph-ico">{ico}</span>
+      <span className="s-sess-glyph-v">{v}</span>
+    </span>
+  );
+}
+
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return `${n}`;
+}
+
+function fmtCompactNumber(value: number | undefined): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  if (Math.abs(value) < 1_000) return `${Math.round(value)}`;
+  if (Math.abs(value) < 1_000_000) {
+    return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
+  }
+  return `${(value / 1_000_000).toFixed(1)}m`;
+}
+
+function fmtWindowSpan(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const whole = Math.round(seconds);
+  const hours = Math.floor(whole / 3_600);
+  const minutes = Math.floor((whole % 3_600) / 60);
+  const secs = whole % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes >= 10 || secs === 0) return `${minutes}m`;
+  return `${minutes}m ${secs}s`;
+}
+
+// Bin trace events into intensity buckets across the session window, so the
+// sparkline reads the session's rhythm (warm-up · bursts · idle).
+function binEvents(events: { t: number }[], n = 32): number[] {
+  if (events.length === 0) return [];
+  const last = events[events.length - 1]!.t || 1;
+  const buckets = new Array<number>(n).fill(0);
+  for (const e of events) {
+    const idx = Math.min(n - 1, Math.max(0, Math.floor((e.t / last) * n)));
+    buckets[idx] += 1;
+  }
+  return buckets;
+}
+
+// A little chart of the session's rhythm — intensity bars, brighter where busier
+// (single accent, opacity = intensity). Matches the studio rebalance treatment.
+function ActivitySparkline({ buckets }: { buckets: number[] }) {
+  if (buckets.length === 0) return null;
+  const max = Math.max(...buckets, 1);
+  const W = 240;
+  const H = 20;
+  const gap = 1;
+  const bw = (W - gap * (buckets.length - 1)) / buckets.length;
+  return (
+    <div className="s-sum-spark">
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="s-sum-spark-svg" aria-hidden>
+        {buckets.map((v, i) => {
+          const h = Math.max(1, (v / max) * H);
+          return (
+            <rect
+              key={i}
+              x={i * (bw + gap)}
+              y={H - h}
+              width={bw}
+              height={h}
+              fill="var(--accent)"
+              opacity={0.22 + 0.62 * (v / max)}
+            />
+          );
+        })}
+      </svg>
+      <div className="s-sum-spark-axis">
+        <span>session start</span>
+        <span>now</span>
+      </div>
+    </div>
+  );
+}
+
+// The center summary band for the focused session: the rhythm chart + key stats +
+// quantifiable context, then the primary action. Kept shallow on purpose — the
+// file detail and the rest live in the rail. Mirrors the studio SessionSummary.
+function SessionSummary({
+  agentId,
+  active,
+  onPrimary,
+  primaryLabel,
+  primaryTitle,
+}: {
+  agentId: string;
+  active: boolean;
+  onPrimary: () => void;
+  primaryLabel: string;
+  primaryTitle: string;
+}) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const [ctx, setCtx] = useState<LocalAgentContextState | null>(null);
+
+  const load = useCallback(async () => {
+    const [o, c] = await Promise.all([
+      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agentId)}/observe`).catch(() => null),
+      api<LocalAgentContextState>(`/api/agents/${encodeURIComponent(agentId)}/session/context`).catch(() => null),
+    ]);
+    setObserve(o);
+    setCtx(c);
+  }, [agentId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const data = observe?.data;
+  const events = data?.events ?? [];
+  const stats: Array<{ k: string; v: string }> = [
+    { k: "turns", v: fmtCompactNumber(ctx?.turnCount ?? data?.metadata?.session?.turnCount ?? 0) },
+    { k: "tools", v: fmtCompactNumber(events.filter((e) => e.kind === "tool").length) },
+    {
+      k: "edits",
+      v: fmtCompactNumber(
+        events.filter((e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write")).length,
+      ),
+    },
+    {
+      k: "reads",
+      v: fmtCompactNumber(events.filter((e) => e.kind === "tool" && e.tool === "read").length),
+    },
+    { k: "files", v: fmtCompactNumber(data?.files.length ?? 0) },
+    { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
+  ];
+
+  // Context, quantifiable: prefer real token fill (used / window) when the usage
+  // metadata carries a window; otherwise fall back to turn-load vs the policy.
+  const usage = data?.metadata?.usage;
+  const win = usage?.contextWindowTokens ?? 0;
+  const used = usage?.totalTokens ?? usage?.inputTokens ?? 0;
+  const tokenPct = win > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
+  const turnPct = ctx ? contextLoadPercent(ctx) : null;
+  const fillPct = tokenPct ?? turnPct ?? 0;
+  const ctxHead =
+    tokenPct !== null
+      ? `${fmtTokens(used)} / ${fmtTokens(win)} ctx`
+      : ctx
+        ? contextTurnLabel(ctx)
+        : "context";
+  // When the gauge already shows tokens, the runway adds turns + age. When it
+  // fell back to turn-load (head already shows turns), the runway is just age —
+  // don't print the turns twice.
+  const ctxAge = ctx && ctx.sessionAgeMs !== null ? formatContextAge(ctx.sessionAgeMs) : null;
+  const ctxRunway =
+    tokenPct !== null && ctx
+      ? `${contextTurnLabel(ctx)}${ctxAge ? ` · ${ctxAge}` : ""}`
+      : ctxAge;
+
+  return (
+    <div className="s-sum">
+      <div className="s-sum-cols">
+        <div className="s-sum-col s-sum-col--activity">
+          <div className="s-sum-label">Activity</div>
+          <ActivitySparkline buckets={binEvents(events)} />
+        </div>
+        <div className="s-sum-col s-sum-col--context">
+          <div className="s-sum-label">Context</div>
+          <div className="s-sum-ctx-head">
+            <span className="s-sum-ctx-size">{ctxHead}</span>
+            <span className="s-sum-ctx-pct">{fillPct}%</span>
+          </div>
+          <div className="s-sum-gauge" aria-label={`Context ${fillPct}%`}>
+            <div className="s-sum-gauge-fill" style={{ width: `${fillPct}%` }} />
+          </div>
+          {ctxRunway && <div className="s-sum-ctx-runway">{ctxRunway}</div>}
+        </div>
+      </div>
+      <div className="s-sum-foot">
+        <div className="s-sum-stats">
+          {stats.map((m, i) => (
+            <span key={m.k} className="s-sum-stat">
+              {i > 0 && <span className="s-sum-stat-sep">·</span>}
+              <span className="s-sum-stat-v">{m.v}</span>
+              <span className="s-sum-stat-k">{m.k}</span>
+            </span>
+          ))}
+        </div>
+        <button type="button" className="s-sess-explore-primary" onClick={onPrimary} title={primaryTitle}>
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Sessions-first center (Hybrid): a compact essentials header (state · cwd ·
+// branch · harness · model · host), then the agent's sessions by recency (active
+// first). Clicking a session selects it (shared with the rail) and expands a
+// light "exploring" strip with the one most-likely action — Continue (message
+// into the conversation) or Resume — inline, right where the eye is. The
+// secondary ways to engage (Observe / Take over / Trace) live in the rail, which
+// follows the same selection. Selecting never jumps straight into a terminal.
+function ModularProfileCenter({
+  agent,
+  name,
+  sessionCatalog,
+  navigate,
+  route,
+}: {
+  agent: Agent;
+  name: string;
+  sessionCatalog: SessionCatalogWithResume | null;
+  conversationId: string | null;
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const { focusedSession, focusSession } = useScout();
+  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
+
+  // Essentials as a 2×2 glyph grid (Tiered+): left column is location (path /
+  // host), right column is work (branch / harness·model), one faint line-glyph
+  // per cell. Format carries meaning, so no word labels. Model drops a redundant
+  // harness prefix (claude-opus-4-8 → opus-4-8).
+  const modelShort =
+    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
+      ? agent.model.slice(agent.harness.length + 1)
+      : agent.model ?? null;
+  const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
+  const hostShort = agent.homeNodeName
+    ? agent.homeNodeName.replace(/\.local$/i, "")
+    : null;
+  const chip =
+    [agent.harness, modelShort]
+      .filter((v): v is string => Boolean(v))
+      .join(" · ") || null;
+  const hasEssentials = Boolean(cwdShort || agent.branch || hostShort || chip);
+
+  const sessions = useMemo(
+    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
+    [sessionCatalog?.sessions, activeSessionId],
+  );
+
+  // Selection is shared with the rail (Provider): it defaults to the active (or
+  // most recent) session, and clicking a row only re-points it — never jumps.
+  const selectedSessionId = resolveSelectedSessionId(
+    agent.id,
+    focusedSession,
+    activeSessionId,
+    sessions,
+  );
+
+  const openMessage = () =>
+    navigate({ view: "agents", agentId: agent.id, tab: "message" });
+  const resumeSession = (s: SessionCatalogEntry) =>
+    openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+
+  return (
+    <div className="s-sess-root">
+      <header className="s-sess-head">
+        <div className="s-sess-id">
+          <span className="s-sess-avatar">
+            <AgentAvatar agent={agent} size={54} tile presence={false} />
+          </span>
+          <div className="s-sess-id-copy">
+            <div className="s-sess-name-row">
+              <span className="s-sess-name">{name}</span>
+              {agent.handle && (
+                <span className="s-sess-handle">@{agent.handle.replace(/^@+/, "")}</span>
+              )}
+            </div>
+            {hasEssentials && (
+              <div className="s-sess-glyph">
+                <div className="s-sess-glyph-col">
+                  {cwdShort && <EssentialCell ico={<IcoFolder />} v={cwdShort} />}
+                  {hostShort && <EssentialCell ico={<IcoHost />} v={hostShort} />}
+                </div>
+                <div className="s-sess-glyph-col">
+                  {agent.branch && <EssentialCell ico={<IcoBranch />} v={agent.branch} />}
+                  {chip && <EssentialCell ico={<IcoChip />} v={chip} />}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
+            distinct action from per-session Continue and the Message tab, so
+            "Message" isn't duplicated across the tab, the header, and Continue. */}
+        <button type="button" className="s-sess-action" onClick={openMessage}>
+          + New session
+        </button>
+      </header>
+
+      <section className="s-sess-band">
+        <header className="s-sess-band-head">
+          <span className="s-sess-band-label">Recent sessions</span>
+          {sessions.length > 0 && (
+            <span className="s-sess-band-meta">{sessions.length} sessions</span>
+          )}
+        </header>
+        <div className="s-sess-list">
+          {sessions.length === 0 ? (
+            <div className="s-sess-empty">No sessions yet — message {name} to start one.</div>
+          ) : (
+            sessions.map((s) => {
+              const active = s.id === activeSessionId;
+              const selected = s.id === selectedSessionId;
+              const harnessLabel =
+                s.transport ?? s.harness ?? agent.transport ?? agent.harness ?? "session";
+              // No status words (active/ready/live) — the live session reads as
+              // `now` in the accent; ended ones show how long ago, dim.
+              const when = active
+                ? "now"
+                : s.endedAt
+                  ? `ended · ${timeAgo(s.endedAt) || "recent"}`
+                  : timeAgo(s.startedAt) || "recent";
+              return (
+                <div key={s.id} className={`s-sess-item${selected ? " s-sess-item--selected" : ""}`}>
+                  <button
+                    type="button"
+                    className={`s-sess-row${active ? " s-sess-row--active" : ""}${selected ? " s-sess-row--selected" : ""}`}
+                    onClick={() => focusSession(agent.id, s.id)}
+                    aria-expanded={selected}
+                  >
+                    <span
+                      className="s-mod-dot s-sess-row-dot"
+                      style={{
+                        background: active ? "var(--accent)" : "var(--dim)",
+                        opacity: active ? 1 : 0.55,
+                      }}
+                    />
+                    <span className="s-sess-row-main">
+                      <span className="s-sess-row-top">
+                        <span className="s-sess-row-id">{shortSessionLabel(s.id)}</span>
+                        <span className="s-sess-row-tag">{harnessLabel}</span>
+                      </span>
+                      <span className="s-sess-row-sub">
+                        {s.cwd ? pathLeaf(s.cwd) : "workspace"}
+                        {s.model ? ` · ${s.model}` : ""}
+                      </span>
+                    </span>
+                    <span
+                      className={`s-sess-row-when${active ? " s-sess-row-when--active" : ""}`}
+                    >
+                      {when}
+                    </span>
+                  </button>
+                  {selected && (
+                    <SessionSummary
+                      agentId={agent.id}
+                      active={active}
+                      onPrimary={() => (active ? openMessage() : resumeSession(s))}
+                      primaryLabel={active ? "Continue" : "Resume"}
+                      primaryTitle={
+                        active
+                          ? "Send a message into this conversation"
+                          : "Reopen this conversation and message it"
+                      }
+                    />
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AgentDetailWithRail({
   agent,
   allAgents,
@@ -1663,57 +2099,18 @@ function AgentDetailWithRail({
   navigate: (r: Route) => void;
   activeTab: AgentTab;
 }) {
-  const { name, qualifier } = agentLabel(agent, allAgents);
-  const [work, setWork] = useState<WorkItem[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [fleet, setFleet] = useState<FleetState | null>(null);
+  const { name } = agentLabel(agent, allAgents);
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
-  const [contextState, setContextState] = useState<LocalAgentContextState | null>(null);
-  const [resettingContext, setResettingContext] = useState(false);
-  const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
-  const state = normalizeAgentState(agent.state);
-  const showContextMenu = useContextMenu();
   const { route } = useScout();
 
   const load = useCallback(async () => {
-    const [workResult, fleetResult] = await Promise.allSettled([
-      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}&active=false&limit=12`),
-      api<FleetState>("/api/fleet"),
-    ]);
-    if (workResult.status === "fulfilled") setWork(workResult.value);
-    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
+    const catalogResult = await api<SessionCatalogWithResume>(
+      `/api/agents/${encodeURIComponent(agent.id)}/session-catalog`,
+    ).catch(() => null);
+    setSessionCatalog(catalogResult);
   }, [agent.id]);
-
-  const dismissWorkAttention = useCallback(async (item: WorkItem) => {
-    setDismissingWorkId(item.id);
-    try {
-      await dismissOperatorAttention({
-        recordKind: "work_item",
-        recordId: item.id,
-        itemUpdatedAt: item.updatedAt,
-      });
-      await load();
-    } finally {
-      setDismissingWorkId(null);
-    }
-  }, [load]);
-
-  const loadMessages = useCallback(async () => {
-    if (!conversationId) {
-      setMessages([]);
-      return;
-    }
-    try {
-      const result = await api<Message[]>(
-        `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=20`,
-      );
-      setMessages(result);
-    } catch {
-      setMessages([]);
-    }
-  }, [conversationId]);
 
   const loadObserve = useCallback(async () => {
     setObserveLoading(true);
@@ -1750,53 +2147,13 @@ function AgentDetailWithRail({
     }
   }, [agent.id]);
 
-  const loadContextState = useCallback(async () => {
-    if (!agent.transport) {
-      setContextState(null);
-      return;
-    }
-    try {
-      const result = await api<LocalAgentContextState>(
-        `/api/agents/${encodeURIComponent(agent.id)}/session/context`,
-      );
-      setContextState(result);
-    } catch {
-      setContextState(null);
-    }
-  }, [agent.id, agent.transport]);
-
-  const resetAgentContext = useCallback(async () => {
-    setResettingContext(true);
-    try {
-      const result = await api<{ ok: boolean; catalog: SessionCatalogWithResume }>(
-        `/api/agents/${encodeURIComponent(agent.id)}/session/reset`,
-        { method: "POST" },
-      );
-      setSessionCatalog(result.catalog);
-      await loadContextState();
-      if (activeTab === "observe") {
-        await loadObserve();
-      }
-    } catch {
-      await loadContextState();
-    } finally {
-      setResettingContext(false);
-    }
-  }, [activeTab, agent.id, loadContextState, loadObserve]);
-
   useEffect(() => {
     void load();
-    void loadMessages();
-    void loadContextState();
-    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
-      .then(setSessionCatalog)
-      .catch(() => {});
-  }, [load, loadMessages, loadContextState, agent.id]);
+  }, [load]);
 
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
-    setContextState(null);
   }, [agent.id]);
 
   useEffect(() => {
@@ -1808,8 +2165,6 @@ function AgentDetailWithRail({
 
   useBrokerEvents(() => {
     void load();
-    void loadMessages();
-    void loadContextState();
     if (activeTab === "observe") {
       void loadObserve();
     }
@@ -1825,447 +2180,21 @@ function AgentDetailWithRail({
     return () => clearInterval(timer);
   }, [activeTab, observe?.data.live, loadObserve]);
 
-  const currentWork = work.find(
-    (w) => w.state === "working" || w.state === "review",
-  );
-  const activeWork = work.filter(
-    (w) =>
-      (w.state === "working" || w.state === "review" || w.state === "waiting") &&
-      w.id !== currentWork?.id,
-  );
-  const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
-
-  const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
-  const harnessLabel = agent.harness;
-  const machineLabel = agent.authorityNodeName
-    ?? agent.homeNodeName
-    ?? agent.authorityNodeId
-    ?? agent.homeNodeId;
-  const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
-    ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
-    : null;
-  const selectorLabel = primaryAgentSelector(agent);
-  const authorityLabel = agent.authorityNodeName && agent.authorityNodeId
-    ? `${agent.authorityNodeName} (${agent.authorityNodeId})`
-    : agent.authorityNodeName ?? agent.authorityNodeId;
-  const homeLabel = agent.homeNodeName && agent.homeNodeId
-    ? `${agent.homeNodeName} (${agent.homeNodeId})`
-    : agent.homeNodeName ?? agent.homeNodeId;
-  const qualifierParts = [
-    agent.workspaceQualifier ? `workspace ${agent.workspaceQualifier}` : null,
-    agent.nodeQualifier ? `node ${agent.nodeQualifier}` : null,
-  ].filter(Boolean);
-  const eyebrowParts = [roleLabel, harnessLabel]
-    .filter(Boolean)
-    .filter((v, i, arr) => arr.indexOf(v) === i);
-
-  const teammateCount = useMemo(
-    () => allAgents.filter((a) => a.project === agent.project).length,
-    [allAgents, agent.project],
-  );
-
-  const taskProgress = currentWork?.currentPhase === "review"
-    ? 85
-    : currentWork?.currentPhase === "working"
-      ? 50
-      : 20;
-  const currentWorkAgeMs = currentWork ? Date.now() - currentWork.lastMeaningfulAt : 0;
-  const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
-  const currentTaskStatus = currentWork
-    ? currentWorkIsStale
-      ? `no recent signal · ${timeAgo(currentWork.lastMeaningfulAt)}`
-      : `${taskProgress}% · live`
-    : "";
-
-  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
-    { key: "profile", label: "Profile" },
-    { key: "observe", label: "Observe" },
-    { key: "message", label: "Message", disabled: !conversationId },
-  ];
-
-  const navigateToTab = (tab: AgentTab) => {
-    navigate({
-      view: "agents",
-      agentId: agent.id,
-      ...(conversationId ? { conversationId } : {}),
-      tab,
-    });
-  };
-
-  const renderTabs = (className = "") => (
-    <nav className={`s-profile-tabs${className ? ` ${className}` : ""}`}>
-      {tabs.map((t) => (
-        <button
-          key={t.key}
-          type="button"
-          className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
-          disabled={t.disabled}
-          onClick={() => navigateToTab(t.key)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </nav>
-  );
-
   return (
-    <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
-      <div className="s-profile-return-row">
-        <BackToPicker
-          slot="agents"
-          fallback={{ view: "agents" }}
-          navigate={navigate}
-          className="s-profile-back-position"
-        />
-      </div>
-
-
-      {activeTab === "profile" ? (
-        <section
-          className="s-profile-identity"
-          onContextMenu={(e) => {
-            const sel = window.getSelection()?.toString().trim();
-            const items: MenuItem[] = [];
-            if (sel) {
-              items.push({
-                kind: "action",
-                label: "Copy Selection",
-                shortcut: "⌘C",
-                onSelect: () => {
-                  void copyTextToClipboard(sel);
-                },
-              });
-              items.push({ kind: "separator" });
-            }
-            items.push({
-              kind: "action",
-              label: "Copy Agent Name",
-              onSelect: () => {
-                void copyTextToClipboard(name);
-              },
-            });
-            items.push({
-              kind: "action",
-              label: "Copy Agent ID",
-              onSelect: () => {
-                void copyTextToClipboard(agent.id);
-              },
-            });
-            if (agent.handle) {
-              items.push({
-                kind: "action",
-                label: `Copy @${agent.handle}`,
-                onSelect: () => {
-                  void copyTextToClipboard(`@${agent.handle}`);
-                },
-              });
-            }
-            if (agent.selector) {
-              items.push({
-                kind: "action",
-                label: "Copy Selector",
-                onSelect: () => {
-                  void copyTextToClipboard(agent.selector ?? "");
-                },
-              });
-            }
-            if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
-              items.push({
-                kind: "action",
-                label: "Copy Default Selector",
-                onSelect: () => {
-                  void copyTextToClipboard(agent.defaultSelector ?? "");
-                },
-              });
-            }
-            showContextMenu(e, items);
-          }}
-        >
-          <div className="s-profile-identity-top">
-            <div className="s-profile-identity-avatar-wrap">
-              <div
-                className="s-profile-identity-avatar"
-                style={{ background: actorColor(agent.name) }}
-              >
-                {agent.name[0].toUpperCase()}
-              </div>
-              <span
-                className={`s-profile-identity-pulse s-profile-identity-pulse--${agentStateCssToken(state)}`}
-                style={{ background: stateColor(agent.state) }}
-              />
-            </div>
-            <div className="s-profile-identity-copy">
-              {eyebrowParts.length > 0 && (
-                <div className="s-profile-identity-eyebrow">
-                  {eyebrowParts.join(" · ")}
-                </div>
-              )}
-              <h1 className="s-profile-identity-name">
-                {name}
-                {qualifier && (
-                  <span className="s-profile-identity-name-qualifier">
-                    {qualifier}
-                  </span>
-                )}
-                {agent.handle && (
-                  <span className="s-profile-identity-name-handle">
-                    @{agent.handle}
-                  </span>
-                )}
-              </h1>
-              <div className="s-profile-identity-state-row">
-                <span className="s-profile-identity-state">
-                  <span
-                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
-                    style={{ background: stateColor(agent.state) }}
-                  />
-                  <span className="s-profile-identity-state-label">
-                    {agentStateLabel(agent.state)}
-                  </span>
-                  {agent.updatedAt && (
-                    <span className="s-profile-identity-state-detail">
-                      &mdash; {timeAgo(agent.updatedAt)}
-                    </span>
-                  )}
-                  {agent.staleLocalRegistration && (
-                    <span className="s-profile-identity-state-detail">
-                      superseded registration
-                    </span>
-                  )}
-                </span>
-              </div>
-              <div className="s-profile-identity-qualified">
-                <span>{agent.id}</span>
-                {selectorLabel && <span>{selectorLabel}</span>}
-                {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
-                  <span>{agent.defaultSelector}</span>
-                )}
-              </div>
-              <AgentLiveActions
-                agent={agent}
-                catalog={sessionCatalog}
-                navigate={navigate}
-                returnTo={route}
-                variant="inline"
-              />
-            </div>
-            {renderTabs()}
-          </div>
-        </section>
-      ) : (
-        <div className="s-profile-compact-tabs">
-          {renderTabs("s-profile-tabs--compact")}
-        </div>
-      )}
-
+    <div
+      className={`s-profile-center${
+        activeTab !== "profile" ? " s-profile-center--tabbed" : " s-profile-center--modular"
+      }`}
+    >
       {activeTab === "profile" && (
-        <div className="s-profile-tab-content">
-          {(agent.id || selectorLabel || machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
-            <div className="s-profile-facets">
-              <div className="s-profile-facet s-profile-facet--identity">
-                <div className="s-profile-facet-label">Agent ID</div>
-                <div className="s-profile-facet-value s-profile-facet-value--mono">{agent.id}</div>
-                <div className="s-profile-facet-detail">
-                  definition {agent.definitionId}
-                </div>
-              </div>
-              {selectorLabel && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Selector</div>
-                  <div className="s-profile-facet-value s-profile-facet-value--mono">{selectorLabel}</div>
-                  {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
-                    <div className="s-profile-facet-detail">
-                      default {agent.defaultSelector}
-                    </div>
-                  )}
-                </div>
-              )}
-              {(qualifierParts.length > 0 || authorityLabel || homeLabel) && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Authority</div>
-                  <div className="s-profile-facet-value">{authorityLabel ?? machineLabel ?? "local"}</div>
-                  <div className="s-profile-facet-detail">
-                    {qualifierParts.length > 0
-                      ? qualifierParts.join(" · ")
-                      : homeLabel && homeLabel !== authorityLabel
-                        ? `home ${homeLabel}`
-                        : "qualified route"}
-                  </div>
-                </div>
-              )}
-              {machineLabel && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Machine</div>
-                  <div className="s-profile-facet-value">{machineLabel}</div>
-                  {machineDetail && (
-                    <div className="s-profile-facet-detail">{machineDetail}</div>
-                  )}
-                </div>
-              )}
-              {agent.project && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Workspace</div>
-                  <div className="s-profile-facet-value">{agent.project}</div>
-                  {teammateCount > 1 && (
-                    <div className="s-profile-facet-detail">
-                      {teammateCount} teammates
-                    </div>
-                  )}
-                </div>
-              )}
-              {(agent.branch || agent.projectRoot) && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Repo / Branch</div>
-                  <div className="s-profile-facet-value">
-                    {agent.projectRoot
-                      ? agent.projectRoot.split("/").pop()
-                      : agent.project ?? "—"}
-                  </div>
-                  {agent.branch && (
-                    <div className="s-profile-facet-detail">
-                      <span className="s-profile-facet-accent">⎇</span> {agent.branch}
-                    </div>
-                  )}
-                </div>
-              )}
-              {agent.cwd && (
-                <div className="s-profile-facet">
-                  <div className="s-profile-facet-label">Working Dir</div>
-                  <div className="s-profile-facet-value">
-                    {agent.cwd.startsWith("/Users/")
-                      ? "~/" + agent.cwd.split("/").slice(3).join("/")
-                      : agent.cwd}
-                  </div>
-                  {agent.updatedAt && (
-                    <div className="s-profile-facet-detail">
-                      uptime {timeAgo(agent.updatedAt)}
-                    </div>
-                  )}
-                </div>
-              )}
-              {sessionCatalog?.activeSessionId && (
-                <SessionFacet catalog={sessionCatalog} agentId={agent.id} />
-              )}
-              {contextState && (
-                <ContextFacet
-                  context={contextState}
-                  lastActivityAt={agent.updatedAt ?? null}
-                  resetting={resettingContext}
-                  onReset={() => void resetAgentContext()}
-                />
-              )}
-            </div>
-          )}
-          {currentWork && state === "working" && (
-            <>
-              <SectionRule
-                label="Current task"
-                right={currentTaskStatus}
-              />
-              <div className="s-profile-task">
-                <div className="s-profile-task-title">{currentWork.title}</div>
-                {currentWork.lastMeaningfulSummary && (
-                  <>
-                    <div className="s-profile-task-progress">
-                      <div
-                        className="s-profile-task-progress-bar"
-                        style={{ width: `${taskProgress}%` }}
-                      />
-                    </div>
-                    <div className="s-profile-task-action">
-                      <span className="s-profile-task-action-chevron">
-                        &rsaquo;
-                      </span>
-                      <span>{currentWork.lastMeaningfulSummary}</span>
-                      <span className="s-profile-task-cursor" />
-                    </div>
-                  </>
-                )}
-                <div className="s-profile-task-meta">
-                  <span>{currentWork.currentPhase}</span>
-                  <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
-                </div>
-                <div className="s-profile-task-controls" aria-label="Current task actions">
-                  <button
-                    type="button"
-                    className="s-profile-task-btn s-profile-task-btn--primary"
-                    onClick={() =>
-                      openContent(
-                        navigate,
-                        { view: "work", workId: currentWork.id },
-                        { returnTo: route },
-                      )}
-                  >
-                    Open work
-                  </button>
-                  <button
-                    type="button"
-                    className="s-profile-task-btn"
-                    onClick={() => navigateToTab("observe")}
-                  >
-                    Observe
-                  </button>
-                  {conversationId && (
-                    <button
-                      type="button"
-                      className="s-profile-task-btn"
-                      onClick={() => navigateToTab("message")}
-                    >
-                      Message
-                    </button>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-
-          {activeWork.length > 0 && (
-            <>
-              <SectionRule
-                label="Active work"
-                right={`${activeWork.length} in flight`}
-              />
-              <div className="s-profile-work">
-                <WorkList
-                  items={activeWork}
-                  navigate={navigate}
-                  emptyTitle="Nothing in flight"
-                  onDismissAttention={(item) => void dismissWorkAttention(item)}
-                  dismissingId={dismissingWorkId}
-                />
-              </div>
-            </>
-          )}
-
-          {recentDone.length > 0 && (
-            <>
-              <SectionRule
-                label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
-                right={`${recentDone.length}`}
-              />
-              <div className="s-profile-work">
-                <WorkList
-                  items={recentDone}
-                  navigate={navigate}
-                  emptyTitle=""
-                />
-              </div>
-            </>
-          )}
-
-          <AgentActivityFeed
-            agent={agent}
-            fleet={fleet}
-            navigate={navigate}
-          />
-
-          <SignalFeed
-            messages={messages}
-            navigate={navigate}
-            conversationId={conversationId}
-            agentId={agent.id}
-          />
-        </div>
+        <ModularProfileCenter
+          agent={agent}
+          name={name}
+          sessionCatalog={sessionCatalog}
+          conversationId={conversationId}
+          navigate={navigate}
+          route={route}
+        />
       )}
 
       {activeTab === "observe" && (
@@ -2389,7 +2318,18 @@ export function AgentsScreen({
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (
-      <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
+      <AgentsRouteFrame
+        activeRoute={activeRoute ?? route}
+        navigate={navigate}
+        bar={
+          <AgentProfileBar
+            agent={selectedAgent}
+            conversationId={resolvedConversationId}
+            activeTab={resolvedTab}
+            navigate={navigate}
+          />
+        }
+      >
         <AgentDetailWithRail
           agent={selectedAgent}
           allAgents={scopedAgents}
@@ -2420,19 +2360,72 @@ export function AgentsScreen({
   );
 }
 
+function AgentProfileBar({
+  agent,
+  conversationId,
+  activeTab,
+  navigate,
+}: {
+  agent: Agent;
+  conversationId: string | null;
+  activeTab: AgentTab;
+  navigate: (r: Route) => void;
+}) {
+  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
+    { key: "profile", label: "Profile" },
+    // "Trace" = the parsed turn/tool feed (route stays `observe`). "Observe" is
+    // reserved for watching the live terminal (the rail's Terminal action), so
+    // the two surfaces no longer share a word.
+    { key: "observe", label: "Trace" },
+    { key: "message", label: "Message", disabled: !conversationId },
+  ];
+  const navigateToTab = (tab: AgentTab) =>
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      ...(conversationId ? { conversationId } : {}),
+      tab,
+    });
+  return (
+    <div className="s-agent-bar">
+      <BackToPicker
+        slot="agents"
+        fallback={{ view: "agents" }}
+        navigate={navigate}
+        className="s-agent-bar-back"
+      />
+      <nav className="s-profile-tabs s-agent-bar-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
+            disabled={t.disabled}
+            onClick={() => navigateToTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
 function AgentsRouteFrame({
   activeRoute,
   children,
   navigate,
+  bar,
 }: {
   activeRoute: Route;
   children: ReactNode;
   navigate: (r: Route) => void;
+  bar?: ReactNode;
 }) {
   return (
     <div className="s-secondary-nav-shell">
       <div className="s-secondary-nav-bar">
-        <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />
+        {bar ?? <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />}
       </div>
       <div className="s-secondary-nav-body">{children}</div>
     </div>
@@ -3113,6 +3106,80 @@ function ProjectLabeledAgentSessionList({
   );
 }
 
+// One accent only — brightness encodes state, not hue (working brightest,
+// ready mid, everything else dim). Replaces the categorical stateColor() dots
+// on the Agents page per the locked Instrument direction.
+function treeDotColor(state: string | null): string {
+  switch (normalizeAgentState(state)) {
+    case "working":
+      return "var(--accent)";
+    case "ready":
+      return "color-mix(in srgb, var(--accent) 52%, var(--dim))";
+    default:
+      return "var(--dim)";
+  }
+}
+
+// Collapsible group of project-level sessions (workflow runs, native processes)
+// so low-signal rows don't render at the same weight as the agents above them.
+function ProjectTreeSessionGroup({
+  label,
+  noun,
+  nounPlural,
+  sessions,
+  open,
+  onToggle,
+  onOpenSession,
+}: {
+  label: string;
+  noun: string;
+  nounPlural: string;
+  sessions: ProjectTreeSessionNode[];
+  open: boolean;
+  onToggle: () => void;
+  onOpenSession: (session: ProjectTreeSessionNode) => void;
+}) {
+  if (sessions.length === 0) return null;
+  const count = sessions.length;
+  return (
+    <Fragment>
+      <div className="s-agent-project-tree-row s-agent-project-tree-row--group" role="row">
+        <div className="s-agent-project-tree-target">
+          <button
+            type="button"
+            className="s-agent-project-tree-toggle"
+            aria-label={`${open ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
+            aria-expanded={open}
+            onClick={onToggle}
+          >
+            {open ? "▾" : "▸"}
+          </button>
+          <span className="s-agent-project-tree-copy">
+            <span className="s-agent-project-tree-primary">{label}</span>
+            <span className="s-agent-project-tree-secondary">
+              {count} {count === 1 ? noun : nounPlural}
+            </span>
+          </span>
+        </div>
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-muted" />
+        <span className="s-agent-project-tree-mono">
+          {sessions[0]?.lastActivityAt ? timeAgo(sessions[0].lastActivityAt) : "—"}
+        </span>
+      </div>
+      {open && sessions.map((session) => (
+        <ProjectTreeSessionRow
+          key={session.key}
+          session={session}
+          compact
+          onOpen={() => onOpenSession(session)}
+        />
+      ))}
+    </Fragment>
+  );
+}
+
 function ProjectLabeledAgentTree({
   project,
   navigate,
@@ -3132,6 +3199,45 @@ function ProjectLabeledAgentTree({
     ].filter(showProjectLevelSessionInOverview)),
     [project.workflows, tree.unassignedSessions],
   );
+  const workflowSessions = useMemo(
+    () => projectLevelSessions.filter((session) => session.kind === "workflow"),
+    [projectLevelSessions],
+  );
+  const otherSessions = useMemo(
+    () => projectLevelSessions.filter((session) => session.kind !== "workflow"),
+    [projectLevelSessions],
+  );
+
+  // Workflows and native processes each collapse into a group node, persisted
+  // per project. Default both to collapsed on first visit (each gated by its own
+  // marker) so the run/process lists don't bury the agents above them.
+  const collapsedStorageKey = `openscout.agents.labeledTree.collapsed:${project.key}`;
+  const workflowsKey = `${project.key}:workflows`;
+  const nativeKey = `${project.key}:native`;
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const stored = readCollapsedProjectTreeRows(collapsedStorageKey);
+    for (const key of [workflowsKey, nativeKey]) {
+      const marker = `${key}:default`;
+      if (!stored.has(marker)) {
+        stored.add(key);
+        stored.add(marker);
+      }
+    }
+    return stored;
+  });
+  useEffect(() => {
+    writeCollapsedProjectTreeRows(collapsedStorageKey, collapsed);
+  }, [collapsed, collapsedStorageKey]);
+  const workflowsOpen = !collapsed.has(workflowsKey);
+  const nativeOpen = !collapsed.has(nativeKey);
+  const toggleRow = (key: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const openSession = (session: ProjectTreeSessionNode) => {
     if (!session.route) return;
@@ -3158,7 +3264,7 @@ function ProjectLabeledAgentTree({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: stateColor(row.agent.state) }}
+                        style={{ background: treeDotColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3187,14 +3293,25 @@ function ProjectLabeledAgentTree({
           );
         })}
 
-        {projectLevelSessions.map((session) => (
-          <ProjectTreeSessionRow
-            key={session.key}
-            session={session}
-            compact
-            onOpen={() => openSession(session)}
-          />
-        ))}
+        <ProjectTreeSessionGroup
+          label="Workflows"
+          noun="run"
+          nounPlural="runs"
+          sessions={workflowSessions}
+          open={workflowsOpen}
+          onToggle={() => toggleRow(workflowsKey)}
+          onOpenSession={openSession}
+        />
+
+        <ProjectTreeSessionGroup
+          label="Native processes"
+          noun="process"
+          nounPlural="processes"
+          sessions={otherSessions}
+          open={nativeOpen}
+          onToggle={() => toggleRow(nativeKey)}
+          onOpenSession={openSession}
+        />
       </div>
     </div>
   );
@@ -3358,7 +3475,7 @@ function ProjectTreeTable({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: stateColor(row.agent.state) }}
+                        style={{ background: treeDotColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3444,14 +3561,17 @@ function ProjectTreeSessionRow({
   );
 
   if (compact) {
+    // These rows live under a labeled group ("Workflows" / "Native processes"),
+    // so the per-row kind is redundant. Workflows surface their worker/task
+    // progress (status is always "workflow"); native rows keep their live state.
     return (
       <div className={rowClass} role="row">
         {target}
         <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-          {session.status}
+          {session.kind === "workflow" ? "" : session.status}
         </span>
-        <span className="s-agent-project-tree-muted">{session.kind}</span>
-        <span className="s-agent-project-tree-muted">—</span>
+        <span className="s-agent-project-tree-muted">{session.subLabel ?? ""}</span>
+        <span className="s-agent-project-tree-muted" />
         <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
       </div>
     );
@@ -3505,7 +3625,7 @@ function ProjectAgentCard({
       <span className="s-agent-project-card-top">
         <span
           className="s-agent-project-card-dot"
-          style={{ background: stateColor(row.agent.state) }}
+          style={{ background: treeDotColor(row.agent.state) }}
           aria-hidden="true"
         />
         <span className="s-agent-project-card-name">{row.agent.name}</span>

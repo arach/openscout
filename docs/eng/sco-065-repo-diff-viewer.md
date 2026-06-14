@@ -426,7 +426,7 @@ update path rather than remounting every diff item.
 Each diff render item gets a stable cache key so re-opening the same diff reuses
 Pierre's in-memory cache:
 
-```text
+```plaintext
 openscout-diff:v1:
   worktreePath: layer: patchOid: theme: layout: renderOptionsVersion
 ```

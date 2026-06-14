@@ -831,7 +831,7 @@ private struct AgentColumnC: View {
                 .padding(.bottom, 2)
             engageRow(verb: "SEND",     hint: "↵ deliver a directive", enabled: true,  action: sendAction)
             engageRow(verb: "MESSAGES", hint: "jump to message thread", enabled: true, action: messagesAction)
-            engageRow(verb: "TAIL",     hint: "open this agent's tail", enabled: false, action: {})
+            engageRow(verb: "TAIL",     hint: "open this agent's tail", enabled: true, action: tailAction)
             engageRow(verb: "OPEN",     hint: "reveal project root",    enabled: agent.projectRoot != nil, action: openAction)
             engageRow(verb: "SNOOZE",   hint: "park asks for 1h",       enabled: false, action: {})
             engageRow(verb: "MUTE",     hint: "suppress nudges",        enabled: false, action: {})
@@ -870,6 +870,10 @@ private struct AgentColumnC: View {
 
     private func messagesAction() {
         openAgentMessages(agent)
+    }
+
+    private func tailAction() {
+        NSWorkspace.shared.open(agentTailURL(agent))
     }
 
     private func openAction() {
@@ -917,6 +921,29 @@ private func agentMessagesURL(_ agent: HudAgent) -> URL {
         return agentRelativeURL("/c/\(agentPercent("dm.operator.\(agent.id)"))", base: base)
     }
     return agentRelativeURL("/agents", base: base)
+}
+
+private func agentTailURL(_ agent: HudAgent) -> URL {
+    var components = URLComponents(
+        url: ScoutWeb.baseURL().appending(path: "ops/tail"),
+        resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+        URLQueryItem(name: "q", value: agentTailQuery(agent))
+    ]
+    return components?.url ?? agentRelativeURL("/ops/tail", base: ScoutWeb.baseURL())
+}
+
+private func agentTailQuery(_ agent: HudAgent) -> String {
+    if let sessionId = agent.harnessSessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !sessionId.isEmpty {
+        return sessionId
+    }
+    if let handle = agent.handle?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !handle.isEmpty {
+        return handle.hasPrefix("@") ? handle : "@" + handle
+    }
+    return agent.id
 }
 
 private func agentRelativeURL(_ path: String, base: URL) -> URL {

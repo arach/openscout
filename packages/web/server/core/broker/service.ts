@@ -277,6 +277,10 @@ const DEFAULT_BROKER_HOST = "127.0.0.1";
 const DEFAULT_BROKER_PORT = 65535;
 
 function buildScoutBrokerUrlFromEnv(): string {
+  const internal = process.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();
+  if (internal) {
+    return internal;
+  }
   const fromEnv = process.env.OPENSCOUT_BROKER_URL?.trim();
   if (fromEnv) {
     return fromEnv;

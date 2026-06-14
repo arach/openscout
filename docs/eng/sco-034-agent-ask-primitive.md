@@ -38,7 +38,8 @@ Field meaning:
   broker to choose the concrete agent/session. This is a typed route target,
   not a search hint.
 - `body`: the ask payload. Keep routing metadata out of it.
-- `harness`: use a specific harness when requested.
+- `harness`: use a specific harness/capability when requested. `projectPath` +
+  `harness` is the preferred low-churn start when no exact worker is known.
 - `workspace`: use the same working environment or an isolated worktree.
 - `session`: reuse an existing session or start a new one.
 - `wait`: wait inline for a result. Default is false.
@@ -46,7 +47,10 @@ Field meaning:
 Branch names are implementation details. `workspace: "new_worktree"` is the
 user intent; Scout can derive branch/worktree names.
 
-Provide exactly one of `to` or `projectPath`.
+Provide exactly one of `to`, `projectPath`, or an exact `targetSessionId` in
+surfaces that expose session continuation. Do not invent generic names such as
+`claude.main`; let Scout route the project/capability request, then use the
+returned handles.
 
 ## Sender Context
 
@@ -82,7 +86,9 @@ This is enough for phrases like "my sibling", "Talkie", "same worktree", and
    require it and Scout has enough information.
 5. Scout records message, invocation, flight, and optional work item using the
    existing broker model.
-6. Scout returns a compact receipt.
+6. Scout returns a compact receipt with durable handles (`ref`, `flightId`,
+   `conversationId`, `workId`, session id) and, when available, a friendly
+   broker-suggested worker handle.
 7. If Scout cannot resolve or start safely, it returns one required next call.
 
 ## HTTP Boundary

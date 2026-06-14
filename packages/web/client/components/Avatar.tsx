@@ -1,9 +1,11 @@
 import type { CSSProperties } from "react";
-import { actorColor, stateColor } from "../lib/colors.ts";
+import { stateColor } from "../lib/colors.ts";
 import {
   normalizeAgentState,
   type AgentDisplayState,
 } from "../lib/agent-state.ts";
+import { spriteFor } from "../lib/agent-identity.ts";
+import { SpriteSvg } from "./SpriteAvatar.tsx";
 
 export type AvatarKind = "user" | "channel";
 export type AvatarSize = "sm" | "md" | "lg";
@@ -71,8 +73,16 @@ export function Avatar({
     );
   }
 
-  const initial = name && name.length > 0 ? name[0]!.toUpperCase() : "?";
-  const bg = background ?? actorColor(name);
+  // User avatars are deterministic sprite creatures derived from the name
+  // (lib/agent-identity.ts). We keep the caller's sizing className but
+  // override the legacy solid background to transparent and let the sprite
+  // fill the box (overflow visible so antennae/legs never clip).
+  const sprite = spriteFor(name);
+  const spriteStyle: CSSProperties = {
+    ...style,
+    background: "transparent",
+    overflow: "visible",
+  };
   const dot =
     presence !== undefined && presence !== null ? (
       <PresenceDot state={presence} />
@@ -85,12 +95,8 @@ export function Avatar({
   if (dot) {
     return (
       <span className="oc-avatar-wrap">
-        <span
-          className={className}
-          style={{ background: bg, ...style }}
-          title={title}
-        >
-          {initial}
+        <span className={className} style={spriteStyle} title={title}>
+          <SpriteSvg sprite={sprite} />
         </span>
         {dot}
       </span>
@@ -98,12 +104,8 @@ export function Avatar({
   }
 
   return (
-    <span
-      className={className}
-      style={{ background: bg, ...style }}
-      title={title}
-    >
-      {initial}
+    <span className={className} style={spriteStyle} title={title}>
+      <SpriteSvg sprite={sprite} />
     </span>
   );
 }

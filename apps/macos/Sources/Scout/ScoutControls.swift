@@ -41,7 +41,7 @@ struct ScoutSearchField: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(border, lineWidth: isFocused ? HudFocus.ringWidth : HudStrokeWidth.standard)
+                .stroke(border, lineWidth: isFocused ? HudFocus.ringWidth : HudStrokeWidth.thin)
         )
         .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         .onHover { isHovering = $0 }

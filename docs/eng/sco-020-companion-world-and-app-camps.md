@@ -289,7 +289,7 @@ own.
 
 V1 should reuse the Codex pet package shape:
 
-```text
+```plaintext
 pet.json
 spritesheet.webp
 ```

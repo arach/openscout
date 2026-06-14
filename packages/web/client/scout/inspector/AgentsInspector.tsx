@@ -13,7 +13,14 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
+import {
+  resolveActiveSessionId,
+  resolveSelectedSessionId,
+  sessionEngage,
+  sortSessionsByRecency,
+} from "../../lib/session-catalog.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import { TmuxPeekPanel } from "./TmuxPeek.tsx";
 import type {
@@ -159,6 +166,8 @@ export function AgentsInspector() {
     );
   }
 
+  // A focused agent always gets the context card (no identity replay) on every
+  // tab — the center owns identity, the rail owns the organized context facts.
   return (
     <AgentContextPanel
       agent={agent}
@@ -166,6 +175,7 @@ export function AgentsInspector() {
       navigate={navigate}
       route={route}
       observeMode={route.tab === "observe"}
+      showStaticIdentity={false}
     />
   );
 }
@@ -206,24 +216,21 @@ function AgentsDirectoryContextPanel({
   );
   const activeNow = working.slice(0, 5);
   const projectCount = new Set(agents.map(agentProjectLabel)).size;
-  const surfaceLabel = working.length > 0 ? "Live routing surface" : "Quiet routing surface";
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] p-2.5">
-        <div className="text-[9px] font-mono uppercase tracking-[0.15em] text-[var(--scout-chrome-ink-faint)]">
-          Directory context
+      <Section label="Directory context">
+        <StatRow
+          stats={[
+            { label: "Agents", value: `${agents.length}` },
+            { label: "Projects", value: `${projectCount}` },
+            { label: "Working", value: `${working.length}` },
+          ]}
+        />
+        <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
+          {readyCount} ready · {projectCount} {projectCount === 1 ? "project" : "projects"}
         </div>
-        <div className="mt-2 grid grid-cols-3 gap-1">
-          <MiniStat label="Agents" value={`${agents.length}`} />
-          <MiniStat label="Projects" value={`${projectCount}`} />
-          <MiniStat label="Working" value={`${working.length}`} />
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-          <span>{surfaceLabel}</span>
-          <span>{readyCount} ready</span>
-        </div>
-      </div>
+      </Section>
 
       <Section label="Project mix">
         <PillList items={projectMix} empty="No projects visible" />
@@ -235,34 +242,31 @@ function AgentsDirectoryContextPanel({
 
       <Section label="Active now">
         {activeNow.length === 0 ? (
-          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            No agents are currently marked working.
-          </div>
+          <EmptyLine>No agents currently working.</EmptyLine>
         ) : (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-0.5">
             {activeNow.map((candidate) => (
               <button
                 key={candidate.id}
                 type="button"
-                className="rounded border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-2 py-1.5 text-left transition-colors hover:border-[var(--scout-chrome-border)]"
+                className="flex w-full items-center gap-2 rounded-[4px] px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--scout-chrome-hover)]"
                 onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
               >
-                <div className="flex items-center gap-2">
-                  <span
-                    className="h-1.5 w-1.5 shrink-0 rounded-full"
-                    style={{ background: stateColor(candidate.state) }}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
-                    {candidate.name}
-                  </span>
-                  {candidate.updatedAt && (
-                    <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
-                      {timeAgo(candidate.updatedAt)}
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--accent)" }} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink)]">
+                      {candidate.name}
                     </span>
-                  )}
-                </div>
-                <div className="mt-0.5 truncate pl-3.5 font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
-                  {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
+                    {candidate.updatedAt && (
+                      <span className="shrink-0 font-mono text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                        {timeAgo(candidate.updatedAt)}
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                    {agentProjectLabel(candidate)} · {agentHarnessLabel(candidate)}
+                  </div>
                 </div>
               </button>
             ))}
@@ -272,21 +276,19 @@ function AgentsDirectoryContextPanel({
 
       <Section label="Recent">
         {recentAgents.length === 0 ? (
-          <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            No recent agent activity in this scope.
-          </div>
+          <EmptyLine>No recent agent activity in this scope.</EmptyLine>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {recentAgents.map((candidate) => (
               <button
                 key={candidate.id}
                 type="button"
-                className="flex items-center gap-2 bg-transparent px-0 py-0.5 text-left"
+                className="flex w-full items-center gap-2 rounded-[4px] px-1.5 py-[5px] text-left transition-colors hover:bg-[var(--scout-chrome-hover)]"
                 onClick={() => openAgent(navigate, candidate, { from: "inspector", returnTo: route })}
               >
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ background: stateColor(candidate.state), opacity: isAgentOnline(candidate.state) ? 1 : 0.45 }}
+                  style={{ background: isAgentOnline(candidate.state) ? "var(--accent)" : "var(--dim)" }}
                 />
                 <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--scout-chrome-ink-soft)]">
                   {candidate.name}
@@ -303,15 +305,36 @@ function AgentsDirectoryContextPanel({
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+/* ── Instrument structure kit ──────────────────────────────────────────────
+   Flat stat readout · border-only tag distributions · plain empty lines.
+   The signed-off vocabulary (studio: scout-inspectors). To be lifted into a
+   shared inspector kit as the other inspectors adopt it. */
+
+function StatRow({ stats }: { stats: Array<{ label: string; value: string }> }) {
   return (
-    <div className="min-w-0 rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-bg)] px-1.5 py-1">
-      <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
-        {label}
-      </div>
-      <div className="mt-0.5 truncate font-mono text-[13px] text-[var(--scout-chrome-ink-strong)]">
-        {value}
-      </div>
+    <div className="flex">
+      {stats.map((stat, i) => (
+        <div
+          key={stat.label}
+          className="flex min-w-0 flex-1 flex-col gap-1"
+          style={i ? { paddingLeft: 11, marginLeft: 11, borderLeft: "1px solid var(--scout-chrome-border-soft)" } : undefined}
+        >
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+            {stat.label}
+          </span>
+          <span className="truncate font-mono text-[18px] leading-none text-[var(--scout-chrome-ink-strong)]">
+            {stat.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="font-mono text-[10px] tracking-[0.02em] text-[var(--scout-chrome-ink-ghost)]">
+      {children}
     </div>
   );
 }
@@ -324,21 +347,18 @@ function PillList({
   empty: string;
 }) {
   if (items.length === 0) {
-    return (
-      <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-        {empty}
-      </div>
-    );
+    return <EmptyLine>{empty}</EmptyLine>;
   }
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <span
           key={item.label}
-          className="rounded-sm border border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
+          className="inline-flex items-center gap-1.5 rounded-[3px] border border-[var(--scout-chrome-border-soft)] px-1.5 py-[2.5px] font-mono text-[10px] text-[var(--scout-chrome-ink-soft)]"
           title={`${item.count} ${item.label}`}
         >
-          {item.label} {item.count}
+          <span>{item.label}</span>
+          <span className="text-[var(--scout-chrome-ink-faint)]">{item.count}</span>
         </span>
       ))}
     </div>
@@ -444,12 +464,17 @@ function AgentContextPanel({
   navigate,
   route,
   observeMode,
+  showStaticIdentity = true,
 }: {
   agent: Agent;
   agents: Agent[];
   navigate: (r: Route) => void;
   route: Route;
   observeMode: boolean;
+  // When the center profile is on screen it already owns the static facts
+  // (state · identity · project). The rail then narrows to a live instrument
+  // and hides those blocks to avoid echoing the center.
+  showStaticIdentity?: boolean;
 }) {
   const online = isAgentOnline(agent.state);
   const [fleet, setFleet] = useState<FleetState | null>(null);
@@ -476,25 +501,147 @@ function AgentContextPanel({
     void load();
   });
 
+  // Selection is shared with the center's session list (Provider) so the rail's
+  // session info + secondary actions follow whichever session is being explored.
+  const { focusedSession } = useScout();
+  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
+  const sortedSessions = useMemo(
+    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
+    [sessionCatalog?.sessions, activeSessionId],
+  );
+  const selectedSessionId = resolveSelectedSessionId(
+    agent.id,
+    focusedSession,
+    activeSessionId,
+    sortedSessions,
+  );
+  const selectedSession = sortedSessions.find((s) => s.id === selectedSessionId) ?? null;
+  const sessionActive = Boolean(
+    selectedSession && activeSessionId && selectedSession.id === activeSessionId,
+  );
+  const engage = selectedSession
+    ? sessionEngage(agent, sessionCatalog, selectedSession, sessionActive)
+    : { canObserve: false, canTakeover: false };
+
+  const observeTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "observe" }, { returnTo: route });
+  const takeoverTerminal = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+  // Take over a non-tmux harness (e.g. claude_stream_json) by replaying its
+  // resume command into a terminal; a live tmux pane is driven in place.
+  const runTakeover = () => {
+    if (agent.transport === "tmux") {
+      takeoverTerminal();
+      return;
+    }
+    const command = sessionCatalog?.resumeCommand;
+    if (command) {
+      void queueTakeover({ command, cwd: sessionCatalog?.resumeCwd, agentId: agent.id }).then(
+        () => takeoverTerminal(),
+      );
+      return;
+    }
+    takeoverTerminal();
+  };
+
+  // Focused-agent context card — session-focused: it leads with the session the
+  // center is exploring and the secondary ways to engage it. The center owns the
+  // avatar / name / state / essentials and the primary Continue, so the rail
+  // skips identity replay and high-level agent facts (mesh / capabilities).
+  if (!showStaticIdentity) {
+    return (
+      <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+        {selectedSession && (
+          <Section label="Session">
+            <div className="flex items-baseline justify-between gap-2">
+              <span
+                className="truncate font-mono text-[12px] text-[var(--scout-chrome-ink)]"
+                title={selectedSession.id}
+              >
+                {shortSessionId(selectedSession.id)}
+              </span>
+              <span
+                className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em]"
+                style={{ color: sessionActive ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+              >
+                {sessionActive
+                  ? "now"
+                  : selectedSession.endedAt
+                    ? `ended · ${timeAgo(selectedSession.endedAt) || "recent"}`
+                    : timeAgo(selectedSession.startedAt) || "recent"}
+              </span>
+            </div>
+            {selectedSession.cwd && (
+              <div
+                className="mt-1 truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]"
+                title={selectedSession.cwd}
+              >
+                {selectedSession.cwd}
+              </div>
+            )}
+            {/* Terminal actions — watch it read-only, or grab it. The parsed
+                trace has its own top-bar tab, so it isn't duplicated here. */}
+            <div className="mt-2.5 flex flex-col gap-1.5">
+              <SessionEngageRow label="Terminal">
+                <RailActBtn
+                  onClick={observeTerminal}
+                  disabled={!engage.canObserve}
+                  title={engage.canObserve ? "Watch the live terminal, read-only" : "No live terminal to observe"}
+                >
+                  Observe
+                </RailActBtn>
+                <RailActBtn
+                  onClick={runTakeover}
+                  disabled={!engage.canTakeover}
+                  title={engage.canTakeover ? "Grab the keyboard and drive it" : "Can't take over this session"}
+                >
+                  Take over
+                </RailActBtn>
+              </SessionEngageRow>
+            </div>
+          </Section>
+        )}
+
+        {/* What the session has been doing — flat trace summary + top files
+            touched. Only in the Profile tab; the Trace tab shows the fuller
+            ObserveStats below, so we don't double up. */}
+        {!observeMode && selectedSession && (
+          <SessionActivity
+            agentId={agent.id}
+            navigate={navigate}
+            cwd={selectedSession.cwd ?? agent.cwd}
+          />
+        )}
+
+        {agent.transport === "tmux" && (
+          <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+        )}
+
+        {/* Runtime — tight 2-col readout of the facts the header doesn't carry */}
+        <Section label="Runtime">
+          <RuntimeGrid agent={agent} />
+        </Section>
+
+        {observeMode && <ObserveContext agentId={agent.id} />}
+
+        {fleet && (
+          <InspectorAsks
+            asks={fleet.activeAsks}
+            agentId={agent.id}
+            navigate={navigate}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Agent-info / multi-agent pick context — an identity header earns its place
+  // here because the center isn't already focused on this agent.
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
       {/* Identity */}
       <div className="flex items-center gap-3 border-b border-[var(--scout-chrome-border-soft)] pb-3">
-        <div
-          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-mono text-[var(--scout-chrome-avatar-ink)]"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0]?.toUpperCase() ?? "?"}
-          {online && (
-            <span
-              className="absolute -right-0.5 -bottom-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[var(--hud-bg)]"
-              style={{
-                background: stateColor(agent.state),
-                opacity: normalizeAgentState(agent.state) === "working" ? 0.85 : 0.6,
-              }}
-            />
-          )}
-        </div>
+        <AgentAvatar agent={agent} placement="inspector" />
         <div className="flex flex-col min-w-0 flex-1">
           <span className="truncate text-[13px] text-[var(--scout-chrome-ink-strong)]">
             {agent.name}
@@ -605,6 +752,71 @@ function AgentContextPanel({
         returnTo={route}
       />
     </div>
+  );
+}
+
+function RuntimeGrid({ agent }: { agent: Agent }) {
+  const cells: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: string | null | undefined) => {
+    if (value && value.trim()) cells.push({ label, value: value.trim() });
+  };
+  // Harness · model · host live in the profile header now — keep the rail's
+  // Runtime to what the header doesn't carry, to avoid re-printing facts.
+  push("Transport", agent.transport);
+  push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
+  push("Class", agent.agentClass);
+
+  if (cells.length === 0) return null;
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+      {cells.map((cell) => (
+        <div key={cell.label} className="min-w-0">
+          <div className="font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+            {cell.label}
+          </div>
+          <div className="truncate font-mono text-[11px] text-[var(--scout-chrome-ink)]">
+            {cell.value}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// A labeled row of session engage buttons (e.g. "Terminal · [Observe] [Take over]"),
+// grouped by the surface each action opens.
+function SessionEngageRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="w-[56px] shrink-0 font-mono text-[8px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+        {label}
+      </span>
+      <div className="flex gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function RailActBtn({
+  onClick,
+  disabled,
+  title,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="rounded-[4px] border border-[var(--scout-chrome-border-soft)] px-2.5 py-1 font-mono text-[8.5px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)] disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-[var(--scout-chrome-ink-soft)]"
+    >
+      {children}
+    </button>
   );
 }
 
@@ -919,6 +1131,115 @@ function ObserveStats({
         </Section>
       )}
     </>
+  );
+}
+
+// Files changed — the file-level detail for the focused session, in the rail.
+// (The session summary — rhythm chart, stats, context — now lives in the center;
+// this side is the detail.) Changed-first (created/modified marked accent, read
+// dimmed), parent/filename, and an "Open full diff" bridge to the repo-diff view.
+// Reuses the /observe payload; renders nothing until it resolves.
+function SessionActivity({
+  agentId,
+  navigate,
+  cwd,
+}: {
+  agentId: string;
+  navigate: (r: Route) => void;
+  cwd?: string | null;
+}) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const load = useCallback(async () => {
+    const result = await api<AgentObservePayload>(
+      `/api/agents/${encodeURIComponent(agentId)}/observe`,
+    ).catch(() => null);
+    setObserve(result);
+  }, [agentId]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const data = observe?.data;
+  if (!data || data.files.length === 0) return null;
+
+  const files = data.files;
+  // Surface what it CHANGED first (created/modified), then what it only read —
+  // so the durable output reads at the top, not whatever was touched most.
+  const ordered = [...files].sort((a, b) => {
+    const ra = a.state === "read" ? 0 : 1;
+    const rb = b.state === "read" ? 0 : 1;
+    return ra !== rb ? rb - ra : b.touches - a.touches;
+  });
+  const top = ordered.slice(0, 6);
+  const rest = files.length - top.length;
+  const changedCount = files.filter((f) => f.state !== "read").length;
+  const diffPath = data.metadata?.session?.cwd ?? cwd ?? null;
+  // Bridge to the actual diff — the repo-diff view for the worktree. Falls back
+  // to the Trace feed only when we don't know the working directory.
+  const openDiff = () =>
+    diffPath
+      ? navigate({ view: "repo-diff", path: diffPath })
+      : navigate({ view: "agents", agentId, tab: "observe" });
+
+  return (
+    <Section label="Files changed">
+      <div className="mb-1.5 flex items-baseline justify-between font-mono text-[8.5px] uppercase tracking-[0.14em] text-[var(--scout-chrome-ink-faint)]">
+        <span>{changedCount > 0 ? `${changedCount} changed` : "touched"}</span>
+        <span className="tabular-nums">{files.length}</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {top.map((file) => {
+          // parent/filename — the filename is the signal; an absolute path would
+          // right-truncate it away. Full path on hover.
+          const parts = file.path.replace(/\/+$/, "").split("/");
+          const name = parts.pop() ?? file.path;
+          const parent = parts.pop();
+          const dir = parent ? `${parent}/` : "";
+          // Changed (created/modified) gets an accent +/~ and brighter name;
+          // read-only stays dim — signal via contrast, single accent.
+          const changed = file.state !== "read";
+          const mark = file.state === "created" ? "+" : file.state === "modified" ? "~" : "·";
+          return (
+            <div
+              key={file.path}
+              className="flex items-baseline justify-between gap-2 font-mono text-[10px] leading-tight"
+              title={`${file.path} · ${file.state}`}
+            >
+              <span className="flex min-w-0 items-baseline gap-1.5">
+                <span
+                  className="flex-none tabular-nums"
+                  style={{ color: changed ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
+                >
+                  {mark}
+                </span>
+                <span className="flex min-w-0 items-baseline">
+                  <span className="truncate text-[var(--scout-chrome-ink-ghost)]">{dir}</span>
+                  <span
+                    className="flex-none"
+                    style={{ color: changed ? "var(--scout-chrome-ink-soft)" : "var(--scout-chrome-ink-faint)" }}
+                  >
+                    {name}
+                  </span>
+                </span>
+              </span>
+              <span className="shrink-0 tabular-nums text-[9px] text-[var(--scout-chrome-ink-faint)]">
+                ×{file.touches}
+              </span>
+            </div>
+          );
+        })}
+        <button
+          type="button"
+          onClick={openDiff}
+          className="mt-1 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
+        >
+          Open full diff{rest > 0 ? ` · +${rest}` : ""} →
+        </button>
+      </div>
+    </Section>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useState, type ReactNode } from "react";
+import { ScoutPageHeader } from "@/components/scout/ScoutSurface";
 import styles from "./page.module.css";
 
 /**
@@ -15,8 +16,8 @@ import styles from "./page.module.css";
 
 const SKINS = [
   { id: "juniper-l", label: "Juniper", tone: "Light", current: true },
-  { id: "juniper-d", label: "Juniper", tone: "Dark" },
-  { id: "graphite", label: "Graphite", tone: "Dark" },
+  { id: "juniper-d", label: "Juniper", tone: "Dark", current: false },
+  { id: "graphite", label: "Graphite", tone: "Dark", current: false },
 ] as const;
 
 type SkinId = (typeof SKINS)[number]["id"];
@@ -741,12 +742,7 @@ function AgentsPage() {
   return (
     <div className={styles.agents}>
       <div className={styles.agentsMain}>
-        <div className={styles.pageHead}>
-          <span className={styles.pageTitle}>Agents</span>
-          <div className={styles.pageHeadRight}>
-            <span className={styles.pageCount}>24 agents</span>
-          </div>
-        </div>
+        <ScoutPageHeader title="Agents" pill="25 agents" />
         <div className={styles.agentsBar}>
           <div className={styles.filterField}>
             <SearchGlyph />
@@ -903,12 +899,16 @@ function KV({ k, v, dim }: { k: string; v: string; dim?: boolean }) {
 function ReposPage() {
   return (
     <>
-      <div className={styles.pageHead}>
-        <span className={styles.pageTitle}>Repos</span>
-        <div className={styles.pageHeadRight}>
-          <span className={styles.pageCount}>4 repos · 14 trees</span>
-        </div>
-      </div>
+      <ScoutPageHeader
+        title="Repos"
+        live
+        counts={[
+          { n: 10, label: "repos" },
+          { n: 15, label: "trees" },
+          { n: 8, label: "dirty", tone: "warn" },
+          { n: 3, label: "attn", tone: "warn" },
+        ]}
+      />
       <div className={styles.reposPage}>
         <div className={styles.reposMain}>
           <div className={styles.repos}>
@@ -989,12 +989,14 @@ const KIND_CLASS: Record<Kind, string> = {
 function TailPage() {
   return (
     <>
-      <div className={styles.pageHead}>
-        <span className={styles.pageTitle}>Tail</span>
-        <div className={styles.pageHeadRight}>
-          <span className={styles.pageCount}>9 events · 5 sources</span>
-        </div>
-      </div>
+      <ScoutPageHeader
+        title="Tail"
+        live
+        counts={[
+          { n: 9, label: "events" },
+          { n: 5, label: "sources" },
+        ]}
+      />
       <div className={styles.tail}>
         <div className={styles.tailBar}>
           <span className={styles.tailLive}>
@@ -1030,9 +1032,7 @@ const SET_NAV = ["Appearance", "Agents", "Ports & Services", "Shortcuts", "About
 function SettingsPage() {
   return (
     <>
-      <div className={styles.pageHead}>
-        <span className={styles.pageTitle}>Settings</span>
-      </div>
+      <ScoutPageHeader title="Settings" />
       <div className={styles.settings}>
         <div className={styles.setNav}>
           {SET_NAV.map((n, i) => (

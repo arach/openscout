@@ -1,17 +1,23 @@
 import type { Metadata } from "next";
-import { Archivo } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { GoogleAnalyticsTag } from "@/components/google-analytics-tag";
 import "./globals.css";
 
-// Basel — one grotesque across the whole system. Every legacy font variable
-// (--font-spectral / --font-mono-display / --font-geist-* / --font-display) is
-// aliased to this single family in globals.css, so hierarchy comes from weight
-// and scale alone, never from a second face.
+// Basel — one grotesque for prose, one monospace for machine text.
+// Every legacy font variable (--font-spectral / --font-display / --font-geist-sans)
+// stays on Archivo. Mono slots (--font-geist-mono / --font-mono-display) resolve
+// to IBM Plex Mono so terminals, commands, and status bars render true fixed-width.
 const archivo = Archivo({
   variable: "--font-archivo",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800", "900"],
   style: ["normal", "italic"],
+});
+
+const ibmPlexMono = IBM_Plex_Mono({
+  variable: "--font-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -60,7 +66,7 @@ export default function RootLayout({
   return (
     <html lang="en" data-site-theme="light">
       <body
-        className={`${archivo.variable} antialiased bg-background text-foreground`}
+        className={`${archivo.variable} ${ibmPlexMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
         <GoogleAnalyticsTag />

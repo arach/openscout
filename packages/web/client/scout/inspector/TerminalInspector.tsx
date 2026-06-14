@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
 import { agentStateLabel } from "../../lib/agent-state.ts";
-import { actorColor } from "../../lib/colors.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, Route } from "../../lib/types.ts";
 
@@ -93,12 +93,7 @@ function AgentHeader({ agent }: { agent: Agent }) {
   return (
     <div className="border-b border-[var(--scout-chrome-border-soft)] pb-3">
       <div className="flex items-center gap-2.5">
-        <div
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[12px] text-[var(--scout-chrome-avatar-ink)]"
-          style={{ background: actorColor(agent.name) }}
-        >
-          {agent.name[0]?.toUpperCase() ?? "?"}
-        </div>
+        <AgentAvatar agent={agent} placement="row" size={32} presence={false} />
         <div className="min-w-0">
           <div className="truncate text-[13px] leading-snug text-[var(--scout-chrome-ink-strong)]">
             {agent.name}

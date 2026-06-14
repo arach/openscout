@@ -49,7 +49,7 @@ across machines.
 
 The product behavior is:
 
-```text
+```plaintext
 start brokers -> nodes appear -> Scout and web app work across machines
 ```
 
@@ -64,7 +64,7 @@ the broker-to-broker transport boundary first. Cloudflare is added later as a
 safe public entrypoint and rendezvous layer. iOS comes after Cloudflare because
 the phone needs one stable URL, not peer transport details.
 
-```text
+```plaintext
 Phase 1:
 Scout broker A
   -> openscout-iroh-bridge

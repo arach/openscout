@@ -228,7 +228,7 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  padding: var(--space-5xl) var(--space-6xl) var(--space-7xl);
+  padding: var(--space-5xl) var(--space-6xl) var(--space-6xl);
   background: var(--bg);
 }
 
@@ -236,6 +236,551 @@
   padding: 0;
   overflow: hidden;
 }
+
+.s-profile-center--modular {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3xl) var(--space-4xl);
+  overflow-y: auto;
+}
+
+/* ── Sessions-first profile ────────────────────────────────────────────────
+   Compact essentials header (cwd · harness · model · branch) → live-actions
+   bar → the agent's sessions ordered by recency (active first). No idle hero;
+   the action is open an existing session or message the agent. */
+
+.s-sess-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.s-sess-head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  flex: none;
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  /* Sober lighting: a faint neutral top sheen fading into the canvas — depth,
+     no color. The accentuated lift lives on hover (see .s-sess-avatar). */
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ink) 4%, transparent) 0%, transparent 70%);
+}
+
+.s-sess-id {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.s-sess-avatar {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  border-radius: 12px;
+  /* Lift the sprite tile off the panel with a thin neutral ring + shallow drop. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent),
+    0 5px 14px color-mix(in srgb, #000 32%, transparent);
+  transition: box-shadow 0.16s ease;
+}
+
+.s-sess-avatar:hover {
+  /* Accentuate the lighting on hover — a sober white lift, no color. */
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent),
+    0 0 16px color-mix(in srgb, var(--ink) 10%, transparent),
+    0 8px 20px color-mix(in srgb, #000 38%, transparent);
+}
+
+.s-sess-id-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.s-sess-name {
+  font-family: var(--font-accent-title);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: var(--leading-none);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+/* Essentials as a 2×2 glyph grid (Tiered+): left column = location (path / host),
+   right column = work (branch / harness·model). A faint line-glyph leads each
+   value; format carries meaning, so no word labels. Mirrors the studio rebalance
+   treatment. Wraps to stacked columns when the header is narrow. */
+.s-sess-glyph {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-5xl);
+}
+
+.s-sess-glyph-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.s-sess-glyph-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.s-sess-glyph-ico {
+  flex: none;
+  display: inline-flex;
+  /* faint — the glyph names the field; the value carries the weight */
+  color: var(--dim);
+}
+
+.s-sess-glyph-ico svg {
+  width: 11px;
+  height: 11px;
+}
+
+.s-sess-glyph-v {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.s-sess-action {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-md);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.s-sess-action:hover {
+  background: var(--surface-hover);
+  color: var(--ink);
+}
+
+.s-sess-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.s-sess-handle {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+  /* sober — the handle is identity, not a status; no arbitrary color */
+  color: var(--dim);
+}
+
+.s-sess-band {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.s-sess-band-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex: none;
+  padding: var(--space-lg) var(--space-xl) var(--space-sm);
+}
+
+.s-sess-band-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-lg);
+  color: var(--dim);
+}
+
+.s-sess-band-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-sess-list {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.s-sess-empty {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
+  padding: var(--space-lg) var(--space-xl);
+}
+
+.s-sess-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  width: 100%;
+  text-align: left;
+  padding: var(--space-md) var(--space-xl);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.s-sess-row:hover {
+  background: var(--surface-hover);
+}
+
+.s-sess-row--selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.s-sess-row--active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.s-sess-row--active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.s-sess-row-dot {
+  margin-top: 5px;
+}
+
+.s-sess-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  min-width: 0;
+  flex: 1;
+}
+
+.s-sess-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.s-sess-row-id {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-sess-row-tag {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-sm);
+  color: var(--dim);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-xs);
+}
+
+.s-sess-row-sub {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-sess-row-when {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-sm);
+  color: var(--dim);
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.s-sess-row-when--active {
+  color: var(--accent);
+}
+
+/* ── Selected session card + inline explore strip ──
+   When a row is selected, the row and the strip below it read as ONE expanded
+   card: a single accent tint and a continuous left accent bar span both, with
+   no divider between them — so the strip is unmistakably the detail of the row
+   above, not a separate item. The strip carries a temporal property line and
+   the single most-likely action (Continue / Resume); the secondary ways to
+   engage (Observe / Take over / Trace) live in the rail. */
+
+.s-sess-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-sess-item--selected {
+  position: relative;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.s-sess-item--selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 1;
+}
+
+/* The selected row dissolves into the card: the item owns the tint, bar, and
+   bottom edge, so the row contributes only its content. */
+.s-sess-item--selected .s-sess-row,
+.s-sess-item--selected .s-sess-row--active,
+.s-sess-item--selected .s-sess-row:hover {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+
+.s-sess-item--selected .s-sess-row::before {
+  display: none;
+}
+
+.s-sess-explore {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  /* aligned under the row's text: row pad + dot (7px) + row gap */
+  padding: 0 var(--space-xl) var(--space-md);
+  padding-left: calc(var(--space-xl) + 7px + var(--space-md));
+}
+
+.s-sess-explore-meta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-sess-explore-primary {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-lg);
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+.s-sess-explore-primary:hover {
+  filter: brightness(1.06);
+}
+
+/* ── Center summary band (selected session) ──
+   The concise summary lives in the center under the selected row: Activity
+   (rhythm chart) + Context (quantifiable) side by side, then the key stats +
+   the primary action. The file detail lives in the rail. Shallow on purpose. */
+.s-sum {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  /* aligned under the row's text: row pad + dot (7px) + row gap */
+  padding: var(--space-2xs) var(--space-xl) var(--space-lg);
+  padding-left: calc(var(--space-xl) + 7px + var(--space-md));
+}
+
+.s-sum-cols {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-md) var(--space-2xl);
+}
+
+.s-sum-col {
+  min-width: 0;
+}
+
+.s-sum-col--activity {
+  flex: 1 1 240px;
+  min-width: 220px;
+}
+
+.s-sum-col--context {
+  flex: 0 1 200px;
+  min-width: 170px;
+}
+
+.s-sum-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-lg);
+  color: var(--dim);
+  margin-bottom: var(--space-xs);
+}
+
+.s-sum-spark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.s-sum-spark-svg {
+  display: block;
+  width: 100%;
+  height: 20px;
+}
+
+.s-sum-spark-axis {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+}
+
+.s-sum-ctx-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-sum-ctx-size {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.s-sum-gauge {
+  margin-top: var(--space-2xs);
+  height: 3px;
+  width: 100%;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.s-sum-gauge-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.s-sum-ctx-runway {
+  margin-top: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--dim);
+}
+
+.s-sum-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  padding-top: var(--space-md);
+}
+
+.s-sum-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-xs);
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.s-sum-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.s-sum-stat-sep {
+  margin-right: 3px;
+  color: var(--dim);
+}
+
+.s-sum-stat-v {
+  font-size: var(--text-sm);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.s-sum-stat-k {
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
 
 /* ── Empty selection state ── */
 
@@ -431,8 +976,8 @@
 /* ── Facets row ── */
 
 .s-profile-facets {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 1px;
   margin-bottom: var(--space-5xl);
   border-radius: var(--radius-lg);
@@ -442,14 +987,13 @@
 }
 
 .s-profile-facet {
-  flex: 1 1 220px;
   min-width: 0;
   padding: var(--space-2xl) var(--space-3xl);
   background: var(--bg);
 }
 
 .s-profile-facet--identity {
-  flex-basis: 280px;
+  grid-column: span 2;
 }
 
 .s-profile-facet-label {
@@ -491,6 +1035,313 @@
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+/* ── Agent profile top bar — back + tabs, lives in the secondary-nav strip ── */
+.s-agent-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  width: 100%;
+}
+
+.s-profile-tabs.s-agent-bar-tabs {
+  margin: 0;
+  border-bottom: none;
+}
+
+/* ── Modular profile ──────────────────────────────────────────────────────
+   A control surface of stacked bands that flows to fill the canvas: a calm
+   identity header (sprite + name only) then full-width module bands
+   (Now · Recent work · Signal). Runtime/workspace metadata and collaborators
+   live in the rail context card, not here. Instrument language: near-black,
+   mono-first, one emerald accent for live signal/selection, 1px borders, no
+   shadows. Softer internal dividers use a low-alpha mix of --ink. */
+
+.s-mod-root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg);
+}
+
+.s-mod-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+/* identity header — one line */
+.s-mod-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  flex: none;
+  padding: var(--space-2xl) var(--space-xl) var(--space-xl);
+}
+
+.s-mod-identity-name {
+  font-family: var(--font-accent-title);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: var(--leading-none);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+/* AgentLiveActions sits under the identity header */
+.s-mod-root > .agent-live-actions {
+  flex: none;
+  padding: 0 var(--space-xl) var(--space-md);
+}
+
+/* module bands — flow to fill the canvas */
+.s-mod-bands {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.s-mod-band {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.s-mod-band:first-child {
+  border-top: none;
+}
+
+.s-mod-band--grow {
+  flex: 1;
+  min-height: 0;
+}
+
+.s-mod-band-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: var(--space-md) var(--space-xl) var(--space-xs);
+}
+
+.s-mod-band-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-xl);
+  color: var(--dim);
+}
+
+.s-mod-band-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+.s-mod-band-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-xl) var(--space-lg);
+}
+
+.s-mod-band-body--scroll {
+  overflow-y: auto;
+}
+
+.s-mod-empty {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
+}
+
+/* Now */
+.s-mod-now {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.s-mod-now-dot {
+  margin-top: 6px;
+}
+
+.s-mod-now-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.s-mod-now-title {
+  font-size: var(--text-md);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-mod-now-sub {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.s-mod-now-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-mod-now-sep {
+  color: var(--border);
+}
+
+/* Recent work rows */
+.s-mod-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-mod-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-mod-row--divided {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.s-mod-row:hover {
+  background: var(--surface-hover);
+}
+
+.s-mod-row-dot {
+  width: 5px;
+  height: 5px;
+}
+
+.s-mod-row-title {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-mod-row-time {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+
+/* Signal */
+.s-mod-signal-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.s-mod-signal {
+  display: flex;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-sm) 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.s-mod-signal:hover {
+  background: var(--surface-hover);
+}
+
+.s-mod-signal-avatar {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+}
+
+.s-mod-signal-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.s-mod-signal-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-mod-signal-kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-md);
+  color: var(--muted);
+}
+
+.s-mod-signal-sep {
+  color: var(--border);
+}
+
+.s-mod-signal-actor {
+  color: var(--muted);
+}
+
+.s-mod-signal-time {
+  margin-left: auto;
+  color: var(--dim);
+}
+
+.s-mod-signal-text {
+  margin-top: var(--space-2xs);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  line-height: var(--leading-snug);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .s-profile-facet-action {
@@ -1074,8 +1925,8 @@
     font-size: 32px;
   }
 
-  .s-profile-facets {
-    flex-direction: column;
+  .s-profile-facet--identity {
+    grid-column: auto;
   }
 }
 
@@ -1627,6 +2478,14 @@
   background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
+/* Group label is short and should never clip ("Workflows" was truncating to
+   "Workflo" under the compact primary max-width). */
+.s-agent-project-tree-row--group .s-agent-project-tree-primary {
+  flex: 0 0 auto;
+  max-width: none;
+  overflow: visible;
+}
+
 .s-agent-project-tree-target,
 .s-agent-project-tree-copy,
 .s-agent-project-tree-link,
@@ -1781,7 +2640,7 @@
 .s-agent-project-tree-state--working,
 .s-agent-project-tree-state--active,
 .s-agent-project-tree-state--available {
-  color: var(--green);
+  color: var(--accent);
 }
 
 .s-agent-project-tree-state--offline,

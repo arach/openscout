@@ -191,7 +191,7 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
-                HUDTailView(tail: tail)
+                HUDTailView(tail: tail, agents: agents)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .sessions:

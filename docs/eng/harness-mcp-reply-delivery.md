@@ -17,7 +17,7 @@ Tools exposed today:
 - `agents_search`: searches broker and discovered setup inventory when a target is unknown or ambiguous.
 - `agents_resolve`: resolves an exact handle or returns ambiguity data when a host needs to pin one target.
 - `messages_send`: posts a broker-backed tell/status/reply with explicit target fields or channel.
-- `ask`: creates a broker-backed consult/work handoff with `to`, `projectPath`, or `targetSessionId`.
+- `ask`: creates a broker-backed consult/work handoff with `to`, `projectPath` + optional `harness`, or `targetSessionId`. Project/capability is the low-churn default when no exact worker is known.
 - `invocations_get` / `invocations_wait`: observe broker flight records created by asks.
 - `work_update`: updates durable work item state.
 - `card_create`: creates a project-scoped reply-ready agent card.
@@ -30,6 +30,11 @@ Direct MCP sends should pass route intent as fields such as `targetLabel`,
 does not need to call `whoami`, `agents_search`, or `agents_resolve` before every
 explicit-target send. Use those tools only for orientation, ambiguity, or
 advanced host UI flows.
+
+For fresh work where the project and capability are known, MCP hosts should call
+`ask({ projectPath, harness, body })` and display the broker-returned `ref`/ids
+for follow-up. They should not synthesize generic agent names such as
+`claude.main`; naming or pinning a worker is a later pro-integration operation.
 
 Current limitation: explicit `targetLabel` / `targetAgentId` paths use the
 broker delivery planner, but `mentionAgentIds` and body-mention compatibility

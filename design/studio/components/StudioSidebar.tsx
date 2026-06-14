@@ -21,17 +21,26 @@ import {
  * Studies sub-grouped by surface. Variants of the same family collapse
  * under their primary. 220px width to mirror Talkie Studio.
  */
-export function StudioSidebar({ extraPages }: { extraPages: StudioPage[] }) {
+export function StudioSidebar({
+  extraPages,
+  studyMtimes = {},
+  width = 220,
+}: {
+  extraPages: StudioPage[];
+  studyMtimes?: Record<string, number>;
+  width?: number;
+}) {
   const pathname = usePathname();
   const totalPages = STUDIO_PAGES.length + extraPages.length;
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-30 flex h-screen w-[220px] flex-col",
+        "fixed left-0 top-0 z-30 flex h-screen flex-col",
         "border-r border-studio-edge bg-studio-canvas",
         "overflow-y-auto",
       )}
+      style={{ width }}
     >
       <SidebarHeader />
 
@@ -55,6 +64,7 @@ export function StudioSidebar({ extraPages }: { extraPages: StudioPage[] }) {
           pathname={pathname}
           extraPages={extraPages}
           surfaceGrouped
+          studyMtimes={studyMtimes}
         />
         <BucketSection
           title="Atoms"
@@ -100,32 +110,49 @@ function SidebarFooter({ totalPages }: { totalPages: number }) {
   );
 }
 
+/** Freshest mtime across a set of pages (0 if none are tracked). */
+function freshest(pages: StudioPage[], mtimes: Record<string, number>): number {
+  let max = 0;
+  for (const p of pages) max = Math.max(max, mtimes[p.href] ?? 0);
+  return max;
+}
+
 function BucketSection({
   title,
   bucket,
   pathname,
   extraPages,
   surfaceGrouped = false,
+  studyMtimes = {},
 }: {
   title: string;
   bucket: StudioBucket;
   pathname: string | null;
   extraPages: StudioPage[];
   surfaceGrouped?: boolean;
+  studyMtimes?: Record<string, number>;
 }) {
   return (
     <section>
       <SectionTitle>{title}</SectionTitle>
       <div className="mt-1.5 flex flex-col gap-3">
         {surfaceGrouped ? (
-          pagesBySurface(bucket, extraPages).map(({ surface, pages }) => (
-            <SurfaceBlock
-              key={surface}
-              label={surfaceLabel(surface)}
-              groups={familyGroups(pages)}
-              pathname={pathname}
-            />
-          ))
+          // Most-recently-edited first — both the surface blocks and the
+          // family groups within each are ordered by file mtime.
+          [...pagesBySurface(bucket, extraPages)]
+            .sort((a, b) => freshest(b.pages, studyMtimes) - freshest(a.pages, studyMtimes))
+            .map(({ surface, pages }) => (
+              <SurfaceBlock
+                key={surface}
+                label={surfaceLabel(surface)}
+                groups={[...familyGroups(pages)].sort(
+                  (a, b) =>
+                    (studyMtimes[b.primary.href] ?? 0) -
+                    (studyMtimes[a.primary.href] ?? 0),
+                )}
+                pathname={pathname}
+              />
+            ))
         ) : (
           <div className="flex flex-col">
             {familyGroups(pagesIn(bucket, extraPages)).map((group) => (

@@ -20,15 +20,21 @@ the route, not create the impression that `talkie#codex` and `talkie#claude`
 are separate base agents.
 
 Default rule: if the project is known but the exact agent/session is not, use
-project routing and let Scout pick or create the concrete instance:
+project routing and let Scout pick or create the concrete instance. Add a
+harness/capability constraint when that matters:
 
 ```bash
-scout ask --project ../talkie "Review this."
+scout ask --project ../talkie --harness claude "Review this."
 ```
 
 ```ts
-ask({ projectPath: "../talkie", body: "Review this." })
+ask({ projectPath: "../talkie", harness: "claude", body: "Review this." })
 ```
+
+Do not guess generic names such as `claude.main` just because you need a Claude
+review. Scout should return durable follow-up handles and, when possible, a
+friendly mnemonic handle for the routed worker. Promote that worker to a named
+long-lived sibling only after the route is known good.
 
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only

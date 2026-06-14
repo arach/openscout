@@ -103,9 +103,18 @@ export type WebBrokerDialogueItem = {
   class: string;
 };
 
+export type WebBrokerHistoryKey = "attempts" | "failedQueries" | "failedDeliveries" | "dialogue";
+
 export type WebBrokerDiagnostics = {
   generatedAt: number;
   windowMs: number;
+  ledger: {
+    mode: "latest";
+    limit: number;
+    cursor: string | null;
+    cursors: Record<WebBrokerHistoryKey, string | null>;
+    hasMore: Record<WebBrokerHistoryKey, boolean>;
+  };
   totals: {
     successfulDispatches: number;
     failedQueries: number;

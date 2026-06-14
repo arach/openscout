@@ -63,11 +63,17 @@ finalized; package manifests currently use `UNLICENSED`.
   work. `ask` is the creation API; invocation and flight records are side
   effects observed with `invocations_get` and `invocations_wait`.
 - If you do not have a specific agent/session in mind, pass `projectPath` to
-  MCP `ask` or use `scout ask --project <path>`; the broker resolves or creates
-  the concrete agent instance for that project.
+  MCP `ask` or use `scout ask --project <path>`; add `harness` / `--harness`
+  when the capability matters. The broker resolves or creates the concrete
+  worker for that project, so agents should not guess generic names like
+  `claude.main` first.
 - Agent cards, labels, and exact agent ids are fresh-session targets for new
   work; use `targetSessionId` / `session:<id>` only to continue exact prior
   harness context.
+- Follow-up should use the durable broker handle returned by the ask (`ref`,
+  `flightId`, `conversationId`, `workId`, or `session:<id>`). Promote a worker
+  to a memorable name only after Scout has routed a known-good worker, ideally
+  using a broker-suggested handle.
 - Treat the base agent identity as the vanilla project/workspace identity.
   Harness, model, profile, node, and session details are instance constraints
   layered onto that identity only when the caller needs them.

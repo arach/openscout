@@ -3,6 +3,7 @@ import Link from "next/link";
 import { SiteThemeToggle } from "@/components/site-theme-toggle";
 import { getAllDocs } from "@/lib/docs";
 import type { DocMeta } from "@/lib/docs";
+import { SCOUT_VERSION } from "@/lib/version";
 
 export const metadata: Metadata = {
   title: "Documentation — Scout",
@@ -177,7 +178,7 @@ export default function DocsIndex() {
               </span>
               <span className="status-bar__sep hidden sm:inline">·</span>
               <span className="status-bar__cell hidden sm:inline-flex">
-                <b>v0.2.65</b>
+                <b>v{SCOUT_VERSION}</b>
               </span>
               <span className="status-bar__sep hidden md:inline">·</span>
               <span className="status-bar__cell hidden md:inline-flex">license pending</span>

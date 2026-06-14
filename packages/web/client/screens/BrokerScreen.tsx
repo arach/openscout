@@ -7,7 +7,7 @@ import { copyTextToClipboard } from "../lib/clipboard.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { brokerAttemptTone } from "../lib/status-tone.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
-import type { BrokerDiagnostics, BrokerDialogueItem, BrokerRouteAttempt, Route } from "../lib/types.ts";
+import type { BrokerDiagnostics, BrokerDialogueItem, BrokerHistoryKey, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { OpsSubnav } from "./OpsSubnav.tsx";
@@ -21,6 +21,15 @@ const TAB_LABELS: Record<BrokerTab, string> = {
   failed_queries: "Failed queries",
   failed_deliveries: "Failed deliveries",
 };
+
+const TAB_HISTORY_KEY: Record<BrokerTab, BrokerHistoryKey> = {
+  attempts: "attempts",
+  dialogue: "dialogue",
+  failed_queries: "failedQueries",
+  failed_deliveries: "failedDeliveries",
+};
+
+const BROKER_PAGE_LIMIT = 160;
 
 function shortId(value: string | null): string {
   if (!value) return "none";
@@ -97,12 +106,44 @@ function RouteGlyph({ route }: { route: string | null }) {
   );
 }
 
+function brokerDiagnosticsUrl(cursor?: string | null): string {
+  const params = new URLSearchParams({ limit: String(BROKER_PAGE_LIMIT) });
+  if (cursor) params.set("cursor", cursor);
+  return `/api/broker?${params.toString()}`;
+}
+
+function mergeBrokerPage(
+  current: BrokerDiagnostics,
+  next: BrokerDiagnostics,
+  key: BrokerHistoryKey,
+): BrokerDiagnostics {
+  return {
+    ...next,
+    attempts: key === "attempts" ? [...current.attempts, ...next.attempts] : current.attempts,
+    failedQueries: key === "failedQueries" ? [...current.failedQueries, ...next.failedQueries] : current.failedQueries,
+    failedDeliveries: key === "failedDeliveries" ? [...current.failedDeliveries, ...next.failedDeliveries] : current.failedDeliveries,
+    dialogue: key === "dialogue" ? [...current.dialogue, ...next.dialogue] : current.dialogue,
+    ledger: {
+      ...next.ledger,
+      cursors: {
+        ...current.ledger.cursors,
+        [key]: next.ledger.cursors[key],
+      },
+      hasMore: {
+        ...current.ledger.hasMore,
+        [key]: next.ledger.hasMore[key],
+      },
+    },
+  };
+}
+
 export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
   const { selectedBrokerAttempt, inspectBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const brokerRef = useRef<BrokerDiagnostics | null>(null);
   const requestIdRef = useRef(0);
@@ -118,7 +159,7 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
     }
 
     try {
-      const next = await api<BrokerDiagnostics>("/api/broker?limit=160");
+      const next = await api<BrokerDiagnostics>(brokerDiagnosticsUrl());
       if (requestId !== requestIdRef.current) return;
       brokerRef.current = next;
       setBroker(next);
@@ -133,6 +174,34 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
       }
     }
   }, []);
+
+  const loadOlder = useCallback(async () => {
+    const current = brokerRef.current;
+    if (!current || loadingOlder) return;
+    const key = TAB_HISTORY_KEY[activeTab];
+    const cursor = current.ledger.cursors[key];
+    if (!cursor || !current.ledger.hasMore[key]) return;
+
+    const requestId = ++requestIdRef.current;
+    setLoadingOlder(true);
+    setError(null);
+
+    try {
+      const next = await api<BrokerDiagnostics>(brokerDiagnosticsUrl(cursor));
+      if (requestId !== requestIdRef.current) return;
+      const latest = brokerRef.current;
+      const merged = latest ? mergeBrokerPage(latest, next, key) : next;
+      brokerRef.current = merged;
+      setBroker(merged);
+    } catch (loadError) {
+      if (requestId !== requestIdRef.current) return;
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      if (requestId === requestIdRef.current) {
+        setLoadingOlder(false);
+      }
+    }
+  }, [activeTab, loadingOlder]);
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimerRef.current) return;
@@ -174,6 +243,8 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
         return broker.attempts;
     }
   }, [activeTab, broker]);
+  const activeHistoryKey = TAB_HISTORY_KEY[activeTab];
+  const activeHasMore = broker?.ledger.hasMore[activeHistoryKey] ?? false;
 
   const selectedAttempt = useMemo(() => {
     if (!broker || !selectedBrokerAttempt) return null;
@@ -271,6 +342,18 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
                   onInspect={inspectBrokerAttempt}
                 />
               )}
+              {activeRows.length > 0 && activeHasMore && (
+                <div className="sys-ledger-footer">
+                  <button
+                    type="button"
+                    className="s-btn"
+                    disabled={loadingOlder}
+                    onClick={() => void loadOlder()}
+                  >
+                    {loadingOlder ? "Loading older..." : "Load older"}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -295,7 +378,7 @@ function BrokerAttemptList({
     return (
       <EmptyState
         title="No records"
-        body="This dispatch slice is empty for the selected window."
+        body="No dispatch records are available in broker history."
       />
     );
   }
@@ -510,7 +593,7 @@ function BrokerDialogueList({
     return (
       <EmptyState
         title="No dialogue"
-        body="No messages were recorded in the selected window."
+        body="No dialogue messages are available in broker history."
       />
     );
   }

@@ -35,7 +35,7 @@ Verified: 2026-06-10
 | observed harness activity | `tail_events` |
 | message/update | `messages_send` |
 | work/requested reply | `ask` |
-| project known, agent unknown | `ask({ projectPath })` |
+| project/capability known, agent unknown | `ask({ projectPath, harness })` |
 | inspect flight | `invocations_get` |
 | bounded follow-up wait | `invocations_wait` |
 | work progress/waiting/review/done | `work_update` |
@@ -43,8 +43,9 @@ Verified: 2026-06-10
 
 Card/session creation belongs to the pro integration layer for hosts and
 Scout-native agents that intentionally manage identity infrastructure. Core
-agents should route work with `ask`, especially `ask({ projectPath })` when no
-concrete instance is selected.
+agents should route work with `ask`, especially `ask({ projectPath, harness })`
+when no concrete instance is selected. Discovery is for ambiguity, not a
+mandatory preflight.
 
 ## Reply Modes
 
@@ -60,8 +61,11 @@ concrete instance is selected.
 - base agent identity is the vanilla project/workspace identity
 - harness, model, profile, node, and session are instance constraints unless a
   specialized profile is explicitly requested
-- if the project is known but the concrete agent/session is not, use
-  `projectPath` instead of discovery-first routing
+- if the project/capability is known but the concrete agent/session is not,
+  use `projectPath` plus optional `harness` instead of discovery-first routing
+  or generic guesses such as `claude.main`
+- continue with returned `ref`, flight, conversation, work, or session handles;
+  pin/name a sibling only after the broker-routed worker is known good
 - group -> explicit channel
 - everyone -> shared broadcast
 - body text is payload, not routing metadata

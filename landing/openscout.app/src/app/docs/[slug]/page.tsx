@@ -1,5 +1,5 @@
 import { getAllDocs, getDocBySlug, getNavigation } from "@/lib/docs";
-import { DocView } from "./doc-view";
+import { DocViewClient as DocView } from "./doc-view-client";
 import { notFound } from "next/navigation";
 import { serialize } from "next-mdx-remote/serialize";
 

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { BlogArticleView } from "./blog-article-view";
+import { BlogArticleClient } from "./blog-article-client";
 import { formatBlogDate, getAllBlogPosts, getBlogPostBySlug } from "@/lib/blog";
 
 export function generateStaticParams() {
@@ -33,5 +33,5 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
   const post = getBlogPostBySlug(slug);
   if (!post) notFound();
 
-  return <BlogArticleView post={post} formattedDate={formatBlogDate(post.date)} />;
+  return <BlogArticleClient post={post} formattedDate={formatBlogDate(post.date)} />;
 }

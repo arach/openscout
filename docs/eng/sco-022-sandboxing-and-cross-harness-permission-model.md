@@ -17,7 +17,7 @@ the product authority.
 
 The target behavior is:
 
-```text
+```plaintext
 human intent -> Scout policy -> resolved execution profile -> harness/container/sandbox enforcement -> observable lifecycle
 ```
 
@@ -389,7 +389,7 @@ export interface ScoutFabricEnvironment {
 
 Fabric routing SHOULD be explicit enough that a user can say:
 
-```text
+```plaintext
 run this in a clean local sandbox
 run this in the Apple container profile
 send the test matrix to the remote sandbox
@@ -614,7 +614,7 @@ Potential broker APIs:
 
 The broker should return compact operator-facing receipts such as:
 
-```text
+```plaintext
 queued for @ranger#codex in sandboxed_write on local-workspace:abc123
 waiting for approval: git.remote_write requires operator grant
 cannot route: target endpoint only supports advisory enforcement

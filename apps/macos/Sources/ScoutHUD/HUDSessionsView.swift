@@ -534,12 +534,21 @@ private struct SessionDetailInline: View {
 
     private var followURL: URL {
         let base = ScoutWeb.baseURL()
+        var components = URLComponents(
+            url: base.appending(path: "follow"),
+            resolvingAgainstBaseURL: false
+        )
+        var items = [URLQueryItem(name: "view", value: "tail")]
         if let ref = session.harnessSessionId, !ref.isEmpty {
-            return relativeURL("/follow/session/\(percent(ref))", base: base)
+            items.append(URLQueryItem(name: "sessionId", value: ref))
+            components?.queryItems = items
+            return components?.url ?? relativeURL("/follow/session/\(percent(ref))", base: base)
         }
         let aid = session.id
         if !aid.isEmpty {
-            return relativeURL("/follow/agent/\(percent(aid))", base: base)
+            items.append(URLQueryItem(name: "targetAgentId", value: aid))
+            components?.queryItems = items
+            return components?.url ?? relativeURL("/follow/agent/\(percent(aid))", base: base)
         }
         if let q = tailQuery() {
             return relativeURL("/ops/tail?q=\(percentQuery(q))", base: base)

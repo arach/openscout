@@ -148,7 +148,7 @@ The intake flow:
 For selected local agents, Scout MAY expose card projections at stable local or
 mesh URLs:
 
-```text
+```plaintext
 /.well-known/openscout/agents/<agent-id>/card.json
 /.well-known/agent-card.json
 ```

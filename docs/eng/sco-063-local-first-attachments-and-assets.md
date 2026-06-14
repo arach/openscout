@@ -27,7 +27,7 @@ audio, document, or URL input encoded.
 
 Scout should promote attachments into a first-class local asset system:
 
-```text
+```plaintext
 message or invocation
   -> attachment reference
   -> asset record
@@ -173,7 +173,7 @@ type AssetRetentionPolicy = {
 The bytes should live under the Scout support directory, not inside SQLite and
 not as the canonical message body. A likely layout:
 
-```text
+```plaintext
 ~/Library/Application Support/OpenScout/assets/
   objects/
     ab/
@@ -261,7 +261,7 @@ choices.
 
 ### Paste Or Drag Into A Surface
 
-```text
+```plaintext
 surface receives bytes
   -> POST /v1/assets
   -> broker writes bytes and AssetRecord
@@ -273,7 +273,7 @@ the write. The broker response becomes the durable id.
 
 ### Screenshot Or Talkie Capture
 
-```text
+```plaintext
 Talkie creates capture file
   -> import file path into Scout asset store
   -> preserve original filename and capture metadata
@@ -286,7 +286,7 @@ stay in metadata as source provenance.
 
 ### URL Capture
 
-```text
+```plaintext
 surface submits URL
   -> broker creates external-ref asset
   -> optional fetcher derives title, thumbnail, and text
@@ -332,7 +332,7 @@ as canonical asset identity.
 
 Add broker APIs rather than stretching `/api/blobs` into a durable contract:
 
-```text
+```plaintext
 POST /v1/assets
 GET  /v1/assets/:assetId
 GET  /v1/assets/:assetId/content
@@ -366,7 +366,7 @@ caller-supplied paths outside an allowlisted local import flow.
 
 Content reads are not ordinary JSON broker commands:
 
-```text
+```plaintext
 GET /v1/assets/:assetId/content
 ```
 

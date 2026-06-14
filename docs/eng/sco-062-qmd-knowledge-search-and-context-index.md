@@ -61,7 +61,7 @@ the broker process is the product owner and API boundary, while the runtime
 package is the implementation home because it already contains the broker
 daemon, support-path handling, tail discovery, and SQLite control-plane code.
 
-```text
+```plaintext
 packages/runtime/src/knowledge/
 |-- index.ts
 |-- types.ts
@@ -107,7 +107,7 @@ the authority for exact evidence.
 
 ## Core Pipeline
 
-```text
+```plaintext
 source material
   -> adapter normalization
   -> QMD collection
@@ -139,7 +139,7 @@ canonical source for external systems.
 
 Recommended common shape:
 
-```text
+```plaintext
 collection/
 |-- manifest.json
 |-- overview.md
@@ -186,7 +186,7 @@ promote to `ready` only after all documents and manifest content are complete.
 Chunk ids MUST be deterministic. Do not use SQLite autoincrement ids as the
 stable identity for a chunk. A valid first policy is:
 
-```text
+```plaintext
 sha256(collectionId + documentPath + ordinal + chunkPolicyVersion + normalizedTextHash)
 ```
 
@@ -315,7 +315,7 @@ explicitly broker-owned metadata.
 
 Recommended shape:
 
-```text
+```plaintext
 $OPENSCOUT_CONTROL_HOME/
 |-- control-plane.sqlite
 `-- knowledge/

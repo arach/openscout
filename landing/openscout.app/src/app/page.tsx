@@ -21,8 +21,10 @@ import { TerminalSession } from "@/components/terminal-session";
 import { ExpandableImage } from "@/components/expandable-image";
 import { ScoutConsole } from "@/components/scout-console";
 import { MeshFigureSvg } from "@/components/mesh-figure-svg";
+import { SiloDesktop } from "@/components/silo-desktop";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 import { trackCommandCopy, trackCtaClick, trackNavigationClick } from "@/lib/analytics";
+import { SCOUT_VERSION } from "@/lib/version";
 import openscoutManifest from "../../public/.well-known/scout.json";
 
 type AudienceMode = "general" | "technical" | "agent";
@@ -55,6 +57,8 @@ type SurfaceShot = {
   imageClassName?: string;
   width?: number;
   height?: number;
+  // Faux window-chrome id rendered above non-phone shots (e.g. "relay · /machines").
+  chrome?: string;
 };
 
 type IntegrationCard = {
@@ -64,7 +68,7 @@ type IntegrationCard = {
   repoHref: string;
   pageHref: string;
   description: string;
-  install: string;
+  install?: string;
 };
 
 const navLinks = [
@@ -73,41 +77,39 @@ const navLinks = [
   { label: "Apps", href: "#surfaces" },
   { label: "Integrations", href: "#integrations" },
   { label: "Get Started", href: "#get-started" },
+  { label: "FAQ", href: "#faq" },
 ] as const;
 
 const macosDownloadUrl = "https://github.com/arach/openscout/releases/latest/download/OpenScout.dmg";
 
 
-type ProblemVariant = {
-  meshTitle: string;
-  meshDescription: string;
-  cards: IconCard[];
-};
+// How-it-works — a before → after, two stacked rows (text beside illustration).
+// "Without Scout" names the sprawl of tools; "With Scout" is the one common
+// layer, and the capability records live underneath it.
+type HiwCapability = { label: string; text: string };
 
-const problemContent: ProblemVariant = {
-  meshTitle: "Let your agents figure it out",
-  meshDescription:
-    "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
-  cards: [
-    {
-      icon: Network,
-      title: "Reach any agent, whatever runs it",
-      description:
-        "Claude Code in one repo, Cursor in another, Codex on a server — Scout gives configured agents broker routes so you can reach them and route work, whatever model or harness each one runs.",
-    },
-    {
-      icon: Monitor,
-      title: "One place to see your agents",
-      description:
-        "See known agents, message reachable peers, and manage broker-owned work across projects from your Mac or your iPhone.",
-    },
-    {
-      icon: Shield,
-      title: "Scout-owned work is inspectable",
-      description:
-        "Messages, asks, flights, and work items created through Scout stay visible instead of disappearing into a terminal you forgot about.",
-    },
-  ],
+const howItWorksContent: {
+  eyebrow: string;
+  before: { label: string; title: string; body: string };
+  after: { label: string; title: string; body: string; capabilities: HiwCapability[] };
+} = {
+  eyebrow: "How it works",
+  before: {
+    label: "Without Scout",
+    title: "Every agent in its own tool.",
+    body: "A tmux pane here, an IDE there, a different harness for the next one — each agent boxed into its own window. You carry context between them by hand, and finished work disappears into scrollback.",
+  },
+  after: {
+    label: "With Scout",
+    title: "One common layer for your agents.",
+    body: "Scout sits underneath them all, so any agent can reach any other, hand work off, and you steer from one place — and the work it routes becomes records you can read back.",
+    capabilities: [
+      { label: "Flights", text: "Delegation with receipts — who was asked, what ran, how it landed." },
+      { label: "Mesh", text: "Trusted machines reach each other, so agents hand off work." },
+      { label: "Protocol", text: "Speaks ACP — open and model-neutral, no lock-in." },
+      { label: "Bridges", text: "Telegram, voice, and webhooks plug in as transports." },
+    ],
+  },
 };
 
 const technicalMeshPrinciples: IconCard[] = [
@@ -133,6 +135,13 @@ const technicalMeshPrinciples: IconCard[] = [
 
 const generalCapabilities: CapabilityCard[] = [
   {
+    icon: Activity,
+    label: "Flights",
+    title: "Delegation with receipts",
+    description:
+      "Hand work to an agent and the broker opens a flight: a durable record of who was asked, what ran, and how it landed. Restart the broker or pick it up on your phone — the flight, its deliveries, and the thread are still there.",
+  },
+  {
     icon: Workflow,
     label: "Protocol",
     title: "Speaks ACP",
@@ -140,32 +149,11 @@ const generalCapabilities: CapabilityCard[] = [
       "Scout implements the Agent Client Protocol, so any ACP-compatible editor or client can drive your local agents — open and model-neutral, no lock-in.",
   },
   {
-    icon: Send,
-    label: "iPhone",
-    title: "Catch up with paired agents on the go",
-    description:
-      "Pair your iPhone once. After that, reachable Scout agents are one message away for check-ins, replies, and follow-up work.",
-  },
-  {
-    icon: Monitor,
-    label: "Mac app",
-    title: "Scout, present on your Mac",
-    description:
-      "A native menu-bar app keeps the agent mesh in reach — status, conversations, agents, and a one-key operator HUD over the same local broker.",
-  },
-  {
     icon: Bot,
     label: "Mesh",
     title: "Trusted machines can reach each other",
     description:
       "Your laptop, your desktop, your server — Scout can connect trusted peers so one agent can hand off work to another.",
-  },
-  {
-    icon: MessageSquare,
-    label: "Conversations",
-    title: "Scout-owned conversations persist",
-    description:
-      "Messages created through Scout survive broker restarts and handoffs. Pick up the thread on your Mac or your phone.",
   },
   {
     icon: Workflow,
@@ -269,6 +257,58 @@ const hostIntegrations: IntegrationCard[] = [
       "Hermes plugin that exposes Scout MCP tools for identity, messaging, asks, replies, and work updates.",
     install: "hermes plugins install arach/hermes-scout",
   },
+  {
+    host: "Cursor",
+    name: "Cursor Scout",
+    mark: "CU",
+    repoHref: "https://github.com/arach/cursor-scout",
+    pageHref: "https://arach.github.io/cursor-scout/",
+    description:
+      "Cursor MCP configuration and installer that points Cursor at scout mcp, so Cursor can discover, message, and hand off work to agents on the local broker.",
+  },
+];
+
+type FaqEntry = {
+  question: string;
+  answer: string;
+};
+
+const faqEntries: FaqEntry[] = [
+  {
+    question: "What does the broker actually do?",
+    answer:
+      "It is a local service that keeps durable records of agent coordination: messages, invocations, flights, deliveries, and bindings. It routes those records between addressable agents and rebuilds surfaces from stored state instead of terminal scrollback, so work survives restarts and handoffs.",
+  },
+  {
+    question: "Does anything leave my machine?",
+    answer:
+      "No. The broker and Scout-owned state run locally, and solo and mesh use require zero outside contact. Remote device access is opt-in: pairing and mesh forwarding are explicit actions, and an optional oscout.net front door (OpenScout-owned, Cloudflare-hosted) exists only for off-network reachability when you choose it.",
+  },
+  {
+    question: "Which harnesses work today?",
+    answer:
+      "Thin host packages connect Claude Code, Codex, Cursor, pi, and Hermes to the same broker. Each is installed on its own and talks to the local broker over the published CLI and protocol, so adding one joins that agent to the mesh without forking the runtime.",
+  },
+  {
+    question: "Do I need the Mac app?",
+    answer:
+      "No. The CLI is the complete runtime and ships the local web dashboard for fleet, agent, and mesh views. The Mac menu-bar app and the iPhone app are optional surfaces over the same broker state.",
+  },
+  {
+    question: "How is this different from a pile of terminals?",
+    answer:
+      "Terminals and tmux give you panes, not records. Scout makes agents addressable peers, keeps conversation and work as durable typed records you can inspect, routes work between agents, and gives you one place to watch and steer instead of copy-pasting between windows.",
+  },
+  {
+    question: "What is the maturity and license story?",
+    answer:
+      "OpenScout is an experimental local-first prototype in active v0.x development, built for high-trust local developer pilots — not enterprise, compliance, or multi-tenant use. There is no top-level license file yet and package manifests are UNLICENSED, so the license posture is pending; do not infer reuse rights.",
+  },
+  {
+    question: "What do I install first?",
+    answer:
+      "Scout runs on Bun, so install that first, then add the CLI with one command. Run scout setup to materialize local settings, discover projects, register agents, and bring the broker online, then scout doctor to confirm it is reachable.",
+  },
 ];
 
 const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
@@ -308,23 +348,28 @@ const getStartedCommandsByAudience: Record<HumanAudienceMode, CommandStep[]> = {
 const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   general: [
     {
-      src: "/scout/ios-thread.png",
-      alt: "Scout iOS app — agent conversation thread on iPhone.",
+      src: "/scout/ios-home.png",
+      alt: "Scout iOS app — fleet home on iPhone: machines, projects, and latest activity.",
       eyebrow: "iPhone",
       title: "Mobile",
       description:
-        "The full Scout experience on your phone. Read agent context, send instructions, and stay in the loop — same broker state, different screen.",
+        "Pair your iPhone once and your whole fleet is in your pocket — machines, projects, and live activity. Tap into any agent to read context and steer. Same broker state, different screen.",
+      width: 1206,
+      height: 2622,
+      imageClassName: "aspect-[606/566] w-full object-cover object-top",
+      chrome: "scout · iphone",
     },
     {
-      src: "/mac/hud-agents-roster.png",
-      alt: "Scout macOS menu-bar HUD — agents roster listing reachable agents with availability, host runtime, and current work.",
+      src: "/mac/app-native.png",
+      alt: "Scout native macOS app — the agent roster with a live inspector showing runtime, capabilities, branch, and model.",
       eyebrow: "Mac",
-      title: "Menu-bar HUD",
+      title: "Native app",
       description:
-        "The native menu-bar cockpit. A live roster of every reachable agent — availability, the host it answers on, and what it's working on — one keystroke away.",
-      width: 606,
-      height: 566,
-      imageClassName: "aspect-[606/566] w-full object-cover object-top",
+        "The full native macOS app — the agent roster with a live inspector for runtime, workspace, branch, and model, plus one-key actions to message or steer. The whole control plane on your desktop.",
+      width: 1332,
+      height: 947,
+      imageClassName: "aspect-[1332/947] w-full object-cover object-top",
+      chrome: "scout · agents",
     },
     {
       src: "/relay/home-command-center.png",
@@ -333,6 +378,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       title: "Fleet briefing",
       description:
         "A clean developer brief for active asks, work in flight, fleet activity, and the next thing that needs you.",
+      chrome: "relay · /home",
     },
     {
       src: "/relay/agents-overview.png",
@@ -357,6 +403,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       title: "Conversation thread",
       description:
         "Keep the real work in one durable thread with replies, status updates, and follow-up instructions in context.",
+      chrome: "relay · /threads/atlas",
     },
     {
       src: "/relay/machines-view.png",
@@ -365,6 +412,7 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
       title: "Mesh",
       description:
         "Inspect broker identity, discoverability, peer topology, and health from the same developer surface.",
+      chrome: "relay · /machines",
     },
     {
       src: "/relay/ops-war-room.png",
@@ -377,12 +425,15 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
   ],
   technical: [
     {
-      src: "/scout/ios-thread.png",
-      alt: "Scout iOS app — agent conversation thread on iPhone.",
+      src: "/scout/ios-home.png",
+      alt: "Scout iOS app — fleet home on iPhone: machines, projects, and latest activity.",
       eyebrow: "iPhone",
       title: "Mobile",
       description:
-        "The full broker state on your phone. Conversations, agent context, and work records project from the same local source of truth.",
+        "The full broker state on your phone — machines, projects, agents, and the live activity feed all project from the same local source of truth.",
+      width: 1206,
+      height: 2622,
+      imageClassName: "aspect-[606/566] w-full object-cover object-top",
     },
     {
       src: "/mac/hud-agents-roster.png",
@@ -449,15 +500,6 @@ const surfaceGalleryByAudience: Record<HumanAudienceMode, SurfaceShot[]> = {
 const audienceContent: Record<
   HumanAudienceMode,
   {
-    heroEyebrow: string;
-    heroTitleTop: string;
-    heroTitleBottom: string;
-    heroDescription: string;
-    heroCommand: string;
-    heroFootnote: string;
-    meshEyebrow: string;
-    meshTitle: string;
-    meshDescription: string;
     capabilitiesTitle: string;
     capabilitiesDescription: string;
     surfacesTitle: string;
@@ -469,42 +511,20 @@ const audienceContent: Record<
   }
 > = {
   general: {
-    heroEyebrow: "Local-first agent broker · Protocol Ø.1",
-    heroTitleTop: "A switchboard",
-    heroTitleBottom: "for your agents.",
-    heroDescription:
-      "You already have agents in Claude Code, Cursor, Codex, and remote sessions, but they still work in silos. Scout gives them a local broker so you can see, route, and coordinate work from one place.",
-    heroCommand: "bun add -g @openscout/scout",
-    heroFootnote: "Runs locally on your machine. One place for Claude Code, Cursor, and Codex.",
-    meshEyebrow: "The Problem",
-    meshTitle: "Let your agents figure it out",
-    meshDescription:
-      "Copy-pasting between terminals. Jumping between tools just to see what's happening. Too many silos, not enough observability.",
-    capabilitiesTitle: "Agents work with their peers. You get a chance to watch and steer",
+    capabilitiesTitle: "Agents do the work. You set the loops and steer.",
     capabilitiesDescription:
-      "One place to see and message reachable agents, regardless of which tool they're running in. Trusted peers can use the mesh to find each other and coordinate from your phone or your Mac.",
+      "Work routed through Scout becomes typed records the broker keeps: messages, invocations, flights, deliveries. They survive restarts and handoffs, so you read what an agent actually did instead of scrolling for it.",
     surfacesTitle: "One conversation, wherever you are.",
     surfacesDescription:
-      "The local web dashboard is the deep developer surface — fleet views, agent profiles, sessions, threads, mesh health, and ops. The native Mac app keeps Scout present in your menu bar. Scout on your iPhone is a full app, not a notification viewer. Same broker state, different screen.",
-    surfacesNoteTitle: "Native, web, and phone.",
+      "It's mostly about the agents — engage with them however you want, on whatever surface you're at. You set the loops, the agents do the work, you steer. Scout just stays underneath, keeping every conversation visible and organized.",
+    surfacesNoteTitle: "Local, and dead simple.",
     surfacesNoteDescription:
-      "Heavy inspection in the web dashboard. Scout always within reach in the Mac menu bar. Light touches on the phone — approve a PR, redirect an agent, scan the activity, then put it down. Scout keeps your place across all three.",
-    getStartedTitle: "One command path. Local broker.",
+      "The agents only need the binary. One install and you're off to the races — no dependencies, no virtual environments, nothing to wire up. And nothing leaves your control or your network. It's all local.",
+    getStartedTitle: "One command to install. Local broker.",
     getStartedDescription:
       "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
   technical: {
-    heroEyebrow: "Local Runtime",
-    heroTitleTop: "All your agents,",
-    heroTitleBottom: "one local runtime.",
-    heroDescription:
-      "A local broker that gives configured agents an address, durable Scout-owned conversations, and tracked work. Claude Code, Codex, tmux, bridges — they can route through one mesh. You reach known agents from the terminal, the Mac app, the web dashboard, or your phone.",
-    heroCommand: "scout tui",
-    heroFootnote: "Local-first. Durable state. No cloud dependency.",
-    meshEyebrow: "The Mesh",
-    meshTitle: "A mesh of peers, not a rigid hierarchy.",
-    meshDescription:
-      "Scout connects you and your agents through a local broker. Reachable agents can talk to you and to each other. Scout-owned conversations, invocations, flights, and deliveries stay durable, observable, and recoverable.",
     capabilitiesTitle: "One broker, one state model across apps.",
     capabilitiesDescription:
       "Typed records, developer views, and bridge transports all project the same durable state — from the TUI, the Mac app, the web dashboard, or your phone.",
@@ -514,7 +534,7 @@ const audienceContent: Record<
     surfacesNoteTitle: "Developer path",
     surfacesNoteDescription:
       "Start in the TUI for the quickest read on sessions and agents. Move into the web dashboard, the native Mac app, and Scout iOS without losing the underlying broker context.",
-    getStartedTitle: "One command path. Local broker.",
+    getStartedTitle: "One command to install. Local broker.",
     getStartedDescription:
       "Install the CLI, run setup, and Scout brings up the local broker. Mac and iPhone apps are optional surfaces over the same runtime.",
   },
@@ -530,7 +550,7 @@ const SCHEMA_ORG_LD = {
   name: "OpenScout",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS, Linux",
-  softwareVersion: "0.2.65",
+  softwareVersion: SCOUT_VERSION,
   url: "https://openscout.app",
   codeRepository: "https://github.com/arach/openscout",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
@@ -549,13 +569,14 @@ const OPENSCOUT_PROTOCOL_LD = {
 const OPENSCOUT_SELF_MANIFEST = openscoutManifest;
 
 /* ──────────────────────────────────────────────────────────
-   RFC install — inline, document-styled command line
+   Install command — flat, copyable command line in the hero
    ────────────────────────────────────────────────────────── */
 
-function RfcInstall({ command }: { command: string }) {
+function InstallCommand({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
   const onCopy = () => {
     navigator.clipboard.writeText(command);
+    // location id kept stable for analytics continuity
     trackCommandCopy({ command, location: "hero_rfc_install" });
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
@@ -564,12 +585,12 @@ function RfcInstall({ command }: { command: string }) {
     <button
       type="button"
       onClick={onCopy}
-      className={`rfc-hero__install ${copied ? "rfc-hero__install--copied" : ""}`}
+      className={`hero-install ${copied ? "hero-install--copied" : ""}`}
       aria-label="Copy install command"
     >
-      <span className="rfc-hero__install-prompt">$</span>
+      <span className="hero-install__prompt">$</span>
       <span>{command}</span>
-      <span className="rfc-hero__install-copy inline-flex items-center gap-1.5">
+      <span className="hero-install__copy inline-flex items-center gap-1.5">
         {copied ? (
           <>
             <Check className="h-3 w-3" />
@@ -583,6 +604,22 @@ function RfcInstall({ command }: { command: string }) {
         )}
       </span>
     </button>
+  );
+}
+
+function MacDownloadButton({ onClick }: { onClick?: () => void }) {
+  return (
+    <a href={macosDownloadUrl} onClick={onClick} className="mac-download">
+      <span className="mac-download__glyph" aria-hidden>
+        <svg viewBox="0 0 384 512" role="img" aria-hidden="true">
+          <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
+        </svg>
+      </span>
+      <span className="mac-download__text">
+        <span className="mac-download__label">Download for macOS</span>
+        <span className="mac-download__meta">Universal · Apple silicon &amp; Intel</span>
+      </span>
+    </a>
   );
 }
 
@@ -690,9 +727,9 @@ function ViewerToggle({
 
 const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }> = {
   human: {
-    top: "Group chat for your agents.",
-    bottom: "Local · model-neutral.",
-    sub: "They see each other, take work, and hand off — right where they already run.",
+    top: "Chat for agents.",
+    bottom: "Local-first. Neutral by design.",
+    sub: "We built Scout because we kept jumping between models, harnesses, and IDEs to put the right tool on each job. Scout is our way to connect them all — so your agents can reach each other and you can steer from one place. Helpful when you want it, out of the way the rest of the time.",
   },
   agent: {
     top: "Comms platform for agents.",
@@ -700,16 +737,6 @@ const heroHeadlines: Record<Viewer, { top: string; bottom: string; sub: string }
     sub: "One install adds the runtime. Register as a peer — nothing else about how your agent runs has to change.",
   },
 };
-
-// Spec masthead under the hero install — real protocol facts (mirrors the
-// JSON-LD manifest emitted below) that ground the editorial column against the
-// taller live console: the page of the spec, beside the running system.
-const heroMasthead: { key: string; tokens: string[] }[] = [
-  { key: "Protocol", tokens: ["Ø.1", "experimental"] },
-  { key: "Records", tokens: ["message", "invocation", "flight", "delivery", "binding"] },
-  { key: "Transports", tokens: ["local", "telegram", "voice", "webhook"] },
-  { key: "Harnesses", tokens: ["claude", "codex", "cursor", "pi", "hermes"] },
-];
 
 const heroInstall: Record<Viewer, { command: string; footnote: string }> = {
   human: {
@@ -727,8 +754,6 @@ export default function Home() {
   const [viewer, setViewer] = useState<Viewer>("human");
 
   const copy = audienceContent["general"];
-  const meshPrinciples = problemContent.cards;
-  const capabilities = generalCapabilities;
   const surfaceGallery = surfaceGalleryByAudience["general"];
   const getStartedCommands = getStartedCommandsByAudience["general"];
   const headline = heroHeadlines[viewer];
@@ -758,7 +783,7 @@ export default function Home() {
       {/* ── Operator Console (header) ── */}
       <header className="operator-console">
         {/* main row — wordmark + minimal mono nav + theme toggle */}
-        <div className="mx-auto flex max-w-6xl items-center px-6 operator-row">
+        <div className="mx-auto flex max-w-7xl items-center px-6 operator-row">
           <Link
             href="/"
             onClick={onNavigationClick("Scout", "/", "header_logo")}
@@ -767,6 +792,13 @@ export default function Home() {
             <LogoMark />
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
+            </span>
+            <span
+              className="hidden font-[family-name:var(--font-mono-display)] text-[11px] tracking-tight text-[var(--site-muted)] sm:inline-flex sm:items-baseline sm:gap-1.5"
+              aria-hidden
+            >
+              <span className="text-[var(--site-border-strong)]">·</span>
+              the OpenScout broker
             </span>
           </Link>
 
@@ -820,23 +852,41 @@ export default function Home() {
       {/* ── Agent view (replaces everything) ── */}
         <>
           <main ref={scrollRef} className="relative z-10">
-            {/* ── Hero (full-width headline, full-width console below) ── */}
+            {/* ── Hero (editorial column beside the live console) ── */}
             <section className="overflow-hidden pb-8 pt-20 md:pt-28 md:pb-10">
-              <div className="mx-auto max-w-6xl px-6">
-                <div className="rfc-hero__split">
-                  <div className="rfc-hero__editorial hero-animate" style={{ animationDelay: "0s" }}>
-                    <h1 className="rfc-hero__title rfc-hero__title--full">
-                      <span className="rfc-hero__title-line">{headline.top}</span>
-                      <span className="rfc-hero__title-line">{headline.bottom}</span>
+              <div className="mx-auto max-w-7xl px-6">
+                <div className="hero-split">
+                  <div className="hero-editorial hero-animate" style={{ animationDelay: "0s" }}>
+                    <h1 className="hero-title">
+                      <span className="hero-title__line">{headline.top}</span>
+                      <span className="hero-title__line">{headline.bottom}</span>
                     </h1>
 
-                    <p className="rfc-hero__abstract rfc-hero__abstract--full">{headline.sub}</p>
+                    <p className="hero-sub">{headline.sub}</p>
 
-                    <div className="rfc-hero__install-block">
-                      <RfcInstall command={install.command} />
-                      <p className="rfc-hero__install-foot">{install.footnote}</p>
-                      {viewer === "agent" && (
-                        <p className="rfc-hero__schema-link">
+                    {viewer === "human" && (
+                      <ul
+                        className="hero-neutral"
+                        aria-label="Neutral across model, harness, and framework"
+                      >
+                        <li>model-neutral</li>
+                        <li>harness-neutral</li>
+                        <li>framework-neutral</li>
+                      </ul>
+                    )}
+
+                    <div className="hero-install-block">
+                      <InstallCommand command={install.command} />
+                      {viewer === "human" && (
+                        <p className="hero-install-next">
+                          <span className="hero-install-next__label">then</span>
+                          <span className="hero-install-next__prompt">$</span>
+                          <span>scout setup</span>
+                        </p>
+                      )}
+                      <p className="hero-install-foot">{install.footnote}</p>
+                      {viewer === "agent" ? (
+                        <p className="hero-links">
                           Tool manifest at{" "}
                           <a href="/scout/manifest">
                             /scout/manifest
@@ -846,35 +896,28 @@ export default function Home() {
                             /.well-known/scout.json
                           </a>
                         </p>
+                      ) : (
+                        <div className="hero-download">
+                          <MacDownloadButton
+                            onClick={onCtaClick(
+                              "Download for macOS",
+                              macosDownloadUrl,
+                              "hero",
+                              "download",
+                            )}
+                          />
+                        </div>
                       )}
                     </div>
-
-                    <dl className="rfc-hero__masthead" aria-label="Protocol summary">
-                      {heroMasthead.map(({ key, tokens }) => (
-                        <div key={key} className="rfc-hero__masthead-row">
-                          <dt className="rfc-hero__masthead-key">{key}</dt>
-                          <dd className="rfc-hero__masthead-val">
-                            {tokens.map((t, i) => (
-                              <span key={t} className="rfc-hero__masthead-token">
-                                {i > 0 && (
-                                  <span className="rfc-hero__masthead-sep" aria-hidden>
-                                    ·
-                                  </span>
-                                )}
-                                {t}
-                              </span>
-                            ))}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
                   </div>
 
-                  <div className="rfc-hero__console-col hero-animate" style={{ animationDelay: "0.12s" }}>
-                    <div className="rfc-hero__viewer-perch">
+                  <div className="hero-console-col hero-animate" style={{ animationDelay: "0.12s" }}>
+                    <div className="hero-viewer-perch">
                       <ViewerToggle viewer={viewer} onChange={setViewer} />
                     </div>
-                    <ScoutConsole audience={viewer} />
+                    <div className="hero-console-mat">
+                      <ScoutConsole audience={viewer} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -894,98 +937,70 @@ export default function Home() {
               />
             </section>
 
-            {/* ── §1 Topology ── */}
-            <section id="mesh" className="rfc-section">
-              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
-                <div className="reveal max-w-sm">
-                  <div className="rfc-section-eyebrow">
-                    <span className="rfc-section-eyebrow__num">§1</span>
-                    <span>Topology</span>
-                  </div>
-                  <h2 className="rfc-section-title">
-                    {problemContent.meshTitle}
-                  </h2>
-                  <p className="rfc-section-lead">
-                    {problemContent.meshDescription}
-                  </p>
+            {/* ── How it works — before → after, two stacked rows ── */}
+            <section id="mesh" className="section-band">
+              <div className="mx-auto max-w-7xl px-6">
+                <div className="reveal section-eyebrow how-it-works__eyebrow">
+                  {howItWorksContent.eyebrow}
                 </div>
 
-                <div className="reveal">
-                  <MeshFigureSvg />
-                  <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-2 lg:grid-cols-3">
-                    {meshPrinciples.map(({ title, description }, i) => (
-                      <div
-                        key={title}
-                        className="reveal rfc-block"
-                        style={{ "--reveal-i": i } as React.CSSProperties}
-                      >
-                        <div className="rfc-block__num">
-                          <span className="rfc-block__num-mark">§1.{i + 1}</span>
-                        </div>
-                        <h3 className="rfc-block__title">{title}</h3>
-                        <p className="rfc-block__body">{description}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            {/* ── §2 Records ── */}
-            <section id="capabilities" className="rfc-section">
-              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-                <div className="reveal max-w-sm">
-                  <div className="rfc-section-eyebrow">
-                    <span className="rfc-section-eyebrow__num">§2</span>
-                    <span>Records</span>
-                  </div>
-                  <h2 className="rfc-section-title">
-                    {copy.capabilitiesTitle}
-                  </h2>
-                  <p className="rfc-section-lead">
-                    {copy.capabilitiesDescription}
-                  </p>
-                  <Link
-                    href="/docs"
-                    onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
-                    className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
-                  >
-                    <span className="text-[var(--site-accent)]">→</span>
-                    <span>browse the docs</span>
-                  </Link>
-                </div>
-
-                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 lg:grid-cols-3 md:grid-cols-2">
-                  {capabilities.map(({ label, title, description }, i) => (
-                    <div
-                      key={title}
-                      className="reveal rfc-block"
-                      style={{ "--reveal-i": i } as React.CSSProperties}
-                    >
-                      <div className="rfc-block__num">
-                        <span className="rfc-block__num-mark">§2.{i + 1}</span>{" "}
-                        · {label}
-                      </div>
-                      <h3 className="rfc-block__title">{title}</h3>
-                      <p className="rfc-block__body">{description}</p>
+                {/* With Scout — lead with the positioning; the records live here */}
+                <div id="capabilities" className="reveal hiw-row hiw-row--after">
+                  <div className="hiw-row__text">
+                    <div className="how-it-works__panel-label">
+                      {howItWorksContent.after.label}
                     </div>
-                  ))}
+                    <h2 className="hiw-row__title">{howItWorksContent.after.title}</h2>
+                    <p className="hiw-row__body">{howItWorksContent.after.body}</p>
+                    <ul className="hiw-caps">
+                      {howItWorksContent.after.capabilities.map((cap) => (
+                        <li key={cap.label} className="hiw-caps__item">
+                          <span className="hiw-caps__label">{cap.label}</span>
+                          <span className="hiw-caps__text">{cap.text}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      href="/docs"
+                      onClick={onCtaClick("Browse the docs", "/docs", "capabilities", "docs")}
+                      className="group mt-6 inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12.5px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
+                    >
+                      <span className="text-[var(--site-muted)]">→</span>
+                      <span>browse the docs</span>
+                    </Link>
+                  </div>
+                  <div className="hiw-row__stage">
+                    <MeshFigureSvg />
+                  </div>
+                </div>
+
+                {/* Without Scout — the world it replaces, shown after as contrast */}
+                <div className="reveal hiw-row hiw-row--before">
+                  <div className="hiw-row__text">
+                    <div className="how-it-works__panel-label">
+                      {howItWorksContent.before.label}
+                    </div>
+                    <h3 className="hiw-row__title hiw-row__title--before">
+                      {howItWorksContent.before.title}
+                    </h3>
+                    <p className="hiw-row__body">{howItWorksContent.before.body}</p>
+                  </div>
+                  <div className="hiw-row__stage">
+                    <SiloDesktop />
+                  </div>
                 </div>
               </div>
             </section>
 
-            {/* ── §3 Reference Implementation ── */}
-            <section id="surfaces" className="rfc-section">
-              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
+            {/* ── The apps ── */}
+            <section id="surfaces" className="section-band">
+              <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                 <div className="reveal max-w-xl">
-                  <div className="rfc-section-eyebrow">
-                    <span className="rfc-section-eyebrow__num">§3</span>
-                    <span>Reference Implementation</span>
-                  </div>
-                  <h2 className="rfc-section-title">
+                  <div className="section-eyebrow">The apps</div>
+                  <h2 className="section-title">
                     {copy.surfacesTitle}
                   </h2>
-                  <p className="rfc-section-lead">
+                  <p className="section-lead">
                     {copy.surfacesDescription}
                   </p>
 
@@ -1003,63 +1018,93 @@ export default function Home() {
                 <div className="reveal-stagger grid gap-6 sm:grid-cols-2">
                   {surfaceGallery
                     .filter((s) =>
-                      ["Mobile", "Menu-bar HUD", "Conversation thread", "Mesh"].includes(
-                        s.title,
-                      ),
+                      ["Mobile", "Native app", "Fleet briefing"].includes(s.title),
                     )
-                    .map((shot, i) => (
-                      <figure
-                        key={shot.src}
-                        className="reveal rfc-figure"
-                        style={{ "--reveal-i": i } as React.CSSProperties}
-                      >
-                        <ExpandableImage
-                          analyticsId={shot.src}
-                          analyticsLocation="surfaces_gallery"
-                          src={shot.src}
-                          alt={shot.alt}
-                          width={shot.width ?? 1552}
-                          height={shot.height ?? 1092}
-                          className={
-                            shot.imageClassName ??
-                            "aspect-[1552/1092] w-full object-cover object-top"
-                          }
-                        />
-                        <figcaption className="rfc-figure__caption">
-                          <div className="rfc-figure__caption-num">
-                            Fig. 3.{i + 1} · {shot.eyebrow}
+                    .map((shot, i) => {
+                      const isPhone = shot.eyebrow === "iPhone";
+                      return (
+                        <figure
+                          key={shot.src}
+                          className={`reveal surface-figure${isPhone ? " surface-figure--phone" : ""}`}
+                          style={{ "--reveal-i": i } as React.CSSProperties}
+                        >
+                          <div className="surface-figure__chrome">
+                            <span className="surface-figure__dots" aria-hidden>
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                            {shot.chrome && (
+                              <span className="surface-figure__chrome-id">
+                                {shot.chrome}
+                              </span>
+                            )}
                           </div>
-                          <h3 className="rfc-figure__caption-title">
-                            {shot.title}
-                          </h3>
-                          <p className="rfc-figure__caption-body">
-                            {shot.description}
-                          </p>
-                        </figcaption>
-                      </figure>
-                    ))}
+                          {isPhone ? (
+                            <div className="surface-phone__stage">
+                              <div className="surface-phone__device">
+                                <span className="surface-phone__island" aria-hidden />
+                                <ExpandableImage
+                                  analyticsId={shot.src}
+                                  analyticsLocation="surfaces_gallery"
+                                  src={shot.src}
+                                  alt={shot.alt}
+                                  width={shot.width ?? 1206}
+                                  height={shot.height ?? 2622}
+                                  containerClassName="surface-phone__screen-wrap"
+                                  className="surface-phone__screen"
+                                  frame="phone"
+                                />
+                              </div>
+                            </div>
+                          ) : (
+                            <ExpandableImage
+                              analyticsId={shot.src}
+                              analyticsLocation="surfaces_gallery"
+                              src={shot.src}
+                              alt={shot.alt}
+                              width={shot.width ?? 1552}
+                              height={shot.height ?? 1092}
+                              className={
+                                shot.imageClassName ??
+                                "aspect-[1552/1092] w-full object-cover object-top"
+                              }
+                            />
+                          )}
+                          <figcaption className="surface-figure__caption">
+                            <div className="surface-figure__caption-tag">
+                              {shot.eyebrow}
+                            </div>
+                            <h3 className="surface-figure__caption-title">
+                              {shot.title}
+                            </h3>
+                            <p className="surface-figure__caption-body">
+                              {shot.description}
+                            </p>
+                          </figcaption>
+                        </figure>
+                      );
+                    })}
                 </div>
               </div>
             </section>
 
-            {/* ── §4 Host Integrations ── */}
-            <section id="integrations" className="rfc-section">
-              <div className="mx-auto grid max-w-6xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+            {/* ── Works with ── */}
+            <section id="integrations" className="section-band">
+              <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
                 <div className="reveal max-w-sm">
-                  <div className="rfc-section-eyebrow">
-                    <span className="rfc-section-eyebrow__num">§4</span>
-                    <span>Host Integrations</span>
-                  </div>
-                  <h2 className="rfc-section-title">
+                  <div className="section-eyebrow">Works with</div>
+                  <h2 className="section-title">
                     Scout where agents already work.
                   </h2>
-                  <p className="rfc-section-lead">
-                    Thin host packages connect Codex, Claude Code, pi, and Hermes to
-                    the same local broker. They stay installable on their own while
-                    OpenScout owns the protocol and runtime.
+                  <p className="section-lead">
+                    Developers run agents across vendors, so the coordination layer
+                    can&apos;t belong to one of them. Five thin host packages — claude,
+                    codex, cursor, pi, and hermes — connect to the same local broker
+                    without forking any runtime.
                   </p>
                   <p className="mt-6 font-[family-name:var(--font-mono-display)] text-[12.5px] leading-relaxed text-[var(--site-muted)]">
-                    Four host packages today. Each is a thin client over the same
+                    Five host packages today. Each is a thin client over the same
                     broker — install one, and that agent joins the mesh.
                   </p>
                 </div>
@@ -1071,31 +1116,25 @@ export default function Home() {
                       className="reveal integration-block group"
                       style={{ "--reveal-i": i } as React.CSSProperties}
                     >
-                      <div className="integration-block__header">
-                        <span className="integration-block__mark" aria-hidden="true">
-                          {integration.mark}
-                        </span>
-                        <div className="integration-block__heading">
-                          <div className="rfc-block__num">
-                            <span className="rfc-block__num-mark">§4.{i + 1}</span>{" "}
-                            · {integration.host}
-                          </div>
-                          <h3 className="integration-block__name transition-colors group-hover:text-[var(--site-accent)]">
-                            {integration.name}
-                          </h3>
-                        </div>
+                      <div className="integration-block__heading">
+                        <div className="rfc-block__num">{integration.host}</div>
+                        <h3 className="integration-block__name">
+                          {integration.name}
+                        </h3>
                       </div>
                       <p className="rfc-block__body">{integration.description}</p>
-                      <code className="integration-block__install">
-                        {integration.install}
-                      </code>
+                      {integration.install && (
+                        <code className="integration-block__install">
+                          {integration.install}
+                        </code>
+                      )}
                       <div className="integration-block__links">
                         <a
                           href={integration.repoHref}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={onCtaClick(`${integration.name} repo`, integration.repoHref, "integrations", "repo")}
-                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
                           <span>Repo</span>
                           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1105,7 +1144,7 @@ export default function Home() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={onCtaClick(`${integration.name} page`, integration.pageHref, "integrations", "page")}
-                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-accent)] transition-colors hover:text-[var(--site-ink)]"
+                          className="inline-flex items-center gap-1.5 font-[family-name:var(--font-mono-display)] text-[12px] text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
                           <span>Page</span>
                           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -1117,26 +1156,21 @@ export default function Home() {
               </div>
             </section>
 
-            {/* ── §5 Discovery ── */}
-            <section id="get-started" className="rfc-section">
-              <div className="mx-auto max-w-6xl px-6">
+            {/* ── Getting started ── */}
+            <section id="get-started" className="section-band">
+              <div className="mx-auto max-w-7xl px-6">
                 <div className="grid gap-x-12 gap-y-10 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
                   <div className="reveal max-w-sm">
-                    <div className="rfc-section-eyebrow">
-                      <span className="rfc-section-eyebrow__num">§5</span>
-                      <span>Discovery</span>
-                    </div>
-                    <h2 className="rfc-section-title">
+                    <div className="section-eyebrow">Getting started</div>
+                    <h2 className="section-title">
                       {copy.getStartedTitle}
                     </h2>
-                    <p className="rfc-section-lead">
+                    <p className="section-lead">
                       {copy.getStartedDescription}
                     </p>
 
                     <div className="mt-8 rfc-block">
-                      <div className="rfc-block__num">
-                        <span className="rfc-block__num-mark">§5.1</span> · Apps
-                      </div>
+                      <div className="rfc-block__num">Apps</div>
                       <h3 className="rfc-block__title">Mac and iPhone.</h3>
                       <p className="rfc-block__body">
                         The CLI is the complete runtime, and it ships the local
@@ -1155,7 +1189,7 @@ export default function Home() {
                           )}
                           className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
-                          <span className="text-[var(--site-accent)]">→</span>
+                          <span className="text-[var(--site-muted)]">→</span>
                           <span>download for macOS</span>
                         </a>
                         <a
@@ -1170,7 +1204,7 @@ export default function Home() {
                           )}
                           className="inline-flex items-center gap-1.5 text-[var(--site-copy)] transition-colors hover:text-[var(--site-ink)]"
                         >
-                          <span className="text-[var(--site-accent)]">→</span>
+                          <span className="text-[var(--site-muted)]">→</span>
                           <span>open on github</span>
                         </a>
                       </div>
@@ -1186,25 +1220,58 @@ export default function Home() {
                 </div>
               </div>
             </section>
+
+            {/* ── Questions ── */}
+            <section id="faq" className="section-band">
+              <div className="mx-auto grid max-w-7xl gap-x-12 gap-y-10 px-6 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] lg:items-start">
+                <div className="reveal max-w-sm">
+                  <div className="section-eyebrow">Questions</div>
+                  <h2 className="section-title">
+                    What a developer asks before installing.
+                  </h2>
+                  <p className="section-lead">
+                    Plain answers about scope, data boundary, and maturity. Read
+                    these before you make trust or capability claims.
+                  </p>
+                  <p className="mt-6 font-[family-name:var(--font-mono-display)] text-[12.5px] leading-relaxed text-[var(--site-muted)]">
+                    Grounded in the repo docs, not the pitch. When the posture is
+                    early, the answer says so.
+                  </p>
+                </div>
+
+                <div className="rfc-block-row reveal-stagger grid gap-x-10 gap-y-8 md:grid-cols-2">
+                  {faqEntries.map(({ question, answer }, i) => (
+                    <div
+                      key={question}
+                      className="reveal rfc-block"
+                      style={{ "--reveal-i": i } as React.CSSProperties}
+                    >
+                      <h3 className="rfc-block__title">{question}</h3>
+                      <p className="rfc-block__body">{answer}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </section>
           </main>
 
           {/* ── Status footer (Cursor-style IDE status bar) ── */}
           <footer className="status-bar">
-            <div className="mx-auto flex max-w-6xl items-stretch px-6">
+            <div className="mx-auto flex max-w-7xl items-stretch px-6">
               <div className="status-bar__inner w-full">
                 {/* Left group: identity + broker status */}
                 <span className="status-bar__cell">
-                  <span className="status-bar__brand">SCOUT/Ø</span>
+                  <span className="status-bar__brand">SCOUT</span>
                 </span>
                 <span className="status-bar__cell hidden sm:inline-flex">
-                  proto&nbsp;<b>Ø.1</b>
+                  proto&nbsp;<b>v0.1 · experimental</b>
                 </span>
                 <span className="status-bar__cell">
                   <span className="status-dot" aria-hidden />
                   <span>online</span>
                 </span>
                 <span className="status-bar__cell">
-                  <b>v0.2.65</b>
+                  <b>v{SCOUT_VERSION}</b>
                 </span>
                 <span className="status-bar__cell hidden md:inline-flex">
                   license pending
@@ -1325,7 +1392,7 @@ function AgentView({ onExit }: { onExit: () => void }) {
             <a
               key={r.label}
               href={r.href}
-              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110] transition-colors hover:text-[var(--site-accent)]"
+              className="inline-flex items-center gap-1.5 font-[family-name:var(--font-geist-mono)] text-[13px] text-[#111110] transition-colors hover:text-[#111110]/70"
             >
               {r.label}
               <span className="text-[11px] text-[#111110]/30">&#x2197;</span>

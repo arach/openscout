@@ -2,6 +2,7 @@ import type { Route } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { ChatSubnav } from "./ChatSubnav.tsx";
 import { ConversationScreen } from "./ConversationScreen.tsx";
+import "./conversation-screen.css";
 
 export function MessagesScreen({
   conversationId,
@@ -32,36 +33,66 @@ export function MessagesScreen({
 }
 
 function MessagesEmptyState() {
+  const { onlineCount } = useScout();
+
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 32,
-        color: "var(--muted)",
-        fontFamily: "var(--font-mono)",
-        fontSize: 12,
-        letterSpacing: "0.04em",
-      }}
-    >
-      <div style={{ textAlign: "center", maxWidth: 360 }}>
-        <div
-          style={{
-            textTransform: "uppercase",
-            letterSpacing: "0.18em",
-            fontSize: 10,
-            color: "color-mix(in srgb, var(--accent) 70%, var(--muted))",
-            marginBottom: 8,
-          }}
-        >
-          Conversations
-        </div>
-        <p style={{ lineHeight: 1.6, margin: 0 }}>
-          Select a conversation from the rail.
+    <div className="s-conv-empty">
+      <div className="s-conv-empty-inner">
+        <EmptyMesh />
+        <div className="s-conv-empty-eyebrow">Conversations</div>
+        <p className="s-conv-empty-title">Nothing open yet</p>
+        <p className="s-conv-empty-detail">
+          Pick a conversation from the rail to follow the thread, or filter to
+          find the one you want.
         </p>
+
+        <div className="s-conv-empty-hints">
+          <span className="s-conv-empty-hint">
+            <kbd className="s-conv-empty-kbd">/</kbd>
+            filter the rail
+          </span>
+          <span className="s-conv-empty-hint">
+            <kbd className="s-conv-empty-kbd">⌘K</kbd>
+            command palette
+          </span>
+        </div>
+
+        <div className="s-conv-empty-ambient">
+          <span className="s-conv-empty-ambient-dot" aria-hidden="true" />
+          {onlineCount} {onlineCount === 1 ? "agent" : "agents"} active
+        </div>
       </div>
     </div>
+  );
+}
+
+/** Quiet constellation echo of the brand mesh motif — six nodes, thin links,
+ *  one node lit in the single accent. Decorative only. */
+function EmptyMesh() {
+  return (
+    <svg
+      className="s-conv-empty-mesh"
+      viewBox="0 0 72 72"
+      fill="none"
+      aria-hidden="true"
+    >
+      <line className="s-conv-empty-mesh-link" x1="14" y1="20" x2="36" y2="12" />
+      <line className="s-conv-empty-mesh-link" x1="36" y1="12" x2="58" y2="24" />
+      <line className="s-conv-empty-mesh-link" x1="14" y1="20" x2="24" y2="46" />
+      <line className="s-conv-empty-mesh-link" x1="24" y1="46" x2="36" y2="12" />
+      <line className="s-conv-empty-mesh-link" x1="24" y1="46" x2="50" y2="54" />
+      <line className="s-conv-empty-mesh-link" x1="50" y1="54" x2="58" y2="24" />
+      <line className="s-conv-empty-mesh-link" x1="36" y1="12" x2="50" y2="54" />
+      <circle className="s-conv-empty-mesh-node" cx="14" cy="20" r="2.5" />
+      <circle className="s-conv-empty-mesh-node" cx="58" cy="24" r="2.5" />
+      <circle className="s-conv-empty-mesh-node" cx="24" cy="46" r="2.5" />
+      <circle className="s-conv-empty-mesh-node" cx="50" cy="54" r="2.5" />
+      <circle
+        className="s-conv-empty-mesh-node s-conv-empty-mesh-node--accent"
+        cx="36"
+        cy="12"
+        r="3.5"
+      />
+    </svg>
   );
 }

@@ -2,7 +2,8 @@ import { type ReactNode } from "react";
 import "./rail-row.css";
 import { stateColor } from "../../lib/colors.ts";
 import { agentStateCssToken, type AgentDisplayState } from "../../lib/agent-state.ts";
-import { Avatar, PresenceDot, type AvatarKind } from "../../components/Avatar.tsx";
+import { PresenceDot, type AvatarKind } from "../../components/Avatar.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 
 type Tone = AgentDisplayState | "channel" | "dm" | "neutral";
 
@@ -137,7 +138,7 @@ function RowLeading({
   if (avatarName) {
     if (avatarKind === "channel") {
       return (
-        <Avatar
+        <AgentAvatar
           kind="channel"
           name={avatarName}
           channelClassName="rr-row-hash"
@@ -148,7 +149,7 @@ function RowLeading({
     const showPresence = normalized === "working" || normalized === "available";
     return (
       <span className="rr-row-avatar-wrap" aria-hidden>
-        <Avatar className="rr-row-avatar" name={avatarName} />
+        <AgentAvatar name={avatarName} placement="roster" className="rr-row-avatar" />
         {showPresence && (
           <PresenceDot
             state={normalized}

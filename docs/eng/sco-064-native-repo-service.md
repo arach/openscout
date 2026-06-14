@@ -108,7 +108,7 @@ sessions; classifies attention; builds stats/totals; and owns cache behavior.
 
 The TypeScript wrapper should eventually do:
 
-```text
+```plaintext
 broker snapshot
   -> RepoWatchPathHint[]
   -> openscout-repo-service scan

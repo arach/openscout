@@ -22,18 +22,23 @@ const inFlight = new Map<string, Promise<RepoDiffCacheRecord>>();
 const queuedPrefetches = new Set<string>();
 let prefetchQueue = Promise.resolve();
 
+type RepoDiffRequestCacheMode = "prefer" | "reload" | "only";
+
 export function buildRepoDiffUrl(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
+  options: { cache?: RepoDiffRequestCacheMode; rehydrate?: boolean } = {},
 ): string {
   const params = new URLSearchParams();
   params.set("path", path);
   for (const layer of layers) params.append("layer", layer);
+  if (options.cache) params.set("cache", options.cache);
+  if (options.rehydrate) params.set("rehydrate", "1");
   return `/api/repo-diff/worktree?${params.toString()}`;
 }
 
 function cacheKey(path: string, layers: readonly RepoDiffLayerKind[]): string {
-  return buildRepoDiffUrl(path, layers);
+  return `${path}\u0000${layers.join(",")}`;
 }
 
 function trimCache(): void {
@@ -74,7 +79,10 @@ export async function fetchRepoDiffSnapshot(
     if (active) return active;
   }
 
-  const request = api<ScoutRepoDiffSnapshot>(key).then((snapshot) => {
+  const url = buildRepoDiffUrl(path, layers, options.force
+    ? { cache: "reload" }
+    : { cache: "prefer", rehydrate: true });
+  const request = api<ScoutRepoDiffSnapshot>(url).then((snapshot) => {
     const record = { snapshot, fetchedAt: Date.now() };
     cache.delete(key);
     cache.set(key, record);

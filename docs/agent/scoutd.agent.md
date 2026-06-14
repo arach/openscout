@@ -34,7 +34,7 @@ Legacy binary name `openscout-supervisor` is compatibility-only; doctor still re
 
 ## Process Shape
 
-```text
+```plaintext
 launchd
   → scoutd supervise
       → bun openscout-runtime.mjs base   (scout-base)

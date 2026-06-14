@@ -43,7 +43,7 @@ Rule: `message` = Scout conversation record. Observed harness events ≠ message
 
 ## Relations
 
-```text
+```plaintext
 node 1—1 broker process
 broker 1—* agent registration
 agent 1—* endpoint (over time / harness / worktree)
@@ -81,10 +81,11 @@ Endpoint `idle` + flight `waiting` is valid. Endpoint `superseded` is diagnostic
 
 ## Session Attachment Rules
 
-1. Card/label/agent-id targets → **fresh** harness session for new work.
-2. `session:<id>` / `targetSessionId` → continue exact prior harness context.
-3. Harness mismatch (Codex target, Claude session) → fail loud; no silent bind.
-4. Session metadata may survive restart; reachability must be reconfirmed (`reachability_unknown` until attach/wake).
+1. Project/capability targets (`projectPath` + optional `harness`) → broker chooses or creates a compatible fresh worker.
+2. Card/label/agent-id targets → **fresh** harness session for new work.
+3. `session:<id>` / `targetSessionId` → continue exact prior harness context.
+4. Harness mismatch (Codex target, Claude session) → fail loud; no silent bind.
+5. Session metadata may survive restart; reachability must be reconfirmed (`reachability_unknown` until attach/wake).
 
 ## Transport Surfaces
 
