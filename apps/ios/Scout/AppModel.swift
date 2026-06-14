@@ -977,6 +977,7 @@ final class AppModel {
             connectionLog.log("No paired bridge — scan the QR on your Mac to pair", event: .trust, level: .warning)
             return
         }
+        await refreshOpenScoutNetworkRoutesForTrustedMachines()
         let machineIds = trustedMachineIds
         fleet.reconcile(trustedMachineIds: machineIds)
         guard let focusId = preferredFocusMachineId(in: machineIds) else {
@@ -1516,6 +1517,62 @@ final class AppModel {
             return active
         }
         return machineIds.first
+    }
+
+    private func refreshOpenScoutNetworkRoutesForTrustedMachines() async {
+        guard openScoutNetworkRoutingEnabled, isOpenScoutNetworkSignedIn else {
+            return
+        }
+
+        let trustedIds = trustedMachineIds
+        let trustedKeys = Set(trustedIds.map { $0.lowercased() })
+        guard !trustedKeys.isEmpty else { return }
+
+        do {
+            let list = try await loadOpenScoutNetworkRendezvousList()
+            let candidates = openScoutNetworkPairingCandidates(from: list)
+            var refreshedKeys = Set<String>()
+            let preferredKey = preferredFocusMachineId(in: trustedIds)?.lowercased()
+            let activeKey = BridgeBrokerClient.activeConnectionPublicKeyHex()?.lowercased()
+            let focusedKey = fleet.focusedMachineId?.lowercased()
+
+            for candidate in candidates {
+                let key = candidate.entrypoint.publicKey.lowercased()
+                guard trustedKeys.contains(key) else { continue }
+                let shouldPromote = key == preferredKey
+                    || key == activeKey
+                    || key == focusedKey
+                BridgeBrokerClient.savePairingConnectionInfo(
+                    qrPayload: candidate.qrPayload,
+                    promoteActive: shouldPromote
+                )
+                refreshedKeys.insert(key)
+            }
+
+            guard !refreshedKeys.isEmpty else {
+                connectionLog.log(
+                    "OpenScout Network found no current route for paired Mac keys",
+                    event: .discover,
+                    level: .warning,
+                    route: .oscout
+                )
+                return
+            }
+
+            connectionLog.log(
+                "OpenScout Network refreshed \(refreshedKeys.count) paired Mac route(s)",
+                event: .discover,
+                level: .success,
+                route: .oscout
+            )
+        } catch {
+            connectionLog.log(
+                "OpenScout Network route refresh failed: \(error.localizedDescription)",
+                event: .discover,
+                level: .warning,
+                route: .oscout
+            )
+        }
     }
 
     private func syncFocusedConnectionState() {
