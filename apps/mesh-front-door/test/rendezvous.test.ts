@@ -42,12 +42,12 @@ describe("mesh front door rendezvous", () => {
     const auth = { key: "user:arach@example.com", label: "arach@example.com", kind: "access_user" as const };
     const presence = makePresence({ nodeId: "laptop-a", nodeName: "Laptop A" });
 
-    const publish = await handleRendezvousRequest(store, jsonRequest("https://mesh.openscout.app/v1/presence", presence), auth, {
+    const publish = await handleRendezvousRequest(store, jsonRequest("https://mesh.oscout.net/v1/presence", presence), auth, {
       OPENSCOUT_ALLOWED_MESH_IDS: "openscout",
     });
     expect(publish.status).toBe(200);
 
-    const list = await handleRendezvousRequest(store, new Request("https://mesh.openscout.app/v1/nodes?meshId=openscout"), auth, {
+    const list = await handleRendezvousRequest(store, new Request("https://mesh.oscout.net/v1/nodes?meshId=openscout"), auth, {
       OPENSCOUT_ALLOWED_MESH_IDS: "openscout",
     });
     expect(list.status).toBe(200);
@@ -61,13 +61,13 @@ describe("mesh front door rendezvous", () => {
     const store = new MemoryPresenceStore();
     await handleRendezvousRequest(
       store,
-      jsonRequest("https://mesh.openscout.app/v1/presence", makePresence({ nodeId: "private-node" })),
+      jsonRequest("https://mesh.oscout.net/v1/presence", makePresence({ nodeId: "private-node" })),
       { key: "user:a@example.com", label: "a@example.com", kind: "access_user" },
     );
 
     const list = await handleRendezvousRequest(
       store,
-      new Request("https://mesh.openscout.app/v1/nodes?meshId=openscout"),
+      new Request("https://mesh.oscout.net/v1/nodes?meshId=openscout"),
       { key: "user:b@example.com", label: "b@example.com", kind: "access_user" },
     );
     const payload = await list.json();
@@ -81,7 +81,7 @@ describe("mesh front door rendezvous", () => {
 
     const expired = await handleRendezvousRequest(
       store,
-      jsonRequest("https://mesh.openscout.app/v1/presence", makePresence({
+      jsonRequest("https://mesh.oscout.net/v1/presence", makePresence({
         issuedAt: now - 10_000,
         expiresAt: now - 1_000,
       })),
@@ -91,7 +91,7 @@ describe("mesh front door rendezvous", () => {
 
     const disallowed = await handleRendezvousRequest(
       store,
-      jsonRequest("https://mesh.openscout.app/v1/presence", makePresence({ meshId: "other" })),
+      jsonRequest("https://mesh.oscout.net/v1/presence", makePresence({ meshId: "other" })),
       auth,
       { OPENSCOUT_ALLOWED_MESH_IDS: "openscout" },
     );
@@ -100,7 +100,7 @@ describe("mesh front door rendezvous", () => {
 
   test("resolves Cloudflare Access and shared-token auth", async () => {
     const userAuth = await resolveMeshFrontDoorAuth(
-      new Request("https://mesh.openscout.app/v1/nodes", {
+      new Request("https://mesh.oscout.net/v1/nodes", {
         headers: { "cf-access-authenticated-user-email": "Arach@Example.com" },
       }),
       {},
@@ -108,7 +108,7 @@ describe("mesh front door rendezvous", () => {
     expect(userAuth).toEqual({ key: "user:arach@example.com", label: "arach@example.com", kind: "access_user" });
 
     const tokenAuth = await resolveMeshFrontDoorAuth(
-      new Request("https://mesh.openscout.app/v1/nodes", {
+      new Request("https://mesh.oscout.net/v1/nodes", {
         headers: { authorization: "Bearer secret" },
       }),
       { OPENSCOUT_MESH_SHARED_TOKEN: "secret", OPENSCOUT_MESH_SHARED_OWNER: "mesh-alpha" },
@@ -120,6 +120,36 @@ describe("mesh front door rendezvous", () => {
     const auth = { key: "user:arach@example.com", label: "arach@example.com", kind: "access_user" as const };
     expect(resolveMeshDirectoryOwnerKey(auth, {})).toBe("user:arach@example.com");
     expect(resolveMeshDirectoryOwnerKey(auth, { OPENSCOUT_MESH_DIRECTORY_OWNER: "default" })).toBe("owner:default");
+  });
+
+  test("uses managed directory storage without losing GitHub membership auth", async () => {
+    const store = new MemoryPresenceStore();
+    const auth = { key: "github:123", label: "arach@example.com", kind: "github_user" as const };
+    const env = {
+      OPENSCOUT_ALLOWED_MESH_IDS: "openscout",
+      OSN_DB: membershipDb({ providerUserId: "123", meshId: "openscout" }),
+    };
+
+    const publish = await handleRendezvousRequest(
+      store,
+      jsonRequest("https://mesh.oscout.net/v1/presence", makePresence({ nodeId: "mac-a" })),
+      auth,
+      env,
+      { storageOwnerKey: "owner:default" },
+    );
+    expect(publish.status).toBe(200);
+    expect(Array.from(store.values.keys())).toEqual(["owner:default/mesh/openscout/node/mac-a"]);
+
+    const list = await handleRendezvousRequest(
+      store,
+      new Request("https://mesh.oscout.net/v1/nodes?meshId=openscout"),
+      auth,
+      env,
+      { storageOwnerKey: "owner:default" },
+    );
+    expect(list.status).toBe(200);
+    const payload = await list.json();
+    expect(payload.nodes.map((node: OpenScoutMeshPresenceRecord) => node.nodeId)).toEqual(["mac-a"]);
   });
 });
 
@@ -149,5 +179,23 @@ function makePresence(input: Partial<OpenScoutMeshPresence> = {}): OpenScoutMesh
         bridgeProtocolVersion: OPENSCOUT_MESH_PROTOCOL_VERSION,
       },
     ],
+  };
+}
+
+function membershipDb(input: { providerUserId: string; meshId: string }) {
+  return {
+    prepare() {
+      return {
+        bind(providerUserId: unknown, meshId: unknown) {
+          return {
+            async first() {
+              return providerUserId === input.providerUserId && meshId === input.meshId
+                ? { allowed: 1 }
+                : null;
+            },
+          };
+        },
+      };
+    },
   };
 }

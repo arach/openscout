@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL,
+  DEFAULT_OPENSCOUT_MOBILE_PAIRING_RELAY_URL,
   OPENSCOUT_IROH_MESH_ALPN,
   OPENSCOUT_MESH_PROTOCOL_VERSION,
   buildUnsignedMeshPresence,
@@ -12,7 +13,8 @@ describe("mesh entrypoint contract", () => {
   test("uses the first OpenScout Mesh protocol identifiers", () => {
     expect(OPENSCOUT_MESH_PROTOCOL_VERSION).toBe(1);
     expect(OPENSCOUT_IROH_MESH_ALPN).toBe("openscout/mesh/0");
-    expect(DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL).toBe("https://mesh.openscout.app");
+    expect(DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL).toBe("https://mesh.oscout.net");
+    expect(DEFAULT_OPENSCOUT_MOBILE_PAIRING_RELAY_URL).toBe("wss://mesh.oscout.net/v1/relay");
   });
 
   test("builds short-lived unsigned presence for Cloudflare rendezvous", () => {

@@ -74,13 +74,13 @@ Scout broker A
 
 Phase 2:
 web / desktop client
-  -> Cloudflare Access + mesh.openscout.app
+  -> Cloudflare Access + mesh.oscout.net
   -> node directory / fallback route
   -> local Scout broker /v1/mesh/*
 
 Phase 3:
 iOS app
-  -> Cloudflare Access + mesh.openscout.app
+  -> Cloudflare Access + mesh.oscout.net
   -> node directory
   -> reachable broker entrypoint
 ```
@@ -193,7 +193,7 @@ Goal: add a simple and safe public entrypoint without changing broker authority.
 
 Requirements:
 
-- `https://mesh.openscout.app` or equivalent is the stable rendezvous URL.
+- `https://mesh.oscout.net` or equivalent is the stable rendezvous URL.
 - Cloudflare Access authenticates humans and service clients.
 - A Worker/Durable Object stores short-lived node presence records.
 - Nodes publish reachable entrypoints with short TTLs.
@@ -219,16 +219,28 @@ First slice:
 ```bash
 OPENSCOUT_MESH_RENDEZVOUS_URL=https://mesh.oscout.net
 OPENSCOUT_MESH_RENDEZVOUS_TOKEN=<wrangler-secret-value>
+# or:
+OPENSCOUT_MESH_RENDEZVOUS_SESSION=<signed-osn-session-token>
 OPENSCOUT_MESH_RENDEZVOUS_TTL_MS=60000
 OPENSCOUT_MESH_RENDEZVOUS_INTERVAL_MS=30000
 ```
 
-The initial API surface is intentionally directory-only:
+The initial API surface includes the short-lived directory plus the hosted
+mobile pairing relay:
 
 - `POST /v1/presence`
 - `GET /v1/nodes?meshId=openscout`
 - `GET /v1/nodes/:nodeId?meshId=openscout`
 - `DELETE /v1/nodes/:nodeId?meshId=openscout`
+- `GET /v1/relay?room=:room&role=bridge|client`
+- `POST /v1/relay/resolve`
+- `GET /v1/relay/healthz`
+
+Mac pairing can use the hosted relay explicitly with:
+
+```bash
+OPENSCOUT_PAIRING_RELAY_URL=wss://mesh.oscout.net/v1/relay
+```
 
 ### Phase 3: iOS App To Cloudflare
 
@@ -257,7 +269,7 @@ The first stable protocol identifiers are:
 
 - protocol version: `1`
 - Iroh ALPN: `openscout/mesh/0`
-- default rendezvous URL: `https://mesh.openscout.app`
+- default rendezvous URL: `https://mesh.oscout.net`
 
 Each broker publishes short-lived presence shaped like this. Phase 1 can exchange
 this locally or through existing broker discovery. Phase 2 publishes it through

@@ -29,6 +29,10 @@ export interface MeshPresenceStore {
   delete(key: string): Promise<void>;
 }
 
+export interface MeshRendezvousRequestOptions {
+  storageOwnerKey?: string;
+}
+
 interface ErrorResponse {
   error: string;
   detail?: string;
@@ -85,9 +89,11 @@ export async function handleRendezvousRequest(
   request: Request,
   auth: MeshFrontDoorAuth,
   env: MeshFrontDoorEnv = {},
+  options: MeshRendezvousRequestOptions = {},
 ): Promise<Response> {
   const url = new URL(request.url);
   const method = request.method.toUpperCase();
+  const storageOwnerKey = options.storageOwnerKey ?? auth.key;
 
   if (method === "GET" && url.pathname === "/health") {
     return json(200, {
@@ -98,7 +104,7 @@ export async function handleRendezvousRequest(
   }
 
   if (method === "POST" && url.pathname === "/v1/presence") {
-    return publishPresence(store, request, auth, env);
+    return publishPresence(store, request, auth, env, storageOwnerKey);
   }
 
   if (method === "GET" && url.pathname === "/v1/nodes") {
@@ -107,7 +113,7 @@ export async function handleRendezvousRequest(
     if (allowed) return allowed;
     const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
     if (authorized) return authorized;
-    const nodes = await listActiveNodes(store, presenceKeyPrefix(auth.key, meshId));
+    const nodes = await listActiveNodes(store, presenceKeyPrefix(storageOwnerKey, meshId));
     const payload: OpenScoutMeshRendezvousList = {
       v: OPENSCOUT_MESH_PROTOCOL_VERSION,
       meshId,
@@ -124,7 +130,7 @@ export async function handleRendezvousRequest(
     const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
     if (authorized) return authorized;
     const nodeId = decodeURIComponent(nodeMatch[1] ?? "");
-    const record = await store.get(presenceKey(auth.key, meshId, nodeId));
+    const record = await store.get(presenceKey(storageOwnerKey, meshId, nodeId));
     if (!record || record.expiresAt <= Date.now()) {
       return json(404, { error: "node_not_found" });
     }
@@ -138,7 +144,7 @@ export async function handleRendezvousRequest(
     const authorized = await assertAuthorizedMeshMembership(auth, meshId, env);
     if (authorized) return authorized;
     const nodeId = decodeURIComponent(nodeMatch[1] ?? "");
-    await store.delete(presenceKey(auth.key, meshId, nodeId));
+    await store.delete(presenceKey(storageOwnerKey, meshId, nodeId));
     return json(200, { ok: true });
   }
 
@@ -150,6 +156,7 @@ async function publishPresence(
   request: Request,
   auth: MeshFrontDoorAuth,
   env: MeshFrontDoorEnv,
+  storageOwnerKey: string,
 ): Promise<Response> {
   let input: unknown;
   try {
@@ -180,7 +187,7 @@ async function publishPresence(
     return json(400, { error: "expired_presence" });
   }
 
-  await store.put(presenceKey(auth.key, record.meshId, record.nodeId), record);
+  await store.put(presenceKey(storageOwnerKey, record.meshId, record.nodeId), record);
   return json(200, {
     ok: true,
     nodeId: record.nodeId,
