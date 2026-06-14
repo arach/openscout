@@ -817,7 +817,7 @@ describe("createScoutMcpServer", () => {
       },
     });
     expect(sendTool?.inputSchema?.properties?.targetLabel?.description).toBe(
-      "Scout agent handle to contact, such as @talkie. Treat harness/model/profile as instance constraints, not the base agent identity.",
+      "Scout agent handle to contact when a specific target is known, such as @talkie. For fresh capability work prefer projectPath plus optional harness; do not guess generic handles like claude.main. Treat harness/model/profile as instance constraints, not the base agent identity.",
     );
     expect(askTool?.inputSchema?.properties?.to?.description).toContain(
       "Agent id, label",
