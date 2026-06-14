@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Open Section logo option</title>
+  <desc id="desc">A section sign opened at the upper loop into an outgoing route tail.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M284 92c-73-1-126 34-134 89-7 50 26 80 87 94l55 13c60 14 89 47 78 95-13 57-74 87-164 69" stroke-width="39"/>
+    <path d="M226 421c84 16 145-12 159-69 12-48-19-81-79-95l-55-13c-60-14-91-44-84-94 7-50 56-84 124-84" stroke-width="39"/>
+    <path d="M292 66c70 3 115 31 133 82" stroke-width="39"/>
+    <path d="M256 93v326" stroke-width="42"/>
+    <path d="M256 93v326" stroke="#f7f5ef" stroke-width="13"/>
+  </g>
+</svg>

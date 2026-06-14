@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  buildLocalAgentLaunchCommand,
   buildTmuxDispatchStrategy,
   buildTmuxLaunchShellCommand,
   buildTmuxPasteBufferArgs,
@@ -16,6 +17,30 @@ const brokerAskPrompt =
   "New broker ask from operator. Task: please refactor the dispatch path so it submits the prompt.";
 
 describe("tmux prompt delivery", () => {
+  test("claude launch command injects the scout channel MCP server", () => {
+    const command = buildLocalAgentLaunchCommand(
+      "shaper",
+      {
+        harness: "claude",
+        transport: "tmux",
+        tmuxSession: "relay-shaper-claude",
+        cwd: "/Users/arach/dev/openscout",
+        project: "openscout",
+        launchArgs: [],
+        startedAt: 0,
+      },
+      "/Users/arach/dev/openscout",
+      "/Users/arach/.openscout/runtime/agents/shaper/prompt.txt",
+    );
+
+    expect(command.startsWith("claude ")).toBe(true);
+    expect(command).toContain("--mcp-config");
+    expect(command).toContain("scout-channel");
+    expect(command).toContain("mcp__scout-channel__scout_channels_list");
+    expect(command).toContain("channel");
+    expect(command).toContain("--context-root");
+  });
+
   test("quotes launch scripts with spaces", () => {
     expect(buildTmuxLaunchShellCommand("/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"))
       .toBe('exec bash "/Users/arach/Library/Application Support/OpenScout/runtime/agents/spectator/launch.sh"');

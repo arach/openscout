@@ -72,6 +72,12 @@ export { createAdapter as createPiAdapter } from "./adapters/pi.js";
 export { createAdapter as createEchoAdapter } from "./adapters/echo.js";
 export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config.js";
 export {
+  buildScoutChannelClaudeLaunchArgs,
+  scoutChannelMcpAllowedToolIds,
+  SCOUT_CHANNEL_MCP_SERVER_NAME,
+  SCOUT_CHANNEL_MCP_TOOL_NAMES,
+} from "./claude-launch-config.js";
+export {
   resolveCodexExecutable,
   resolveCodexExecutableCandidates,
   resolveCodexExecutableInventory,

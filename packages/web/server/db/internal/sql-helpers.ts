@@ -60,6 +60,20 @@ export function sqlTimestampMsCoalesceExpression(valueExpression: string, fallba
 
 /* ── Agent endpoint join + flight predicates ── */
 
+/** Lower rank = preferred for UI display (interactive transports beat mesh listener). */
+export function sqlEndpointTransportDisplayPriority(transportColumn: string): string {
+  return `CASE ${transportColumn}
+    WHEN 'tmux' THEN 0
+    WHEN 'codex_app_server' THEN 1
+    WHEN 'claude_stream_json' THEN 2
+    WHEN 'pi_rpc' THEN 3
+    WHEN 'local_socket' THEN 4
+    WHEN 'claude_channel' THEN 100
+    ELSE 50
+  END`;
+}
+
+/** Most recently touched endpoint — used when freshness matters more than transport kind. */
 export const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
   SELECT ep2.id
   FROM agent_endpoints ep2
@@ -67,6 +81,30 @@ export const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id
   ORDER BY ${sqlTimestampMsCoalesceExpression("ep2.updated_at")} DESC
   LIMIT 1
 )`;
+
+/** Primary interactive endpoint for agent display — deprioritizes claude_channel heartbeats. */
+export const PRIMARY_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id = (
+  SELECT ep2.id
+  FROM agent_endpoints ep2
+  WHERE ep2.agent_id = a.id
+  ORDER BY ${sqlEndpointTransportDisplayPriority("ep2.transport")} ASC,
+           ${sqlTimestampMsCoalesceExpression("ep2.updated_at")} DESC
+  LIMIT 1
+)`;
+
+export const MESH_CHANNEL_HEARTBEAT_MAX_AGE_MS = 45_000;
+
+export function sqlMeshChannelActiveExpression(agentAlias: string): string {
+  const updatedAtMs = sqlTimestampMsCoalesceExpression("ep_mc.updated_at");
+  return `EXISTS (
+    SELECT 1
+    FROM agent_endpoints ep_mc
+    WHERE ep_mc.agent_id = ${agentAlias}.id
+      AND ep_mc.transport = 'claude_channel'
+      AND ep_mc.state != 'offline'
+      AND ${updatedAtMs} >= CAST((strftime('%s', 'now') * 1000 - ${MESH_CHANNEL_HEARTBEAT_MAX_AGE_MS}) AS INTEGER)
+  )`;
+}
 
 export function isExecutingFlightState(state: string | null): boolean {
   return state === "running";

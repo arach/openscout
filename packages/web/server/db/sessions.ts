@@ -24,7 +24,7 @@ import {
 } from "./internal/conversation-ids.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
 import {
-  LATEST_AGENT_ENDPOINT_JOIN,
+  PRIMARY_AGENT_ENDPOINT_JOIN,
   sqlTimestampMsExpression,
   transientBrokerWorkingStatusPredicate,
 } from "./internal/sql-helpers.ts";
@@ -266,7 +266,7 @@ function projectSessionConversationRows(
      FROM conversation_members cm
      JOIN agents a ON a.id = cm.actor_id
      JOIN actors ac ON ac.id = a.id
-     ${LATEST_AGENT_ENDPOINT_JOIN}
+     ${PRIMARY_AGENT_ENDPOINT_JOIN}
      WHERE cm.conversation_id = ?`,
   );
   const previewStmt = db().prepare(
@@ -501,7 +501,7 @@ export function synthesizeDirectSession(
         a.metadata_json
       FROM agents a
       JOIN actors ac ON ac.id = a.id
-      ${LATEST_AGENT_ENDPOINT_JOIN}
+      ${PRIMARY_AGENT_ENDPOINT_JOIN}
       WHERE a.id = ?`,
   ).get(agentId) as {
     agent_id: string;

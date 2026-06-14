@@ -6,16 +6,17 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import * as z from "zod/v4";
 
 import {
   loadScoutBrokerContext,
+  loadScoutInboxDeliveries,
+  loadScoutMessages,
+  listScoutChannelMemberships,
+  markScoutConversationRead,
   resolveScoutBrokerUrl,
   resolveScoutSenderId,
   replyToScoutMessage,
-  sendScoutMessage,
   sendScoutMessageToAgentIds,
-  askScoutAgentById,
   type ScoutBrokerContext,
 } from "../broker/service.ts";
 import { SCOUT_APP_VERSION } from "../../shared/product.ts";
@@ -32,6 +33,30 @@ type InboxStreamEvent = {
 };
 
 const scoutChannelStartedAt = Date.now();
+
+type ScoutChannelToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
+};
+
+function scoutChannelTextResult(text: string, isError = false): ScoutChannelToolResult {
+  return {
+    content: [{ type: "text", text }],
+    ...(isError ? { isError: true } : {}),
+  };
+}
+
+function scoutChannelJsonResult(value: unknown, isError = false): ScoutChannelToolResult {
+  return scoutChannelTextResult(JSON.stringify(value, null, 2), isError);
+}
+
+function parseOptionalLimit(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(parsed, 200);
+}
 
 async function resolveAgentId(
   currentDirectory: string,
@@ -294,8 +319,11 @@ export async function runScoutChannelServer(options: {
       instructions: [
         "You are connected to the Scout agent mesh.",
         "Incoming messages from other agents arrive as <channel source=\"scout\" ...> tags.",
-        "Read them and respond. Use the scout_reply tool with conversation_id and message_id to send threaded acknowledgements, progress, and completions back through the mesh.",
-        "Use scout_send for unprompted messages to other agents.",
+        "Read them and respond. Use scout_reply with conversation_id and message_id to send threaded acknowledgements, progress, and completions back through the mesh.",
+        "Use scout_send for unprompted messages to other agents or to post in a named channel.",
+        "For channel posts, prefer scout_reply with conversation_id and message_id from the incoming notification; otherwise use scout_send with channel set to the channel slug (for example homies).",
+        "Use scout_channels_list, scout_inbox_latest, scout_inbox_pending, and scout_channel_latest to catch up on mesh traffic you may have missed.",
+        "Use scout_mark_read after you have caught up on a channel or conversation.",
         `Your agent ID is ${agentId}.`,
       ].join(" "),
     },
@@ -303,6 +331,96 @@ export async function runScoutChannelServer(options: {
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
+      {
+        name: "scout_whoami",
+        description:
+          "Inspect the current Scout agent identity and broker URL for this channel session.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {},
+        },
+      },
+      {
+        name: "scout_channels_list",
+        description:
+          "List named Scout channels this agent belongs to, including shared workspace channels.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {},
+        },
+      },
+      {
+        name: "scout_inbox_latest",
+        description:
+          "Read recent direct or addressed Scout messages for this agent. Use this to catch up on mesh traffic you may have missed.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum number of messages to return (default 20, max 200).",
+            },
+            since: {
+              type: "number",
+              description: "Optional unix timestamp; only return messages after this time.",
+            },
+          },
+        },
+      },
+      {
+        name: "scout_inbox_pending",
+        description:
+          "List pending or claimable Scout inbox deliveries for this agent. Use this to find messages that may not have been pushed into the live session yet.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            limit: {
+              type: "number",
+              description: "Maximum number of inbox items to return (default 20, max 200).",
+            },
+          },
+        },
+      },
+      {
+        name: "scout_channel_latest",
+        description:
+          "Read recent messages from a named Scout channel. Defaults to the shared channel.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            channel: {
+              type: "string",
+              description: "Named channel slug such as shared, triage, or homepage-polish.",
+            },
+            limit: {
+              type: "number",
+              description: "Maximum number of messages to return (default 20, max 200).",
+            },
+            since: {
+              type: "number",
+              description: "Optional unix timestamp; only return messages after this time.",
+            },
+          },
+        },
+      },
+      {
+        name: "scout_mark_read",
+        description:
+          "Mark a Scout channel or conversation read for this agent and acknowledge delivered inbox items.",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            channel: {
+              type: "string",
+              description: "Named channel slug to mark read. Defaults to shared.",
+            },
+            conversation_id: {
+              type: "string",
+              description: "Optional explicit conversation id instead of channel slug.",
+            },
+          },
+        },
+      },
       {
         name: "scout_reply",
         description:
@@ -336,40 +454,141 @@ export async function runScoutChannelServer(options: {
       {
         name: "scout_send",
         description:
-          "Send a new message to another Scout agent. Use this for initiating contact, not for replies.",
+          "Send a new Scout message. Use to for a direct agent target, channel for a named channel post, or both to mention agents in a channel.",
         inputSchema: {
           type: "object" as const,
           properties: {
             to: {
               type: "string",
-              description: "The target agent ID or @handle",
+              description: "Optional target agent ID or @handle for a direct message or channel mention.",
+            },
+            channel: {
+              type: "string",
+              description: "Optional named channel slug such as homies or shared.",
             },
             text: {
               type: "string",
               description: "The message body",
             },
           },
-          required: ["to", "text"],
+          required: ["text"],
         },
       },
     ],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const args = (req.params.arguments ?? {}) as Record<string, string>;
+    const args = (req.params.arguments ?? {}) as Record<string, string | number>;
+
+    if (req.params.name === "scout_whoami") {
+      return scoutChannelJsonResult({
+        agentId,
+        brokerUrl: broker.baseUrl,
+        currentDirectory,
+      });
+    }
+
+    if (req.params.name === "scout_channels_list") {
+      return scoutChannelJsonResult({
+        agentId,
+        channels: listScoutChannelMemberships(broker.snapshot, agentId),
+      });
+    }
+
+    if (req.params.name === "scout_inbox_latest") {
+      const limit = parseOptionalLimit(
+        typeof args.limit === "number" ? String(args.limit) : args.limit?.toString(),
+        20,
+      );
+      const since = typeof args.since === "number"
+        ? args.since
+        : Number.parseInt(String(args.since ?? ""), 10);
+      const messages = await loadScoutMessages({
+        participantId: agentId,
+        inboxOnly: true,
+        limit,
+        since: Number.isFinite(since) && since > 0 ? since : undefined,
+        baseUrl: broker.baseUrl,
+      });
+      return scoutChannelJsonResult({
+        agentId,
+        limit,
+        since: Number.isFinite(since) && since > 0 ? since : null,
+        count: messages.length,
+        messages,
+      });
+    }
+
+    if (req.params.name === "scout_inbox_pending") {
+      const limit = parseOptionalLimit(
+        typeof args.limit === "number" ? String(args.limit) : args.limit?.toString(),
+        20,
+      );
+      const items = await loadScoutInboxDeliveries({
+        targetId: agentId,
+        limit,
+        statuses: "pending,accepted,deferred",
+        baseUrl: broker.baseUrl,
+      });
+      return scoutChannelJsonResult({
+        agentId,
+        limit,
+        count: items.length,
+        items,
+      });
+    }
+
+    if (req.params.name === "scout_channel_latest") {
+      const channel = String(args.channel ?? "shared").trim() || "shared";
+      const limit = parseOptionalLimit(
+        typeof args.limit === "number" ? String(args.limit) : args.limit?.toString(),
+        20,
+      );
+      const since = typeof args.since === "number"
+        ? args.since
+        : Number.parseInt(String(args.since ?? ""), 10);
+      const messages = await loadScoutMessages({
+        channel,
+        limit,
+        since: Number.isFinite(since) && since > 0 ? since : undefined,
+        baseUrl: broker.baseUrl,
+      });
+      return scoutChannelJsonResult({
+        channel,
+        limit,
+        since: Number.isFinite(since) && since > 0 ? since : null,
+        count: messages.length,
+        messages,
+      });
+    }
+
+    if (req.params.name === "scout_mark_read") {
+      const conversationId = String(args.conversation_id ?? "").trim() || undefined;
+      const channel = conversationId ? undefined : (String(args.channel ?? "shared").trim() || "shared");
+      const result = await markScoutConversationRead({
+        actorId: agentId,
+        channel,
+        conversationId,
+        metadata: { source: "scout-channel", action: "channel.mark-read" },
+        baseUrl: broker.baseUrl,
+      });
+      return scoutChannelJsonResult({
+        conversationId: result.cursor.conversationId,
+        actorId: agentId,
+        lastReadMessageId: result.cursor.lastReadMessageId ?? null,
+        acknowledgedDeliveries: result.acknowledgedDeliveries,
+      });
+    }
 
     if (req.params.name === "scout_reply") {
-      const to = args.to?.trim();
-      const text = args.text?.trim();
+      const to = String(args.to ?? "").trim();
+      const text = String(args.text ?? "").trim();
       if (!to || !text) {
-        return {
-          content: [{ type: "text", text: "Missing 'to' or 'text' argument." }],
-          isError: true,
-        };
+        return scoutChannelTextResult("Missing 'to' or 'text' argument.", true);
       }
 
-      const conversationId = args.conversation_id?.trim();
-      const replyToMessageId = args.message_id?.trim();
+      const conversationId = String(args.conversation_id ?? "").trim();
+      const replyToMessageId = String(args.message_id ?? "").trim();
       if (conversationId && replyToMessageId) {
         const result = await replyToScoutMessage({
           senderId: agentId,
@@ -381,15 +600,10 @@ export async function runScoutChannelServer(options: {
         });
 
         if (result.routingError || !result.usedBroker) {
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Scout reply was not sent: ${result.routingError ?? "broker is not reachable"}.`,
-              },
-            ],
-            isError: true,
-          };
+          return scoutChannelTextResult(
+            `Scout reply was not sent: ${result.routingError ?? "broker is not reachable"}.`,
+            true,
+          );
         }
       } else {
         await sendScoutMessageToAgentIds({
@@ -401,48 +615,48 @@ export async function runScoutChannelServer(options: {
         });
       }
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Replied to ${to}.`,
-          },
-        ],
-      };
+      return scoutChannelTextResult(`Replied to ${to}.`);
     }
 
     if (req.params.name === "scout_send") {
-      const to = args.to?.trim();
-      const text = args.text?.trim();
-      if (!to || !text) {
-        return {
-          content: [{ type: "text", text: "Missing 'to' or 'text' argument." }],
-          isError: true,
-        };
+      const to = String(args.to ?? "").trim();
+      const channel = String(args.channel ?? "").trim();
+      const text = String(args.text ?? "").trim();
+      if (!text || (!to && !channel)) {
+        return scoutChannelTextResult("Missing 'text' and either 'to' or 'channel'.", true);
       }
 
-      await sendScoutMessageToAgentIds({
+      const result = await sendScoutMessageToAgentIds({
         senderId: agentId,
         body: text,
-        targetAgentIds: [to],
+        targetAgentIds: to ? [to] : [],
+        channel: channel || undefined,
         currentDirectory,
         source: "scout-channel",
       });
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Sent to ${to}.`,
-          },
-        ],
-      };
+      if (result.routingError) {
+        return scoutChannelTextResult(`Scout send failed: ${result.routingError}.`, true);
+      }
+      if (!result.usedBroker) {
+        return scoutChannelTextResult("Scout broker is not reachable.", true);
+      }
+      if (result.unresolvedTargetIds.length > 0) {
+        return scoutChannelTextResult(
+          `Unresolved targets: ${result.unresolvedTargetIds.join(", ")}.`,
+          true,
+        );
+      }
+
+      const destination = channel
+        ? `#${channel}`
+        : to;
+      return scoutChannelTextResult(
+        `Sent to ${destination}${result.conversationId ? ` (${result.conversationId})` : ""}.`,
+      );
     }
 
-    return {
-      content: [{ type: "text", text: `Unknown tool: ${req.params.name}` }],
-      isError: true,
-    };
+    return scoutChannelTextResult(`Unknown tool: ${req.params.name}`, true);
   });
 
   const transport = new StdioServerTransport();

@@ -5,8 +5,12 @@ import { mkdir, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { SessionState } from "@openscout/agent-sessions";
-import { resolveCodexExecutableInventory } from "@openscout/agent-sessions/codex-executable";
+import {
+  buildScoutChannelClaudeLaunchArgs,
+  resolveCodexExecutableInventory,
+  scoutChannelMcpAllowedToolIds,
+  type SessionState,
+} from "@openscout/agent-sessions";
 import type {
   AgentCapability,
   ActorIdentity,
@@ -931,16 +935,23 @@ function hasClaudeAllowedToolsArg(launchArgs: string[]): boolean {
   );
 }
 
-export function normalizeClaudeRuntimeLaunchArgs(value: unknown): string[] {
+export function normalizeClaudeRuntimeLaunchArgs(
+  value: unknown,
+  options: { channelMcp?: boolean } = {},
+): string[] {
   const launchArgs = normalizeLocalAgentLaunchArgs(value);
   if (hasClaudeAllowedToolsArg(launchArgs)) {
     return launchArgs;
   }
 
+  const allowedTools = options.channelMcp === false
+    ? DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS
+    : [...scoutChannelMcpAllowedToolIds(), "Bash(scout:*)"];
+
   return [
     ...launchArgs,
     "--allowedTools",
-    DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+    allowedTools.join(","),
   ];
 }
 
@@ -3060,7 +3071,7 @@ function buildLocalAgentBootstrapPrompt(_harness: AgentHarness, _systemPrompt: s
   return initialMessage;
 }
 
-function buildLocalAgentLaunchCommand(
+export function buildLocalAgentLaunchCommand(
   agentName: string,
   record: LocalAgentRecord,
   projectPath: string,
@@ -3070,7 +3081,7 @@ function buildLocalAgentLaunchCommand(
   const harness = normalizeLocalAgentHarness(record.harness);
   const extraArgs = shellQuoteArguments(
     harness === "claude"
-      ? normalizeClaudeRuntimeLaunchArgs(record.launchArgs)
+      ? normalizeClaudeRuntimeLaunchArgs(record.launchArgs, { channelMcp: true })
       : normalizeLaunchArgsForHarness(harness, record.launchArgs),
   );
   if (harness === "codex") {
@@ -3090,11 +3101,19 @@ function buildLocalAgentLaunchCommand(
       .join(" ");
   }
 
+  const channelArgs = shellQuoteArguments(
+    buildScoutChannelClaudeLaunchArgs({
+      currentDirectory: projectPath,
+      agentName,
+    }),
+  );
+
   return [
     "claude",
     `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
     "--name",
     JSON.stringify(`${agentName}-relay-agent`),
+    channelArgs,
     extraArgs,
   ]
     .filter(Boolean)

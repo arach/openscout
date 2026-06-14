@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1040" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout silcrow logo SVG contact sheet</title>
+  <desc id="desc">Six monochrome OpenScout logo options derived from the section sign or silcrow glyph.</desc>
+  <rect width="1440" height="1040" fill="#f7f5ef"/>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" fill="#111111">
+    <text x="80" y="86" font-size="40" font-weight="650">OpenScout § / silcrow logo options</text>
+    <text x="80" y="126" font-size="20" fill="#55504a">First-pass monochrome vectors. Three literal, three abstract. No color pass yet.</text>
+  </g>
+
+  <defs>
+    <style>
+      .card { fill: #fffdf8; stroke: rgba(17,17,17,.13); stroke-width: 2; }
+      .kicker { font: 700 16px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #77716a; letter-spacing: .08em; }
+      .name { font: 650 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111; }
+      .note { font: 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #58534c; }
+    </style>
+  </defs>
+
+  <g transform="translate(80 180)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./01-silcrow-spine.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">01</text>
+    <text class="name" x="34" y="306">Silcrow Spine</text>
+    <text class="note" x="34" y="334">Broker spine, curves dock in.</text>
+  </g>
+
+  <g transform="translate(525 180)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./02-handoff-knot.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">02</text>
+    <text class="name" x="34" y="306">Handoff Knot</text>
+    <text class="note" x="34" y="334">Ownership transfer, less legal.</text>
+  </g>
+
+  <g transform="translate(970 180)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./03-mesh-node.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">03</text>
+    <text class="name" x="34" y="306">Mesh Node</text>
+    <text class="note" x="34" y="334">Network diagram in § rhythm.</text>
+  </g>
+
+  <g transform="translate(80 590)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./04-threading-eye.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">04</text>
+    <text class="name" x="34" y="306">Threading Eye</text>
+    <text class="note" x="34" y="334">Context threaded through a seam.</text>
+  </g>
+
+  <g transform="translate(525 590)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./05-section-slash.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">05</text>
+    <text class="name" x="34" y="306">Section Slash</text>
+    <text class="note" x="34" y="334">Path slash absorbs the crossings.</text>
+  </g>
+
+  <g transform="translate(970 590)">
+    <rect class="card" width="390" height="360" rx="18"/>
+    <image href="./06-open-section.svg" x="91" y="26" width="208" height="208"/>
+    <text class="kicker" x="34" y="272">06</text>
+    <text class="name" x="34" y="306">Open Section</text>
+    <text class="note" x="34" y="334">Literal § opening into a route.</text>
+  </g>
+</svg>

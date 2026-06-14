@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Threading Eye logo option</title>
+  <desc id="desc">Opposing curves thread through a narrow vertical seam, borrowing the section sign's interlock without using the literal glyph.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 85v342" stroke-width="45"/>
+    <path d="M256 85v342" stroke="#f7f5ef" stroke-width="13"/>
+    <path d="M258 139C141 143 105 219 217 254c-112 35-76 111 41 116" stroke-width="39"/>
+    <path d="M254 139c117 4 153 80 41 115 112 36 76 112-41 116" stroke-width="39"/>
+    <circle cx="256" cy="254" r="11" fill="#111111" stroke="none"/>
+  </g>
+</svg>

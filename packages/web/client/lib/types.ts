@@ -36,6 +36,15 @@ export type Agent = {
   staleLocalRegistration: boolean;
   retiredFromFleet: boolean;
   replacedByAgentId: string | null;
+  meshChannelActive: boolean;
+  channelMemberships: AgentChannelMembership[];
+};
+
+export type AgentChannelMembership = {
+  channel: string;
+  conversationId: string;
+  title: string;
+  participantCount: number;
 };
 
 export type ObservedHarnessTopology = {

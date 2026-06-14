@@ -10,6 +10,10 @@ import {
 import { actorColor, stateColor } from "../../lib/colors.ts";
 import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
+import {
+  formatAgentTransportLabel,
+  formatChannelMembershipLabel,
+} from "../../lib/agent-capabilities.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
@@ -714,11 +718,33 @@ function AgentContextPanel({
         <Row label="Class" value={agent.agentClass} />
         {agent.role && <Row label="Role" value={agent.role} />}
         {agent.harness && <Row label="Harness" value={agent.harness} />}
-        {agent.transport && <Row label="Transport" value={agent.transport} />}
+        {agent.transport && (
+          <Row
+            label="Transport"
+            value={formatAgentTransportLabel(agent.transport) ?? agent.transport}
+          />
+        )}
+        {agent.meshChannelActive && <Row label="Mesh channel" value="Active" />}
         {(agent.homeNodeName || agent.homeNodeId) && (
           <Row label="Host" value={shortHostLabel(agent.homeNodeName ?? agent.homeNodeId ?? "")} />
         )}
       </Section>
+
+      {agent.channelMemberships.length > 0 && (
+        <Section label={`Channels · ${agent.channelMemberships.length}`}>
+          <div className="flex flex-wrap gap-1">
+            {agent.channelMemberships.map((membership) => (
+              <span
+                key={membership.conversationId}
+                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
+                title={membership.title}
+              >
+                #{formatChannelMembershipLabel(membership)}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* Project */}
       {(agent.project || agent.branch || agent.cwd) && (

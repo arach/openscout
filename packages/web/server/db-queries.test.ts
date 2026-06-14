@@ -940,6 +940,61 @@ describe("web db query agents", () => {
     }
   });
 
+  test("prefers interactive transport over claude_channel for agent display", () => {
+    const store = createSeededStore();
+
+    try {
+      store.upsertEndpoint({
+        id: "agent-1-tmux",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "tmux",
+        state: "idle",
+        projectRoot: "/tmp/agent-1-tmux",
+        sessionId: "relay-agent-1-claude",
+      });
+      store.upsertEndpoint({
+        id: "agent-1-channel",
+        agentId: "agent-1",
+        nodeId: "node-1",
+        harness: "claude",
+        transport: "claude_channel",
+        state: "active",
+        projectRoot: "/tmp/agent-1-tmux",
+      });
+      store.upsertConversation({
+        id: "channel.homies",
+        kind: "channel",
+        title: "homies",
+        visibility: "workspace",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-1", "operator"],
+        metadata: { channel: "homies" },
+      });
+
+      const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
+      try {
+        const nowMs = Date.now();
+        const setUpdatedAt = rawDb.query("UPDATE agent_endpoints SET updated_at = ?1 WHERE id = ?2");
+        setUpdatedAt.run(Math.floor(nowMs / 1000) - 120, "agent-1-tmux");
+        setUpdatedAt.run(Math.floor(nowMs / 1000), "agent-1-channel");
+      } finally {
+        rawDb.close();
+      }
+
+      const agent = queryAgentById("agent-1");
+
+      expect(agent?.transport).toBe("tmux");
+      expect(agent?.harness).toBe("claude");
+      expect(agent?.meshChannelActive).toBe(true);
+      expect(agent?.channelMemberships.map((entry) => entry.channel).sort()).toEqual(["homies", "shared"]);
+    } finally {
+      store.close();
+    }
+  });
+
   test("synthesizes a direct session for an agent even before the first message", () => {
     const store = createSeededStore();
 

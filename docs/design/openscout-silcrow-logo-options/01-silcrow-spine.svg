@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Silcrow Spine logo option</title>
+  <desc id="desc">A section sign reworked as a heavy broker spine with two routing curves docking into it.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M280 93C190 88 136 132 137 191c1 42 31 69 85 82l72 18c54 14 83 41 83 83 0 59-58 95-150 88" stroke-width="38"/>
+    <path d="M232 419c91 7 144-36 143-95-1-43-31-70-85-83l-72-18c-54-14-83-41-83-83 0-58 57-95 146-88" stroke-width="38"/>
+    <path d="M256 74v364" stroke-width="58"/>
+    <path d="M256 74v364" stroke="#f7f5ef" stroke-width="18"/>
+  </g>
+</svg>

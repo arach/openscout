@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Handoff Knot logo option</title>
+  <desc id="desc">Two open curves touch at the handoff point, abstracting the section sign into a transfer mark.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M333 132C221 125 142 177 174 246c15 33 48 48 82 50 30 2 59 14 74 43 30 58-35 109-142 101" stroke-width="42"/>
+    <path d="M180 381c111 8 190-44 158-113-15-33-48-48-82-50-30-2-59-14-74-43-30-58 35-109 142-101" stroke-width="42"/>
+    <circle cx="256" cy="256" r="17" fill="#111111" stroke="none"/>
+  </g>
+</svg>

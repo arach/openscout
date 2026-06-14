@@ -45,6 +45,15 @@ export type WebAgent = {
   staleLocalRegistration: boolean;
   retiredFromFleet: boolean;
   replacedByAgentId: string | null;
+  meshChannelActive: boolean;
+  channelMemberships: WebAgentChannelMembership[];
+};
+
+export type WebAgentChannelMembership = {
+  channel: string;
+  conversationId: string;
+  title: string;
+  participantCount: number;
 };
 
 export type WebActivityItem = {

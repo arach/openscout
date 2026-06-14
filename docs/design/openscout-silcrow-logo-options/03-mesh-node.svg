@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Mesh Node logo option</title>
+  <desc id="desc">A network diagram whose routing curves trace the rhythm of a section sign around a central node.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M162 92C300 91 223 234 353 234c76 0 90 92 12 137-43 25-93 32-144 22" stroke-width="31"/>
+    <path d="M350 95C214 96 289 275 159 275c-76 0-90 91-12 136 41 24 91 32 142 24" stroke-width="31"/>
+    <path d="M256 206l48 48-48 48-48-48z" fill="#111111" stroke="none"/>
+    <circle cx="160" cy="92" r="16" fill="#111111" stroke="none"/>
+    <circle cx="352" cy="95" r="16" fill="#111111" stroke="none"/>
+    <circle cx="145" cy="411" r="16" fill="#111111" stroke="none"/>
+    <circle cx="366" cy="371" r="16" fill="#111111" stroke="none"/>
+  </g>
+</svg>

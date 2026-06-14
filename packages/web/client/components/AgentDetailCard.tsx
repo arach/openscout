@@ -3,6 +3,7 @@ import "./agent-detail-card.css";
 import { forwardRef } from "react";
 import type { Agent } from "../lib/types.ts";
 import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { formatAgentTransportLabel } from "../lib/agent-capabilities.ts";
 import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
 import { AgentLiveActions } from "./AgentLiveActions.tsx";
@@ -102,7 +103,12 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
 
           {agent.transport && (
             <Field label="transport">
-              <span className="agent-card-mono">{agent.transport}</span>
+              <span className="agent-card-mono">
+                {formatAgentTransportLabel(agent.transport) ?? agent.transport}
+              </span>
+              {agent.meshChannelActive && (
+                <span className="agent-card-mono"> · mesh</span>
+              )}
             </Field>
           )}
 

@@ -47,6 +47,8 @@ const agents: WebAgent[] = [
     staleLocalRegistration: false,
     retiredFromFleet: false,
     replacedByAgentId: null,
+    meshChannelActive: false,
+    channelMemberships: [],
   },
 ];
 

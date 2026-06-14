@@ -11,6 +11,7 @@ import { conversationIdForAgent } from "../internal/conversation-ids.ts";
 import { compact } from "../internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
+  PRIMARY_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
   queryExecutingAgentIds,
   sqlTimestampMsExpression,
@@ -114,7 +115,7 @@ export function queryMobileAgents(
        ${endpointUpdatedAtExpression} AS updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
-     ${LATEST_AGENT_ENDPOINT_JOIN}
+     ${PRIMARY_AGENT_ENDPOINT_JOIN}
      WHERE ${whereClauses.join(" AND ")}
      ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) DESC, ac.display_name ASC
      LIMIT ?`,
@@ -178,7 +179,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
        ${endpointUpdatedAtExpression} AS updated_at
      FROM agents a
      JOIN actors ac ON ac.id = a.id
-     ${LATEST_AGENT_ENDPOINT_JOIN}
+     ${PRIMARY_AGENT_ENDPOINT_JOIN}
      WHERE a.id = ?
        AND ${activeAgentMetadataPredicate("a")}`,
   ).get(agentId) as {

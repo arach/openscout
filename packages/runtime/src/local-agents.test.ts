@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { scoutChannelMcpAllowedToolIds } from "@openscout/agent-sessions";
 import {
   DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -519,14 +520,28 @@ describe("local agent prompts", () => {
     expect(prompt).not.toContain("Requested action:");
   });
 
-  test("claude runtime launch args preapprove Scout MCP coordination tools", () => {
-    const args = normalizeClaudeRuntimeLaunchArgs(["--model", "sonnet"]);
+  test("claude runtime launch args preapprove full Scout MCP coordination tools", () => {
+    const args = normalizeClaudeRuntimeLaunchArgs(["--model", "sonnet"], { channelMcp: false });
 
     expect(args).toEqual([
       "--model",
       "sonnet",
       "--allowedTools",
       DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+    ]);
+  });
+
+  test("claude runtime launch args preapprove scout-channel MCP tools by default", () => {
+    const args = normalizeClaudeRuntimeLaunchArgs(["--model", "sonnet"]);
+
+    expect(args).toEqual([
+      "--model",
+      "sonnet",
+      "--allowedTools",
+      [
+        ...scoutChannelMcpAllowedToolIds(),
+        "Bash(scout:*)",
+      ].join(","),
     ]);
   });
 

@@ -34,6 +34,10 @@ import {
 } from "../lib/mission-control-store.ts";
 import { normalizeAgentState, agentStateLabel } from "../lib/agent-state.ts";
 import {
+  formatAgentTransportLabel,
+  formatChannelMemberships,
+} from "../lib/agent-capabilities.ts";
+import {
   summarizeObserveEvent,
   useObservePolling,
   type ObserveCacheEntry,
@@ -1640,12 +1644,16 @@ function FocusOverlay({
 }
 
 function FocusProfileTab({ agent }: { agent: Agent }) {
+  const channelSummary = formatChannelMemberships(agent);
   const rows: Array<[string, string]> = [
     ["MODEL", [agent.harness, agent.model].filter(Boolean).join("/") || "—"],
     ["AT", [agent.project, agent.branch].filter(Boolean).join("/") || "—"],
     ["CWD", agent.cwd || agent.projectRoot || "—"],
     ["AGENT", agent.agentClass || "—"],
-    ["ROLE", agent.role || agent.transport || "—"],
+    ["ROLE", agent.role || "—"],
+    ["TRANSPORT", formatAgentTransportLabel(agent.transport) ?? agent.transport ?? "—"],
+    ...(agent.meshChannelActive ? [["MESH", "active"] as [string, string]] : []),
+    ...(channelSummary ? [["CHANNELS", channelSummary] as [string, string]] : []),
     ["MACHINE", agent.authorityNodeName ?? agent.homeNodeName ?? agent.authorityNodeId ?? agent.homeNodeId ?? "—"],
     ["OWNER", agent.ownerHandle ?? agent.ownerName ?? agent.ownerId ?? "—"],
     ["SPAWNED", agent.createdAt ? timeAgo(agent.createdAt) : "—"],

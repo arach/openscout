@@ -40,6 +40,7 @@ import {
   type WakePolicy,
   type WorkItemRecord,
   type WorkItemState,
+  type InboxItem,
   type ScoutReturnAddress,
   type ScoutRouteTarget,
 } from "@openscout/protocol";
@@ -4361,6 +4362,115 @@ function flightReferenceMatches(flight: ScoutFlightRecord, ref: string): boolean
 
 function isTerminalFlightStateValue(state: string | null | undefined): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+export type ScoutChannelMembership = {
+  channel: string;
+  conversationId: string;
+  title: string;
+  visibility: ConversationDefinition["visibility"];
+  shareMode: ConversationDefinition["shareMode"];
+  participantCount: number;
+};
+
+function channelSlugForConversation(conversation: ConversationDefinition): string {
+  const metadataChannel = metadataString(conversation.metadata, "channel")?.trim();
+  if (metadataChannel) {
+    return metadataChannel;
+  }
+  if (conversation.id === BROKER_SHARED_CHANNEL_ID) {
+    return "shared";
+  }
+  if (conversation.id === BROKER_VOICE_CHANNEL_ID) {
+    return "voice";
+  }
+  if (conversation.id.startsWith("channel.")) {
+    return conversation.id.slice("channel.".length);
+  }
+  return conversation.id;
+}
+
+export function listScoutChannelMemberships(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): ScoutChannelMembership[] {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) {
+    return [];
+  }
+
+  const memberships = new Map<string, ScoutChannelMembership>();
+
+  const addMembership = (conversation: ConversationDefinition) => {
+    if (conversation.kind !== "channel") {
+      return;
+    }
+    memberships.set(conversation.id, {
+      channel: channelSlugForConversation(conversation),
+      conversationId: conversation.id,
+      title: conversation.title,
+      visibility: conversation.visibility,
+      shareMode: conversation.shareMode,
+      participantCount: conversation.participantIds.length,
+    });
+  };
+
+  for (const conversation of Object.values(snapshot.conversations ?? {})) {
+    if (!conversation.participantIds.includes(normalizedAgentId)) {
+      continue;
+    }
+    addMembership(conversation);
+  }
+
+  if (snapshot.agents[normalizedAgentId] && !memberships.has(BROKER_SHARED_CHANNEL_ID)) {
+    const sharedConversation = snapshot.conversations[BROKER_SHARED_CHANNEL_ID];
+    if (sharedConversation) {
+      addMembership(sharedConversation);
+    } else {
+      memberships.set(BROKER_SHARED_CHANNEL_ID, {
+        channel: "shared",
+        conversationId: BROKER_SHARED_CHANNEL_ID,
+        title: "shared-channel",
+        visibility: "workspace",
+        shareMode: "shared",
+        participantCount: 0,
+      });
+    }
+  }
+
+  return [...memberships.values()].sort((left, right) => left.channel.localeCompare(right.channel));
+}
+
+export async function loadScoutInboxDeliveries(
+  options: {
+    targetId: string;
+    limit?: number;
+    statuses?: string;
+    baseUrl?: string;
+  },
+): Promise<InboxItem[]> {
+  const targetId = options.targetId.trim();
+  if (!targetId) {
+    return [];
+  }
+
+  const search = new URLSearchParams();
+  search.set("targetId", targetId);
+  if (
+    typeof options.limit === "number" &&
+    Number.isFinite(options.limit) &&
+    options.limit > 0
+  ) {
+    search.set("limit", String(options.limit));
+  }
+  if (options.statuses?.trim()) {
+    search.set("status", options.statuses.trim());
+  }
+
+  return brokerReadJson<InboxItem[]>(
+    options.baseUrl ?? resolveScoutBrokerUrl(),
+    `/v1/inbox?${search.toString()}`,
+  );
 }
 
 export async function loadScoutMessages(

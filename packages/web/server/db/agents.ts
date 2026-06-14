@@ -7,14 +7,16 @@
  * back into db-queries.ts.
  */
 
+import { queryChannelMembershipsByAgentIds } from "./channel-memberships.ts";
 import { db } from "./internal/db.ts";
 import { conversationIdForAgent } from "./internal/conversation-ids.ts";
 import { metadataString } from "./internal/parse.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
 import {
-  LATEST_AGENT_ENDPOINT_JOIN,
+  PRIMARY_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
   queryExecutingAgentIds,
+  sqlMeshChannelActiveExpression,
   sqlTimestampMsExpression,
   summarizeAgentState,
 } from "./internal/sql-helpers.ts";
@@ -49,6 +51,7 @@ type AgentQueryRow = {
   session_id: string | null;
   endpoint_metadata_json: string | null;
   updated_at: number | null;
+  mesh_channel_active: number;
 };
 
 export function queryAgents(limit = 500): WebAgent[] {
@@ -85,13 +88,14 @@ export function queryAgents(limit = 500): WebAgent[] {
          ep.cwd,
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json,
-         ${endpointUpdatedAtExpression} AS updated_at
+         ${endpointUpdatedAtExpression} AS updated_at,
+         CASE WHEN ${sqlMeshChannelActiveExpression("a")} THEN 1 ELSE 0 END AS mesh_channel_active
        FROM agents a
        JOIN actors ac ON ac.id = a.id
        LEFT JOIN nodes an ON an.id = a.authority_node_id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
        LEFT JOIN actors oa ON oa.id = a.owner_id
-       ${LATEST_AGENT_ENDPOINT_JOIN}
+       ${PRIMARY_AGENT_ENDPOINT_JOIN}
        WHERE ${activeAgentMetadataPredicate("a")}
        ORDER BY COALESCE(${endpointUpdatedAtExpression}, 0) DESC, ac.display_name ASC
        LIMIT ?`,
@@ -135,13 +139,14 @@ export function queryAgentById(agentId: string): WebAgent | null {
          ep.cwd,
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json,
-         ${endpointUpdatedAtExpression} AS updated_at
+         ${endpointUpdatedAtExpression} AS updated_at,
+         CASE WHEN ${sqlMeshChannelActiveExpression("a")} THEN 1 ELSE 0 END AS mesh_channel_active
        FROM agents a
        JOIN actors ac ON ac.id = a.id
        LEFT JOIN nodes an ON an.id = a.authority_node_id
        LEFT JOIN nodes hn ON hn.id = a.home_node_id
        LEFT JOIN actors oa ON oa.id = a.owner_id
-       ${LATEST_AGENT_ENDPOINT_JOIN}
+       ${PRIMARY_AGENT_ENDPOINT_JOIN}
        WHERE a.id = ?
          AND ${activeAgentMetadataPredicate("a")}
        LIMIT 1`,
@@ -152,6 +157,7 @@ export function queryAgentById(agentId: string): WebAgent | null {
 }
 
 function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): WebAgent[] {
+  const channelMemberships = queryChannelMembershipsByAgentIds(rows.map((row) => row.id));
   return rows.map((r) => {
     let capabilities: string[] = [];
     try { capabilities = r.capabilities_json ? JSON.parse(r.capabilities_json) : []; } catch {}
@@ -198,6 +204,8 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       staleLocalRegistration: meta.staleLocalRegistration === true,
       retiredFromFleet: meta.retiredFromFleet === true,
       replacedByAgentId: metadataString(meta, "replacedByAgentId") ?? null,
+      meshChannelActive: r.mesh_channel_active === 1,
+      channelMemberships: channelMemberships.get(r.id) ?? [],
     };
   });
 }

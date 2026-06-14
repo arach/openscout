@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">OpenScout Section Slash logo option</title>
+  <desc id="desc">A command slash with absorbed section-sign crossings, tying the glyph to paths and routing.</desc>
+  <rect width="512" height="512" fill="#f7f5ef"/>
+  <g fill="none" stroke="#111111" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M184 426L333 86" stroke-width="58"/>
+    <path d="M301 114c-76 1-114 34-103 78 10 39 50 52 91 60" stroke-width="35"/>
+    <path d="M222 260c63 12 99 33 93 76-7 49-55 75-131 68" stroke-width="35"/>
+    <path d="M184 426L333 86" stroke="#f7f5ef" stroke-width="17"/>
+  </g>
+</svg>

@@ -11,6 +11,10 @@ import { agentIdFromConversation } from "../lib/router.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../lib/time.ts";
 import { formatLabel } from "../lib/text.ts";
+import {
+  formatAgentTransportLabel,
+  formatChannelMemberships,
+} from "../lib/agent-capabilities.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
@@ -194,7 +198,18 @@ export function AgentInfoScreen({
   const runtimeItems: ProfileField[] = [
     ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
     ...(agent.model ? [{ label: "Model", value: agent.model }] : []),
-    ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
+    ...(agent.transport
+      ? [{
+          label: "Transport",
+          value: formatAgentTransportLabel(agent.transport) ?? agent.transport,
+        }]
+      : []),
+    ...(agent.meshChannelActive
+      ? [{ label: "Mesh channel", value: "Active" }]
+      : []),
+    ...(formatChannelMemberships(agent)
+      ? [{ label: "Channels", value: formatChannelMemberships(agent)! }]
+      : []),
     ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
   ];
