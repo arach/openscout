@@ -72,6 +72,7 @@
   padding: 4px 9px;
   border-radius: 999px;
   border: 1px solid var(--s-border);
+  background: transparent;
   font-family: var(--s-font-mono);
   font-size: 9.5px;
   font-weight: 600;
@@ -81,16 +82,59 @@
   white-space: nowrap;
 }
 
+.chip:hover {
+  color: var(--s-ink);
+  border-color: var(--s-border-strong, var(--s-muted));
+}
+
 .chip.active {
   color: var(--s-accent);
   background: var(--s-accent-soft);
   border-color: transparent;
 }
 
-.chipDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+/* ── Active-filter banner (shown when a facet pick narrows the stream) ─ */
+
+.filterBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 18px;
+  background: var(--s-accent-soft);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.filterText {
+  font-size: 11.5px;
+  color: var(--s-accent);
+}
+
+.filterText b {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.filterCount {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.filterClear {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  cursor: pointer;
+}
+
+.filterClear:hover {
+  color: var(--s-ink);
 }
 
 /* ── Stream (the shell's .ev grid + tone chips) ────────────────────── */
@@ -154,6 +198,298 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+/* ── Inspector: restructured (Vitals · Distribution · footer) ──────── */
+
+.insp {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* Shared section head — one quiet mono label for every block. */
+.groupLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* Vitals — flat stat readouts, Instrument language: no boxes, value over a
+   micro label, separated by hairline dividers. */
+.vitals {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px;
+}
+
+.stat + .stat {
+  border-left: 1px solid var(--s-hairline);
+}
+
+.stat:first-child {
+  padding-left: 0;
+}
+
+.statValue {
+  font-family: var(--s-font-mono);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--s-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  font-family: var(--s-font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+/* Distribution — faceted; one breakdown on screen at a time. */
+.dist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.distHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.distTotal {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.segs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+}
+
+.seg {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.seg:hover {
+  color: var(--s-ink);
+}
+
+.segOn {
+  color: var(--s-ink);
+  background: var(--s-bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: 78px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bar:hover {
+  background: color-mix(in srgb, var(--s-accent) 7%, transparent);
+}
+
+.barOn {
+  background: var(--s-accent-soft);
+}
+
+.barLabel {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barOn .barLabel {
+  color: var(--s-accent);
+}
+
+.barTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--s-ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--s-accent) 55%, transparent);
+}
+
+.barOn .barFill {
+  background: var(--s-accent);
+}
+
+.barMetric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.barCount {
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.barOn .barCount {
+  color: var(--s-accent);
+}
+
+.barPct {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+  width: 26px;
+  text-align: right;
+}
+
+/* Footer — settings + collapsed glossary, ranked below the live signal. */
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.toggleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.check {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid var(--s-border);
+  color: var(--s-bg);
+  background: var(--s-surface);
+}
+
+.check[data-on="true"] {
+  background: var(--s-accent);
+  border-color: transparent;
+}
+
+.toggleText {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--s-muted);
+}
+
+.disc {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.discHead {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.discCaret {
+  display: inline-flex;
+  color: var(--s-dim);
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
+}
+
+.discCaret[data-open="true"] {
+  transform: rotate(0deg);
+}
+
+.tracks {
+  display: flex;
+  flex-direction: column;
+}
+
+.track {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.trackLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--s-muted);
+}
+
+.trackDetail {
+  font-size: 11px;
+  color: var(--s-dim);
+  line-height: 1.4;
 }
 
 /* ── Vocabulary legend (implementation spec for ScoutModels.swift) ──── */

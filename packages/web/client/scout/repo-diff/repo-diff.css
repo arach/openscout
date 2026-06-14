@@ -316,7 +316,7 @@
   overflow: auto;
 }
 .rd-codeview {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
   /* Pierre's CodeView root IS the element it virtualizes and `scrollTo`s, so it
      must be the bounded scroll container (otherwise an ancestor scrolls and
      scroll-to-file has nothing to move). */

@@ -379,6 +379,70 @@ const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = 
   includeBinaryPatch: false,
 };
 
+const REPO_DIFF_SUMMARY_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
+  ...REPO_DIFF_VIEWER_LIMITS,
+  includeRawPatch: false,
+  includeParsedHunks: false,
+};
+
+const REPO_DIFF_CACHE_MAX_ENTRIES = 64;
+const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["unstaged", "staged"];
+
+type RepoDiffCacheMode = "reload" | "prefer" | "only";
+type RepoDiffTier = "patch" | "summary";
+type RepoDiffCacheEntry = {
+  snapshot: ScoutRepoDiffSnapshot;
+  storedAt: number;
+};
+
+function parseRepoDiffCacheMode(value: string | undefined, force: string | undefined): RepoDiffCacheMode {
+  if (force === "1" || force === "true") return "reload";
+  switch (value) {
+    case "only":
+      return "only";
+    case "prefer":
+      return "prefer";
+    case "reload":
+    case "refresh":
+    case "live":
+      return "reload";
+    default:
+      return "reload";
+  }
+}
+
+function parseRepoDiffTier(value: string | undefined): RepoDiffTier {
+  return value === "summary" ? "summary" : "patch";
+}
+
+function wantsRepoDiffRehydrate(value: string | undefined): boolean {
+  return value === "1" || value === "true";
+}
+
+function repoDiffCacheKey(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  baseRef: string | undefined;
+  compareRef: string | undefined;
+  tier: RepoDiffTier;
+}): string {
+  return [
+    input.worktreePath.trim(),
+    input.layers.join(","),
+    input.baseRef ?? "",
+    input.compareRef ?? "",
+    input.tier,
+  ].join("\u0000");
+}
+
+function trimRepoDiffCache(cache: Map<string, RepoDiffCacheEntry>): void {
+  while (cache.size > REPO_DIFF_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (!oldest) break;
+    cache.delete(oldest);
+  }
+}
+
 type FleetHomeBrief = {
   id: string;
   statement: string;
@@ -1387,7 +1451,10 @@ function buildAgentSessionCatalogPayload(input: {
           ...(historyPath ? { historyPath } : {}),
           source,
           canObserve: Boolean(historyPath) || input.transport === "tmux",
-          canTakeover: Boolean(resumeCommand),
+          // tmux is taken over by grabbing the live pane (no resume command —
+          // see resumeCommand above, which is null for tmux on purpose); other
+          // transports need a resume command. Both paths are takeoverable.
+          canTakeover: input.transport === "tmux" || Boolean(resumeCommand),
         },
         ...catalog.sessions,
       ]
@@ -2646,6 +2713,28 @@ export async function createOpenScoutWebServer(
   }
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
+  const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
+  const repoDiffInFlight = new Map<string, Promise<ScoutRepoDiffSnapshot>>();
+  const runCachedRepoDiff = (
+    key: string,
+    runRepoDiff: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>,
+    snapshotOptions: RepoDiffSnapshotOptions,
+  ): Promise<ScoutRepoDiffSnapshot> => {
+    const active = repoDiffInFlight.get(key);
+    if (active) return active;
+    const request = runRepoDiff(snapshotOptions)
+      .then((snapshot) => {
+        repoDiffCache.delete(key);
+        repoDiffCache.set(key, { snapshot, storedAt: Date.now() });
+        trimRepoDiffCache(repoDiffCache);
+        return snapshot;
+      })
+      .finally(() => {
+        repoDiffInFlight.delete(key);
+      });
+    repoDiffInFlight.set(key, request);
+    return request;
+  };
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
     const now = Date.now();
     if (!force && fleetHomeBrief && fleetHomeBrief.expiresAt > now) {
@@ -4694,17 +4783,57 @@ export async function createOpenScoutWebServer(
     const baseRef = c.req.query("baseRef");
     const compareRef = c.req.query("compareRef");
     const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
+    const tier = parseRepoDiffTier(c.req.query("tier"));
+    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
+    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
+    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
+    const trimmedPath = path.trim();
+    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
+    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
+    const cacheKey = repoDiffCacheKey({
+      worktreePath: trimmedPath,
+      layers: resolvedLayers,
+      baseRef: trimmedBaseRef,
+      compareRef: trimmedCompareRef,
+      tier,
+    });
+    const snapshotOptions: RepoDiffSnapshotOptions = {
+      worktreePath: trimmedPath,
+      layers: layers.length > 0 ? layers : undefined,
+      baseRef: trimmedBaseRef,
+      compareRef: trimmedCompareRef,
+      limits: tier === "summary" ? REPO_DIFF_SUMMARY_LIMITS : REPO_DIFF_VIEWER_LIMITS,
+    };
+
+    if (cacheMode !== "reload") {
+      const cached = repoDiffCache.get(cacheKey);
+      if (cached) {
+        c.header("x-openscout-repo-diff-cache", "hit");
+        c.header("x-openscout-repo-diff-cached-at", String(cached.storedAt));
+        if (rehydrate) {
+          c.header("x-openscout-repo-diff-rehydrate", "queued");
+          void runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions).catch(() => undefined);
+        }
+        return c.json(cached.snapshot);
+      }
+      if (cacheMode === "only") {
+        c.header("x-openscout-repo-diff-cache", "miss");
+        const warming = repoDiffInFlight.has(cacheKey);
+        return c.json({
+          status: warming ? "warming" : "missing",
+          worktreePath: trimmedPath,
+          tier,
+          layers: resolvedLayers,
+        }, warming ? 202 : 404);
+      }
+    }
+
     try {
       // A diff is a local read — run the native producer in-process. The broker
       // (fleet coordination) is intentionally NOT in this path; agent/session
       // annotations (SCO-065 §15) can enrich later without coupling here.
-      const snapshot = await runRepoDiff({
-        worktreePath: path,
-        layers: layers.length > 0 ? layers : undefined,
-        baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
-        compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
-        limits: REPO_DIFF_VIEWER_LIMITS,
-      });
+      const snapshot = await runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions);
+      c.header("x-openscout-repo-diff-cache", "miss");
       return c.json(snapshot);
     } catch (error) {
       return c.json(

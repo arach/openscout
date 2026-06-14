@@ -2,11 +2,10 @@ import Combine
 import Foundation
 import ScoutAppCore
 
-/// Polls the broker's Repo Watch snapshot for the Repos section. Mirrors
-/// `ScoutTailStore`'s lifecycle (start/stop/refresh + a single in-flight fetch)
-/// but at a calmer cadence — a repo scan walks every worktree's git status, so
-/// it is far heavier than the tail feed. Reuses the shared `ScoutBroker` URL
-/// resolver.
+/// Reads the broker's Repo Watch snapshot for the Repos section. Scan cadence
+/// and cache warming live in the broker/runtime; this view-store only manages
+/// start/stop/refresh and a single in-flight fetch. Reuses the shared
+/// `ScoutBroker` URL resolver.
 @MainActor
 final class ScoutRepoStore: ObservableObject {
     @Published private(set) var snapshot: RepoWatchSnapshot = .empty
@@ -23,11 +22,9 @@ final class ScoutRepoStore: ObservableObject {
     @Published var lens: ReposLens = .table
 
     private let decoder = JSONDecoder()
-    /// Repo Watch shells out to git per worktree. Keep the automatic cadence
-    /// calm; entering the Repos view and the toolbar button still refresh
-    /// immediately when the user needs current data.
-    private let pollInterval: TimeInterval = 30 * 60
-    private var pollTask: Task<Void, Never>?
+    /// Repo scanning cadence is owned by the broker/runtime. The native store
+    /// only asks for the current broker snapshot when the view starts or the
+    /// operator requests a refresh.
     private var fetchTask: Task<Void, Never>?
 
     // MARK: Derived
@@ -77,21 +74,10 @@ final class ScoutRepoStore: ObservableObject {
     // MARK: Lifecycle
 
     func start() {
-        guard pollTask == nil else { return }
         refresh()
-        let interval = pollInterval
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                guard let self else { return }
-                refresh()
-            }
-        }
     }
 
     func stop() {
-        pollTask?.cancel()
-        pollTask = nil
         fetchTask?.cancel()
         fetchTask = nil
         setIfChanged(false, to: \.isLoading)

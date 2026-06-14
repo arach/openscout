@@ -479,6 +479,72 @@
   cursor: pointer;
 }
 
+/* Reply-context chip — the `[ask:<flightId>]` correlation tag (kept in the body
+   for the broker) lifted at render into a useful, clickable backlink to the
+   originating ask: resolved title · requester · live status. Quiet by default;
+   only the title takes the single accent (on hover) since it is the link. No
+   categorical status color — `done` is dim, `working` is the one accent dot. */
+.replyCtx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 5px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  cursor: pointer;
+}
+.replyCtx svg {
+  flex: none;
+  color: var(--s-dim);
+}
+.replyLabel {
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  font-size: 9px;
+}
+.replyTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--s-muted);
+}
+.replyCtx:hover .replyTitle {
+  color: var(--s-accent);
+  text-decoration: underline;
+}
+.replyCtx:hover svg {
+  color: var(--s-accent);
+}
+.replyFrom {
+  flex: none;
+  color: var(--s-dim);
+}
+.replyDone {
+  flex: none;
+  color: var(--s-dim);
+}
+.replyWorking {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--s-accent);
+}
+.replyDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--s-accent);
+}
+
 .fileCard {
   margin-top: 10px;
   border-radius: 9px;

@@ -271,21 +271,32 @@ private struct ScoutTreeStateDot: View {
     private var live: Bool { state == .working || state == .needsAttention }
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: size, height: size)
-            .overlay {
-                if live, !reduceMotion {
-                    Circle()
-                        .stroke(color, lineWidth: 1)
-                        .scaleEffect(animate ? 2.2 : 1)
-                        .opacity(animate ? 0 : 0.5)
-                }
+        // Only live/attention states carry a dot — the accent `working` ping and
+        // the needs-attention mark are the precedence layer. Idle/done/offline rows
+        // render an empty slot (footprint reserved so the avatar column stays
+        // aligned), so the tree reads as calm ambient rather than a field of
+        // zero-signal gray status dots.
+        Group {
+            if live {
+                Circle()
+                    .fill(color)
+                    .overlay {
+                        if !reduceMotion {
+                            Circle()
+                                .stroke(color, lineWidth: 1)
+                                .scaleEffect(animate ? 2.2 : 1)
+                                .opacity(animate ? 0 : 0.5)
+                        }
+                    }
+            } else {
+                Color.clear
             }
-            .onAppear {
-                guard live, !reduceMotion else { return }
-                withAnimation(.easeOut(duration: 1.7).repeatForever(autoreverses: false)) { animate = true }
-            }
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            guard live, !reduceMotion else { return }
+            withAnimation(.easeOut(duration: 1.7).repeatForever(autoreverses: false)) { animate = true }
+        }
     }
 }
 

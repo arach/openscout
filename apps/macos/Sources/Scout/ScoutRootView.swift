@@ -1889,9 +1889,9 @@ struct ScoutRootView: View {
                let project = repos.project(id: reposTree.selectedProjectID) {
                 HudBadge(project.attention.rawValue, tint: reposAttentionColor(project.attention), dot: reposAttentionLive(project.attention))
             }
-        } else if !multiAgent, let agent = store.selectedAgent {
-            HudBadge(agent.state.label, tint: agent.state.tint, dot: true)
         }
+        // No agent-state badge: the redesigned card carries no categorical status
+        // word — liveness reads from the summary's accent `now`, not a tinted pill.
     }
 
     private var observeSidecarResolvedAgent: ScoutAgent? {

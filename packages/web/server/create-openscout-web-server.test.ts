@@ -211,6 +211,16 @@ function useIsolatedOpenScoutHome(): string {
   return home;
 }
 
+async function waitForTestCondition(condition: () => boolean, timeoutMs = 250): Promise<void> {
+  const started = Date.now();
+  while (!condition()) {
+    if (Date.now() - started > timeoutMs) {
+      throw new Error("condition was not met before timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function makePairingState(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     status: "stopped",
@@ -2520,6 +2530,99 @@ describe("createOpenScoutWebServer", () => {
     expect(captured?.baseRef).toBe("main");
     expect(captured?.limits).toMatchObject({
       timeoutMs: 15_000,
+      includeBinaryPatch: false,
+    });
+  });
+
+  test("serves cached repo-diff snapshots and rehydrates in the background", async () => {
+    let calls = 0;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        calls += 1;
+        return {
+          ...stubDiffSnapshot(opts.worktreePath),
+          generatedAt: calls,
+          render: {
+            ...stubDiffSnapshot(opts.worktreePath).render,
+            renderKey: `k${calls}`,
+          },
+        };
+      },
+    });
+
+    const live = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&cache=reload",
+    );
+    expect(live.status).toBe(200);
+    expect(live.headers.get("x-openscout-repo-diff-cache")).toBe("miss");
+    expect((await live.json() as { generatedAt: number }).generatedAt).toBe(1);
+    expect(calls).toBe(1);
+
+    const cached = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&cache=prefer&rehydrate=1",
+    );
+    expect(cached.status).toBe(200);
+    expect(cached.headers.get("x-openscout-repo-diff-cache")).toBe("hit");
+    expect(cached.headers.get("x-openscout-repo-diff-rehydrate")).toBe("queued");
+    expect((await cached.json() as { generatedAt: number }).generatedAt).toBe(1);
+
+    await waitForTestCondition(() => calls >= 2);
+
+    const rehydrated = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&cache=only",
+    );
+    expect(rehydrated.status).toBe(200);
+    expect(rehydrated.headers.get("x-openscout-repo-diff-cache")).toBe("hit");
+    expect((await rehydrated.json() as { generatedAt: number }).generatedAt).toBe(2);
+  });
+
+  test("repo-diff cache-only misses do not run live commands", async () => {
+    let called = false;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        called = true;
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&cache=only",
+    );
+
+    expect(response.status).toBe(404);
+    expect(called).toBe(false);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "missing",
+      worktreePath: "/tmp/wt",
+    });
+  });
+
+  test("repo-diff summary tier skips patch text and parsed hunks", async () => {
+    let capturedLimits: Record<string, unknown> | undefined;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        capturedLimits = opts.limits;
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&tier=summary",
+    );
+
+    expect(response.status).toBe(200);
+    expect(capturedLimits).toMatchObject({
+      includeRawPatch: false,
+      includeParsedHunks: false,
       includeBinaryPatch: false,
     });
   });

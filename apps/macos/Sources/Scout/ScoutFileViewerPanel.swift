@@ -275,7 +275,7 @@ struct ScoutFileViewerPanel: View {
                 .foregroundStyle(isTarget ? ScoutPalette.accent : ScoutPalette.dim)
                 .frame(width: gutter, alignment: .trailing)
             Text(content)
-                .font(HudFont.mono(HudTextSize.xs))
+                .font(HudFont.mono(HudTextSize.xxs))
                 .foregroundStyle(ScoutPalette.ink)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

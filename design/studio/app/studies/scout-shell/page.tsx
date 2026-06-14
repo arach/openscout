@@ -16,8 +16,8 @@ import styles from "./page.module.css";
 
 const SKINS = [
   { id: "juniper-l", label: "Juniper", tone: "Light", current: true },
-  { id: "juniper-d", label: "Juniper", tone: "Dark" },
-  { id: "graphite", label: "Graphite", tone: "Dark" },
+  { id: "juniper-d", label: "Juniper", tone: "Dark", current: false },
+  { id: "graphite", label: "Graphite", tone: "Dark", current: false },
 ] as const;
 
 type SkinId = (typeof SKINS)[number]["id"];

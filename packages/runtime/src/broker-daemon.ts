@@ -335,6 +335,8 @@ const configuredCoreAgentIds = (process.env.OPENSCOUT_CORE_AGENTS ?? "")
 const discoveryIntervalMs = Number.parseInt(process.env.OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS ?? "60000", 10);
 const parentPid = Number.parseInt(process.env.OPENSCOUT_PARENT_PID ?? "0", 10);
 const localAgentSyncIntervalMs = Number.parseInt(process.env.OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS ?? "5000", 10);
+const repoWatchServeCacheTtlMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_CACHE_TTL_MS ?? "1200000", 10);
+const repoWatchRehydrateAfterMs = Number.parseInt(process.env.OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS ?? "30000", 10);
 let registeredLocalAgentsRegistrySignature: string | null = null;
 let registeredLocalAgentsSyncInFlight: Promise<void> | null = null;
 const DEFAULT_IMPLICIT_PROJECT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -377,6 +379,7 @@ let webServerProcess: ChildProcess | null = null;
 let webStartInFlight: Promise<WebControlStatus> | null = null;
 let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 let parentWatcher: ReturnType<typeof setInterval> | null = null;
+let repoWatchWarmInFlight: Promise<unknown> | null = null;
 
 type LegacyRelayMessage = {
   id: string;
@@ -5241,6 +5244,61 @@ function parsePositiveIntParam(url: URL, key: string, cap: number): number | und
   return Math.min(value, cap);
 }
 
+type BrokerRepoWatchReadOptions = {
+  force?: boolean;
+  includeTail?: boolean;
+  includeDiff?: boolean;
+  includeLastCommit?: boolean;
+  useNativeRepoService?: boolean;
+  maxRoots?: number;
+  maxWorktrees?: number;
+  maxFilesPerWorktree?: number;
+  scanBudgetMs?: number;
+  cacheTtlMs?: number;
+};
+
+async function readBrokerRepoWatchSnapshot(options: BrokerRepoWatchReadOptions = {}) {
+  const snapshot = await brokerService.readSnapshot();
+  const tailHints = options.includeTail
+    ? repoWatchHintsFromTailDiscovery(await getTailDiscovery(false))
+    : [];
+  return getRepoWatchSnapshot({
+    force: options.force,
+    includeDiff: options.includeDiff,
+    includeLastCommit: options.includeLastCommit,
+    useNativeRepoService: options.useNativeRepoService,
+    maxRoots: options.maxRoots,
+    maxWorktrees: options.maxWorktrees,
+    maxFilesPerWorktree: options.maxFilesPerWorktree,
+    scanBudgetMs: options.scanBudgetMs,
+    cacheTtlMs: options.cacheTtlMs,
+    hints: [
+      ...repoWatchHintsFromBrokerSnapshot(snapshot),
+      ...tailHints,
+    ],
+  });
+}
+
+function warmBrokerRepoWatchSnapshot(reason: string, options: BrokerRepoWatchReadOptions = {}): Promise<unknown> {
+  if (repoWatchWarmInFlight) return repoWatchWarmInFlight;
+  repoWatchWarmInFlight = readBrokerRepoWatchSnapshot({
+    includeTail: false,
+    includeDiff: true,
+    includeLastCommit: true,
+    ...options,
+    force: true,
+  })
+    .catch((error) => {
+      console.warn(
+        `[openscout-runtime] repo-watch ${reason} warm failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    })
+    .finally(() => {
+      repoWatchWarmInFlight = null;
+    });
+  return repoWatchWarmInFlight;
+}
+
 async function readTailRecentPayload(url: URL): Promise<{
   generatedAt: number;
   limit: number;
@@ -5753,6 +5811,12 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     return;
   }
 
+  if ((method === "GET" || method === "POST") && url.pathname === "/v1/repo-watch/warm") {
+    void warmBrokerRepoWatchSnapshot("http-nudge");
+    json(response, 202, { ok: true, status: "queued" });
+    return;
+  }
+
   if (method === "GET" && url.pathname === "/v1/repo-watch/snapshot") {
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
     const includeTail = url.searchParams.get("includeTail") === "1" || url.searchParams.get("includeTail") === "true";
@@ -5767,11 +5831,8 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     const maxWorktrees = parsePositiveIntParam(url, "maxWorktrees", 32);
     const maxFilesPerWorktree = parsePositiveIntParam(url, "maxFilesPerWorktree", 100);
     const scanBudgetMs = parsePositiveIntParam(url, "scanBudgetMs", 30_000);
-    const snapshot = await brokerService.readSnapshot();
-    const tailHints = includeTail
-      ? repoWatchHintsFromTailDiscovery(await getTailDiscovery(false))
-      : [];
-    const repoSnapshot = await getRepoWatchSnapshot({
+    const cacheTtlMs = force ? undefined : repoWatchServeCacheTtlMs;
+    const repoSnapshot = await readBrokerRepoWatchSnapshot({
       force,
       includeDiff,
       includeLastCommit,
@@ -5780,11 +5841,24 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
       maxWorktrees,
       maxFilesPerWorktree,
       scanBudgetMs,
-      hints: [
-        ...repoWatchHintsFromBrokerSnapshot(snapshot),
-        ...tailHints,
-      ],
+      includeTail,
+      cacheTtlMs,
     });
+    if (!force
+      && Number.isFinite(repoWatchRehydrateAfterMs)
+      && repoWatchRehydrateAfterMs > 0
+      && Date.now() - repoSnapshot.generatedAt > repoWatchRehydrateAfterMs) {
+      void warmBrokerRepoWatchSnapshot("http-rehydrate", {
+        includeTail,
+        includeDiff,
+        includeLastCommit,
+        useNativeRepoService,
+        maxRoots,
+        maxWorktrees,
+        maxFilesPerWorktree,
+        scanBudgetMs,
+      });
+    }
     json(response, 200, repoSnapshot);
     return;
   }
