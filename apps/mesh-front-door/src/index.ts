@@ -8,6 +8,11 @@ import {
 import { handleOpenScoutAuthRequest } from "./auth.js";
 import { handleMeshMembershipRequest, type D1Database } from "./memberships.js";
 import { handleOpenScoutPushRelayRequest, type OpenScoutPushRelayEnv } from "./push-relay.js";
+import {
+  handleMobilePairingRelayFrontDoorRequest,
+  MobilePairingRelayDurableObject,
+  type MobilePairingRelayEnv,
+} from "./mobile-relay.js";
 import type { OpenScoutMeshPresenceRecord } from "@openscout/protocol";
 
 interface DurableObjectNamespace {
@@ -32,7 +37,7 @@ interface DurableObjectStorage {
   delete(key: string): Promise<boolean>;
 }
 
-export interface Env extends MeshFrontDoorEnv, OpenScoutPushRelayEnv {
+export interface Env extends MeshFrontDoorEnv, OpenScoutPushRelayEnv, MobilePairingRelayEnv {
   MESH_DIRECTORY: DurableObjectNamespace;
   OSN_DB?: D1Database;
 }
@@ -53,6 +58,9 @@ export default {
     const pushRelayResponse = await handleOpenScoutPushRelayRequest(request, env);
     if (pushRelayResponse) return pushRelayResponse;
 
+    const mobileRelayResponse = await handleMobilePairingRelayFrontDoorRequest(request, env);
+    if (mobileRelayResponse) return mobileRelayResponse;
+
     const auth = await resolveMeshFrontDoorAuth(request, env);
     if (!auth) {
       return json(401, { error: "unauthorized" });
@@ -65,7 +73,8 @@ export default {
     const objectId = env.MESH_DIRECTORY.idFromName(ownerKey);
     const object = env.MESH_DIRECTORY.get(objectId);
     const forwarded = new Request(request);
-    forwarded.headers.set("x-openscout-owner-key", ownerKey);
+    forwarded.headers.set("x-openscout-directory-key", ownerKey);
+    forwarded.headers.set("x-openscout-auth-key", auth.key);
     forwarded.headers.set("x-openscout-auth-kind", auth.kind);
     forwarded.headers.set("x-openscout-auth-label", auth.label);
     return object.fetch(forwarded);
@@ -87,14 +96,22 @@ export class MeshDirectoryDurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    const actorKey = request.headers.get("x-openscout-auth-key")
+      ?? request.headers.get("x-openscout-owner-key")
+      ?? "unknown";
+    const directoryKey = request.headers.get("x-openscout-directory-key")
+      ?? request.headers.get("x-openscout-owner-key")
+      ?? actorKey;
     const auth = {
-      key: request.headers.get("x-openscout-owner-key") ?? "unknown",
+      key: actorKey,
       kind: (request.headers.get("x-openscout-auth-kind") ?? "dev") as "github_user" | "access_user" | "access_service" | "shared_token" | "dev",
       label: request.headers.get("x-openscout-auth-label") ?? "unknown",
     };
-    return handleRendezvousRequest(this.store, request, auth, this.env);
+    return handleRendezvousRequest(this.store, request, auth, this.env, { storageOwnerKey: directoryKey });
   }
 }
+
+export { MobilePairingRelayDurableObject };
 
 function json(status: number, payload: unknown): Response {
   return new Response(JSON.stringify(payload, null, 2), {

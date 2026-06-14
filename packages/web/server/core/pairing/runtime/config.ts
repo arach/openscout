@@ -70,11 +70,14 @@ export function savePairingConfig(config: PairingConfig): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
-export function resolvedPairingConfig() {
+export function resolvedPairingConfig(env: NodeJS.ProcessEnv = process.env) {
   const config = loadPairingConfig();
+  const relay = env.OPENSCOUT_PAIRING_RELAY_URL?.trim()
+    || env.OPENSCOUT_MOBILE_PAIRING_RELAY_URL?.trim()
+    || config.relay;
   return {
-    relay: typeof config.relay === "string" && config.relay.trim().length > 0
-      ? config.relay.trim()
+    relay: typeof relay === "string" && relay.trim().length > 0
+      ? relay.trim()
       : null,
     secure: config.secure !== false,
     port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : 7888,

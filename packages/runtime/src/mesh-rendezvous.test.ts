@@ -27,8 +27,19 @@ describe("mesh rendezvous publisher", () => {
     })).toEqual({
       url: "https://mesh.oscout.net",
       token: "secret",
+      sessionToken: undefined,
       ttlMs: 120_000,
       intervalMs: 45_000,
+    });
+  });
+
+  test("resolves OSN session auth separately from shared bearer tokens", () => {
+    expect(resolveMeshRendezvousPublishConfig({
+      OPENSCOUT_MESH_RENDEZVOUS_URL: "https://mesh.oscout.net",
+      OPENSCOUT_MESH_RENDEZVOUS_SESSION: "abc",
+    })).toMatchObject({
+      url: "https://mesh.oscout.net",
+      sessionToken: "abc",
     });
   });
 
@@ -92,6 +103,7 @@ describe("mesh rendezvous publisher", () => {
       config: {
         url: "https://mesh.oscout.net",
         token: "secret",
+        sessionToken: undefined,
         ttlMs: 60_000,
         intervalMs: 30_000,
       },
@@ -109,6 +121,24 @@ describe("mesh rendezvous publisher", () => {
     expect(payload.nodeId).toBe("node-a");
   });
 
+  test("publishes OSN-session presence with the native session bearer format", async () => {
+    const requests: Request[] = [];
+    await publishMeshRendezvousPresence(makeNode(), {
+      config: {
+        url: "https://mesh.oscout.net",
+        sessionToken: "abc",
+        ttlMs: 60_000,
+        intervalMs: 30_000,
+      },
+      fetch: async (input, init) => {
+        requests.push(new Request(input, init));
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      },
+    });
+
+    expect(requests[0]?.headers.get("authorization")).toBe("Bearer osn_session_abc");
+  });
+
   test("publisher resolves dynamic node source on each publish", async () => {
     const requests: Request[] = [];
     let name = "Node A";
@@ -116,6 +146,7 @@ describe("mesh rendezvous publisher", () => {
       config: {
         url: "https://mesh.oscout.net",
         token: "secret",
+        sessionToken: undefined,
         ttlMs: 60_000,
         intervalMs: 60_000,
       },

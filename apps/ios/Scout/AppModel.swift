@@ -108,6 +108,22 @@ final class AppModel {
     var lanPairError: String?
     var lanPairingTargetId: String?
 
+    struct OpenScoutNetworkPairTarget: Identifiable, Equatable {
+        let candidate: OpenScoutNetworkPairingCandidate
+
+        var id: String { candidate.id }
+        var displayName: String { AppModel.prettyMachineName(candidate.nodeName) }
+        var detail: String {
+            let host = URLComponents(string: candidate.entrypoint.relay)?.host ?? "mesh.oscout.net"
+            return "OSN · \(host)"
+        }
+    }
+
+    var openScoutNetworkPairTargets: [OpenScoutNetworkPairTarget] = []
+    var isRefreshingOpenScoutNetworkPairTargets = false
+    var openScoutNetworkPairError: String?
+    var openScoutNetworkPairingTargetId: String?
+
     /// Fleet rollup for the bottom status bar (`N agents · Y active`). Polled
     /// while connected; the machine count comes straight from `pairedMachines`.
     var agentCount: Int = 0
@@ -136,9 +152,11 @@ final class AppModel {
     private static let scoutWebMeshPath = "/api/mesh"
     private static let scoutWebPairPath = "/pair"
     private static let defaultScoutWebPort = 3200
-    private static let openScoutNetworkFrontDoorBaseURL = "https://mesh.oscout.net"
+    private static let openScoutNetworkFrontDoorBaseURL = defaultOpenScoutNetworkFrontDoorBaseURL
     private static let openScoutNetworkAuthStartPath = "/v1/auth/github/start"
     private static let openScoutNetworkNativeReturnToPath = "/v1/auth/native/complete"
+    private static let openScoutNetworkNodesPath = "/v1/nodes"
+    private static let openScoutNetworkMeshId = "openscout"
     private static let openScoutNetworkAuthExpiresAtKey = "scout.osn.sessionExpiresAtMs"
 
     var openScoutNetworkAuthExpiresAt: Date?
@@ -537,6 +555,15 @@ final class AppModel {
         openScoutNetworkAuthStatus == "Signed in" ? "Refresh" : "Login"
     }
 
+    var isOpenScoutNetworkSignedIn: Bool {
+        guard let expiresAt = openScoutNetworkAuthExpiresAt,
+              openScoutNetworkSessionToken?.isEmpty == false
+        else {
+            return false
+        }
+        return expiresAt > Date()
+    }
+
     func openOpenScoutNetworkLogin() {
         guard let url = Self.openScoutNetworkAuthStartURL() else {
             connectionLog.log("OpenScout Network login URL is invalid", event: .auth, level: .error, route: .oscout)
@@ -553,6 +580,7 @@ final class AppModel {
         UserDefaults.standard.removeObject(forKey: Self.openScoutNetworkAuthExpiresAtKey)
         openScoutNetworkSessionToken = nil
         openScoutNetworkAuthExpiresAt = nil
+        openScoutNetworkPairTargets = []
         connectionLog.log("OpenScout Network session cleared", event: .auth, route: .oscout)
     }
 
@@ -679,6 +707,83 @@ final class AppModel {
         }
         lanPairError = "Couldn’t reach \(target.displayName) on your network"
         return false
+    }
+
+    func refreshOpenScoutNetworkPairTargets() async {
+        guard !isRefreshingOpenScoutNetworkPairTargets else { return }
+        isRefreshingOpenScoutNetworkPairTargets = true
+        openScoutNetworkPairError = nil
+        defer { isRefreshingOpenScoutNetworkPairTargets = false }
+
+        do {
+            let list = try await loadOpenScoutNetworkRendezvousList()
+            let targets = openScoutNetworkPairingCandidates(from: list).map {
+                OpenScoutNetworkPairTarget(candidate: $0)
+            }
+            openScoutNetworkPairTargets = targets
+            connectionLog.log(
+                "OpenScout Network found \(targets.count) mobile pairing target(s)",
+                event: .discover,
+                level: .info,
+                route: .oscout
+            )
+        } catch {
+            openScoutNetworkPairTargets = []
+            openScoutNetworkPairError = error.localizedDescription
+            connectionLog.log(
+                "OpenScout Network discovery failed: \(error.localizedDescription)",
+                event: .discover,
+                level: .warning,
+                route: .oscout
+            )
+        }
+    }
+
+    @discardableResult
+    func pairWithOpenScoutNetworkTarget(_ target: OpenScoutNetworkPairTarget) async -> Bool {
+        openScoutNetworkPairingTargetId = target.id
+        openScoutNetworkPairError = nil
+        defer { openScoutNetworkPairingTargetId = nil }
+
+        openScoutNetworkRoutingEnabled = true
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+        return await completePair(source: "OpenScout Network") {
+            target.candidate.qrPayload
+        }
+    }
+
+    private func loadOpenScoutNetworkRendezvousList() async throws -> OpenScoutMeshRendezvousList {
+        guard let token = openScoutNetworkSessionToken,
+              !token.isEmpty,
+              isOpenScoutNetworkSignedIn
+        else {
+            throw OpenScoutNetworkPairingError.loginRequired
+        }
+        guard let url = Self.openScoutNetworkURL(
+            path: Self.openScoutNetworkNodesPath,
+            queryItems: [URLQueryItem(name: "meshId", value: Self.openScoutNetworkMeshId)]
+        ) else {
+            throw OpenScoutNetworkPairingError.invalidURL
+        }
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        request.setValue(Self.openScoutNetworkAuthHeader(sessionToken: token), forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw OpenScoutNetworkPairingError.invalidResponse
+        }
+        switch http.statusCode {
+        case 200:
+            return try JSONDecoder().decode(OpenScoutMeshRendezvousList.self, from: data)
+        case 401:
+            signOutOpenScoutNetwork()
+            throw OpenScoutNetworkPairingError.loginRequired
+        default:
+            throw OpenScoutNetworkPairingError.httpStatus(http.statusCode)
+        }
     }
 
     private func loadTailnetMeshStatus() async throws -> (TailnetMeshStatusResponse, URL) {
@@ -1003,6 +1108,7 @@ final class AppModel {
             openScoutNetworkRoutingEnabled = true
             BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
             connectionLog.log("OpenScout Network login saved", event: .auth, level: .success, route: .oscout)
+            Task { await refreshOpenScoutNetworkPairTargets() }
         } catch {
             connectionLog.log("OpenScout Network auth save failed: \(error.localizedDescription)", event: .auth, level: .error, route: .oscout)
         }
@@ -1162,16 +1268,30 @@ final class AppModel {
     }
 
     private static func openScoutNetworkAuthStartURL() -> URL? {
+        openScoutNetworkURL(
+            path: openScoutNetworkAuthStartPath,
+            queryItems: [
+                URLQueryItem(name: "return_to", value: openScoutNetworkNativeReturnToPath),
+            ]
+        )
+    }
+
+    private static func openScoutNetworkURL(path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard let base = URL(string: openScoutNetworkFrontDoorBaseURL),
               var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
         else {
             return nil
         }
-        components.path = openScoutNetworkAuthStartPath
-        components.queryItems = [
-            URLQueryItem(name: "return_to", value: openScoutNetworkNativeReturnToPath),
-        ]
+        components.path = path
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url
+    }
+
+    private static func openScoutNetworkAuthHeader(sessionToken: String) -> String {
+        if sessionToken.hasPrefix("osn_session_") {
+            return "Bearer \(sessionToken)"
+        }
+        return "Bearer osn_session_\(sessionToken)"
     }
 
     // MARK: - Status presentation
@@ -1464,6 +1584,26 @@ private struct TailnetMeshPeer: Decodable {
     let addresses: [String]
     let online: Bool
     let os: String?
+}
+
+private enum OpenScoutNetworkPairingError: LocalizedError {
+    case loginRequired
+    case invalidURL
+    case invalidResponse
+    case httpStatus(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .loginRequired:
+            return "OpenScout Network login required"
+        case .invalidURL:
+            return "OpenScout Network URL is invalid"
+        case .invalidResponse:
+            return "Invalid OpenScout Network response"
+        case .httpStatus(let status):
+            return "OpenScout Network returned HTTP \(status)"
+        }
+    }
 }
 
 private enum TailnetPairingError: LocalizedError {

@@ -15,6 +15,7 @@ import { isLoopbackHost } from "./broker-process-manager.js";
 export interface MeshRendezvousPublishConfig {
   url: string;
   token?: string;
+  sessionToken?: string;
   ttlMs: number;
   intervalMs: number;
 }
@@ -46,6 +47,7 @@ export function resolveMeshRendezvousPublishConfig(
   return {
     url: rawUrl.replace(/\/$/, ""),
     token: env.OPENSCOUT_MESH_RENDEZVOUS_TOKEN?.trim() || undefined,
+    sessionToken: env.OPENSCOUT_MESH_RENDEZVOUS_SESSION?.trim() || undefined,
     ttlMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_TTL_MS, DEFAULT_RENDEZVOUS_TTL_MS),
     intervalMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_INTERVAL_MS, DEFAULT_RENDEZVOUS_INTERVAL_MS),
   };
@@ -87,7 +89,7 @@ export async function publishMeshRendezvousPresence(
     headers: {
       "content-type": "application/json",
       accept: "application/json",
-      ...(options.config.token ? { authorization: `Bearer ${options.config.token}` } : {}),
+      ...rendezvousAuthHeaders(options.config),
     },
     body: JSON.stringify(presence),
   });
@@ -209,6 +211,22 @@ function reachableEntrypointsForNode(node: NodeDefinition): NodeMeshEntrypoint[]
 
 function resolveNodeSource(source: MeshRendezvousNodeSource): NodeDefinition {
   return typeof source === "function" ? source() : source;
+}
+
+function rendezvousAuthHeaders(config: MeshRendezvousPublishConfig): { authorization?: string } {
+  if (config.sessionToken) {
+    return { authorization: osnSessionAuthHeader(config.sessionToken) };
+  }
+  if (config.token) {
+    return { authorization: `Bearer ${config.token}` };
+  }
+  return {};
+}
+
+function osnSessionAuthHeader(sessionToken: string): string {
+  return sessionToken.startsWith("osn_session_")
+    ? `Bearer ${sessionToken}`
+    : `Bearer osn_session_${sessionToken}`;
 }
 
 function isReachableHttpUrl(value: string): boolean {

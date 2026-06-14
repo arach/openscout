@@ -2,7 +2,8 @@ import type { AdvertiseScope, MetadataMap, ScoutId } from "./common.js";
 
 export const OPENSCOUT_MESH_PROTOCOL_VERSION = 1;
 export const OPENSCOUT_IROH_MESH_ALPN = "openscout/mesh/0";
-export const DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL = "https://mesh.openscout.app";
+export const DEFAULT_OPENSCOUT_MESH_RENDEZVOUS_URL = "https://mesh.oscout.net";
+export const DEFAULT_OPENSCOUT_MOBILE_PAIRING_RELAY_URL = "wss://mesh.oscout.net/v1/relay";
 
 export type NodeMeshEntrypoint =
   | IrohMeshEntrypoint

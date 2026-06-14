@@ -23,6 +23,7 @@ struct ConnectScreen: View {
 
             VStack(spacing: HudSpacing.xl) {
                 lanSection
+                openScoutNetworkSection
                 actionStack
             }
             .padding(.horizontal, HudSpacing.xxl)
@@ -37,6 +38,9 @@ struct ConnectScreen: View {
             if model.lanPairTargets.isEmpty {
                 try? await Task.sleep(for: .seconds(1.5))
                 await model.refreshLanPairTargets()
+            }
+            if model.isOpenScoutNetworkSignedIn {
+                await model.refreshOpenScoutNetworkPairTargets()
             }
         }
     }
@@ -122,6 +126,72 @@ struct ConnectScreen: View {
         }
     }
 
+    // MARK: - OpenScout Network
+
+    @ViewBuilder private var openScoutNetworkSection: some View {
+        if model.isOpenScoutNetworkSignedIn
+            || !model.openScoutNetworkPairTargets.isEmpty
+            || model.openScoutNetworkPairError != nil {
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                openScoutNetworkHeader
+                if !model.openScoutNetworkPairTargets.isEmpty {
+                    VStack(spacing: 0) {
+                        ForEach(model.openScoutNetworkPairTargets) { target in
+                            OpenScoutNetworkPairTargetRow(
+                                target: target,
+                                isPairing: model.openScoutNetworkPairingTargetId == target.id,
+                                onPair: { Task { await model.pairWithOpenScoutNetworkTarget(target) } }
+                            )
+                        }
+                    }
+                } else if model.isRefreshingOpenScoutNetworkPairTargets {
+                    HStack(spacing: HudSpacing.sm) {
+                        ProgressView().controlSize(.small).tint(HudPalette.accent)
+                        Text("Checking OpenScout Network…")
+                            .font(HudFont.ui(HudTextSize.sm))
+                            .foregroundStyle(ScoutInk.muted)
+                        Spacer()
+                    }
+                } else if let error = model.openScoutNetworkPairError {
+                    Text(error)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(HudPalette.statusError)
+                } else {
+                    Text("No Macs are publishing through OpenScout Network.")
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutInk.dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private var openScoutNetworkHeader: some View {
+        HStack {
+            Text("OPENSCOUT NETWORK")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .tracking(1.0)
+                .foregroundStyle(ScoutInk.dim)
+            Spacer()
+            Button {
+                Task { await model.refreshOpenScoutNetworkPairTargets() }
+            } label: {
+                if model.isRefreshingOpenScoutNetworkPairTargets {
+                    ProgressView().controlSize(.mini).tint(ScoutInk.muted)
+                } else {
+                    HStack(spacing: HudSpacing.xxs) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Rescan")
+                    }
+                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                    .foregroundStyle(ScoutInk.muted)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isRefreshingOpenScoutNetworkPairTargets)
+        }
+    }
+
     // MARK: - Fallbacks
 
     private var actionStack: some View {
@@ -180,6 +250,57 @@ struct ConnectScreen: View {
 /// reads as live (pulsing accent dot); a tap pairs over the LAN.
 private struct LanPairTargetRow: View {
     let target: AppModel.LanPairTarget
+    let isPairing: Bool
+    let onPair: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: HudSpacing.sm) {
+            HudStatusDot(color: HudPalette.accent, size: 7, pulses: true)
+                .frame(width: 12)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(target.displayName)
+                    .font(HudFont.ui(HudTextSize.md))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                Text(target.detail)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutInk.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: HudSpacing.md)
+
+            Button(action: onPair) {
+                Text(isPairing ? "PAIRING" : "PAIR")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .tracking(0.8)
+                    .foregroundStyle(HudPalette.accent)
+                    .padding(.horizontal, HudSpacing.sm)
+                    .padding(.vertical, HudSpacing.xxs)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.thin)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(isPairing)
+        }
+        .frame(height: HudLayout.rowHeightRegular)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HudHairline.subtle)
+                .frame(height: HudStrokeWidth.thin)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(target.displayName), \(target.detail)")
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+private struct OpenScoutNetworkPairTargetRow: View {
+    let target: AppModel.OpenScoutNetworkPairTarget
     let isPairing: Bool
     let onPair: () -> Void
 

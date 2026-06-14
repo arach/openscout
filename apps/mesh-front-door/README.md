@@ -17,6 +17,9 @@ messages, conversations, flights, collaboration records, or replay state.
 - `GET /v1/nodes?meshId=openscout`
 - `GET /v1/nodes/:nodeId?meshId=openscout`
 - `DELETE /v1/nodes/:nodeId?meshId=openscout`
+- `GET /v1/relay?room=:room&role=bridge|client` (WebSocket)
+- `POST /v1/relay/resolve`
+- `GET /v1/relay/healthz`
 - `GET /v1/push/health` (unauthenticated)
 - `POST /v1/push/devices/register` (session)
 - `POST /v1/push/devices/unregister` (session)
@@ -45,6 +48,26 @@ via `OPENSCOUT_MESH_SHARED_TOKEN`.
 single-tenant: human Access requests and node publisher token requests share the
 same directory. Remove that var later when managed multi-tenant account scoping
 lands.
+
+`/v1/relay` is a hosted mobile pairing relay backed by a Durable Object. The Mac
+bridge connects outbound as `role=bridge`; iOS connects as `role=client`; the
+relay forwards opaque encrypted pairing frames and keeps the existing `/resolve`
+shape at `/v1/relay/resolve`. To opt a Mac into the hosted path without changing
+LAN defaults globally, configure the pairing runtime with:
+
+```bash
+OPENSCOUT_PAIRING_RELAY_URL=wss://mesh.oscout.net/v1/relay
+```
+
+To publish that live pairing entrypoint into the OSN directory for iOS discovery,
+run the local broker with:
+
+```bash
+OPENSCOUT_MESH_RENDEZVOUS_URL=https://mesh.oscout.net
+OPENSCOUT_MESH_RENDEZVOUS_TOKEN=<shared-publisher-token>
+# or, for a GitHub OSN session:
+OPENSCOUT_MESH_RENDEZVOUS_SESSION=<signed-session-token>
+```
 
 Use Wrangler secrets for sensitive values:
 

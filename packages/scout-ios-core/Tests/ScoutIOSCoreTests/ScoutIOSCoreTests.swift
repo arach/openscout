@@ -239,6 +239,67 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(ConnectionLogEvent.auth.label, "AUTH")
     }
 
+    func testOpenScoutNetworkRendezvousExtractsLiveMobilePairingCandidates() throws {
+        let nowMs: Int64 = 10_000
+        let payload = """
+        {
+          "v": 1,
+          "meshId": "openscout",
+          "nodes": [
+            {
+              "meshId": "openscout",
+              "nodeId": "mac-a",
+              "nodeName": "Mac A",
+              "expiresAt": 70000,
+              "observedAt": 12000,
+              "entrypoints": [
+                {
+                  "kind": "mobile_pairing",
+                  "relay": "wss://mesh.oscout.net/v1/relay",
+                  "fallbackRelays": ["wss://mac.tailnet.ts.net:7889"],
+                  "room": "room-a",
+                  "publicKey": "\(String(repeating: "a", count: 64))",
+                  "expiresAt": 70000,
+                  "lastSeenAt": 11000
+                },
+                {
+                  "kind": "http",
+                  "url": "https://ignored.example"
+                }
+              ]
+            },
+            {
+              "meshId": "openscout",
+              "nodeId": "mac-b",
+              "nodeName": "Mac B",
+              "expiresAt": 9000,
+              "observedAt": 13000,
+              "entrypoints": [
+                {
+                  "kind": "mobile_pairing",
+                  "relay": "wss://mesh.oscout.net/v1/relay",
+                  "room": "room-b",
+                  "publicKey": "\(String(repeating: "b", count: 64))",
+                  "expiresAt": 9000
+                }
+              ]
+            }
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let list = try JSONDecoder().decode(OpenScoutMeshRendezvousList.self, from: payload)
+        let candidates = openScoutNetworkPairingCandidates(
+            from: list,
+            now: Date(timeIntervalSince1970: Double(nowMs) / 1_000)
+        )
+
+        XCTAssertEqual(candidates.map(\.nodeId), ["mac-a"])
+        XCTAssertEqual(candidates[0].qrPayload.relay, "wss://mesh.oscout.net/v1/relay")
+        XCTAssertEqual(candidates[0].qrPayload.fallbackRelays, ["wss://mac.tailnet.ts.net:7889"])
+        XCTAssertEqual(candidates[0].qrPayload.room, "room-a")
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "ScoutIOSCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
