@@ -194,7 +194,30 @@ const SESSION_STATS: Array<{ k: string; v: string }> = [
   { k: "window", v: "16h" },
 ];
 
+// Session context health — runway (turns/age vs policy + fresh/aging/stale) merged
+// with fill (tokens vs window) and cost. Runway from /api/agents/:id/session/context
+// (LocalAgentContextState); fill/cost from the /observe usage metadata.
+const SESSION_CONTEXT = {
+  state: "aging" as "fresh" | "aging" | "stale",
+  turns: 80,
+  maxTurns: 120,
+  ageHours: 16,
+  maxAgeHours: 24,
+  tokens: 38_000,
+  windowTokens: 200_000,
+  totalTokens: 1_240_000,
+  webSearches: 4,
+};
+
 type TouchState = "read" | "created" | "modified";
+// Session activity over time — events binned across the window (intensity per
+// bucket), so the session's rhythm reads at a glance: a quiet warm-up, bursts of
+// work, idle stretches. Derived from per-event timestamps in the trace.
+const ACTIVITY_TIMELINE = [
+  1, 2, 4, 7, 11, 9, 6, 3, 2, 1, 4, 9, 14, 12, 8, 5, 3, 2, 1, 1, 3, 6,
+  10, 13, 15, 12, 8, 5, 3, 2, 4, 7, 11, 9, 6, 4,
+];
+
 const FILES_TOUCHED: Array<{ path: string; touches: number; state: TouchState }> = [
   { path: "packages/web/client/screens/AgentsScreen.tsx", touches: 73, state: "modified" },
   { path: "packages/web/client/screens/agents-screen.css", touches: 41, state: "modified" },
@@ -521,19 +544,7 @@ function SessionsCenter({
               {centerDetail === "full" ? (
                 <div className="px-4 pb-3.5"><SessionDetailBody s={s} /></div>
               ) : (
-                <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-0.5">
-                  <div className="flex min-w-0 items-center gap-2">
-                    {/* elbow — the rollout branches off the row above it */}
-                    <span
-                      className="ml-[2px] mt-[-6px] h-[9px] w-[9px] flex-none rounded-bl-[3px]"
-                      style={{ borderLeft: `1px solid ${INK.edge}`, borderBottom: `1px solid ${INK.edge}` }}
-                    />
-                    <span className="truncate text-[11px]" style={{ color: MUTED }}>
-                      {active ? s.context[0] ?? s.snapshot : `Last · ${s.context[0] ?? s.snapshot}`}
-                    </span>
-                  </div>
-                  <EngagePrimary active={active} />
-                </div>
+                <SessionSummary s={s} />
               )}
             </div>
           );
@@ -674,6 +685,41 @@ function EngageSecondary({ active }: { active: boolean }) {
 /** The selected session's detail — snapshot, initiator, transcript, engage.
     `engage` picks the full gradient (rail-only modes) or just the secondary
     surfaces (hybrid, where the primary Continue lives inline in the center). */
+/** A little chart of the session's rhythm — intensity bars across the window,
+    brighter where busier (single accent, opacity = intensity). Start → now. */
+function ActivitySparkline() {
+  const data = ACTIVITY_TIMELINE;
+  const max = Math.max(...data, 1);
+  const W = 240;
+  const H = 20;
+  const gap = 1;
+  const bw = (W - gap * (data.length - 1)) / data.length;
+  return (
+    <div className="mb-3">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }} preserveAspectRatio="none" aria-hidden>
+        {data.map((v, i) => {
+          const h = Math.max(1, (v / max) * H);
+          return (
+            <rect
+              key={i}
+              x={i * (bw + gap)}
+              y={H - h}
+              width={bw}
+              height={h}
+              fill={ACCENT}
+              opacity={0.22 + 0.62 * (v / max)}
+            />
+          );
+        })}
+      </svg>
+      <div className="mt-1 flex justify-between font-mono text-[8px]" style={{ color: FAINT }}>
+        <span>16h ago</span>
+        <span>now</span>
+      </div>
+    </div>
+  );
+}
+
 /** A flat metric readout — value bright, unit faint, dot-separated. No boxes:
     the calm session context reads stats as a line, not a grid of cards. */
 function ActivityStats() {
@@ -729,16 +775,85 @@ function FilesTouched({ limit = 4 }: { limit?: number }) {
         <button
           type="button"
           className="mt-0.5 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em]"
-          style={{ color: FAINT }}
+          style={{ color: ACCENT }}
         >
-          +{rest} more in Trace →
+          Open full diff →
         </button>
       ) : null}
     </div>
   );
 }
 
-function SessionDetailBody({ s, engage = "full" }: { s: Session; engage?: "full" | "secondary" }) {
+function fmtK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+  return `${n}`;
+}
+
+/** Context size — purely quantifiable: a token-fill gauge (the real "how full"),
+    the turns/age runway and total tokens. No categorical "aging/stale" label — the
+    numbers speak. (User: the quantifiable context reads; the state word didn't.) */
+function ContextHealth() {
+  const c = SESSION_CONTEXT;
+  const fill = Math.round((c.tokens / c.windowTokens) * 100);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline justify-between font-mono text-[9px]" style={{ color: FAINT }}>
+        <span style={{ color: MUTED }}>{fmtK(c.tokens)} / {fmtK(c.windowTokens)} ctx</span>
+        <span>{fill}%</span>
+      </div>
+      <div className="h-[3px] w-full overflow-hidden rounded-full" style={{ background: INK.module }}>
+        <div className="h-full rounded-full" style={{ width: `${fill}%`, background: MUTED }} />
+      </div>
+      <div className="font-mono text-[9.5px]" style={{ color: FAINT }}>
+        {c.turns} / {c.maxTurns} turns · {c.ageHours}h · {fmtK(c.totalTokens)} tokens
+      </div>
+    </div>
+  );
+}
+
+/** Center summary — the agent session at a glance: the rhythm chart + metrics +
+    quantifiable context side by side, then the files-changed summary that bridges
+    to the full diff, then the primary action. The details live on the right. */
+function SessionSummary({ s }: { s: Session }) {
+  const active = s.state === "active";
+  return (
+    <div className="flex flex-col gap-2.5 px-4 pb-3.5 pt-1">
+      {/* Activity chart + Context, side by side and shallow — the file diffs and
+          the rest of the detail live in the rail, so this stays a narrow band. */}
+      <div className="flex flex-wrap items-start gap-x-8 gap-y-3">
+        <div className="min-w-[240px] flex-1">
+          <div className="mb-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+            Activity
+          </div>
+          <ActivitySparkline />
+        </div>
+        <div className="w-[200px] flex-none">
+          <div className="mb-1.5 font-mono text-[8px] font-semibold uppercase tracking-[0.16em]" style={{ color: FAINT }}>
+            Context
+          </div>
+          <ContextHealth />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3 border-t pt-2.5" style={{ borderColor: INK.edgeSoft }}>
+        <ActivityStats />
+        <EngagePrimary active={active} />
+      </div>
+    </div>
+  );
+}
+
+function SessionDetailBody({
+  s,
+  engage = "full",
+  showSummary = true,
+}: {
+  s: Session;
+  engage?: "full" | "secondary";
+  /** When false, the summary (Context · Activity · Working tree) is omitted —
+      the center carries it, and the rail keeps only the details. */
+  showSummary?: boolean;
+}) {
   const active = s.state === "active";
   return (
     <div className="flex flex-col gap-4">
@@ -756,7 +871,13 @@ function SessionDetailBody({ s, engage = "full" }: { s: Session; engage?: "full"
         <div className="mt-1.5 text-[12.5px] leading-snug" style={{ color: MUTED }}>{s.snapshot}</div>
       </div>
 
-      <RailSection label="Context snapshot">
+      {showSummary && active ? (
+        <RailSection label="Context">
+          <ContextHealth />
+        </RailSection>
+      ) : null}
+
+      <RailSection label="Snapshot">
         <div className="flex flex-col gap-1.5">
           {s.context.map((line, i) => (
             <div key={i} className="flex gap-2 text-[11px] leading-snug" style={{ color: MUTED }}>
@@ -767,22 +888,20 @@ function SessionDetailBody({ s, engage = "full" }: { s: Session; engage?: "full"
         </div>
       </RailSection>
 
-      <RailSection label="Activity">
-        <ActivityStats />
-        <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${INK.edgeSoft}` }}>
-          <div className="mb-1.5 flex items-baseline justify-between">
-            <span className="font-mono text-[8px] uppercase tracking-[0.14em]" style={{ color: FAINT }}>
-              Files touched
-            </span>
-            <span className="font-mono text-[8px] tabular-nums" style={{ color: FAINT }}>
-              {(() => {
-                const changed = FILES_TOUCHED.filter((f) => f.state !== "read").length;
-                return changed > 0 ? `${changed} changed · ${FILES_TOUCHED.length}` : `${FILES_TOUCHED.length}`;
-              })()}
-            </span>
-          </div>
-          <FilesTouched />
-        </div>
+      {showSummary ? (
+        <RailSection label="Activity">
+          <ActivitySparkline />
+          <ActivityStats />
+        </RailSection>
+      ) : null}
+
+      {/* Files changed — the file-level detail lives here in the rail (the center
+          summary stays narrow); each row + "Open full diff" bridges to the diff. */}
+      <RailSection
+        label="Files changed"
+        meta={`${FILES_TOUCHED.filter((f) => f.state !== "read").length} of ${FILES_TOUCHED.length}`}
+      >
+        <FilesTouched />
       </RailSection>
 
       <RailSection label="Initiated by">
@@ -945,7 +1064,7 @@ function RailHybrid({ s }: { s: Session }) {
         </span>
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto p-3.5">
-        <SessionDetailBody s={s} engage="secondary" />
+        <SessionDetailBody s={s} engage="secondary" showSummary={false} />
         <div className="mt-4 border-t pt-4" style={{ borderColor: INK.edgeSoft }}>
           <RailSection label="Runtime">
             <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
