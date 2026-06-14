@@ -155,8 +155,9 @@ private extension TailRowModel {
             resolvingAgainstBaseURL: false
         )
         var queryItems = [URLQueryItem(name: "view", value: "tail")]
-        if hasSession {
-            queryItems.append(URLQueryItem(name: "sessionId", value: clean(sessionId)))
+        let trimmedSessionId = clean(sessionId)
+        if !trimmedSessionId.isEmpty {
+            queryItems.append(URLQueryItem(name: "sessionId", value: trimmedSessionId))
         }
         if let agentId = clean(agentId) {
             queryItems.append(URLQueryItem(name: "targetAgentId", value: agentId))
