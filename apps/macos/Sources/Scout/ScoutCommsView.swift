@@ -956,7 +956,7 @@ struct ScoutMemberStrip: View {
             .overlay(
                 Group {
                     if member.agent == nil {
-                        RoundedRectangle(cornerRadius: HudRadius.sm, style: .continuous)
+                        RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                             .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
                     }
                 }
