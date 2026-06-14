@@ -128,40 +128,47 @@ struct ConnectScreen: View {
 
     // MARK: - OpenScout Network
 
-    @ViewBuilder private var openScoutNetworkSection: some View {
-        if model.isOpenScoutNetworkSignedIn
-            || !model.openScoutNetworkPairTargets.isEmpty
-            || model.openScoutNetworkPairError != nil {
-            VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                openScoutNetworkHeader
-                if !model.openScoutNetworkPairTargets.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(model.openScoutNetworkPairTargets) { target in
-                            OpenScoutNetworkPairTargetRow(
-                                target: target,
-                                isPairing: model.openScoutNetworkPairingTargetId == target.id,
-                                onPair: { Task { await model.pairWithOpenScoutNetworkTarget(target) } }
-                            )
-                        }
-                    }
-                } else if model.isRefreshingOpenScoutNetworkPairTargets {
-                    HStack(spacing: HudSpacing.sm) {
-                        ProgressView().controlSize(.small).tint(HudPalette.accent)
-                        Text("Checking OpenScout Network…")
-                            .font(HudFont.ui(HudTextSize.sm))
-                            .foregroundStyle(ScoutInk.muted)
-                        Spacer()
-                    }
-                } else if let error = model.openScoutNetworkPairError {
-                    Text(error)
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(HudPalette.statusError)
-                } else {
-                    Text("No Macs are publishing through OpenScout Network.")
+    private var openScoutNetworkSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            openScoutNetworkHeader
+            if !model.isOpenScoutNetworkSignedIn {
+                VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                    Text("Sign in with GitHub to find Macs publishing through OpenScout Network.")
                         .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(ScoutInk.dim)
                         .fixedSize(horizontal: false, vertical: true)
+                    HudButton("Sign in with GitHub", icon: "person.crop.circle.badge.checkmark", style: .secondary) {
+                        model.openOpenScoutNetworkLogin()
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+            } else if !model.openScoutNetworkPairTargets.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(model.openScoutNetworkPairTargets) { target in
+                        OpenScoutNetworkPairTargetRow(
+                            target: target,
+                            isPairing: model.openScoutNetworkPairingTargetId == target.id,
+                            onPair: { Task { await model.pairWithOpenScoutNetworkTarget(target) } }
+                        )
+                    }
+                }
+            } else if model.isRefreshingOpenScoutNetworkPairTargets {
+                HStack(spacing: HudSpacing.sm) {
+                    ProgressView().controlSize(.small).tint(HudPalette.accent)
+                    Text("Checking OpenScout Network…")
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutInk.muted)
+                    Spacer()
+                }
+            } else if let error = model.openScoutNetworkPairError {
+                Text(error)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(HudPalette.statusError)
+            } else {
+                Text("No Macs are publishing through OpenScout Network.")
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(ScoutInk.dim)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -173,22 +180,24 @@ struct ConnectScreen: View {
                 .tracking(1.0)
                 .foregroundStyle(ScoutInk.dim)
             Spacer()
-            Button {
-                Task { await model.refreshOpenScoutNetworkPairTargets() }
-            } label: {
-                if model.isRefreshingOpenScoutNetworkPairTargets {
-                    ProgressView().controlSize(.mini).tint(ScoutInk.muted)
-                } else {
-                    HStack(spacing: HudSpacing.xxs) {
-                        Image(systemName: "arrow.clockwise")
-                        Text("Rescan")
+            if model.isOpenScoutNetworkSignedIn {
+                Button {
+                    Task { await model.refreshOpenScoutNetworkPairTargets() }
+                } label: {
+                    if model.isRefreshingOpenScoutNetworkPairTargets {
+                        ProgressView().controlSize(.mini).tint(ScoutInk.muted)
+                    } else {
+                        HStack(spacing: HudSpacing.xxs) {
+                            Image(systemName: "arrow.clockwise")
+                            Text("Rescan")
+                        }
+                        .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                        .foregroundStyle(ScoutInk.muted)
                     }
-                    .font(HudFont.mono(HudTextSize.micro, weight: .medium))
-                    .foregroundStyle(ScoutInk.muted)
                 }
+                .buttonStyle(.plain)
+                .disabled(model.isRefreshingOpenScoutNetworkPairTargets)
             }
-            .buttonStyle(.plain)
-            .disabled(model.isRefreshingOpenScoutNetworkPairTargets)
         }
     }
 

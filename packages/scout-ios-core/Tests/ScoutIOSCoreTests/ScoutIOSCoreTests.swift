@@ -300,6 +300,35 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(candidates[0].qrPayload.room, "room-a")
     }
 
+    func testOpenScoutNetworkPairingPayloadCanRefreshSavedConnectionInfo() {
+        let defaults = makeDefaults()
+        let key = String(repeating: "a", count: 64)
+        BridgeConnectionInfo(
+            relayURL: "ws://192.168.1.10:7889",
+            roomId: "old-room",
+            publicKeyHex: key
+        ).save(userDefaults: defaults, promoteActive: true)
+
+        BridgeBrokerClient.savePairingConnectionInfo(
+            qrPayload: QRPayload(
+                v: 1,
+                relay: "wss://mesh.oscout.net/v1/relay",
+                fallbackRelays: ["wss://mac.tailnet.ts.net:7889"],
+                room: "osn-room",
+                publicKey: key,
+                expiresAt: 70_000
+            ),
+            promoteActive: true,
+            userDefaults: defaults
+        )
+
+        let refreshed = BridgeConnectionInfo.load(publicKeyHex: key, userDefaults: defaults)
+        XCTAssertEqual(refreshed?.relayURL, "wss://mesh.oscout.net/v1/relay")
+        XCTAssertEqual(refreshed?.roomId, "osn-room")
+        XCTAssertEqual(refreshed?.fallbackRelayURLs, ["wss://mac.tailnet.ts.net:7889"])
+        XCTAssertEqual(BridgeConnectionInfo.activePublicKeyHex(userDefaults: defaults), key)
+    }
+
     private func makeDefaults() -> UserDefaults {
         let suiteName = "ScoutIOSCoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

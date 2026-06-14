@@ -75,6 +75,20 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         BridgeConnectionInfo.remove(publicKeyHex: publicKeyHex, userDefaults: userDefaults)
     }
 
+    public static func savePairingConnectionInfo(
+        qrPayload: QRPayload,
+        promoteActive: Bool,
+        userDefaults: UserDefaults = .standard
+    ) {
+        let info = BridgeConnectionInfo(
+            relayURL: qrPayload.relay,
+            roomId: qrPayload.room,
+            publicKeyHex: qrPayload.publicKey,
+            fallbackRelayURLs: qrPayload.fallbackRelays ?? []
+        )
+        info.save(userDefaults: userDefaults, promoteActive: promoteActive)
+    }
+
     public func setUnexpectedDisconnectHandler(_ handler: BridgeConnectionDisconnectHandler?) {
         connection.setUnexpectedDisconnectHandler(handler)
     }
