@@ -410,10 +410,18 @@ export default function HomeHero(props: HomeHeroProps) {
   } = props;
   const [showAllGauges, setShowAllGauges] = useState(false);
 
+  // "N agents are ready" duplicates the CONTEXT rail's "READY · N" — drop it
+  // from both the lede and the subline. When that's the only thing to say
+  // (everything idle, nothing needs you), the card rests on "Nothing needs you."
+  const meaningfulParts = narrativeParts.filter((p) => !/\bready\b/.test(p));
   const ledePart =
-    narrativeParts.find((p) => p.includes("need")) ?? narrativeParts[0] ?? "";
-  const displayLede = ledePart ? `${ledePart}.` : "Scout is waiting for a fresh snapshot.";
-  const otherParts = narrativeParts.filter((p) => p !== ledePart);
+    meaningfulParts.find((p) => p.includes("need")) ?? meaningfulParts[0] ?? "";
+  const displayLede = ledePart
+    ? `${ledePart}.`
+    : narrativeParts.length > 0
+      ? "Nothing needs you."
+      : "Scout is waiting for a fresh snapshot.";
+  const otherParts = meaningfulParts.filter((p) => p !== ledePart);
   const leadsNeedsYou = ledePart.includes("need");
   const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
@@ -478,8 +486,6 @@ export default function HomeHero(props: HomeHeroProps) {
         <div className="hd-panel hd-panel--lede">
           <div className="hd-panel-title">
             <span>STATUS</span>
-            <span className="hd-sep">·</span>
-            <span>{formatDateChip(now)}</span>
           </div>
 
           <p className={`hd-status-line${leadsNeedsYou ? " hd-status-line--warn" : ""}`}>

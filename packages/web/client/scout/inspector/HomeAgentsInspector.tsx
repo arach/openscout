@@ -34,7 +34,13 @@ export function HomeAgentsInspector() {
       {notReady.length > 0 && (
         <Section label="Not ready" count={notReady.length}>
           {notReady.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim />
+            <AgentRow
+              key={agent.id}
+              agent={agent}
+              onOpen={openFromHome}
+              subLabel={agentStateLabel(agent.state)}
+              dim
+            />
           ))}
         </Section>
       )}
@@ -69,10 +75,16 @@ function Section({
 function AgentRow({
   agent,
   onOpen,
+  subLabel,
   dim,
 }: {
   agent: Agent;
   onOpen: (agent: Agent) => void;
+  // Secondary state line. Omitted for ready rows — the section header already
+  // says "Ready" and the timestamp carries the real signal, so repeating
+  // "Ready" on all N rows is noise. Kept for not-ready rows where the specific
+  // state (offline / dormant / …) actually differentiates.
+  subLabel?: string;
   dim?: boolean;
 }) {
   return (
@@ -89,9 +101,11 @@ function AgentRow({
         <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
           {agent.name}
         </span>
-        <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
-          {agentStateLabel(agent.state)}
-        </span>
+        {subLabel && (
+          <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
+            {subLabel}
+          </span>
+        )}
       </div>
       {agent.updatedAt && (
         <span className="shrink-0 text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">

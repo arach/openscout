@@ -403,12 +403,17 @@ export const SCOUT_IOS_CSS = `
 .iTurnLabel[data-role="user"] span:not(.iDot) { color: var(--i-muted); }
 .iTurnLabel[data-role="agent"] span:not(.iDot) { color: var(--i-accent); }
 .iMsg { font-size: 13.5px; line-height: 1.5; color: var(--i-ink); padding: 9px 12px; border-radius: 12px;
-  background: var(--i-surface); border: 1px solid var(--i-hairline); margin-bottom: 6px; }
+  background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 5%, var(--i-surface)), var(--i-surface));
+  border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 0 var(--i-keylight), 0 1px 2px rgba(0,0,0,0.18); margin-bottom: 6px; }
 .iMdP + .iMdP, .iMdLi { margin-top: 3px; }
 .iMsg strong { color: var(--i-ink); font-weight: 700; }
 .iReason { font-size: 12px; font-style: italic; color: var(--i-muted); line-height: 1.5;
   border-left: 2px solid var(--i-hairline-strong); padding: 2px 0 2px 10px; margin: 0 0 6px 2px; }
-.iAct { border-radius: 12px; background: var(--i-surface); border: 1px solid var(--i-hairline);
+.iAct { border-radius: 12px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 5%, var(--i-surface)), var(--i-surface));
+  border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 0 var(--i-keylight), 0 1px 2px rgba(0,0,0,0.18);
   padding: 9px 11px; margin-bottom: 6px; }
 .iActHead { display: flex; align-items: center; gap: 7px; }
 .iActIcon { color: var(--i-muted); flex: none; display: grid; place-items: center; }
@@ -442,14 +447,38 @@ export const SCOUT_IOS_CSS = `
 .iQOpt { font-size: 12.5px; font-weight: 600; padding: 6px 14px; border-radius: 9px; cursor: pointer;
   background: var(--i-warn); color: #1a1205; border: none; }
 .iQOpt.on { background: var(--i-surface); color: var(--i-muted); border: 1px solid var(--i-hairline-strong); }
-.iComposer { flex: none; display: flex; align-items: center; gap: 9px; padding: 8px 12px 16px;
-  border-top: 1px solid var(--i-hairline-strong); background: var(--i-chrome); position: relative; z-index: 2; }
+/* Composer dock — lifts off the transcript: a top keylight edge + a soft
+   upward shadow read it as the input layer, not just a bordered strip. */
+.iComposer { flex: none; display: flex; align-items: center; gap: 9px; padding: 9px 12px 16px;
+  border-top: 1px solid var(--i-hairline-strong);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 3%, var(--i-chrome)), var(--i-chrome));
+  box-shadow: inset 0 1px 0 var(--i-keylight), 0 -10px 20px -14px rgba(0,0,0,0.7);
+  position: relative; z-index: 2; }
+/* Mic / send share a tactile button face: subtle top-lit fill + keylight edge. */
 .iMic { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none;
-  background: var(--i-surface); color: var(--i-muted); border: 1px solid var(--i-hairline-strong); }
-.iComposerField { flex: 1; font-size: 13px; color: var(--i-dim); padding: 8px 12px; border-radius: 11px;
-  background: var(--i-surface); border: 1px solid var(--i-hairline-strong); }
+  background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 6%, var(--i-surface)), var(--i-surface));
+  color: var(--i-muted); border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 0 var(--i-keylight); }
+/* Field is a recessed well (inner shadow); focus lights an accent ring. */
+.iComposerField { flex: 1; font-size: 13px; color: var(--i-dim); padding: 9px 13px; border-radius: 11px;
+  background: var(--i-bg); border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.32);
+  transition: border-color 0.13s, box-shadow 0.13s, color 0.13s; }
+.iComposerField.focus { color: var(--i-ink);
+  border-color: color-mix(in oklab, var(--i-accent) 55%, transparent);
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.28), 0 0 0 3px color-mix(in oklab, var(--i-accent) 13%, transparent); }
+.iComposerCaret { display: inline-block; width: 2px; height: 15px; vertical-align: -3px; margin-left: 1px;
+  background: var(--i-accent); animation: iBlink 1.2s ease-in-out infinite; }
 .iSend { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none;
-  background: var(--i-surface); color: var(--i-dim); border: 1px solid var(--i-hairline-strong); }
+  background: linear-gradient(180deg, color-mix(in oklab, var(--i-ink) 6%, var(--i-surface)), var(--i-surface));
+  color: var(--i-dim); border: 1px solid var(--i-hairline-strong);
+  box-shadow: inset 0 1px 0 var(--i-keylight);
+  transition: background 0.13s, color 0.13s, border-color 0.13s, box-shadow 0.13s; }
+/* Armed — a draft is present: the send becomes a lit accent pill. */
+.iSend.armed { background: linear-gradient(180deg, var(--i-accent-2), var(--i-accent));
+  color: #04130d; border-color: color-mix(in oklab, var(--i-accent) 60%, #000);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, #fff 22%, transparent),
+    0 2px 9px color-mix(in oklab, var(--i-accent) 32%, transparent); }
 
 /* ── Terminal ──────────────────────────────────────────────────────────── */
 .iTermHead { display: flex; align-items: center; gap: 8px; }

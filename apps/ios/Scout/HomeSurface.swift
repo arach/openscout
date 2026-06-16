@@ -556,7 +556,7 @@ struct HomeSurface: View {
                          state: .live, sessionId: "demo.s1", lastActiveAt: now),
             AgentSummary(id: "demo.2", title: "tail-tuner", harness: "codex", projectName: "hudson",
                          branch: "feat/tail-tokens", git: GitState(ahead: 2, behind: 0, dirty: 0),
-                         model: "gpt-5-codex", statusLabel: "streaming tail tokens",
+                         model: "gpt-5.5", statusLabel: "streaming tail tokens",
                          state: .live, sessionId: "demo.s2", lastActiveAt: now.addingTimeInterval(-95)),
         ], at: 0)
         func ms(_ offset: TimeInterval) -> Int64 { Int64((now.addingTimeInterval(offset).timeIntervalSince1970) * 1000) }

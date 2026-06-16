@@ -39,6 +39,33 @@ function CodeValue({ value }: { value: string }) {
   return <span className="s-agent-code-value">{value}</span>;
 }
 
+function protocolLabel(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.toLowerCase() === "a2a"
+    ? "A2A"
+    : formatLabel(normalized) ?? normalized;
+}
+
+function ProviderValue({
+  name,
+  url,
+}: {
+  name: string;
+  url?: string | null;
+}) {
+  if (!url) {
+    return <>{name}</>;
+  }
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      {name}
+    </a>
+  );
+}
+
 function ProfileCard({
   title,
   items,
@@ -153,6 +180,9 @@ export function AgentInfoScreen({
   const homeNodeLabel = agent.homeNodeName
     ? `${agent.homeNodeName} (${agent.homeNodeId ?? "unknown"})`
     : agent.homeNodeId;
+  const skills = agent.skills ?? [];
+  const protocol = protocolLabel(agent.protocol);
+  const hasExternalCardIdentity = Boolean(agent.providerName || protocol || skills.length > 0);
   const identityItems: ProfileField[] = [
     { label: "Fully qualified ID", value: <CodeValue value={agent.id} /> },
     { label: "Definition", value: <CodeValue value={agent.definitionId} /> },
@@ -165,8 +195,13 @@ export function AgentInfoScreen({
       ? [{ label: "Workspace qualifier", value: <CodeValue value={agent.workspaceQualifier} /> }]
       : []),
     ...(agent.nodeQualifier ? [{ label: "Node qualifier", value: <CodeValue value={agent.nodeQualifier} /> }] : []),
-    { label: "Class", value: formatLabel(agent.agentClass) ?? "—" },
-    ...(agent.role ? [{ label: "Role", value: agent.role }] : []),
+    ...(agent.providerName
+      ? [{ label: "Provider", value: <ProviderValue name={agent.providerName} url={agent.providerUrl} /> }]
+      : []),
+    ...(protocol ? [{ label: "Protocol", value: protocol }] : []),
+    ...(skills.length > 0 ? [{ label: "Skills", value: <CapabilityTokens values={skills} /> }] : []),
+    ...(!hasExternalCardIdentity ? [{ label: "Class", value: formatLabel(agent.agentClass) ?? "—" }] : []),
+    ...(!hasExternalCardIdentity && agent.role ? [{ label: "Role", value: agent.role }] : []),
     ...(agent.staleLocalRegistration
       ? [{
         label: "Registration",
@@ -192,9 +227,9 @@ export function AgentInfoScreen({
     ...(agent.cwd ? [{ label: "Working dir", value: agent.cwd }] : []),
   ];
   const runtimeItems: ProfileField[] = [
-    ...(agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
+    ...(!hasExternalCardIdentity && agent.harness ? [{ label: "Harness", value: agent.harness }] : []),
     ...(agent.model ? [{ label: "Model", value: agent.model }] : []),
-    ...(agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
+    ...(!hasExternalCardIdentity && agent.transport ? [{ label: "Transport", value: formatLabel(agent.transport) ?? agent.transport }] : []),
     ...(agent.wakePolicy ? [{ label: "Wake policy", value: formatLabel(agent.wakePolicy) ?? agent.wakePolicy }] : []),
     ...(agent.capabilities.length > 0 ? [{ label: "Capabilities", value: <CapabilityTokens values={agent.capabilities} /> }] : []),
   ];
@@ -204,7 +239,7 @@ export function AgentInfoScreen({
     ...(session?.currentBranch ? [{ label: "Session branch", value: session.currentBranch }] : []),
     ...(session?.messageCount != null ? [{ label: "Messages", value: String(session.messageCount) }] : []),
     ...(session?.lastMessageAt ? [{ label: "Last message", value: fullTimestamp(session.lastMessageAt) }] : []),
-    ...(agent.harnessSessionId ? [{ label: "Harness session", value: agent.harnessSessionId }] : []),
+    ...(agent.harnessSessionId ? [{ label: protocol ? `${protocol} context` : "Harness session", value: agent.harnessSessionId }] : []),
     ...(agent.harnessLogPath ? [{ label: "Harness log", value: agent.harnessLogPath }] : []),
   ];
 

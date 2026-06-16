@@ -178,6 +178,8 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
     public let body: String
     public let createdAt: TimeInterval
     public let messageClass: String
+    public let replyToMessageId: String?
+    public let metadata: ScoutMessageMetadata?
 
     public var isOperator: Bool {
         actorId == "operator" || messageClass == "operator" || actorName.lowercased() == "operator"
@@ -192,6 +194,8 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         case body
         case createdAt
         case messageClass = "class"
+        case replyToMessageId
+        case metadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -206,6 +210,54 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
         body = try c.decode(String.self, forKey: .body)
         createdAt = try c.decode(TimeInterval.self, forKey: .createdAt)
         messageClass = try c.decodeIfPresent(String.self, forKey: .messageClass) ?? "message"
+        replyToMessageId = try c.decodeIfPresent(String.self, forKey: .replyToMessageId)
+        metadata = try c.decodeIfPresent(ScoutMessageMetadata.self, forKey: .metadata)
+    }
+}
+
+public struct ScoutMessageMetadata: Decodable, Sendable, Equatable {
+    public let source: String?
+    public let generatedBy: String?
+    public let requestedBy: String?
+    public let sourceMessageId: String?
+    public let parentScoutbotTurnId: String?
+    public let sourcePath: String?
+    public let relayTarget: String?
+    public let relayChannel: String?
+    public let handoffKind: String?
+    public let originSurface: String?
+    public let originConversationId: String?
+    public let originMessageId: String?
+    public let targetAgentId: String?
+    public let workId: String?
+    public let collaborationRecordId: String?
+    public let scoutbotThreadId: String?
+
+    public var isScoutbotGenerated: Bool {
+        source == "scoutbot" || generatedBy == "scoutbot"
+    }
+
+    public var isRepoWatchHandoff: Bool {
+        source == "repo-watch" || originSurface == "repo-watch" || handoffKind?.hasPrefix("repo-watch") == true
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case source
+        case generatedBy
+        case requestedBy
+        case sourceMessageId
+        case parentScoutbotTurnId
+        case sourcePath
+        case relayTarget
+        case relayChannel
+        case handoffKind
+        case originSurface
+        case originConversationId
+        case originMessageId
+        case targetAgentId
+        case workId
+        case collaborationRecordId
+        case scoutbotThreadId
     }
 }
 
