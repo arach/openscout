@@ -105,8 +105,7 @@ export const STUDIO_INSERTION_POINTS: StudioInsertionPoint[] = [
     allowedModes: ["replace", "decorate"],
     source: [
       "packages/web/client/screens/AgentsScreen.tsx",
-      "packages/web/client/dev/override.tsx",
-      "packages/web/client/dev/studio-overrides.tsx",
+      "design/studio/app/studies/agent-view-before-after/page.tsx",
     ],
     blurb: "The live Agents route empty/detail-less state; first Studio-mode replacement anchor.",
   },

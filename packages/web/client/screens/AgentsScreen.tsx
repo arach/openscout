@@ -38,7 +38,6 @@ import type {
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import { AgentsSubnav } from "./AgentsSubnav.tsx";
-import { DevOverride } from "../dev/override.tsx";
 import "./agents-screen.css";
 import "./ops-atop.css";
 import "./ops-screen.css";
@@ -2682,18 +2681,16 @@ export function AgentsScreen({
 
   return (
     <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
-      <DevOverride id="agents.directory">
-        <AgentsLibrary
-          agents={scopedAgents}
-          fleet={fleet}
-          sessionByAgentId={sessionByAgentId}
-          conversationByAgentId={conversationByAgentId}
-          sessions={sessions}
-          discovery={discovery}
-          topologySnapshot={topologySnapshot}
-          navigate={navigate}
-        />
-      </DevOverride>
+      <AgentsLibrary
+        agents={scopedAgents}
+        fleet={fleet}
+        sessionByAgentId={sessionByAgentId}
+        conversationByAgentId={conversationByAgentId}
+        sessions={sessions}
+        discovery={discovery}
+        topologySnapshot={topologySnapshot}
+        navigate={navigate}
+      />
     </AgentsRouteFrame>
   );
 }
