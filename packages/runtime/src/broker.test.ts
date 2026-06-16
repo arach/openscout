@@ -7,14 +7,14 @@ describe("InMemoryControlRuntime", () => {
     const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
 
     runtime.upsertAgentIdentity({
-      id: "mastra-weather.local",
-      displayName: "Mastra Weather Agent",
-      handle: "mastra-weather",
+      id: "weather-a2a.local",
+      displayName: "Weather A2A Agent",
+      handle: "weather-a2a",
       authorityNodeId: "node-1",
       metadata: { brokerRegistered: true },
     });
 
-    expect(runtime.snapshot().agents["mastra-weather.local"]).toMatchObject({
+    expect(runtime.snapshot().agents["weather-a2a.local"]).toMatchObject({
       agentClass: "general",
       capabilities: [],
       wakePolicy: "on_demand",

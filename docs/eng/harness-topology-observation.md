@@ -117,8 +117,9 @@ Non-goals:
 - run dashboards for every external agent execution
 - fleet health, utilization, cost analytics, or SLA monitoring
 - editing vendor-owned teams, workflows, subagent definitions, or task state
-- replacing framework-native observability such as LangSmith, Mastra tracing,
-  Cursor background-agent dashboards, or Claude/Codex local run views
+- replacing framework-native observability such as hosted tracing, framework
+  task dashboards, editor background-agent dashboards, or harness-local run
+  views
 
 ## Staying In Sync
 
@@ -392,34 +393,35 @@ Likely reader sources:
 - LangSmith traces with `lc_agent_name`
 - task-tool call events and ToolMessage results
 
-### Mastra
+### TypeScript Agent Frameworks
 
-Mastra is a TypeScript application framework rather than a coding harness. It
-models agents, supervisor agents, workflows, background tasks, approvals,
-storage-backed memory, and observability as application primitives.
+Some TypeScript application frameworks model agents, supervisor agents,
+workflows, background tasks, approvals, storage-backed memory, and observability
+as application primitives rather than coding-harness sessions.
 
-An `Agent` is a reusable actor definition registered on a `Mastra` instance.
-Supervisor agents coordinate multiple subagents through an `agents` property,
-using each subagent's description to decide delegation. Delegation hooks can
-accept, reject, modify, or inspect subagent calls. Mastra also isolates
-subagent memory: the subagent can receive supervisor context, but only scoped
-delegation prompts and responses are saved to the subagent's memory. Subagent
-invocations are dispatched as tool calls and can be opted into background
-tasks.
+An agent definition is typically a reusable actor registered on an application
+instance. Supervisor agents coordinate multiple subagents through explicit
+registries, using each subagent's description to decide delegation. Delegation
+hooks can accept, reject, modify, or inspect subagent calls. Some frameworks
+also isolate subagent memory: the subagent can receive supervisor context, but
+only scoped delegation prompts and responses are saved to the subagent's memory.
+Subagent invocations are often dispatched as tool calls and can be opted into
+background tasks.
 
 Workflows are graph-like execution definitions with explicit steps, branching,
-parallelism, suspend/resume, snapshots, and registration on the Mastra instance.
-Older agent networks route among agents, workflows, and tools, but Mastra docs
-mark them deprecated in favor of supervisor agents.
+parallelism, suspend/resume, snapshots, and registration on the application
+instance. Older routing-network patterns may still appear in project code, but
+Scout should prefer the current explicit agent, workflow, and task surfaces
+when available.
 
 Mapping:
 
-| Mastra concept | OpenScout observed topology |
+| Framework concept | OpenScout observed topology |
 | --- | --- |
-| `Mastra` instance | group with registry metadata |
-| registered `Agent` | actor definition |
+| application instance | group with registry metadata |
+| registered agent definition | actor definition |
 | supervisor agent | active actor with `role = "supervisor"` |
-| supervisor `agents` map | `can_delegate_to` or `uses_definition` edges |
+| supervisor registry | `can_delegate_to` or `uses_definition` edges |
 | subagent delegation | work item plus `assigned_to` edge |
 | delegation hook rejection | task state or event with blocked/declined metadata |
 | background task | async work item with timeout/retry/concurrency metadata |
@@ -430,9 +432,9 @@ Mapping:
 
 Likely reader sources:
 
-- `src/mastra/index.ts` registry declarations
-- `src/mastra/agents/*` and `src/mastra/workflows/*` definitions
-- Mastra storage snapshots and background-task rows
+- application registry declarations
+- checked-in agent and workflow definition files
+- framework storage snapshots and background-task rows
 - streaming events, especially delegation, approval, suspend, and workflow
   events
 - observability traces or OpenTelemetry bridges

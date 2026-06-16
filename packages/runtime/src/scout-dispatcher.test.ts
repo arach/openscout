@@ -125,19 +125,19 @@ describe("resolveAgentLabel", () => {
   test("resolves broker-registered external agents by handle", () => {
     const snapshot = makeSnapshot([
       makeAgent({
-        id: "mastra-weather.local",
-        definitionId: "mastra-weather-local",
-        handle: "mastra-weather",
+        id: "weather-a2a.local",
+        definitionId: "weather-a2a-local",
+        handle: "weather-a2a",
         metadata: {
           brokerRegistered: true,
         },
       }),
     ]);
 
-    const result = resolveAgentLabel(snapshot, "@mastra-weather", { helpers });
+    const result = resolveAgentLabel(snapshot, "@weather-a2a", { helpers });
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
-      expect(result.agent.id).toBe("mastra-weather.local");
+      expect(result.agent.id).toBe("weather-a2a.local");
     }
   });
 

@@ -295,21 +295,21 @@ function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<
   };
 }
 
-function makeMastraBrokerContext(overrides: {
+function makeA2aBrokerContext(overrides: {
   agent?: Record<string, unknown>;
   endpoint?: Record<string, unknown>;
   snapshot?: Record<string, unknown>;
 } = {}): Record<string, unknown> {
-  const agentId = "mastra-weather.local";
+  const agentId = "weather-a2a.local";
   const nodeId = "node-1";
   const agent = {
     id: agentId,
     kind: "agent",
     definitionId: agentId,
-    displayName: "Mastra Weather Agent",
-    handle: "mastra-weather",
-    labels: ["mastra-weather"],
-    selector: "mastra-weather",
+    displayName: "Weather A2A Agent",
+    handle: "weather-a2a",
+    labels: ["weather-a2a"],
+    selector: "weather-a2a",
     agentClass: "general",
     capabilities: ["chat", "invoke"],
     wakePolicy: "on_demand",
@@ -319,14 +319,14 @@ function makeMastraBrokerContext(overrides: {
     ownerId: "operator",
     metadata: {
       brokerRegistered: true,
-      project: "mastra-openscout-sidecar",
+      project: "openscout-a2a-sidecar",
       role: "weather",
       branch: "main",
       createdAt: 1_700_000_000_000,
       a2aAgentCard: {
         provider: {
-          organization: "Mastra",
-          url: "https://mastra.ai",
+          organization: "OpenScout Protocol Lab",
+          url: "https://openscout.local",
         },
         skills: [
           {
@@ -347,15 +347,15 @@ function makeMastraBrokerContext(overrides: {
     ...(overrides.agent ?? {}),
   };
   const endpoint = {
-    id: "endpoint.mastra-weather.local.a2a",
+    id: "endpoint.weather-a2a.local.a2a",
     agentId,
     nodeId,
     harness: "http",
     transport: "http",
     state: "active",
     address: "http://127.0.0.1:4111/api/a2a/weather-agent",
-    projectRoot: "/tmp/mastra-openscout-sidecar",
-    cwd: "/tmp/mastra-openscout-sidecar",
+    projectRoot: "/tmp/openscout-a2a-sidecar",
+    cwd: "/tmp/openscout-a2a-sidecar",
     metadata: {
       a2aContextId: "ctx-weather",
       a2aExecutionUrl: "http://127.0.0.1:4111/api/a2a/weather-agent",
@@ -821,7 +821,7 @@ describe("createOpenScoutWebServer", () => {
         conversationId: "dm.operator.local-agent",
       },
     ];
-    scoutBrokerContextResult = makeMastraBrokerContext({
+    scoutBrokerContextResult = makeA2aBrokerContext({
       agent: { capabilities: [] },
     });
     const server = await createOpenScoutWebServer({
@@ -836,28 +836,28 @@ describe("createOpenScoutWebServer", () => {
     const agents = await listResponse.json() as Array<Record<string, unknown>>;
     expect(agents.map((agent) => agent.id)).toEqual([
       "local-agent",
-      "mastra-weather.local",
+      "weather-a2a.local",
     ]);
-    const mastra = agents.find((agent) => agent.id === "mastra-weather.local");
-    expect(mastra).toMatchObject({
-      id: "mastra-weather.local",
-      definitionId: "mastra-weather.local",
-      name: "Mastra Weather Agent",
-      handle: "mastra-weather",
+    const a2aAgent = agents.find((agent) => agent.id === "weather-a2a.local");
+    expect(a2aAgent).toMatchObject({
+      id: "weather-a2a.local",
+      definitionId: "weather-a2a.local",
+      name: "Weather A2A Agent",
+      handle: "weather-a2a",
       agentClass: "general",
       harness: "http",
       state: "available",
-      projectRoot: "/tmp/mastra-openscout-sidecar",
-      cwd: "/tmp/mastra-openscout-sidecar",
+      projectRoot: "/tmp/openscout-a2a-sidecar",
+      cwd: "/tmp/openscout-a2a-sidecar",
       transport: "http",
-      selector: "mastra-weather",
+      selector: "weather-a2a",
       wakePolicy: "on_demand",
       capabilities: ["chat", "invoke"],
-      project: "mastra-openscout-sidecar",
+      project: "openscout-a2a-sidecar",
       branch: "main",
       role: null,
       harnessSessionId: "ctx-weather",
-      conversationId: "dm.operator.mastra-weather.local",
+      conversationId: "dm.operator.weather-a2a.local",
       authorityNodeId: "node-1",
       authorityNodeName: "Test node",
       homeNodeId: "node-1",
@@ -867,34 +867,34 @@ describe("createOpenScoutWebServer", () => {
       ownerHandle: "art",
       updatedAt: 1_700_000_100_000,
       createdAt: 1_700_000_000_000,
-      providerName: "Mastra",
-      providerUrl: "https://mastra.ai",
+      providerName: "OpenScout Protocol Lab",
+      providerUrl: "https://openscout.local",
       protocol: "A2A",
       skills: ["weatherTool"],
     });
 
     const detailResponse = await server.app.request(
-      "http://localhost/api/agents/mastra-weather",
+      "http://localhost/api/agents/weather-a2a",
     );
     expect(detailResponse.status).toBe(200);
     await expect(detailResponse.json()).resolves.toMatchObject({
-      id: "mastra-weather.local",
-      handle: "mastra-weather",
-      conversationId: "dm.operator.mastra-weather.local",
+      id: "weather-a2a.local",
+      handle: "weather-a2a",
+      conversationId: "dm.operator.weather-a2a.local",
     });
   });
 
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
     queryAgentsResult = [
       {
-        id: "mastra-weather.local",
-        definitionId: "mastra-weather.local",
-        name: "Projected Mastra",
-        handle: "mastra-weather",
-        conversationId: "dm.operator.mastra-weather.local",
+        id: "weather-a2a.local",
+        definitionId: "weather-a2a.local",
+        name: "Projected A2A Agent",
+        handle: "weather-a2a",
+        conversationId: "dm.operator.weather-a2a.local",
       },
     ];
-    scoutBrokerContextResult = makeMastraBrokerContext();
+    scoutBrokerContextResult = makeA2aBrokerContext();
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "static",
@@ -905,9 +905,9 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     const agents = await response.json() as Array<Record<string, unknown>>;
-    expect(agents.filter((agent) => agent.id === "mastra-weather.local")).toHaveLength(1);
-    expect(agents.find((agent) => agent.id === "mastra-weather.local")).toMatchObject({
-      name: "Projected Mastra",
+    expect(agents.filter((agent) => agent.id === "weather-a2a.local")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "weather-a2a.local")).toMatchObject({
+      name: "Projected A2A Agent",
     });
   });
 
@@ -2051,6 +2051,7 @@ describe("createOpenScoutWebServer", () => {
         targetLabel: "agent-1",
         targetAgentId: "agent-1",
         body: "Please own this and report back.",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
     ]);
@@ -2091,6 +2092,7 @@ describe("createOpenScoutWebServer", () => {
         targetLabel: "agent-1",
         targetAgentId: "agent-1",
         body: "Please own this and report back.",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
       {
@@ -2100,6 +2102,7 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         executionHarness: "codex",
         executionModel: "gpt-test",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
     ]);
