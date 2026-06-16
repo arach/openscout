@@ -15,6 +15,7 @@ function makeAgent(input: {
   definitionId: string;
   workspaceQualifier?: string;
   nodeQualifier?: string;
+  handle?: string;
   selector?: string;
   authorityNodeId?: string;
   homeNodeId?: string;
@@ -24,6 +25,7 @@ function makeAgent(input: {
     id: input.id,
     kind: "agent",
     displayName: input.id,
+    handle: input.handle,
     class: "general",
     capabilities: ["chat"],
     harness: "claude",
@@ -117,6 +119,25 @@ describe("resolveAgentLabel", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("arc.main");
+    }
+  });
+
+  test("resolves broker-registered external agents by handle", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "mastra-weather.local",
+        definitionId: "mastra-weather-local",
+        handle: "mastra-weather",
+        metadata: {
+          brokerRegistered: true,
+        },
+      }),
+    ]);
+
+    const result = resolveAgentLabel(snapshot, "@mastra-weather", { helpers });
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("mastra-weather.local");
     }
   });
 

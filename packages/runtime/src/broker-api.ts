@@ -13,6 +13,8 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
+  ScoutCapabilityAvailabilityDecision,
+  ScoutCapabilityMatrixSnapshot,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
   ScoutInvocationLifecycle,
@@ -165,6 +167,17 @@ export type ScoutBrokerInvocationLifecycleQuery = {
   invocationId: string;
 };
 
+export type ScoutBrokerCapabilitiesQuery = {
+  force?: boolean;
+};
+
+export type ScoutBrokerCapabilityAvailabilityQuery = {
+  capabilityId: string;
+  methodName?: string;
+  requireReady?: boolean;
+  force?: boolean;
+};
+
 export type ActiveScoutBrokerService = {
   baseUrl: string;
   matchesBaseUrl?: (baseUrl: string) => boolean;
@@ -172,6 +185,12 @@ export type ActiveScoutBrokerService = {
   readHome?: () => Promise<unknown>;
   readNode: () => Promise<NodeDefinition>;
   readSnapshot: () => Promise<RuntimeRegistrySnapshot>;
+  readCapabilities?: (
+    query?: ScoutBrokerCapabilitiesQuery,
+  ) => Promise<ScoutCapabilityMatrixSnapshot>;
+  readCapabilityAvailability?: (
+    query: ScoutBrokerCapabilityAvailabilityQuery,
+  ) => Promise<ScoutCapabilityAvailabilityDecision>;
   readMessages?: (
     query: ScoutBrokerMessageQuery,
   ) => Promise<MessageRecord[]>;
@@ -489,6 +508,16 @@ function parseLimit(value: string | null | undefined): number {
   return Math.min(parsed, 500);
 }
 
+function parseBoolean(value: string | null | undefined): boolean | undefined {
+  if (value === "1" || value === "true") {
+    return true;
+  }
+  if (value === "0" || value === "false") {
+    return false;
+  }
+  return undefined;
+}
+
 function trimOrUndefined(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
@@ -599,6 +628,31 @@ export async function maybeReadJsonFromActiveScoutBrokerService<T>(
 
   if (url.pathname === "/v1/snapshot") {
     return handled(await service.readSnapshot() as T);
+  }
+
+  if (url.pathname === "/v1/capabilities") {
+    if (!service.readCapabilities) {
+      return unhandled();
+    }
+    return handled(await service.readCapabilities({
+      force: parseBoolean(url.searchParams.get("force")),
+    }) as T);
+  }
+
+  if (url.pathname === "/v1/capabilities/availability") {
+    if (!service.readCapabilityAvailability) {
+      return unhandled();
+    }
+    const capabilityId = trimOrUndefined(url.searchParams.get("capabilityId"));
+    if (!capabilityId) {
+      return unhandled();
+    }
+    return handled(await service.readCapabilityAvailability({
+      capabilityId,
+      methodName: trimOrUndefined(url.searchParams.get("methodName")),
+      requireReady: parseBoolean(url.searchParams.get("requireReady")),
+      force: parseBoolean(url.searchParams.get("force")),
+    }) as T);
   }
 
   if (url.pathname === "/v1/messages") {

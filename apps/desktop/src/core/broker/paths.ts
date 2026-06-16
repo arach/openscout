@@ -6,6 +6,7 @@ export const scoutBrokerPaths = {
     home: "/v1/home",
     node: "/v1/node",
     snapshot: "/v1/snapshot",
+    capabilities: "/v1/capabilities",
     messages: "/v1/messages",
     brokerMessages: "/v1/broker/messages",
     eventsStream: "/v1/events/stream",

@@ -248,6 +248,24 @@ function startHangingPeerServer(): string {
   return `http://127.0.0.1:${server.port}`;
 }
 
+function startA2AResponder(
+  handler: (body: Record<string, unknown>) => Record<string, unknown>,
+): string {
+  const server = Bun.serve({
+    port: 0,
+    async fetch(request) {
+      const body = await request.json() as Record<string, unknown>;
+      return Response.json({
+        jsonrpc: "2.0",
+        id: body.id ?? null,
+        ...handler(body),
+      });
+    },
+  });
+  hangingServers.add(server);
+  return `http://127.0.0.1:${server.port}/a2a`;
+}
+
 function startPairingBridgeServer(input: {
   sessions: Array<{
     id: string;
@@ -590,6 +608,255 @@ describe("broker daemon comms layer", () => {
     }));
     expect(health.counts?.collaborationRecords).toBe(0);
   });
+
+  test("serves capability snapshots from the broker read endpoint", async () => {
+    const harness = await startBroker();
+
+    const snapshot = await getJson<{
+      generatedAt: number;
+      scope?: { machineId?: string };
+      sources: Array<{ kind: string; id: string }>;
+      capabilities: unknown[];
+      harnessSupport?: Record<string, unknown>;
+      warnings: string[];
+    }>(harness.baseUrl, "/v1/capabilities");
+
+    expect(snapshot.generatedAt).toBeGreaterThan(0);
+    expect(snapshot.scope?.machineId).toBe(harness.nodeId);
+    expect(snapshot.sources.some((source) => source.kind === "harness_adapter")).toBe(true);
+    expect(snapshot.sources.some((source) => source.kind === "runtime_probe")).toBe(true);
+    expect(snapshot.harnessSupport?.codex).toBeTruthy();
+    expect(snapshot.capabilities).toEqual([]);
+    expect(snapshot.warnings).toEqual([]);
+
+    const cached = await getJson<{ generatedAt: number }>(harness.baseUrl, "/v1/capabilities");
+    expect(cached.generatedAt).toBe(snapshot.generatedAt);
+
+    const availability = await getJson<{
+      decision: string;
+      reason: string;
+      capabilityId?: string;
+    }>(
+      harness.baseUrl,
+      "/v1/capabilities/availability?capabilityId=cap%3Amissing&methodName=call&requireReady=1",
+    );
+    expect(availability).toEqual(expect.objectContaining({
+      decision: "deny",
+      capabilityId: "cap:missing",
+      reason: "capability_missing",
+    }));
+
+    const missingId = await requestJson(harness.baseUrl, "/v1/capabilities/availability");
+    expect(missingId.status).toBe(400);
+  });
+
+  test("projects local model catalog entries into capability snapshots", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-model-catalog-"));
+    const harness = await startBroker({ controlHome });
+    const catalogDirectory = join(harness.controlHome, "support", "catalog");
+    mkdirSync(catalogDirectory, { recursive: true });
+    writeFileSync(
+      join(catalogDirectory, "model-catalog.json"),
+      `${JSON.stringify({
+        id: "local-models",
+        name: "Local Models",
+        models: [{
+          providerId: "local",
+          modelId: "scout-small",
+          displayName: "Scout Small",
+          features: { streaming: true, toolCalling: true },
+        }],
+      })}\n`,
+      "utf8",
+    );
+
+    const snapshot = await getJson<{
+      sources: Array<{ kind: string; id: string }>;
+      capabilities: Array<{ id: string; provider: string; displayName: string }>;
+    }>(harness.baseUrl, "/v1/capabilities?force=1");
+
+    expect(snapshot.sources).toContainEqual(expect.objectContaining({
+      kind: "model_catalog",
+      id: "local-models",
+    }));
+    expect(snapshot.capabilities).toContainEqual(expect.objectContaining({
+      id: "cap:model:local:scout-small",
+      provider: "model",
+      displayName: "Scout Small",
+    }));
+  });
+
+  test("projects configured MCP server catalog entries into capability snapshots", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-mcp-catalog-"));
+    const harness = await startBroker({ controlHome });
+    const catalogDirectory = join(harness.controlHome, "support", "catalog");
+    mkdirSync(catalogDirectory, { recursive: true });
+    writeFileSync(
+      join(catalogDirectory, "mcp-servers.json"),
+      `${JSON.stringify({
+        servers: [{
+          id: "disabled-tools",
+          name: "Disabled Tools",
+          command: "node",
+          disabled: true,
+        }],
+      })}\n`,
+      "utf8",
+    );
+
+    const snapshot = await getJson<{
+      sources: Array<{ kind: string; id: string; raw?: { target?: string; state?: string } }>;
+      warnings: string[];
+    }>(harness.baseUrl, "/v1/capabilities?force=1");
+
+    expect(snapshot.sources).toContainEqual(expect.objectContaining({
+      kind: "runtime_probe",
+      id: "mcp:disabled-tools",
+      raw: expect.objectContaining({
+        target: "mcp_server",
+        state: "disabled",
+      }),
+    }));
+    expect(snapshot.warnings).toEqual([]);
+  });
+
+  test("serves A2A cards and routes JSON-RPC tasks through Scout invocations", async () => {
+    const harness = await startBroker();
+    const endpointUrl = startA2AResponder((body) => {
+      const params = body.params as { message?: { parts?: Array<{ text?: string }> } } | undefined;
+      const text = params?.message?.parts?.[0]?.text ?? "";
+      return {
+        result: {
+          task: {
+            id: "external-task-1",
+            contextId: "external-context-1",
+            status: { state: "TASK_STATE_COMPLETED" },
+            artifacts: [
+              {
+                artifactId: "external-output",
+                parts: [{ text: `external reply: ${text}` }],
+              },
+            ],
+          },
+        },
+      };
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "fabric.a2a",
+      kind: "agent",
+      definitionId: "fabric",
+      displayName: "Fabric A2A",
+      handle: "fabric-a2a",
+      agentClass: "general",
+      capabilities: ["chat", "invoke"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+      metadata: {
+        brokerRegistered: true,
+        description: "A test A2A-backed agent.",
+        skills: [
+          {
+            id: "echo",
+            name: "Echo",
+            description: "Echoes a text task.",
+          },
+        ],
+      },
+    });
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint.fabric.a2a",
+      agentId: "fabric.a2a",
+      nodeId: harness.nodeId,
+      harness: "http",
+      transport: "http",
+      state: "active",
+      address: endpointUrl,
+      projectRoot: "/tmp/fabric-a2a",
+      cwd: "/tmp/fabric-a2a",
+      metadata: {
+        a2aExecutionUrl: endpointUrl,
+        a2aProtocolVersion: "1.0",
+      },
+    });
+
+    const card = await getJson<{
+      protocolVersion: string;
+      supportedInterfaces?: Array<{ tenant?: string; url?: string; protocolBinding?: string }>;
+      skills?: Array<{ id?: string }>;
+    }>(harness.baseUrl, "/v1/a2a/agents/fabric.a2a/agent-card.json");
+
+    expect(card.protocolVersion).toBe("1.0");
+    expect(card.supportedInterfaces?.[0]).toMatchObject({
+      tenant: "fabric.a2a",
+      protocolBinding: "JSONRPC",
+    });
+    expect(card.skills?.[0]?.id).toBe("echo");
+
+    const brokerCard = await getJson<{
+      name: string;
+      metadata?: { scoutAgentIds?: string[] };
+    }>(harness.baseUrl, "/.well-known/agent-card.json");
+    expect(brokerCard.name).toBe("OpenScout Broker");
+    expect(brokerCard.metadata?.scoutAgentIds).toContain("fabric.a2a");
+
+    const send = await postJson<{
+      jsonrpc: "2.0";
+      id: string;
+      result?: {
+        task?: {
+          id: string;
+          status: { state: string };
+          artifacts?: Array<{ parts?: Array<{ text?: string }> }>;
+        };
+      };
+      error?: { message: string };
+    }>(harness.baseUrl, "/v1/a2a/agents/fabric.a2a/rpc", {
+      jsonrpc: "2.0",
+      id: "send-1",
+      method: "SendMessage",
+      params: {
+        message: {
+          role: "ROLE_USER",
+          messageId: "a2a-msg-1",
+          parts: [{ text: "hello from a2a" }],
+        },
+        configuration: {
+          blocking: true,
+        },
+      },
+    });
+
+    expect(send.error).toBeUndefined();
+    expect(send.result?.task?.status.state).toBe("TASK_STATE_COMPLETED");
+    expect(send.result?.task?.artifacts?.[0]?.parts?.[0]?.text).toBe("external reply: hello from a2a");
+
+    const taskId = send.result?.task?.id;
+    expect(taskId).toBeTruthy();
+
+    const getTask = await postJson<{
+      result?: { id: string; status: { state: string } };
+    }>(harness.baseUrl, "/v1/a2a/agents/fabric.a2a/rpc", {
+      jsonrpc: "2.0",
+      id: "get-1",
+      method: "GetTask",
+      params: { id: taskId },
+    });
+    expect(getTask.result?.id).toBe(taskId);
+    expect(getTask.result?.status.state).toBe("TASK_STATE_COMPLETED");
+
+    const list = await postJson<{
+      result?: { tasks: Array<{ id: string }>; totalSize?: number };
+    }>(harness.baseUrl, "/v1/a2a/agents/fabric.a2a/rpc", {
+      jsonrpc: "2.0",
+      id: "list-1",
+      method: "ListTasks",
+      params: { pageSize: 10 },
+    });
+    expect(list.result?.tasks.some((task) => task.id === taskId)).toBe(true);
+  }, 15_000);
 
   test("persists posted messages and emits message events", async () => {
     const harness = await startBroker();

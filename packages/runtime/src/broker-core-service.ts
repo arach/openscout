@@ -1,3 +1,4 @@
+import { evaluateScoutCapabilityAvailability } from "@openscout/protocol";
 import type {
   AgentBrokerFeed,
   AgentBrokerFeedCounts,
@@ -13,6 +14,8 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
+  ScoutCapabilityAvailabilityDecision,
+  ScoutCapabilityMatrixSnapshot,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
   ScoutDispatchRecord,
@@ -31,6 +34,8 @@ import type {
   ActiveScoutBrokerService,
   ScoutBrokerActivityQuery,
   ScoutBrokerBuildIdentity,
+  ScoutBrokerCapabilitiesQuery,
+  ScoutBrokerCapabilityAvailabilityQuery,
   ScoutBrokerChildServiceSnapshots,
   ScoutBrokerCollaborationEventQuery,
   ScoutBrokerCollaborationRecordQuery,
@@ -124,6 +129,12 @@ export type BrokerCoreServiceDeps = {
   build?: ScoutBrokerBuildIdentity;
   readChildServices?: () => ScoutBrokerChildServiceSnapshots;
   readHome?: () => Promise<unknown>;
+  readCapabilities?: (
+    query?: ScoutBrokerCapabilitiesQuery,
+  ) => Promise<ScoutCapabilityMatrixSnapshot>;
+  readCapabilityAvailability?: (
+    query: ScoutBrokerCapabilityAvailabilityQuery,
+  ) => Promise<ScoutCapabilityAvailabilityDecision>;
   executeCommand: (command: ControlCommand) => Promise<unknown>;
   postConversationMessage?: (message: MessageRecord) => Promise<unknown>;
   deliver?: (
@@ -915,6 +926,7 @@ export function createBrokerCoreService(
   deps: BrokerCoreServiceDeps,
 ): ActiveScoutBrokerService {
   const postConversationMessage = deps.postConversationMessage;
+  const readCapabilities = deps.readCapabilities;
   return {
     baseUrl: deps.baseUrl,
     readHealth: async () => {
@@ -952,6 +964,22 @@ export function createBrokerCoreService(
     readHome: deps.readHome,
     readNode: async () => deps.localNode,
     readSnapshot: async () => deps.runtime.snapshot(),
+    ...(readCapabilities
+      ? {
+          readCapabilities: async (query) => await readCapabilities(query),
+          readCapabilityAvailability: async (query) =>
+            deps.readCapabilityAvailability
+              ? await deps.readCapabilityAvailability(query)
+              : evaluateScoutCapabilityAvailability(
+                  await readCapabilities({ force: query.force }),
+                  {
+                    capabilityId: query.capabilityId,
+                    methodName: query.methodName,
+                    requireReady: query.requireReady,
+                  },
+                ),
+        }
+      : {}),
     readMessages: async (query) => listBrokerMessages(deps.runtime, query),
     readActivity: async (query) =>
       await listBrokerActivity(

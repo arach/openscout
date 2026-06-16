@@ -431,7 +431,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       handle: input.handle,
       labels: input.labels,
       selector: input.selector,
-      agentClass: "operator" as const,
+      agentClass: "general" as const,
       capabilities: [],
       wakePolicy: "on_demand" as const,
       homeNodeId: input.authorityNodeId as ScoutId,

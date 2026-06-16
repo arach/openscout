@@ -115,6 +115,7 @@ describe("createBrokerCoreService", () => {
     ];
     const commands: unknown[] = [];
     const delivered: string[] = [];
+    let capabilitiesQuery: { force?: boolean } | undefined;
 
     const service = createBrokerCoreService({
       baseUrl: "http://broker.test",
@@ -195,6 +196,20 @@ describe("createBrokerCoreService", () => {
           healthy: null,
         },
       }),
+      readCapabilities: async (query) => {
+        capabilitiesQuery = query;
+        return {
+          generatedAt: 123,
+          scope: { machineId: "node-1" },
+          sources: [{
+            kind: "harness_adapter",
+            id: "codex",
+            capturedAt: 123,
+          }],
+          capabilities: [],
+          warnings: [],
+        };
+      },
       executeCommand: async (command) => {
         commands.push(command);
         return { ok: true };
@@ -231,6 +246,13 @@ describe("createBrokerCoreService", () => {
     });
 
     const health = await service.readHealth();
+    const capabilities = await service.readCapabilities?.({ force: true });
+    const capabilityAvailability = await service.readCapabilityAvailability?.({
+      capabilityId: "cap:missing",
+      methodName: "call",
+      requireReady: true,
+      force: true,
+    });
     const messages = await service.readMessages?.({ limit: 10 });
     const activity = await service.readActivity?.({ limit: 10 });
     const records = await service.readCollaborationRecords?.({ limit: 10 });
@@ -274,6 +296,24 @@ describe("createBrokerCoreService", () => {
       port: 3200,
       url: "http://127.0.0.1:3200",
       healthy: null,
+    });
+    expect(capabilities).toEqual({
+      generatedAt: 123,
+      scope: { machineId: "node-1" },
+      sources: [{
+        kind: "harness_adapter",
+        id: "codex",
+        capturedAt: 123,
+      }],
+      capabilities: [],
+      warnings: [],
+    });
+    expect(capabilitiesQuery).toEqual({ force: true });
+    expect(capabilityAvailability).toEqual({
+      decision: "deny",
+      capabilityId: "cap:missing",
+      reason: "capability_missing",
+      detail: "Capability is not present in the current matrix snapshot.",
     });
     expect(messages?.map((message) => message.id)).toEqual(["msg-1"]);
     expect(activity?.map((item) => item.id)).toEqual(["act-1"]);

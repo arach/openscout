@@ -115,6 +115,8 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     }
   }
 
+  lines.push("", ...renderCapabilitySnapshotSummary(report.capabilities));
+
   return lines.join("\n");
 }
 
@@ -201,6 +203,50 @@ function renderLocalEdgeDoctor(edge: ScoutLocalEdgeDoctorReport): string[] {
   return lines;
 }
 
+function renderCapabilitySnapshotSummary(
+  snapshot: ScoutDoctorReport["capabilities"],
+): string[] {
+  if (!snapshot) {
+    return [
+      "Capability snapshot:",
+      "  Broker readout: unavailable",
+    ];
+  }
+
+  const sourceCounts = new Map<string, number>();
+  for (const source of snapshot.sources) {
+    sourceCounts.set(source.kind, (sourceCounts.get(source.kind) ?? 0) + 1);
+  }
+  const sourceSummary = [...sourceCounts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([kind, count]) => `${kind}: ${count}`)
+    .join(", ");
+  const readinessCounts = new Map<string, number>();
+  for (const capability of snapshot.capabilities) {
+    readinessCounts.set(
+      capability.readiness.state,
+      (readinessCounts.get(capability.readiness.state) ?? 0) + 1,
+    );
+  }
+  const readinessSummary = ["ready", "degraded", "missing", "disabled", "unknown"]
+    .map((state) => `${state}: ${readinessCounts.get(state) ?? 0}`)
+    .join(", ");
+  const harnessSupportCount = Object.keys(snapshot.harnessSupport ?? {}).length;
+
+  const lines = [
+    "Capability snapshot:",
+    `  Sources: ${snapshot.sources.length}${sourceSummary ? ` (${sourceSummary})` : ""}`,
+    `  Harness support maps: ${harnessSupportCount}`,
+    `  Capability definitions: ${snapshot.capabilities.length} (${readinessSummary})`,
+    `  Warnings: ${snapshot.warnings.length}`,
+  ];
+
+  for (const warning of snapshot.warnings.slice(0, 3)) {
+    lines.push(`    - ${warning}`);
+  }
+  return lines;
+}
+
 export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
   const roots = report.setup.settings.discovery.workspaceRoots;
   const lines = [
@@ -263,6 +309,8 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
       lines.push(`    Missing: ${entry.readinessReport.missing.join(" | ")}`);
     }
   }
+
+  lines.push("", ...renderCapabilitySnapshotSummary(report.capabilities));
 
   return lines.join("\n");
 }
@@ -356,6 +404,8 @@ export function renderScoutRuntimesReport(report: ScoutRuntimesReport): string {
       lines.push(`    Login: ${entry.readinessReport.loginCommand}`);
     }
   }
+
+  lines.push("", ...renderCapabilitySnapshotSummary(report.capabilities));
 
   return lines.join("\n");
 }
