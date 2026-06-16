@@ -147,6 +147,7 @@ export function AgentInfoScreen({
   const shortHandle = minimalAgentHandle(agent);
   const displayHandle = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
   const primarySelector = agent.selector ?? agent.defaultSelector ?? displayHandle;
+  const stateLabel = agentStateLabel(agent.state);
   const nodeLabel = agent.authorityNodeName
     ? `${agent.authorityNodeName} (${agent.authorityNodeId ?? "unknown"})`
     : agent.authorityNodeId;
@@ -241,10 +242,12 @@ export function AgentInfoScreen({
                 <span className="s-agent-casefile-record">
                   {primarySelector ?? shortHandle ?? compactAgentId(agent.id) ?? agent.id}
                 </span>
-                <span className={`s-agent-state-chip s-agent-state-chip-${agentStateCssToken(agent.state)}`}>
-                  <span className="s-dot" style={{ background: stateColor(agent.state) }} />
-                  {agentStateLabel(agent.state)}
-                </span>
+                {stateLabel && (
+                  <span className={`s-agent-state-chip s-agent-state-chip-${agentStateCssToken(agent.state)}`}>
+                    <span className="s-dot" style={{ background: stateColor(agent.state) }} />
+                    {stateLabel}
+                  </span>
+                )}
                 {agent.staleLocalRegistration && (
                   <span className="s-agent-state-chip s-agent-state-chip-offline">
                     Superseded registration

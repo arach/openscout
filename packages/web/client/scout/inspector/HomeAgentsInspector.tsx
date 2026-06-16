@@ -19,25 +19,19 @@ export function HomeAgentsInspector() {
     );
   }
 
-  const ready = agents.filter((a) => isAgentOnline(a.state));
-  const notReady = agents.filter((a) => !isAgentOnline(a.state));
+  const sortedAgents = [...agents].sort((left, right) =>
+    Number(isAgentOnline(right.state)) - Number(isAgentOnline(left.state))
+    || (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+    || left.name.localeCompare(right.name),
+  );
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      {ready.length > 0 && (
-        <Section label="Ready" count={ready.length}>
-          {ready.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
-          ))}
-        </Section>
-      )}
-      {notReady.length > 0 && (
-        <Section label="Not ready" count={notReady.length}>
-          {notReady.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim />
-          ))}
-        </Section>
-      )}
+      <Section label="Agents" count={agents.length}>
+        {sortedAgents.map((agent) => (
+          <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim={!isAgentOnline(agent.state)} />
+        ))}
+      </Section>
     </div>
   );
 }
@@ -76,6 +70,7 @@ function AgentRow({
   dim?: boolean;
 }) {
   const online = isAgentOnline(agent.state);
+  const stateLabel = agentStateLabel(agent.state);
   return (
     <button
       onClick={() => onOpen(agent)}
@@ -98,9 +93,11 @@ function AgentRow({
         <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
           {agent.name}
         </span>
-        <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
-          {agentStateLabel(agent.state)}
-        </span>
+        {stateLabel && (
+          <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
+            {stateLabel}
+          </span>
+        )}
       </div>
       {agent.updatedAt && (
         <span className="shrink-0 text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">

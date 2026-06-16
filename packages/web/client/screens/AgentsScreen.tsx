@@ -139,11 +139,36 @@ type AgentInventoryColumnKey =
   | "session"
   | "last";
 
-type AgentsLibraryViewMode = "cards" | "tree";
+type AgentManagementProfile = {
+  harness: string;
+  source: string;
+  detail: string;
+  active: boolean;
+  switchable: boolean;
+};
+
+type AgentManagementState = {
+  agentId: string;
+  editable: boolean;
+  currentHarness: string | null;
+  profiles: AgentManagementProfile[];
+  canSwitchHarness: boolean;
+  projectConfigPath: string | null;
+  projectRoot: string | null;
+  runtimeCwd: string | null;
+  canRepair: boolean;
+  canRetire: boolean;
+  staleLocalRegistration: boolean;
+  retiredFromFleet: boolean;
+  replacedByAgentId: string | null;
+};
 
 type TimeHorizonKey = "1h" | "24h" | "7d" | "all";
+type AgentsLibraryViewMode = "board" | "directory";
 
-const DEFAULT_TIME_HORIZON: TimeHorizonKey = "24h";
+const DEFAULT_TIME_HORIZON: TimeHorizonKey = "all";
+const ACTIVE_AGENT_LIMIT = 6;
+const PROJECT_ROW_AGENT_LIMIT = 5;
 const PROJECT_OVERVIEW_AGENT_LIMIT = 8;
 const PROJECT_OVERVIEW_SESSION_LIMIT = 3;
 
@@ -207,6 +232,7 @@ type ProjectTreeSessionNode = {
   key: string;
   kind: ProjectTreeSessionKind;
   status: string;
+  typeLabel: string;
   harness: string;
   label: string;
   detail: string | null;
@@ -248,38 +274,36 @@ const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
 function agentInventoryStatusClass(status: AgentInventoryStatus): string {
   switch (status) {
     case "working":
-      return "working";
+      return "active";
     case "ready":
       return "available";
     case "not_ready":
-      return "offline";
+      return "unavailable";
   }
 }
 
 function agentInventoryStatusLabel(status: AgentInventoryStatus): string {
   switch (status) {
     case "working":
-      return "working";
+      return "active";
     case "ready":
-      return "ready";
+      return "";
     case "not_ready":
-      return "not ready";
+      return "unavailable";
   }
 }
 
 const PROJECT_TREE_DEFAULT_SORT: ProjectTreeSort = { key: "target", dir: 1 };
 
 const PROJECT_TREE_COLUMNS: ProjectTreeColumn[] = [
-  { key: "target", label: "Target", sortable: true },
-  { key: "state", label: "State", sortable: true },
+  { key: "target", label: "Agent / session", sortable: true },
+  { key: "state", label: "Evidence", sortable: true },
   { key: "harness", label: "Harness", sortable: true },
-  { key: "branch", label: "Branch / cwd", sortable: true },
-  { key: "sessions", label: "Sessions", sortable: true },
+  { key: "branch", label: "Branch / type", sortable: true },
+  { key: "sessions", label: "Linked", sortable: true },
   { key: "last", label: "Last", sortable: true },
   { key: "actions", label: "Actions", sortable: false },
 ];
-
-const NATIVE_SESSION_ACTIVE_WINDOW_MS = 60_000;
 
 function basename(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -458,10 +482,7 @@ function nativeSessionMatchesAgent(session: NativeSessionRow, row: AgentInventor
     || nativeProcessMatchesAgent(session.process, row);
 }
 
-function buildNativeSessionRows(
-  discovery: TailDiscoverySnapshot | null,
-  now: number,
-): NativeSessionRow[] {
+function buildNativeSessionRows(discovery: TailDiscoverySnapshot | null): NativeSessionRow[] {
   if (!discovery) return [];
 
   const rows: NativeSessionRow[] = [];
@@ -485,9 +506,7 @@ function buildNativeSessionRows(
       sessionId: transcript.sessionId,
       mtimeMs: transcript.mtimeMs,
       size: transcript.size,
-      status: lastActivityAt && now - lastActivityAt <= NATIVE_SESSION_ACTIVE_WINDOW_MS
-        ? "active"
-        : "idle",
+      status: "idle",
       process: null,
       lastActivityAt,
     });
@@ -676,10 +695,9 @@ function ensureProjectSlice(
 
 function updateProjectSliceSummary(project: ProjectSlice): void {
   const hasWorkingAgent = project.agents.some((row) => row.status === "working");
-  const hasActiveNativeSession = project.nativeSessions.some((row) => row.status === "active");
   const hasActiveWorkflow = project.workflows.some((row) => row.activeTaskCount > 0 || row.status === "running");
   const hasReadyAgent = project.agents.some((row) => row.status === "ready");
-  project.status = hasWorkingAgent || hasActiveNativeSession || hasActiveWorkflow
+  project.status = hasWorkingAgent || hasActiveWorkflow
     ? "working"
     : hasReadyAgent
       ? "ready"
@@ -772,7 +790,8 @@ function scoutSessionNode(session: SessionEntry): ProjectTreeSessionNode {
   return {
     key: `scout:${session.id}`,
     kind: "scout",
-    status: session.kind,
+    status: "observed",
+    typeLabel: formatLabel(session.kind) ?? session.kind,
     harness,
     label: session.title || session.agentName || session.id,
     detail: session.preview ?? session.id,
@@ -785,7 +804,8 @@ function nativeSessionNode(session: NativeSessionRow): ProjectTreeSessionNode {
   return {
     key: `native:${session.key}`,
     kind: "native",
-    status: session.status,
+    status: session.status === "active" ? "live" : "recent",
+    typeLabel: "native",
     harness: session.source,
     label: shortSessionId(session.sessionId ?? session.refId),
     detail: session.transcriptPath ?? session.process?.command ?? session.cwd,
@@ -800,8 +820,8 @@ function workflowSessionNode(workflow: ProjectWorkflowRow): ProjectTreeSessionNo
   const completed = workflow.taskCount > 0
     ? `${workflow.completedTaskCount}/${workflow.taskCount} tasks`
     : "workflow";
-  const active = workflow.activeTaskCount > 0
-    ? `${workflow.activeTaskCount} active`
+  const running = workflow.activeTaskCount > 0
+    ? `${workflow.activeTaskCount} running`
     : completed;
   const traceDetail = workflow.parentSessionId
     ? `parent session ${shortSessionId(workflow.parentSessionId)}`
@@ -809,13 +829,14 @@ function workflowSessionNode(workflow: ProjectWorkflowRow): ProjectTreeSessionNo
   return {
     key: `workflow:${workflow.key}`,
     kind: "workflow",
-    status: "workflow",
+    status: workflow.activeTaskCount > 0 || workflow.status === "running" ? "running" : "observed",
+    typeLabel: "workflow",
     harness: workflow.source,
     label: workflow.label,
     detail: workflow.description && traceDetail
       ? `${workflow.description} · ${traceDetail}`
-      : workflow.description ?? (traceDetail ? `Claude workflow observed from ${traceDetail}` : `${workflow.workerCount} workers · ${active}`),
-    subLabel: `${workflow.workerCount} workers · ${active}`,
+      : workflow.description ?? (traceDetail ? `Claude workflow observed from ${traceDetail}` : `${workflow.workerCount} workers · ${running}`),
+    subLabel: `${workflow.workerCount} workers · ${running}`,
     lastActivityAt: workflow.lastActivityAt,
     route: workflow.parentSessionId
       ? { view: "sessions", sessionId: workflow.parentSessionId }
@@ -843,10 +864,9 @@ function projectTreeAgentBranchValue(row: AgentInventoryRow): string {
 }
 
 function projectTreeSessionStateRank(session: ProjectTreeSessionNode): number {
-  if (session.kind === "workflow") return 0;
-  if (session.status === "active") return 0;
-  if (session.status === "direct") return 1;
-  if (session.status === "idle") return 2;
+  if (session.status === "running" || session.status === "live") return 0;
+  if (session.status === "observed") return 1;
+  if (session.status === "recent") return 2;
   return 3;
 }
 
@@ -869,7 +889,7 @@ function sortProjectTreeSessions(sessions: ProjectTreeSessionNode[]): ProjectTre
 }
 
 function showProjectLevelSessionInOverview(session: ProjectTreeSessionNode): boolean {
-  return session.kind === "workflow" || (session.kind === "native" && session.status === "active");
+  return session.kind === "workflow" || (session.kind === "native" && session.status === "live");
 }
 
 function timeHorizonCutoff(horizon: TimeHorizonKey, now: number): number | null {
@@ -914,7 +934,7 @@ function compareProjectTreeSessions(
       result = compareNullableText(left.harness, right.harness);
       break;
     case "branch":
-      result = compareNullableText(left.kind, right.kind);
+      result = compareNullableText(left.typeLabel, right.typeLabel);
       break;
     case "sessions":
       result = 0;
@@ -1085,10 +1105,15 @@ function writeCollapsedProjectTreeRows(storageKey: string, rows: Set<string>): v
 }
 
 function AgentInventoryStatusCell({ row }: { row: AgentInventoryRow }) {
+  const label = agentInventoryStatusLabel(row.status);
+  if (!label) {
+    return <span className="s-agents-inventory-status s-agents-inventory-status--quiet" />;
+  }
+
   return (
     <span className={`s-agents-inventory-status s-agents-inventory-status--${agentInventoryStatusClass(row.status)}`}>
       <span className="s-agents-inventory-status-dot" />
-      {row.stateLabel.toLowerCase()}
+      {label}
     </span>
   );
 }
@@ -1105,11 +1130,11 @@ function AgentInventoryAgentCell({ row }: { row: AgentInventoryRow }) {
 }
 
 function AgentInventoryTaskCell({ row }: { row: AgentInventoryRow }) {
-  const preview = row.activeTask ?? row.session?.preview ?? row.stateLabel;
+  const preview = row.activeTask ?? row.session?.preview ?? "";
   return (
     <span
       className={`s-agents-inventory-task${row.activeTask ? "" : " s-agents-inventory-task--dim"}`}
-      title={preview}
+      title={preview || undefined}
     >
       {preview}
     </span>
@@ -1184,7 +1209,8 @@ const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventory
   },
   {
     key: "active",
-    label: "Active",
+    label: "Asks",
+    tip: "In-flight Scout asks assigned to this agent.",
     cls: "s-atop-col-num",
     kind: "number",
     defaultWidth: 70,
@@ -1326,15 +1352,211 @@ function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent 
   return uniqueCandidates.length === 1 ? uniqueCandidates[0]! : null;
 }
 
+function compactProfilePath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("/Users/")) {
+    const [, , , ...rest] = path.split("/");
+    return `~/${rest.join("/")}`;
+  }
+  return path;
+}
+
+function AgentManagementStrip({
+  agent,
+  management,
+  navigate,
+  returnTo,
+  onRefresh,
+}: {
+  agent: Agent;
+  management: AgentManagementState | null;
+  navigate: (r: Route) => void;
+  returnTo: Route;
+  onRefresh: () => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const activeHarness = management?.currentHarness ?? agent.harness ?? null;
+  const switchableProfiles = management?.canSwitchHarness
+    ? management.profiles.filter((profile) => profile.switchable)
+    : [];
+  const alternateProfiles = switchableProfiles.filter((profile) => !profile.active);
+  const configPath = management?.projectConfigPath ?? null;
+  const configLabel = compactProfilePath(configPath) ?? "Agent config";
+
+  const runAction = async (action: string, task: () => Promise<string | null | undefined>) => {
+    setBusyAction(action);
+    setNotice(null);
+    try {
+      const message = await task();
+      if (message) setNotice(message);
+      await onRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const switchHarness = (harness: string) => {
+    void runAction(`switch:${harness}`, async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/harness`, {
+        method: "POST",
+        body: JSON.stringify({ harness, restart: true }),
+      });
+      return `Switched to ${harness}`;
+    });
+  };
+
+  const repairRegistration = () => {
+    void runAction("repair", async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/repair`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      return "Registration repaired";
+    });
+  };
+
+  const retireRegistration = () => {
+    if (!window.confirm(`Retire ${agent.name} from the visible fleet?`)) {
+      return;
+    }
+    void runAction("retire", async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/retire`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      return "Registration retired";
+    });
+  };
+
+  const openConfig = () => {
+    void runAction("config", async () => {
+      if (configPath) {
+        try {
+          await api("/api/file/reveal", {
+            method: "POST",
+            body: JSON.stringify({ path: configPath }),
+          });
+          return "Opened config";
+        } catch {
+          await copyTextToClipboard(configPath);
+          return "Copied config path";
+        }
+      }
+      openContent(
+        navigate,
+        { view: "settings", section: "agents", agentId: agent.id },
+        { returnTo },
+      );
+      return "Opened agent config";
+    });
+  };
+
+  return (
+    <div className="s-profile-management" aria-label="Agent management actions">
+      <div className="s-profile-management-head">
+        <span className="s-profile-management-label">Manage</span>
+        <span className="s-profile-management-status">
+          {notice ?? (activeHarness ? `current ${activeHarness}` : "profile controls")}
+        </span>
+      </div>
+      <div className="s-profile-management-grid">
+        <div className="s-profile-management-card s-profile-management-card--profiles">
+          <div className="s-profile-management-card-copy">
+            <span className="s-profile-management-card-title">Switch profile</span>
+            <span className="s-profile-management-card-detail">
+              {alternateProfiles.length > 0
+                ? switchableProfiles.map((profile) => profile.harness).join(" / ")
+                : management?.canSwitchHarness
+                  ? "No alternate profile"
+                  : "Single profile"}
+            </span>
+          </div>
+          <div className="s-profile-management-profile-actions">
+            {alternateProfiles.length > 0 ? alternateProfiles.map((profile) => (
+              <button
+                key={profile.harness}
+                type="button"
+                className="s-profile-management-btn"
+                onClick={() => switchHarness(profile.harness)}
+                disabled={Boolean(busyAction)}
+                title={profile.detail}
+              >
+                {busyAction === `switch:${profile.harness}` ? "Switching" : profile.harness}
+              </button>
+            )) : (
+              <button
+                type="button"
+                className="s-profile-management-btn"
+                disabled
+              >
+                {activeHarness ?? "Profile"}
+              </button>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={repairRegistration}
+          disabled={Boolean(busyAction) || management?.canRepair === false}
+        >
+          <span className="s-profile-management-card-title">
+            {busyAction === "repair" ? "Repairing" : "Repair registration"}
+          </span>
+          <span className="s-profile-management-card-detail">
+            {management?.replacedByAgentId ?? compactProfilePath(management?.projectRoot) ?? "Refresh setup"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={retireRegistration}
+          disabled={Boolean(busyAction) || management?.canRetire === false}
+        >
+          <span className="s-profile-management-card-title">
+            {agent.retiredFromFleet || management?.retiredFromFleet
+              ? "Retired"
+              : busyAction === "retire"
+                ? "Retiring"
+                : agent.staleLocalRegistration || management?.staleLocalRegistration
+                  ? "Hide stale registration"
+                  : "Retire registration"}
+          </span>
+          <span className="s-profile-management-card-detail">
+            {agent.staleLocalRegistration || management?.staleLocalRegistration
+              ? "Superseded local route"
+              : "Remove from fleet"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={openConfig}
+          disabled={Boolean(busyAction)}
+        >
+          <span className="s-profile-management-card-title">
+            {busyAction === "config" ? "Opening" : "Open / edit config"}
+          </span>
+          <span className="s-profile-management-card-detail">{configLabel}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume; agentId: string }) {
   const { navigate, route } = useScout();
   const [sent, setSent] = useState(false);
   const shortId = catalog.activeSessionId?.slice(0, 8) ?? null;
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
+  const canTakeover = Boolean(active?.canTakeover && catalog.resumeCommand);
 
   const runTakeover = () => {
-    if (!catalog.resumeCommand) return;
+    if (!canTakeover || !catalog.resumeCommand) return;
     void queueTakeover({
       command: catalog.resumeCommand,
       cwd: catalog.resumeCwd,
@@ -1365,12 +1587,12 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
         >
           Pair
         </button>
-        {catalog.resumeCommand && (
+        {canTakeover && (
           <button
             type="button"
             className="s-profile-facet-action"
             onClick={runTakeover}
-            title={catalog.resumeCommand}
+            title={catalog.resumeCommand ?? undefined}
           >
             {sent ? "Going…" : "Takeover"}
           </button>
@@ -1455,7 +1677,7 @@ function ContextFacet({
           className="s-profile-facet-action"
           disabled={resetDisabled}
           onClick={onReset}
-          title={context.currentTurnActive ? "Agent is currently working" : "Start a fresh session"}
+          title={context.currentTurnActive ? "Agent is currently active" : "Start a fresh session"}
         >
           {resetting ? "Starting..." : "New"}
         </button>
@@ -1671,11 +1893,12 @@ function AgentDetailWithRail({
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
   const [contextState, setContextState] = useState<LocalAgentContextState | null>(null);
+  const [managementState, setManagementState] = useState<AgentManagementState | null>(null);
   const [resettingContext, setResettingContext] = useState(false);
   const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
   const state = normalizeAgentState(agent.state);
   const showContextMenu = useContextMenu();
-  const { route } = useScout();
+  const { route, reload } = useScout();
 
   const load = useCallback(async () => {
     const [workResult, fleetResult] = await Promise.allSettled([
@@ -1765,6 +1988,27 @@ function AgentDetailWithRail({
     }
   }, [agent.id, agent.transport]);
 
+  const loadManagementState = useCallback(async () => {
+    try {
+      const result = await api<AgentManagementState>(
+        `/api/agents/${encodeURIComponent(agent.id)}/management`,
+      );
+      setManagementState(result);
+    } catch {
+      setManagementState(null);
+    }
+  }, [agent.id]);
+
+  const refreshAfterManagementAction = useCallback(async () => {
+    await Promise.allSettled([
+      loadManagementState(),
+      loadContextState(),
+      api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
+        .then(setSessionCatalog),
+      reload(),
+    ]);
+  }, [agent.id, loadContextState, loadManagementState, reload]);
+
   const resetAgentContext = useCallback(async () => {
     setResettingContext(true);
     try {
@@ -1788,15 +2032,17 @@ function AgentDetailWithRail({
     void load();
     void loadMessages();
     void loadContextState();
+    void loadManagementState();
     api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
       .then(setSessionCatalog)
       .catch(() => {});
-  }, [load, loadMessages, loadContextState, agent.id]);
+  }, [load, loadMessages, loadContextState, loadManagementState, agent.id]);
 
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
     setContextState(null);
+    setManagementState(null);
   }, [agent.id]);
 
   useEffect(() => {
@@ -1810,6 +2056,7 @@ function AgentDetailWithRail({
     void load();
     void loadMessages();
     void loadContextState();
+    void loadManagementState();
     if (activeTab === "observe") {
       void loadObserve();
     }
@@ -2048,6 +2295,13 @@ function AgentDetailWithRail({
                 returnTo={route}
                 variant="inline"
               />
+              <AgentManagementStrip
+                agent={agent}
+                management={managementState}
+                navigate={navigate}
+                returnTo={route}
+                onRefresh={refreshAfterManagementAction}
+              />
             </div>
             {renderTabs()}
           </div>
@@ -2222,7 +2476,7 @@ function AgentDetailWithRail({
           {activeWork.length > 0 && (
             <>
               <SectionRule
-                label="Active work"
+                label="In-flight work"
                 right={`${activeWork.length} in flight`}
               />
               <div className="s-profile-work">
@@ -2460,18 +2714,14 @@ function AgentsLibrary({
 }) {
   const { route } = useScout();
   // Workflow / harness-topology telemetry is a power surface — the lean
-  // directory is just the project-grouped agent board (cards/tree).
+  // directory is just the project-grouped agent board/list.
   const workflowsEnabled = useOptionalFlag("surface.workflows", false);
   const [query, setQuery] = useState("");
   const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AgentInventoryStatus>>(() => new Set());
-  const [viewMode, setViewMode] = useState<AgentsLibraryViewMode>("cards");
+  const [viewMode, setViewMode] = useState<AgentsLibraryViewMode>("board");
   const [timeHorizon, setTimeHorizon] = useState<TimeHorizonKey>(DEFAULT_TIME_HORIZON);
   const [now, setNow] = useState(Date.now());
-  const [sort, setSort] = useState<{ key: AgentInventoryColumnKey; dir: 1 | -1 }>({
-    key: "status",
-    dir: 1,
-  });
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 15_000);
@@ -2501,8 +2751,8 @@ function AgentsLibrary({
   );
 
   const nativeSessions = useMemo(
-    () => buildNativeSessionRows(discovery, now),
-    [discovery, now],
+    () => buildNativeSessionRows(discovery),
+    [discovery],
   );
 
   const workflowRows = useMemo(
@@ -2546,14 +2796,10 @@ function AgentsLibrary({
   const summary = useMemo(
     () => ({
       total: horizonRows.length,
-      online: horizonRows.filter((row) => row.status !== "not_ready").length,
       working: horizonRows.filter((row) => row.status === "working").length,
-      ready: horizonRows.filter((row) => row.status === "ready").length,
-      notReady: horizonRows.filter((row) => row.status === "not_ready").length,
       projects: allProjects.length,
       scoutSessions: allProjects.reduce((sum, project) => sum + project.scoutSessions.length, 0),
       nativeSessions: horizonNativeSessions.length,
-      activeNativeSessions: horizonNativeSessions.filter((row) => row.status === "active").length,
     }),
     [allProjects, horizonNativeSessions, horizonRows],
   );
@@ -2572,7 +2818,7 @@ function AgentsLibrary({
 
   const statusOptions = useMemo(() => {
     const present = new Set(horizonRows.map((row) => row.status));
-    return (["working", "ready", "not_ready"] as AgentInventoryStatus[])
+    return (["working", "not_ready"] as AgentInventoryStatus[])
       .filter((status) => present.has(status));
   }, [horizonRows]);
 
@@ -2618,21 +2864,6 @@ function AgentsLibrary({
       : projects,
     [projects, selectedProjectKey],
   );
-  const visibleRows = useMemo(
-    () => selectedProjectKey
-      ? filteredRows.filter((row) => projectIdentityForAgentRow(row).key === selectedProjectKey)
-      : filteredRows,
-    [filteredRows, selectedProjectKey],
-  );
-
-  const secondarySort = useMemo(
-    () => (sort.key === "status"
-      ? undefined
-      : (a: AgentInventoryRow, b: AgentInventoryRow) =>
-        AGENT_STATUS_RANK[a.status] - AGENT_STATUS_RANK[b.status]),
-    [sort.key],
-  );
-
   const openAgent = (row: AgentInventoryRow) => {
     const conversationId = conversationByAgentId.get(row.agent.id);
     navigate({
@@ -2643,21 +2874,11 @@ function AgentsLibrary({
   };
 
   const selectProject = (project: ProjectSlice) => {
-    setViewMode("tree");
     navigate({ view: "agents", projectKey: project.key });
   };
 
   const clearProjectSelection = () => {
     navigate({ view: "agents" });
-  };
-
-  const toggleHarness = (harness: string) => {
-    setHarnessFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(harness)) next.delete(harness);
-      else next.add(harness);
-      return next;
-    });
   };
 
   const toggleStatus = (status: AgentInventoryStatus) => {
@@ -2669,87 +2890,110 @@ function AgentsLibrary({
     });
   };
 
+  const setSingleHarnessFilter = (harness: string) => {
+    setHarnessFilter(harness ? new Set([harness]) : new Set());
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setHarnessFilter(new Set());
+    setStatusFilter(new Set());
+    setTimeHorizon(DEFAULT_TIME_HORIZON);
+    if (selectedProjectKey) clearProjectSelection();
+  };
+
+  const activeRows = useMemo(
+    () => filteredRows
+      .filter((row) => row.status === "working")
+      .sort((left, right) => (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0)),
+    [filteredRows],
+  );
+  const harnessSelectValue = harnessFilter.size === 1
+    ? [...harnessFilter][0] ?? ""
+    : "";
+  const hasActiveFilters = harnessFilter.size > 0
+    || statusFilter.size > 0
+    || Boolean(query.trim())
+    || Boolean(selectedProjectKey)
+    || timeHorizon !== DEFAULT_TIME_HORIZON;
+  const sessionTotal = summary.scoutSessions + summary.nativeSessions;
+  const visibleAgentText = `${filteredRows.length}/${summary.total} agents`;
+
   return (
     <div className="s-agents-library s-agents-library--inventory">
       <div className="s-agents-inventory">
-        <div className="s-atop-fbar">
-          <div className="s-atop-search">
-            <span className="s-atop-search-prompt">▸</span>
+        <div className="s-agent-directory-head">
+          <div className="s-agent-directory-title-block">
+            <div className="s-agent-directory-kicker">Agents</div>
+            <h1 className="s-agent-directory-title">
+              {viewMode === "board" ? "Board" : "Directory"}
+            </h1>
+            <div className="s-agent-directory-meta">
+              {visibleAgentText} · {visibleProjects.length}/{summary.projects} projects
+              {selectedProjectKey ? " · project selected" : ""}
+            </div>
+          </div>
+          <div className="s-agent-directory-stats" aria-label="Agents summary">
+            <div className="s-agent-directory-stat">
+              <strong>{summary.total}</strong>
+              <span>agents</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{summary.working}</strong>
+              <span>active</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{summary.projects}</strong>
+              <span>projects</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{sessionTotal}</strong>
+              <span>sessions</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="s-agent-directory-controls">
+          <label className="s-agent-directory-search">
+            <span className="s-agent-directory-search-icon">⌕</span>
             <input
-              className="s-atop-search-input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="filter projects · agents · sessions"
+              placeholder="Search agents, projects, sessions"
             />
-            <span className="s-atop-search-kbd">/</span>
-          </div>
-          <div className="s-agents-library-view" role="group" aria-label="Agents view">
-            <button
-              type="button"
-              className="s-agents-library-view-btn"
-              data-active={viewMode === "cards"}
-              onClick={() => setViewMode("cards")}
-            >
-              cards
-            </button>
-            <button
-              type="button"
-              className="s-agents-library-view-btn"
-              data-active={viewMode === "tree"}
-              onClick={() => setViewMode("tree")}
-            >
-              tree
-            </button>
-          </div>
-          <span className="s-atop-fbar-label">time</span>
-          {TIME_HORIZON_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`s-atop-pill s-atop-pill--time${timeHorizon === option.key ? " s-atop-pill--on" : ""}`}
-              onClick={() => setTimeHorizon(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-          {selectedProjectKey && (
-            <>
-              <span className="s-atop-fbar-label">project</span>
+          </label>
+
+          {!selectedProjectKey && (
+            <div className="s-agent-view-toggle" role="group" aria-label="Agents view mode">
               <button
                 type="button"
-                className="s-atop-pill s-atop-pill--on s-atop-pill--project"
-                onClick={clearProjectSelection}
-                title="Return to all project overviews"
+                className="s-agent-view-toggle-btn"
+                data-active={viewMode === "board"}
+                onClick={() => setViewMode("board")}
               >
-                <span className="s-atop-pill-main">
-                  {selectedProject?.title ?? "selected project"}
-                </span>
-                <span className="s-atop-pill-ct">clear</span>
+                Board
               </button>
-            </>
+              <button
+                type="button"
+                className="s-agent-view-toggle-btn"
+                data-active={viewMode === "directory"}
+                onClick={() => setViewMode("directory")}
+              >
+                List
+              </button>
+            </div>
           )}
-          {harnessOptions.length > 0 && (
-            <>
-              <span className="s-atop-fbar-label">harness</span>
-              {harnessOptions.map(([harness, count]) => {
-                const on = harnessFilter.has(harness);
-                return (
-                  <button
-                    key={harness}
-                    type="button"
-                    className={`s-atop-pill s-atop-pill--harness${on ? " s-atop-pill--on" : ""}`}
-                    onClick={() => toggleHarness(harness)}
-                  >
-                    {harness}
-                    <span className="s-atop-pill-ct">{count}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
+
           {statusOptions.length > 0 && (
-            <>
-              <span className="s-atop-fbar-label">status</span>
+            <div className="s-agent-directory-segment" role="group" aria-label="Status filter">
+              <button
+                type="button"
+                className="s-agent-directory-segment-btn"
+                data-active={statusFilter.size === 0}
+                onClick={() => setStatusFilter(new Set())}
+              >
+                All
+              </button>
               {statusOptions.map((status) => {
                 const on = statusFilter.has(status);
                 const count = horizonRows.filter((row) => row.status === status).length;
@@ -2757,30 +3001,63 @@ function AgentsLibrary({
                   <button
                     key={status}
                     type="button"
-                    className={`s-atop-pill s-agents-inventory-pill--status-${agentInventoryStatusClass(status)}${on ? " s-atop-pill--on" : ""}`}
+                    className={`s-agent-directory-segment-btn s-agent-directory-segment-btn--${agentInventoryStatusClass(status)}`}
+                    data-active={on}
                     onClick={() => toggleStatus(status)}
                   >
                     {agentInventoryStatusLabel(status)}
-                    <span className="s-atop-pill-ct">{count}</span>
+                    <span>{count}</span>
                   </button>
                 );
               })}
-            </>
+            </div>
           )}
-          <div className="s-atop-fbar-spacer" />
-          {(harnessFilter.size > 0 || statusFilter.size > 0 || query || selectedProjectKey || timeHorizon !== DEFAULT_TIME_HORIZON) && (
+
+          <div className="s-agent-directory-menus">
+            <select
+              className="s-agent-directory-select"
+              value={harnessSelectValue}
+              onChange={(event) => setSingleHarnessFilter(event.target.value)}
+              aria-label="Harness filter"
+            >
+              <option value="">All harnesses</option>
+              {harnessOptions.map(([harness, count]) => (
+                <option key={harness} value={harness}>
+                  {harness} ({count})
+                </option>
+              ))}
+            </select>
+            <select
+              className="s-agent-directory-select"
+              value={timeHorizon}
+              onChange={(event) => setTimeHorizon(event.target.value as TimeHorizonKey)}
+              aria-label="Time range"
+            >
+              {TIME_HORIZON_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.key === "all" ? "All time" : `Last ${option.label}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedProjectKey && (
             <button
               type="button"
-              className="s-atop-pill"
-              onClick={() => {
-                setQuery("");
-                setHarnessFilter(new Set());
-                setStatusFilter(new Set());
-                setTimeHorizon(DEFAULT_TIME_HORIZON);
-                if (selectedProjectKey) clearProjectSelection();
-              }}
+              className="s-agent-directory-clear"
+              onClick={clearProjectSelection}
+              title="Return to all projects"
             >
-              clear
+              {selectedProject?.title ?? "Project"} ×
+            </button>
+          )}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="s-agent-directory-clear"
+              onClick={clearFilters}
+            >
+              Reset
             </button>
           )}
         </div>
@@ -2795,6 +3072,10 @@ function AgentsLibrary({
               showEmpty
             />
           </div>
+        )}
+
+        {!selectedProjectKey && (
+          <ActiveAgentsStrip rows={activeRows} openAgent={openAgent} />
         )}
 
         <ProjectBoard
@@ -2812,24 +3093,65 @@ function AgentsLibrary({
 
         <div className="s-atop-keys">
           <span className="s-atop-keys-count">
-            {viewMode === "cards" ? (
-              <>
-                <strong>{visibleProjects.length}</strong> / {summary.projects} project{summary.projects === 1 ? "" : "s"}
-                {selectedProjectKey ? " selected" : ""}
-              </>
-            ) : (
-              <>
-                <strong>{visibleProjects.length}</strong> / {summary.projects} project tree{summary.projects === 1 ? "" : "s"}
-              </>
-            )}
+            <strong>{visibleProjects.length}</strong> / {summary.projects} project{summary.projects === 1 ? "" : "s"}
+            {selectedProjectKey ? " selected" : ""}
           </span>
           <span className="s-atop-keys-spacer" />
           <span>{timeHorizon === "all" ? "all time" : `last ${timeHorizon}`}</span>
-          <span>{summary.notReady} not ready</span>
           <span>{summary.nativeSessions} harness session{summary.nativeSessions === 1 ? "" : "s"}</span>
         </div>
       </div>
     </div>
+  );
+}
+
+function ActiveAgentsStrip({
+  rows,
+  openAgent,
+}: {
+  rows: AgentInventoryRow[];
+  openAgent: (row: AgentInventoryRow) => void;
+}) {
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, ACTIVE_AGENT_LIMIT);
+  const hidden = rows.length - shown.length;
+
+  return (
+    <section className="s-agent-active-strip" aria-label="Active agents">
+      <div className="s-agent-active-strip-head">
+        <span>Active now</span>
+        <strong>{rows.length}</strong>
+      </div>
+      <div className="s-agent-active-list">
+        {shown.map((row) => (
+          <button
+            key={row.agent.id}
+            type="button"
+            className="s-agent-active-item"
+            onClick={() => openAgent(row)}
+            title={primaryAgentSelector(row.agent) ?? row.agent.id}
+          >
+            <span
+              className="s-agent-active-dot"
+              style={{ background: stateColor(row.agent.state) }}
+              aria-hidden
+            />
+            <span className="s-agent-active-copy">
+              <span className="s-agent-active-name">{row.agent.name}</span>
+              <span className="s-agent-active-meta">
+                {row.project}{row.activeTask ? ` · ${row.activeTask}` : ""}
+              </span>
+            </span>
+            <span className="s-agent-active-time">
+              {row.lastActivityAt ? timeAgo(row.lastActivityAt) : "now"}
+            </span>
+          </button>
+        ))}
+        {hidden > 0 && (
+          <span className="s-agent-active-more">+{hidden}</span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2884,20 +3206,250 @@ function ProjectBoard({
   }
 
   return (
-    <div className="s-agent-projects">
+    <div
+      className={
+        selectedProjectKey
+          ? "s-agent-projects s-agent-projects--selected"
+          : `s-agent-projects s-agent-projects--${mode}`
+      }
+    >
       {projects.map((project) => (
-        <ProjectSection
-          key={project.key}
-          project={project}
-          navigate={navigate}
-          route={route}
-          openAgent={openAgent}
-          selected={project.key === selectedProjectKey}
-          onSelectProject={onSelectProject}
-          mode={mode}
-        />
+        selectedProjectKey ? (
+          <ProjectSection
+            key={project.key}
+            project={project}
+            navigate={navigate}
+            route={route}
+            openAgent={openAgent}
+            selected={project.key === selectedProjectKey}
+            onSelectProject={onSelectProject}
+          />
+        ) : mode === "board" ? (
+          <ProjectVisualCard
+            key={project.key}
+            project={project}
+            openAgent={openAgent}
+            onSelectProject={onSelectProject}
+          />
+        ) : (
+          <ProjectSummaryRow
+            key={project.key}
+            project={project}
+            openAgent={openAgent}
+            onSelectProject={onSelectProject}
+          />
+        )
       ))}
     </div>
+  );
+}
+
+function projectSynopsis(project: ProjectSlice): string {
+  const workingAgents = project.agents.filter((row) => row.status === "working");
+  const workingSignal = workingAgents.find((row) => row.activeTask)?.activeTask;
+  if (workingSignal) return `Active: ${workingSignal}`;
+  if (workingAgents.length > 0) return `${countLabel(workingAgents.length, "agent")} active`;
+
+  const activeWorkflow = project.workflows.find((workflow) =>
+    workflow.activeTaskCount > 0 || workflow.status === "running",
+  );
+  if (activeWorkflow) {
+    const activeTasks = activeWorkflow.activeTaskCount > 0
+      ? `${activeWorkflow.activeTaskCount} active task${activeWorkflow.activeTaskCount === 1 ? "" : "s"}`
+      : "workflow active";
+    return `${activeWorkflow.label} · ${activeWorkflow.workerCount} workers · ${activeTasks}`;
+  }
+
+  const readyAgents = project.agents.filter((row) => row.status === "ready").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const harnessMix = projectHarnessMix(project);
+  const last = project.lastActivityAt ? ` · last ${timeAgo(project.lastActivityAt)}` : "";
+  if (readyAgents > 0 || sessionTotal > 0) {
+    const parts = [
+      harnessMix,
+      sessionTotal > 0 ? countLabel(sessionTotal, "session") : null,
+    ].filter((part): part is string => Boolean(part));
+    return `${parts.join(" · ")}${last}`;
+  }
+  return project.agents.length > 0 ? `${countLabel(project.agents.length, "agent")}${last}` : "No agents";
+}
+
+function projectHarnessMix(project: ProjectSlice): string {
+  const counts = new Map<string, number>();
+  const add = (value: string | null | undefined) => {
+    const label = formatLabel(value) ?? value;
+    if (!label) return;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  };
+  for (const row of project.agents) add(row.harness);
+  for (const session of project.nativeSessions) add(session.source);
+  for (const session of project.scoutSessions) add(session.harness);
+  for (const workflow of project.workflows) add(workflow.source);
+
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 2);
+  if (top.length === 0) return "no harness";
+  return top.map(([label, count]) => count > 1 ? `${label} ${count}` : label).join(" + ");
+}
+
+function projectActivityLabel(project: ProjectSlice): string | null {
+  if (project.agents.some((row) => row.status === "working")) return "active";
+  if (project.workflows.some((workflow) => workflow.activeTaskCount > 0 || workflow.status === "running")) {
+    return "active";
+  }
+  if (project.status === "not_ready") return "unavailable";
+  return null;
+}
+
+function ProjectVisualCard({
+  project,
+  openAgent,
+  onSelectProject,
+}: {
+  project: ProjectSlice;
+  openAgent: (row: AgentInventoryRow) => void;
+  onSelectProject: (project: ProjectSlice) => void;
+}) {
+  const activeCount = project.agents.filter((row) => row.status === "working").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const visibleAgents = project.agents.slice(0, 4);
+  const hiddenAgents = project.agents.length - visibleAgents.length;
+  const signal = projectSynopsis(project);
+  const stateClass = agentInventoryStatusClass(project.status);
+  const activityLabel = projectActivityLabel(project);
+
+  return (
+    <section className={`s-agent-project-card2 s-agent-project-card2--${stateClass}`}>
+      <button
+        type="button"
+        className="s-agent-project-card2-main"
+        onClick={() => onSelectProject(project)}
+        title={project.root ?? project.title}
+      >
+        {activityLabel && (
+          <span className="s-agent-project-card2-status">
+            <span
+              className="s-agent-project-card2-dot"
+              style={{ background: stateColor(project.status) }}
+              aria-hidden
+            />
+            {activityLabel}
+          </span>
+        )}
+        <span className="s-agent-project-card2-title">{project.title}</span>
+        <span className="s-agent-project-card2-root">{project.root ?? "No project root"}</span>
+        <span className="s-agent-project-card2-signal">{signal}</span>
+      </button>
+
+      <div className="s-agent-project-card2-metrics" aria-label={`${project.title} project counts`}>
+        {activeCount > 0 && (
+          <span className="s-agent-project-card2-metric s-agent-project-card2-metric--active">
+            {activeCount} active
+          </span>
+        )}
+        <span className="s-agent-project-card2-metric">{countLabel(project.agents.length, "agent")}</span>
+        {sessionTotal > 0 && (
+          <span className="s-agent-project-card2-metric">{countLabel(sessionTotal, "session")}</span>
+        )}
+        {project.lastActivityAt && (
+          <span className="s-agent-project-card2-metric">last {timeAgo(project.lastActivityAt)}</span>
+        )}
+      </div>
+
+      <div className="s-agent-project-card2-agents" aria-label={`${project.title} agents`}>
+        {visibleAgents.length > 0 ? visibleAgents.map((row) => (
+          <button
+            key={row.agent.id}
+            type="button"
+            className={`s-agent-project-card2-agent s-agent-project-card2-agent--${agentInventoryStatusClass(row.status)}`}
+            onClick={() => openAgent(row)}
+            title={primaryAgentSelector(row.agent) ?? row.agent.id}
+          >
+            <span
+              className="s-agent-project-card2-agent-dot"
+              style={{ background: stateColor(row.agent.state) }}
+              aria-hidden
+            />
+            <span>{row.agent.name}</span>
+          </button>
+        )) : (
+          <span className="s-agent-project-card2-empty">No agents</span>
+        )}
+        {hiddenAgents > 0 && (
+          <button
+            type="button"
+            className="s-agent-project-card2-agent s-agent-project-card2-agent--more"
+            onClick={() => onSelectProject(project)}
+          >
+            +{hiddenAgents}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ProjectSummaryRow({
+  project,
+  openAgent,
+  onSelectProject,
+}: {
+  project: ProjectSlice;
+  openAgent: (row: AgentInventoryRow) => void;
+  onSelectProject: (project: ProjectSlice) => void;
+}) {
+  const activeCount = project.agents.filter((row) => row.status === "working").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const showAgentShortcuts = project.agents.length > 0 && project.agents.length <= 2;
+  const visibleAgents = showAgentShortcuts ? project.agents.slice(0, PROJECT_ROW_AGENT_LIMIT) : [];
+  const signal = projectSynopsis(project);
+  const stateClass = agentInventoryStatusClass(project.status);
+
+  return (
+    <section className={`s-agent-project-row s-agent-project-row--${stateClass}`}>
+      <button
+        type="button"
+        className="s-agent-project-row-main"
+        onClick={() => onSelectProject(project)}
+        title={project.root ?? project.title}
+      >
+        <span
+          className="s-agent-project-row-dot"
+          style={{ background: stateColor(project.status) }}
+          aria-hidden
+        />
+        <span className="s-agent-project-row-identity">
+          <span className="s-agent-project-row-title">{project.title}</span>
+          <span className="s-agent-project-row-root">{project.root ?? "No project root"}</span>
+        </span>
+        <span className="s-agent-project-row-signal">{signal}</span>
+        <span className="s-agent-project-row-facts">
+          {activeCount > 0 && <span className="s-agent-project-row-fact s-agent-project-row-fact--active">{activeCount} active</span>}
+          <span className="s-agent-project-row-fact">{countLabel(project.agents.length, "agent")}</span>
+          {sessionTotal > 0 && <span className="s-agent-project-row-fact">{countLabel(sessionTotal, "session")}</span>}
+          {project.lastActivityAt && <span className="s-agent-project-row-fact">last {timeAgo(project.lastActivityAt)}</span>}
+        </span>
+      </button>
+      {visibleAgents.length > 0 && (
+        <div className="s-agent-project-row-agents" aria-label={`${project.title} agents`}>
+          {visibleAgents.map((row) => (
+            <button
+              key={row.agent.id}
+              type="button"
+              className={`s-agent-project-row-agent s-agent-project-row-agent--${agentInventoryStatusClass(row.status)}`}
+              onClick={() => openAgent(row)}
+              title={primaryAgentSelector(row.agent) ?? row.agent.id}
+            >
+              <span
+                className="s-agent-project-row-agent-dot"
+                style={{ background: stateColor(row.agent.state) }}
+                aria-hidden
+              />
+              <span>{row.agent.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2908,7 +3460,6 @@ function ProjectSection({
   openAgent,
   selected,
   onSelectProject,
-  mode,
 }: {
   project: ProjectSlice;
   navigate: (r: Route) => void;
@@ -2916,17 +3467,15 @@ function ProjectSection({
   openAgent: (row: AgentInventoryRow) => void;
   selected: boolean;
   onSelectProject: (project: ProjectSlice) => void;
-  mode: AgentsLibraryViewMode;
 }) {
-  const onlineAgents = project.agents.filter((row) => row.status !== "not_ready").length;
-  const activeWork = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
+  const activeAsks = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
   const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
   const workflowTotal = project.workflows.length;
   const summaryParts = [
-    `${onlineAgents}/${project.agents.length} agents`,
+    countLabel(project.agents.length, "agent"),
     countLabel(sessionTotal, "session"),
     workflowTotal > 0 ? countLabel(workflowTotal, "workflow") : null,
-    activeWork > 0 ? countLabel(activeWork, "active task") : null,
+    activeAsks > 0 ? countLabel(activeAsks, "active ask") : null,
     project.lastActivityAt ? `last ${timeAgo(project.lastActivityAt)}` : null,
   ].filter((part): part is string => Boolean(part));
 
@@ -2953,8 +3502,8 @@ function ProjectSection({
         </div>
       </div>
 
-      {selected || mode === "tree" ? (
-        <ProjectLabeledAgentTree
+      {selected ? (
+        <ProjectTreeTable
           project={project}
           navigate={navigate}
           route={route}
@@ -3167,7 +3716,7 @@ function ProjectLabeledAgentTree({
                   </button>
                 </div>
                 <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
-                  {row.stateLabel.toLowerCase()}
+                  {agentInventoryStatusLabel(row.status)}
                 </span>
                 <span className="s-agent-project-tree-mono" title={row.agent.cwd ?? row.agent.projectRoot ?? undefined}>
                   {row.branch !== "—" ? row.branch : "—"}
@@ -3286,7 +3835,7 @@ function ProjectTreeTable({
             </span>
           </div>
           <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(project.status)}`}>
-            {agentInventoryStatusLabel(project.status)}
+            {projectActivityLabel(project) ?? ""}
           </span>
           <span className="s-agent-project-tree-muted">mixed</span>
           <span className="s-agent-project-tree-mono">{basename(project.root) ?? "—"}</span>
@@ -3313,7 +3862,7 @@ function ProjectTreeTable({
                   <span className="s-agent-project-tree-secondary">Not attached to a registered agent card</span>
                 </span>
               </div>
-              <span className="s-agent-project-tree-muted">observed</span>
+              <span className="s-agent-project-tree-muted" />
               <span className="s-agent-project-tree-muted">mixed</span>
               <span className="s-agent-project-tree-mono">{basename(project.root) ?? "—"}</span>
               <span className="s-agent-project-tree-mono">{tree.unassignedSessions.length}</span>
@@ -3367,7 +3916,7 @@ function ProjectTreeTable({
                   </button>
                 </div>
                 <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
-                  {row.stateLabel.toLowerCase()}
+                  {agentInventoryStatusLabel(row.status)}
                 </span>
                 <span className={harnessChipClass(row.harness)}>{row.harness}</span>
                 <span className="s-agent-project-tree-mono" title={row.agent.cwd ?? row.agent.projectRoot ?? undefined}>
@@ -3448,11 +3997,11 @@ function ProjectTreeSessionRow({
       <div className={rowClass} role="row">
         {target}
         <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-          {session.status}
+          {session.status === "running" ? "active" : ""}
         </span>
-        <span className="s-agent-project-tree-muted">{session.kind}</span>
+        <span className="s-agent-project-tree-muted">{session.typeLabel}</span>
         <span className="s-agent-project-tree-muted">—</span>
-        <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
+        <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "—"}</span>
       </div>
     );
   }
@@ -3461,12 +4010,12 @@ function ProjectTreeSessionRow({
     <div className={rowClass} role="row">
       {target}
       <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-        {session.status}
+        {session.status === "running" ? "active" : ""}
       </span>
       <span className={harnessChipClass(session.harness)}>{session.harness}</span>
-      <span className="s-agent-project-tree-muted">{session.kind}</span>
+      <span className="s-agent-project-tree-muted">{session.typeLabel}</span>
       <span className="s-agent-project-tree-muted">—</span>
-      <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
+      <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "—"}</span>
       <span className="s-agent-project-tree-actions">
         <button
           type="button"
@@ -3525,7 +4074,7 @@ function ProjectAgentCard({
           <span className="s-agent-project-chip s-agent-project-chip--session">session {shortSessionId(row.session?.id ?? row.agent.harnessSessionId)}</span>
         )}
         {row.activeAskCount > 0 && (
-          <span className="s-agent-project-chip s-agent-project-chip--active">{row.activeAskCount} active</span>
+          <span className="s-agent-project-chip s-agent-project-chip--active">{row.activeAskCount} in flight</span>
         )}
       </span>
     </button>

@@ -32,6 +32,8 @@ export type StudioStatus =
   | "concept";
 
 export interface StudioPage {
+  /** Stable page/study id for cross-runtime references. */
+  id?: string;
   /** Route. `/path` form, no trailing slash. */
   href: string;
   /** Sidebar label. */
@@ -51,10 +53,64 @@ export interface StudioPage {
   source?: string[];
   /** Subtitle shown in the page strip. */
   blurb?: string;
+  /** Optional host-app insertion target for studies that can be injected. */
+  target?: StudioStudyTarget;
   /** ISO mtime — used to sort entries by recency (e.g. the eng bucket's
    *  "Recent 5" sidebar slice). Optional; static registry pages omit it. */
   updatedAt?: string;
 }
+
+export type StudioInsertionScope =
+  | "shell"
+  | "navigation"
+  | "app"
+  | "page"
+  | "section"
+  | "component"
+  | "object";
+
+export type StudioInsertionMode =
+  | "replace"
+  | "before"
+  | "after"
+  | "overlay"
+  | "decorate";
+
+export interface StudioInsertionPoint {
+  id: string;
+  label: string;
+  scope: StudioInsertionScope;
+  surface?: StudioSurface;
+  route?: string;
+  allowedModes: StudioInsertionMode[];
+  source?: string[];
+  blurb?: string;
+}
+
+export interface StudioStudyTarget {
+  anchor: string;
+  mode: StudioInsertionMode;
+  route?: string;
+  surface?: StudioSurface;
+  aliases?: string[];
+}
+
+export const STUDIO_INSERTION_POINTS: StudioInsertionPoint[] = [
+  {
+    id: "agents.directory",
+    label: "Agent Directory",
+    scope: "page",
+    surface: "web",
+    route: "/agents",
+    allowedModes: ["replace", "decorate"],
+    source: [
+      "packages/web/client/screens/AgentsScreen.tsx",
+      "packages/web/client/dev/override.tsx",
+      "packages/web/client/dev/studio-overrides.tsx",
+    ],
+    blurb: "The live Agents route empty/detail-less state; first Studio-mode replacement anchor.",
+  },
+];
 
 /** Static pages. Plans are merged in at render time from the
  *  filesystem (see `lib/plans.ts`). */
@@ -184,6 +240,28 @@ export const STUDIO_PAGES: StudioPage[] = [
     status: "draft",
     source: ["packages/web/client/scout/inspector/AgentsInspector.tsx"],
     blurb: "Info-dense agent tile — identity · state · task · project · capabilities.",
+  },
+  {
+    id: "agent-directory",
+    href: "/studies/agent-view-before-after",
+    label: "Agent View Before / After",
+    bucket: "studies",
+    surface: "web",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-view-before-after/page.tsx",
+      "packages/web/client/screens/AgentsScreen.tsx",
+      "packages/web/client/screens/agents-screen.css",
+    ],
+    blurb: "Studio-mode pilot: clone the Agents board, compare before/after with a button or Option hold, and mark candidate insertion points.",
+    target: {
+      anchor: "agents.directory",
+      mode: "replace",
+      route: "/agents",
+      surface: "web",
+      aliases: ["agents", "agent", "agent-directory-before-after"],
+    },
   },
   {
     href: "/studies/agent-inspector-card",
@@ -616,6 +694,24 @@ export function pageForPath(
   if (!pathname) return undefined;
   const all = [...STUDIO_PAGES, ...extra];
   return all.find((p) => p.href === pathname);
+}
+
+export function insertionPointForId(id: string): StudioInsertionPoint | undefined {
+  return STUDIO_INSERTION_POINTS.find((point) => point.id === id);
+}
+
+export function studiesForInsertionPoint(
+  anchor: string,
+  extra: StudioPage[] = [],
+): StudioPage[] {
+  return [...STUDIO_PAGES, ...extra].filter((page) => page.target?.anchor === anchor);
+}
+
+export function studyForInsertionPoint(
+  anchor: string,
+  extra: StudioPage[] = [],
+): StudioPage | undefined {
+  return studiesForInsertionPoint(anchor, extra)[0];
 }
 
 /** All pages in a bucket. */

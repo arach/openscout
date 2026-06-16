@@ -196,6 +196,14 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
+  // /agents/{agentId}/sessions/{sessionId} → session observe scoped to an exact agent/session pair.
+  if (parts[0] === "agents" && parts[1] && parts[2] === "sessions" && parts[3]) {
+    return scoped({
+      view: "sessions",
+      agentId: decodeURIComponent(parts[1]),
+      sessionId: decodeURIComponent(parts[3]),
+    });
+  }
   // /agents/{agentId}/c/{conversationId} → agent detail with inline conversation
   if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
     return scoped({
@@ -344,11 +352,24 @@ export function routeFromUrl(urlLike: string | URL): Route {
     }
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
     const planDocumentId = mode === "plan" ? url.searchParams.get("plan")?.trim() : "";
+    const flightId = url.searchParams.get("flightId")?.trim();
+    const invocationId = url.searchParams.get("invocationId")?.trim();
+    const conversationId = url.searchParams.get("conversationId")?.trim();
+    const workId = url.searchParams.get("workId")?.trim();
+    const sessionId = url.searchParams.get("sessionId")?.trim();
+    const targetAgentId = url.searchParams.get("targetAgentId")?.trim()
+      ?? url.searchParams.get("agentId")?.trim();
     return {
       view: "ops",
       mode,
       ...(tailQuery ? { tailQuery } : {}),
       ...(planDocumentId ? { planDocumentId } : {}),
+      ...(flightId ? { flightId } : {}),
+      ...(invocationId ? { invocationId } : {}),
+      ...(conversationId ? { conversationId } : {}),
+      ...(workId ? { workId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(targetAgentId ? { targetAgentId } : {}),
     };
   }
   return scoped({ view: "inbox" });
@@ -417,9 +438,14 @@ export function routePath(r: Route): string {
       return `${base}${searchSuffix(params)}`;
     }
     case "sessions":
-      return pathWithMachineScope(r.sessionId
-        ? `/sessions/${encodeURIComponent(r.sessionId)}`
-        : "/sessions", r);
+      return pathWithMachineScope(
+        r.agentId && r.sessionId
+          ? `/agents/${encodeURIComponent(r.agentId)}/sessions/${encodeURIComponent(r.sessionId)}`
+          : r.sessionId
+          ? `/sessions/${encodeURIComponent(r.sessionId)}`
+          : "/sessions",
+        r,
+      );
     case "repos":
       return pathWithMachineScope("/repos", r);
     case "harnesses":
@@ -461,6 +487,12 @@ export function routePath(r: Route): string {
         const params = new URLSearchParams();
         if (r.mode === "tail" && r.tailQuery) params.set("q", r.tailQuery);
         if (r.mode === "plan" && r.planDocumentId) params.set("plan", r.planDocumentId);
+        if (r.flightId) params.set("flightId", r.flightId);
+        if (r.invocationId) params.set("invocationId", r.invocationId);
+        if (r.conversationId) params.set("conversationId", r.conversationId);
+        if (r.workId) params.set("workId", r.workId);
+        if (r.sessionId) params.set("sessionId", r.sessionId);
+        if (r.targetAgentId) params.set("targetAgentId", r.targetAgentId);
         return `/ops/${opsModePath(r.mode)}${searchSuffix(params)}`;
       }
       return `/ops/${opsModePath(r.mode)}`;
@@ -504,7 +536,7 @@ function routeKey(r: Route): string {
             ? `agents-project:${r.projectKey}${scope}`
             : `agents${scope}`;
     case "sessions":
-      return r.sessionId ? `session:${r.sessionId}${scope}` : `sessions${scope}`;
+      return r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":
       return r.conversationId ? `messages:${r.conversationId}${scope}` : `messages${scope}`;
     case "channels":
@@ -512,7 +544,7 @@ function routeKey(r: Route): string {
     case "work":
       return `work:${r.workId}${scope}`;
     case "ops":
-      return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}`;
+      return `ops:${r.mode ?? "plan"}:${r.tailQuery ?? ""}:${r.planDocumentId ?? ""}:${r.flightId ?? ""}:${r.invocationId ?? ""}:${r.workId ?? ""}:${r.conversationId ?? ""}:${r.sessionId ?? ""}:${r.targetAgentId ?? ""}`;
     case "search":
       return `search:${r.mode ?? "knowledge"}`;
     case "follow":

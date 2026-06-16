@@ -17,7 +17,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-const REPO_ROOT = path.resolve(process.cwd(), "..", "..");
+import { resolveRepoPath } from "@/lib/repo-path";
 
 /** Extensions the viewer is willing to render. */
 const ALLOWED_EXTENSIONS = new Set([
@@ -64,20 +64,21 @@ export async function loadRepoFile(parts: string[]): Promise<RepoFile | null> {
   if (parts.length === 0) return null;
 
   const requested = parts.map((p) => decodeURIComponent(p)).join("/");
-  const resolved = path.resolve(REPO_ROOT, requested);
-
-  const relative = path.relative(REPO_ROOT, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  const resolvedPath = resolveRepoPath(requested);
+  if (!resolvedPath) return null;
+  const { absolute: resolved, relative } = resolvedPath;
 
   const ext = path.extname(resolved).slice(1).toLowerCase();
   if (!ALLOWED_EXTENSIONS.has(ext)) return null;
 
   try {
-    const stats = await stat(resolved);
+    const stats = await stat(/* turbopackIgnore: true */ resolved);
     if (!stats.isFile()) return null;
     const truncated = stats.size > MAX_BYTES;
 
-    const raw = await readFile(resolved, { encoding: "utf8" });
+    const raw = await readFile(/* turbopackIgnore: true */ resolved, {
+      encoding: "utf8",
+    });
     const content = truncated ? raw.slice(0, MAX_BYTES) : raw;
 
     return {

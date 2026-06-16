@@ -49,10 +49,12 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
               className={`agent-card-dot agent-card-dot--${stateClass}`}
               style={state === "working" ? { background: stateColor(agent.state) } : undefined}
             />
-            <span className={`agent-card-state agent-card-state--${stateClass}`}>{stateLabel}</span>
+            {stateLabel && (
+              <span className={`agent-card-state agent-card-state--${stateClass}`}>{stateLabel}</span>
+            )}
             {agent.updatedAt && (
               <>
-                <span className="agent-card-sep">·</span>
+                {stateLabel && <span className="agent-card-sep">·</span>}
                 <span className="agent-card-time">{timeAgo(agent.updatedAt)}</span>
               </>
             )}

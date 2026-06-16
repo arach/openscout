@@ -11,7 +11,11 @@ import { actorColor, stateColor } from "../../lib/colors.ts";
 import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import { queueTakeover } from "../../lib/terminal-takeover.ts";
+import {
+  activeCatalogSession,
+  canTakeoverTerminalSession,
+  queueTakeover,
+} from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
@@ -179,15 +183,10 @@ function AgentsDirectoryContextPanel({
   navigate: (r: Route) => void;
   route: Route;
 }) {
-  const working = useMemo(
+  const activeAgents = useMemo(
     () => agents.filter((agent) => normalizeAgentState(agent.state) === "working"),
     [agents],
   );
-  const online = useMemo(
-    () => agents.filter((agent) => isAgentOnline(agent.state)),
-    [agents],
-  );
-  const readyCount = Math.max(0, online.length - working.length);
   const projectMix = useMemo(
     () => topCounts(agents.map(agentProjectLabel), 5),
     [agents],
@@ -204,9 +203,9 @@ function AgentsDirectoryContextPanel({
       .slice(0, 5),
     [agents],
   );
-  const activeNow = working.slice(0, 5);
+  const activeNow = activeAgents.slice(0, 5);
   const projectCount = new Set(agents.map(agentProjectLabel)).size;
-  const surfaceLabel = working.length > 0 ? "Live routing surface" : "Quiet routing surface";
+  const surfaceLabel = activeAgents.length > 0 ? "Live routing surface" : "Quiet routing surface";
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
@@ -217,11 +216,10 @@ function AgentsDirectoryContextPanel({
         <div className="mt-2 grid grid-cols-3 gap-1">
           <MiniStat label="Agents" value={`${agents.length}`} />
           <MiniStat label="Projects" value={`${projectCount}`} />
-          <MiniStat label="Working" value={`${working.length}`} />
+          <MiniStat label="Active" value={`${activeAgents.length}`} />
         </div>
         <div className="mt-2 flex items-center justify-between gap-2 border-t border-[var(--scout-chrome-border-soft)] pt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
           <span>{surfaceLabel}</span>
-          <span>{readyCount} ready</span>
         </div>
       </div>
 
@@ -236,7 +234,7 @@ function AgentsDirectoryContextPanel({
       <Section label="Active now">
         {activeNow.length === 0 ? (
           <div className="text-[10px] font-mono uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-ghost)]">
-            No agents are currently marked working.
+            No agents are currently active.
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
@@ -638,6 +636,9 @@ function RunningSessions({
       openTerminal("takeover");
       return;
     }
+    if (!canTakeoverTerminalSession({ agent, catalog, session: activeCatalogSession(catalog) })) {
+      return;
+    }
     if (!catalog?.resumeCommand) return;
     void queueTakeover({
       command: catalog.resumeCommand,
@@ -689,7 +690,7 @@ function RunningSessions({
         {visible.map((session) => {
           const active = session.id === activeSessionId;
           const canObserveTerminal = active && agent.transport === "tmux";
-          const canTakeover = active && (agent.transport === "tmux" || Boolean(catalog?.resumeCommand));
+          const canTakeover = active && canTakeoverTerminalSession({ agent, catalog, session });
           const age = timeAgo(session.startedAt) || "recent";
           const harnessLabel = session.transport ?? session.harness ?? agent.transport ?? agent.harness ?? "session";
           const lowerMeta = active
@@ -738,7 +739,7 @@ function RunningSessions({
                 </span>
                 <span className="flex shrink-0 flex-col items-end">
                   <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-cyan-400/70">
-                    {active ? "active" : "running"}
+                    {active ? "current" : "running"}
                   </span>
                   <span className="mt-0.5 max-w-[78px] truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
                     {lowerMeta}
@@ -856,7 +857,7 @@ function ObserveStats({
   return (
     <>
       <Section label="Session">
-        {sessionId && <Row label="Active" value={sessionId.slice(0, 8)} />}
+        {sessionId && <Row label="Current" value={sessionId.slice(0, 8)} />}
         {sourcePath && (
           <PathRow
             label="Source"

@@ -145,7 +145,7 @@ function RowLeading({
       );
     }
     const normalized = normalizeAgentTone(tone);
-    const showPresence = normalized === "working" || normalized === "available";
+    const showPresence = normalized === "active" || normalized === "available";
     return (
       <span className="rr-row-avatar-wrap" aria-hidden>
         <Avatar className="rr-row-avatar" name={avatarName} />
@@ -165,7 +165,7 @@ function RowLeading({
   return (
     <span
       className={`rr-row-dot rr-row-dot--${normalized}`}
-      style={normalized === "working" || normalized === "available"
+      style={normalized === "active" || normalized === "available"
         ? { background: stateColor(normalized) }
         : undefined}
       aria-hidden

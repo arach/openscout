@@ -2203,18 +2203,19 @@ describe("createScoutMcpServer", () => {
       targetAgentId: "hudson.main",
     });
     expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      "http://scout.test/agents/hudson.main?tab=observe",
     );
     expect(structured.links).toMatchObject({
       follow: structured.followUrl,
-      tail: structured.followUrl,
+      observe: structured.followUrl,
+      tail: "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
       chat: "http://scout.test/c/dm.operator.hudson",
       agent: "http://scout.test/agents/hudson.main?tab=message",
     });
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]).toEqual({
       type: "text",
-      text: "Ask sent to hudson.main; flight flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      text: "Ask sent to hudson.main; flight flight-1. Observe agent: http://scout.test/agents/hudson.main?tab=observe Scout tail: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
     });
   });
 
@@ -2932,6 +2933,72 @@ describe("createScoutMcpServer", () => {
     );
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toContain("Wake queued as flt-1. Follow: http://scout.test/follow");
+  });
+
+  test("uses the active broker reply agent as the default MCP sender", async () => {
+    let receivedSenderId: string | null | undefined;
+    let receivedMessageSenderId: string | undefined;
+    const { client } = await connectTestServer(
+      {
+        resolveSenderId: async (senderId) => {
+          receivedSenderId = senderId;
+          return senderId?.trim() || "operator";
+        },
+        sendMessage: async ({ senderId }) => {
+          receivedMessageSenderId = senderId;
+          return {
+            usedBroker: true,
+            conversationId: "dm.openscout.talkie",
+            messageId: "msg-1",
+            invokedTargets: ["talkie.main.mini"],
+            unresolvedTargets: [],
+            routeKind: "dm",
+          };
+        },
+        resolveBrokerUrl: () => "http://broker.test",
+        searchAgents: async () => [],
+        resolveAgent: async () => ({
+          kind: "unresolved",
+          candidate: null,
+          candidates: [],
+        }),
+        sendMessageToAgentIds: async () => ({
+          usedBroker: true,
+          invokedTargetIds: [],
+          unresolvedTargetIds: [],
+        }),
+        askQuestion: async () => ({ usedBroker: true }),
+        askAgentById: async () => ({ usedBroker: true }),
+        updateWorkItem: async () => {
+          throw new Error("not used");
+        },
+        waitForFlight: async () => {
+          throw new Error("not used");
+        },
+      },
+      {
+        OPENSCOUT_REPLY_CONTEXT: JSON.stringify({
+          mode: "broker_reply",
+          fromAgentId: "operator",
+          toAgentId: "openscout-card-h-jsjh6n",
+          conversationId: "dm.operator.openscout",
+          messageId: "msg-request",
+          replyToMessageId: "msg-request",
+          replyPath: "final_response",
+        }),
+      },
+    );
+
+    await client.callTool({
+      name: "messages_send",
+      arguments: {
+        body: "Delegating this to Talkie.",
+        targetLabel: "@talkie",
+      },
+    });
+
+    expect(receivedSenderId).toBe("openscout-card-h-jsjh6n");
+    expect(receivedMessageSenderId).toBe("openscout-card-h-jsjh6n");
   });
 
   test("preserves managed agent identity from the MCP environment", async () => {

@@ -70,6 +70,8 @@ import {
   loadScoutRelayConfig,
   markScoutConversationRead,
   readScoutUnblockRequests,
+  registerScoutLocalAgentBinding,
+  retireScoutLocalAgentBinding,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
   sendScoutConversationMessage,
@@ -1347,6 +1349,14 @@ function buildAgentSessionCatalogPayload(input: {
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
+  type WebSessionCatalogEntry = (typeof catalog.sessions)[number] & {
+    canObserve?: boolean;
+    canTakeover?: boolean;
+    historyPath?: string;
+    provider?: string | null;
+    source?: string;
+  };
+  const catalogSessions = catalog.sessions as WebSessionCatalogEntry[];
   const endpointMetadata = agentEndpointMetadata(input.endpoint);
   const endpointSessionId = firstMetadataString(
     input.activeSessionId,
@@ -1362,6 +1372,7 @@ function buildAgentSessionCatalogPayload(input: {
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
+  const canTakeoverActiveSession = supportsTerminalTakeover(input.transport, resumeCommand);
   const historyPath = firstMetadataString(
     endpointMetadata.threadPath,
     endpointMetadata.resumeSessionPath,
@@ -1373,9 +1384,18 @@ function buildAgentSessionCatalogPayload(input: {
     ?? metadataTimestampMs(endpointMetadata.startedAt)
     ?? input.startedAt
     ?? Date.now();
-  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
+  const enrichSession = (session: WebSessionCatalogEntry): WebSessionCatalogEntry => {
+    const transport = session.transport ?? input.transport ?? undefined;
+    const sessionHistoryPath = session.historyPath ?? (session.id === sessionId ? historyPath : undefined);
+    return {
+      ...session,
+      canObserve: Boolean(session.canObserve) || Boolean(sessionHistoryPath) || transport === "tmux",
+      canTakeover: session.id === sessionId && canTakeoverActiveSession,
+    };
+  };
+  const sessions = sessionId && !catalogSessions.some((session) => session.id === sessionId)
     ? [
-        {
+        enrichSession({
           id: sessionId,
           startedAt,
           cwd: input.cwd,
@@ -1385,12 +1405,10 @@ function buildAgentSessionCatalogPayload(input: {
           ...(provider ? { provider } : {}),
           ...(historyPath ? { historyPath } : {}),
           source,
-          canObserve: Boolean(historyPath) || input.transport === "tmux",
-          canTakeover: Boolean(resumeCommand),
-        },
-        ...catalog.sessions,
+        }),
+        ...catalogSessions.map(enrichSession),
       ]
-    : catalog.sessions;
+    : catalogSessions.map(enrichSession);
   return {
     ...catalog,
     activeSessionId: sessionId,
@@ -1400,6 +1418,15 @@ function buildAgentSessionCatalogPayload(input: {
     resumeCommand,
     resumeCwd: input.cwd,
   };
+}
+
+function supportsTerminalTakeover(
+  transport: string | null | undefined,
+  resumeCommand: string | null,
+): boolean {
+  if (transport === "tmux") return true;
+  if (!resumeCommand) return false;
+  return transport === "codex_exec" || transport === "claude_resume";
 }
 
 function emptyAgentSessionCatalogPayload(agentId: string) {
@@ -2590,6 +2617,86 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
+const PROFILE_SWITCHABLE_HARNESSES = new Set(["claude", "codex", "pi"]);
+
+async function buildAgentManagementState(agentId: string, currentDirectory: string) {
+  const agent = queryAgentById(agentId) ?? queryAgents(300).find((candidate) => candidate.id === agentId) ?? null;
+  const [{ getLocalAgentConfig }, setupResult] = await Promise.all([
+    import("@openscout/runtime/local-agents"),
+    loadResolvedRelayAgents({ currentDirectory }).catch(() => null),
+  ]);
+  const config = await getLocalAgentConfig(agentId).catch(() => null);
+  const setupAgents = [
+    ...(setupResult?.agents ?? []),
+    ...(setupResult?.discoveredAgents ?? []),
+  ];
+  const resolved = setupAgents.find((candidate) => candidate.agentId === agentId)
+    ?? setupAgents.find((candidate) =>
+      Boolean(agent?.projectRoot && candidate.projectRoot === agent.projectRoot)
+      || Boolean(agent?.cwd && candidate.runtime.cwd === agent.cwd)
+    )
+    ?? null;
+  const project = (setupResult?.projectInventory ?? []).find((candidate) => candidate.agentId === agentId)
+    ?? (setupResult?.projectInventory ?? []).find((candidate) =>
+      Boolean((resolved?.projectRoot ?? agent?.projectRoot) && candidate.projectRoot === (resolved?.projectRoot ?? agent?.projectRoot))
+    )
+    ?? null;
+  const currentHarness = config?.runtime.harness ?? resolved?.runtime.harness ?? agent?.harness ?? null;
+  const profileMap = new Map<string, { harness: string; source: string; detail: string; active: boolean; switchable: boolean }>();
+
+  for (const profile of project?.harnesses ?? []) {
+    profileMap.set(profile.harness, {
+      harness: profile.harness,
+      source: profile.source,
+      detail: profile.detail,
+      active: profile.harness === currentHarness,
+      switchable: PROFILE_SWITCHABLE_HARNESSES.has(profile.harness),
+    });
+  }
+  for (const harness of Object.keys(resolved?.harnessProfiles ?? {})) {
+    if (!profileMap.has(harness)) {
+      profileMap.set(harness, {
+        harness,
+        source: "manifest",
+        detail: "Resolved harness profile",
+        active: harness === currentHarness,
+        switchable: PROFILE_SWITCHABLE_HARNESSES.has(harness),
+      });
+    }
+  }
+  if (currentHarness && !profileMap.has(currentHarness)) {
+    profileMap.set(currentHarness, {
+      harness: currentHarness,
+      source: "current",
+      detail: "Current runtime harness",
+      active: true,
+      switchable: PROFILE_SWITCHABLE_HARNESSES.has(currentHarness),
+    });
+  }
+
+  const profiles = Array.from(profileMap.values()).sort((left, right) =>
+    Number(right.active) - Number(left.active)
+    || left.harness.localeCompare(right.harness)
+  );
+  const projectRoot = resolved?.projectRoot ?? project?.projectRoot ?? agent?.projectRoot ?? agent?.cwd ?? config?.runtime.cwd ?? null;
+
+  return {
+    agentId,
+    editable: Boolean(config?.editable),
+    currentHarness,
+    profiles,
+    canSwitchHarness: Boolean(config?.editable && profiles.filter((profile) => profile.switchable).length > 1),
+    projectConfigPath: resolved?.projectConfigPath ?? project?.projectConfigPath ?? null,
+    projectRoot,
+    runtimeCwd: config?.runtime.cwd ?? resolved?.runtime.cwd ?? agent?.cwd ?? null,
+    canRepair: Boolean(projectRoot),
+    canRetire: Boolean(agent && !agent.retiredFromFleet),
+    staleLocalRegistration: Boolean(agent?.staleLocalRegistration),
+    retiredFromFleet: Boolean(agent?.retiredFromFleet),
+    replacedByAgentId: agent?.replacedByAgentId ?? null,
+  };
+}
+
 async function readLocalHarnessTopologySnapshot() {
   try {
     const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
@@ -3400,6 +3507,75 @@ export async function createOpenScoutWebServer(
   app.get("/api/agents/:id/observe", async (c) => {
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
+  });
+  app.get("/api/agents/:agentId/management", async (c) => {
+    const agentId = c.req.param("agentId");
+    return c.json(await buildAgentManagementState(agentId, currentDirectory));
+  });
+  app.post("/api/agents/:agentId/harness", async (c) => {
+    const agentId = c.req.param("agentId");
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const harness = optionalString(body.harness)?.trim();
+    if (!harness || !PROFILE_SWITCHABLE_HARNESSES.has(harness)) {
+      return c.json({ error: "unsupported harness" }, 400);
+    }
+
+    const { restartLocalAgent, updateLocalAgentCard } = await import("@openscout/runtime/local-agents");
+    const config = await updateLocalAgentCard(agentId, {
+      harness,
+      ...(hasOwn(body, "model") ? { model: optionalString(body.model)?.trim() || null } : {}),
+    });
+    if (!config) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+    let restarted = false;
+    if (body.restart !== false) {
+      restarted = Boolean(await restartLocalAgent(agentId));
+    }
+    await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      config,
+      restarted,
+      management: await buildAgentManagementState(agentId, currentDirectory),
+    });
+  });
+  app.post("/api/agents/:agentId/repair", async (c) => {
+    const agentId = c.req.param("agentId");
+    const state = await buildAgentManagementState(agentId, currentDirectory);
+    const repairRoot = state.projectRoot ?? state.runtimeCwd ?? currentDirectory;
+    const setup = await loadResolvedRelayAgents({ currentDirectory: repairRoot });
+    const resolved = [...setup.agents, ...setup.discoveredAgents].find((candidate) => candidate.agentId === agentId)
+      ?? null;
+    const binding = await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      agentId,
+      projectRoot: resolved?.projectRoot ?? repairRoot,
+      projectConfigPath: resolved?.projectConfigPath ?? state.projectConfigPath,
+      registrationKind: resolved?.registrationKind ?? null,
+      brokerRegistered: Boolean(binding?.brokerRegistered),
+      management: await buildAgentManagementState(agentId, repairRoot),
+    });
+  });
+  app.post("/api/agents/:agentId/retire", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { retireLocalAgent } = await import("@openscout/runtime/local-agents");
+    const broker = await loadScoutBrokerContext().catch(() => null);
+    const localRetired = await retireLocalAgent(agentId).catch(() => null);
+    const brokerRetired = await retireScoutLocalAgentBinding({ agentId, broker }).catch(() => false);
+    if (!localRetired && !brokerRetired) {
+      return c.json({ error: "agent not found or not retireable" }, 404);
+    }
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      localRetired: Boolean(localRetired),
+      brokerRetired,
+      management: await buildAgentManagementState(agentId, currentDirectory),
+    });
   });
   app.get("/api/agents/:agentId/config", async (c) => {
     const agentId = c.req.param("agentId");
@@ -4266,24 +4442,15 @@ export async function createOpenScoutWebServer(
     }
 
     shellStateCache.invalidate();
-    const runtimeDir = relayAgentRuntimeDirectory(agentId);
-    const catalog = readSessionCatalogSync(runtimeDir);
-    const sessionId = catalog.activeSessionId;
-    const harnessEntry = findHarnessEntry(config.runtime.harness);
-    const resumeCommand = sessionId && harnessEntry
-      ? buildHarnessResumeCommand(harnessEntry, sessionId, config.runtime.cwd)
-      : null;
-
     return c.json({
       ok: true,
       agentId,
-      catalog: {
-        ...catalog,
+      catalog: buildAgentSessionCatalogPayload({
         agentId,
         harness: config.runtime.harness,
-        resumeCommand,
-        resumeCwd: config.runtime.cwd,
-      },
+        cwd: config.runtime.cwd,
+        transport: config.runtime.transport,
+      }),
     });
   });
 

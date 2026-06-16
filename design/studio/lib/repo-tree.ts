@@ -18,7 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const REPO_ROOT = path.resolve(process.cwd(), "..", "..");
+import { resolveRepoPath } from "@/lib/repo-path";
 
 const DEFAULT_IGNORE = new Set([
   "node_modules",
@@ -71,10 +71,7 @@ function shouldIgnore(name: string, extra: Set<string>): boolean {
 }
 
 function safeResolve(relPath: string): string | null {
-  const resolved = path.resolve(REPO_ROOT, relPath);
-  const rel = path.relative(REPO_ROOT, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  return resolved;
+  return resolveRepoPath(relPath)?.absolute ?? null;
 }
 
 /** Read a directory tree. Returns null if the root path escapes the
@@ -87,7 +84,7 @@ export function readTree(options: WalkOptions): TreeNode | null {
   if (!absolute) return null;
 
   try {
-    const stat = fs.statSync(absolute);
+    const stat = fs.statSync(/* turbopackIgnore: true */ absolute);
     if (!stat.isDirectory()) return null;
   } catch {
     return null;
@@ -115,14 +112,16 @@ function walk(
 ): void {
   let entries: fs.Dirent[];
   try {
-    entries = fs.readdirSync(absolute, { withFileTypes: true });
+    entries = fs.readdirSync(/* turbopackIgnore: true */ absolute, {
+      withFileTypes: true,
+    });
   } catch {
     return;
   }
 
   for (const entry of entries) {
     if (shouldIgnore(entry.name, ignoreSet)) continue;
-    const childAbs = path.join(absolute, entry.name);
+    const childAbs = path.join(/* turbopackIgnore: true */ absolute, entry.name);
     const childRel = node.relPath
       ? `${node.relPath}/${entry.name}`
       : entry.name;
@@ -145,7 +144,7 @@ function walk(
       let bytes: number | undefined;
       let updatedAt: string | undefined;
       try {
-        const stat = fs.statSync(childAbs);
+        const stat = fs.statSync(/* turbopackIgnore: true */ childAbs);
         bytes = stat.size;
         updatedAt = stat.mtime.toISOString();
       } catch {
@@ -207,13 +206,16 @@ export function readFileStat(relPath: string): FileStat | null {
   const absolute = safeResolve(relPath);
   if (!absolute) return null;
   try {
-    const stat = fs.statSync(absolute);
+    const stat = fs.statSync(/* turbopackIgnore: true */ absolute);
     if (!stat.isFile()) return null;
     let lines: number | null = null;
     try {
       // Only attempt line count for plausibly textual files (< 1 MB).
       if (stat.size < 1024 * 1024) {
-        const content = fs.readFileSync(absolute, "utf8");
+        const content = fs.readFileSync(
+          /* turbopackIgnore: true */ absolute,
+          "utf8",
+        );
         lines = content.split("\n").length;
       }
     } catch {

@@ -95,7 +95,7 @@ import {
   parseScoutPermissionProfile,
 } from "./permission-policy.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
-import { resolveOperatorHandle } from "./user-config.js";
+import { resolveOperatorHandle, resolveOperatorName } from "./user-config.js";
 
 const MODULE_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const OPENSCOUT_REPO_ROOT = resolve(MODULE_DIRECTORY, "..", "..", "..");
@@ -2552,10 +2552,45 @@ function summarizeInvocationTask(task: string): string {
   return truncateInvocationPreview(firstSentence);
 }
 
+function invocationMetadataString(invocation: InvocationRequest, key: string): string | null {
+  const value = invocation.metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function invocationActorLabel(
+  actorId: string,
+  displayName: string | null,
+  options: { short?: boolean } = {},
+): string {
+  const isOperator = actorId === "operator";
+  const handle = isOperator
+    ? `@${resolveOperatorHandle().trim().replace(/^@+/, "") || actorId}`
+    : scoutHandle(actorId, options);
+  const resolvedDisplayName = displayName
+    ?? (isOperator ? resolveOperatorName().trim() || actorId : null);
+
+  if (!resolvedDisplayName
+    || resolvedDisplayName === actorId
+    || resolvedDisplayName === handle
+    || resolvedDisplayName === handle.replace(/^@/, "")) {
+    return handle;
+  }
+  return `${resolvedDisplayName} (${handle})`;
+}
+
 function buildInvocationTitle(invocation: InvocationRequest): string {
   const action = invocationTitleLabel(invocation.action);
   const ref = scoutShortRef(invocation.messageId) ?? scoutShortRef(invocation.id);
-  return `⌖ ${scoutHandle(invocation.requesterId, { short: true })} → ${scoutHandle(invocation.targetAgentId)} · ${ref ? `${action}:${ref}` : action}`;
+  const requester = invocationActorLabel(
+    invocation.requesterId,
+    invocationMetadataString(invocation, "requesterDisplayName"),
+    { short: true },
+  );
+  const target = invocationActorLabel(
+    invocation.targetAgentId,
+    invocationMetadataString(invocation, "targetDisplayName"),
+  );
+  return `⌖ ${requester} → ${target} · ${ref ? `${action}:${ref}` : action}`;
 }
 
 function buildInvocationOpener(invocation: InvocationRequest): string {

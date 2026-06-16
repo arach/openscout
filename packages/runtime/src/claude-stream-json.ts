@@ -176,7 +176,6 @@ export type SessionCatalog = {
 
 const SESSION_CATALOG_FILENAME = "session-catalog.json";
 const SESSION_CATALOG_MAX_ENTRIES = 64;
-const CLAUDE_STREAM_JSON_STARTUP_TIMEOUT_MS = 5_000;
 
 export function readSessionCatalogSync(runtimeDirectory: string): SessionCatalog {
   const catalogPath = join(runtimeDirectory, SESSION_CATALOG_FILENAME);
@@ -762,14 +761,6 @@ class ClaudeStreamJsonSession {
 
   private starting: Promise<void> | null = null;
 
-  private onlineReady: Promise<void> | null = null;
-
-  private resolveOnlineReady: (() => void) | null = null;
-
-  private rejectOnlineReady: ((error: Error) => void) | null = null;
-
-  private onlineReadyTimer: NodeJS.Timeout | null = null;
-
   private claudeSessionId: string | null = null;
 
   private resumedSessionId: string | null = null;
@@ -797,7 +788,11 @@ class ClaudeStreamJsonSession {
   }
 
   async ensureOnline(): Promise<{ sessionId: string | null }> {
-    await this.ensureReadyForTurn();
+    if (!this.isAlive()) {
+      const catalog = await readSessionCatalog(this.catalogDirectory);
+      this.claudeSessionId = catalog.activeSessionId;
+      this.resumedSessionId = this.claudeSessionId;
+    }
     return {
       sessionId: this.claudeSessionId,
     };
@@ -812,7 +807,6 @@ class ClaudeStreamJsonSession {
     timeoutMs: number | undefined,
     allowStaleResumeRetry: boolean,
   ): Promise<{ output: string; sessionId: string | null }> {
-    await this.ensureReadyForTurn();
     const queuedTurn = this.turnQueue
       .catch(() => undefined)
       .then(async () => {
@@ -912,7 +906,6 @@ class ClaudeStreamJsonSession {
     this.starting = null;
     this.lineBuffer = "";
     this.resumedSessionId = null;
-    this.rejectOnline(new Error(`Claude stream-json session for ${this.options.agentName} was shut down.`));
 
     if (child && !child.killed && child.exitCode === null) {
       child.kill();
@@ -928,54 +921,6 @@ class ClaudeStreamJsonSession {
 
   private async ensureReadyForTurn(): Promise<void> {
     await this.ensureStarted();
-    if (!this.resumedSessionId && !this.claudeSessionId) {
-      await this.waitForOnlineReady();
-    }
-  }
-
-  private waitForOnlineReady(): Promise<void> {
-    if (this.claudeSessionId) {
-      return Promise.resolve();
-    }
-    if (this.onlineReady) {
-      return this.onlineReady;
-    }
-
-    this.onlineReady = new Promise((resolve, reject) => {
-      this.resolveOnlineReady = () => {
-        this.clearOnlineReady();
-        resolve();
-      };
-      this.rejectOnlineReady = (error) => {
-        this.clearOnlineReady();
-        reject(error);
-      };
-      this.onlineReadyTimer = setTimeout(() => {
-        this.rejectOnlineReady?.(
-          new Error(`Claude stream-json session for ${this.options.agentName} did not report ready within ${CLAUDE_STREAM_JSON_STARTUP_TIMEOUT_MS}ms.`),
-        );
-      }, CLAUDE_STREAM_JSON_STARTUP_TIMEOUT_MS);
-    });
-
-    return this.onlineReady;
-  }
-
-  private clearOnlineReady(): void {
-    if (this.onlineReadyTimer) {
-      clearTimeout(this.onlineReadyTimer);
-    }
-    this.onlineReadyTimer = null;
-    this.onlineReady = null;
-    this.resolveOnlineReady = null;
-    this.rejectOnlineReady = null;
-  }
-
-  private resolveOnline(): void {
-    this.resolveOnlineReady?.();
-  }
-
-  private rejectOnline(error: Error): void {
-    this.rejectOnlineReady?.(error);
   }
 
   private configSignature(options: SessionRequestOptions): string {
@@ -1017,6 +962,7 @@ class ClaudeStreamJsonSession {
       "--input-format", "stream-json",
       "--output-format", "stream-json",
       "--include-partial-messages",
+      "--append-system-prompt", this.options.systemPrompt,
       ...this.options.launchArgs ?? [],
     ];
     if (this.claudeSessionId) {
@@ -1050,7 +996,6 @@ class ClaudeStreamJsonSession {
       }
       console.error(`[openscout-runtime] claude process error for ${this.options.agentName}: ${error.message}`);
       this.process = null;
-      this.rejectOnline(new Error(`Claude process error: ${error.message}`));
       if (this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
@@ -1084,7 +1029,6 @@ class ClaudeStreamJsonSession {
       }
       this.process = null;
       this.lineBuffer = "";
-      this.rejectOnline(new Error(`Claude exited with code ${code}`));
       if (this.activeTurn) {
         const turn = this.activeTurn;
         this.activeTurn = null;
@@ -1107,7 +1051,6 @@ class ClaudeStreamJsonSession {
       const nextSessionId = event.session_id ?? event.sessionId ?? null;
       if (nextSessionId && nextSessionId !== this.claudeSessionId) {
         this.claudeSessionId = nextSessionId;
-        this.resolveOnline();
         void (async () => {
           const catalog = await readSessionCatalog(this.catalogDirectory);
           const updated = catalogRecordSession(catalog, nextSessionId, this.options.cwd);

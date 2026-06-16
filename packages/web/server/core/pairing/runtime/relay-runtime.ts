@@ -121,18 +121,9 @@ export function resolveRelayEndpointForTailscaleStatus(
   const localAddress = options.localAddress !== undefined
     ? normalizedOptionalAddress(options.localAddress)
     : findLocalNetworkAddress();
-  const localRelayUrl = localAddress ? `${scheme}://${localAddress}:${port}` : null;
+  const localRelayUrl = !tls && localAddress ? `ws://${localAddress}:${port}` : null;
   const tailnetRelayUrl = tailscaleRunning && hostname ? `${scheme}://${hostname}:${port}` : null;
   const fallbackRelayUrls = tailnetRelayUrl && localRelayUrl ? [tailnetRelayUrl] : [];
-
-  if (localRelayUrl) {
-    return {
-      relayUrl: localRelayUrl,
-      connectUrl,
-      fallbackRelayUrls,
-      options: tls ? { tls } satisfies RelayOptions : {} satisfies RelayOptions,
-    };
-  }
 
   if (tailnetRelayUrl && tls) {
     return {
@@ -140,6 +131,15 @@ export function resolveRelayEndpointForTailscaleStatus(
       connectUrl,
       fallbackRelayUrls: [],
       options: { tls } satisfies RelayOptions,
+    };
+  }
+
+  if (localRelayUrl) {
+    return {
+      relayUrl: localRelayUrl,
+      connectUrl,
+      fallbackRelayUrls,
+      options: {} satisfies RelayOptions,
     };
   }
 
@@ -185,6 +185,12 @@ function generateTailscaleCerts(hostname: string): TLSPair | null {
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 30_000,
     });
+    if (!storedCertificateLooksPubliclyTrusted(certPath)) {
+      pairingLog.warn("relay", "tailscale cert is not publicly trusted; using insecure websocket tailnet relay", {
+        hostname,
+      });
+      return null;
+    }
     return { cert: certPath, key: keyPath };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

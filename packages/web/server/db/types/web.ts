@@ -163,6 +163,32 @@ export type WebFlight = {
   completedAt: number | null;
 };
 
+export type WebWorkInvocation = {
+  invocationId: string;
+  flightId: string | null;
+  action: string;
+  task: string;
+  source: string | null;
+  requestedHarness: string | null;
+  requestedModel: string | null;
+  requestedPermissionProfile: string | null;
+  targetSessionId: string | null;
+  requesterId: string | null;
+  requesterName: string | null;
+  targetAgentId: string | null;
+  targetAgentName: string | null;
+  resolvedHarness: string | null;
+  resolvedTransport: string | null;
+  resolvedSessionId: string | null;
+  conversationId: string | null;
+  workId: string | null;
+  state: string | null;
+  summary: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+};
+
 export type WebAgentRun = AgentRun & {
   agentName: string | null;
 };
@@ -205,6 +231,8 @@ export type WebWorkDetail = WebWorkItem & {
   childWork: WebWorkItem[];
   activeFlights: WebFlight[];
   timeline: WebWorkTimelineItem[];
+  primaryInvocation: WebWorkInvocation | null;
+  allFlights: WebFlight[];
 };
 
 export type WebFleetActivity = WebActivityItem & {

@@ -88,6 +88,7 @@ import {
   type BrokerRouteTargetInput,
 } from "./scout-dispatcher.js";
 import { buildCollaborationInvocation } from "./collaboration-invocations.js";
+import { resolveOperatorName } from "./user-config.js";
 import { discoverMeshNodes } from "./mesh-discovery.js";
 import {
   resolveIrohMeshEntrypointFromEnv,
@@ -2234,9 +2235,13 @@ function homeEndpointForAgent(snapshot: ReturnType<typeof runtime.snapshot>, age
   return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
 }
 
+function operatorActorDisplayName(): string {
+  return resolveOperatorName().trim() || operatorActorId;
+}
+
 function brokerActorDisplayName(snapshot: ReturnType<typeof runtime.snapshot>, actorId: string): string {
   if (actorId === operatorActorId) {
-    return "Operator";
+    return operatorActorDisplayName();
   }
 
   const agent = snapshot.agents[actorId];
@@ -2419,13 +2424,31 @@ function findConversationByIdentity(
 
 async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {
   const snapshot = runtime.snapshot();
-  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
+  const existingActor = snapshot.actors[actorId];
+  const displayName = actorId === operatorActorId
+    ? operatorActorDisplayName()
+    : titleCaseName(actorId);
+
+  if (existingActor || snapshot.agents[actorId]) {
+    if (actorId === operatorActorId
+      && existingActor
+      && existingActor.displayName !== displayName) {
+      await upsertActorDurably({
+        ...existingActor,
+        kind: "person",
+        displayName,
+        handle: existingActor.handle || actorId,
+        labels: existingActor.labels ?? ["scout"],
+        metadata: existingActor.metadata ?? { source: "broker-deliver" },
+      });
+    }
     return;
   }
+
   await upsertActorDurably({
     id: actorId,
     kind: actorId === operatorActorId ? "person" : "agent",
-    displayName: titleCaseName(actorId),
+    displayName,
     handle: actorId,
     labels: ["scout"],
     metadata: { source: "broker-deliver" },
@@ -8118,6 +8141,8 @@ async function acceptBrokerDelivery(
       ...(payload.messageMetadata ?? {}),
       ...(labels.length ? { labels } : {}),
       ...(targetSessionId ? { targetSessionId } : {}),
+      requesterDisplayName: brokerActorDisplayName(snapshot, requesterId),
+      targetDisplayName: brokerActorDisplayName(snapshot, resolved.agent.id),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       relayTargetIds: [resolved.agent.id],
@@ -8199,6 +8224,8 @@ async function acceptBrokerDelivery(
       ...invocationMetadata,
       ...(labels.length ? { labels } : {}),
       ...(targetSessionId ? { targetSessionId } : {}),
+      requesterDisplayName: brokerActorDisplayName(snapshot, requesterId),
+      targetDisplayName: brokerActorDisplayName(snapshot, resolved.agent.id),
       relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
       relayTarget: resolved.agent.id,
       ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),

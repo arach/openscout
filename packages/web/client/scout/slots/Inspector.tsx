@@ -1201,15 +1201,27 @@ function OpsTailInspectorPanel({
               </div>
             )}
 
-            {detail.action && (
+            {(detail.action || (detail.copy && detail.copy.length > 0)) && (
               <div className="ctx-panel-tail-actions">
-                <button
-                  type="button"
-                  className="ctx-panel-tail-action-button"
-                  onClick={() => navigate(detail.action!.route)}
-                >
-                  {detail.action.label}
-                </button>
+                {detail.action && (
+                  <button
+                    type="button"
+                    className="ctx-panel-tail-action-button"
+                    onClick={() => navigate(detail.action!.route)}
+                  >
+                    {detail.action.label}
+                  </button>
+                )}
+                {detail.copy?.map((copy) => (
+                  <button
+                    key={copy.label}
+                    type="button"
+                    className="ctx-panel-tail-action-button"
+                    onClick={() => void navigator.clipboard?.writeText(copy.value)}
+                  >
+                    {copy.label}
+                  </button>
+                ))}
               </div>
             )}
 
