@@ -2176,6 +2176,7 @@ describe("createScoutMcpServer", () => {
       };
       links: {
         follow: string | null;
+        observe: string | null;
         tail: string | null;
         chat: string | null;
         agent: string | null;
@@ -2205,20 +2206,23 @@ describe("createScoutMcpServer", () => {
       conversationId: "dm.operator.hudson",
       targetAgentId: "hudson.main",
     });
+    const followUrl =
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
     expect(structured.followUrl).toBe(
-      "http://scout.test/agents/hudson.main?tab=observe",
+      followUrl,
     );
     expect(structured.links).toMatchObject({
       follow: structured.followUrl,
-      observe: structured.followUrl,
-      tail: "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      observe: observeUrl,
+      tail: followUrl,
       chat: "http://scout.test/c/dm.operator.hudson",
       agent: "http://scout.test/agents/hudson.main?tab=message",
     });
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]).toEqual({
       type: "text",
-      text: "Ask sent to hudson.main; flight flight-1. Observe agent: http://scout.test/agents/hudson.main?tab=observe Scout tail: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      text: `Ask sent to hudson.main; flight flight-1. Follow: ${followUrl}`,
     });
   });
 
