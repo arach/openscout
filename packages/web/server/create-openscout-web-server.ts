@@ -58,6 +58,7 @@ import {
   queryRuns,
 } from "./db-queries.ts";
 import {
+  conversationIdForAgent,
   configuredOperatorActorIds,
   parseDirectConversationId,
 } from "./db/internal/conversation-ids.ts";
@@ -1015,6 +1016,270 @@ function activeEndpointForAgent(
     }
   };
   return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
+type WebAgentRecord = ReturnType<typeof queryAgents>[number];
+type BrokerSnapshotRecord = Record<string, unknown>;
+
+function recordCollection(value: unknown): Record<string, Record<string, unknown>> {
+  if (!isRecord(value)) return {};
+  const entries: Array<[string, Record<string, unknown>]> = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (isRecord(entry)) entries.push([key, entry]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function recordMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  return isRecord(value?.metadata) ? value.metadata : {};
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function brokerSnapshotFromContext(context: unknown): BrokerSnapshotRecord | null {
+  if (!isRecord(context) || !isRecord(context.snapshot)) return null;
+  return context.snapshot;
+}
+
+function brokerEndpointForAgent(
+  snapshot: BrokerSnapshotRecord,
+  agentId: string,
+): Record<string, unknown> | null {
+  const endpoints = Object.values(recordCollection(snapshot.endpoints)).filter(
+    (endpoint) => stringField(endpoint, "agentId") === agentId,
+  );
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+      case "idle":
+      case "waiting":
+      case "available":
+        return 0;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+  return [...endpoints].sort((left, right) =>
+    rank(stringField(left, "state")) - rank(stringField(right, "state")),
+  )[0] ?? null;
+}
+
+function summarizeBrokerAgentState(
+  endpoint: Record<string, unknown> | null,
+  wakePolicy: string | null,
+): string {
+  const rawState = stringField(endpoint, "state");
+  if (rawState && rawState !== "offline") return "available";
+  return wakePolicy === "on_demand" || wakePolicy === "always_on" ? "available" : "offline";
+}
+
+function brokerAgentProtocol(agentMetadata: Record<string, unknown>): string | null {
+  const interfaces = recordArray(agentMetadata.supportedInterfaces);
+  const protocol = interfaces
+    .map((entry) => stringField(entry, "protocol") ?? stringField(entry, "name"))
+    .find((entry) => entry?.toLowerCase().includes("a2a"));
+  return protocol ? "A2A" : null;
+}
+
+function brokerAgentSkills(agentMetadata: Record<string, unknown>): string[] {
+  const card = isRecord(agentMetadata.a2aAgentCard)
+    ? agentMetadata.a2aAgentCard
+    : isRecord(agentMetadata.agentCard)
+    ? agentMetadata.agentCard
+    : {};
+  return recordArray(card.skills)
+    .map((skill) => stringField(skill, "name") ?? stringField(skill, "id"))
+    .filter((skill): skill is string => Boolean(skill));
+}
+
+function brokerAgentCapabilities(
+  agent: Record<string, unknown>,
+  protocol: string | null,
+): string[] {
+  const capabilities = stringList(agent.capabilities, []);
+  if (capabilities.length > 0) return capabilities;
+  return protocol === "A2A" ? ["chat", "invoke"] : [];
+}
+
+function brokerAgentProvider(agentMetadata: Record<string, unknown>): {
+  providerName: string | null;
+  providerUrl: string | null;
+} {
+  const card = isRecord(agentMetadata.a2aAgentCard)
+    ? agentMetadata.a2aAgentCard
+    : isRecord(agentMetadata.agentCard)
+    ? agentMetadata.agentCard
+    : {};
+  const provider = isRecord(card.provider) ? card.provider : {};
+  return {
+    providerName: stringField(provider, "organization") ?? stringField(provider, "name") ?? null,
+    providerUrl: stringField(provider, "url") ?? null,
+  };
+}
+
+function brokerAgentToWebAgent(
+  snapshot: BrokerSnapshotRecord,
+  agent: Record<string, unknown>,
+): WebAgentRecord | null {
+  const agentId = stringField(agent, "id");
+  if (!agentId) return null;
+  const actors = recordCollection(snapshot.actors);
+  const nodes = recordCollection(snapshot.nodes);
+  const endpoint = brokerEndpointForAgent(snapshot, agentId);
+  const agentMetadata = recordMetadata(agent);
+  const endpointMetadata = recordMetadata(endpoint);
+  const ownerId = stringField(agent, "ownerId") ?? null;
+  const owner = ownerId ? actors[ownerId] : undefined;
+  const authorityNodeId = stringField(agent, "authorityNodeId") ?? stringField(endpoint, "nodeId") ?? null;
+  const homeNodeId = stringField(agent, "homeNodeId") ?? authorityNodeId;
+  const authorityNode = authorityNodeId ? nodes[authorityNodeId] : undefined;
+  const homeNode = homeNodeId ? nodes[homeNodeId] : undefined;
+  const handle = stringField(agent, "handle") ?? stringField(agent, "selector") ?? null;
+  const protocol = brokerAgentProtocol(agentMetadata);
+  const provider = brokerAgentProvider(agentMetadata);
+
+  return {
+    id: agentId,
+    definitionId: stringField(agent, "definitionId") ?? agentId,
+    name: stringField(agent, "displayName") ?? stringField(actors[agentId], "displayName") ?? agentId,
+    handle,
+    agentClass: stringField(agent, "agentClass") ?? "general",
+    harness: stringField(endpoint, "harness") ?? null,
+    state: summarizeBrokerAgentState(endpoint, stringField(agent, "wakePolicy") ?? null),
+    projectRoot: stringField(endpoint, "projectRoot") ?? null,
+    cwd: stringField(endpoint, "cwd") ?? stringField(endpoint, "projectRoot") ?? null,
+    updatedAt: metadataTimestampMs(endpointMetadata.lastCompletedAt)
+      ?? metadataTimestampMs(endpointMetadata.updatedAt)
+      ?? null,
+    createdAt: metadataTimestampMs(agentMetadata.createdAt) ?? null,
+    transport: stringField(endpoint, "transport") ?? null,
+    selector: stringField(agent, "selector") ?? handle,
+    defaultSelector: stringField(agent, "defaultSelector") ?? stringField(agent, "selector") ?? handle,
+    nodeQualifier: stringField(agent, "nodeQualifier") ?? null,
+    workspaceQualifier: stringField(agent, "workspaceQualifier") ?? null,
+    wakePolicy: stringField(agent, "wakePolicy") ?? null,
+    capabilities: brokerAgentCapabilities(agent, protocol),
+    project: stringField(agentMetadata, "project") ?? null,
+    branch: stringField(agentMetadata, "branch") ?? null,
+    role: null,
+    model: stringField(endpointMetadata, "model") ?? null,
+    harnessSessionId: stringField(endpoint, "sessionId")
+      ?? stringField(endpointMetadata, "a2aContextId")
+      ?? stringField(endpointMetadata, "contextId")
+      ?? null,
+    harnessLogPath: stringField(endpointMetadata, "logPath") ?? null,
+    conversationId: conversationIdForAgent(agentId),
+    authorityNodeId,
+    authorityNodeName: stringField(authorityNode, "name") ?? null,
+    homeNodeId,
+    homeNodeName: stringField(homeNode, "name") ?? null,
+    ownerId,
+    ownerName: stringField(owner, "displayName") ?? null,
+    ownerHandle: stringField(owner, "handle") ?? null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
+    providerName: provider.providerName,
+    providerUrl: provider.providerUrl,
+    protocol,
+    skills: brokerAgentSkills(agentMetadata),
+  };
+}
+
+async function readWebAgentsWithBrokerCards(existingAgents: WebAgentRecord[]): Promise<WebAgentRecord[]> {
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const snapshot = brokerSnapshotFromContext(broker);
+  if (!snapshot) return existingAgents;
+
+  const byId = new Map(existingAgents.map((agent) => [agent.id, agent]));
+  for (const agent of Object.values(recordCollection(snapshot.agents))) {
+    const agentId = stringField(agent, "id");
+    if (!agentId || byId.has(agentId)) continue;
+    const projected = brokerAgentToWebAgent(snapshot, agent);
+    if (projected) byId.set(projected.id, projected);
+  }
+  return [...byId.values()];
+}
+
+function matchesAgentRouteParam(agent: WebAgentRecord, value: string): boolean {
+  return agent.id === value
+    || agent.handle === value
+    || agent.selector === value
+    || agent.defaultSelector === value;
+}
+
+function parseRepoDiffCacheMode(value: string | undefined): "reload" | "prefer" | "only" {
+  return value === "prefer" || value === "only" || value === "reload" ? value : "reload";
+}
+
+function normalizeRepoDiffFileFilters(worktreePath: string, files: string[]): string[] | undefined {
+  const root = resolve(worktreePath);
+  const seen = new Set<string>();
+  for (const file of files) {
+    const trimmed = file.trim();
+    if (!trimmed) continue;
+    const absolute = isAbsolute(trimmed) ? resolve(trimmed) : resolve(root, trimmed);
+    if (!isInsideRoot(root, absolute) || absolute === root) continue;
+    const rel = relative(root, absolute);
+    if (rel && !seen.has(rel)) seen.add(rel);
+  }
+  return seen.size > 0 ? [...seen] : undefined;
+}
+
+function repoDiffLimitsForTier(tier: string | undefined): RepoDiffSnapshotOptions["limits"] {
+  if (tier === "summary") {
+    return {
+      ...REPO_DIFF_VIEWER_LIMITS,
+      includeRawPatch: false,
+      includeParsedHunks: false,
+    };
+  }
+  return REPO_DIFF_VIEWER_LIMITS;
+}
+
+function repoDiffCacheKey(input: {
+  worktreePath: string;
+  layers?: RepoDiffLayerKind[];
+  baseRef?: string;
+  compareRef?: string;
+  paths?: string[];
+  tier?: string;
+}): string {
+  return JSON.stringify({
+    worktreePath: resolve(input.worktreePath),
+    layers: input.layers ?? [],
+    baseRef: input.baseRef ?? null,
+    compareRef: input.compareRef ?? null,
+    paths: input.paths ?? [],
+    tier: input.tier ?? null,
+  });
+}
+
+function withRepoDiffScope(
+  snapshot: ScoutRepoDiffSnapshot,
+  paths: string[] | undefined,
+): ScoutRepoDiffSnapshot & { scope?: { kind: "worktree"; filteredPaths: string[] } } {
+  return paths && paths.length > 0
+    ? { ...snapshot, scope: { kind: "worktree", filteredPaths: paths } }
+    : snapshot;
+}
+
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...headers,
+    },
+  });
 }
 
 const TMUX_PEEK_DEFAULT_LINES = 44;
@@ -2750,6 +3015,8 @@ export async function createOpenScoutWebServer(
       console.warn(`[scoutbot] runner failed to start: ${message}`);
     }
   }
+  const repoDiffCache = new Map<string, ScoutRepoDiffSnapshot>();
+  const repoDiffRehydrateInFlight = new Map<string, Promise<void>>();
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
@@ -3364,9 +3631,15 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", (c) => c.json(queryAgents()));
-  app.get("/api/agents/:id", (c) => {
-    const agent = queryAgentById(c.req.param("id"));
+  app.get("/api/agents", async (c) =>
+    c.json(await readWebAgentsWithBrokerCards(queryAgents())),
+  );
+  app.get("/api/agents/:id", async (c) => {
+    const id = c.req.param("id");
+    const agent = queryAgentById(id)
+      ?? (await readWebAgentsWithBrokerCards(queryAgents()))
+        .find((candidate) => matchesAgentRouteParam(candidate, id))
+      ?? null;
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   // Flexible session initiation. A single payload expresses every modality —
@@ -4658,6 +4931,7 @@ export async function createOpenScoutWebServer(
       ...(executionHarness ? { executionHarness } : {}),
       ...(executionModel ? { executionModel } : {}),
       currentDirectory,
+      source: "scout-web",
     });
 
     if (!result.usedBroker) {
@@ -4825,25 +5099,70 @@ export async function createOpenScoutWebServer(
     if (!path || !path.trim()) {
       return c.json({ error: "repo-diff requires a worktree path" }, 400);
     }
+    const worktreePath = path.trim();
     const layers = (c.req.queries("layer") ?? []).filter(
       (value): value is RepoDiffLayerKind =>
         value === "unstaged" || value === "staged" || value === "branch",
     );
     const baseRef = c.req.query("baseRef");
     const compareRef = c.req.query("compareRef");
+    const paths = normalizeRepoDiffFileFilters(worktreePath, c.req.queries("file") ?? []);
+    const tier = c.req.query("tier");
+    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"));
+    const cacheKey = repoDiffCacheKey({
+      worktreePath,
+      layers: layers.length > 0 ? layers : undefined,
+      baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
+      compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
+      paths,
+      tier,
+    });
     const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    try {
-      // A diff is a local read — run the native producer in-process. The broker
-      // (fleet coordination) is intentionally NOT in this path; agent/session
-      // annotations (SCO-065 §15) can enrich later without coupling here.
+    const loadSnapshot = async () => {
       const snapshot = await runRepoDiff({
-        worktreePath: path,
+        worktreePath,
         layers: layers.length > 0 ? layers : undefined,
         baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
         compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
-        limits: REPO_DIFF_VIEWER_LIMITS,
+        paths,
+        limits: repoDiffLimitsForTier(tier),
       });
-      return c.json(snapshot);
+      const scopedSnapshot = withRepoDiffScope(snapshot, paths);
+      repoDiffCache.set(cacheKey, scopedSnapshot);
+      return scopedSnapshot;
+    };
+    try {
+      const cached = repoDiffCache.get(cacheKey);
+      if (cacheMode !== "reload" && cached) {
+        const headers: Record<string, string> = {
+          "x-openscout-repo-diff-cache": "hit",
+        };
+        if (c.req.query("rehydrate") === "1" || c.req.query("rehydrate") === "true") {
+          headers["x-openscout-repo-diff-rehydrate"] = "queued";
+          if (!repoDiffRehydrateInFlight.has(cacheKey)) {
+            const rehydrate: Promise<void> = loadSnapshot()
+              .then(() => undefined, () => undefined)
+              .finally(() => repoDiffRehydrateInFlight.delete(cacheKey));
+            repoDiffRehydrateInFlight.set(cacheKey, rehydrate);
+          }
+        }
+        return jsonResponse(cached, 200, headers);
+      }
+      if (cacheMode === "only") {
+        return jsonResponse({
+          status: "missing",
+          worktreePath,
+        }, 404, {
+          "x-openscout-repo-diff-cache": "miss",
+        });
+      }
+      // A diff is a local read — run the native producer in-process. The broker
+      // (fleet coordination) is intentionally NOT in this path; agent/session
+      // annotations (SCO-065 §15) can enrich later without coupling here.
+      const snapshot = await loadSnapshot();
+      return jsonResponse(snapshot, 200, {
+        "x-openscout-repo-diff-cache": "miss",
+      });
     } catch (error) {
       return c.json(
         { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
