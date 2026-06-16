@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -33,7 +33,22 @@ const originalCodeXBin = process.env.CODEX_BIN;
 const originalPath = process.env.PATH;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
+const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
+const originalOperatorHandle = process.env.OPENSCOUT_OPERATOR_HANDLE;
 const tempPaths = new Set<string>();
+
+function useTestOperatorIdentity(name = "operator", handle = "operator"): void {
+  const home = mkdtempSync(join(tmpdir(), "openscout-user-config-"));
+  tempPaths.add(home);
+  process.env.OPENSCOUT_HOME = home;
+  process.env.OPENSCOUT_OPERATOR_NAME = name;
+  process.env.OPENSCOUT_OPERATOR_HANDLE = handle;
+}
+
+beforeEach(() => {
+  useTestOperatorIdentity();
+});
 
 afterEach(() => {
   if (originalCodexBin === undefined) {
@@ -60,6 +75,21 @@ afterEach(() => {
     delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
   } else {
     process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
+  }
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
+  if (originalOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOperatorName;
+  }
+  if (originalOperatorHandle === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_HANDLE;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_HANDLE = originalOperatorHandle;
   }
 
   for (const tempPath of tempPaths) {
@@ -428,6 +458,39 @@ describe("local agent prompts", () => {
     expect(prompt).not.toContain("OpenScout invocation for");
     expect(prompt).not.toContain("Requester:");
     expect(prompt).not.toContain("Action:");
+  });
+
+  test("direct invocation prompt shows configured actor display names without losing ids", () => {
+    useTestOperatorIdentity("Arach", "arach");
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "ranger",
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "consult",
+        task: "Review the handoff labels.",
+        conversationId: "dm.operator.ranger.main.mini",
+        messageId: "msg-moi5w7kt-1hjg5e",
+        execution: {
+          session: "new",
+        },
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+        metadata: {
+          requesterDisplayName: "Arach",
+          targetDisplayName: "Ranger",
+        },
+      },
+    );
+
+    expect(prompt.startsWith(
+      "⌖ Arach (@arach) → Ranger (@ranger) · ask:1hjg5e › Review the handoff labels.",
+    )).toBe(true);
+    expect(prompt).toContain('"fromAgentId": "operator"');
+    expect(prompt).toContain('"toAgentId": "ranger"');
   });
 
   test("direct invocation prompt skips fenced protocol blocks when summarizing title text", () => {

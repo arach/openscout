@@ -855,9 +855,10 @@ function SessionHeader({
 
   const displayId = catalog.activeSessionId ?? sessionId;
   const shortId = displayId ? displayId.slice(0, 8) : null;
+  const canTakeover = Boolean(active?.canTakeover && catalog.resumeCommand);
 
   const runTakeover = useCallback(() => {
-    if (!catalog.resumeCommand) return;
+    if (!canTakeover || !catalog.resumeCommand) return;
     void queueTakeover({
       command: catalog.resumeCommand,
       cwd: catalog.resumeCwd,
@@ -866,7 +867,7 @@ function SessionHeader({
       openContent(navigate, { view: "terminal", agentId }, { returnTo: route });
     });
     setSent(true);
-  }, [catalog.resumeCommand, catalog.resumeCwd, navigate, route, agentId]);
+  }, [canTakeover, catalog.resumeCommand, catalog.resumeCwd, navigate, route, agentId]);
 
   const openPair = useCallback(() => {
     navigate({
@@ -896,11 +897,11 @@ function SessionHeader({
           >
             Pair
           </button>
-          {catalog.resumeCommand && (
+          {canTakeover && (
             <button
               className="s-observe-takeover-btn"
               onClick={runTakeover}
-              title={catalog.resumeCommand}
+              title={catalog.resumeCommand ?? undefined}
             >
               {sent ? "Sent" : "Takeover"}
             </button>

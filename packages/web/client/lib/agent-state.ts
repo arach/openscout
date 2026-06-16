@@ -1,5 +1,5 @@
 export type AgentDisplayState = "not_ready" | "ready" | "working";
-export type AgentVisualState = "offline" | "available" | "working";
+export type AgentVisualState = "unavailable" | "available" | "active";
 
 export function normalizeAgentState(state: string | null): AgentDisplayState {
   const value = state?.trim().toLowerCase();
@@ -23,11 +23,11 @@ export function normalizeAgentState(state: string | null): AgentDisplayState {
 export function agentStateCssToken(state: string | null): AgentVisualState {
   switch (normalizeAgentState(state)) {
     case "working":
-      return "working";
+      return "active";
     case "ready":
       return "available";
     case "not_ready":
-      return "offline";
+      return "unavailable";
   }
 }
 
@@ -38,10 +38,10 @@ export function isAgentOnline(state: string | null): boolean {
 export function agentStateLabel(state: string | null): string {
   switch (normalizeAgentState(state)) {
     case "working":
-      return "Working";
+      return "Active";
     case "ready":
-      return "Ready";
+      return "";
     case "not_ready":
-      return "Not ready";
+      return "Unavailable";
   }
 }

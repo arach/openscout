@@ -72,6 +72,7 @@ import {
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -611,6 +612,10 @@ function displayNameForBrokerActor(
   snapshot: ScoutBrokerSnapshot,
   actorId: string,
 ): string {
+  if (actorId === OPERATOR_ID) {
+    return resolveOperatorName();
+  }
+
   return (
     snapshot.agents[actorId]?.displayName ??
     snapshot.actors[actorId]?.displayName ??
@@ -2014,13 +2019,31 @@ async function ensureBrokerActor(
   actorId: string,
   displayName?: string,
 ): Promise<void> {
-  if (snapshot.actors[actorId] || snapshot.agents[actorId]) {
+  const resolvedDisplayName = actorId === OPERATOR_ID
+    ? displayName?.trim() || resolveOperatorName()
+    : displayName?.trim() || titleCaseName(actorId);
+  const existingActor = snapshot.actors[actorId];
+  if (existingActor || snapshot.agents[actorId]) {
+    if (actorId === OPERATOR_ID
+      && existingActor
+      && existingActor.displayName !== resolvedDisplayName) {
+      const actor: ScoutBrokerActorRecord = {
+        ...existingActor,
+        kind: "person",
+        displayName: resolvedDisplayName,
+        handle: existingActor.handle || actorId,
+        labels: existingActor.labels ?? ["scout"],
+        metadata: existingActor.metadata ?? { source: "scout-cli" },
+      };
+      await brokerPostJson(baseUrl, scoutBrokerPaths.v1.actors, actor);
+      snapshot.actors[actorId] = actor;
+    }
     return;
   }
   const actor: ScoutBrokerActorRecord = {
     id: actorId,
     kind: actorId === OPERATOR_ID ? "person" : "agent",
-    displayName: displayName?.trim() || titleCaseName(actorId),
+    displayName: resolvedDisplayName,
     handle: actorId,
     labels: ["scout"],
     metadata: { source: "scout-cli" },

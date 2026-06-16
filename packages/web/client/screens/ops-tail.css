@@ -252,6 +252,68 @@
   text-transform: uppercase;
 }
 
+.s-tail-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  padding: var(--space-2xs) var(--space-xl);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 24%, transparent);
+}
+
+.s-tail--embedded .s-tail-filter-chips {
+  padding: var(--space-3xs) var(--space-md);
+}
+
+.s-tail-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border) 66%);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+}
+
+.s-tail-filter-chip-copy,
+.s-tail-filter-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: currentColor;
+  font: inherit;
+  cursor: pointer;
+}
+
+.s-tail-filter-chip-copy {
+  max-width: 180px;
+  padding: 0 var(--space-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-tail-filter-chip-remove {
+  padding: 0 var(--space-xs);
+  border-left: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--muted);
+}
+
+.s-tail-filter-chip-copy:hover,
+.s-tail-filter-chip-remove:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--ink);
+}
+
+.s-tail-filter-chip-more {
+  color: var(--dim);
+  font-size: var(--text-xs);
+}
+
 .s-tail-body {
   flex: 1;
   min-height: 0;
@@ -278,6 +340,7 @@
     auto       /* gutter glyph */
     86px       /* harness chip */
     72px       /* origin chip */
+    minmax(72px, 118px) /* event badge */
     minmax(120px, 220px) /* project · session */
     14px       /* kind glyph */
     1fr;       /* summary */
@@ -296,6 +359,7 @@
     68px
     10px
     68px
+    minmax(64px, 94px)
     minmax(92px, 150px)
     14px
     minmax(0, 1fr);
@@ -306,6 +370,10 @@
 
 .s-tail--embedded .s-tail-chip--origin {
   display: none;
+}
+
+.s-tail--embedded .s-tail-chip--event {
+  display: inline-block;
 }
 
 .s-tail-row {
@@ -399,6 +467,13 @@
 .s-tail-chip--origin-native {
   color: var(--muted);
   border-color: color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.s-tail-chip--event {
+  color: color-mix(in srgb, var(--ink) 80%, var(--muted) 20%);
+  border-color: color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--surface) 38%, transparent);
+  text-transform: none;
 }
 
 .s-tail-chip--issue-warn {
@@ -616,7 +691,7 @@
 
 @media (max-width: 720px) {
   .s-tail--embedded .s-tail-row {
-    grid-template-columns: 64px 64px 14px minmax(0, 1fr);
+    grid-template-columns: 64px 64px 64px 14px minmax(0, 1fr);
   }
 
   .s-tail--embedded .s-tail-gutter,

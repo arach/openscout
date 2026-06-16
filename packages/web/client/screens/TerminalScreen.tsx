@@ -9,7 +9,11 @@ import {
   resolveScoutTerminalRelayHealthUrl,
   resolveScoutTerminalRelayUrl,
 } from "../lib/runtime-config.ts";
-import { queueTakeover } from "../lib/terminal-takeover.ts";
+import {
+  activeCatalogSession,
+  canTakeoverTerminalSession,
+  queueTakeover,
+} from "../lib/terminal-takeover.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../lib/vantage.ts";
 import type { Agent, Route, SessionCatalogWithResume } from "../lib/types.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
@@ -52,7 +56,7 @@ export function TerminalScreen({
   navigate: (r: Route) => void;
 }) {
   const { agents } = useScout();
-  const agent = agentId ? agents.find((a) => a.id === agentId) : null;
+  const agent = agentId ? agents.find((a) => a.id === agentId) ?? null : null;
   if (agentId && !agent) {
     return (
       <div className="s-term">
@@ -127,6 +131,9 @@ function TerminalTakeoverBootstrap({
 
     api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
       .then((catalog) => {
+        if (!canTakeoverTerminalSession({ agent, catalog, session: activeCatalogSession(catalog) })) {
+          throw new Error("Terminal takeover is not available for this session.");
+        }
         if (!catalog.resumeCommand) return;
         return queueTakeover({
           command: catalog.resumeCommand,
@@ -149,7 +156,7 @@ function TerminalTakeoverBootstrap({
     return () => {
       cancelled = true;
     };
-  }, [agentId, needsBootstrap, retryNonce]);
+  }, [agent, agentId, needsBootstrap, retryNonce]);
 
   if (state.state === "ready") return <>{children}</>;
 

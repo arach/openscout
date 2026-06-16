@@ -420,6 +420,7 @@ body { margin: 0; }
   border: 2px solid var(--bg);
 }
 
+.s-left-roster-dot--active,
 .s-left-roster-dot--working {
   animation: scout-pulse 1.6s ease-in-out infinite;
 }

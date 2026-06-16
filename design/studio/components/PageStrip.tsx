@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { StatusPill as StatusPillAtom } from "@/components/StatusPill";
 import {
   bucketLabel,
+  insertionPointForId,
   pageForPath,
   surfaceLabel,
   type StudioPage,
@@ -22,6 +23,9 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
   const pathname = usePathname();
   const page = pageForPath(pathname, extraPages);
   if (!page) return null;
+  const targetPoint = page.target
+    ? insertionPointForId(page.target.anchor)
+    : undefined;
 
   return (
     <div className="border-b border-studio-edge bg-studio-canvas px-7 py-2.5 font-mono text-[10px]">
@@ -35,6 +39,16 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
             <SourceRefs files={page.source} />
           </>
         ) : null}
+        {page.target ? (
+          <>
+            <Sep />
+            <TargetRef
+              anchor={page.target.anchor}
+              mode={page.target.mode}
+              label={targetPoint?.label}
+            />
+          </>
+        ) : null}
         {page.blurb ? (
           <>
             <span className="mx-1 text-studio-ink-faint">·</span>
@@ -44,6 +58,35 @@ export function PageStrip({ extraPages }: { extraPages: StudioPage[] }) {
           </>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function TargetRef({
+  anchor,
+  mode,
+  label,
+}: {
+  anchor: string;
+  mode: string;
+  label?: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5 text-studio-ink-faint">
+      <span className="text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+        target
+      </span>
+      <code className="rounded-[2px] bg-studio-canvas-alt px-1 py-px text-[9.5px] text-studio-ink">
+        {anchor}
+      </code>
+      <span className="text-[9px] uppercase tracking-[0.18em] text-studio-ink-faint">
+        {mode}
+      </span>
+      {label ? (
+        <span className="font-sans text-[11px] italic text-studio-ink-faint">
+          {label}
+        </span>
+      ) : null}
     </div>
   );
 }

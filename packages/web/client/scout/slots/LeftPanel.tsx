@@ -568,19 +568,13 @@ function agentRowTooltip(
 }
 
 function groupRollup(agents: Agent[]): string {
-  let working = 0;
-  let ready = 0;
-  let notReady = 0;
+  let active = 0;
   for (const agent of agents) {
     const s = normalizeAgentState(agent.state);
-    if (s === "working") working += 1;
-    else if (s === "ready") ready += 1;
-    else notReady += 1;
+    if (s === "working") active += 1;
   }
   const parts: string[] = [];
-  if (working) parts.push(`${working}w`);
-  if (ready) parts.push(`${ready}r`);
-  if (notReady && !working && !ready) parts.push(`${notReady}nr`);
+  if (active) parts.push(`${active} active`);
   if (parts.length === 0) return `${agents.length}`;
   return parts.join(" · ");
 }
