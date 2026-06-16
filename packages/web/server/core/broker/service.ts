@@ -2170,6 +2170,8 @@ export async function askScoutQuestion(input: {
   projectAgent?: ScoutProjectAgentSpec;
   currentDirectory?: string;
   source?: string;
+  messageMetadata?: Record<string, unknown>;
+  invocationMetadata?: Record<string, unknown>;
 }): Promise<ScoutAskResult> {
   const renderedTarget = input.targetLabel?.trim()
     || (input.target ? renderedScoutAskTarget(input.target) : "")
@@ -2235,9 +2237,11 @@ export async function askScoutQuestion(input: {
     createdAt,
     messageMetadata: {
       source,
+      ...(input.messageMetadata ?? {}),
     },
     invocationMetadata: {
       source,
+      ...(input.invocationMetadata ?? {}),
     },
   });
 

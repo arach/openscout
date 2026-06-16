@@ -30,6 +30,12 @@ export function RepoDiffEmbedScreen() {
       ? new URLSearchParams()
       : new URLSearchParams(window.location.search);
   const path = params.get("path")?.trim() ?? "";
+  const files = params.getAll("file").map((v) => v.trim()).filter(Boolean);
+  const sessionId = params.get("sessionId")?.trim() || undefined;
+  const agentId = params.get("agentId")?.trim() || undefined;
+  const include = params.get("include") === "all" || params.get("include") === "touched"
+    ? "all"
+    : "changed";
 
   if (!path) {
     return (
@@ -48,7 +54,13 @@ export function RepoDiffEmbedScreen() {
   }
 
   return (
-    <RepoDiffViewerLazy path={path} layers={parseLayers(params)} className="rd-embed" />
+    <RepoDiffViewerLazy
+      path={path}
+      layers={parseLayers(params)}
+      files={files}
+      session={sessionId || agentId ? { sessionId, agentId, include } : null}
+      className="rd-embed"
+    />
   );
 }
 

@@ -229,6 +229,11 @@ const GIT_TIMEOUT_MS = 650;
 const GIT_MAX_BUFFER = 1024 * 1024;
 
 let cachedSnapshot: { signature: string; generatedAt: number; snapshot: RepoWatchSnapshot } | null = null;
+let lastUsefulSnapshot: {
+  scopeSignature: string;
+  generatedAt: number;
+  snapshot: RepoWatchSnapshot;
+} | null = null;
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = Number.parseInt(process.env[name] ?? "", 10);
@@ -1176,6 +1181,102 @@ function snapshotSignature(hints: NormalizedHint[], shape: RepoWatchSnapshotCach
   return `${shapeSignature}\u0002${hintSignature}`;
 }
 
+function snapshotScopeSignature(hints: NormalizedHint[]): string {
+  return uniqueBy(hints.map((hint) => hint.path).sort(), (path) => path).join("\u0001");
+}
+
+function isBudgetLimitedSnapshot(snapshot: RepoWatchSnapshot): boolean {
+  return snapshot.warnings.some((warning) =>
+    /scan budget|stopped discovery|stopped scanning/i.test(warning),
+  );
+}
+
+function rememberUsefulSnapshot(
+  signature: string,
+  scopeSignature: string,
+  generatedAt: number,
+  snapshot: RepoWatchSnapshot,
+): void {
+  cachedSnapshot = { signature, generatedAt, snapshot };
+  if (snapshot.projects.length > 0) {
+    lastUsefulSnapshot = { scopeSignature, generatedAt, snapshot };
+  }
+}
+
+function fallbackToLastUsefulSnapshot(
+  snapshot: RepoWatchSnapshot,
+  scopeSignature: string,
+): RepoWatchSnapshot | null {
+  if (
+    snapshot.projects.length > 0
+    || !isBudgetLimitedSnapshot(snapshot)
+    || !lastUsefulSnapshot
+    || lastUsefulSnapshot.scopeSignature !== scopeSignature
+  ) {
+    return null;
+  }
+  return {
+    ...lastUsefulSnapshot.snapshot,
+    warnings: uniqueBy([
+      ...lastUsefulSnapshot.snapshot.warnings,
+      ...snapshot.warnings,
+      "Repo Watch kept the previous non-empty snapshot because the latest scan hit its budget before returning repositories.",
+    ], (warning) => warning),
+  };
+}
+
+async function scanWithTypeScriptRepoWatch(options: {
+  hints: NormalizedHint[];
+  git: GitExec;
+  now: number;
+  maxRoots: number;
+  maxWorktrees: number;
+  maxFiles: number;
+  includeDiff: boolean;
+  includeLastCommit: boolean;
+  deadlineMs: number | null;
+  initialWarnings?: string[];
+}): Promise<RepoWatchSnapshot> {
+  const discovered = await discoverGitRoots(
+    options.hints,
+    options.git,
+    options.maxRoots,
+    options.deadlineMs,
+  );
+  const projects: RepoWatchProject[] = [];
+  const warnings = [...(options.initialWarnings ?? []), ...discovered.warnings];
+  for (const root of discovered.roots) {
+    if (budgetExceeded(options.deadlineMs)) {
+      warnings.push("Repo Watch stopped scanning repositories after reaching the scan budget.");
+      break;
+    }
+    const result = await scanProject(root, options.git, options.now, options.maxWorktrees, {
+      maxFiles: options.maxFiles,
+      includeDiff: options.includeDiff,
+      includeLastCommit: options.includeLastCommit,
+      deadlineMs: options.deadlineMs,
+    });
+    // A project whose only worktrees were unreadable (all skipped) is itself
+    // stale — don't surface an empty shell.
+    if (result.project.worktrees.length > 0) {
+      projects.push(result.project);
+    }
+    warnings.push(...result.warnings);
+  }
+  projects.sort((left, right) => {
+    const attentionDelta = attentionRank(right.attention) - attentionRank(left.attention);
+    if (attentionDelta !== 0) return attentionDelta;
+    return left.name.localeCompare(right.name);
+  });
+
+  return {
+    generatedAt: options.now,
+    projects,
+    totals: totalsForProjects(projects),
+    warnings: uniqueBy(warnings, (warning) => warning),
+  };
+}
+
 export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {}): Promise<RepoWatchSnapshot> {
   const now = options.now?.() ?? Date.now();
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
@@ -1200,6 +1301,7 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
   const useNativeRepoService = options.nativeScan != null
     || options.useNativeRepoService === true
     || (options.useNativeRepoService == null && readBooleanEnv("OPENSCOUT_REPO_WATCH_NATIVE"));
+  const scopeSignature = snapshotScopeSignature(hints);
   const signature = snapshotSignature(hints, {
     includeDiff,
     includeLastCommit,
@@ -1219,9 +1321,7 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
 
   if (useNativeRepoService) {
     const nativeScan = options.nativeScan ?? defaultNativeRepoScan;
-    // Native mode is intentionally rust-or-bust while the repo service is being validated.
-    // The previous TypeScript fallback is commented out by design so launch/scan failures surface.
-    const native = await nativeScan({
+    const request: RepoWatchNativeScanRequest = {
       hints: hints.map((hint) => ({
         path: hint.path,
         source: hint.source,
@@ -1235,7 +1335,34 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
         includeDiff,
         includeLastCommit,
       },
-    });
+    };
+    let native: RepoWatchNativeScanResponse;
+    try {
+      native = await nativeScan(request);
+    } catch (error) {
+      if (options.nativeScan) {
+        throw error;
+      }
+      const fallbackNow = options.now?.() ?? Date.now();
+      const fallbackSnapshot = await scanWithTypeScriptRepoWatch({
+        hints,
+        git,
+        now: fallbackNow,
+        maxRoots,
+        maxWorktrees,
+        maxFiles,
+        includeDiff,
+        includeLastCommit,
+        deadlineMs: scanBudgetMs > 0 ? Date.now() + scanBudgetMs : null,
+        initialWarnings: [
+          `Repo Watch used the TypeScript scanner because the native repo service failed: ${error instanceof Error ? error.message : String(error)}`,
+        ],
+      });
+      const staleFallback = fallbackToLastUsefulSnapshot(fallbackSnapshot, scopeSignature);
+      if (staleFallback) return staleFallback;
+      rememberUsefulSnapshot(signature, scopeSignature, fallbackSnapshot.generatedAt, fallbackSnapshot);
+      return fallbackSnapshot;
+    }
     const converted = projectsFromNativeScan(native, hints);
     const generatedAt = converted.generatedAt || now;
     const snapshot: RepoWatchSnapshot = {
@@ -1244,44 +1371,60 @@ export async function getRepoWatchSnapshot(options: RepoWatchSnapshotOptions = {
       totals: totalsForProjects(converted.projects),
       warnings: converted.warnings,
     };
-    cachedSnapshot = { signature, generatedAt, snapshot };
+    if (snapshot.projects.length === 0 && isBudgetLimitedSnapshot(snapshot)) {
+      const fallbackNow = options.now?.() ?? Date.now();
+      try {
+        const fallbackSnapshot = await scanWithTypeScriptRepoWatch({
+          hints,
+          git,
+          now: fallbackNow,
+          maxRoots,
+          maxWorktrees,
+          maxFiles,
+          includeDiff,
+          includeLastCommit,
+          deadlineMs: scanBudgetMs > 0 ? Date.now() + scanBudgetMs : null,
+          initialWarnings: [
+            ...snapshot.warnings,
+            "Repo Watch fell back to the TypeScript scanner because the native repo service hit its budget before returning repositories.",
+          ],
+        });
+        const staleFallback = fallbackToLastUsefulSnapshot(fallbackSnapshot, scopeSignature);
+        if (staleFallback) return staleFallback;
+        rememberUsefulSnapshot(signature, scopeSignature, fallbackSnapshot.generatedAt, fallbackSnapshot);
+        return fallbackSnapshot;
+      } catch (error) {
+        const staleFallback = fallbackToLastUsefulSnapshot({
+          ...snapshot,
+          warnings: uniqueBy([
+            ...snapshot.warnings,
+            `Repo Watch TypeScript fallback failed: ${error instanceof Error ? error.message : String(error)}`,
+          ], (warning) => warning),
+        }, scopeSignature);
+        if (staleFallback) return staleFallback;
+        throw error;
+      }
+    }
+    const fallback = fallbackToLastUsefulSnapshot(snapshot, scopeSignature);
+    if (fallback) return fallback;
+    rememberUsefulSnapshot(signature, scopeSignature, generatedAt, snapshot);
     return snapshot;
   }
 
-  const discovered = await discoverGitRoots(hints, git, maxRoots, deadlineMs);
-  const projects: RepoWatchProject[] = [];
-  const warnings = [...discovered.warnings];
-  for (const root of discovered.roots) {
-    if (budgetExceeded(deadlineMs)) {
-      warnings.push("Repo Watch stopped scanning repositories after reaching the scan budget.");
-      break;
-    }
-    const result = await scanProject(root, git, now, maxWorktrees, {
-      maxFiles,
-      includeDiff,
-      includeLastCommit,
-      deadlineMs,
-    });
-    // A project whose only worktrees were unreadable (all skipped) is itself
-    // stale — don't surface an empty shell.
-    if (result.project.worktrees.length > 0) {
-      projects.push(result.project);
-    }
-    warnings.push(...result.warnings);
-  }
-  projects.sort((left, right) => {
-    const attentionDelta = attentionRank(right.attention) - attentionRank(left.attention);
-    if (attentionDelta !== 0) return attentionDelta;
-    return left.name.localeCompare(right.name);
+  const snapshot = await scanWithTypeScriptRepoWatch({
+    hints,
+    git,
+    now,
+    maxRoots,
+    maxWorktrees,
+    maxFiles,
+    includeDiff,
+    includeLastCommit,
+    deadlineMs,
   });
-
-  const snapshot: RepoWatchSnapshot = {
-    generatedAt: now,
-    projects,
-    totals: totalsForProjects(projects),
-    warnings,
-  };
-  cachedSnapshot = { signature, generatedAt: now, snapshot };
+  const fallback = fallbackToLastUsefulSnapshot(snapshot, scopeSignature);
+  if (fallback) return fallback;
+  rememberUsefulSnapshot(signature, scopeSignature, now, snapshot);
   return snapshot;
 }
 

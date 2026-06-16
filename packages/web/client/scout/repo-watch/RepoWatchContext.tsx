@@ -18,7 +18,9 @@
  * ./console.css under `.rw-ctx` / `.ctx-*`.
  */
 
+import { useMemo, useState } from "react";
 import "./console.css";
+import { api } from "../../lib/api.ts";
 import type {
   RepoWatchWorktree,
   RepoWatchProject,
@@ -62,6 +64,51 @@ function splitPath(p: string): { dir: string; file: string } {
   return { dir: p.slice(0, i + 1), file: p.slice(i + 1) };
 }
 
+function statusSummary(wt: RepoWatchWorktree): string {
+  if (wt.status.clean) return "clean";
+  return `staged ${wt.status.staged}, unstaged ${wt.status.unstaged}, untracked ${wt.status.untracked}, conflicts ${wt.status.conflicts}, changed files ${wt.status.changedFiles}`;
+}
+
+function repoAskBody(
+  request: string,
+  worktree: RepoWatchWorktree,
+  project: RepoWatchProject,
+): string {
+  const lines = [
+    "Operator request:",
+    request,
+    "",
+    "Repo Watch context:",
+    `- Project: ${project.name}`,
+    `- Project root: ${project.root}`,
+    `- Project attention: ${project.attention}`,
+    `- Worktree: ${worktree.path}`,
+    `- Branch: ${worktree.branch.name ?? worktree.branch.head ?? "detached"}`,
+  ];
+  if (worktree.branch.upstream) {
+    lines.push(`- Upstream: ${worktree.branch.upstream}`);
+  }
+  lines.push(
+    `- Drift: ahead ${worktree.branch.ahead}, behind ${worktree.branch.behind}`,
+    `- Status: ${statusSummary(worktree)}`,
+  );
+  const churn = churnOf(worktree);
+  if (churn.has) {
+    lines.push(`- Churn: +${churn.add} -${churn.del}`);
+  }
+  if (worktree.attentionReasons.length > 0) {
+    lines.push(`- Attention reasons: ${worktree.attentionReasons.join("; ")}`);
+  }
+  if (worktree.status.files.length > 0) {
+    const files = worktree.status.files
+      .slice(0, 8)
+      .map((file) => `${file.status}: ${file.path}`)
+      .join(", ");
+    lines.push(`- Changed files: ${files}`);
+  }
+  return lines.join("\n");
+}
+
 export default function RepoWatchContext({
   worktree,
   project,
@@ -71,6 +118,60 @@ export default function RepoWatchContext({
   project: RepoWatchProject | null;
   generatedAt: number;
 }) {
+  const [askDraft, setAskDraft] = useState("");
+  const [askTarget, setAskTarget] = useState("scout");
+  const [askPending, setAskPending] = useState(false);
+  const [askStatus, setAskStatus] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
+  const agents = useMemo(() => worktree ? uniqueAgents(worktree) : [], [worktree]);
+  const agentTargets = useMemo(() => agents.slice(0, 8), [agents]);
+  const activeTargetLabel = useMemo(() => {
+    if (askTarget === "scout") return "Scout";
+    const agentId = askTarget.replace(/^agent:/, "");
+    const agent = agentTargets.find((candidate) => candidate.id === agentId);
+    return agent ? agentHandle(agent) : "Agent";
+  }, [agentTargets, askTarget]);
+
+  async function submitAsk() {
+    const trimmed = askDraft.trim();
+    if (!trimmed || askPending || !worktree || !project) return;
+    setAskPending(true);
+    setAskStatus(null);
+    setAskError(null);
+    try {
+      const body = repoAskBody(trimmed, worktree, project);
+      if (askTarget === "scout") {
+        await api("/api/send", {
+          method: "POST",
+          body: JSON.stringify({ body }),
+        });
+        setAskStatus("Asked Scout");
+      } else {
+        const agentId = askTarget.replace(/^agent:/, "");
+        await api("/api/ask", {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            targetAgentId: agentId,
+            targetLabel: agentId,
+            metadata: {
+              source: "repo-watch",
+              originSurface: "repo-watch",
+              handoffKind: "repo-watch-agent-ask",
+              targetAgentId: agentId,
+            },
+          }),
+        });
+        setAskStatus(`Asked ${activeTargetLabel}`);
+      }
+      setAskDraft("");
+    } catch (error) {
+      setAskError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setAskPending(false);
+    }
+  }
+
   if (!worktree || !project) {
     return (
       <aside className="rw-ctx" aria-label="Worktree detail">
@@ -89,8 +190,6 @@ export default function RepoWatchContext({
   // Churn — parsed from real shortstats; sum staged + unstaged.
   const { add, del, has: hasChurn } = churnOf(wt);
   const churnTot = add + del || 1;
-
-  const agents = uniqueAgents(wt);
 
   // Breakdown chips (only those that carry a count).
   const breakdown: { label: string; n: number; cls?: string }[] = [
@@ -275,25 +374,68 @@ export default function RepoWatchContext({
         </div>
       </div>
 
-      {/* ── actions ── */}
-      <div className="ctx-actions">
-        <button className="ctx-btn primary" type="button" disabled title="not wired yet">
-          Open diff
-        </button>
-        <button className="ctx-btn" type="button" disabled title="not wired yet">
-          Checkout
-        </button>
-        <button
-          className="ctx-btn"
-          type="button"
-          style={{ flex: "0 0 auto", padding: "9px 12px" }}
-          title="Copy worktree path"
-          onClick={() => {
-            void navigator.clipboard?.writeText(wt.path);
+      {/* ── ask / handoff ── */}
+      <div className="ctx-ask">
+        <textarea
+          value={askDraft}
+          onChange={(event) => {
+            setAskDraft(event.currentTarget.value);
+            setAskStatus(null);
+            setAskError(null);
           }}
-        >
-          Copy path
-        </button>
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              void submitAsk();
+            }
+          }}
+          disabled={askPending}
+          rows={3}
+          placeholder={askTarget === "scout" ? "Ask Scout about this worktree" : "Ask this agent about the worktree"}
+        />
+        <div className="ctx-ask-bar">
+          <select
+            value={askTarget}
+            onChange={(event) => setAskTarget(event.currentTarget.value)}
+            onKeyDown={(event) => event.stopPropagation()}
+            disabled={askPending}
+            aria-label="Ask target"
+          >
+            <option value="scout">Scout</option>
+            {agentTargets.map((agent) => (
+              <option key={agent.id} value={`agent:${agent.id}`}>
+                {agentHandle(agent)}
+              </option>
+            ))}
+          </select>
+          <button
+            className="ctx-btn primary"
+            type="button"
+            disabled={askPending || askDraft.trim().length === 0}
+            onClick={() => void submitAsk()}
+          >
+            {askPending ? "Sending" : "Send"}
+          </button>
+        </div>
+        <div className="ctx-ask-foot">
+          {askError ? (
+            <span className="err">{askError}</span>
+          ) : askStatus ? (
+            <span className="ok">{askStatus}</span>
+          ) : (
+            <span>Repo Watch context included · {activeTargetLabel}</span>
+          )}
+          <button
+            type="button"
+            title="Copy worktree path"
+            onClick={() => {
+              void navigator.clipboard?.writeText(wt.path);
+            }}
+          >
+            Copy path
+          </button>
+        </div>
       </div>
     </aside>
   );

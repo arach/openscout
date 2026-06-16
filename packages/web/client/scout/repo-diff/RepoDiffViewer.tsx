@@ -35,6 +35,7 @@ import {
   repoDiffCacheAgeLabel,
   type RepoDiffCacheRecord,
   type RepoDiffCacheRead,
+  type RepoDiffSessionRequest,
 } from "./cache.ts";
 import {
   loadPierre,
@@ -56,6 +57,10 @@ export type RepoDiffViewerProps = {
   path: string;
   /** Layers to request (default: unstaged + staged). */
   layers?: RepoDiffLayerKind[];
+  /** Optional worktree path filters, surfaced as repeated `file=` query values. */
+  files?: string[];
+  /** Optional session scope; when present the server derives changed files. */
+  session?: RepoDiffSessionRequest | null;
   /** Optional close affordance (rendered in the header when present). */
   onClose?: () => void;
   /** Optional "open as page" affordance (promotes the panel to the
@@ -124,6 +129,8 @@ type SnapshotFreshness = {
 export function RepoDiffViewer({
   path,
   layers = DEFAULT_LAYERS,
+  files,
+  session,
   onClose,
   onOpenAsPage,
   className,
@@ -136,6 +143,23 @@ export function RepoDiffViewer({
   const requestedLayers = useMemo(
     () => layersKey.split(",") as RepoDiffLayerKind[],
     [layersKey],
+  );
+  const filesKey = (files ?? []).join("\0");
+  const sessionKey = session
+    ? `${session.sessionId ?? ""}\0${session.agentId ?? ""}\0${session.include ?? "changed"}`
+    : "";
+  const requestScope = useMemo(
+    () => ({
+      files: filesKey ? filesKey.split("\0").filter(Boolean) : undefined,
+      session: sessionKey
+        ? {
+            sessionId: session?.sessionId ?? null,
+            agentId: session?.agentId ?? null,
+            include: session?.include ?? "changed",
+          }
+        : null,
+    }),
+    [filesKey, session?.agentId, session?.include, session?.sessionId, sessionKey],
   );
 
   const [snapshot, setSnapshot] = useState<ScoutRepoDiffSnapshot | null>(null);
@@ -153,7 +177,7 @@ export function RepoDiffViewer({
 
   // ── Fetch the snapshot ────────────────────────────────────────────────────
   const loadSnapshot = useCallback(async () => {
-    const cached = readRepoDiffCache(path, requestedLayers);
+    const cached = readRepoDiffCache(path, requestedLayers, requestScope);
     setFetchError(null);
     if (cached) {
       setSnapshot(cached.snapshot);
@@ -166,6 +190,7 @@ export function RepoDiffViewer({
     try {
       const record = await fetchRepoDiffSnapshot(path, requestedLayers, {
         force: cached != null,
+        ...requestScope,
       });
       setSnapshot(record.snapshot);
       setFreshness(freshnessFromRecord(record, false));
@@ -180,7 +205,7 @@ export function RepoDiffViewer({
         setFetchPhase("error");
       }
     }
-  }, [path, requestedLayers]);
+  }, [path, requestedLayers, requestScope]);
 
   useEffect(() => {
     void loadSnapshot();
@@ -273,7 +298,9 @@ export function RepoDiffViewer({
       <Viewer className={className}>
         <Center>
           <div className="rd-spinner" aria-hidden />
-          <div className="rd-center-title">Reading worktree diff…</div>
+          <div className="rd-center-title">
+            Reading {session ? "session" : "worktree"} diff…
+          </div>
           <div className="rd-center-body">{path}</div>
         </Center>
       </Viewer>
@@ -457,6 +484,7 @@ function Header({
           <span className="rd-header-name" title={worktreePath}>
             {heading}
           </span>
+          {snapshot.scope ? <DiffScopePill snapshot={snapshot} /> : null}
           {dir ? <span className="rd-header-dir">{dir}</span> : null}
         </div>
         <div className="rd-header-sub">
@@ -505,6 +533,24 @@ function Header({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function DiffScopePill({ snapshot }: { snapshot: ScoutRepoDiffSnapshot }) {
+  const scope = snapshot.scope;
+  if (!scope) return null;
+  const label = scope.kind === "session"
+    ? `Session · ${scope.filteredPaths.length} files`
+    : scope.filteredPaths.length > 0
+      ? `Filtered · ${scope.filteredPaths.length} files`
+      : "Worktree";
+  const title = scope.kind === "session"
+    ? `${scope.label}: path-filtered diff from ${scope.changedFiles} changed / ${scope.touchedFiles} touched session files`
+    : scope.label;
+  return (
+    <span className={`rd-scope-pill ${scope.kind}`} title={title}>
+      {label}
+    </span>
   );
 }
 

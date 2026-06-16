@@ -78,6 +78,10 @@ function parseTerminalMode(value: string | null): "observe" | "takeover" | undef
   return normalized === "observe" || normalized === "takeover" ? normalized : undefined;
 }
 
+function parseDiffInclude(value: string | null): "changed" | "all" | undefined {
+  return value === "all" || value === "touched" ? "all" : value === "changed" ? "changed" : undefined;
+}
+
 function opsModePath(mode: OpsMode): string {
   switch (mode) {
     case "mission":
@@ -265,10 +269,18 @@ export function routeFromUrl(urlLike: string | URL): Route {
           (v): v is "unstaged" | "staged" | "branch" =>
             v === "unstaged" || v === "staged" || v === "branch",
         );
+      const files = url.searchParams.getAll("file").map((v) => v.trim()).filter(Boolean);
+      const sessionId = url.searchParams.get("sessionId")?.trim() || undefined;
+      const agentId = url.searchParams.get("agentId")?.trim() || undefined;
+      const include = parseDiffInclude(url.searchParams.get("include"));
       return {
         view: "repo-diff",
         path,
         ...(layers.length > 0 ? { layers } : {}),
+        ...(files.length > 0 ? { files } : {}),
+        ...(sessionId ? { sessionId } : {}),
+        ...(agentId ? { agentId } : {}),
+        ...(include ? { include } : {}),
       };
     }
     // No path → fall through to the default route below.
@@ -428,6 +440,10 @@ export function routePath(r: Route): string {
       const params = new URLSearchParams();
       params.set("path", r.path);
       for (const layer of r.layers ?? []) params.append("layer", layer);
+      for (const file of r.files ?? []) params.append("file", file);
+      if (r.sessionId) params.set("sessionId", r.sessionId);
+      if (r.agentId) params.set("agentId", r.agentId);
+      if (r.include) params.set("include", r.include);
       return `/repo-diff${searchSuffix(params)}`;
     }
     case "search":

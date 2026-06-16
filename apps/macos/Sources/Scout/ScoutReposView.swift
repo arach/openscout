@@ -1,4 +1,6 @@
+import Foundation
 import HudsonUI
+import ScoutAppCore
 import SwiftUI
 
 /// The **Repos** section — a keyboard-first repo→worktree tree fed by the
@@ -480,6 +482,7 @@ struct ScoutReposContent: View {
                 .foregroundStyle(ScoutPalette.ink)
 
             statusPill
+            refreshReceiptPill
 
             countCluster(totals.projects, "repos")
             countCluster(totals.worktrees, "trees")
@@ -504,10 +507,24 @@ struct ScoutReposContent: View {
             HudBadge("Error", tint: ScoutPalette.statusError, dot: true)
         } else if !repos.hasLoaded {
             HudBadge("Scanning", tint: ScoutPalette.statusWarn, dot: true)
+        } else if repos.isRefreshing {
+            HudBadge("Refreshing", tint: ScoutPalette.statusWarn, dot: true)
         } else {
             HudBadge("Live", tint: ScoutPalette.statusOk, dot: true)
         }
     }
+
+    @ViewBuilder private var refreshReceiptPill: some View {
+        if repos.lastRefreshWasForced, let fetchedAt = repos.lastFetchedAt {
+            HudBadge("Fresh \(Self.refreshClock.string(from: fetchedAt))", tint: ScoutPalette.statusOk)
+        }
+    }
+
+    private static let refreshClock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 
     private func countCluster(_ value: Int, _ label: String, tint: Color? = nil) -> some View {
         HStack(spacing: HudSpacing.xxs) {
@@ -563,15 +580,20 @@ struct ScoutReposContent: View {
             }
 
             Button {
-                repos.refresh()
+                repos.refresh(force: true)
             } label: {
-                Image(systemName: "arrow.clockwise")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(ScoutPalette.dim)
+                HStack(spacing: HudSpacing.xxs) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                    Text(repos.isRefreshing ? "Refreshing" : "Refresh")
+                        .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                }
+                .foregroundStyle(repos.isRefreshing ? ScoutPalette.statusWarn : ScoutPalette.dim)
             }
             .buttonStyle(.plain)
+            .disabled(repos.isRefreshing)
             .scoutPointerCursor()
-            .help("Rescan repositories")
+            .help("Force a fresh repository scan")
         }
     }
 
@@ -1205,24 +1227,400 @@ struct ScoutRepoAgentChip: View {
     }
 }
 
+private enum ScoutRepoAskService {
+    @MainActor
+    static func sendToAssistant(body: String) async throws {
+        await ScoutComposeService.shared.send(body: body, targetHandle: nil)
+        if let error = ScoutComposeService.shared.lastError {
+            throw ScoutRepoAskError(message: error)
+        }
+    }
+
+    static func askAgent(agentId: String, targetLabel: String?, body: String) async throws {
+        var payload: [String: Any] = [
+            "body": body,
+            "targetAgentId": agentId,
+            "metadata": [
+                "source": "repo-watch",
+                "originSurface": "repo-watch",
+                "handoffKind": "repo-watch-agent-ask",
+                "targetAgentId": agentId,
+            ],
+        ]
+        if let targetLabel, !targetLabel.isEmpty {
+            payload["targetLabel"] = targetLabel
+        }
+        try await post(path: "api/ask", payload: payload)
+    }
+
+    private static func post(path: String, payload: [String: Any]) async throws {
+        let url = ScoutWeb.baseURL().appending(path: path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        try await ScoutHTTP.send(request)
+    }
+}
+
+private struct ScoutRepoAskError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
 // MARK: - Inspector (Context pane — follows the cursor)
 
 struct ScoutReposInspector: View {
     @ObservedObject var repos: ScoutRepoStore
     @ObservedObject var tree: ScoutReposTreeModel
+    @Binding var inputFocused: Bool
+    @State private var askDraft = ""
+    @State private var askTarget = "assistant"
+    @State private var isAsking = false
+    @State private var askError: String?
+    @State private var askConfirmation: String?
+    @FocusState private var askFocused: Bool
 
     var body: some View {
-        if let worktree = repos.worktree(id: tree.selectedWorktreeID) {
-            worktreeContext(worktree)
-        } else if let project = repos.project(id: tree.selectedProjectID) {
-            projectContext(project)
-        } else {
-            HudEmptyState(
-                title: "Nothing selected",
-                subtitle: "Select a repo or worktree to inspect.",
-                icon: "sidebar.right"
+        let worktree = repos.worktree(id: tree.selectedWorktreeID)
+        let project = worktree.flatMap { repos.project(forWorktree: $0.id) }
+            ?? repos.project(id: tree.selectedProjectID)
+
+        VStack(spacing: 0) {
+            if let worktree {
+                worktreeContext(worktree)
+            } else if let project {
+                projectContext(project)
+            } else {
+                HudEmptyState(
+                    title: "Nothing selected",
+                    subtitle: "Select a repo or worktree to inspect.",
+                    icon: "sidebar.right"
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if worktree != nil || project != nil {
+                HudDivider(color: ScoutDesign.hairlineStrong)
+                askBox(worktree: worktree, project: project)
+            }
+        }
+        .onChange(of: tree.selectedID) { _, _ in
+            reconcileAskTarget(worktree: repos.worktree(id: tree.selectedWorktreeID),
+                               project: repos.project(id: tree.selectedProjectID))
+        }
+        .onChange(of: askFocused) { _, focused in
+            inputFocused = focused
+        }
+        .onDisappear {
+            inputFocused = false
+        }
+    }
+
+    private var activeTargetLabel: String {
+        if let agent = agentTargets(worktree: repos.worktree(id: tree.selectedWorktreeID),
+                                    project: repos.project(id: tree.selectedProjectID))
+            .first(where: { targetKey(for: $0) == askTarget }) {
+            return agent.name?.nilIfEmpty ?? agent.handle
+        }
+        return "Scout"
+    }
+
+    private func askBox(worktree: RepoWorktree?, project: RepoProject?) -> some View {
+        let agents = agentTargets(worktree: worktree, project: project)
+        return VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            VStack(spacing: 0) {
+                askFieldRow(worktree: worktree, project: project)
+                askToolbar(agents: agents, worktree: worktree, project: project)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .fill(askFocused ? ScoutSurface.controlFocused : ScoutSurface.control)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .stroke(askFocused ? ScoutPalette.accent.opacity(0.62) : ScoutDesign.hairlineStrong,
+                            lineWidth: HudStrokeWidth.thin)
+            )
+            .shadow(
+                color: askFocused ? ScoutPalette.accent.opacity(0.10) : ScoutSurface.shadow(0.12),
+                radius: askFocused ? 6 : 3,
+                x: 0,
+                y: 1
             )
         }
+        .padding(.horizontal, ScoutReposMetrics.pageGutter)
+        .padding(.vertical, HudSpacing.md)
+        .background(ScoutDesign.bg)
+    }
+
+    private func askFieldRow(worktree: RepoWorktree?, project: RepoProject?) -> some View {
+        HStack(alignment: .top, spacing: HudSpacing.sm) {
+            ZStack(alignment: .topLeading) {
+                TextField(askPlaceholder(worktree: worktree, project: project), text: $askDraft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(HudFont.mono(HudTextSize.xs))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .tint(ScoutPalette.accent)
+                    .lineLimit(1...5)
+                    .focused($askFocused)
+                    .disabled(isAsking)
+                    .onKeyPress(phases: .down) { press in
+                        if press.key == .return {
+                            if press.modifiers.contains(.shift) {
+                                askDraft.append("\n")
+                                return .handled
+                            }
+                            Task { await submitAsk(worktree: worktree, project: project) }
+                            return .handled
+                        }
+                        if press.key == .escape {
+                            askFocused = false
+                            return .handled
+                        }
+                        return .ignored
+                    }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.xl)
+        .padding(.top, HudSpacing.lg)
+        .padding(.bottom, HudSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 40, alignment: .topLeading)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(ScoutPalette.accent)
+                .frame(width: 2)
+                .opacity(askFocused ? 1 : 0.45)
+        }
+    }
+
+    private func askToolbar(agents: [RepoAgentRef], worktree: RepoWorktree?, project: RepoProject?) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            askTargetMenu(agents: agents)
+
+            if isAsking {
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.82)
+            }
+
+            if let askError {
+                Text(askError)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.statusError)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            } else if let askConfirmation {
+                Text(askConfirmation)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.statusOk)
+                    .lineLimit(1)
+            } else {
+                Text("Repo Watch context is included")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: HudSpacing.sm)
+
+            Button {
+                Task { await submitAsk(worktree: worktree, project: project) }
+            } label: {
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 26, height: 22)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(canSubmitAsk ? ScoutPalette.bg : ScoutPalette.dim)
+            .background(canSubmitAsk ? ScoutPalette.accent : ScoutPalette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: HudRadius.tight))
+            .disabled(!canSubmitAsk)
+            .scoutPointerCursor()
+        }
+        .padding(.leading, HudSpacing.xl)
+        .padding(.trailing, HudSpacing.md)
+        .padding(.vertical, HudSpacing.sm)
+        .frame(maxWidth: .infinity)
+        .background(ScoutDesign.bg)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(askFocused ? ScoutPalette.accent.opacity(0.32) : ScoutDesign.hairlineStrong)
+                .frame(height: HudStrokeWidth.thin)
+        }
+    }
+
+    private func askTargetMenu(agents: [RepoAgentRef]) -> some View {
+        Menu {
+            Button {
+                askTarget = "assistant"
+            } label: {
+                Label("Scout", systemImage: askTarget == "assistant" ? "checkmark" : "circle")
+            }
+
+            if !agents.isEmpty {
+                Divider()
+                ForEach(agents) { agent in
+                    Button {
+                        askTarget = targetKey(for: agent)
+                    } label: {
+                        Label(agent.name?.nilIfEmpty ?? agent.handle,
+                              systemImage: askTarget == targetKey(for: agent) ? "checkmark" : "circle")
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: askTarget == "assistant" ? "sparkles" : "arrowshape.turn.up.right")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(activeTargetLabel)
+                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(ScoutPalette.dim)
+            }
+            .foregroundStyle(ScoutPalette.ink)
+            .padding(.horizontal, HudSpacing.sm)
+            .padding(.vertical, 4)
+            .background(ScoutPalette.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight)
+                    .stroke(ScoutPalette.hairlineStrong, lineWidth: 0.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+    }
+
+    private func askPlaceholder(worktree: RepoWorktree?, project: RepoProject?) -> String {
+        if worktree != nil {
+            return askTarget == "assistant"
+                ? "ask Scout about this worktree"
+                : "ask this agent about the worktree"
+        }
+        if project != nil {
+            return askTarget == "assistant"
+                ? "ask Scout about this repo"
+                : "ask this agent about the repo"
+        }
+        return "ask Scout"
+    }
+
+    private var canSubmitAsk: Bool {
+        !isAsking && !askDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func targetKey(for agent: RepoAgentRef) -> String {
+        "agent:\(agent.id)"
+    }
+
+    private func agentId(from target: String) -> String? {
+        guard target.hasPrefix("agent:") else { return nil }
+        return String(target.dropFirst("agent:".count)).nilIfEmpty
+    }
+
+    private func reconcileAskTarget(worktree: RepoWorktree?, project: RepoProject?) {
+        guard agentId(from: askTarget) != nil else { return }
+        let keys = Set(agentTargets(worktree: worktree, project: project).map(targetKey(for:)))
+        if !keys.contains(askTarget) {
+            askTarget = "assistant"
+        }
+    }
+
+    private func agentTargets(worktree: RepoWorktree?, project: RepoProject?) -> [RepoAgentRef] {
+        let source: [RepoAgentRef]
+        if let worktree {
+            source = worktree.uniqueAgents
+        } else {
+            source = project?.worktrees.flatMap(\.uniqueAgents) ?? []
+        }
+
+        var seen = Set<String>()
+        return source.filter { agent in
+            seen.insert(agent.id).inserted
+        }
+        .prefix(8)
+        .map { $0 }
+    }
+
+    @MainActor
+    private func submitAsk(worktree: RepoWorktree?, project: RepoProject?) async {
+        let trimmed = askDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isAsking else { return }
+
+        isAsking = true
+        askError = nil
+        askConfirmation = nil
+        defer { isAsking = false }
+
+        let body = repoAskBody(request: trimmed, worktree: worktree, project: project)
+        do {
+            if let agentId = agentId(from: askTarget) {
+                let agent = agentTargets(worktree: worktree, project: project)
+                    .first(where: { $0.id == agentId })
+                try await ScoutRepoAskService.askAgent(
+                    agentId: agentId,
+                    targetLabel: agent?.id,
+                    body: body
+                )
+                askConfirmation = "Asked \(agent?.name?.nilIfEmpty ?? agent?.handle ?? agentId)"
+            } else {
+                try await ScoutRepoAskService.sendToAssistant(body: body)
+                askConfirmation = "Asked Scout"
+            }
+            askDraft = ""
+        } catch {
+            askError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func repoAskBody(request: String, worktree: RepoWorktree?, project: RepoProject?) -> String {
+        var lines: [String] = ["Operator request:", request, "", "Repo Watch context:"]
+        if let project {
+            lines.append("- Project: \(project.name)")
+            if !project.root.isEmpty { lines.append("- Project root: \(project.root)") }
+            lines.append("- Project attention: \(project.attention.rawValue)")
+        }
+        if let worktree {
+            lines.append("- Worktree: \(worktree.path)")
+            lines.append("- Branch: \(worktree.branch.name ?? worktree.branch.head ?? "detached")")
+            if let upstream = worktree.branch.upstream {
+                lines.append("- Upstream: \(upstream)")
+            }
+            lines.append("- Drift: ahead \(worktree.branch.ahead), behind \(worktree.branch.behind)")
+            lines.append("- Status: \(statusSummary(worktree.status))")
+            if worktree.churn.has {
+                lines.append("- Churn: +\(worktree.churn.add) -\(worktree.churn.del)")
+            }
+            if !worktree.attentionReasons.isEmpty {
+                lines.append("- Attention reasons: \(worktree.attentionReasons.joined(separator: "; "))")
+            }
+            if !worktree.status.files.isEmpty {
+                let files = worktree.status.files.prefix(8).map { "\($0.status): \($0.path)" }
+                lines.append("- Changed files: \(files.joined(separator: ", "))")
+            }
+        } else if let project {
+            lines.append("- Worktrees: \(project.stats.worktrees), dirty \(project.stats.dirtyWorktrees), conflicts \(project.stats.conflicts)")
+            lines.append("- Changes: staged \(project.stats.staged), unstaged \(project.stats.unstaged), untracked \(project.stats.untracked)")
+            if !project.attentionReasons.isEmpty {
+                lines.append("- Attention reasons: \(project.attentionReasons.joined(separator: "; "))")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func statusSummary(_ status: RepoStatus) -> String {
+        if status.clean {
+            return "clean"
+        }
+        return "staged \(status.staged), unstaged \(status.unstaged), untracked \(status.untracked), conflicts \(status.conflicts), changed files \(status.changedFiles)"
     }
 
     // MARK: Worktree context

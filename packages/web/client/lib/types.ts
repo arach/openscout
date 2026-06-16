@@ -36,6 +36,10 @@ export type Agent = {
   staleLocalRegistration: boolean;
   retiredFromFleet: boolean;
   replacedByAgentId: string | null;
+  providerName?: string | null;
+  providerUrl?: string | null;
+  protocol?: string | null;
+  skills?: string[];
 };
 
 export type ObservedHarnessTopology = {
@@ -1134,7 +1138,15 @@ export type Route =
   // A diff path is absolute + machine-local, so this is intentionally not
   // machine-scoped. Reached by drilling in / "open as page" from the Repos
   // diff panel; deep-linkable as /repo-diff?path=<abs>&layer=…
-  | { view: "repo-diff"; path: string; layers?: ("unstaged" | "staged" | "branch")[] }
+  | {
+      view: "repo-diff";
+      path: string;
+      layers?: ("unstaged" | "staged" | "branch")[];
+      files?: string[];
+      sessionId?: string;
+      agentId?: string;
+      include?: "changed" | "all";
+    }
   | { view: "search"; mode?: SearchMode }
   | ({ view: "channels"; channelId?: string } & MachineScopedRoute)
   | ({ view: "mesh" } & MachineScopedRoute)

@@ -175,9 +175,35 @@
 .rw-tone button:hover {
   color: var(--copy);
 }
+.rw-tone button:disabled {
+  cursor: progress;
+  opacity: 0.62;
+}
 .rw-tone button.on {
   color: var(--ink);
   background: var(--rail-2);
+}
+.rw-refresh-receipt {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--mint);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.rw-context-shell {
+  display: none;
+  width: 340px;
+  flex: 0 0 auto;
+  position: sticky;
+  top: 24px;
+  align-self: flex-start;
+}
+
+@media (min-width: 1024px) {
+  .rw-context-shell {
+    display: block;
+  }
 }
 
 .stats {
@@ -1109,6 +1135,99 @@
 }
 .ctx-btn.primary:not(:disabled):hover {
   filter: brightness(1.06);
+}
+
+/* ask / handoff composer */
+.ctx-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+  background: color-mix(in oklab, var(--rail-2) 44%, transparent);
+}
+.ctx-ask textarea {
+  width: 100%;
+  min-height: 74px;
+  resize: vertical;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--bg) 86%, black);
+  color: var(--ink-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.45;
+  padding: 9px 10px;
+  outline: none;
+}
+.ctx-ask textarea:focus {
+  border-color: var(--line-3);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--amber) 28%, transparent);
+}
+.ctx-ask textarea::placeholder {
+  color: var(--faint);
+}
+.ctx-ask textarea:disabled {
+  opacity: 0.65;
+}
+.ctx-ask-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ctx-ask-bar select {
+  min-width: 0;
+  flex: 1 1 auto;
+  height: 32px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  background: var(--rail-2);
+  color: var(--ink-1);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 0 8px;
+  outline: none;
+}
+.ctx-ask-bar .ctx-btn {
+  flex: 0 0 auto;
+  min-width: 78px;
+  height: 32px;
+  padding-block: 0;
+}
+.ctx-ask-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+  font-size: 9.5px;
+  color: var(--faint);
+  line-height: 1.35;
+}
+.ctx-ask-foot > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctx-ask-foot .ok {
+  color: var(--mint);
+}
+.ctx-ask-foot .err {
+  color: var(--coral);
+}
+.ctx-ask-foot button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--copy);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+.ctx-ask-foot button:hover {
+  color: var(--ink);
 }
 
 /* ─────────────────────────────────────────────────────────────────────

@@ -82,6 +82,39 @@ struct ScoutSessionProjectOption: Identifiable, Equatable {
     var id: String { path }
 }
 
+private struct ScoutSessionModelChoice: Identifiable, Equatable {
+    var harness: String
+    var value: String
+    var label: String
+    var detail: String?
+
+    var id: String { "\(harness):\(value)" }
+}
+
+private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
+    var id: String
+    var label: String
+    var models: [ScoutSessionModelChoice]
+
+    static let all: [ScoutSessionHarnessCatalog] = [
+        .init(id: "claude", label: "Claude Code", models: [
+            .init(harness: "claude", value: "fable", label: "Fable", detail: "Claude Code alias"),
+            .init(harness: "claude", value: "opus", label: "Opus", detail: "Claude Code alias"),
+            .init(harness: "claude", value: "claude-opus-4-8", label: "Opus 4.8", detail: "Pinned ID"),
+            .init(harness: "claude", value: "sonnet", label: "Sonnet", detail: "Claude Code alias"),
+            .init(harness: "claude", value: "claude-sonnet-4-6", label: "Sonnet 4.6", detail: "Pinned ID"),
+            .init(harness: "claude", value: "haiku", label: "Haiku", detail: "Claude Code alias"),
+            .init(harness: "claude", value: "claude-haiku-4-5", label: "Haiku 4.5", detail: "Claude API alias"),
+        ]),
+        .init(id: "codex", label: "Codex", models: [
+            .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Recommended"),
+            .init(harness: "codex", value: "gpt-5.4", label: "GPT-5.4", detail: "Frontier"),
+            .init(harness: "codex", value: "gpt-5.4-mini", label: "GPT-5.4 mini", detail: "Fast"),
+            .init(harness: "codex", value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", detail: "Research preview"),
+        ]),
+    ]
+}
+
 /// Modal sheet that turns a `ScoutSessionDraft` into a session-initiation call.
 /// Renders its own dimmed backdrop so the host only needs `if let draft`.
 struct ScoutSessionComposer: View {
@@ -94,6 +127,8 @@ struct ScoutSessionComposer: View {
     @State private var openDropdown: String?
     @State private var agentQuery: String = ""
     @State private var agentHighlight: Int = 0
+    @State private var agentFieldHovering = false
+    @State private var messageBoxHovering = false
     @FocusState private var instructionsFocused: Bool
     @FocusState private var agentFieldFocused: Bool
     @ObservedObject private var voice = ScoutVoiceService.shared
@@ -184,9 +219,21 @@ struct ScoutSessionComposer: View {
     }
 
     private var harnessChoices: [String] {
-        var values = Set(agents.compactMap { $0.harness?.nilIfEmpty })
-        if let harness = draft.harness?.nilIfEmpty { values.insert(harness) }
-        return values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        var seen: Set<String> = []
+        var choices: [String] = []
+
+        func append(_ value: String?) {
+            guard let harness = value?.nilIfEmpty else { return }
+            let key = harness.lowercased()
+            guard seen.insert(key).inserted else { return }
+            choices.append(harness)
+        }
+
+        append(draft.harness)
+        append(draft.agent?.harness)
+        for catalog in ScoutSessionHarnessCatalog.all { append(catalog.id) }
+        for agent in agents { append(agent.harness) }
+        return choices
     }
 
     private var showDictationPreview: Bool {
@@ -308,14 +355,17 @@ struct ScoutSessionComposer: View {
                     draft.model = nil
                     openDropdown = nil
                 }
-                ForEach(modelChoices, id: \.harness) { group in
-                    ScoutDropdownSectionLabel(text: group.harness)
-                    ForEach(group.models, id: \.self) { model in
-                        ScoutDropdownRow(label: model, selected: draft.model == model) {
-                            draft.model = model
-                            draft.harness = group.harness == "Other" ? nil : group.harness
-                            openDropdown = nil
-                        }
+                let harness = effectiveHarnessValue
+                ScoutDropdownSectionLabel(text: harnessDisplayName(harness))
+                ForEach(modelChoices(for: harness)) { model in
+                    ScoutDropdownRow(
+                        label: model.label,
+                        detail: model.detail,
+                        selected: draft.model == model.value
+                    ) {
+                        draft.harness = harness
+                        draft.model = model.value
+                        openDropdown = nil
                     }
                 }
             }
@@ -323,11 +373,18 @@ struct ScoutSessionComposer: View {
             ScoutDropdownPanel {
                 ScoutDropdownRow(label: "Default", selected: draft.harness == nil) {
                     draft.harness = nil
+                    clearModelIfNeeded()
                     openDropdown = nil
                 }
                 ForEach(harnessChoices, id: \.self) { harness in
-                    ScoutDropdownRow(label: harness, dot: ScoutPalette.accent, selected: draft.harness == harness) {
+                    ScoutDropdownRow(
+                        label: harnessDisplayName(harness),
+                        detail: harnessDisplayDetail(harness),
+                        dot: ScoutPalette.accent,
+                        selected: draft.harness == harness
+                    ) {
                         draft.harness = harness
+                        clearModelIfNeeded()
                         openDropdown = nil
                     }
                 }
@@ -493,6 +550,7 @@ struct ScoutSessionComposer: View {
     private var agentSearchField: some View {
         let isOpen = openDropdown == "agent"
         let showStatic = !agentFieldFocused && agentQuery.isEmpty
+        let engaged = isOpen || agentFieldFocused || agentFieldHovering
         return HStack(spacing: HudSpacing.sm) {
             Circle()
                 .fill(agentFieldDotColor)
@@ -528,16 +586,29 @@ struct ScoutSessionComposer: View {
 
             Image(systemName: "chevron.down")
                 .font(HudFont.ui(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(engaged ? ScoutPalette.accent : ScoutPalette.dim)
                 .rotationEffect(.degrees(isOpen ? 180 : 0))
         }
         .padding(.horizontal, HudSpacing.md)
         .frame(height: 42)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-        .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke((isOpen || agentFieldFocused) ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(engaged ? ScoutSurface.hover : ScoutSurface.inset)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(
+                    (isOpen || agentFieldFocused) ? ScoutPalette.accent.opacity(0.50) : ScoutDesign.hairlineStrong,
+                    lineWidth: HudStrokeWidth.thin
+                )
+        )
         .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
         .anchorPreference(key: DropdownAnchorKey.self, value: .bounds) { ["agent": $0] }
-        .onTapGesture { agentFieldFocused = true }
+        .onHover { agentFieldHovering = $0 }
+        .onTapGesture {
+            agentFieldFocused = true
+            openDropdown = "agent"
+        }
         .onChange(of: agentFieldFocused) { _, focused in
             if focused { openDropdown = "agent"; agentHighlight = 0 } else { scheduleAgentClose() }
         }
@@ -757,24 +828,33 @@ struct ScoutSessionComposer: View {
     // Consolidated two-zone box (input top / toolbar bottom) — mirrors the
     // conversation-stream composer (ScoutRootView `composerInputWell`). Cancel ·
     // ⌘↵ guide · mic · send all live in the bottom bar, so there's no separate
-    // footer. Rounded well → focus border + a soft accent ring, never a left bar
+    // footer. Rounded well → quiet focus border, never a left bar
     // (see feedback_no_left_bar_on_rounded).
     private var consolidatedMessageBox: some View {
-        VStack(spacing: 0) {
+        let engaged = messageBoxEngaged
+        return VStack(spacing: 0) {
             messageInputZone
             messageToolbarBar
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .fill(instructionsFocused ? ScoutSurface.controlFocused : ScoutSurface.inset)
+                .fill(instructionsFocused ? ScoutSurface.controlFocused : (engaged ? ScoutSurface.control : ScoutSurface.inset))
         )
         .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(instructionsFocused ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+                .stroke(
+                    instructionsFocused ? ScoutPalette.accent.opacity(0.50) : ScoutDesign.hairlineStrong,
+                    lineWidth: HudStrokeWidth.thin
+                )
         )
-        .shadow(color: instructionsFocused ? ScoutPalette.accent.opacity(0.12) : .clear, radius: 4, y: 1)
+        .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+        .onHover { messageBoxHovering = $0 }
+        .onTapGesture {
+            openDropdown = nil
+            instructionsFocused = true
+        }
     }
 
     // A vertical TextField (not a TextEditor) so the placeholder is native and
@@ -820,12 +900,9 @@ struct ScoutSessionComposer: View {
 
             Spacer(minLength: HudSpacing.sm)
 
-            (Text("⌘↵")
+            Text("⌘↵")
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundColor(ScoutPalette.muted)
-             + Text(" to \(startTitle.lowercased())")
-                .font(HudFont.mono(HudTextSize.micro))
-                .foregroundColor(ScoutPalette.dim))
+                .foregroundColor(ScoutPalette.dim)
                 .lineLimit(1)
 
             ScoutMicButton(box: 26, glyph: 13, action: toggleDictation)
@@ -839,9 +916,17 @@ struct ScoutSessionComposer: View {
         .background(ScoutDesign.bg)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(instructionsFocused ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong)
+                .fill(instructionsFocused ? ScoutPalette.accent.opacity(0.40) : ScoutDesign.hairlineStrong)
                 .frame(height: HudStrokeWidth.thin)
         }
+    }
+
+    private var messageBoxEngaged: Bool {
+        instructionsFocused
+            || messageBoxHovering
+            || !draft.instructions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || voice.state.isCaptureActive
+            || voice.state.isProcessing
     }
 
     // Send glyph — accent square + ↑ (studio `.barSend`), mirroring the
@@ -871,25 +956,25 @@ struct ScoutSessionComposer: View {
         .help(startTitle)
     }
 
-    // Model + harness — first-class, always-visible (not buried in Options).
-    // Model leads (project → model → harness); picking a model sets its harness,
-    // picking a harness scopes the model. Both fall back to the selected agent's
-    // values, shown as "Default" when nothing is explicitly set.
-    // Project · Model · Harness — three equal, flush chips on one line (project
+    // Harness + model — first-class, always-visible (not buried in Options).
+    // Harness leads (project -> harness -> model); picking a harness scopes the
+    // model list. Both fall back to the selected agent's values, shown as
+    // "Default" when nothing is explicitly set.
+    // Project · Harness · Model — three equal, flush chips on one line (project
     // target). The chips flex to share the row (ScoutDropdownTrigger fills when its
     // `width` is nil), so the same components serve the 2-chip agent row below.
     private var projectModelHarnessRow: some View {
         HStack(spacing: HudSpacing.sm) {
             projectChip
-            modelChip
             harnessChip
+            modelChip
         }
     }
 
     private var harnessModelChips: some View {
         HStack(spacing: HudSpacing.sm) {
-            modelChip
             harnessChip
+            modelChip
         }
     }
 
@@ -922,30 +1007,129 @@ struct ScoutSessionComposer: View {
     }
 
     private var effectiveModelLabel: String {
-        draft.model?.nilIfEmpty ?? draft.agent?.model?.nilIfEmpty ?? "Default"
+        if let model = draft.model?.nilIfEmpty ?? draft.agent?.model?.nilIfEmpty {
+            return modelDisplayName(model)
+        }
+        return "Default"
     }
 
     private var effectiveHarnessLabel: String {
-        draft.harness?.nilIfEmpty ?? draft.agent?.harness?.nilIfEmpty ?? "Default"
+        guard let harness = draft.harness?.nilIfEmpty ?? draft.agent?.harness?.nilIfEmpty else {
+            return "Default"
+        }
+        return harnessDisplayName(harness)
     }
 
-    // Distinct models grouped by harness, observed across the roster — the real
-    // catalog (native has no static model list). Picking one also sets harness.
-    private var modelChoices: [(harness: String, models: [String])] {
-        var order: [String] = []
-        var byHarness: [String: [String]] = [:]
+    private var effectiveHarnessValue: String {
+        draft.harness?.nilIfEmpty
+            ?? draft.agent?.harness?.nilIfEmpty
+            ?? ScoutSessionHarnessCatalog.all.first?.id
+            ?? "claude"
+    }
+
+    // Curated current model names, plus any models observed in the local roster.
+    private func modelChoices(for harness: String, includeDraftModel: Bool = true) -> [ScoutSessionModelChoice] {
+        let canonicalHarness = harness.lowercased()
+        var seen: Set<String> = []
+        var choices: [ScoutSessionModelChoice] = []
+
+        func append(_ choice: ScoutSessionModelChoice) {
+            guard seen.insert(choice.value.lowercased()).inserted else { return }
+            choices.append(choice)
+        }
+
+        if let catalog = ScoutSessionHarnessCatalog.all.first(where: { $0.id == canonicalHarness }) {
+            for model in catalog.models { append(model) }
+        }
+
         for agent in agents {
-            guard let model = agent.model?.nilIfEmpty else { continue }
-            let harness = agent.harness?.nilIfEmpty ?? "Other"
-            if byHarness[harness] == nil {
-                byHarness[harness] = []
-                order.append(harness)
-            }
-            if !(byHarness[harness]?.contains(model) ?? false) {
-                byHarness[harness, default: []].append(model)
+            guard
+                let model = agent.model?.nilIfEmpty,
+                (agent.harness?.nilIfEmpty ?? "").lowercased() == canonicalHarness
+            else { continue }
+            append(.init(
+                harness: harness,
+                value: model,
+                label: modelDisplayName(model),
+                detail: observedModelDetail(model)
+            ))
+        }
+
+        if includeDraftModel, let model = draft.model?.nilIfEmpty, !seen.contains(model.lowercased()) {
+            append(.init(
+                harness: harness,
+                value: model,
+                label: modelDisplayName(model),
+                detail: observedModelDetail(model)
+            ))
+        }
+
+        return choices
+    }
+
+    private func clearModelIfNeeded() {
+        guard let model = draft.model?.nilIfEmpty else { return }
+        let valid = modelChoices(for: effectiveHarnessValue, includeDraftModel: false).contains {
+            $0.value.caseInsensitiveCompare(model) == .orderedSame
+        }
+        if !valid {
+            draft.model = nil
+        }
+    }
+
+    private func harnessDisplayName(_ harness: String) -> String {
+        let trimmed = harness.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Default" }
+        if let catalog = ScoutSessionHarnessCatalog.all.first(where: { $0.id == trimmed.lowercased() }) {
+            return catalog.label
+        }
+        return trimmed.prefix(1).uppercased() + String(trimmed.dropFirst())
+    }
+
+    private func harnessDisplayDetail(_ harness: String) -> String? {
+        let trimmed = harness.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let label = harnessDisplayName(trimmed)
+        return label.caseInsensitiveCompare(trimmed) == .orderedSame ? nil : trimmed
+    }
+
+    private func observedModelDetail(_ model: String) -> String? {
+        let label = modelDisplayName(model)
+        return label.caseInsensitiveCompare(model) == .orderedSame ? nil : model
+    }
+
+    private func modelDisplayName(_ model: String) -> String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Default" }
+
+        for catalog in ScoutSessionHarnessCatalog.all {
+            if let choice = catalog.models.first(where: { $0.value.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                return choice.label
             }
         }
-        return order.map { (harness: $0, models: byHarness[$0] ?? []) }
+
+        let lower = trimmed.lowercased()
+        if ["fable", "opus", "sonnet", "haiku"].contains(lower) {
+            return lower.prefix(1).uppercased() + String(lower.dropFirst())
+        }
+        if lower.hasPrefix("claude-") {
+            let parts = lower.split(separator: "-").map(String.init)
+            if parts.count >= 4 {
+                let family = parts[1].prefix(1).uppercased() + String(parts[1].dropFirst())
+                let version = parts[2...].prefix(2).joined(separator: ".")
+                return "\(family) \(version)"
+            }
+        }
+        if lower.hasPrefix("gpt-") {
+            let body = trimmed.dropFirst(4)
+            let words = body.split(separator: "-").map { part -> String in
+                let text = String(part)
+                if text.lowercased() == "mini" { return "mini" }
+                return text.prefix(1).uppercased() + String(text.dropFirst())
+            }
+            return "GPT-\(words.joined(separator: " "))"
+        }
+        return trimmed
     }
 
     private var startTitle: String {

@@ -123,8 +123,30 @@ export interface RepoDiffRenderHints {
   preferredLayout: "split" | "stacked";
 }
 
+export type RepoDiffScope =
+  | {
+      kind: "worktree";
+      label: string;
+      worktreePath: string;
+      filteredPaths: string[];
+    }
+  | {
+      kind: "session";
+      label: string;
+      worktreePath: string;
+      refId: string | null;
+      agentId: string | null;
+      sessionId: string | null;
+      filteredPaths: string[];
+      touchedFiles: number;
+      changedFiles: number;
+      include: "changed" | "all";
+      caveat: "path-filtered-not-hunk-provenance";
+    };
+
 /** The full UI/API contract returned by `GET /api/repo-diff/worktree`. */
 export type ScoutRepoDiffSnapshot = RepoDiffResponse & {
   scout: RepoDiffScoutContext;
   render: RepoDiffRenderHints;
+  scope?: RepoDiffScope;
 };

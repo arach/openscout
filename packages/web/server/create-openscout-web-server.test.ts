@@ -295,6 +295,113 @@ function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<
   };
 }
 
+function makeA2aBrokerContext(overrides: {
+  agent?: Record<string, unknown>;
+  endpoint?: Record<string, unknown>;
+  snapshot?: Record<string, unknown>;
+} = {}): Record<string, unknown> {
+  const agentId = "weather-a2a.local";
+  const nodeId = "node-1";
+  const agent = {
+    id: agentId,
+    kind: "agent",
+    definitionId: agentId,
+    displayName: "Weather A2A Agent",
+    handle: "weather-a2a",
+    labels: ["weather-a2a"],
+    selector: "weather-a2a",
+    agentClass: "general",
+    capabilities: ["chat", "invoke"],
+    wakePolicy: "on_demand",
+    homeNodeId: nodeId,
+    authorityNodeId: nodeId,
+    advertiseScope: "local",
+    ownerId: "operator",
+    metadata: {
+      brokerRegistered: true,
+      project: "openscout-a2a-sidecar",
+      role: "weather",
+      branch: "main",
+      createdAt: 1_700_000_000_000,
+      a2aAgentCard: {
+        provider: {
+          organization: "OpenScout Protocol Lab",
+          url: "https://openscout.local",
+        },
+        skills: [
+          {
+            id: "weatherTool",
+            name: "weatherTool",
+            description: "Get current weather for a location",
+          },
+        ],
+      },
+      supportedInterfaces: [
+        {
+          name: "A2A JSON-RPC",
+          protocol: "a2a",
+          url: "http://127.0.0.1:4111/api/a2a/weather-agent",
+        },
+      ],
+    },
+    ...(overrides.agent ?? {}),
+  };
+  const endpoint = {
+    id: "endpoint.weather-a2a.local.a2a",
+    agentId,
+    nodeId,
+    harness: "http",
+    transport: "http",
+    state: "active",
+    address: "http://127.0.0.1:4111/api/a2a/weather-agent",
+    projectRoot: "/tmp/openscout-a2a-sidecar",
+    cwd: "/tmp/openscout-a2a-sidecar",
+    metadata: {
+      a2aContextId: "ctx-weather",
+      a2aExecutionUrl: "http://127.0.0.1:4111/api/a2a/weather-agent",
+      lastCompletedAt: 1_700_000_100_000,
+    },
+    ...(overrides.endpoint ?? {}),
+  };
+  return {
+    baseUrl: "http://broker.test",
+    node: {
+      id: nodeId,
+      meshId: "mesh-1",
+      name: "Test node",
+      advertiseScope: "local",
+      registeredAt: 1_700_000_000_000,
+    },
+    snapshot: {
+      nodes: {
+        [nodeId]: {
+          id: nodeId,
+          meshId: "mesh-1",
+          name: "Test node",
+          advertiseScope: "local",
+          registeredAt: 1_700_000_000_000,
+        },
+      },
+      actors: {
+        operator: {
+          id: "operator",
+          kind: "operator",
+          displayName: "Operator",
+          handle: "art",
+        },
+      },
+      agents: {
+        [agentId]: agent,
+      },
+      endpoints: {
+        [String(endpoint.id)]: endpoint,
+      },
+      flights: {},
+      ...(overrides.snapshot ?? {}),
+    },
+  };
+}
+
 function sessionSnapshotWithAttention(): {
   snapshot: SessionState;
   approval: Record<string, unknown>;
@@ -702,6 +809,106 @@ describe("createOpenScoutWebServer", () => {
         harness: "codex",
       }),
     ]);
+  });
+
+  test("includes broker-registered agent cards in the agents API", async () => {
+    queryAgentsResult = [
+      {
+        id: "local-agent",
+        definitionId: "local-agent",
+        name: "Local Agent",
+        handle: "local-agent",
+        conversationId: "dm.operator.local-agent",
+      },
+    ];
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      agent: { capabilities: [] },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const listResponse = await server.app.request("http://localhost/api/agents");
+
+    expect(listResponse.status).toBe(200);
+    const agents = await listResponse.json() as Array<Record<string, unknown>>;
+    expect(agents.map((agent) => agent.id)).toEqual([
+      "local-agent",
+      "weather-a2a.local",
+    ]);
+    const a2aAgent = agents.find((agent) => agent.id === "weather-a2a.local");
+    expect(a2aAgent).toMatchObject({
+      id: "weather-a2a.local",
+      definitionId: "weather-a2a.local",
+      name: "Weather A2A Agent",
+      handle: "weather-a2a",
+      agentClass: "general",
+      harness: "http",
+      state: "available",
+      projectRoot: "/tmp/openscout-a2a-sidecar",
+      cwd: "/tmp/openscout-a2a-sidecar",
+      transport: "http",
+      selector: "weather-a2a",
+      wakePolicy: "on_demand",
+      capabilities: ["chat", "invoke"],
+      project: "openscout-a2a-sidecar",
+      branch: "main",
+      role: null,
+      harnessSessionId: "ctx-weather",
+      conversationId: "dm.operator.weather-a2a.local",
+      authorityNodeId: "node-1",
+      authorityNodeName: "Test node",
+      homeNodeId: "node-1",
+      homeNodeName: "Test node",
+      ownerId: "operator",
+      ownerName: "Operator",
+      ownerHandle: "art",
+      updatedAt: 1_700_000_100_000,
+      createdAt: 1_700_000_000_000,
+      providerName: "OpenScout Protocol Lab",
+      providerUrl: "https://openscout.local",
+      protocol: "A2A",
+      skills: ["weatherTool"],
+    });
+
+    const detailResponse = await server.app.request(
+      "http://localhost/api/agents/weather-a2a",
+    );
+    expect(detailResponse.status).toBe(200);
+    await expect(detailResponse.json()).resolves.toMatchObject({
+      id: "weather-a2a.local",
+      handle: "weather-a2a",
+      conversationId: "dm.operator.weather-a2a.local",
+    });
+  });
+
+  test("keeps database agent rows authoritative when broker cards share an id", async () => {
+    queryAgentsResult = [
+      {
+        id: "weather-a2a.local",
+        definitionId: "weather-a2a.local",
+        name: "Projected A2A Agent",
+        handle: "weather-a2a",
+        conversationId: "dm.operator.weather-a2a.local",
+      },
+    ];
+    scoutBrokerContextResult = makeA2aBrokerContext();
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents");
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    expect(agents.filter((agent) => agent.id === "weather-a2a.local")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "weather-a2a.local")).toMatchObject({
+      name: "Projected A2A Agent",
+    });
   });
 
   test("returns batched observe payloads for the requested agent ids", async () => {
@@ -1844,6 +2051,7 @@ describe("createOpenScoutWebServer", () => {
         targetLabel: "agent-1",
         targetAgentId: "agent-1",
         body: "Please own this and report back.",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
     ]);
@@ -1884,6 +2092,7 @@ describe("createOpenScoutWebServer", () => {
         targetLabel: "agent-1",
         targetAgentId: "agent-1",
         body: "Please own this and report back.",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
       {
@@ -1893,6 +2102,7 @@ describe("createOpenScoutWebServer", () => {
         body: "What should we catch up on?",
         executionHarness: "codex",
         executionModel: "gpt-test",
+        source: "scout-web",
         currentDirectory: "/tmp/openscout",
       },
     ]);
@@ -2501,6 +2711,7 @@ describe("createOpenScoutWebServer", () => {
       worktreePath?: string;
       layers?: string[];
       baseRef?: string;
+      paths?: string[];
       limits?: { timeoutMs?: number; includeBinaryPatch?: boolean };
     } | null = null;
     const server = await createOpenScoutWebServer({
@@ -2512,6 +2723,7 @@ describe("createOpenScoutWebServer", () => {
           worktreePath: opts.worktreePath,
           layers: opts.layers,
           baseRef: opts.baseRef ?? undefined,
+          paths: opts.paths,
           limits: opts.limits,
         };
         return stubDiffSnapshot(opts.worktreePath);
@@ -2531,6 +2743,32 @@ describe("createOpenScoutWebServer", () => {
     expect(captured?.limits).toMatchObject({
       timeoutMs: 15_000,
       includeBinaryPatch: false,
+    });
+  });
+
+  test("passes repo-diff file filters through as native diff paths", async () => {
+    let captured: { paths?: string[] } | null = null;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        captured = { paths: opts.paths };
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&file=src/a.ts&file=/tmp/wt/src/b.ts&file=/tmp/elsewhere/nope.ts",
+    );
+
+    expect(response.status).toBe(200);
+    expect(captured?.paths).toEqual(["src/a.ts", "src/b.ts"]);
+    await expect(response.json()).resolves.toMatchObject({
+      scope: {
+        kind: "worktree",
+        filteredPaths: ["src/a.ts", "src/b.ts"],
+      },
     });
   });
 

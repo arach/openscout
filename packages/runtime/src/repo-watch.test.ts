@@ -245,6 +245,124 @@ describe("repo-watch", () => {
     })).rejects.toThrow("native unavailable");
   });
 
+  test("falls back when native repo-service hits its budget before returning repos", async () => {
+    const repo = join(tempRoot, "native-budget");
+    mkdirSync(repo, { recursive: true });
+    const gitCalls: string[] = [];
+
+    const snapshot = await getRepoWatchSnapshot({
+      force: true,
+      cacheTtlMs: 0,
+      hints: [{ path: repo, source: "endpoint", agentId: "agent.codex" }],
+      nativeScan: async () => ({
+        schema: "openscout.repo.scan/v1",
+        generatedAt: 1_780_860_000_000,
+        projects: [],
+        diagnostics: [{
+          level: "warning",
+          kind: "scan_budget",
+          message: "Repo scan stopped after reaching the scan budget.",
+          path: null,
+        }],
+      }),
+      git: async (_cwd, args) => {
+        const command = args.join(" ");
+        gitCalls.push(command);
+        if (command === "rev-parse --show-toplevel") return `${repo}\n`;
+        if (command === "rev-parse --git-common-dir") return ".git\n";
+        if (command === "worktree list --porcelain") {
+          return [
+            `worktree ${repo}`,
+            "HEAD abc123",
+            "branch refs/heads/main",
+            "",
+          ].join("\n");
+        }
+        if (command === "status --porcelain=v2 --branch -unormal") {
+          return [
+            "# branch.oid abc123",
+            "# branch.head main",
+            "",
+          ].join("\n");
+        }
+        return "";
+      },
+    });
+
+    expect(gitCalls).toContain("rev-parse --show-toplevel");
+    expect(snapshot.projects).toHaveLength(1);
+    expect(snapshot.projects[0]!.root).toBe(repo);
+    expect(snapshot.warnings).toContain("Repo scan stopped after reaching the scan budget.");
+    expect(snapshot.warnings).toContain(
+      "Repo Watch fell back to the TypeScript scanner because the native repo service hit its budget before returning repositories.",
+    );
+  });
+
+  test("native budget fallback prefers a fresh TypeScript scan over a smaller last snapshot", async () => {
+    const firstRepo = join(tempRoot, "native-budget-a");
+    const secondRepo = join(tempRoot, "native-budget-b");
+    mkdirSync(firstRepo, { recursive: true });
+    mkdirSync(secondRepo, { recursive: true });
+    const hints = [
+      { path: firstRepo, source: "endpoint" as const },
+      { path: secondRepo, source: "endpoint" as const },
+    ];
+    const fakeGit = async (cwd: string, args: string[]) => {
+      const command = args.join(" ");
+      if (command === "rev-parse --show-toplevel") return `${cwd}\n`;
+      if (command === "rev-parse --git-common-dir") return ".git\n";
+      if (command === "worktree list --porcelain") {
+        return [
+          `worktree ${cwd}`,
+          "HEAD abc123",
+          "branch refs/heads/main",
+          "",
+        ].join("\n");
+      }
+      if (command === "status --porcelain=v2 --branch -unormal") {
+        return [
+          "# branch.oid abc123",
+          "# branch.head main",
+          "",
+        ].join("\n");
+      }
+      return "";
+    };
+
+    const smallerSnapshot = await getRepoWatchSnapshot({
+      force: true,
+      cacheTtlMs: 0,
+      hints,
+      maxRoots: 1,
+      git: fakeGit,
+    });
+    expect(smallerSnapshot.projects).toHaveLength(1);
+
+    const expandedSnapshot = await getRepoWatchSnapshot({
+      force: true,
+      cacheTtlMs: 0,
+      hints,
+      maxRoots: 2,
+      nativeScan: async () => ({
+        schema: "openscout.repo.scan/v1",
+        generatedAt: 1_780_860_000_000,
+        projects: [],
+        diagnostics: [{
+          level: "warning",
+          kind: "scan_budget",
+          message: "Repo scan stopped after reaching the scan budget.",
+          path: null,
+        }],
+      }),
+      git: fakeGit,
+    });
+
+    expect(expandedSnapshot.projects.map((project) => project.root).sort()).toEqual([
+      firstRepo,
+      secondRepo,
+    ]);
+  });
+
   test("deduplicates Git root probes for repeated path hints", async () => {
     const repo = join(tempRoot, "dedupe");
     mkdirSync(repo, { recursive: true });
