@@ -1370,18 +1370,17 @@ function renderFollowLinkText(result: {
   followUrl?: string | null;
   links?: ScoutFollowLinks;
 }): string {
-  const followUrl = result.followUrl ?? result.links?.follow ?? null;
-  if (followUrl) {
-    return ` Follow: ${followUrl}`;
+  const observeUrl = result.links?.observe ?? result.followUrl ?? null;
+  const tailUrl = result.links?.tail ?? null;
+  const observeLabel = isSessionObserveUrl(observeUrl)
+    ? "Observe session"
+    : "Observe agent";
+  if (observeUrl && tailUrl && tailUrl !== observeUrl) {
+    return ` ${observeLabel}: ${observeUrl} Scout tail: ${tailUrl}`;
   }
-  const observeUrl = result.links?.observe ?? null;
   if (observeUrl) {
-    const observeLabel = isSessionObserveUrl(observeUrl)
-      ? "Observe session"
-      : "Observe agent";
     return ` ${observeLabel}: ${observeUrl}`;
   }
-  const tailUrl = result.links?.tail ?? null;
   if (tailUrl) {
     return ` Scout tail: ${tailUrl}`;
   }
@@ -1624,13 +1623,13 @@ function buildScoutFollowArtifacts(
     : ids.targetAgentId
     ? `/agents/${encodeURIComponent(ids.targetAgentId)}?tab=observe`
     : null;
-  const tailPath = buildFollowPath(ids, "tail");
-  const followPath = tailPath
+  const followPath = observePath
     ?? (ids.workId ? `/work/${encodeURIComponent(ids.workId)}` : null)
     ?? (ids.conversationId ? `/c/${encodeURIComponent(ids.conversationId)}` : null)
-    ?? observePath;
+    ?? buildFollowPath(ids, "tail");
 
   const follow = followPath ? buildScoutPath(origin, followPath) : null;
+  const tailPath = buildFollowPath(ids, "tail");
   const sessionPath = buildFollowPath(ids, "session");
   const observe = observePath ? buildScoutPath(origin, observePath) : null;
   const links: ScoutFollowLinks = {

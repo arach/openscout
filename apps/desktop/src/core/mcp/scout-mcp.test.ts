@@ -1555,7 +1555,7 @@ describe("createScoutMcpServer", () => {
     expect(structured.targetSessionId).toBe("codex-thread-target");
     expect(structured.ids.sessionId).toBe("codex-thread-target");
     expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&sessionId=codex-thread-target&targetAgentId=hudson.main",
+      "http://scout.test/agents/hudson.main/sessions/codex-thread-target",
     );
   });
 
@@ -1619,7 +1619,11 @@ describe("createScoutMcpServer", () => {
         senderId: string;
         targetAgentId: string | null;
         followUrl: string | null;
-        links?: { follow: string | null };
+        links?: {
+          follow: string | null;
+          observe: string | null;
+          tail: string | null;
+        };
       };
     }>((resolve) => {
       client.setNotificationHandler(
@@ -1633,7 +1637,13 @@ describe("createScoutMcpServer", () => {
               senderId: z.string(),
               targetAgentId: z.string().nullable(),
               followUrl: z.string().nullable(),
-              links: z.object({ follow: z.string().nullable() }).optional(),
+              links: z
+                .object({
+                  follow: z.string().nullable(),
+                  observe: z.string().nullable(),
+                  tail: z.string().nullable(),
+                })
+                .optional(),
             })
             .catchall(z.unknown()),
         }),
@@ -1675,10 +1685,13 @@ describe("createScoutMcpServer", () => {
     expect(notification.params.output).toBe("hudson replied");
     expect(notification.params.senderId).toBe("operator");
     expect(notification.params.targetAgentId).toBe("hudson.main");
-    expect(notification.params.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
-    );
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
+    const tailUrl =
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
+    expect(notification.params.followUrl).toBe(observeUrl);
     expect(notification.params.links?.follow).toBe(notification.params.followUrl);
+    expect(notification.params.links?.observe).toBe(observeUrl);
+    expect(notification.params.links?.tail).toBe(tailUrl);
   });
 
   test("inline ask by exact target returns follow-up guidance when the caller wait elapses", async () => {
@@ -1754,12 +1767,13 @@ describe("createScoutMcpServer", () => {
     expect(structured.waitStatus).toBe("acknowledged");
     expect(structured.output).toBe(null);
     expect(structured.flight?.state).toBe("running");
-    expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
-    );
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
+    const tailUrl =
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
+    expect(structured.followUrl).toBe(observeUrl);
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toBe(
-      "Ask acknowledged running; use invocations_wait with flightId=flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      `Ask acknowledged running; use invocations_wait with flightId=flight-1. Observe agent: ${observeUrl} Scout tail: ${tailUrl}`,
     );
   });
 
@@ -1834,12 +1848,13 @@ describe("createScoutMcpServer", () => {
     expect(structured.targetAgentId).toBe("hudson.main");
     expect(structured.targetLabel).toBe("@hudson");
     expect(structured.waitStatus).toBe("acknowledged");
-    expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
-    );
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
+    const tailUrl =
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
+    expect(structured.followUrl).toBe(observeUrl);
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toBe(
-      "Ask acknowledged running; use invocations_wait with flightId=flight-1. Follow: http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      `Ask acknowledged running; use invocations_wait with flightId=flight-1. Observe agent: ${observeUrl} Scout tail: ${tailUrl}`,
     );
   });
 
@@ -1913,7 +1928,11 @@ describe("createScoutMcpServer", () => {
       output: string | null;
       flight: { state: string } | null;
       lifecycle: { state: string; deliveries?: Array<{ state: string }> } | null;
-      links: { follow: string | null };
+      links: {
+        follow: string | null;
+        observe: string | null;
+        tail: string | null;
+      };
     };
 
     expect(structured.found).toBe(true);
@@ -1923,9 +1942,12 @@ describe("createScoutMcpServer", () => {
     expect(structured.flight?.state).toBe("running");
     expect(structured.lifecycle?.state).toBe("working");
     expect(structured.lifecycle?.deliveries?.[0]?.state).toBe("retrying");
-    expect(structured.links.follow).toBe(
-      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&targetAgentId=hudson.main",
-    );
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
+    const tailUrl =
+      "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&targetAgentId=hudson.main";
+    expect(structured.links.follow).toBe(observeUrl);
+    expect(structured.links.observe).toBe(observeUrl);
+    expect(structured.links.tail).toBe(tailUrl);
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toContain("Flight flight-1 is running.");
   });
@@ -2206,23 +2228,23 @@ describe("createScoutMcpServer", () => {
       conversationId: "dm.operator.hudson",
       targetAgentId: "hudson.main",
     });
-    const followUrl =
+    const tailUrl =
       "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
     const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
     expect(structured.followUrl).toBe(
-      followUrl,
+      observeUrl,
     );
     expect(structured.links).toMatchObject({
       follow: structured.followUrl,
       observe: observeUrl,
-      tail: followUrl,
+      tail: tailUrl,
       chat: "http://scout.test/c/dm.operator.hudson",
       agent: "http://scout.test/agents/hudson.main?tab=message",
     });
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]).toEqual({
       type: "text",
-      text: `Ask sent to hudson.main; flight flight-1. Follow: ${followUrl}`,
+      text: `Ask sent to hudson.main; flight flight-1. Observe agent: ${observeUrl} Scout tail: ${tailUrl}`,
     });
   });
 
@@ -2792,20 +2814,27 @@ describe("createScoutMcpServer", () => {
       wake: boolean;
       flightId: string | null;
       followUrl: string | null;
-      links: { follow: string | null };
+      links: {
+        follow: string | null;
+        observe: string | null;
+        tail: string | null;
+      };
     };
     const content = result.content as Array<{ type: string; text: string }> | undefined;
 
     expect(receivedWake).toBe(true);
     expect(structured.wake).toBe(true);
     expect(structured.flightId).toBe("flt-1");
-    expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
-    );
+    const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
+    const tailUrl =
+      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main";
+    expect(structured.followUrl).toBe(observeUrl);
     expect(structured.links.follow).toBe(structured.followUrl);
+    expect(structured.links.observe).toBe(observeUrl);
+    expect(structured.links.tail).toBe(tailUrl);
     expect(content?.[0]).toEqual({
       type: "text",
-      text: "Message sent to hudson.main in dm.operator.hudson (msg-1). Wake queued as flt-1. Follow: http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      text: `Message sent to hudson.main in dm.operator.hudson (msg-1). Wake queued as flt-1. Observe agent: ${observeUrl} Scout tail: ${tailUrl}`,
     });
   });
 
@@ -2868,10 +2897,10 @@ describe("createScoutMcpServer", () => {
 
     expect(structured.wake).toBe(false);
     expect(structured.flightId).toBe("flt-1");
-    expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+    expect(structured.followUrl).toBe("http://scout.test/agents/hudson.main?tab=observe");
+    expect(content?.[0]?.text).toContain(
+      "Dispatch queued as flt-1. Observe agent: http://scout.test/agents/hudson.main?tab=observe Scout tail: http://scout.test/follow",
     );
-    expect(content?.[0]?.text).toContain("Dispatch queued as flt-1. Follow: http://scout.test/follow");
   });
 
   test("returns follow links for explicit target wake messages", async () => {
@@ -2936,10 +2965,12 @@ describe("createScoutMcpServer", () => {
       targetAgentId: "hudson.main",
     });
     expect(structured.followUrl).toBe(
-      "http://scout.test/follow?view=tail&flightId=flt-1&invocationId=inv-1&conversationId=dm.operator.hudson&targetAgentId=hudson.main",
+      "http://scout.test/agents/hudson.main?tab=observe",
     );
     const content = result.content as Array<{ type: string; text: string }> | undefined;
-    expect(content?.[0]?.text).toContain("Wake queued as flt-1. Follow: http://scout.test/follow");
+    expect(content?.[0]?.text).toContain(
+      "Wake queued as flt-1. Observe agent: http://scout.test/agents/hudson.main?tab=observe Scout tail: http://scout.test/follow",
+    );
   });
 
   test("uses the active broker reply agent as the default MCP sender", async () => {
