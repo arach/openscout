@@ -34,6 +34,17 @@ OpenScout needs a neutral registry that describes capabilities before they are
 used. This registry should not assume one plugin system, one secret backend, or
 one execution environment.
 
+The near-term priority is a provider and harness capability matrix that routing,
+onboarding, and debug surfaces can read before a task starts. Scout needs a
+matrix that includes local readiness, harness lifecycle support, permission
+boundaries, evidence freshness, and downgrade paths.
+
+Overlap with other runtimes, frameworks, or protocols is not a reason to concede
+the surface. Scout should play well with external metadata sources, but it
+should still build the local-first broker/control-plane view it needs.
+Redundancy is acceptable when Scout needs a clearer routing, inspection, or
+permission answer than an upstream system exposes.
+
 ## Decision
 
 OpenScout SHOULD introduce a broker-visible capability registry.
@@ -68,6 +79,106 @@ Every capability SHOULD declare its execution boundary and enforcement level.
 7. Execution adapters report what they enforced, not what they hoped the agent
    would follow.
 8. The registry must work locally without a hosted service.
+9. Interop is preferred, but overlap with another framework is not a product
+   veto.
+
+## Capability Matrix
+
+The registry should project a matrix, not just a flat list of tools. The matrix
+is the operator and router view of what can be used now, what can be used with a
+downgrade, and what is unavailable.
+
+The first useful axes are:
+
+- provider and model capabilities: provider id, model id, input modalities,
+  output modalities, streaming, tool calling, structured output, embeddings,
+  context window, usage telemetry, pricing or provenance source, and known
+  limits
+- harness and session support: start, resume, interrupt, shutdown, concurrent
+  turns, trace observation, questions, approvals, server requests, command
+  tools, file-change tools, subagents, MCP transports, auth modes, logs, and raw
+  transcript access
+- tool and action methods: input schema, output schema, effect, idempotence,
+  approval requirement, execution boundary, enforcement level, secret
+  references, and artifact outputs
+- readiness and evidence: installed, configured, credentials resolvable,
+  endpoint reachable, required resources available, last checked time, evidence
+  kind, evidence ref, and downgrade reason
+- routing projection: whether a request can be satisfied by this
+  provider/harness/capability combination, which alternative is preferred, and
+  why a route was denied
+
+`HarnessFeatureSupportMap` in `packages/protocol` is already a small slice of
+this shape for harness support. SCO-040 should widen that idea into one shared
+capability/readiness projection that catalog, routing, run inspection, CLI, and
+native surfaces can consume.
+
+The matrix can start as a read model over existing catalog entries and adapter
+reports. It does not need to become the executor in the first milestone.
+
+## Scalable Ingestion
+
+Scout MUST NOT require hand-authored knowledge for every capability, MCP tool,
+runtime feature, or model. The matrix should be built from layered ingestion and
+progressive enrichment.
+
+Ingestion sources SHOULD include:
+
+- protocol-native discovery, such as MCP tool lists, input schemas, output
+  schemas, descriptions, and transport metadata
+- harness adapter reports for lifecycle support, trace support, approval
+  support, auth modes, debug surfaces, and observed feature coverage
+- project manifests and extension-pack declarations for capabilities that are
+  intentionally installed with a workspace
+- runtime probes that verify whether binaries, credentials, endpoints, and
+  required local resources are present right now
+- observed execution facts that refine freshness, reliability, latency,
+  downgrade behavior, and failure reasons
+- optional human-authored annotations for display names, risk classes, routing
+  hints, and documentation links
+
+The broker should preserve raw discovered metadata with provenance, then project
+it into Scout's normalized matrix. Normalization should be shallow and durable:
+effect, schema shape, boundary, readiness, evidence, freshness, and policy
+requirements. Scout does not need to understand every tool's domain semantics in
+order to route, disclose, or gate it.
+
+Unknown should be a first-class state. A newly discovered capability can be
+listed as `unknown` or `advisory` until an adapter, probe, or operator annotation
+adds stronger evidence. This lets the matrix scale without pretending the system
+has more knowledge than it does.
+
+Manual curation should be reserved for high-value product polish and safety:
+better labels, grouped categories, risk overrides, recommended defaults, and
+known incompatibilities. It should not be required for basic discovery,
+readiness, or routing diagnostics.
+
+## Rollout Tracks
+
+The implementation should land as a spine with plug-in lanes, not as one giant
+registry project.
+
+1. Protocol spine: shared types for sources, evidence, methods, effects,
+   readiness, enforcement, provenance, and matrix snapshots.
+2. Protocol discovery: ingest MCP and other structured protocol metadata into
+   raw snapshots, then normalize shallowly into capability definitions.
+3. Harness reports: project `HarnessFeatureSupportMap` and adapter coverage
+   reports into the same matrix so lifecycle and observation support sit beside
+   tool support.
+4. Provider and model reports: add provider/model capability records for
+   modalities, streaming, tool calling, structured output, embeddings, context
+   limits, usage telemetry, and freshness.
+5. Readiness probes: verify local binaries, credentials, endpoints, workspace
+   resources, trace sources, and MCP server reachability as separate evidence
+   from declared capability.
+6. Routing diagnostics: use the matrix first to explain allow, deny, downgrade,
+   or unknown decisions before making routing increasingly automatic.
+7. Inspector projection: let run inspection and later typed result cards read
+   the same capability, artifact, and source-reference facts instead of inventing
+   a UI-only tool-result model.
+
+Each track should be useful on its own. MCP ingestion should not wait for model
+catalogs, and model catalogs should not wait for polished inspector cards.
 
 ## Capability Record
 
@@ -101,7 +212,9 @@ export interface ScoutCapabilityMethod {
   description?: string;
   inputSchema?: unknown;
   outputSchema?: unknown;
-  effect: "read" | "write" | "execute" | "network" | "notify" | "admin";
+  effects: Array<
+    "read" | "write" | "execute" | "network" | "notify" | "admin" | "unknown"
+  >;
   idempotent?: boolean;
   requiresApproval?: boolean;
 }
@@ -199,6 +312,19 @@ tools, local shell affordances, and broker APIs.
 
 For MCP-backed capabilities, Scout SHOULD cache tool metadata with provenance
 and freshness. It SHOULD re-check availability before execution.
+
+## External Metadata Boundary
+
+Frameworks, harnesses, and protocols may expose useful metadata such as tool
+schemas, agent-to-tool bindings, provider/model identifiers, workflow
+definitions, runtime traces, logs, and evaluation results. Scout can ingest or
+reference that material when an adapter has a stable read surface.
+
+Those sources do not replace Scout's matrix. Scout's matrix describes what this
+local broker, machine, project, harness, session, provider, and permission
+profile can safely route to right now. External metadata should be projected
+into Scout's topology and capability models with clear provenance rather than
+treated as the authority for all Scout routing.
 
 ## Non-Goals
 

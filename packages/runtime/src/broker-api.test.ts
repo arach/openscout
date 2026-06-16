@@ -10,6 +10,7 @@ import type {
   MessageRecord,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
+  ScoutCapabilityMatrixSnapshot,
   ScoutInvocationLifecycle,
 } from "@openscout/protocol";
 
@@ -48,6 +49,10 @@ describe("active broker service helpers", () => {
       | { agentId: string; limit?: number; since?: number | null; includeAcknowledged?: boolean }
       | undefined;
     let lifecycleQuery: { invocationId: string } | undefined;
+    let capabilitiesQuery: { force?: boolean } | undefined;
+    let availabilityQuery:
+      | { capabilityId: string; methodName?: string; requireReady?: boolean; force?: boolean }
+      | undefined;
 
     const service: ActiveScoutBrokerService = {
       baseUrl: "http://broker.test",
@@ -130,6 +135,34 @@ describe("active broker service helpers", () => {
     const messages = await maybeReadJsonFromActiveScoutBrokerService<
       MessageRecord[]
     >("http://broker.test", "/v1/messages?limit=20");
+    const capabilitiesSnapshot: ScoutCapabilityMatrixSnapshot = {
+      generatedAt: 123,
+      sources: [],
+      capabilities: [],
+      warnings: [],
+    };
+    service.readCapabilities = async (query) => {
+      capabilitiesQuery = query;
+      return capabilitiesSnapshot;
+    };
+    service.readCapabilityAvailability = async (query) => {
+      availabilityQuery = query;
+      return {
+        decision: "deny",
+        capabilityId: query.capabilityId,
+        methodName: query.methodName,
+        reason: "capability_missing",
+        detail: "No capability matched.",
+      };
+    };
+    const capabilities = await maybeReadJsonFromActiveScoutBrokerService<ScoutCapabilityMatrixSnapshot>(
+      "http://broker.test",
+      "/v1/capabilities?force=1",
+    );
+    const availability = await maybeReadJsonFromActiveScoutBrokerService(
+      "http://broker.test",
+      "/v1/capabilities/availability?capabilityId=cap%3Amissing&methodName=call&requireReady=true&force=1",
+    );
     const feed = await maybeReadJsonFromActiveScoutBrokerService<{
       agentId: string;
     }>("http://broker.test", "/v1/broker/messages?agentId=agent-1&limit=5&since=50&includeAcknowledged=1");
@@ -157,6 +190,27 @@ describe("active broker service helpers", () => {
     });
     expect(messages.handled).toBe(true);
     expect(messages.handled && messages.value[0]?.id).toBe("msg-1");
+    expect(capabilities).toEqual({
+      handled: true,
+      value: capabilitiesSnapshot,
+    });
+    expect(capabilitiesQuery).toEqual({ force: true });
+    expect(availability).toEqual({
+      handled: true,
+      value: {
+        decision: "deny",
+        capabilityId: "cap:missing",
+        methodName: "call",
+        reason: "capability_missing",
+        detail: "No capability matched.",
+      },
+    });
+    expect(availabilityQuery).toEqual({
+      capabilityId: "cap:missing",
+      methodName: "call",
+      requireReady: true,
+      force: true,
+    });
     expect(feed).toEqual({
       handled: true,
       value: expect.objectContaining({ agentId: "agent-1" }),

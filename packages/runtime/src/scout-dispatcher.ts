@@ -154,6 +154,8 @@ function buildAgentLabelCandidate(
   const metadata = agent.metadata ?? {};
   const endpoint = preferredEndpointForAgent(snapshot, agent.id);
   const aliases = [
+    agent.handle,
+    metadataStringValue(metadata, "handle"),
     agent.selector,
     agent.defaultSelector,
     metadataStringValue(metadata, "selector"),

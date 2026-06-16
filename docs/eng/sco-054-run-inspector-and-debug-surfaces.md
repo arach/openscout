@@ -220,6 +220,38 @@ as observed material.
 The inspector MUST NOT rerun a harness step just because a user scrubbed the
 timeline. Re-execution is a broker command such as retry, resume, or fork.
 
+Existing observe and trace surfaces with a play bar already cover the replay
+shape: a completed run can be inspected through a time-ordered projection
+instead of rereading a raw transcript. Scout should keep that direction inside
+the trace and inspector model rather than adding a separate chat-playback
+concept.
+
+## Structured Result Cards
+
+Typed result cards are approved as a later presentation direction, not as
+immediate implementation work. The baseline inspector can keep rendering generic
+timeline and action blocks while higher-priority routing, capability, and trace
+work lands.
+
+Later inspector surfaces MAY add typed cards for:
+
+- browser steps, screenshots, and final browser summaries
+- todo lists and task analysis
+- code artifacts and file-change summaries
+- web search and crawl results
+- sandbox command output, stdout, stderr, generated files, images, and PDFs
+- approval, question, unblock, and retry decisions
+
+These cards should be projections over Scout trace blocks, artifacts,
+capability facts, and bounded source references. They should not scrape raw
+transcript text, create new canonical state, or become an execution authority.
+If a harness exposes richer native tool-result payloads, adapters can preserve
+them as observed source material and project the parts that fit Scout's typed
+card model.
+
+The generic action block remains the required fallback. A missing card renderer
+must degrade into readable bounded output plus source references.
+
 ## CLI Shape
 
 Expected future command shape:

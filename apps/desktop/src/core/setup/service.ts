@@ -7,6 +7,7 @@ import {
   resolveConfiguredScoutWebHostname,
   resolveScoutWebNamedHostname,
 } from "@openscout/runtime/local-config";
+import type { ScoutCapabilityMatrixSnapshot } from "@openscout/protocol";
 import { resolveOpenScoutLocalEdgeConfig } from "@openscout/runtime/local-edge";
 import {
   loadResolvedRelayAgents,
@@ -27,6 +28,7 @@ import {
   inspectScoutLocalEdgeDependencies,
   type ScoutLocalEdgeDependencyReport,
 } from "./local-edge-dependencies.ts";
+import { readScoutCapabilityMatrix } from "../broker/service.ts";
 
 export type ScoutLocalEdgeDoctorReport = {
   state: "ready" | "degraded" | "missing";
@@ -65,6 +67,7 @@ export type ScoutDoctorReport = {
   localEdge: ScoutLocalEdgeDoctorReport;
   setup: Awaited<ReturnType<typeof loadResolvedRelayAgents>>;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
+  capabilities: ScoutCapabilityMatrixSnapshot | null;
 };
 
 export type ScoutSetupReport = {
@@ -81,6 +84,7 @@ export type ScoutRuntimesReport = {
   currentDirectory: string;
   harnessCatalogPath: string;
   catalog: Awaited<ReturnType<typeof loadHarnessCatalogSnapshot>>;
+  capabilities: ScoutCapabilityMatrixSnapshot | null;
 };
 
 export type ScoutProjectInventoryEntry = ProjectInventoryEntry;
@@ -92,7 +96,7 @@ export async function loadScoutDoctorReport(input: {
   onProjectInventoryEntry?: (entry: ProjectInventoryEntry) => void | Promise<void>;
 }): Promise<ScoutDoctorReport> {
   return withScoutCoreCommandLock("doctor", async () => {
-    const [broker, localEdge, setup, catalog] = await Promise.all([
+    const [broker, localEdge, setup, catalog, capabilities] = await Promise.all([
       getRuntimeBrokerServiceStatus(),
       loadScoutLocalEdgeDoctorReport(input.env ?? process.env),
       loadResolvedRelayAgents({
@@ -100,6 +104,7 @@ export async function loadScoutDoctorReport(input: {
         onProjectInventoryEntry: input.onProjectInventoryEntry,
       }),
       loadHarnessCatalogSnapshot(),
+      readScoutCapabilityMatrix(),
     ]);
 
     return {
@@ -110,6 +115,7 @@ export async function loadScoutDoctorReport(input: {
       localEdge,
       setup,
       catalog,
+      capabilities,
     };
   });
 }
@@ -261,5 +267,6 @@ export async function loadScoutRuntimesReport(currentDirectory: string): Promise
     currentDirectory,
     harnessCatalogPath: resolveOpenScoutSupportPaths().harnessCatalogPath,
     catalog: await loadHarnessCatalogSnapshot(),
+    capabilities: await readScoutCapabilityMatrix(),
   }));
 }

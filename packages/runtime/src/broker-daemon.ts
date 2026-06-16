@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, mkdirSync, openSync } from "node:fs";
-import { lstat, mkdir, stat, unlink } from "node:fs/promises";
+import { lstat, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -18,6 +18,23 @@ import {
   assertValidCollaborationRecord,
   assertValidUnblockRequestEvent,
   assertValidUnblockRequestRecord,
+  A2A_JSON_RPC_CONTENT_TYPE,
+  A2A_JSON_RPC_METHODS,
+  A2A_LEGACY_JSON_RPC_METHODS,
+  a2aAgentCardFromScoutCard,
+  a2aTaskFromFlight,
+  a2aTextFromMessage,
+  a2aTaskStateFromFlightState,
+  isA2ATerminalTaskState,
+  type A2AAgentCard,
+  type A2AJsonRpcRequest,
+  type A2AJsonRpcResponse,
+  type A2AListTasksParams,
+  type A2AListTasksResult,
+  type A2ASendMessageParams,
+  type A2ATask,
+  type A2ATaskIdParams,
+  type A2ATaskState,
   buildScoutReturnAddress,
   namedChannelNaturalKey,
   channelNaturalKeyFromMetadata,
@@ -46,6 +63,7 @@ import {
   type MessageRecord,
   type NodeDefinition,
   type ScoutAgentCard,
+  type ScoutCapabilityMatrixSnapshot,
   type ScoutDispatchEnvelope,
   type ScoutDispatchRecord,
   type ScoutDispatchUnavailableTarget,
@@ -145,6 +163,7 @@ import { ThreadEventPlane, ThreadWatchProtocolError } from "./thread-events.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 import { isDispatchStalledError } from "./dispatch-stalled.js";
 import { isCodexAppServerExitError } from "./codex-app-server.js";
+import { invokeA2AHttpEndpoint, isA2AHttpEndpoint } from "./a2a-http-endpoint.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   requestScoutBrokerJson,
@@ -180,6 +199,15 @@ import {
   getHarnessTopologySnapshot,
   nudgeHarnessTopologyScan,
 } from "./harness-topology/index.js";
+import { loadHarnessCatalogSnapshot } from "./harness-catalog.js";
+import {
+  buildHarnessReadinessProbeInputsFromCatalogSnapshot,
+  buildHarnessSupportInputsFromCatalogSnapshot,
+  buildRuntimeCapabilityMatrixSnapshot,
+} from "./capability-matrix.js";
+import { discoverConfiguredMcpServers } from "./mcp-discovery.js";
+import { loadRuntimeMcpServerCatalog } from "./mcp-server-catalog.js";
+import { loadRuntimeModelCatalogInput } from "./model-catalog.js";
 import {
   getTailDiscovery,
   readRecentLiveEvents,
@@ -199,6 +227,7 @@ import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const PROCESS_NAME = "scout-broker";
 const WEB_PROCESS_NAME = "scout-web";
+const DEFAULT_CAPABILITY_MATRIX_CACHE_TTL_MS = 60_000;
 
 process.title = PROCESS_NAME;
 
@@ -257,6 +286,20 @@ function json(response: ServerResponse, status: number, payload: unknown): void 
   response.end(JSON.stringify(payload, null, 2));
 }
 
+function a2aJson(
+  response: ServerResponse,
+  status: number,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): void {
+  response.writeHead(status, {
+    "cache-control": "no-cache",
+    ...headers,
+    "content-type": `${A2A_JSON_RPC_CONTENT_TYPE}; charset=utf-8`,
+  });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
 function jsonWithHeaders(response: ServerResponse, status: number, payload: unknown, headers: Record<string, string>): void {
   response.writeHead(status, {
     ...headers,
@@ -274,6 +317,16 @@ function badRequest(response: ServerResponse, error: unknown): void {
     error: "bad_request",
     detail: error instanceof Error ? error.message : String(error),
   });
+}
+
+function parseBooleanQueryParam(value: string | null | undefined): boolean | undefined {
+  if (value === "1" || value === "true") {
+    return true;
+  }
+  if (value === "0" || value === "false") {
+    return false;
+  }
+  return undefined;
 }
 
 function conflict(response: ServerResponse, detail: string): void {
@@ -4517,7 +4570,9 @@ function activeLocalEndpointForAgent(
     return targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true;
   });
   return candidates.find((endpoint) => (
-    endpoint.transport === "pairing_bridge"
+    isA2AHttpEndpoint(endpoint)
+      ? true
+      : endpoint.transport === "pairing_bridge"
       ? endpoint.state !== "offline"
       : isLocalAgentEndpointAlive(endpoint)
   ));
@@ -4595,7 +4650,14 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
     requestedHarness,
     targetSessionId,
   );
-  if (existing && (shouldUseExistingSession || existing.transport === "pairing_bridge")) {
+  if (
+    existing
+    && (
+      shouldUseExistingSession
+      || existing.transport === "pairing_bridge"
+      || isA2AHttpEndpoint(existing)
+    )
+  ) {
     return existing;
   }
 
@@ -4750,13 +4812,14 @@ async function executeLocalInvocation(
 
   if (
     endpoint.transport !== "pairing_bridge"
+    && !isA2AHttpEndpoint(endpoint)
     && !isBrokerRunnableLocalAgentTransport(endpoint.transport)
   ) {
     const failedFlight = {
       ...initialFlight,
       state: "failed" as const,
       summary: `${agent.displayName} has no supported local executor.`,
-      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local agent adapters.`,
+      error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local agent adapters or A2A HTTP endpoints.`,
       completedAt: Date.now(),
     };
     await persistFlight(failedFlight);
@@ -4804,6 +4867,8 @@ async function executeLocalInvocation(
   try {
     const result = endpoint.transport === "pairing_bridge"
       ? await invokePairingSessionEndpoint(runningEndpoint, invocation)
+      : isA2AHttpEndpoint(runningEndpoint)
+      ? await invokeA2AHttpEndpoint(runningEndpoint, invocation)
       : await invokeLocalAgentEndpoint(runningEndpoint, invocation);
     const rawResultExternalSessionId = "externalSessionId" in result ? result.externalSessionId : undefined;
     const resultExternalSessionId = typeof rawResultExternalSessionId === "string" && rawResultExternalSessionId.trim()
@@ -5685,6 +5750,472 @@ async function failAcceptedInvocation(invocation: InvocationRequest, detail: str
   await postInvocationStatusMessage(invocation, failed);
 }
 
+function a2aJsonRpcResult<TResult>(
+  id: A2AJsonRpcRequest["id"],
+  result: TResult,
+): A2AJsonRpcResponse<TResult> {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result,
+  };
+}
+
+function a2aJsonRpcError(
+  id: A2AJsonRpcRequest["id"],
+  code: number,
+  message: string,
+  data?: unknown,
+): A2AJsonRpcResponse {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code,
+      message,
+      ...(data === undefined ? {} : { data }),
+    },
+  };
+}
+
+function a2aMethodIs(
+  method: string,
+  canonical: string,
+  legacy?: string,
+): boolean {
+  return method === canonical || (legacy !== undefined && method === legacy);
+}
+
+function recordString(input: Record<string, unknown> | undefined, key: string): string | null {
+  const value = input?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function recordNumber(input: Record<string, unknown> | undefined, key: string): number | null {
+  const value = input?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function recordBoolean(input: Record<string, unknown> | undefined, key: string): boolean | null {
+  const value = input?.[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function asMetadataRecord(input: unknown): Record<string, unknown> | undefined {
+  return input && typeof input === "object" && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : undefined;
+}
+
+function a2aTaskContextId(flight: FlightRecord, invocation: InvocationRequest | undefined): string {
+  return invocation?.conversationId
+    ?? recordString(invocation?.metadata, "a2aContextId")
+    ?? recordString(flight.metadata, "a2aContextId")
+    ?? flight.id;
+}
+
+function a2aTaskForFlight(flight: FlightRecord, invocation: InvocationRequest | undefined): A2ATask {
+  return a2aTaskFromFlight(flight, invocation, {
+    contextId: a2aTaskContextId(flight, invocation),
+    includeHistory: true,
+  });
+}
+
+async function listBrokerScoutAgentCards(): Promise<ScoutAgentCard[]> {
+  const bindings = await loadRegisteredLocalAgentBindings(nodeId, { ensureOnline: false });
+  const local = bindings.map((binding) => buildScoutAgentCard(binding, { brokerRegistered: true }));
+  const snapshot = runtime.snapshot();
+  const external = Object.values(snapshot.agents)
+    .filter((agent) => agent.metadata?.brokerRegistered === true)
+    .map((agent) => {
+      const endpoint = Object.values(snapshot.endpoints).find((candidate) => candidate.agentId === agent.id);
+      return endpoint ? buildScoutAgentCard(
+        {
+          agent,
+          endpoint,
+          actor: snapshot.actors[agent.id] ?? { id: agent.id, kind: "agent", displayName: agent.displayName },
+        },
+        { brokerRegistered: true },
+      ) : null;
+    })
+    .filter((card): card is ScoutAgentCard => Boolean(card));
+  const deduped = new Map<string, ScoutAgentCard>();
+  for (const card of [...local, ...external]) {
+    deduped.set(card.agentId, card);
+  }
+  return [...deduped.values()];
+}
+
+function a2aRpcUrl(origin: string, agentId?: string): string {
+  if (agentId) {
+    return `${origin}/v1/a2a/agents/${encodeURIComponent(agentId)}/rpc`;
+  }
+  return `${origin}/a2a`;
+}
+
+function buildOpenScoutA2ABrokerCard(cards: ScoutAgentCard[], origin: string): A2AAgentCard {
+  const skills = cards.slice(0, 100).map((card) => ({
+    id: card.agentId.toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || card.agentId,
+    name: card.displayName,
+    description: card.description ?? `Route work to ${card.displayName} through OpenScout.`,
+    tags: ["openscout", card.harness, card.transport],
+    inputModes: card.defaultInputModes?.length ? card.defaultInputModes : ["text/plain"],
+    outputModes: card.defaultOutputModes?.length ? card.defaultOutputModes : ["text/plain"],
+  }));
+
+  return {
+    protocolVersion: "1.0",
+    name: "OpenScout Broker",
+    description: "Local OpenScout broker router for registered Scout agents.",
+    url: a2aRpcUrl(origin),
+    preferredTransport: "JSONRPC",
+    provider: {
+      organization: "OpenScout",
+      url: "https://openscout.app",
+    },
+    capabilities: {
+      streaming: false,
+      pushNotifications: false,
+      stateTransitionHistory: true,
+      extendedAgentCard: true,
+    },
+    defaultInputModes: ["text/plain"],
+    defaultOutputModes: ["text/plain"],
+    skills: skills.length > 0 ? skills : [{
+      id: "openscout-route",
+      name: "OpenScout route",
+      description: "Route text tasks to a registered OpenScout agent.",
+      tags: ["openscout"],
+      inputModes: ["text/plain"],
+      outputModes: ["text/plain"],
+    }],
+    supportedInterfaces: [
+      {
+        url: a2aRpcUrl(origin),
+        protocolBinding: "JSONRPC",
+        protocolVersion: "1.0",
+        transport: "http",
+        tenant: "openscout",
+      },
+    ],
+    metadata: {
+      scoutNodeId: nodeId,
+      scoutBrokerUrl: brokerUrl,
+      scoutAgentIds: cards.map((card) => card.agentId),
+      complianceBoundary: "high-trust local pilot",
+    },
+  };
+}
+
+async function a2aAgentCardForRequest(origin: string, agentId?: string): Promise<A2AAgentCard | null> {
+  const cards = await listBrokerScoutAgentCards();
+  if (!agentId) {
+    return buildOpenScoutA2ABrokerCard(cards, origin);
+  }
+  const card = cards.find((candidate) => candidate.agentId === agentId || candidate.handle === agentId);
+  if (!card) {
+    return null;
+  }
+  return a2aAgentCardFromScoutCard(card, {
+    url: a2aRpcUrl(origin, card.agentId),
+    capabilities: {
+      streaming: false,
+      pushNotifications: false,
+      stateTransitionHistory: true,
+      extendedAgentCard: true,
+    },
+  });
+}
+
+function a2aTargetAgentId(params: A2ASendMessageParams, pathAgentId?: string): string | null {
+  if (pathAgentId?.trim()) {
+    return pathAgentId.trim();
+  }
+  const paramsRecord = params as unknown as Record<string, unknown>;
+  const paramsMetadata = asMetadataRecord(params.metadata);
+  const messageMetadata = asMetadataRecord(params.message?.metadata);
+  return recordString(paramsRecord, "tenant")
+    ?? recordString(paramsRecord, "targetAgentId")
+    ?? recordString(paramsMetadata, "tenant")
+    ?? recordString(paramsMetadata, "targetAgentId")
+    ?? recordString(paramsMetadata, "scoutTargetAgentId")
+    ?? recordString(messageMetadata, "tenant")
+    ?? recordString(messageMetadata, "targetAgentId")
+    ?? recordString(messageMetadata, "scoutTargetAgentId");
+}
+
+function a2aBlockingTimeoutMs(params: A2ASendMessageParams): number {
+  const configuration = asMetadataRecord(params.configuration);
+  const paramsMetadata = asMetadataRecord(params.metadata);
+  const timeout = recordNumber(configuration, "timeoutMs") ?? recordNumber(paramsMetadata, "timeoutMs");
+  return timeout && timeout > 0 ? Math.min(timeout, 120_000) : 30_000;
+}
+
+async function waitForA2ATask(
+  flight: FlightRecord,
+  invocation: InvocationRequest,
+  timeoutMs: number,
+): Promise<A2ATask> {
+  const deadline = Date.now() + timeoutMs;
+  let current = flight;
+  while (Date.now() < deadline) {
+    current = runtime.snapshot().flights[flight.id] ?? current;
+    const state = a2aTaskStateFromFlightState(current.state);
+    if (isA2ATerminalTaskState(state) || state === "TASK_STATE_INPUT_REQUIRED") {
+      return a2aTaskForFlight(current, invocation);
+    }
+    await sleep(100);
+  }
+  return a2aTaskForFlight(runtime.snapshot().flights[flight.id] ?? current, invocation);
+}
+
+async function handleA2ASendMessage(
+  params: unknown,
+  pathAgentId?: string,
+): Promise<A2ATask> {
+  const input = asMetadataRecord(params) as A2ASendMessageParams | undefined;
+  if (!input?.message) {
+    throw Object.assign(new Error("SendMessage requires params.message."), {
+      code: -32602,
+    });
+  }
+
+  const targetAgentId = a2aTargetAgentId(input, pathAgentId);
+  if (!targetAgentId) {
+    throw Object.assign(new Error("A2A SendMessage requires a target agent id via the per-agent endpoint, tenant, targetAgentId, or scoutTargetAgentId."), {
+      code: -32602,
+    });
+  }
+  const agent = runtime.agent(targetAgentId);
+  if (!agent) {
+    throw Object.assign(new Error(`A2A target agent not found: ${targetAgentId}`), {
+      code: -32001,
+      data: { targetAgentId },
+    });
+  }
+
+  const task = a2aTextFromMessage(input.message);
+  if (!task) {
+    throw Object.assign(new Error("A2A SendMessage requires at least one text part."), {
+      code: -32602,
+    });
+  }
+
+  const messageMetadata = asMetadataRecord(input.message.metadata);
+  const contextId = input.message.contextId?.trim()
+    ?? recordString(messageMetadata, "a2aContextId")
+    ?? undefined;
+  const invocation: InvocationRequest = {
+    id: createRuntimeId("a2a-inv"),
+    requesterId: recordString(messageMetadata, "scoutRequesterId") ?? "a2a-client",
+    requesterNodeId: nodeId,
+    targetAgentId: agent.id,
+    action: "consult",
+    task,
+    ...(contextId ? { conversationId: contextId } : {}),
+    messageId: input.message.messageId,
+    ensureAwake: true,
+    stream: false,
+    timeoutMs: a2aBlockingTimeoutMs(input),
+    labels: ["a2a"],
+    createdAt: Date.now(),
+    metadata: {
+      ...(asMetadataRecord(input.metadata) ?? {}),
+      a2aContextId: contextId,
+      a2aMessageId: input.message.messageId,
+      a2aRole: input.message.role,
+      a2aProtocolVersion: "1.0",
+    },
+  };
+
+  const flight = await acceptInvocationDurably(invocation);
+  dispatchAcceptedInvocation(invocation).catch((error) => {
+    console.error(
+      `[openscout-runtime] A2A dispatch failed for invocation ${invocation.id}:`,
+      error,
+    );
+  });
+
+  const blocking = recordBoolean(asMetadataRecord(input.configuration), "blocking") === true;
+  return blocking
+    ? waitForA2ATask(flight, invocation, a2aBlockingTimeoutMs(input))
+    : a2aTaskForFlight(flight, invocation);
+}
+
+function a2aTaskIdFromParams(params: unknown): string | null {
+  const input = asMetadataRecord(params) as (A2ATaskIdParams & Record<string, unknown>) | undefined;
+  return recordString(input, "id") ?? recordString(input, "taskId");
+}
+
+function a2aTaskById(taskId: string): { flight: FlightRecord; invocation: InvocationRequest | undefined } | null {
+  const snapshot = runtime.snapshot();
+  const flight = snapshot.flights[taskId];
+  if (!flight) {
+    return null;
+  }
+  return {
+    flight,
+    invocation: snapshot.invocations[flight.invocationId] ?? knownInvocations.get(flight.invocationId),
+  };
+}
+
+async function handleA2AGetTask(params: unknown): Promise<A2ATask> {
+  const taskId = a2aTaskIdFromParams(params);
+  if (!taskId) {
+    throw Object.assign(new Error("GetTask requires params.id or params.taskId."), {
+      code: -32602,
+    });
+  }
+  const found = a2aTaskById(taskId);
+  if (!found) {
+    throw Object.assign(new Error(`A2A task not found: ${taskId}`), {
+      code: -32001,
+      data: { taskId },
+    });
+  }
+  return a2aTaskForFlight(found.flight, found.invocation);
+}
+
+function normalizeA2AListLimit(input: A2AListTasksParams | undefined): number {
+  const raw = input?.pageSize ?? input?.limit ?? 50;
+  return Number.isFinite(raw) && raw > 0 ? Math.min(Math.floor(raw), 100) : 50;
+}
+
+function normalizeA2AListOffset(input: A2AListTasksParams | undefined): number {
+  const token = input?.pageToken?.trim();
+  if (!token) {
+    return 0;
+  }
+  const parsed = Number.parseInt(token, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+async function handleA2AListTasks(
+  params: unknown,
+  pathAgentId?: string,
+): Promise<A2AListTasksResult> {
+  const input = asMetadataRecord(params) as A2AListTasksParams | undefined;
+  const limit = normalizeA2AListLimit(input);
+  const offset = normalizeA2AListOffset(input);
+  const snapshot = runtime.snapshot();
+  const state = input?.state as A2ATaskState | undefined;
+  const rows = Object.values(snapshot.flights)
+    .map((flight) => ({
+      flight,
+      invocation: snapshot.invocations[flight.invocationId] ?? knownInvocations.get(flight.invocationId),
+    }))
+    .filter(({ flight, invocation }) => (
+      (!pathAgentId || flight.targetAgentId === pathAgentId)
+      && (!input?.contextId || a2aTaskContextId(flight, invocation) === input.contextId)
+      && (!state || a2aTaskStateFromFlightState(flight.state) === state)
+    ))
+    .sort((left, right) => (right.flight.startedAt ?? 0) - (left.flight.startedAt ?? 0));
+  const page = rows.slice(offset, offset + limit);
+  return {
+    tasks: page.map(({ flight, invocation }) => a2aTaskForFlight(flight, invocation)),
+    pageSize: limit,
+    totalSize: rows.length,
+    ...(offset + limit < rows.length ? { nextPageToken: String(offset + limit) } : {}),
+  };
+}
+
+async function handleA2ACancelTask(params: unknown): Promise<A2ATask> {
+  const taskId = a2aTaskIdFromParams(params);
+  if (!taskId) {
+    throw Object.assign(new Error("CancelTask requires params.id or params.taskId."), {
+      code: -32602,
+    });
+  }
+  const found = a2aTaskById(taskId);
+  if (!found) {
+    throw Object.assign(new Error(`A2A task not found: ${taskId}`), {
+      code: -32001,
+      data: { taskId },
+    });
+  }
+  const state = a2aTaskStateFromFlightState(found.flight.state);
+  if (isA2ATerminalTaskState(state)) {
+    return a2aTaskForFlight(found.flight, found.invocation);
+  }
+  if (activeInvocationTasks.has(found.flight.invocationId)) {
+    throw Object.assign(new Error(`A2A task ${taskId} is already running and cannot be cancelled by the broker yet.`), {
+      code: -32004,
+      data: { taskId, state },
+    });
+  }
+
+  const cancelled: FlightRecord = {
+    ...found.flight,
+    state: "cancelled",
+    summary: "A2A client cancelled the task before it started running.",
+    completedAt: Date.now(),
+    metadata: {
+      ...(found.flight.metadata ?? {}),
+      a2aCancelledAt: Date.now(),
+    },
+  };
+  await recordFlightDurably(cancelled);
+  return a2aTaskForFlight(cancelled, found.invocation);
+}
+
+async function handleA2AJsonRpc(
+  body: A2AJsonRpcRequest,
+  origin: string,
+  pathAgentId?: string,
+): Promise<A2AJsonRpcResponse> {
+  const id = body?.id ?? null;
+  if (!body || body.jsonrpc !== "2.0" || typeof body.method !== "string") {
+    return a2aJsonRpcError(id, -32600, "Invalid JSON-RPC 2.0 request.");
+  }
+
+  try {
+    if (a2aMethodIs(body.method, A2A_JSON_RPC_METHODS.sendMessage, A2A_LEGACY_JSON_RPC_METHODS.sendMessage)) {
+      return a2aJsonRpcResult(id, { task: await handleA2ASendMessage(body.params, pathAgentId) });
+    }
+    if (a2aMethodIs(body.method, A2A_JSON_RPC_METHODS.getTask, A2A_LEGACY_JSON_RPC_METHODS.getTask)) {
+      return a2aJsonRpcResult(id, await handleA2AGetTask(body.params));
+    }
+    if (a2aMethodIs(body.method, A2A_JSON_RPC_METHODS.listTasks, A2A_LEGACY_JSON_RPC_METHODS.listTasks)) {
+      return a2aJsonRpcResult(id, await handleA2AListTasks(body.params, pathAgentId));
+    }
+    if (a2aMethodIs(body.method, A2A_JSON_RPC_METHODS.cancelTask, A2A_LEGACY_JSON_RPC_METHODS.cancelTask)) {
+      return a2aJsonRpcResult(id, await handleA2ACancelTask(body.params));
+    }
+    if (a2aMethodIs(body.method, A2A_JSON_RPC_METHODS.getExtendedAgentCard, A2A_LEGACY_JSON_RPC_METHODS.getExtendedAgentCard)) {
+      const card = await a2aAgentCardForRequest(origin, pathAgentId);
+      if (!card) {
+        return a2aJsonRpcError(id, -32001, `A2A agent card not found: ${pathAgentId ?? "openscout"}`);
+      }
+      return a2aJsonRpcResult(id, card);
+    }
+    if (
+      body.method === A2A_JSON_RPC_METHODS.sendStreamingMessage
+      || body.method === A2A_LEGACY_JSON_RPC_METHODS.sendStreamingMessage
+      || body.method === A2A_JSON_RPC_METHODS.subscribeToTask
+      || body.method === A2A_LEGACY_JSON_RPC_METHODS.subscribeToTask
+    ) {
+      return a2aJsonRpcError(id, -32005, "A2A streaming is not enabled on this high-trust local broker endpoint yet.");
+    }
+    if (
+      body.method === A2A_JSON_RPC_METHODS.createTaskPushNotificationConfig
+      || body.method === A2A_JSON_RPC_METHODS.getTaskPushNotificationConfig
+      || body.method === A2A_JSON_RPC_METHODS.listTaskPushNotificationConfigs
+      || body.method === A2A_JSON_RPC_METHODS.deleteTaskPushNotificationConfig
+    ) {
+      return a2aJsonRpcError(id, -32005, "A2A push notification configuration is not enabled on this high-trust local broker endpoint yet.");
+    }
+    return a2aJsonRpcError(id, -32601, `A2A method not found: ${body.method}`);
+  } catch (error) {
+    const withCode = error as Error & { code?: number; data?: unknown };
+    return a2aJsonRpcError(
+      id,
+      typeof withCode.code === "number" ? withCode.code : -32603,
+      withCode.message || "A2A request failed.",
+      withCode.data,
+    );
+  }
+}
+
 const peerDelivery: PeerDeliveryWorker = createPeerDeliveryWorker({
   journal,
   snapshot: () => runtime.peek(),
@@ -5701,6 +6232,124 @@ const peerDelivery: PeerDeliveryWorker = createPeerDeliveryWorker({
   emit: streamEvent,
 });
 
+let capabilityMatrixCache: {
+  snapshot: ScoutCapabilityMatrixSnapshot;
+  cachedAt: number;
+} | null = null;
+
+function resolveCapabilityMatrixCacheTtlMs(): number {
+  const raw = process.env.OPENSCOUT_CAPABILITY_MATRIX_CACHE_TTL_MS?.trim();
+  if (!raw) {
+    return DEFAULT_CAPABILITY_MATRIX_CACHE_TTL_MS;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? parsed
+    : DEFAULT_CAPABILITY_MATRIX_CACHE_TTL_MS;
+}
+
+function capabilityMatrixCachePath(): string {
+  return join(resolveOpenScoutSupportPaths().runtimeDirectory, "capability-matrix.json");
+}
+
+function isCapabilityMatrixSnapshot(value: unknown): value is ScoutCapabilityMatrixSnapshot {
+  return Boolean(value)
+    && typeof value === "object"
+    && typeof (value as { generatedAt?: unknown }).generatedAt === "number"
+    && Array.isArray((value as { sources?: unknown }).sources)
+    && Array.isArray((value as { capabilities?: unknown }).capabilities)
+    && Array.isArray((value as { warnings?: unknown }).warnings);
+}
+
+function capabilityMatrixSnapshotIsFresh(
+  snapshot: ScoutCapabilityMatrixSnapshot,
+  now: number,
+  ttlMs: number,
+): boolean {
+  return ttlMs > 0
+    && Number.isFinite(snapshot.generatedAt)
+    && now - snapshot.generatedAt >= 0
+    && now - snapshot.generatedAt <= ttlMs;
+}
+
+async function readPersistedCapabilityMatrixSnapshot(
+  now: number,
+  ttlMs: number,
+): Promise<ScoutCapabilityMatrixSnapshot | null> {
+  try {
+    const raw = await readFile(capabilityMatrixCachePath(), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isCapabilityMatrixSnapshot(parsed) || !capabilityMatrixSnapshotIsFresh(parsed, now, ttlMs)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function writePersistedCapabilityMatrixSnapshot(
+  snapshot: ScoutCapabilityMatrixSnapshot,
+): Promise<void> {
+  try {
+    const path = capabilityMatrixCachePath();
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+  } catch {
+    // Capability discovery is advisory; cache writes must not make broker reads fail.
+  }
+}
+
+async function readBrokerCapabilityMatrixSnapshot(
+  options: { force?: boolean } = {},
+): Promise<ScoutCapabilityMatrixSnapshot> {
+  const now = Date.now();
+  const ttlMs = resolveCapabilityMatrixCacheTtlMs();
+  if (!options.force && capabilityMatrixCache && capabilityMatrixSnapshotIsFresh(capabilityMatrixCache.snapshot, now, ttlMs)) {
+    return capabilityMatrixCache.snapshot;
+  }
+
+  if (!options.force) {
+    const persisted = await readPersistedCapabilityMatrixSnapshot(now, ttlMs);
+    if (persisted) {
+      capabilityMatrixCache = { snapshot: persisted, cachedAt: now };
+      return persisted;
+    }
+  }
+
+  const catalog = await loadHarnessCatalogSnapshot({ now: () => now });
+  const modelCatalog = await loadRuntimeModelCatalogInput({ capturedAt: now });
+  const mcpCatalog = await loadRuntimeMcpServerCatalog();
+  const mcpDiscovery = mcpCatalog.servers.length > 0
+    ? await discoverConfiguredMcpServers({
+        servers: mcpCatalog.servers,
+        scope: { machineId: nodeId },
+        now: () => now,
+      })
+    : { inputs: [], warnings: [] };
+  const inputs = [
+    ...buildHarnessSupportInputsFromCatalogSnapshot(catalog),
+    ...buildHarnessReadinessProbeInputsFromCatalogSnapshot(catalog),
+    ...mcpDiscovery.inputs,
+    ...(modelCatalog.input ? [modelCatalog.input] : []),
+  ];
+  const snapshot = buildRuntimeCapabilityMatrixSnapshot({
+    generatedAt: catalog.generatedAt,
+    scope: { machineId: nodeId },
+    inputs,
+    warnings: [
+      ...mcpCatalog.warnings,
+      ...mcpDiscovery.warnings,
+      ...modelCatalog.warnings,
+    ],
+  });
+  capabilityMatrixCache = { snapshot, cachedAt: now };
+  if (ttlMs > 0) {
+    await writePersistedCapabilityMatrixSnapshot(snapshot);
+  }
+  return snapshot;
+}
+
 const brokerService = createBrokerCoreService({
   baseUrl: brokerUrl,
   nodeId,
@@ -5713,6 +6362,7 @@ const brokerService = createBrokerCoreService({
   isReconciledStaleFlightActivityItem,
   readChildServices: readBrokerChildServiceSnapshots,
   readHome: brokerHomePayload,
+  readCapabilities: readBrokerCapabilityMatrixSnapshot,
   executeCommand: handleCommand,
   postConversationMessage,
   deliver: acceptBrokerDelivery,
@@ -5729,6 +6379,12 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
     : null;
   const durableActionHeartbeatMatch = method === "POST"
     ? url.pathname.match(/^\/v1\/durable-actions\/([^/]+)\/heartbeat$/)
+    : null;
+  const a2aAgentCardMatch = method === "GET"
+    ? url.pathname.match(/^\/v1\/a2a\/agents\/([^/]+)\/agent-card\.json$/)
+    : null;
+  const a2aAgentRpcMatch = method === "POST"
+    ? url.pathname.match(/^\/v1\/a2a\/agents\/([^/]+)\/rpc$/)
     : null;
   const threadEventsMatch = method === "GET"
     ? url.pathname.match(/^\/v1\/conversations\/([^/]+)\/thread-events$/)
@@ -5750,6 +6406,41 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/health") {
     json(response, 200, await brokerService.readHealth());
+    return;
+  }
+
+  if (
+    method === "GET"
+    && (url.pathname === "/.well-known/agent-card.json" || url.pathname === "/v1/a2a/agent-card.json" || a2aAgentCardMatch)
+  ) {
+    const pathAgentId = a2aAgentCardMatch
+      ? decodeURIComponent(a2aAgentCardMatch[1] ?? "")
+      : url.searchParams.get("agentId")?.trim() || undefined;
+    const card = await a2aAgentCardForRequest(url.origin, pathAgentId);
+    if (!card) {
+      a2aJson(response, 404, {
+        error: "not_found",
+        detail: `A2A agent card not found: ${pathAgentId ?? "openscout"}`,
+      });
+      return;
+    }
+    a2aJson(response, 200, card);
+    return;
+  }
+
+  if (method === "POST" && (url.pathname === "/a2a" || url.pathname === "/v1/a2a/rpc" || a2aAgentRpcMatch)) {
+    try {
+      const body = await readRequestBody<A2AJsonRpcRequest>(request);
+      const pathAgentId = a2aAgentRpcMatch ? decodeURIComponent(a2aAgentRpcMatch[1] ?? "") : undefined;
+      const result = await handleA2AJsonRpc(body, url.origin, pathAgentId);
+      a2aJson(response, result.error ? 200 : 200, result);
+    } catch (error) {
+      a2aJson(response, 200, a2aJsonRpcError(
+        null,
+        -32700,
+        `A2A JSON-RPC parse error: ${error instanceof Error ? error.message : String(error)}`,
+      ));
+    }
     return;
   }
 
@@ -5797,6 +6488,36 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   if (method === "GET" && url.pathname === "/v1/snapshot") {
     json(response, 200, await brokerService.readSnapshot());
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/capabilities/availability") {
+    if (!brokerService.readCapabilityAvailability) {
+      notFound(response);
+      return;
+    }
+    const capabilityId = url.searchParams.get("capabilityId")?.trim();
+    if (!capabilityId) {
+      badRequest(response, "missing capabilityId");
+      return;
+    }
+    json(response, 200, await brokerService.readCapabilityAvailability({
+      capabilityId,
+      methodName: url.searchParams.get("methodName")?.trim() || undefined,
+      requireReady: parseBooleanQueryParam(url.searchParams.get("requireReady")),
+      force: parseBooleanQueryParam(url.searchParams.get("force")),
+    }));
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/v1/capabilities") {
+    if (!brokerService.readCapabilities) {
+      notFound(response);
+      return;
+    }
+    json(response, 200, await brokerService.readCapabilities({
+      force: parseBooleanQueryParam(url.searchParams.get("force")),
+    }));
     return;
   }
 
@@ -7075,20 +7796,7 @@ async function routeRequest(request: IncomingMessage, response: ServerResponse):
 
   // ─── External agent cards (SCO-016) ────────────────────────────────────────
   if (method === "GET" && url.pathname === "/v1/agent-cards") {
-    const bindings = await loadRegisteredLocalAgentBindings(nodeId, { ensureOnline: false });
-    const local = bindings.map((b) => buildScoutAgentCard(b, { brokerRegistered: true }));
-    const external = Object.values(runtime.snapshot().agents)
-      .filter((a) => a.metadata?.brokerRegistered === true)
-      .map((agent) => {
-        const eps = Object.values(runtime.snapshot().endpoints).filter((e) => e.agentId === agent.id);
-        const ep = eps[0];
-        return ep ? buildScoutAgentCard(
-          { agent, endpoint: ep, actor: runtime.snapshot().actors[agent.id] ?? { id: agent.id, kind: "agent" } },
-          { brokerRegistered: true },
-        ) : null;
-      })
-      .filter(Boolean) as ScoutAgentCard[];
-    json(response, 200, { cards: [...local, ...external] });
+    json(response, 200, { cards: await listBrokerScoutAgentCards() });
     return;
   }
   if (method === "POST" && url.pathname === "/v1/agent-cards") {

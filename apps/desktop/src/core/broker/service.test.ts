@@ -8,6 +8,7 @@ import {
   writeProjectConfig,
   writeRelayAgentOverrides,
 } from "@openscout/runtime/setup";
+import type { ScoutCapabilityMatrixSnapshot } from "@openscout/protocol";
 import {
   registerActiveScoutBrokerService,
   type ActiveScoutBrokerService,
@@ -25,6 +26,7 @@ import {
   loadScoutBrokerContext,
   parseScoutHarness,
   parseScoutLocalHarness,
+  readScoutCapabilityMatrix,
   readScoutBrokerHealth,
   resolveHumanAskSenderName,
   resolveScoutSenderId,
@@ -167,6 +169,54 @@ describe("listScoutAgents", () => {
       && entry.registrationKind === "discovered"
       && entry.state === "discovered"
     ))).toBe(true);
+  });
+});
+
+describe("readScoutCapabilityMatrix", () => {
+  test("reads the broker capability snapshot without importing runtime internals", async () => {
+    process.env.OPENSCOUT_BROKER_URL = "http://broker.test";
+    const capabilitySnapshot: ScoutCapabilityMatrixSnapshot = {
+      generatedAt: 123,
+      scope: { machineId: "node-1" },
+      sources: [{
+        kind: "harness_adapter",
+        id: "codex",
+        capturedAt: 123,
+      }],
+      capabilities: [],
+      warnings: [],
+    };
+    const service: ActiveScoutBrokerService = {
+      baseUrl: "http://broker.test",
+      readHealth: async () => ({
+        ok: true,
+        nodeId: "node-1",
+        meshId: "mesh-1",
+        counts: {
+          nodes: 1,
+          actors: 0,
+          agents: 0,
+          conversations: 0,
+          messages: 0,
+          flights: 0,
+          collaborationRecords: 0,
+        },
+      }),
+      readNode: async () => ({
+        id: "node-1",
+        meshId: "mesh-1",
+        name: "node-1",
+        advertiseScope: "local",
+        registeredAt: 1,
+        lastSeenAt: 1,
+      }),
+      readSnapshot: async () => createRuntimeRegistrySnapshot(),
+      readCapabilities: async () => capabilitySnapshot,
+      executeCommand: async () => ({ ok: true }),
+    };
+    registerActiveScoutBrokerService(service);
+
+    await expect(readScoutCapabilityMatrix()).resolves.toEqual(capabilitySnapshot);
   });
 });
 

@@ -36,6 +36,7 @@ import {
   type ScoutInvocationLifecycle,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
+  type ScoutCapabilityMatrixSnapshot,
   type ScoutProjectAgentSpec,
   type WakePolicy,
   type WorkItemRecord,
@@ -105,6 +106,7 @@ export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
 export type ScoutAgentBrokerFeed = AgentBrokerFeed;
+export type ScoutCapabilitySnapshot = ScoutCapabilityMatrixSnapshot;
 
 export type ScoutBrokerContext = {
   baseUrl: string;
@@ -1093,6 +1095,19 @@ export async function readScoutBrokerSnapshot(
     return await brokerReadJson<ScoutBrokerSnapshot>(
       baseUrl,
       scoutBrokerPaths.v1.snapshot,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export async function readScoutCapabilityMatrix(
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutCapabilitySnapshot | null> {
+  try {
+    return await brokerReadJson<ScoutCapabilitySnapshot>(
+      baseUrl,
+      scoutBrokerPaths.v1.capabilities,
     );
   } catch {
     return null;

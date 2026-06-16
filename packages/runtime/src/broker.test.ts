@@ -3,6 +3,24 @@ import { describe, expect, test } from "bun:test";
 import { createInMemoryControlRuntime } from "./broker.ts";
 
 describe("InMemoryControlRuntime", () => {
+  test("defaults identity-only external agents to general class", () => {
+    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+
+    runtime.upsertAgentIdentity({
+      id: "mastra-weather.local",
+      displayName: "Mastra Weather Agent",
+      handle: "mastra-weather",
+      authorityNodeId: "node-1",
+      metadata: { brokerRegistered: true },
+    });
+
+    expect(runtime.snapshot().agents["mastra-weather.local"]).toMatchObject({
+      agentClass: "general",
+      capabilities: [],
+      wakePolicy: "on_demand",
+    });
+  });
+
   test("posts messages using indexed endpoints and bindings", async () => {
     const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
 
