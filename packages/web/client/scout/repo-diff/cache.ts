@@ -23,22 +23,52 @@ const queuedPrefetches = new Set<string>();
 let prefetchQueue = Promise.resolve();
 
 type RepoDiffRequestCacheMode = "prefer" | "reload" | "only";
+export type RepoDiffSessionRequest = {
+  sessionId?: string | null;
+  agentId?: string | null;
+  include?: "changed" | "all";
+};
+export type RepoDiffRequestOptions = {
+  cache?: RepoDiffRequestCacheMode;
+  rehydrate?: boolean;
+  files?: readonly string[];
+  session?: RepoDiffSessionRequest | null;
+};
 
 export function buildRepoDiffUrl(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
-  options: { cache?: RepoDiffRequestCacheMode; rehydrate?: boolean } = {},
+  options: RepoDiffRequestOptions = {},
 ): string {
   const params = new URLSearchParams();
-  params.set("path", path);
+  if (options.session) {
+    const sessionId = options.session.sessionId?.trim();
+    const agentId = options.session.agentId?.trim();
+    if (sessionId) params.set("sessionId", sessionId);
+    if (agentId) params.set("agentId", agentId);
+    if (options.session.include) params.set("include", options.session.include);
+  } else {
+    params.set("path", path);
+    for (const file of options.files ?? []) {
+      const trimmed = file.trim();
+      if (trimmed) params.append("file", trimmed);
+    }
+  }
   for (const layer of layers) params.append("layer", layer);
   if (options.cache) params.set("cache", options.cache);
   if (options.rehydrate) params.set("rehydrate", "1");
-  return `/api/repo-diff/worktree?${params.toString()}`;
+  return `/api/repo-diff/${options.session ? "session" : "worktree"}?${params.toString()}`;
 }
 
-function cacheKey(path: string, layers: readonly RepoDiffLayerKind[]): string {
-  return `${path}\u0000${layers.join(",")}`;
+function cacheKey(
+  path: string,
+  layers: readonly RepoDiffLayerKind[],
+  options: Pick<RepoDiffRequestOptions, "files" | "session"> = {},
+): string {
+  const scope = options.session
+    ? `session:${options.session.sessionId ?? ""}:${options.session.agentId ?? ""}:${options.session.include ?? "changed"}`
+    : `worktree:${(options.files ?? []).join("\n")}`;
+  return `${path}\u0000${layers.join(",")}\u0000${scope}`;
 }
 
 function trimCache(): void {
@@ -52,9 +82,10 @@ function trimCache(): void {
 export function readRepoDiffCache(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
+  options: Pick<RepoDiffRequestOptions, "files" | "session"> = {},
   maxAgeMs = DEFAULT_MAX_AGE_MS,
 ): RepoDiffCacheRead | null {
-  const record = cache.get(cacheKey(path, layers));
+  const record = cache.get(cacheKey(path, layers, options));
   if (!record) return null;
   const ageMs = Math.max(0, Date.now() - record.fetchedAt);
   return {
@@ -67,9 +98,9 @@ export function readRepoDiffCache(
 export async function fetchRepoDiffSnapshot(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
-  options: { force?: boolean } = {},
+  options: { force?: boolean; files?: readonly string[]; session?: RepoDiffSessionRequest | null } = {},
 ): Promise<RepoDiffCacheRecord> {
-  const key = cacheKey(path, layers);
+  const key = cacheKey(path, layers, options);
   if (!options.force) {
     const existing = cache.get(key);
     if (existing && Date.now() - existing.fetchedAt <= DEFAULT_MAX_AGE_MS) {
@@ -79,9 +110,13 @@ export async function fetchRepoDiffSnapshot(
     if (active) return active;
   }
 
-  const url = buildRepoDiffUrl(path, layers, options.force
-    ? { cache: "reload" }
-    : { cache: "prefer", rehydrate: true });
+  const url = buildRepoDiffUrl(path, layers, {
+    ...(options.force
+      ? { cache: "reload" as const }
+      : { cache: "prefer" as const, rehydrate: true }),
+    files: options.files,
+    session: options.session,
+  });
   const request = api<ScoutRepoDiffSnapshot>(url).then((snapshot) => {
     const record = { snapshot, fetchedAt: Date.now() };
     cache.delete(key);

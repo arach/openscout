@@ -11,8 +11,10 @@ final class ScoutRepoStore: ObservableObject {
     @Published private(set) var snapshot: RepoWatchSnapshot = .empty
     @Published private(set) var hasLoaded = false
     @Published private(set) var isLoading = false
+    @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: String?
     @Published private(set) var lastFetchedAt: Date?
+    @Published private(set) var lastRefreshWasForced = false
 
     /// The clean-&-idle tray is folded by default — unfinished work floats up.
     @Published var showCleanIdle = false
@@ -81,19 +83,22 @@ final class ScoutRepoStore: ObservableObject {
         fetchTask?.cancel()
         fetchTask = nil
         setIfChanged(false, to: \.isLoading)
+        setIfChanged(false, to: \.isRefreshing)
     }
 
-    func refresh() {
+    func refresh(force: Bool = false) {
         if fetchTask != nil { return }
         setIfChanged(!hasLoaded, to: \.isLoading)
+        setIfChanged(true, to: \.isRefreshing)
         fetchTask = Task { [weak self] in
-            await self?.fetchSnapshot()
+            await self?.fetchSnapshot(force: force)
         }
     }
 
-    private func fetchSnapshot() async {
+    private func fetchSnapshot(force: Bool) async {
         defer {
             setIfChanged(false, to: \.isLoading)
+            setIfChanged(false, to: \.isRefreshing)
             fetchTask = nil
         }
         // Preview path: with OPENSCOUT_REPOS_SAMPLE set, serve the fixture so the
@@ -102,20 +107,26 @@ final class ScoutRepoStore: ObservableObject {
             setIfChanged(sample, to: \.snapshot)
             setIfChanged(true, to: \.hasLoaded)
             setIfChanged(Date(), to: \.lastFetchedAt)
+            setIfChanged(force, to: \.lastRefreshWasForced)
             setIfChanged(nil, to: \.lastError)
             return
         }
         do {
+            var queryItems = [
+                URLQueryItem(name: "includeDiff", value: "1"),
+                URLQueryItem(name: "includeLastCommit", value: "1"),
+            ]
+            if force {
+                queryItems.append(URLQueryItem(name: "force", value: "1"))
+            }
             let url = ScoutBroker.baseURL()
                 .appending(path: "v1/repo-watch/snapshot")
-                .appending(queryItems: [
-                    URLQueryItem(name: "includeDiff", value: "1"),
-                    URLQueryItem(name: "includeLastCommit", value: "1"),
-                ])
+                .appending(queryItems: queryItems)
             let next = try await fetch(RepoWatchSnapshot.self, from: url)
             setIfChanged(next, to: \.snapshot)
             setIfChanged(true, to: \.hasLoaded)
             setIfChanged(Date(), to: \.lastFetchedAt)
+            setIfChanged(force, to: \.lastRefreshWasForced)
             setIfChanged(nil, to: \.lastError)
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }

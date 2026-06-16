@@ -20,10 +20,18 @@ import type { Route } from "../lib/types.ts";
 export function RepoDiffPageScreen({
   path,
   layers,
+  files,
+  sessionId,
+  agentId,
+  include,
   navigate,
 }: {
   path: string;
   layers?: RepoDiffLayerKind[];
+  files?: string[];
+  sessionId?: string;
+  agentId?: string;
+  include?: "changed" | "all";
   navigate: (route: Route) => void;
 }) {
   const trimmed = path.trim();
@@ -43,11 +51,22 @@ export function RepoDiffPageScreen({
     );
   }
 
+  const viewerKey = [
+    trimmed,
+    layers?.join(",") ?? "",
+    files?.join("\0") ?? "",
+    sessionId ?? "",
+    agentId ?? "",
+    include ?? "",
+  ].join("\u0001");
+
   return (
     <RepoDiffViewerLazy
-      key={trimmed}
+      key={viewerKey}
       path={trimmed}
       layers={layers}
+      files={files}
+      session={sessionId || agentId ? { sessionId, agentId, include } : null}
       onClose={() => navigate({ view: "repos" })}
     />
   );

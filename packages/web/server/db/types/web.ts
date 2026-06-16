@@ -45,6 +45,10 @@ export type WebAgent = {
   staleLocalRegistration: boolean;
   retiredFromFleet: boolean;
   replacedByAgentId: string | null;
+  providerName?: string | null;
+  providerUrl?: string | null;
+  protocol?: string | null;
+  skills?: string[];
 };
 
 export type WebActivityItem = {

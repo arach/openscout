@@ -295,6 +295,113 @@ function makeBrokerDiagnostics(overrides: Record<string, unknown> = {}): Record<
   };
 }
 
+function makeMastraBrokerContext(overrides: {
+  agent?: Record<string, unknown>;
+  endpoint?: Record<string, unknown>;
+  snapshot?: Record<string, unknown>;
+} = {}): Record<string, unknown> {
+  const agentId = "mastra-weather.local";
+  const nodeId = "node-1";
+  const agent = {
+    id: agentId,
+    kind: "agent",
+    definitionId: agentId,
+    displayName: "Mastra Weather Agent",
+    handle: "mastra-weather",
+    labels: ["mastra-weather"],
+    selector: "mastra-weather",
+    agentClass: "general",
+    capabilities: ["chat", "invoke"],
+    wakePolicy: "on_demand",
+    homeNodeId: nodeId,
+    authorityNodeId: nodeId,
+    advertiseScope: "local",
+    ownerId: "operator",
+    metadata: {
+      brokerRegistered: true,
+      project: "mastra-openscout-sidecar",
+      role: "weather",
+      branch: "main",
+      createdAt: 1_700_000_000_000,
+      a2aAgentCard: {
+        provider: {
+          organization: "Mastra",
+          url: "https://mastra.ai",
+        },
+        skills: [
+          {
+            id: "weatherTool",
+            name: "weatherTool",
+            description: "Get current weather for a location",
+          },
+        ],
+      },
+      supportedInterfaces: [
+        {
+          name: "A2A JSON-RPC",
+          protocol: "a2a",
+          url: "http://127.0.0.1:4111/api/a2a/weather-agent",
+        },
+      ],
+    },
+    ...(overrides.agent ?? {}),
+  };
+  const endpoint = {
+    id: "endpoint.mastra-weather.local.a2a",
+    agentId,
+    nodeId,
+    harness: "http",
+    transport: "http",
+    state: "active",
+    address: "http://127.0.0.1:4111/api/a2a/weather-agent",
+    projectRoot: "/tmp/mastra-openscout-sidecar",
+    cwd: "/tmp/mastra-openscout-sidecar",
+    metadata: {
+      a2aContextId: "ctx-weather",
+      a2aExecutionUrl: "http://127.0.0.1:4111/api/a2a/weather-agent",
+      lastCompletedAt: 1_700_000_100_000,
+    },
+    ...(overrides.endpoint ?? {}),
+  };
+  return {
+    baseUrl: "http://broker.test",
+    node: {
+      id: nodeId,
+      meshId: "mesh-1",
+      name: "Test node",
+      advertiseScope: "local",
+      registeredAt: 1_700_000_000_000,
+    },
+    snapshot: {
+      nodes: {
+        [nodeId]: {
+          id: nodeId,
+          meshId: "mesh-1",
+          name: "Test node",
+          advertiseScope: "local",
+          registeredAt: 1_700_000_000_000,
+        },
+      },
+      actors: {
+        operator: {
+          id: "operator",
+          kind: "operator",
+          displayName: "Operator",
+          handle: "art",
+        },
+      },
+      agents: {
+        [agentId]: agent,
+      },
+      endpoints: {
+        [String(endpoint.id)]: endpoint,
+      },
+      flights: {},
+      ...(overrides.snapshot ?? {}),
+    },
+  };
+}
+
 function sessionSnapshotWithAttention(): {
   snapshot: SessionState;
   approval: Record<string, unknown>;
@@ -702,6 +809,106 @@ describe("createOpenScoutWebServer", () => {
         harness: "codex",
       }),
     ]);
+  });
+
+  test("includes broker-registered agent cards in the agents API", async () => {
+    queryAgentsResult = [
+      {
+        id: "local-agent",
+        definitionId: "local-agent",
+        name: "Local Agent",
+        handle: "local-agent",
+        conversationId: "dm.operator.local-agent",
+      },
+    ];
+    scoutBrokerContextResult = makeMastraBrokerContext({
+      agent: { capabilities: [] },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const listResponse = await server.app.request("http://localhost/api/agents");
+
+    expect(listResponse.status).toBe(200);
+    const agents = await listResponse.json() as Array<Record<string, unknown>>;
+    expect(agents.map((agent) => agent.id)).toEqual([
+      "local-agent",
+      "mastra-weather.local",
+    ]);
+    const mastra = agents.find((agent) => agent.id === "mastra-weather.local");
+    expect(mastra).toMatchObject({
+      id: "mastra-weather.local",
+      definitionId: "mastra-weather.local",
+      name: "Mastra Weather Agent",
+      handle: "mastra-weather",
+      agentClass: "general",
+      harness: "http",
+      state: "available",
+      projectRoot: "/tmp/mastra-openscout-sidecar",
+      cwd: "/tmp/mastra-openscout-sidecar",
+      transport: "http",
+      selector: "mastra-weather",
+      wakePolicy: "on_demand",
+      capabilities: ["chat", "invoke"],
+      project: "mastra-openscout-sidecar",
+      branch: "main",
+      role: null,
+      harnessSessionId: "ctx-weather",
+      conversationId: "dm.operator.mastra-weather.local",
+      authorityNodeId: "node-1",
+      authorityNodeName: "Test node",
+      homeNodeId: "node-1",
+      homeNodeName: "Test node",
+      ownerId: "operator",
+      ownerName: "Operator",
+      ownerHandle: "art",
+      updatedAt: 1_700_000_100_000,
+      createdAt: 1_700_000_000_000,
+      providerName: "Mastra",
+      providerUrl: "https://mastra.ai",
+      protocol: "A2A",
+      skills: ["weatherTool"],
+    });
+
+    const detailResponse = await server.app.request(
+      "http://localhost/api/agents/mastra-weather",
+    );
+    expect(detailResponse.status).toBe(200);
+    await expect(detailResponse.json()).resolves.toMatchObject({
+      id: "mastra-weather.local",
+      handle: "mastra-weather",
+      conversationId: "dm.operator.mastra-weather.local",
+    });
+  });
+
+  test("keeps database agent rows authoritative when broker cards share an id", async () => {
+    queryAgentsResult = [
+      {
+        id: "mastra-weather.local",
+        definitionId: "mastra-weather.local",
+        name: "Projected Mastra",
+        handle: "mastra-weather",
+        conversationId: "dm.operator.mastra-weather.local",
+      },
+    ];
+    scoutBrokerContextResult = makeMastraBrokerContext();
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents");
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    expect(agents.filter((agent) => agent.id === "mastra-weather.local")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "mastra-weather.local")).toMatchObject({
+      name: "Projected Mastra",
+    });
   });
 
   test("returns batched observe payloads for the requested agent ids", async () => {
@@ -2501,6 +2708,7 @@ describe("createOpenScoutWebServer", () => {
       worktreePath?: string;
       layers?: string[];
       baseRef?: string;
+      paths?: string[];
       limits?: { timeoutMs?: number; includeBinaryPatch?: boolean };
     } | null = null;
     const server = await createOpenScoutWebServer({
@@ -2512,6 +2720,7 @@ describe("createOpenScoutWebServer", () => {
           worktreePath: opts.worktreePath,
           layers: opts.layers,
           baseRef: opts.baseRef ?? undefined,
+          paths: opts.paths,
           limits: opts.limits,
         };
         return stubDiffSnapshot(opts.worktreePath);
@@ -2531,6 +2740,32 @@ describe("createOpenScoutWebServer", () => {
     expect(captured?.limits).toMatchObject({
       timeoutMs: 15_000,
       includeBinaryPatch: false,
+    });
+  });
+
+  test("passes repo-diff file filters through as native diff paths", async () => {
+    let captured: { paths?: string[] } | null = null;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      repoDiffSnapshot: async (opts) => {
+        captured = { paths: opts.paths };
+        return stubDiffSnapshot(opts.worktreePath);
+      },
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/repo-diff/worktree?path=/tmp/wt&file=src/a.ts&file=/tmp/wt/src/b.ts&file=/tmp/elsewhere/nope.ts",
+    );
+
+    expect(response.status).toBe(200);
+    expect(captured?.paths).toEqual(["src/a.ts", "src/b.ts"]);
+    await expect(response.json()).resolves.toMatchObject({
+      scope: {
+        kind: "worktree",
+        filteredPaths: ["src/a.ts", "src/b.ts"],
+      },
     });
   });
 

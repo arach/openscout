@@ -63,6 +63,22 @@
   color: var(--muted);
   font-weight: 400;
 }
+.rd-scope-pill {
+  flex: none;
+  padding: 1px var(--space-xs);
+  border: 1px solid var(--rd-line-strong);
+  border-radius: var(--radius-sm);
+  color: color-mix(in srgb, var(--muted) 88%, var(--ink));
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rd-scope-pill.session {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: color-mix(in srgb, var(--accent) 76%, var(--ink));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 .rd-header-sub {
   margin-top: 2px;
   color: var(--muted);

@@ -43,14 +43,30 @@ import AppKit
 /// The path is percent-encoded with a conservative allowed set (alphanumerics
 /// only) so every reserved/sub-delim character in an absolute filesystem path —
 /// spaces, `&`, `?`, `#`, `=`, `+`, `/` — survives the round-trip as query data.
-func repoDiffEmbedURL(worktreePath: String, theme: ScoutBranchDiffTheme) -> URL {
+func repoDiffEmbedURL(
+    worktreePath: String,
+    theme: ScoutBranchDiffTheme,
+    sessionId: String? = nil,
+    agentId: String? = nil,
+    include: String? = nil
+) -> URL {
     var components = URLComponents(url: ScoutWeb.baseURL(), resolvingAgainstBaseURL: false)
     components?.path = "/embed/repo-diff"
     let themeVars = ScoutEmbedTheme.themeVarsQueryItem(for: theme)
+    let scopeItems: [URLQueryItem] = [
+        (sessionId?.nilIfEmpty).map { URLQueryItem(name: "sessionId", value: $0) },
+        (agentId?.nilIfEmpty).map { URLQueryItem(name: "agentId", value: $0) },
+        (include?.nilIfEmpty).map { URLQueryItem(name: "include", value: $0) },
+    ].compactMap { $0 }
+    let encodedScopeItems: [URLQueryItem] = [
+        (sessionId?.nilIfEmpty).flatMap { encodedQueryItem(name: "sessionId", value: $0) },
+        (agentId?.nilIfEmpty).flatMap { encodedQueryItem(name: "agentId", value: $0) },
+        (include?.nilIfEmpty).flatMap { encodedQueryItem(name: "include", value: $0) },
+    ].compactMap { $0 }
     components?.queryItems = [
         URLQueryItem(name: "path", value: worktreePath),
         URLQueryItem(name: "theme", value: theme.queryValue),
-    ] + (themeVars.map { [$0] } ?? [])
+    ] + scopeItems + (themeVars.map { [$0] } ?? [])
     // `URLComponents` percent-encodes query *values* but leaves `/`, `+`, `&`,
     // `=` etc. as-is inside a value — fine for `&`/`=` separators but `+` would
     // be read as a space and bare `/` muddies logs. Re-encode the path value
@@ -59,11 +75,18 @@ func repoDiffEmbedURL(worktreePath: String, theme: ScoutBranchDiffTheme) -> URL 
         components?.percentEncodedQueryItems = [
             URLQueryItem(name: "path", value: encodedPath),
             URLQueryItem(name: "theme", value: theme.queryValue),
-        ] + (themeVars.map { [$0] } ?? [])
+        ] + encodedScopeItems + (themeVars.map { [$0] } ?? [])
     }
     // Fall back to the base URL only if component assembly somehow fails; the
     // host never renders this because the inputs above are always well-formed.
     return components?.url ?? ScoutWeb.baseURL()
+}
+
+private func encodedQueryItem(name: String, value: String) -> URLQueryItem? {
+    guard let encoded = value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else {
+        return nil
+    }
+    return URLQueryItem(name: name, value: encoded)
 }
 
 /// The `theme` query param the web viewer reads to match the app's appearance.
@@ -145,6 +168,10 @@ struct ScoutBranchDiffSheet: View {
     let branchParts: RepoBranchParts
     /// Which edge the sheet enters from. Defaults to the spec's bottom drawer.
     var edge: Edge = .bottom
+    /// Optional session scope. When present, the embedded web viewer filters the
+    /// diff to the session's changed files; nil keeps the full worktree diff.
+    var sessionId: String? = nil
+    var agentId: String? = nil
     /// Dismiss request — scrim tap, close button, or Escape.
     let onClose: () -> Void
 
@@ -167,7 +194,15 @@ struct ScoutBranchDiffSheet: View {
     @State private var dragPreviewFraction: CGFloat?
 
     private var theme: ScoutBranchDiffTheme { ScoutBranchDiffTheme(colorScheme: colorScheme) }
-    private var url: URL { repoDiffEmbedURL(worktreePath: worktreePath, theme: theme) }
+    private var url: URL {
+        repoDiffEmbedURL(
+            worktreePath: worktreePath,
+            theme: theme,
+            sessionId: sessionId,
+            agentId: agentId,
+            include: sessionId == nil && agentId == nil ? nil : "changed"
+        )
+    }
 
     private var drawerAnimation: Animation? {
         // HudMotion's drawer spring (nil under Reduce Motion → no slide).

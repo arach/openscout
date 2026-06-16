@@ -3,12 +3,14 @@ import { spawnSync } from "node:child_process";
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 import { readCliInputFile } from "../input-file.ts";
+import { readScoutWebJson } from "../web-api.ts";
 
 const SESSION_HELP = `scout session — actions on a harness session
 
 Usage:
   scout session fork <session-id> [prompt]   Fork a recorded session into a new one
   scout session fork --last [prompt]         Fork the most recent recorded session
+  scout session touched <session-id>         Show files observed in a session
 
 Options (fork):
   --last                Fork the most recent session instead of naming an id
@@ -32,11 +34,49 @@ export async function runSessionCommand(context: ScoutCommandContext, args: stri
     case "fork":
       await runSessionForkAction(context, args.slice(1));
       return;
+    case "touched":
+    case "touches":
+      await runSessionTouchedAction(context, args.slice(1));
+      return;
     default:
       throw new ScoutCliError(
-        `unknown session action: ${action} (try: scout session fork <session-id>)`,
+        `unknown session action: ${action} (try: scout session fork|touched <session-id>)`,
       );
   }
+}
+
+type SessionTouchedPayload = {
+  refId: string | null;
+  agentId: string | null;
+  sessionId: string | null;
+  worktreePath: string | null;
+  counts: { files: number; changedFiles: number; readFiles: number };
+  files: Array<{ path: string; state: string; touches: number }>;
+};
+
+async function runSessionTouchedAction(context: ScoutCommandContext, args: string[]): Promise<void> {
+  const refId = args.find((arg) => arg !== "--help" && arg !== "-h");
+  if (!refId || args.includes("--help") || args.includes("-h")) {
+    context.output.writeText(SESSION_HELP);
+    return;
+  }
+  const payload = await readScoutWebJson<SessionTouchedPayload>(
+    context,
+    `/api/session-ref/${encodeURIComponent(refId)}/touched`,
+  );
+  context.output.writeValue(payload, renderTouchedFiles);
+}
+
+function renderTouchedFiles(payload: SessionTouchedPayload): string {
+  const lines = [
+    `session ${payload.refId ?? payload.sessionId ?? "(unknown)"}`,
+    `worktree ${payload.worktreePath ?? "(unknown)"}`,
+    `${payload.counts.changedFiles} changed · ${payload.counts.readFiles} read · ${payload.counts.files} touched`,
+  ];
+  for (const file of payload.files) {
+    lines.push(`${file.state.padEnd(8)} ${file.path} ×${file.touches}`);
+  }
+  return lines.join("\n");
 }
 
 async function runSessionForkAction(context: ScoutCommandContext, args: string[]): Promise<void> {

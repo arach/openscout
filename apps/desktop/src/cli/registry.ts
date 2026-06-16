@@ -11,6 +11,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "version", summary: "Print the Scout CLI version" },
   { name: "setup", summary: "Bootstrap local settings and broker" },
   { name: "doctor", summary: "Show broker health and project inventory" },
+  { name: "diff", summary: "Inspect worktree or session-scoped diffs" },
   { name: "runtimes", summary: "Show harness catalog and readiness" },
   { name: "env", summary: "Show executable and agent identity context" },
   { name: "whoami", summary: "Resolve your current Scout sender identity" },
