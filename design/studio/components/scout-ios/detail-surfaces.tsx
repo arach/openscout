@@ -123,8 +123,8 @@ export function ConversationBody({ collapseReasoning }: { collapseReasoning?: bo
       </div>
       <div className="iComposer">
         <span className="iMic"><MicGlyph /></span>
-        <div className="iComposerField">steer the agent…</div>
-        <span className="iSend"><Glyph kind="arrow" size={15} /></span>
+        <div className="iComposerField focus">below the search — keep it collapsed<span className="iComposerCaret" /></div>
+        <span className="iSend armed"><Glyph kind="arrow" size={15} /></span>
       </div>
     </>
   );

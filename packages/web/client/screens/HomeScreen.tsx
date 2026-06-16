@@ -872,10 +872,24 @@ export function HomeScreen({
 
   const sinceMs = nowMs - lookbackMs;
   const liveActivity = useMemo<FleetActivity[]>(() => {
-    const items = scopedFleet?.activity ?? [];
-    return items.filter(
+    const items = (scopedFleet?.activity ?? []).filter(
       (item) => (normalizeTimestampMs(item.ts) ?? 0) >= sinceMs,
     );
+    // Collapse machine echoes: the firehose logs some events twice with
+    // identical copy but different kinds (e.g. `ask opened` immediately
+    // followed by `invocation recorded`). The feed is newest-first, so drop a
+    // row when the one just above it says the same thing at the same time —
+    // keeps the first (more human-readable) line, hides the duplicate.
+    return items.filter((item, i) => {
+      const prev = items[i - 1];
+      if (!prev) return true;
+      const sameContent =
+        prev.title === item.title
+        && prev.summary === item.summary
+        && prev.conversationId === item.conversationId
+        && Math.abs((normalizeTimestampMs(prev.ts) ?? 0) - (normalizeTimestampMs(item.ts) ?? 0)) <= 5_000;
+      return !sameContent;
+    });
   }, [scopedFleet?.activity, sinceMs]);
   const activityShape = useMemo(
     () => computeActivityShape(liveActivity, lookbackMs, nowMs),

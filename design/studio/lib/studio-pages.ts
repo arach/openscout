@@ -625,6 +625,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Sessions as the unit — per-session role + progressive disclosure of Observe/Take over/Fork/Message (⋯); Message/New-session placement top vs end.",
   },
   {
+    href: "/studies/agent-inspector-rework",
+    label: "Agent Inspector Rework",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-inspector-rework/page.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb: "Drop ENGAGE (Message → composer, Observe → session); + New becomes New session under Sessions; session dot lights only when working, not when selected.",
+  },
+  {
     href: "/studies/session-search",
     label: "Session Search",
     bucket: "studies",

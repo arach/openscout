@@ -988,6 +988,13 @@ struct ScoutMessageRow: View {
                         .font(HudFont.mono(HudTextSize.xxs))
                         .foregroundStyle(ScoutPalette.dim)
                 }
+                if let custodyLabel {
+                    Text(custodyLabel)
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 messageBody
             }
             // The turn body caps at the reading measure (Studio `.turnBody`); the
@@ -1083,6 +1090,37 @@ struct ScoutMessageRow: View {
             if char == "\n" { count += 1 }
         }
         return newlines > 10
+    }
+
+    private var custodyLabel: String? {
+        if let metadata = message.metadata, metadata.isRepoWatchHandoff {
+            let target = metadata.targetAgentId ?? metadata.relayTarget
+            return ["Forwarded from Repo Watch", target.map { "to \(shortId($0))" }]
+                .compactMap { $0 }
+                .joined(separator: " ")
+        }
+
+        if let metadata = message.metadata, metadata.isScoutbotGenerated {
+            if let target = metadata.relayTarget, target != "scoutbot" {
+                return "Scout handoff to \(shortId(target))"
+            }
+            let parent = metadata.sourceMessageId ?? metadata.parentScoutbotTurnId ?? message.replyToMessageId
+            if let parent {
+                return "Scout reply to \(shortId(parent))"
+            }
+        }
+
+        if let replyTo = message.replyToMessageId {
+            return "Reply to \(shortId(replyTo))"
+        }
+
+        return nil
+    }
+
+    private func shortId(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 14 else { return trimmed }
+        return "\(trimmed.prefix(10))..."
     }
 
     private func copyToPasteboard(_ value: String) {

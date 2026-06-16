@@ -90,8 +90,21 @@ function agentProjectLabel(agent: Agent): string {
     || "unassigned";
 }
 
+function protocolLabel(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.toLowerCase() === "a2a" ? "A2A" : normalized;
+}
+
+function hasExternalCardIdentity(agent: Agent): boolean {
+  return Boolean(agent.providerName || protocolLabel(agent.protocol) || (agent.skills?.length ?? 0) > 0);
+}
+
 function agentHarnessLabel(agent: Agent): string {
-  return agent.harness?.trim()
+  return protocolLabel(agent.protocol)
+    || agent.harness?.trim()
     || agent.transport?.trim()
     || agent.agentClass?.trim()
     || "unknown";
@@ -479,6 +492,9 @@ function AgentContextPanel({
   const online = isAgentOnline(agent.state);
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const skills = agent.skills ?? [];
+  const protocol = protocolLabel(agent.protocol);
+  const externalCardIdentity = hasExternalCardIdentity(agent);
 
   const load = useCallback(async () => {
     const [fleetResult, catalogResult] = await Promise.all([
@@ -711,14 +727,31 @@ function AgentContextPanel({
 
       {/* Identity detail */}
       <Section label="Identity">
-        <Row label="Class" value={agent.agentClass} />
-        {agent.role && <Row label="Role" value={agent.role} />}
-        {agent.harness && <Row label="Harness" value={agent.harness} />}
-        {agent.transport && <Row label="Transport" value={agent.transport} />}
+        {agent.providerName && <Row label="Provider" value={agent.providerName} />}
+        {protocol && <Row label="Protocol" value={protocol} />}
+        {!externalCardIdentity && <Row label="Class" value={agent.agentClass} />}
+        {!externalCardIdentity && agent.role && <Row label="Role" value={agent.role} />}
+        {!externalCardIdentity && agent.harness && <Row label="Harness" value={agent.harness} />}
+        {!externalCardIdentity && agent.transport && <Row label="Transport" value={agent.transport} />}
         {(agent.homeNodeName || agent.homeNodeId) && (
           <Row label="Host" value={shortHostLabel(agent.homeNodeName ?? agent.homeNodeId ?? "")} />
         )}
       </Section>
+
+      {skills.length > 0 && (
+        <Section label={`Skills · ${skills.length}`}>
+          <div className="flex flex-wrap gap-1">
+            {skills.map((skill) => (
+              <span
+                key={skill}
+                className="rounded-sm bg-[var(--scout-chrome-hover)] px-1.5 py-0.5 text-[10px] font-mono text-[var(--scout-chrome-ink-soft)]"
+              >
+                {skill}
+              </span>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* Project */}
       {(agent.project || agent.branch || agent.cwd) && (
@@ -760,11 +793,17 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
   const push = (label: string, value: string | null | undefined) => {
     if (value && value.trim()) cells.push({ label, value: value.trim() });
   };
+  const protocol = protocolLabel(agent.protocol);
+  const externalCardIdentity = hasExternalCardIdentity(agent);
   // Harness · model · host live in the profile header now — keep the rail's
   // Runtime to what the header doesn't carry, to avoid re-printing facts.
-  push("Transport", agent.transport);
-  push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
-  push("Class", agent.agentClass);
+  if (externalCardIdentity) {
+    push("Protocol", protocol);
+  } else {
+    push("Transport", agent.transport);
+    push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
+    push("Class", agent.agentClass);
+  }
 
   if (cells.length === 0) return null;
   return (
@@ -1177,9 +1216,20 @@ function SessionActivity({
   const rest = files.length - top.length;
   const changedCount = files.filter((f) => f.state !== "read").length;
   const diffPath = data.metadata?.session?.cwd ?? cwd ?? null;
-  // Bridge to the actual diff — the repo-diff view for the worktree. Falls back
-  // to the Trace feed only when we don't know the working directory.
-  const openDiff = () =>
+  const sessionId = observe.sessionId ?? data.metadata?.session?.externalSessionId ?? undefined;
+  // The session action is path-filtered from observe's changed files. The
+  // worktree action remains the full dirty checkout.
+  const openSessionDiff = () =>
+    diffPath
+      ? navigate({
+          view: "repo-diff",
+          path: diffPath,
+          agentId,
+          include: "changed",
+          ...(sessionId ? { sessionId } : {}),
+        })
+      : navigate({ view: "agents", agentId, tab: "observe" });
+  const openWorktreeDiff = () =>
     diffPath
       ? navigate({ view: "repo-diff", path: diffPath })
       : navigate({ view: "agents", agentId, tab: "observe" });
@@ -1231,13 +1281,22 @@ function SessionActivity({
             </div>
           );
         })}
-        <button
-          type="button"
-          onClick={openDiff}
-          className="mt-1 w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
-        >
-          Open full diff{rest > 0 ? ` · +${rest}` : ""} →
-        </button>
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+          <button
+            type="button"
+            onClick={openSessionDiff}
+            className="w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] hover:underline"
+          >
+            Session diff{rest > 0 ? ` · +${rest}` : ""} →
+          </button>
+          <button
+            type="button"
+            onClick={openWorktreeDiff}
+            className="w-fit cursor-pointer font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)] hover:text-[var(--accent)] hover:underline"
+          >
+            Worktree diff →
+          </button>
+        </div>
       </div>
     </Section>
   );

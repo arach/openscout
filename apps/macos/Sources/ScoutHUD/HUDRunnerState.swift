@@ -388,7 +388,7 @@ final class HUDRunnerState: ObservableObject {
         let preference: [String]
         switch harness {
         case "claude":
-            preference = ["claude-opus-4-7", "opus", "sonnet", "haiku"]
+            preference = ["claude-opus-4-8", "opus", "claude-sonnet-4-6", "sonnet", "claude-haiku-4-5", "haiku"]
         case "codex":
             preference = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
         default:
@@ -404,7 +404,7 @@ final class HUDRunnerState: ObservableObject {
 
     private func fallbackModelLabel(for harness: String) -> String {
         switch harness {
-        case "claude": return "Opus"
+        case "claude": return "Opus 4.8"
         case "codex": return "GPT-5.5"
         default: return "model"
         }

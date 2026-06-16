@@ -47,7 +47,7 @@ struct ScoutDropdownTrigger: View {
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
                     .font(HudFont.ui(HudTextSize.micro, weight: .bold))
-                    .foregroundStyle(ScoutPalette.dim)
+                    .foregroundStyle(isOpen ? ScoutPalette.accent : ScoutPalette.dim)
                     .rotationEffect(.degrees(isOpen ? 180 : 0))
             }
             .padding(.leading, HudSpacing.md)
@@ -56,11 +56,14 @@ struct ScoutDropdownTrigger: View {
             .frame(maxWidth: width == nil ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .fill(hovering || isOpen ? ScoutSurface.hover : ScoutSurface.inset)
+                    .fill((hovering || isOpen) ? ScoutSurface.hover : ScoutSurface.inset)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(isOpen ? ScoutPalette.accent.opacity(0.6) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+                    .stroke(
+                        isOpen ? ScoutPalette.accent.opacity(0.50) : ScoutDesign.hairlineStrong,
+                        lineWidth: HudStrokeWidth.thin
+                    )
             )
             .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
         }
@@ -155,7 +158,7 @@ struct ScoutDropdownRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .fill(selected || active ? ScoutPalette.accentSoft : (hovering ? ScoutSurface.hover : Color.clear))
+                    .fill(selected || active ? ScoutPalette.accentSoft.opacity(0.42) : (hovering ? ScoutSurface.hover : Color.clear))
             )
             .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
         }

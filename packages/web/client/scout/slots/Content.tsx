@@ -121,6 +121,10 @@ function renderScreen(
         <RepoDiffPageScreen
           path={route.path}
           layers={route.layers}
+          files={route.files}
+          sessionId={route.sessionId}
+          agentId={route.agentId}
+          include={route.include}
           navigate={navigate}
         />
       );

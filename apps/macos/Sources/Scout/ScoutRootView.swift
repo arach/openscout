@@ -21,6 +21,24 @@ final class ScoutFeeds: ObservableObject {
     let tail = ScoutTailStore()
 }
 
+private struct ScoutDiffSheetRequest {
+    let worktree: RepoWorktree
+    let sessionId: String?
+    let agentId: String?
+
+    var id: String {
+        [worktree.id, sessionId?.nilIfEmpty ?? "", agentId?.nilIfEmpty ?? ""].joined(separator: "|")
+    }
+
+    static func worktree(_ worktree: RepoWorktree) -> ScoutDiffSheetRequest {
+        ScoutDiffSheetRequest(worktree: worktree, sessionId: nil, agentId: nil)
+    }
+
+    static func session(_ worktree: RepoWorktree, sessionId: String?, agentId: String?) -> ScoutDiffSheetRequest {
+        ScoutDiffSheetRequest(worktree: worktree, sessionId: sessionId?.nilIfEmpty, agentId: agentId?.nilIfEmpty)
+    }
+}
+
 struct ScoutRootView: View {
     @StateObject private var store = ScoutCommsStore()
     /// Tail is reached through `feeds` (a non-publishing box) instead of being
@@ -81,6 +99,7 @@ struct ScoutRootView: View {
     @ObservedObject private var fileViewer = ScoutFileViewer.shared
     @FocusState private var composerFocused: Bool
     @FocusState private var searchFocused: Bool
+    @State private var repoAskFocused = false
     /// Keyboard cheatsheet overlay (⌘/). Lists the live chords so nothing has
     /// to be guessed.
     @State private var showCheatsheet = false
@@ -103,10 +122,10 @@ struct ScoutRootView: View {
     /// inspector reads its selection directly.
     @StateObject private var reposTree = ScoutReposTreeModel()
 
-    /// SCO-065 — the worktree whose diff is presented in the slide-out
+    /// SCO-065 — the diff request presented in the slide-out
     /// `ScoutBranchDiffSheet`. Non-nil while the sheet is up; activating a
     /// worktree row (Enter / double-click) sets it.
-    @State private var diffSheetWorktree: RepoWorktree?
+    @State private var diffSheetRequest: ScoutDiffSheetRequest?
 
     /// The tail event whose full session is presented in the slide-out
     /// `ScoutTailSessionSheet` (embedded web session viewer). Non-nil while the
@@ -274,19 +293,21 @@ struct ScoutRootView: View {
             // across section changes (open in Repos, wander to Comms/Tail, it
             // stays). Its scrim is non-blocking, so the rail stays navigable;
             // dismissal is explicit only (close chevron or Escape).
-            if let worktree = diffSheetWorktree {
+            if let request = diffSheetRequest {
                 ScoutBranchDiffSheet(
-                    worktreePath: worktree.path,
-                    branchParts: worktree.branchParts,
+                    worktreePath: request.worktree.path,
+                    branchParts: request.worktree.branchParts,
                     edge: .bottom,
+                    sessionId: request.sessionId,
+                    agentId: request.agentId,
                     onClose: {
-                        withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = nil }
+                        withAnimation(.easeOut(duration: 0.14)) { diffSheetRequest = nil }
                     }
                 )
                 .transition(.opacity)
             }
         }
-        .animation(.easeOut(duration: 0.14), value: diffSheetWorktree?.id)
+        .animation(.easeOut(duration: 0.14), value: diffSheetRequest?.id)
         .overlay {
             // Tail "load session" — present at the app root so the embedded
             // web viewer does not relayout the Tail table and cannot become a
@@ -426,14 +447,14 @@ struct ScoutRootView: View {
 
     /// A modal overlay is up and should own the keyboard.
     private var modalPresented: Bool {
-        sessionDraft != nil || previewImage != nil || diffSheetWorktree != nil || tailSessionEvent != nil
+        sessionDraft != nil || previewImage != nil || diffSheetRequest != nil || tailSessionEvent != nil
     }
 
     /// Bare (unmodified) keys may drive navigation/help only when nothing is
     /// capturing text input — otherwise they'd be stolen from typing. (Modal
     /// overlays are already excluded by `modalPresented`.)
     private var bareKeysAvailable: Bool {
-        !composerFocused && !searchFocused
+        !composerFocused && !searchFocused && !repoAskFocused
     }
 
     /// Step the active page's selection: conversations in Comms, agent cards in
@@ -592,7 +613,7 @@ struct ScoutRootView: View {
         if let worktree = repos.worktree(id: reposTree.selectedWorktreeID),
            !worktree.path.isEmpty {
             withAnimation(.easeOut(duration: 0.14)) {
-                diffSheetWorktree = worktree
+                diffSheetRequest = .worktree(worktree)
             }
             return
         }
@@ -1850,7 +1871,7 @@ struct ScoutRootView: View {
             onActivate: { activateSelectedRepoRow() },
             onOpenDiff: { worktree in
                 guard !worktree.path.isEmpty else { return }
-                withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = worktree }
+                withAnimation(.easeOut(duration: 0.14)) { diffSheetRequest = .worktree(worktree) }
             }
         )
     }
@@ -2023,11 +2044,11 @@ struct ScoutRootView: View {
         return []
     }
 
-    /// Bridge the agent profile's "Open full diff" to the SCO-065 repo-diff sheet:
+    /// Bridge the agent profile's diff actions to the SCO-065 repo-diff sheet:
     /// resolve the agent's workspace to a scanned worktree and present it. When the
     /// workspace isn't a tracked worktree (repo-watch hasn't scanned it, or it's a
     /// nested cwd), fall back to opening the agent's diff on the web surface.
-    private func openAgentDiff(_ agent: ScoutAgent) {
+    private func openAgentDiff(_ agent: ScoutAgent, sessionScoped: Bool) {
         let candidates = [agent.cwd?.nilIfEmpty, agent.projectRoot?.nilIfEmpty].compactMap { $0 }
         guard !candidates.isEmpty else {
             ScoutWeb.open(path: "/agents/\(agent.id)?tab=diff")
@@ -2037,7 +2058,10 @@ struct ScoutRootView: View {
         let match = worktrees.first { candidates.contains($0.path) }
             ?? worktrees.first { worktree in candidates.contains { $0.hasPrefix(worktree.path) } }
         if let match {
-            withAnimation(.easeOut(duration: 0.14)) { diffSheetWorktree = match }
+            let request: ScoutDiffSheetRequest = sessionScoped
+                ? .session(match, sessionId: agent.harnessSessionId, agentId: agent.id)
+                : .worktree(match)
+            withAnimation(.easeOut(duration: 0.14)) { diffSheetRequest = request }
         } else {
             ScoutWeb.open(path: "/agents/\(agent.id)?tab=diff")
         }
@@ -2060,7 +2084,11 @@ struct ScoutRootView: View {
             if section == .tail {
                 ScoutTailInspector(tail: tail)
             } else if section == .repos {
-                ScoutReposInspector(repos: repos, tree: reposTree)
+                ScoutReposInspector(
+                    repos: repos,
+                    tree: reposTree,
+                    inputFocused: $repoAskFocused
+                )
             } else {
                 if section == .agents {
                     if let agent = store.selectedAgent {
@@ -2075,7 +2103,8 @@ struct ScoutRootView: View {
                             startSession: { mode in startSessionWithAgent(agent, mode: mode) },
                             livePreview: livePreview(for: agent),
                             openTail: { tail.query = agent.harnessSessionId ?? ""; section = .tail },
-                            openDiff: { openAgentDiff(agent) }
+                            openDiff: { openAgentDiff(agent, sessionScoped: true) },
+                            openWorktreeDiff: { openAgentDiff(agent, sessionScoped: false) }
                         )
                         // The redesigned profile's summary (Activity · Context ·
                         // Files changed) reads the observe payload for the selected
@@ -2111,7 +2140,8 @@ struct ScoutRootView: View {
                         startSession: { mode in startSessionWithAgent(agent, mode: mode) },
                         livePreview: livePreview(for: agent),
                         openTail: { tail.query = agent.harnessSessionId ?? ""; section = .tail },
-                        openDiff: { openAgentDiff(agent) }
+                        openDiff: { openAgentDiff(agent, sessionScoped: true) },
+                        openWorktreeDiff: { openAgentDiff(agent, sessionScoped: false) }
                     )
                     .task(id: agent.id) {
                         store.loadObserve(agentId: agent.id, force: true)
@@ -3408,9 +3438,10 @@ private struct ScoutAgentInspector: View {
     let livePreview: ScoutAgentLivePreview?
     /// Opens the full Tail scoped to this agent. `nil` ⇒ hide the affordance.
     let openTail: (() -> Void)?
-    /// Opens the full repo diff for this agent's worktree (the "Open full diff"
-    /// bridge under Files changed). `nil` ⇒ hide the affordance.
+    /// Opens the session-scoped repo diff for this agent's changed files.
+    /// `nil` ⇒ hide the affordance.
     var openDiff: (() -> Void)? = nil
+    var openWorktreeDiff: (() -> Void)? = nil
 
     /// Which session row is engaged (expanded into its mini-card). One at a time.
     @State private var expandedSessionCId: String? = nil
@@ -3432,7 +3463,7 @@ private struct ScoutAgentInspector: View {
 
     /// The live observe payload for this agent — the data source for the summary
     /// (Activity · stats · Context) and Files changed. `nil` ⇒ those calm blocks
-    /// fold away and the card is just essentials → engage → runtime.
+    /// fold away and the card is just essentials → sessions → runtime.
     private var observePayload: ScoutObservePayload? { livePreview?.observePayload }
 
     var body: some View {
@@ -3446,11 +3477,7 @@ private struct ScoutAgentInspector: View {
                     filesChanged(observe)
                 }
                 HudDivider(color: ScoutDesign.hairline)
-                engage
-                if !agentChannels.isEmpty {
-                    HudDivider(color: ScoutDesign.hairline)
-                    sessionsList
-                }
+                sessionsList
                 HudDivider(color: ScoutDesign.hairline)
                 runtimeFacts
                 if !specialCapabilities.isEmpty {
@@ -3465,38 +3492,50 @@ private struct ScoutAgentInspector: View {
 
     /// Sessions attached to this agent. Rows are navigation-first: role +
     /// metadata at rest (no height-shifting hover swap), expanding to a
-    /// mini-card with the full action set when engaged (tapped open). The
-    /// canonical Observe/Message verbs live once, up in Engage. Only one
-    /// expands at a time.
+    /// mini-card with the full action set — Observe · Take over · Message ·
+    /// Fork — when engaged (tapped open). Those per-session verbs live here, on
+    /// the session they act on; the header carries the only global action,
+    /// "+ New session". Only one row expands at a time.
     private var sessionsList: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            ScoutEyebrow(text: "Sessions")
-            ForEach(agentChannels.prefix(6)) { channel in
-                ScoutInspectorSessionRow(
-                    channel: channel,
-                    role: agent.roleLabel,
-                    isActive: channel.cId == selectedChannel?.cId,
-                    isExpanded: expandedSessionCId == channel.cId,
-                    onToggle: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
-                            expandedSessionCId = expandedSessionCId == channel.cId ? nil : channel.cId
-                        }
-                    },
-                    onObserve: openObserve,
-                    onMessage: { openSession(channel) },
-                    onFork: { startSession(.continueContext) }
-                )
+        let live = observePayload?.data.live ?? false
+        return VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                ScoutEyebrow(text: "Sessions")
+                Spacer(minLength: 0)
+                ScoutInspectorActionButton(icon: "plus", title: "New session", filled: false, action: { startSession(.fresh) })
+            }
+            if agentChannels.isEmpty {
+                Text("No sessions yet")
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(ScoutPalette.dim)
+            } else {
+                ForEach(agentChannels.prefix(6)) { channel in
+                    ScoutInspectorSessionRow(
+                        channel: channel,
+                        role: agent.roleLabel,
+                        isWorking: live && channel.cId == selectedChannel?.cId,
+                        isExpanded: expandedSessionCId == channel.cId,
+                        onToggle: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.86)) {
+                                expandedSessionCId = expandedSessionCId == channel.cId ? nil : channel.cId
+                            }
+                        },
+                        onObserve: openObserve,
+                        onMessage: { openSession(channel) },
+                        onFork: { startSession(.continueContext) }
+                    )
+                }
             }
         }
     }
 
     // MARK: Essentials — Tiered+ glyph header
     //
-    // The sober identity (a deterministic sprite + dim @handle), the primary
-    // "+ New" CTA, then a 2×2 grid of the five facts as label-less glyph rows:
+    // The sober identity (a deterministic sprite + dim @handle), a copy-details
+    // button, then a 2×2 grid of the five facts as label-less glyph rows:
     // path · branch on top, host · harness/model below. No word labels and no
     // status tag — the avatar is neutral; liveness reads from the summary's
-    // accent `now`, never a badge here.
+    // accent `now`, never a badge here. (New session lives with Sessions.)
     private var essentials: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
             HStack(alignment: .center, spacing: HudSpacing.md) {
@@ -3523,7 +3562,6 @@ private struct ScoutAgentInspector: View {
 
                 Spacer(minLength: HudSpacing.sm)
 
-                ScoutInspectorActionButton(icon: "plus", title: "New", filled: true, action: { startSession(.fresh) })
                 ScoutCopyButton(text: cardSummary, help: "Copy agent details")
             }
             glyphFacts
@@ -3707,24 +3745,36 @@ private struct ScoutAgentInspector: View {
                     .foregroundStyle(ScoutPalette.dim)
             } else {
                 ForEach(shown) { file in fileChangedRow(file) }
-                if let openDiff {
-                    Button(action: openDiff) {
-                        HStack(spacing: HudSpacing.xs) {
-                            Text("Open full diff")
-                                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                                .tracking(0.4)
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 8, weight: .bold))
+                if openDiff != nil || openWorktreeDiff != nil {
+                    HStack(spacing: HudSpacing.md) {
+                        if let openDiff {
+                            diffLink(title: "Open session diff", emphasis: true, action: openDiff)
+                                .help("Open a path-filtered diff for files this session changed")
                         }
-                        .foregroundStyle(ScoutPalette.accent)
-                        .contentShape(Rectangle())
+                        if let openWorktreeDiff {
+                            diffLink(title: "Worktree diff", emphasis: false, action: openWorktreeDiff)
+                                .help("Open the full repo diff for this worktree")
+                        }
                     }
-                    .buttonStyle(.plain).scoutPointerCursor()
                     .padding(.top, 2)
-                    .help("Open the full repo diff for this worktree")
                 }
             }
         }
+    }
+
+    private func diffLink(title: String, emphasis: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Text(title)
+                    .font(HudFont.mono(HudTextSize.micro, weight: emphasis ? .semibold : .medium))
+                    .tracking(0.4)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(emphasis ? ScoutPalette.accent : ScoutPalette.dim)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
     }
 
     @ViewBuilder
@@ -3749,38 +3799,6 @@ private struct ScoutAgentInspector: View {
                 .foregroundStyle(ScoutPalette.dim)
         }
         .help("\(file.path) · \(file.state)")
-    }
-
-    // MARK: Engage — the grouped ways to engage the session
-    //
-    // Conversation (Message, primary) and Terminal (Observe). The full parsed
-    // trace lives in the Observe pane and "+ New" sits in the header, so this is
-    // just the two ways to engage the live session, grouped by the surface each
-    // opens. Take over isn't faked — it joins once it has a native backend.
-    private var engage: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            ScoutEyebrow(text: "Engage")
-            engageRow(label: "Conversation") {
-                ScoutInspectorActionButton(icon: "bubble.left", title: "Message", filled: true, action: openConversation)
-            }
-            if sessionId != nil {
-                engageRow(label: "Terminal") {
-                    ScoutObserveChip(action: openObserve)
-                }
-            }
-        }
-    }
-
-    private func engageRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .center, spacing: HudSpacing.md) {
-            Text(label.uppercased())
-                .font(HudFont.mono(8, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(ScoutPalette.dim)
-                .frame(width: 74, alignment: .leading)
-            content()
-            Spacer(minLength: 0)
-        }
     }
 
     /// Runtime — the facts the glyph header doesn't carry (harness · model · host
@@ -4502,7 +4520,9 @@ private func scoutHomeTilde(_ path: String) -> String {
 private struct ScoutInspectorSessionRow: View {
     let channel: ScoutChannel
     let role: String
-    let isActive: Bool
+    /// True only when the agent is live AND this is the session in focus — the
+    /// dot lights for active work, not merely for being selected.
+    let isWorking: Bool
     let isExpanded: Bool
     let onToggle: () -> Void
     let onObserve: () -> Void
@@ -4538,8 +4558,9 @@ private struct ScoutInspectorSessionRow: View {
             Button(action: onToggle) {
                 HStack(spacing: HudSpacing.sm) {
                     Circle()
-                        .fill(isActive ? ScoutPalette.statusOk : ScoutPalette.dim)
+                        .fill(isWorking ? ScoutPalette.accent : ScoutPalette.dim)
                         .frame(width: 5, height: 5)
+                        .shadow(color: isWorking ? ScoutPalette.accent.opacity(0.6) : .clear, radius: 2.5)
                     Text(channel.rowTitle)
                         .font(HudFont.ui(HudTextSize.xxs, weight: .medium))
                         .foregroundStyle(hovering || isExpanded ? ScoutPalette.ink : ScoutPalette.muted)

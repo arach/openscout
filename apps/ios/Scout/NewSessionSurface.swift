@@ -66,15 +66,19 @@ struct NewSessionSurface: View {
         static let catalog: [HarnessOption] = [
             HarnessOption(id: "claude", label: "Claude Code", models: [
                 .defaultOption,
+                ModelOption(id: "fable", label: "Fable", value: "fable"),
                 ModelOption(id: "opus", label: "Opus", value: "opus"),
+                ModelOption(id: "claude-opus-4-8", label: "Opus 4.8", value: "claude-opus-4-8"),
                 ModelOption(id: "sonnet", label: "Sonnet", value: "sonnet"),
+                ModelOption(id: "claude-sonnet-4-6", label: "Sonnet 4.6", value: "claude-sonnet-4-6"),
                 ModelOption(id: "haiku", label: "Haiku", value: "haiku"),
             ]),
             HarnessOption(id: "codex", label: "Codex", models: [
                 .defaultOption,
-                ModelOption(id: "gpt-5-codex", label: "GPT-5 Codex", value: "gpt-5-codex"),
-                ModelOption(id: "gpt-5", label: "GPT-5", value: "gpt-5"),
-                ModelOption(id: "gpt-5-pro", label: "GPT-5 Pro", value: "gpt-5-pro"),
+                ModelOption(id: "gpt-5.5", label: "GPT-5.5", value: "gpt-5.5"),
+                ModelOption(id: "gpt-5.4", label: "GPT-5.4", value: "gpt-5.4"),
+                ModelOption(id: "gpt-5.4-mini", label: "GPT-5.4 mini", value: "gpt-5.4-mini"),
+                ModelOption(id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark"),
             ]),
         ]
     }
