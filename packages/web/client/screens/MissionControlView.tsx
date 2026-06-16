@@ -1347,9 +1347,11 @@ function ObserveTile({
   const isLive = observe?.live === true;
   const hasAsk = events.some((e) => e.kind === "ask" && !e.answer);
 
-  const ctxUsage = observe?.contextUsage;
-  const ctxPct = ctxUsage && ctxUsage.length > 0
-    ? Math.round(ctxUsage[ctxUsage.length - 1] * 100)
+  const usage = observe?.metadata?.usage;
+  const contextInput = usage?.contextInputTokens;
+  const contextWindow = usage?.contextWindowTokens;
+  const ctxPct = typeof contextInput === "number" && typeof contextWindow === "number" && contextWindow > 0
+    ? Math.max(0, Math.min(100, Math.round((contextInput / contextWindow) * 100)))
     : null;
 
   const toolCount = events.filter((e) => e.kind === "tool").length;
@@ -1446,7 +1448,7 @@ function ObserveTile({
 
       <div className="s-mission-tile-footer">
         {ctxPct !== null && (
-          <div className="s-mission-tile-ctx" title={`Context: ${ctxPct}%`}>
+          <div className="s-mission-tile-ctx" title={`Context input: ${ctxPct}%`}>
             <div className="s-mission-tile-ctx-fill" style={{ width: `${ctxPct}%` }} />
           </div>
         )}
@@ -1726,14 +1728,14 @@ function FocusActivityTab({
   const editCount = events.filter(
     (e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write"),
   ).length;
-  const ctxPct = observe?.contextUsage && observe.contextUsage.length > 0
-    ? Math.round(observe.contextUsage[observe.contextUsage.length - 1] * 100)
+  const ctxPct = typeof usage?.contextInputTokens === "number"
+    && typeof usage.contextWindowTokens === "number"
+    && usage.contextWindowTokens > 0
+    ? Math.max(0, Math.min(100, Math.round((usage.contextInputTokens / usage.contextWindowTokens) * 100)))
     : null;
   const ctxLabel = ctxPct !== null
     ? `${ctxPct}%`
-    : usage?.contextWindowTokens && usage?.totalTokens
-      ? `${Math.round((usage.totalTokens / usage.contextWindowTokens) * 100)}%`
-      : "—";
+    : "—";
 
   return (
     <div className="s-focus-tab s-focus-tab--activity-preview">

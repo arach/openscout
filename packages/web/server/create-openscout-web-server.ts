@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -35,11 +35,6 @@ import {
   type ScoutWebAssetMode,
 } from "./server-core.ts";
 import {
-  endpointMetadataRecord,
-  selectPreferredAgentEndpoint,
-  type EndpointPreference,
-} from "./core/agent-endpoints.ts";
-import {
   getImageBlob,
   ImageBlobError,
   putImageBlob,
@@ -61,14 +56,12 @@ import {
   queryFollowTarget,
   queryHeartrate,
   queryRuns,
-  type WebAgent,
 } from "./db-queries.ts";
 import {
-  configuredOperatorActorIds,
   conversationIdForAgent,
+  configuredOperatorActorIds,
   parseDirectConversationId,
 } from "./db/internal/conversation-ids.ts";
-import { compact as compactPath } from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
@@ -78,9 +71,10 @@ import {
   loadScoutRelayConfig,
   markScoutConversationRead,
   readScoutUnblockRequests,
+  registerScoutLocalAgentBinding,
+  retireScoutLocalAgentBinding,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
-  type ScoutBrokerContext,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -187,10 +181,6 @@ import {
   type OpenScoutVantageHandoff,
   type OpenScoutVantageHandoffInput,
 } from "./vantage-handoff.ts";
-import {
-  createSignedScoutServicesRestartUrl,
-  parseScoutServicesRestartTarget,
-} from "./scout-services-deeplink.ts";
 import {
   loadUserConfig,
   saveUserConfig,
@@ -382,195 +372,6 @@ const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = 
   timeoutMs: 15_000,
   includeBinaryPatch: false,
 };
-
-const REPO_DIFF_SUMMARY_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
-  ...REPO_DIFF_VIEWER_LIMITS,
-  includeRawPatch: false,
-  includeParsedHunks: false,
-};
-
-const REPO_DIFF_CACHE_MAX_ENTRIES = 64;
-const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["unstaged", "staged"];
-
-type RepoDiffCacheMode = "reload" | "prefer" | "only";
-type RepoDiffTier = "patch" | "summary";
-type RepoDiffCacheEntry = {
-  snapshot: ScoutRepoDiffSnapshot;
-  storedAt: number;
-};
-type RepoDiffScopeMetadata =
-  | {
-      kind: "worktree";
-      label: string;
-      worktreePath: string;
-      filteredPaths: string[];
-    }
-  | {
-      kind: "session";
-      label: string;
-      worktreePath: string;
-      refId: string | null;
-      agentId: string | null;
-      sessionId: string | null;
-      filteredPaths: string[];
-      touchedFiles: number;
-      changedFiles: number;
-      include: "changed" | "all";
-      caveat: "path-filtered-not-hunk-provenance";
-    };
-type ScopedRepoDiffSnapshot = ScoutRepoDiffSnapshot & {
-  scope?: RepoDiffScopeMetadata;
-};
-
-function parseRepoDiffCacheMode(value: string | undefined, force: string | undefined): RepoDiffCacheMode {
-  if (force === "1" || force === "true") return "reload";
-  switch (value) {
-    case "only":
-      return "only";
-    case "prefer":
-      return "prefer";
-    case "reload":
-    case "refresh":
-    case "live":
-      return "reload";
-    default:
-      return "reload";
-  }
-}
-
-function parseRepoDiffTier(value: string | undefined): RepoDiffTier {
-  return value === "summary" ? "summary" : "patch";
-}
-
-function wantsRepoDiffRehydrate(value: string | undefined): boolean {
-  return value === "1" || value === "true";
-}
-
-function repoDiffCacheKey(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  baseRef: string | undefined;
-  compareRef: string | undefined;
-  tier: RepoDiffTier;
-  paths?: readonly string[];
-}): string {
-  return [
-    input.worktreePath.trim(),
-    input.layers.join(","),
-    input.baseRef ?? "",
-    input.compareRef ?? "",
-    input.tier,
-    ...(input.paths?.length ? [input.paths.join("\n")] : []),
-  ].join("\u0000");
-}
-
-function uniqueNonEmpty(values: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const raw of values) {
-    const value = raw.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    result.push(value);
-  }
-  return result;
-}
-
-function normalizeRepoDiffPathFilters(worktreePath: string, rawPaths: readonly string[]): string[] {
-  const worktreeRoot = resolve(worktreePath);
-  const paths: string[] = [];
-  for (const rawPath of rawPaths) {
-    const trimmed = rawPath.trim();
-    if (!trimmed) continue;
-    const absolute = isAbsolute(trimmed)
-      ? resolve(trimmed)
-      : resolve(worktreeRoot, trimmed);
-    const relativePath = relative(worktreeRoot, absolute);
-    if (!relativePath || relativePath === "." || relativePath.startsWith("..") || isAbsolute(relativePath)) {
-      continue;
-    }
-    paths.push(relativePath.replace(/\\/g, "/"));
-  }
-  return uniqueNonEmpty(paths);
-}
-
-function repoDiffPathFiltersFromQuery(c: Context, worktreePath: string): string[] {
-  return normalizeRepoDiffPathFilters(worktreePath, [
-    ...(c.req.queries("file") ?? []),
-    ...(c.req.queries("pathspec") ?? []),
-  ]);
-}
-
-function withRepoDiffScope(
-  snapshot: ScoutRepoDiffSnapshot,
-  scope: RepoDiffScopeMetadata,
-): ScopedRepoDiffSnapshot {
-  return { ...snapshot, scope };
-}
-
-function repoDiffLayerLabels(kind: RepoDiffLayerKind): { base: string | null; compare: string | null } {
-  switch (kind) {
-    case "unstaged":
-      return { base: "index", compare: "working tree" };
-    case "staged":
-      return { base: "HEAD", compare: "index" };
-    case "branch":
-      return { base: null, compare: null };
-  }
-}
-
-function emptyRepoDiffSnapshot(input: {
-  worktreePath: string;
-  layers: readonly RepoDiffLayerKind[];
-  scope: RepoDiffScopeMetadata;
-}): ScopedRepoDiffSnapshot {
-  const layers = input.layers.map((kind) => {
-    const labels = repoDiffLayerLabels(kind);
-    return {
-      kind,
-      baseLabel: labels.base,
-      compareLabel: labels.compare,
-      command: ["git", "diff"],
-      patchOid: stableHash(`empty:${input.worktreePath}:${kind}:${input.scope.kind}`),
-      rawPatch: "",
-      rawPatchBytes: 0,
-      truncated: false,
-      files: [],
-      shortstat: null,
-    };
-  });
-  return {
-    schema: "openscout.repo.diff/v1",
-    generatedAt: Date.now(),
-    worktreePath: input.worktreePath,
-    layers,
-    coverage: {
-      requestedLayers: input.layers.length,
-      emittedLayers: layers.length,
-      files: 0,
-      patchBytes: 0,
-      truncatedLayers: 0,
-      scanBudgetReached: false,
-    },
-    diagnostics: [],
-    scout: { worktreeId: null, projectId: null, agents: [], sessions: [], hints: [] },
-    render: {
-      renderKey: stableHash(`empty-render:${input.worktreePath}:${input.layers.join(",")}:${input.scope.kind}`),
-      cachePolicy: "local-disposable",
-      preferredTheme: "pierre-dark",
-      preferredLayout: "split",
-    },
-    scope: input.scope,
-  };
-}
-
-function trimRepoDiffCache(cache: Map<string, RepoDiffCacheEntry>): void {
-  while (cache.size > REPO_DIFF_CACHE_MAX_ENTRIES) {
-    const oldest = cache.keys().next().value;
-    if (!oldest) break;
-    cache.delete(oldest);
-  }
-}
 
 type FleetHomeBrief = {
   id: string;
@@ -1188,344 +989,297 @@ function metadataTimestampMs(value: unknown): number | undefined {
 }
 
 function agentEndpointMetadata(endpoint: AgentEndpoint | null | undefined): Record<string, unknown> {
-  return endpointMetadataRecord(endpoint);
+  return endpoint?.metadata && typeof endpoint.metadata === "object" && !Array.isArray(endpoint.metadata)
+    ? endpoint.metadata
+    : {};
 }
 
 function activeEndpointForAgent(
   snapshot: { endpoints?: Record<string, AgentEndpoint> },
   agentId: string,
-  preference?: EndpointPreference,
 ): AgentEndpoint | null {
-  return selectPreferredAgentEndpoint(snapshot, agentId, preference);
-}
-
-const ACTIVE_BROKER_FLIGHT_STATES = new Set(["queued", "waking", "running", "waiting"]);
-
-function metadataStringValue(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-): string | null {
-  return firstMetadataString(metadata?.[key]);
-}
-
-function metadataBooleanValue(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-): boolean {
-  return metadata?.[key] === true;
-}
-
-function metadataStringArrayValue(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-): string[] {
-  const value = metadata?.[key];
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map((entry) => String(entry).trim()).filter(Boolean);
-}
-
-function metadataRecordValue(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-): Record<string, unknown> | null {
-  const value = metadata?.[key];
-  return recordInput(value);
-}
-
-function metadataRecordArrayValue(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-): Record<string, unknown>[] {
-  const value = metadata?.[key];
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value.map(recordInput).filter((entry): entry is Record<string, unknown> => Boolean(entry));
-}
-
-function isBrokerAgentVisibleInWeb(agent: ScoutBrokerContext["snapshot"]["agents"][string]): boolean {
-  const metadata = recordInput(agent.metadata);
-  return metadataBooleanValue(metadata, "brokerRegistered")
-    && !metadataBooleanValue(metadata, "staleLocalRegistration")
-    && !metadataBooleanValue(metadata, "retiredFromFleet");
-}
-
-function latestBrokerAgentTimestamp(
-  agent: ScoutBrokerContext["snapshot"]["agents"][string],
-  endpoint: AgentEndpoint | null,
-): number | null {
-  const agentMetadata = recordInput(agent.metadata);
-  const endpointMetadata = agentEndpointMetadata(endpoint);
-  const timestamps = [
-    agentMetadata?.createdAt,
-    agentMetadata?.registeredAt,
-    agentMetadata?.updatedAt,
-    endpointMetadata.lastSeenAt,
-    endpointMetadata.lastEnsuredAt,
-    endpointMetadata.startedAt,
-    endpointMetadata.lastStartedAt,
-    endpointMetadata.lastCompletedAt,
-    endpointMetadata.lastFailedAt,
-  ].map(metadataTimestampMs).filter((value): value is number => value !== undefined);
-  return timestamps.length > 0 ? Math.max(...timestamps) : null;
-}
-
-function activeBrokerFlightForAgent(
-  broker: ScoutBrokerContext,
-  agentId: string,
-): boolean {
-  return Object.values(broker.snapshot.flights ?? {}).some(
-    (flight) => flight.targetAgentId === agentId && ACTIVE_BROKER_FLIGHT_STATES.has(flight.state),
+  const candidates = Object.values(snapshot.endpoints ?? {}).filter(
+    (endpoint) => endpoint.agentId === agentId,
   );
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+        return 0;
+      case "idle":
+        return 1;
+      case "waiting":
+        return 2;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+  return [...candidates].sort((left, right) => rank(left.state) - rank(right.state))[0] ?? null;
+}
+
+type WebAgentRecord = ReturnType<typeof queryAgents>[number];
+type BrokerSnapshotRecord = Record<string, unknown>;
+
+function recordCollection(value: unknown): Record<string, Record<string, unknown>> {
+  if (!isRecord(value)) return {};
+  const entries: Array<[string, Record<string, unknown>]> = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (isRecord(entry)) entries.push([key, entry]);
+  }
+  return Object.fromEntries(entries);
+}
+
+function recordMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  return isRecord(value?.metadata) ? value.metadata : {};
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
+}
+
+function brokerSnapshotFromContext(context: unknown): BrokerSnapshotRecord | null {
+  if (!isRecord(context) || !isRecord(context.snapshot)) return null;
+  return context.snapshot;
+}
+
+function brokerEndpointForAgent(
+  snapshot: BrokerSnapshotRecord,
+  agentId: string,
+): Record<string, unknown> | null {
+  const endpoints = Object.values(recordCollection(snapshot.endpoints)).filter(
+    (endpoint) => stringField(endpoint, "agentId") === agentId,
+  );
+  const rank = (state: string | undefined) => {
+    switch (state) {
+      case "active":
+      case "idle":
+      case "waiting":
+      case "available":
+        return 0;
+      case "offline":
+        return 5;
+      default:
+        return 4;
+    }
+  };
+  return [...endpoints].sort((left, right) =>
+    rank(stringField(left, "state")) - rank(stringField(right, "state")),
+  )[0] ?? null;
 }
 
 function summarizeBrokerAgentState(
-  agent: ScoutBrokerContext["snapshot"]["agents"][string],
-  endpoint: AgentEndpoint | null,
-  isWorking: boolean,
+  endpoint: Record<string, unknown> | null,
+  wakePolicy: string | null,
 ): string {
-  if (isWorking) {
-    return "working";
-  }
-  if (endpoint?.state && endpoint.state !== "offline") {
-    return "available";
-  }
-  return agent.wakePolicy === "on_demand" ? "available" : "offline";
+  const rawState = stringField(endpoint, "state");
+  if (rawState && rawState !== "offline") return "available";
+  return wakePolicy === "on_demand" || wakePolicy === "always_on" ? "available" : "offline";
 }
 
-function brokerNodeName(
-  broker: ScoutBrokerContext,
-  nodeId: string | null | undefined,
-): string | null {
-  if (!nodeId) {
-    return null;
-  }
-  return broker.snapshot.nodes?.[nodeId]?.name ?? null;
+function brokerAgentProtocol(agentMetadata: Record<string, unknown>): string | null {
+  const interfaces = recordArray(agentMetadata.supportedInterfaces);
+  const protocol = interfaces
+    .map((entry) => stringField(entry, "protocol") ?? stringField(entry, "name"))
+    .find((entry) => entry?.toLowerCase().includes("a2a"));
+  return protocol ? "A2A" : null;
 }
 
-function brokerActorDisplay(
-  broker: ScoutBrokerContext,
-  actorId: string | null | undefined,
-): { name: string | null; handle: string | null } {
-  const actor = actorId ? broker.snapshot.actors?.[actorId] : null;
+function brokerAgentSkills(agentMetadata: Record<string, unknown>): string[] {
+  const card = isRecord(agentMetadata.a2aAgentCard)
+    ? agentMetadata.a2aAgentCard
+    : isRecord(agentMetadata.agentCard)
+    ? agentMetadata.agentCard
+    : {};
+  return recordArray(card.skills)
+    .map((skill) => stringField(skill, "name") ?? stringField(skill, "id"))
+    .filter((skill): skill is string => Boolean(skill));
+}
+
+function brokerAgentCapabilities(
+  agent: Record<string, unknown>,
+  protocol: string | null,
+): string[] {
+  const capabilities = stringList(agent.capabilities, []);
+  if (capabilities.length > 0) return capabilities;
+  return protocol === "A2A" ? ["chat", "invoke"] : [];
+}
+
+function brokerAgentProvider(agentMetadata: Record<string, unknown>): {
+  providerName: string | null;
+  providerUrl: string | null;
+} {
+  const card = isRecord(agentMetadata.a2aAgentCard)
+    ? agentMetadata.a2aAgentCard
+    : isRecord(agentMetadata.agentCard)
+    ? agentMetadata.agentCard
+    : {};
+  const provider = isRecord(card.provider) ? card.provider : {};
   return {
-    name: actor?.displayName ?? null,
-    handle: actor?.handle ?? null,
+    providerName: stringField(provider, "organization") ?? stringField(provider, "name") ?? null,
+    providerUrl: stringField(provider, "url") ?? null,
   };
 }
 
-function projectNameFromRoot(path: string | null): string | null {
-  const normalized = path?.trim();
-  return normalized ? basename(normalized) : null;
-}
-
-function brokerAgentIdentityMatches(
-  agent: ScoutBrokerContext["snapshot"]["agents"][string],
-  value: string,
-): boolean {
-  return [
-    agent.id,
-    agent.definitionId,
-    agent.handle,
-    agent.selector,
-    agent.defaultSelector,
-  ].some((candidate) => candidate === value);
-}
-
-function brokerAgentCapabilitiesForWeb(
-  agent: ScoutBrokerContext["snapshot"]["agents"][string],
-  metadata: Record<string, unknown> | null,
-): string[] {
-  const explicit = Array.isArray(agent.capabilities)
-    ? agent.capabilities.map((capability) => String(capability).trim()).filter(Boolean)
-    : [];
-  if (explicit.length > 0) {
-    return explicit;
-  }
-  const metadataCapabilities = metadataStringArrayValue(metadata, "capabilities");
-  return metadataCapabilities.length > 0 ? metadataCapabilities : ["chat", "invoke"];
-}
-
-function brokerAgentCardMetadata(
-  metadata: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  return metadataRecordValue(metadata, "a2aAgentCard")
-    ?? metadataRecordValue(metadata, "agentCard");
-}
-
-function brokerAgentProvider(
-  metadata: Record<string, unknown> | null,
-  card: Record<string, unknown> | null,
-): { name: string | null; url: string | null } {
-  const provider = metadataRecordValue(card, "provider")
-    ?? metadataRecordValue(metadata, "provider");
-  return {
-    name: firstMetadataString(
-      metadataStringValue(provider, "organization"),
-      metadataStringValue(provider, "name"),
-      metadataStringValue(metadata, "providerName"),
-    ),
-    url: firstMetadataString(
-      metadataStringValue(provider, "url"),
-      metadataStringValue(metadata, "providerUrl"),
-    ),
-  };
-}
-
-function brokerAgentProtocol(
-  metadata: Record<string, unknown> | null,
-  endpointMetadata: Record<string, unknown>,
-): string | null {
-  const supportedInterfaces = metadataRecordArrayValue(metadata, "supportedInterfaces")
-    .concat(metadataRecordArrayValue(endpointMetadata, "supportedInterfaces"));
-  const protocol = firstMetadataString(
-    ...supportedInterfaces.map((entry) => metadataStringValue(entry, "protocol")),
-    metadataStringValue(metadata, "protocol"),
-    metadataStringValue(endpointMetadata, "protocol"),
-  );
-  if (protocol?.toLowerCase() === "a2a" || metadataStringValue(metadata, "a2aExecutionUrl")) {
-    return "A2A";
-  }
-  return protocol;
-}
-
-function brokerAgentSkillNames(
-  metadata: Record<string, unknown> | null,
-  card: Record<string, unknown> | null,
-): string[] {
-  const skills = metadataRecordArrayValue(card, "skills")
-    .concat(metadataRecordArrayValue(metadata, "skills"));
-  return Array.from(new Set(
-    skills
-      .map((skill) => firstMetadataString(
-        metadataStringValue(skill, "name"),
-        metadataStringValue(skill, "id"),
-      ))
-      .filter((skill): skill is string => Boolean(skill)),
-  ));
-}
-
-function brokerAgentCardToWebAgent(
-  broker: ScoutBrokerContext,
-  agent: ScoutBrokerContext["snapshot"]["agents"][string],
-): WebAgent | null {
-  if (!isBrokerAgentVisibleInWeb(agent)) {
-    return null;
-  }
-
-  const endpoint = activeEndpointForAgent(broker.snapshot, agent.id);
-  const agentMetadata = recordInput(agent.metadata);
-  const endpointMetadata = agentEndpointMetadata(endpoint);
-  const cardMetadata = brokerAgentCardMetadata(agentMetadata);
-  const provider = brokerAgentProvider(agentMetadata, cardMetadata);
-  const protocol = brokerAgentProtocol(agentMetadata, endpointMetadata);
-  const skills = brokerAgentSkillNames(agentMetadata, cardMetadata);
-  const projectRoot = firstMetadataString(
-    endpoint?.projectRoot,
-    metadataStringValue(endpointMetadata, "projectRoot"),
-    metadataStringValue(agentMetadata, "projectRoot"),
-  );
-  const cwd = firstMetadataString(
-    endpoint?.cwd,
-    metadataStringValue(endpointMetadata, "currentDirectory"),
-    metadataStringValue(endpointMetadata, "cwd"),
-    metadataStringValue(agentMetadata, "currentDirectory"),
-    metadataStringValue(agentMetadata, "cwd"),
-    projectRoot,
-  );
-  const owner = brokerActorDisplay(broker, agent.ownerId);
-  const createdAt = metadataTimestampMs(agentMetadata?.createdAt)
-    ?? metadataTimestampMs(agentMetadata?.registeredAt)
-    ?? null;
-  const updatedAt = latestBrokerAgentTimestamp(agent, endpoint) ?? createdAt;
+function brokerAgentToWebAgent(
+  snapshot: BrokerSnapshotRecord,
+  agent: Record<string, unknown>,
+): WebAgentRecord | null {
+  const agentId = stringField(agent, "id");
+  if (!agentId) return null;
+  const actors = recordCollection(snapshot.actors);
+  const nodes = recordCollection(snapshot.nodes);
+  const endpoint = brokerEndpointForAgent(snapshot, agentId);
+  const agentMetadata = recordMetadata(agent);
+  const endpointMetadata = recordMetadata(endpoint);
+  const ownerId = stringField(agent, "ownerId") ?? null;
+  const owner = ownerId ? actors[ownerId] : undefined;
+  const authorityNodeId = stringField(agent, "authorityNodeId") ?? stringField(endpoint, "nodeId") ?? null;
+  const homeNodeId = stringField(agent, "homeNodeId") ?? authorityNodeId;
+  const authorityNode = authorityNodeId ? nodes[authorityNodeId] : undefined;
+  const homeNode = homeNodeId ? nodes[homeNodeId] : undefined;
+  const handle = stringField(agent, "handle") ?? stringField(agent, "selector") ?? null;
+  const protocol = brokerAgentProtocol(agentMetadata);
+  const provider = brokerAgentProvider(agentMetadata);
 
   return {
-    id: agent.id,
-    definitionId: agent.definitionId,
-    name: agent.displayName,
-    handle: agent.handle ?? null,
-    agentClass: agent.agentClass,
-    harness: endpoint?.harness ?? metadataStringValue(agentMetadata, "harness"),
-    state: summarizeBrokerAgentState(agent, endpoint, activeBrokerFlightForAgent(broker, agent.id)),
-    projectRoot: compactPath(projectRoot),
-    cwd: compactPath(cwd),
-    updatedAt,
-    createdAt,
-    transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
-    selector: agent.selector ?? metadataStringValue(agentMetadata, "selector"),
-    defaultSelector: agent.defaultSelector ?? metadataStringValue(agentMetadata, "defaultSelector"),
-    nodeQualifier: agent.nodeQualifier ?? metadataStringValue(agentMetadata, "nodeQualifier"),
-    workspaceQualifier: agent.workspaceQualifier ?? metadataStringValue(agentMetadata, "workspaceQualifier"),
-    wakePolicy: agent.wakePolicy,
-    capabilities: brokerAgentCapabilitiesForWeb(agent, agentMetadata),
-    project: metadataStringValue(agentMetadata, "project") ?? projectNameFromRoot(projectRoot),
-    branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
-    role: null,
-    model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
-    harnessSessionId: endpoint?.sessionId
-      ?? metadataStringValue(endpointMetadata, "externalSessionId")
-      ?? metadataStringValue(endpointMetadata, "threadId")
-      ?? metadataStringValue(endpointMetadata, "a2aContextId")
-      ?? metadataStringValue(endpointMetadata, "a2aTaskId")
-      ?? metadataStringValue(agentMetadata, "externalSessionId")
+    id: agentId,
+    definitionId: stringField(agent, "definitionId") ?? agentId,
+    name: stringField(agent, "displayName") ?? stringField(actors[agentId], "displayName") ?? agentId,
+    handle,
+    agentClass: stringField(agent, "agentClass") ?? "general",
+    harness: stringField(endpoint, "harness") ?? null,
+    state: summarizeBrokerAgentState(endpoint, stringField(agent, "wakePolicy") ?? null),
+    projectRoot: stringField(endpoint, "projectRoot") ?? null,
+    cwd: stringField(endpoint, "cwd") ?? stringField(endpoint, "projectRoot") ?? null,
+    updatedAt: metadataTimestampMs(endpointMetadata.lastCompletedAt)
+      ?? metadataTimestampMs(endpointMetadata.updatedAt)
       ?? null,
-    harnessLogPath: null,
-    conversationId: conversationIdForAgent(agent.id),
-    authorityNodeId: agent.authorityNodeId ?? null,
-    authorityNodeName: brokerNodeName(broker, agent.authorityNodeId),
-    homeNodeId: agent.homeNodeId ?? null,
-    homeNodeName: brokerNodeName(broker, agent.homeNodeId),
-    ownerId: agent.ownerId ?? null,
-    ownerName: owner.name,
-    ownerHandle: owner.handle,
-    staleLocalRegistration: metadataBooleanValue(agentMetadata, "staleLocalRegistration"),
-    retiredFromFleet: metadataBooleanValue(agentMetadata, "retiredFromFleet"),
-    replacedByAgentId: metadataStringValue(agentMetadata, "replacedByAgentId"),
-    providerName: provider.name,
-    providerUrl: provider.url,
+    createdAt: metadataTimestampMs(agentMetadata.createdAt) ?? null,
+    transport: stringField(endpoint, "transport") ?? null,
+    selector: stringField(agent, "selector") ?? handle,
+    defaultSelector: stringField(agent, "defaultSelector") ?? stringField(agent, "selector") ?? handle,
+    nodeQualifier: stringField(agent, "nodeQualifier") ?? null,
+    workspaceQualifier: stringField(agent, "workspaceQualifier") ?? null,
+    wakePolicy: stringField(agent, "wakePolicy") ?? null,
+    capabilities: brokerAgentCapabilities(agent, protocol),
+    project: stringField(agentMetadata, "project") ?? null,
+    branch: stringField(agentMetadata, "branch") ?? null,
+    role: null,
+    model: stringField(endpointMetadata, "model") ?? null,
+    harnessSessionId: stringField(endpoint, "sessionId")
+      ?? stringField(endpointMetadata, "a2aContextId")
+      ?? stringField(endpointMetadata, "contextId")
+      ?? null,
+    harnessLogPath: stringField(endpointMetadata, "logPath") ?? null,
+    conversationId: conversationIdForAgent(agentId),
+    authorityNodeId,
+    authorityNodeName: stringField(authorityNode, "name") ?? null,
+    homeNodeId,
+    homeNodeName: stringField(homeNode, "name") ?? null,
+    ownerId,
+    ownerName: stringField(owner, "displayName") ?? null,
+    ownerHandle: stringField(owner, "handle") ?? null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
+    providerName: provider.providerName,
+    providerUrl: provider.providerUrl,
     protocol,
-    skills,
+    skills: brokerAgentSkills(agentMetadata),
   };
 }
 
-function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
-  return Object.values(broker.snapshot.agents ?? {})
-    .map((agent) => brokerAgentCardToWebAgent(broker, agent))
-    .filter((agent): agent is WebAgent => Boolean(agent))
-    .sort((left, right) =>
-      (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
-      || left.name.localeCompare(right.name),
-    );
+async function readWebAgentsWithBrokerCards(existingAgents: WebAgentRecord[]): Promise<WebAgentRecord[]> {
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const snapshot = brokerSnapshotFromContext(broker);
+  if (!snapshot) return existingAgents;
+
+  const byId = new Map(existingAgents.map((agent) => [agent.id, agent]));
+  for (const agent of Object.values(recordCollection(snapshot.agents))) {
+    const agentId = stringField(agent, "id");
+    if (!agentId || byId.has(agentId)) continue;
+    const projected = brokerAgentToWebAgent(snapshot, agent);
+    if (projected) byId.set(projected.id, projected);
+  }
+  return [...byId.values()];
 }
 
-async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
-  const agents = queryAgents();
-  const broker = await loadScoutBrokerContext().catch(() => null);
-  if (!broker) {
-    return agents;
-  }
-  const existingIds = new Set(agents.map((agent) => agent.id));
-  const brokerAgents = brokerCardAgentsForWeb(broker).filter(
-    (agent) => !existingIds.has(agent.id),
-  );
-  return [...agents, ...brokerAgents];
+function matchesAgentRouteParam(agent: WebAgentRecord, value: string): boolean {
+  return agent.id === value
+    || agent.handle === value
+    || agent.selector === value
+    || agent.defaultSelector === value;
 }
 
-async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
-  const agent = queryAgentById(agentId);
-  if (agent) {
-    return agent;
+function parseRepoDiffCacheMode(value: string | undefined): "reload" | "prefer" | "only" {
+  return value === "prefer" || value === "only" || value === "reload" ? value : "reload";
+}
+
+function normalizeRepoDiffFileFilters(worktreePath: string, files: string[]): string[] | undefined {
+  const root = resolve(worktreePath);
+  const seen = new Set<string>();
+  for (const file of files) {
+    const trimmed = file.trim();
+    if (!trimmed) continue;
+    const absolute = isAbsolute(trimmed) ? resolve(trimmed) : resolve(root, trimmed);
+    if (!isInsideRoot(root, absolute) || absolute === root) continue;
+    const rel = relative(root, absolute);
+    if (rel && !seen.has(rel)) seen.add(rel);
   }
-  const broker = await loadScoutBrokerContext().catch(() => null);
-  if (!broker) {
-    return null;
+  return seen.size > 0 ? [...seen] : undefined;
+}
+
+function repoDiffLimitsForTier(tier: string | undefined): RepoDiffSnapshotOptions["limits"] {
+  if (tier === "summary") {
+    return {
+      ...REPO_DIFF_VIEWER_LIMITS,
+      includeRawPatch: false,
+      includeParsedHunks: false,
+    };
   }
-  const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
-    (candidate) => brokerAgentIdentityMatches(candidate, agentId),
-  );
-  return brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
+  return REPO_DIFF_VIEWER_LIMITS;
+}
+
+function repoDiffCacheKey(input: {
+  worktreePath: string;
+  layers?: RepoDiffLayerKind[];
+  baseRef?: string;
+  compareRef?: string;
+  paths?: string[];
+  tier?: string;
+}): string {
+  return JSON.stringify({
+    worktreePath: resolve(input.worktreePath),
+    layers: input.layers ?? [],
+    baseRef: input.baseRef ?? null,
+    compareRef: input.compareRef ?? null,
+    paths: input.paths ?? [],
+    tier: input.tier ?? null,
+  });
+}
+
+function withRepoDiffScope(
+  snapshot: ScoutRepoDiffSnapshot,
+  paths: string[] | undefined,
+): ScoutRepoDiffSnapshot & { scope?: { kind: "worktree"; filteredPaths: string[] } } {
+  return paths && paths.length > 0
+    ? { ...snapshot, scope: { kind: "worktree", filteredPaths: paths } }
+    : snapshot;
+}
+
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...headers,
+    },
+  });
 }
 
 const TMUX_PEEK_DEFAULT_LINES = 44;
@@ -1860,9 +1614,14 @@ function buildAgentSessionCatalogPayload(input: {
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
-  const catalogActiveSession = catalog.activeSessionId
-    ? catalog.sessions.find((session) => session.id === catalog.activeSessionId) ?? null
-    : null;
+  type WebSessionCatalogEntry = (typeof catalog.sessions)[number] & {
+    canObserve?: boolean;
+    canTakeover?: boolean;
+    historyPath?: string;
+    provider?: string | null;
+    source?: string;
+  };
+  const catalogSessions = catalog.sessions as WebSessionCatalogEntry[];
   const endpointMetadata = agentEndpointMetadata(input.endpoint);
   const endpointSessionId = firstMetadataString(
     input.activeSessionId,
@@ -1873,18 +1632,12 @@ function buildAgentSessionCatalogPayload(input: {
   const fallbackTmuxSessionId = input.transport === "tmux"
     ? input.activeSessionId ?? null
     : null;
-  const catalogActiveMatchesProfile = Boolean(
-    catalogActiveSession
-    && (!input.harness || !catalogActiveSession.harness || catalogActiveSession.harness === input.harness)
-    && (!input.transport || !catalogActiveSession.transport || catalogActiveSession.transport === input.transport),
-  );
-  const sessionId = catalogActiveMatchesProfile
-    ? catalog.activeSessionId
-    : endpointSessionId ?? fallbackTmuxSessionId ?? catalog.activeSessionId;
+  const sessionId = catalog.activeSessionId ?? endpointSessionId ?? fallbackTmuxSessionId;
   const harnessEntry = findHarnessEntry(input.harness);
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
+  const canTakeoverActiveSession = supportsTerminalTakeover(input.transport, resumeCommand);
   const historyPath = firstMetadataString(
     endpointMetadata.threadPath,
     endpointMetadata.resumeSessionPath,
@@ -1896,9 +1649,18 @@ function buildAgentSessionCatalogPayload(input: {
     ?? metadataTimestampMs(endpointMetadata.startedAt)
     ?? input.startedAt
     ?? Date.now();
-  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
+  const enrichSession = (session: WebSessionCatalogEntry): WebSessionCatalogEntry => {
+    const transport = session.transport ?? input.transport ?? undefined;
+    const sessionHistoryPath = session.historyPath ?? (session.id === sessionId ? historyPath : undefined);
+    return {
+      ...session,
+      canObserve: Boolean(session.canObserve) || Boolean(sessionHistoryPath) || transport === "tmux",
+      canTakeover: session.id === sessionId && canTakeoverActiveSession,
+    };
+  };
+  const sessions = sessionId && !catalogSessions.some((session) => session.id === sessionId)
     ? [
-        {
+        enrichSession({
           id: sessionId,
           startedAt,
           cwd: input.cwd,
@@ -1908,15 +1670,10 @@ function buildAgentSessionCatalogPayload(input: {
           ...(provider ? { provider } : {}),
           ...(historyPath ? { historyPath } : {}),
           source,
-          canObserve: Boolean(historyPath) || input.transport === "tmux",
-          // tmux is taken over by grabbing the live pane (no resume command —
-          // see resumeCommand above, which is null for tmux on purpose); other
-          // transports need a resume command. Both paths are takeoverable.
-          canTakeover: input.transport === "tmux" || Boolean(resumeCommand),
-        },
-        ...catalog.sessions,
+        }),
+        ...catalogSessions.map(enrichSession),
       ]
-    : catalog.sessions;
+    : catalogSessions.map(enrichSession);
   return {
     ...catalog,
     activeSessionId: sessionId,
@@ -1926,6 +1683,15 @@ function buildAgentSessionCatalogPayload(input: {
     resumeCommand,
     resumeCwd: input.cwd,
   };
+}
+
+function supportsTerminalTakeover(
+  transport: string | null | undefined,
+  resumeCommand: string | null,
+): boolean {
+  if (transport === "tmux") return true;
+  if (!resumeCommand) return false;
+  return transport === "codex_exec" || transport === "claude_resume";
 }
 
 function emptyAgentSessionCatalogPayload(agentId: string) {
@@ -2047,54 +1813,6 @@ function observedRevealPathSet(payload: Awaited<ReturnType<typeof loadRevealObse
   }
 
   return allowed;
-}
-
-type LoadedObservePayload = NonNullable<Awaited<ReturnType<typeof loadRevealObservePayload>>>;
-
-function observedWorktreePath(payload: LoadedObservePayload): string | null {
-  const sessionCwd = payload.data.metadata?.session?.cwd?.trim();
-  if (sessionCwd) {
-    return resolve(expandHomePath(sessionCwd));
-  }
-  if (payload.agentId) {
-    const agent = queryAgentById(payload.agentId);
-    const agentPath = agent?.cwd?.trim() || agent?.projectRoot?.trim();
-    if (agentPath) {
-      return resolve(expandHomePath(agentPath));
-    }
-  }
-  return null;
-}
-
-function sessionDiffInclude(value: string | undefined): "changed" | "all" {
-  return value === "all" || value === "touched" ? "all" : "changed";
-}
-
-function sessionDiffTouchedPaths(payload: LoadedObservePayload, include: "changed" | "all"): string[] {
-  return payload.data.files
-    .filter((file) => include === "all" || file.state !== "read")
-    .map((file) => file.path);
-}
-
-function sessionTouchedResponse(payload: LoadedObservePayload, refId: string | null) {
-  const worktreePath = observedWorktreePath(payload);
-  const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
-  return {
-    schema: "openscout.session.touched/v1",
-    refId,
-    agentId: payload.agentId,
-    sessionId: payload.sessionId,
-    source: payload.source,
-    fidelity: payload.fidelity,
-    historyPath: payload.historyPath,
-    worktreePath,
-    counts: {
-      files: payload.data.files.length,
-      changedFiles,
-      readFiles: payload.data.files.length - changedFiles,
-    },
-    files: payload.data.files,
-  };
 }
 
 function defaultRevealLocalPath(targetPath: string): void {
@@ -3164,6 +2882,86 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
+const PROFILE_SWITCHABLE_HARNESSES = new Set(["claude", "codex", "pi"]);
+
+async function buildAgentManagementState(agentId: string, currentDirectory: string) {
+  const agent = queryAgentById(agentId) ?? queryAgents(300).find((candidate) => candidate.id === agentId) ?? null;
+  const [{ getLocalAgentConfig }, setupResult] = await Promise.all([
+    import("@openscout/runtime/local-agents"),
+    loadResolvedRelayAgents({ currentDirectory }).catch(() => null),
+  ]);
+  const config = await getLocalAgentConfig(agentId).catch(() => null);
+  const setupAgents = [
+    ...(setupResult?.agents ?? []),
+    ...(setupResult?.discoveredAgents ?? []),
+  ];
+  const resolved = setupAgents.find((candidate) => candidate.agentId === agentId)
+    ?? setupAgents.find((candidate) =>
+      Boolean(agent?.projectRoot && candidate.projectRoot === agent.projectRoot)
+      || Boolean(agent?.cwd && candidate.runtime.cwd === agent.cwd)
+    )
+    ?? null;
+  const project = (setupResult?.projectInventory ?? []).find((candidate) => candidate.agentId === agentId)
+    ?? (setupResult?.projectInventory ?? []).find((candidate) =>
+      Boolean((resolved?.projectRoot ?? agent?.projectRoot) && candidate.projectRoot === (resolved?.projectRoot ?? agent?.projectRoot))
+    )
+    ?? null;
+  const currentHarness = config?.runtime.harness ?? resolved?.runtime.harness ?? agent?.harness ?? null;
+  const profileMap = new Map<string, { harness: string; source: string; detail: string; active: boolean; switchable: boolean }>();
+
+  for (const profile of project?.harnesses ?? []) {
+    profileMap.set(profile.harness, {
+      harness: profile.harness,
+      source: profile.source,
+      detail: profile.detail,
+      active: profile.harness === currentHarness,
+      switchable: PROFILE_SWITCHABLE_HARNESSES.has(profile.harness),
+    });
+  }
+  for (const harness of Object.keys(resolved?.harnessProfiles ?? {})) {
+    if (!profileMap.has(harness)) {
+      profileMap.set(harness, {
+        harness,
+        source: "manifest",
+        detail: "Resolved harness profile",
+        active: harness === currentHarness,
+        switchable: PROFILE_SWITCHABLE_HARNESSES.has(harness),
+      });
+    }
+  }
+  if (currentHarness && !profileMap.has(currentHarness)) {
+    profileMap.set(currentHarness, {
+      harness: currentHarness,
+      source: "current",
+      detail: "Current runtime harness",
+      active: true,
+      switchable: PROFILE_SWITCHABLE_HARNESSES.has(currentHarness),
+    });
+  }
+
+  const profiles = Array.from(profileMap.values()).sort((left, right) =>
+    Number(right.active) - Number(left.active)
+    || left.harness.localeCompare(right.harness)
+  );
+  const projectRoot = resolved?.projectRoot ?? project?.projectRoot ?? agent?.projectRoot ?? agent?.cwd ?? config?.runtime.cwd ?? null;
+
+  return {
+    agentId,
+    editable: Boolean(config?.editable),
+    currentHarness,
+    profiles,
+    canSwitchHarness: Boolean(config?.editable && profiles.filter((profile) => profile.switchable).length > 1),
+    projectConfigPath: resolved?.projectConfigPath ?? project?.projectConfigPath ?? null,
+    projectRoot,
+    runtimeCwd: config?.runtime.cwd ?? resolved?.runtime.cwd ?? agent?.cwd ?? null,
+    canRepair: Boolean(projectRoot),
+    canRetire: Boolean(agent && !agent.retiredFromFleet),
+    staleLocalRegistration: Boolean(agent?.staleLocalRegistration),
+    retiredFromFleet: Boolean(agent?.retiredFromFleet),
+    replacedByAgentId: agent?.replacedByAgentId ?? null,
+  };
+}
+
 async function readLocalHarnessTopologySnapshot() {
   try {
     const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
@@ -3217,100 +3015,10 @@ export async function createOpenScoutWebServer(
       console.warn(`[scoutbot] runner failed to start: ${message}`);
     }
   }
+  const repoDiffCache = new Map<string, ScoutRepoDiffSnapshot>();
+  const repoDiffRehydrateInFlight = new Map<string, Promise<void>>();
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
-  const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
-  const repoDiffInFlight = new Map<string, Promise<ScoutRepoDiffSnapshot>>();
-  const runCachedRepoDiff = (
-    key: string,
-    runRepoDiff: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>,
-    snapshotOptions: RepoDiffSnapshotOptions,
-  ): Promise<ScoutRepoDiffSnapshot> => {
-    const active = repoDiffInFlight.get(key);
-    if (active) return active;
-    const request = runRepoDiff(snapshotOptions)
-      .then((snapshot) => {
-        repoDiffCache.delete(key);
-        repoDiffCache.set(key, { snapshot, storedAt: Date.now() });
-        trimRepoDiffCache(repoDiffCache);
-        return snapshot;
-      })
-      .finally(() => {
-        repoDiffInFlight.delete(key);
-      });
-    repoDiffInFlight.set(key, request);
-    return request;
-  };
-  const serveRepoDiffSnapshot = async (
-    c: Context,
-    input: {
-      worktreePath: string;
-      layers: readonly RepoDiffLayerKind[];
-      baseRef?: string;
-      compareRef?: string;
-      tier: RepoDiffTier;
-      cacheMode: RepoDiffCacheMode;
-      rehydrate: boolean;
-      paths?: readonly string[];
-      scope?: RepoDiffScopeMetadata;
-    },
-  ) => {
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const cacheKey = repoDiffCacheKey({
-      worktreePath: input.worktreePath,
-      layers: input.layers,
-      baseRef: input.baseRef,
-      compareRef: input.compareRef,
-      tier: input.tier,
-      paths: input.paths,
-    });
-    const snapshotOptions: RepoDiffSnapshotOptions = {
-      worktreePath: input.worktreePath,
-      layers: input.layers.length > 0 ? [...input.layers] : undefined,
-      baseRef: input.baseRef,
-      compareRef: input.compareRef,
-      paths: input.paths && input.paths.length > 0 ? [...input.paths] : undefined,
-      limits: input.tier === "summary" ? REPO_DIFF_SUMMARY_LIMITS : REPO_DIFF_VIEWER_LIMITS,
-    };
-
-    if (input.cacheMode !== "reload") {
-      const cached = repoDiffCache.get(cacheKey);
-      if (cached) {
-        c.header("x-openscout-repo-diff-cache", "hit");
-        c.header("x-openscout-repo-diff-cached-at", String(cached.storedAt));
-        if (input.rehydrate) {
-          c.header("x-openscout-repo-diff-rehydrate", "queued");
-          void runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions).catch(() => undefined);
-        }
-        return c.json(input.scope ? withRepoDiffScope(cached.snapshot, input.scope) : cached.snapshot);
-      }
-      if (input.cacheMode === "only") {
-        c.header("x-openscout-repo-diff-cache", "miss");
-        const warming = repoDiffInFlight.has(cacheKey);
-        return c.json({
-          status: warming ? "warming" : "missing",
-          worktreePath: input.worktreePath,
-          tier: input.tier,
-          layers: input.layers,
-          paths: input.paths ?? [],
-        }, warming ? 202 : 404);
-      }
-    }
-
-    try {
-      // A diff is a local read — run the native producer in-process. The broker
-      // (fleet coordination) is intentionally NOT in this path; agent/session
-      // annotations (SCO-065 §15) can enrich later without coupling here.
-      const snapshot = await runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions);
-      c.header("x-openscout-repo-diff-cache", "miss");
-      return c.json(input.scope ? withRepoDiffScope(snapshot, input.scope) : snapshot);
-    } catch (error) {
-      return c.json(
-        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
-        502,
-      );
-    }
-  };
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
     const now = Date.now();
     if (!force && fleetHomeBrief && fleetHomeBrief.expiresAt > now) {
@@ -3923,9 +3631,15 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/agents", async (c) =>
+    c.json(await readWebAgentsWithBrokerCards(queryAgents())),
+  );
   app.get("/api/agents/:id", async (c) => {
-    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    const id = c.req.param("id");
+    const agent = queryAgentById(id)
+      ?? (await readWebAgentsWithBrokerCards(queryAgents()))
+        .find((candidate) => matchesAgentRouteParam(candidate, id))
+      ?? null;
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   // Flexible session initiation. A single payload expresses every modality —
@@ -4067,6 +3781,75 @@ export async function createOpenScoutWebServer(
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
   });
+  app.get("/api/agents/:agentId/management", async (c) => {
+    const agentId = c.req.param("agentId");
+    return c.json(await buildAgentManagementState(agentId, currentDirectory));
+  });
+  app.post("/api/agents/:agentId/harness", async (c) => {
+    const agentId = c.req.param("agentId");
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const harness = optionalString(body.harness)?.trim();
+    if (!harness || !PROFILE_SWITCHABLE_HARNESSES.has(harness)) {
+      return c.json({ error: "unsupported harness" }, 400);
+    }
+
+    const { restartLocalAgent, updateLocalAgentCard } = await import("@openscout/runtime/local-agents");
+    const config = await updateLocalAgentCard(agentId, {
+      harness,
+      ...(hasOwn(body, "model") ? { model: optionalString(body.model)?.trim() || null } : {}),
+    });
+    if (!config) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+    let restarted = false;
+    if (body.restart !== false) {
+      restarted = Boolean(await restartLocalAgent(agentId));
+    }
+    await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      config,
+      restarted,
+      management: await buildAgentManagementState(agentId, currentDirectory),
+    });
+  });
+  app.post("/api/agents/:agentId/repair", async (c) => {
+    const agentId = c.req.param("agentId");
+    const state = await buildAgentManagementState(agentId, currentDirectory);
+    const repairRoot = state.projectRoot ?? state.runtimeCwd ?? currentDirectory;
+    const setup = await loadResolvedRelayAgents({ currentDirectory: repairRoot });
+    const resolved = [...setup.agents, ...setup.discoveredAgents].find((candidate) => candidate.agentId === agentId)
+      ?? null;
+    const binding = await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      agentId,
+      projectRoot: resolved?.projectRoot ?? repairRoot,
+      projectConfigPath: resolved?.projectConfigPath ?? state.projectConfigPath,
+      registrationKind: resolved?.registrationKind ?? null,
+      brokerRegistered: Boolean(binding?.brokerRegistered),
+      management: await buildAgentManagementState(agentId, repairRoot),
+    });
+  });
+  app.post("/api/agents/:agentId/retire", async (c) => {
+    const agentId = c.req.param("agentId");
+    const { retireLocalAgent } = await import("@openscout/runtime/local-agents");
+    const broker = await loadScoutBrokerContext().catch(() => null);
+    const localRetired = await retireLocalAgent(agentId).catch(() => null);
+    const brokerRetired = await retireScoutLocalAgentBinding({ agentId, broker }).catch(() => false);
+    if (!localRetired && !brokerRetired) {
+      return c.json({ error: "agent not found or not retireable" }, 404);
+    }
+    shellStateCache.invalidate();
+    return c.json({
+      ok: true,
+      localRetired: Boolean(localRetired),
+      brokerRetired,
+      management: await buildAgentManagementState(agentId, currentDirectory),
+    });
+  });
   app.get("/api/agents/:agentId/config", async (c) => {
     const agentId = c.req.param("agentId");
     const { getLocalAgentConfig } = await import("@openscout/runtime/local-agents");
@@ -4121,13 +3904,7 @@ export async function createOpenScoutWebServer(
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
     const broker = await loadScoutBrokerContext().catch(() => null);
-    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
-      harness: agent.harness,
-      transport: agent.transport,
-      sessionId: agent.harnessSessionId,
-      cwd: agent.cwd,
-      projectRoot: agent.projectRoot,
-    }) : null;
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
     const cwd = endpoint?.cwd ?? endpoint?.projectRoot ?? agent.cwd ?? agent.projectRoot ?? ".";
     return c.json(
       buildAgentSessionCatalogPayload({
@@ -4149,13 +3926,7 @@ export async function createOpenScoutWebServer(
     if (!agent) return c.json({ error: "agent not found" }, 404);
 
     const broker = await loadScoutBrokerContext().catch(() => null);
-    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
-      harness: agent.harness,
-      transport: agent.transport,
-      sessionId: agent.harnessSessionId,
-      cwd: agent.cwd,
-      projectRoot: agent.projectRoot,
-    }) : null;
+    const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId) : null;
     const target = resolveTmuxPeekTarget(agent, endpoint);
     const capturedAt = Date.now();
     const lines = parseTmuxPeekLineCount(c.req.query("lines"));
@@ -4247,7 +4018,6 @@ export async function createOpenScoutWebServer(
       queryBrokerDiagnostics({
         limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
         windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
-        cursor: c.req.query("cursor") ?? null,
       }),
     ),
   );
@@ -4630,15 +4400,8 @@ export async function createOpenScoutWebServer(
         observe: payload,
       });
     }
+
     return c.json({ error: "not found" }, 404);
-  });
-  app.get("/api/session-ref/:id/touched", async (c) => {
-    const refId = c.req.param("id");
-    const payload = await loadSessionRefObservePayload(refId);
-    if (!payload) {
-      return c.json({ error: "not found" }, 404);
-    }
-    return c.json(sessionTouchedResponse(payload, refId));
   });
   app.get("/api/session/:id", (c) => {
     const session = querySessionById(c.req.param("id"));
@@ -4952,24 +4715,15 @@ export async function createOpenScoutWebServer(
     }
 
     shellStateCache.invalidate();
-    const runtimeDir = relayAgentRuntimeDirectory(agentId);
-    const catalog = readSessionCatalogSync(runtimeDir);
-    const sessionId = catalog.activeSessionId;
-    const harnessEntry = findHarnessEntry(config.runtime.harness);
-    const resumeCommand = sessionId && harnessEntry
-      ? buildHarnessResumeCommand(harnessEntry, sessionId, config.runtime.cwd)
-      : null;
-
     return c.json({
       ok: true,
       agentId,
-      catalog: {
-        ...catalog,
+      catalog: buildAgentSessionCatalogPayload({
         agentId,
         harness: config.runtime.harness,
-        resumeCommand,
-        resumeCwd: config.runtime.cwd,
-      },
+        cwd: config.runtime.cwd,
+        transport: config.runtime.transport,
+      }),
     });
   });
 
@@ -5133,7 +4887,6 @@ export async function createOpenScoutWebServer(
       conversationId?: string;
       targetAgentId?: unknown;
       targetLabel?: unknown;
-      metadata?: unknown;
       execution?: {
         harness?: unknown;
         model?: unknown;
@@ -5169,8 +4922,6 @@ export async function createOpenScoutWebServer(
       optionalString(requestBody.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
-    const requestMetadata = recordInput(requestBody.metadata);
-    const source = metadataStringValue(requestMetadata, "source") ?? "scout-web";
 
     const result = await askScoutQuestion({
       senderId: routed.senderId,
@@ -5179,12 +4930,8 @@ export async function createOpenScoutWebServer(
       body: message,
       ...(executionHarness ? { executionHarness } : {}),
       ...(executionModel ? { executionModel } : {}),
-      source,
-      ...(requestMetadata ? {
-        messageMetadata: requestMetadata,
-        invocationMetadata: requestMetadata,
-      } : {}),
       currentDirectory,
+      source: "scout-web",
     });
 
     if (!result.usedBroker) {
@@ -5301,7 +5048,10 @@ export async function createOpenScoutWebServer(
   }
 
   app.get("/api/events", async (c) => {
-    const brokerUrl = resolveScoutBrokerUrl();
+    const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
+    const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
+    const brokerUrl =
+      process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
     try {
       return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
         signal: c.req.raw.signal,
@@ -5344,123 +5094,81 @@ export async function createOpenScoutWebServer(
     }
   });
 
-  app.post("/api/scout-services/restart-link", async (c) => {
-    let target = parseScoutServicesRestartTarget(c.req.query("target"));
-    if (!target) {
-      try {
-        const body = await c.req.json<{ target?: string }>();
-        target = parseScoutServicesRestartTarget(body.target);
-      } catch {
-        // Body is optional; query-string target is enough.
-      }
-    }
-
-    if (!target) {
-      return c.json({ error: "unsupported Scout Services restart target" }, 400);
-    }
-
-    return c.json(createSignedScoutServicesRestartUrl(target));
-  });
-
-  app.get("/api/repo-diff/session", async (c) => {
-    const refId = c.req.query("sessionId")?.trim()
-      || c.req.query("refId")?.trim()
-      || c.req.query("ref")?.trim()
-      || null;
-    const agentId = c.req.query("agentId")?.trim() || null;
-    if (!refId && !agentId) {
-      return c.json({ error: "repo-diff session scope requires sessionId/refId or agentId" }, 400);
-    }
-    const payload = await loadRevealObservePayload({ agentId, sessionId: refId });
-    if (!payload) {
-      return c.json({ error: "observed session not found" }, 404);
-    }
-    const worktreePath = observedWorktreePath(payload);
-    if (!worktreePath) {
-      return c.json({ error: "observed session has no worktree path" }, 422);
-    }
-    const layers = (c.req.queries("layer") ?? []).filter(
-      (value): value is RepoDiffLayerKind =>
-        value === "unstaged" || value === "staged" || value === "branch",
-    );
-    const baseRef = c.req.query("baseRef");
-    const compareRef = c.req.query("compareRef");
-    const tier = parseRepoDiffTier(c.req.query("tier"));
-    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
-    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
-    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
-    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
-    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
-    const include = sessionDiffInclude(c.req.query("include"));
-    const paths = normalizeRepoDiffPathFilters(worktreePath, sessionDiffTouchedPaths(payload, include));
-    const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
-    const scope: RepoDiffScopeMetadata = {
-      kind: "session",
-      label: include === "all" ? "Session-touched diff" : "Session changed-files diff",
-      worktreePath,
-      refId,
-      agentId: payload.agentId,
-      sessionId: payload.sessionId,
-      filteredPaths: paths,
-      touchedFiles: payload.data.files.length,
-      changedFiles,
-      include,
-      caveat: "path-filtered-not-hunk-provenance",
-    };
-    if (paths.length === 0) {
-      c.header("x-openscout-repo-diff-cache", "skip");
-      return c.json(emptyRepoDiffSnapshot({ worktreePath, layers: resolvedLayers, scope }));
-    }
-    return serveRepoDiffSnapshot(c, {
-      worktreePath,
-      layers: resolvedLayers,
-      baseRef: trimmedBaseRef,
-      compareRef: trimmedCompareRef,
-      tier,
-      cacheMode,
-      rehydrate,
-      paths,
-      scope,
-    });
-  });
-
   app.get("/api/repo-diff/worktree", async (c) => {
     const path = c.req.query("path");
     if (!path || !path.trim()) {
       return c.json({ error: "repo-diff requires a worktree path" }, 400);
     }
+    const worktreePath = path.trim();
     const layers = (c.req.queries("layer") ?? []).filter(
       (value): value is RepoDiffLayerKind =>
         value === "unstaged" || value === "staged" || value === "branch",
     );
     const baseRef = c.req.query("baseRef");
     const compareRef = c.req.query("compareRef");
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const tier = parseRepoDiffTier(c.req.query("tier"));
-    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
-    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
-    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
-    const trimmedPath = path.trim();
-    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
-    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
-    const paths = repoDiffPathFiltersFromQuery(c, trimmedPath);
-    const scope: RepoDiffScopeMetadata = {
-      kind: "worktree",
-      label: paths.length > 0 ? "Filtered worktree diff" : "Worktree diff",
-      worktreePath: trimmedPath,
-      filteredPaths: paths,
-    };
-    return serveRepoDiffSnapshot(c, {
-      worktreePath: trimmedPath,
-      layers: resolvedLayers,
-      baseRef: trimmedBaseRef,
-      compareRef: trimmedCompareRef,
-      tier,
-      cacheMode,
-      rehydrate,
+    const paths = normalizeRepoDiffFileFilters(worktreePath, c.req.queries("file") ?? []);
+    const tier = c.req.query("tier");
+    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"));
+    const cacheKey = repoDiffCacheKey({
+      worktreePath,
+      layers: layers.length > 0 ? layers : undefined,
+      baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
+      compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
       paths,
-      scope,
+      tier,
     });
+    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
+    const loadSnapshot = async () => {
+      const snapshot = await runRepoDiff({
+        worktreePath,
+        layers: layers.length > 0 ? layers : undefined,
+        baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
+        compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
+        paths,
+        limits: repoDiffLimitsForTier(tier),
+      });
+      const scopedSnapshot = withRepoDiffScope(snapshot, paths);
+      repoDiffCache.set(cacheKey, scopedSnapshot);
+      return scopedSnapshot;
+    };
+    try {
+      const cached = repoDiffCache.get(cacheKey);
+      if (cacheMode !== "reload" && cached) {
+        const headers: Record<string, string> = {
+          "x-openscout-repo-diff-cache": "hit",
+        };
+        if (c.req.query("rehydrate") === "1" || c.req.query("rehydrate") === "true") {
+          headers["x-openscout-repo-diff-rehydrate"] = "queued";
+          if (!repoDiffRehydrateInFlight.has(cacheKey)) {
+            const rehydrate: Promise<void> = loadSnapshot()
+              .then(() => undefined, () => undefined)
+              .finally(() => repoDiffRehydrateInFlight.delete(cacheKey));
+            repoDiffRehydrateInFlight.set(cacheKey, rehydrate);
+          }
+        }
+        return jsonResponse(cached, 200, headers);
+      }
+      if (cacheMode === "only") {
+        return jsonResponse({
+          status: "missing",
+          worktreePath,
+        }, 404, {
+          "x-openscout-repo-diff-cache": "miss",
+        });
+      }
+      // A diff is a local read — run the native producer in-process. The broker
+      // (fleet coordination) is intentionally NOT in this path; agent/session
+      // annotations (SCO-065 §15) can enrich later without coupling here.
+      const snapshot = await loadSnapshot();
+      return jsonResponse(snapshot, 200, {
+        "x-openscout-repo-diff-cache": "miss",
+      });
+    } catch (error) {
+      return c.json(
+        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
+        502,
+      );
+    }
   });
 
   app.get("/api/tail/recent", async (c) => {

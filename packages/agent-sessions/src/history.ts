@@ -1539,6 +1539,8 @@ class CodexHistoryParser {
   private outputTokens = 0;
   private reasoningOutputTokens = 0;
   private cachedInputTokens = 0;
+  private contextInputTokens = 0;
+  private previousInputTokens: number | undefined;
   private tokenEventCount = 0;
   private contextWindowTokens: number | undefined;
   private planType: string | undefined;
@@ -1946,6 +1948,22 @@ class CodexHistoryParser {
       return;
     }
 
+    const fallbackContextInputTokens = observation.inputTokens === undefined
+      ? undefined
+      : this.previousInputTokens === undefined
+        ? observation.inputTokens
+        : observation.inputTokens - this.previousInputTokens;
+    const contextInputTokens = observation.contextInputTokens !== undefined && observation.contextInputTokens > 0
+      ? observation.contextInputTokens
+      : fallbackContextInputTokens;
+    if (
+      contextInputTokens !== undefined
+      && contextInputTokens > 0
+      && (observation.contextWindowTokens === undefined || contextInputTokens <= observation.contextWindowTokens)
+    ) {
+      this.contextInputTokens = contextInputTokens;
+    }
+    this.previousInputTokens = observation.inputTokens ?? this.previousInputTokens;
     this.inputTokens = observation.inputTokens ?? this.inputTokens;
     this.outputTokens = observation.outputTokens ?? this.outputTokens;
     this.reasoningOutputTokens = observation.reasoningOutputTokens ?? this.reasoningOutputTokens;
@@ -1973,6 +1991,7 @@ class CodexHistoryParser {
     };
 
     assignNumber("inputTokens", this.inputTokens);
+    assignNumber("contextInputTokens", this.contextInputTokens);
     assignNumber("outputTokens", this.outputTokens);
     assignNumber("reasoningOutputTokens", this.reasoningOutputTokens);
     assignNumber("cacheReadInputTokens", this.cachedInputTokens);

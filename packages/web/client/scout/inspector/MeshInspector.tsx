@@ -397,17 +397,17 @@ export function MeshInspectorPanel() {
             <span className="mesh-summary-count-value">{totals.total}</span>
             <span className="mesh-summary-count-label">agents</span>
           </div>
-          <div className="mesh-summary-count mesh-summary-count--working">
+          <div className="mesh-summary-count mesh-summary-count--active">
             <span className="mesh-summary-count-value">{totals.working}</span>
-            <span className="mesh-summary-count-label">working</span>
+            <span className="mesh-summary-count-label">active</span>
           </div>
           <div className="mesh-summary-count">
             <span className="mesh-summary-count-value">{totals.ready}</span>
-            <span className="mesh-summary-count-label">ready</span>
+            <span className="mesh-summary-count-label">available</span>
           </div>
-          <div className="mesh-summary-count mesh-summary-count--offline">
+          <div className="mesh-summary-count mesh-summary-count--unavailable">
             <span className="mesh-summary-count-value">{totals.notReady}</span>
-            <span className="mesh-summary-count-label">not ready</span>
+            <span className="mesh-summary-count-label">unavailable</span>
           </div>
         </div>
       </section>
@@ -421,7 +421,7 @@ export function MeshInspectorPanel() {
                 <span className="mesh-summary-harness-name">{h.label}</span>
                 <span className="mesh-summary-harness-count">{h.total}</span>
                 {h.working > 0 && (
-                  <span className="mesh-summary-harness-working">{h.working} working</span>
+                  <span className="mesh-summary-harness-working">{h.working} active</span>
                 )}
               </div>
             ))}

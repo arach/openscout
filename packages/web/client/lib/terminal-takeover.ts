@@ -1,4 +1,5 @@
 import { resolveScoutRoutePath } from "./runtime-config.ts";
+import type { Agent, SessionCatalogEntry, SessionCatalogWithResume } from "./types.ts";
 
 export type QueueTakeoverInput = {
   command: string;
@@ -20,6 +21,30 @@ export async function queueTakeover(input: QueueTakeoverInput): Promise<void> {
   if (!response.ok) {
     throw new Error("Failed to queue takeover");
   }
+}
+
+export function activeCatalogSession(
+  catalog: SessionCatalogWithResume | null | undefined,
+): SessionCatalogEntry | null {
+  if (!catalog?.activeSessionId) return null;
+  return catalog.sessions.find((session) => session.id === catalog.activeSessionId) ?? null;
+}
+
+export function canTakeoverTerminalSession(input: {
+  agent?: Pick<Agent, "transport" | "harnessSessionId"> | null;
+  catalog?: SessionCatalogWithResume | null;
+  session?: SessionCatalogEntry | null;
+}): boolean {
+  const activeSessionId = input.catalog?.activeSessionId
+    ?? (input.agent?.transport === "tmux" ? input.agent.harnessSessionId ?? null : null);
+  const session = input.session ?? activeCatalogSession(input.catalog);
+  if (input.agent?.transport === "tmux") {
+    return Boolean(activeSessionId);
+  }
+  if (!session || session.id !== activeSessionId) {
+    return false;
+  }
+  return Boolean(input.catalog?.resumeCommand && session.canTakeover);
 }
 
 function clearPersistedTakeoverSession(agentId?: string | null): void {

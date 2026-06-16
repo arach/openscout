@@ -20,7 +20,8 @@
 
 import { db } from "./internal/db.ts";
 import { configuredOperatorActorIds, conversationIdAliases } from "./internal/conversation-ids.ts";
-import { coerceNumber } from "./internal/parse.ts";
+import { coerceNumber, metadataString, parseJson } from "./internal/parse.ts";
+import { resolveHarnessSessionId } from "./internal/paths.ts";
 import {
   ACTIVE_WORK_STATES_SQL,
   sqlJoinClauses,
@@ -30,7 +31,9 @@ import {
 import { queryFlights } from "./runs.ts";
 import type { WorkAttention } from "./types/common.ts";
 import type {
+  WebFlight,
   WebWorkDetail,
+  WebWorkInvocation,
   WebWorkItem,
   WebWorkTimelineItem,
 } from "./types/web.ts";
@@ -331,6 +334,11 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
     collaborationRecordId: row.id,
     activeOnly: true,
   });
+  const allFlights = queryFlights({
+    collaborationRecordId: row.id,
+    activeOnly: false,
+  });
+  const primaryInvocation = queryPrimaryWorkInvocation(row.id, allFlights);
 
   const timeline = queryWorkTimeline(row.id, {
     conversationId: row.conversation_id,
@@ -349,6 +357,110 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
     childWork,
     activeFlights,
     timeline,
+    primaryInvocation,
+    allFlights,
+  };
+}
+
+
+function queryPrimaryWorkInvocation(workId: string, flights: WebFlight[]): WebWorkInvocation | null {
+  const latestFlightByInvocation = new Map<string, WebFlight>();
+  for (const flight of flights) {
+    const existing = latestFlightByInvocation.get(flight.invocationId);
+    const existingTs = Math.max(existing?.completedAt ?? 0, existing?.startedAt ?? 0);
+    const nextTs = Math.max(flight.completedAt ?? 0, flight.startedAt ?? 0);
+    if (!existing || nextTs >= existingTs) {
+      latestFlightByInvocation.set(flight.invocationId, flight);
+    }
+  }
+
+  const row = db().prepare(
+    `SELECT
+       inv.id AS invocation_id,
+       inv.action,
+       inv.task,
+       inv.conversation_id,
+       inv.collaboration_record_id,
+       inv.requester_id,
+       requester.display_name AS requester_name,
+       inv.target_agent_id,
+       target.display_name AS target_agent_name,
+       inv.execution_json,
+       inv.metadata_json,
+       inv.created_at,
+       ep.harness AS endpoint_harness,
+       ep.transport AS endpoint_transport,
+       ep.session_id AS endpoint_session_id,
+       ep.metadata_json AS endpoint_metadata_json
+     FROM invocations inv
+     LEFT JOIN actors requester ON requester.id = inv.requester_id
+     LEFT JOIN actors target ON target.id = inv.target_agent_id
+     LEFT JOIN agent_endpoints ep ON ep.id = (
+       SELECT ep2.id
+       FROM agent_endpoints ep2
+       WHERE ep2.agent_id = inv.target_agent_id
+       ORDER BY ep2.updated_at DESC
+       LIMIT 1
+     )
+     WHERE inv.collaboration_record_id = ?
+     ORDER BY inv.created_at ASC
+     LIMIT 1`,
+  ).get(workId) as {
+    invocation_id: string;
+    action: string;
+    task: string;
+    conversation_id: string | null;
+    collaboration_record_id: string | null;
+    requester_id: string | null;
+    requester_name: string | null;
+    target_agent_id: string | null;
+    target_agent_name: string | null;
+    execution_json: string | null;
+    metadata_json: string | null;
+    created_at: number;
+    endpoint_harness: string | null;
+    endpoint_transport: string | null;
+    endpoint_session_id: string | null;
+    endpoint_metadata_json: string | null;
+  } | null;
+
+  if (!row) {
+    return null;
+  }
+
+  const execution = parseJson<Record<string, unknown>>(row.execution_json, {});
+  const metadata = parseJson<Record<string, unknown>>(row.metadata_json, {});
+  const endpointMetadata = parseJson<Record<string, unknown>>(row.endpoint_metadata_json, {});
+  const flight = latestFlightByInvocation.get(row.invocation_id) ?? null;
+  const targetSessionId = metadataString(execution, "targetSessionId")
+    ?? metadataString(metadata, "targetSessionId");
+  const resolvedSessionId = targetSessionId
+    ?? resolveHarnessSessionId(row.endpoint_transport, row.endpoint_session_id, endpointMetadata);
+
+  return {
+    invocationId: row.invocation_id,
+    flightId: flight?.id ?? null,
+    action: row.action,
+    task: row.task,
+    source: metadataString(metadata, "source"),
+    requestedHarness: metadataString(execution, "harness"),
+    requestedModel: metadataString(execution, "model"),
+    requestedPermissionProfile: metadataString(execution, "permissionProfile"),
+    targetSessionId,
+    requesterId: row.requester_id,
+    requesterName: row.requester_name,
+    targetAgentId: row.target_agent_id,
+    targetAgentName: row.target_agent_name,
+    resolvedHarness: row.endpoint_harness,
+    resolvedTransport: row.endpoint_transport,
+    resolvedSessionId,
+    conversationId: row.conversation_id,
+    workId: row.collaboration_record_id,
+    state: flight?.state ?? null,
+    summary: flight?.summary ?? null,
+    createdAt: row.created_at,
+    startedAt: flight?.startedAt ?? null,
+    completedAt: flight?.completedAt ?? null,
   };
 }
 
@@ -546,6 +658,61 @@ export function queryWorkTimeline(
     }
   }
 
+
+  if (context?.conversationId) {
+    const conversationIds = conversationIdAliases(context.conversationId);
+    if (conversationIds.length > 0) {
+      const messages = db().prepare(
+        `SELECT m.id, m.body, m.class, m.actor_id, m.conversation_id, m.created_at,
+                ac.display_name AS actor_name,
+                json_extract(m.metadata_json, '$.workId') AS metadata_work_id,
+                json_extract(m.metadata_json, '$.collaborationRecordId') AS metadata_collaboration_record_id
+         FROM messages m
+         LEFT JOIN actors ac ON ac.id = m.actor_id
+         WHERE m.conversation_id IN (${sqlPlaceholders(conversationIds.length)})
+           AND m.created_at >= ?
+           AND (
+             json_extract(m.metadata_json, '$.workId') = ?
+             OR json_extract(m.metadata_json, '$.collaborationRecordId') = ?
+             OR m.created_at > ?
+           )
+         ORDER BY m.created_at DESC
+         LIMIT 40`,
+      ).all(
+        ...conversationIds,
+        Math.max(0, (context.createdAt ?? 0) - 30_000),
+        workId,
+        workId,
+        context.createdAt ?? 0,
+      ) as Array<{
+        id: string;
+        body: string;
+        class: string;
+        actor_id: string | null;
+        actor_name: string | null;
+        conversation_id: string | null;
+        created_at: number;
+        metadata_work_id: string | null;
+        metadata_collaboration_record_id: string | null;
+      }>;
+      for (const m of messages) {
+        const explicitlyAttached = m.metadata_work_id === workId || m.metadata_collaboration_record_id === workId;
+        items.push({
+          id: `message:${m.id}`,
+          kind: "message",
+          at: m.created_at,
+          actorId: m.actor_id,
+          actorName: m.actor_name,
+          title: explicitlyAttached ? "Added requirement to work" : "Thread update",
+          summary: m.body,
+          detailKind: m.class,
+          flightId: null,
+          messageId: m.id,
+          conversationId: m.conversation_id,
+        });
+      }
+    }
+  }
   items.sort((left, right) => right.at - left.at);
   return items.slice(0, 80);
 }

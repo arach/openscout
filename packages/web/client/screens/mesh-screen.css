@@ -320,11 +320,13 @@
   flex-shrink: 0;
 }
 
+.agent-card-dot--active,
 .agent-card-dot--working {
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .agent-card-dot--available { background: var(--green, #4ade80); }
+.agent-card-dot--unavailable,
 .agent-card-dot--offline   { background: color-mix(in srgb, var(--ink) 25%, transparent); }
 
 .agent-card-state {
@@ -334,8 +336,10 @@
   font-size: var(--text-xs);
 }
 
+.agent-card-state--active,
 .agent-card-state--working   { color: var(--accent); }
 .agent-card-state--available { color: var(--green, #4ade80); }
+.agent-card-state--unavailable,
 .agent-card-state--offline   { color: var(--muted); }
 
 .agent-card-sep {
@@ -681,8 +685,10 @@
   flex-shrink: 0;
 }
 
+.mesh-detail-dot--active,
 .mesh-detail-dot--working   { background: var(--accent); box-shadow: 0 0 4px color-mix(in srgb, var(--accent) 60%, transparent); }
 .mesh-detail-dot--available { background: color-mix(in srgb, var(--ink) 35%, transparent); }
+.mesh-detail-dot--unavailable,
 .mesh-detail-dot--offline   { background: color-mix(in srgb, var(--ink) 15%, transparent); }
 
 .mesh-detail-agent-name {
@@ -702,8 +708,10 @@
   letter-spacing: var(--tracking-xs);
 }
 
+.mesh-detail-agent-state--active,
 .mesh-detail-agent-state--working   { color: var(--accent); }
 .mesh-detail-agent-state--available { color: var(--dim); }
+.mesh-detail-agent-state--unavailable,
 .mesh-detail-agent-state--offline   { color: var(--dim); opacity: 0.4; }
 
 .mesh-detail-caps {
@@ -998,7 +1006,9 @@
   display: inline-block;
 }
 
+.mesh-tree-count--active,
 .mesh-tree-count--working { color: var(--ink); }
+.mesh-tree-count--active .mesh-tree-count-dot,
 .mesh-tree-count--working .mesh-tree-count-dot {
   background: var(--green);
   box-shadow: 0 0 4px color-mix(in srgb, var(--green) 50%, transparent);
@@ -1009,7 +1019,9 @@
   background: var(--accent);
 }
 
+.mesh-tree-count--unavailable,
 .mesh-tree-count--offline { color: var(--muted); }
+.mesh-tree-count--unavailable .mesh-tree-count-dot,
 .mesh-tree-count--offline .mesh-tree-count-dot {
   background: color-mix(in srgb, var(--ink) 22%, transparent);
 }
@@ -1136,8 +1148,10 @@
   white-space: nowrap;
 }
 
+.mesh-tree-agent-state--active,
 .mesh-tree-agent-state--working   { color: var(--green); }
 .mesh-tree-agent-state--available { color: var(--accent); }
+.mesh-tree-agent-state--unavailable,
 .mesh-tree-agent-state--offline   { color: var(--dim); opacity: 0.55; }
 
 .mesh-tree-agent-time {
@@ -1513,7 +1527,9 @@
   margin-top: var(--space-3xs);
 }
 
+.mesh-summary-count--active .mesh-summary-count-value,
 .mesh-summary-count--working .mesh-summary-count-value { color: var(--accent); }
+.mesh-summary-count--unavailable .mesh-summary-count-value,
 .mesh-summary-count--offline .mesh-summary-count-value { color: var(--ink); opacity: 0.55; }
 
 .mesh-summary-harness {

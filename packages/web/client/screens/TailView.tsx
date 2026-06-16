@@ -19,6 +19,8 @@ import type {
   TailDiscoverySnapshot,
   TailEvent,
   TailEventKind,
+  FollowTarget,
+  WorkDetail,
 } from "../lib/types.ts";
 
 const BUFFER_LIMIT = 5_000;
@@ -52,6 +54,14 @@ const ATTRIBUTION_CLASS: Record<TailAttribution, string> = {
 type TailViewVariant = "tail" | "issues";
 type TailViewChrome = "full" | "embedded";
 type TailFilterScope = "all" | "context";
+type TailInitialIds = {
+  flightId?: string | undefined;
+  invocationId?: string | undefined;
+  conversationId?: string | undefined;
+  workId?: string | undefined;
+  sessionId?: string | undefined;
+  targetAgentId?: string | undefined;
+};
 type IssueSeverity = "warn" | "error";
 type IssueFilter = "warn-plus" | "errors-only" | "all";
 type ClassifiedTailEvent = {
@@ -106,6 +116,212 @@ function shortSession(sessionId: string): string {
 
 function tailRowKey(event: TailEvent, index: number): string {
   return `${event.id}:${event.ts}:${index}`;
+}
+
+function compactTailId(id: string | null | undefined): string {
+  if (!id) return "—";
+  if (id.length <= 18) return id;
+  const chunks = id.split(/[.:_-]/).filter(Boolean);
+  const suffix = chunks.at(-1);
+  return suffix && suffix.length >= 5 ? suffix : `${id.slice(0, 8)}…${id.slice(-6)}`;
+}
+
+function tailQueryFromIds(ids: TailInitialIds | undefined): string {
+  if (!ids) return "";
+  return [
+    ids.sessionId,
+    ids.flightId,
+    ids.invocationId,
+    ids.targetAgentId,
+    ids.conversationId,
+    ids.workId,
+  ].filter((value): value is string => Boolean(value?.trim())).join("|");
+}
+
+function idsFromFollowTarget(target: FollowTarget | null | undefined): TailInitialIds {
+  return {
+    flightId: target?.flightId ?? undefined,
+    invocationId: target?.invocationId ?? undefined,
+    conversationId: target?.conversationId ?? undefined,
+    workId: target?.workId ?? undefined,
+    sessionId: target?.sessionId ?? undefined,
+    targetAgentId: target?.targetAgentId ?? undefined,
+  };
+}
+
+function hasAnyInitialId(ids: TailInitialIds | undefined): boolean {
+  return Boolean(tailQueryFromIds(ids));
+}
+
+function initialIdSearchParams(ids: TailInitialIds | undefined): URLSearchParams {
+  const params = new URLSearchParams();
+  if (ids?.flightId) params.set("flightId", ids.flightId);
+  if (ids?.invocationId) params.set("invocationId", ids.invocationId);
+  if (ids?.conversationId) params.set("conversationId", ids.conversationId);
+  if (ids?.workId) params.set("workId", ids.workId);
+  if (ids?.sessionId) params.set("sessionId", ids.sessionId);
+  if (ids?.targetAgentId) params.set("targetAgentId", ids.targetAgentId);
+  return params;
+}
+
+function askSourceLabel(source: string | null | undefined): string {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("mcp")) return "MCP ask";
+  if (normalized.includes("cli")) return "CLI ask";
+  if (normalized) return `${source} ask`;
+  return "Scout ask";
+}
+
+function humanAskLifecycle(detail: WorkDetail): string {
+  const ask = detail.primaryInvocation;
+  const agent = ask?.targetAgentName ?? ask?.targetAgentId ?? detail.ownerName ?? detail.ownerId ?? "The agent";
+  const state = ask?.state ?? detail.activeFlights[0]?.state ?? detail.state;
+  switch (state) {
+    case "running":
+      return `${agent} is running in background. Synchronous wait may have expired, but the ask is still active.`;
+    case "waking":
+      return `${agent} is waking up for this ask.`;
+    case "queued":
+      return `${agent} has the ask queued.`;
+    case "waiting":
+    case "review":
+      return `${agent} paused and is waiting for the next move.`;
+    case "completed":
+    case "done":
+      return `${agent} completed this ask.`;
+    case "failed":
+      return `${agent} reported a failure for this ask.`;
+    case "cancelled":
+      return `This ask was cancelled.`;
+    default:
+      return `${agent} is attached to this work item.`;
+  }
+}
+
+function workStatusText(detail: WorkDetail): string {
+  const ask = detail.primaryInvocation;
+  const rows = [
+    `Work: ${detail.id}`,
+    `State: ${detail.currentPhase}`,
+    ask?.source ? `Source: ${askSourceLabel(ask.source)}` : null,
+    ask?.targetAgentName || ask?.targetAgentId ? `Agent: ${ask.targetAgentName ?? ask.targetAgentId}` : null,
+    ask?.requestedHarness ? `Requested harness: ${ask.requestedHarness}` : null,
+    ask?.resolvedHarness ? `Resolved harness: ${ask.resolvedHarness}` : null,
+    ask?.flightId ? `Flight: ${ask.flightId}` : null,
+    ask?.invocationId ? `Invocation: ${ask.invocationId}` : null,
+    detail.conversationId ? `Conversation: ${detail.conversationId}` : null,
+    humanAskLifecycle(detail),
+  ];
+  return rows.filter(Boolean).join("\n");
+}
+
+function workDetailSnapshot(detail: WorkDetail) {
+  const ask = detail.primaryInvocation;
+  const idRows = [
+    { label: "Work", value: detail.id },
+    ...(ask?.flightId ? [{ label: "Flight", value: ask.flightId }] : []),
+    ...(ask?.invocationId ? [{ label: "Invocation", value: ask.invocationId }] : []),
+    ...(detail.conversationId ? [{ label: "Conversation", value: detail.conversationId }] : []),
+    ...(ask?.targetAgentId ? [{ label: "Agent", value: ask.targetAgentId }] : []),
+    ...(ask?.resolvedSessionId ? [{ label: "Session", value: ask.resolvedSessionId }] : []),
+  ];
+  const meta = [
+    askSourceLabel(ask?.source),
+    ask?.requestedHarness ? `requested ${ask.requestedHarness}` : null,
+    ask?.targetAgentName ?? ask?.targetAgentId ?? detail.ownerName ?? detail.ownerId ?? null,
+  ].filter(Boolean).join(" · ");
+  const idsCopy = idRows.map((row) => `${row.label}: ${row.value}`).join("\n");
+  return {
+    source: "tail",
+    focus: "flow",
+    title: `ASK created · ${detail.title}`,
+    meta: meta || `work ${compactTailId(detail.id)}`,
+    body: humanAskLifecycle(detail),
+    metadata: [
+      { label: "State", value: detail.currentPhase },
+      ...(ask?.requestedHarness ? [{ label: "Requested", value: ask.requestedHarness }] : []),
+      ...(ask?.resolvedHarness ? [{ label: "Resolved", value: ask.resolvedHarness }] : []),
+      ...idRows,
+    ],
+    copy: [
+      { label: "Copy status", value: workStatusText(detail) },
+      ...(idsCopy ? [{ label: "Copy MCP ids", value: idsCopy }] : []),
+      ...(ask?.task ? [{ label: "Copy prompt", value: ask.task }] : []),
+    ],
+    action: { label: "Open work", route: { view: "work", workId: detail.id } },
+  };
+}
+
+function collectIdCandidates(value: unknown, out: Map<string, string>, depth = 0): void {
+  if (depth > 5 || value == null) return;
+  if (typeof value === "string") {
+    for (const match of value.matchAll(/(flt|flight|inv|work|msg|c|conv|agent|session)[-.][A-Za-z0-9_.:-]+/g)) {
+      const id = match[0];
+      if (id.startsWith("flt") || id.startsWith("flight")) out.set("flightId", id);
+      else if (id.startsWith("inv")) out.set("invocationId", id);
+      else if (id.startsWith("work")) out.set("workId", id);
+      else if (id.startsWith("agent")) out.set("agentId", id);
+      else if (id.startsWith("session")) out.set("sessionId", id);
+      else if (id.startsWith("c") || id.startsWith("conv")) out.set("conversationId", id);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 30)) collectIdCandidates(item, out, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, 80)) {
+      if (typeof entry === "string") {
+        const lower = key.toLowerCase();
+        if (lower === "flightid" || lower === "flight_id") out.set("flightId", entry);
+        if (lower === "invocationid" || lower === "invocation_id") out.set("invocationId", entry);
+        if (lower === "workid" || lower === "work_id") out.set("workId", entry);
+        if (lower === "agentid" || lower === "agent_id" || lower === "targetagentid") out.set("agentId", entry);
+        if (lower === "conversationid" || lower === "conversation_id") out.set("conversationId", entry);
+        if (lower === "sessionid" || lower === "session_id") out.set("sessionId", entry);
+      }
+      collectIdCandidates(entry, out, depth + 1);
+    }
+  }
+}
+
+function tailEventIds(event: TailEvent): Record<string, string | undefined> {
+  const ids = new Map<string, string>();
+  if (event.sessionId) ids.set("sessionId", event.sessionId);
+  collectIdCandidates(event.summary, ids);
+  collectIdCandidates(event.raw, ids);
+  return Object.fromEntries(ids) as Record<string, string | undefined>;
+}
+
+function collectTextFragments(value: unknown, out: string[], depth = 0): void {
+  if (out.length >= 24 || depth > 3 || value == null) return;
+  if (typeof value === "string") {
+    out.push(value.slice(0, 500));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 12)) collectTextFragments(item, out, depth + 1);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, 24)) {
+      out.push(key);
+      collectTextFragments(entry, out, depth + 1);
+    }
+  }
+}
+
+function tailEventBadge(event: TailEvent): string {
+  const fragments = [event.summary];
+  collectTextFragments(event.raw, fragments);
+  const text = fragments.join(" ").toLowerCase();
+  if (/(work[-_ ]?item|ask|invocation|flight)/.test(text) && /(created|requested|accepted)/.test(text)) return "ASK created";
+  if (/messages_send|dm sent|direct message/.test(text)) return "DM sent";
+  if (/messages_reply|reply/.test(text)) return "reply";
+  if (/invocations_(get|wait)|status check|mcp/.test(text)) return "MCP status check";
+  if (event.kind === "assistant") return "agent output";
+  return event.kind.replace("tool-result", "tool result");
 }
 
 const ERROR_TEXT_RE = /\b(error|failed|failure|exception|panic|timeout|timed out|refused|crash|fatal|non[- ]?zero|exit(?:ed)? with code [1-9])\b/i;
@@ -306,6 +522,7 @@ function publishOpsDetail(detail: unknown) {
 export function TailView({
   navigate,
   initialFilter,
+  initialIds,
   variant = "tail",
   chrome = "full",
   filterLabel,
@@ -313,6 +530,7 @@ export function TailView({
 }: {
   navigate?: (r: Route) => void;
   initialFilter?: string;
+  initialIds?: TailInitialIds;
   variant?: TailViewVariant;
   chrome?: TailViewChrome;
   filterLabel?: string;
@@ -321,15 +539,18 @@ export function TailView({
   const { route } = useScout();
   const issueMode = variant === "issues";
   const embedded = chrome === "embedded";
+  const initialIdQuery = tailQueryFromIds(initialIds);
+  const initialFilterValue = initialFilter ?? initialIdQuery;
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
-  const [filter, setFilter] = useState(initialFilter ?? "");
-  const [filterOpen, setFilterOpen] = useState(Boolean(initialFilter) && !embedded);
+  const [filter, setFilter] = useState(initialFilterValue);
+  const [filterOpen, setFilterOpen] = useState(Boolean(initialFilterValue) && !embedded);
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("warn-plus");
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [rate, setRate] = useState(0);
   const [selected, setSelected] = useState<TailEvent | null>(null);
+  const [resolvedWorkDetail, setResolvedWorkDetail] = useState<WorkDetail | null>(null);
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
@@ -349,16 +570,16 @@ export function TailView({
   useTailEvents(handleEvent);
 
   useEffect(() => {
-    setFilter(initialFilter ?? "");
-    setFilterOpen(Boolean(initialFilter) && !embedded);
-  }, [embedded, initialFilter]);
+    setFilter(initialFilterValue);
+    setFilterOpen(Boolean(initialFilterValue) && !embedded);
+  }, [embedded, initialFilterValue]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const params = new URLSearchParams({ limit: String(DEFAULT_RECENT_LIMIT) });
-        if (embedded || initialFilter) {
+        if (embedded || initialFilterValue) {
           params.set("transcripts", "true");
         }
         const result = await api<{ events: TailEvent[] }>(
@@ -372,13 +593,49 @@ export function TailView({
     return () => {
       cancelled = true;
     };
-  }, [embedded, initialFilter]);
+  }, [embedded, initialFilterValue]);
 
   useEffect(() => {
     if (embedded) return;
-    publishOpsDetail(selected ? tailDetailSnapshot(selected) : null);
+    if (selected) {
+      publishOpsDetail(tailDetailSnapshot(selected));
+    } else if (resolvedWorkDetail) {
+      publishOpsDetail(workDetailSnapshot(resolvedWorkDetail));
+    } else {
+      publishOpsDetail(null);
+    }
     return () => publishOpsDetail(null);
-  }, [embedded, selected]);
+  }, [embedded, resolvedWorkDetail, selected]);
+
+  useEffect(() => {
+    if (embedded || !hasAnyInitialId(initialIds)) {
+      setResolvedWorkDetail(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const params = initialIdSearchParams(initialIds);
+        const resolved = await api<FollowTarget>(`/api/follow?${params.toString()}`);
+        const ids = idsFromFollowTarget(resolved);
+        const workId = ids.workId ?? initialIds?.workId;
+        if (!workId) return;
+        const detail = await api<WorkDetail>(`/api/work/${encodeURIComponent(workId)}`);
+        if (!cancelled) {
+          setResolvedWorkDetail(detail);
+          const idQuery = tailQueryFromIds({ ...initialIds, ...ids });
+          if (!initialFilter && idQuery) {
+            setFilter(idQuery);
+          }
+        }
+      } catch {
+        if (!cancelled) setResolvedWorkDetail(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [embedded, initialFilter, initialIdQuery]);
 
   const loadDiscovery = useCallback(async () => {
     try {
@@ -514,6 +771,10 @@ export function TailView({
   const totals = discovery?.totals;
   const transcriptCount = totals?.transcripts ?? discovery?.transcripts?.length ?? 0;
   const harnessCounts = useMemo(() => summarizeSources(discovery, events), [discovery, events]);
+  const filterTerms = useMemo(
+    () => filter.split("|").map((term) => term.trim()).filter(Boolean),
+    [filter],
+  );
 
   return (
     <div className={`s-tail s-tail--${chrome}`}>
@@ -612,6 +873,13 @@ export function TailView({
         </div>
       )}
 
+      {filterTerms.length > 1 && (
+        <TailFilterChips
+          terms={filterTerms}
+          onRemove={(term) => setFilter((prev) => prev.split("|").map((item) => item.trim()).filter((item) => item && item !== term).join("|"))}
+        />
+      )}
+
       <div className="s-tail-body" ref={bodyRef} onScroll={handleScroll}>
         {filtered.length === 0 ? (
           <div className="s-tail-empty">
@@ -700,6 +968,41 @@ export function TailView({
   );
 }
 
+function TailFilterChips({
+  terms,
+  onRemove,
+}: {
+  terms: string[];
+  onRemove: (term: string) => void;
+}) {
+  return (
+    <div className="s-tail-filter-chips" aria-label="Tail query terms">
+      {terms.slice(0, 12).map((term) => (
+        <span key={term} className="s-tail-filter-chip">
+          <button
+            type="button"
+            className="s-tail-filter-chip-copy"
+            onClick={() => void navigator.clipboard?.writeText(term)}
+            title={`Copy ${term}`}
+          >
+            {compactTailId(term)}
+          </button>
+          <button
+            type="button"
+            className="s-tail-filter-chip-remove"
+            onClick={() => onRemove(term)}
+            aria-label={`Remove ${term}`}
+            title="Remove"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {terms.length > 12 && <span className="s-tail-filter-chip-more">+{terms.length - 12}</span>}
+    </div>
+  );
+}
+
 function TailRow({
   event,
   issueSeverity,
@@ -719,11 +1022,21 @@ function TailRow({
   const attributionLabel = ATTRIBUTION_LABEL[event.harness];
   const harnessLabel = displayHarness(event.source);
   const issueClass = issueSeverity ? ` s-tail-row--issue s-tail-row--issue-${issueSeverity}` : "";
+  const ids = useMemo(() => tailEventIds(event), [event]);
+  const badge = useMemo(() => tailEventBadge(event), [event]);
   return (
     <div
       className={`s-tail-row s-tail-row--${event.kind}${issueClass}${selected ? " s-tail-row--selected" : ""}`}
       role="button"
       tabIndex={0}
+      aria-label={`${badge} · ${harnessLabel} · ${event.project} · ${shortSession(event.sessionId)}`}
+      data-kind={event.kind}
+      data-flight-id={ids.flightId}
+      data-invocation-id={ids.invocationId}
+      data-work-id={ids.workId}
+      data-agent-id={ids.agentId}
+      data-conversation-id={ids.conversationId}
+      data-session-id={ids.sessionId}
       onClick={() => onSelect(event)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -738,6 +1051,7 @@ function TailRow({
       <span className={`s-tail-chip s-tail-chip--origin ${attributionClass}`} title={`origin: ${attributionLabel}`}>
         {attributionLabel}
       </span>
+      <span className="s-tail-chip s-tail-chip--event" title={badge}>{badge}</span>
       <span className="s-tail-cell-context">
         <TailLink
           className="s-tail-link s-tail-link--project"

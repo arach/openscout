@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import "./ctx-panel.css";
 import "./base-left-rail.css";
-import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import {
   filterAgentsByMachineScope,
@@ -86,7 +86,7 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
       <RecentAgentsSection
         agents={recentAgents}
         totalCount={scopedAgents.length}
-        readyCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
+        activeCount={scopedAgents.filter((a) => normalizeAgentState(a.state) === "working").length}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
         onSeeAll={() => navigate({ view: "agents" })}
       />
@@ -114,21 +114,26 @@ export function BaseLeftRail({ prepend }: BaseLeftRailProps) {
 function RecentAgentsSection({
   agents,
   totalCount,
-  readyCount,
+  activeCount,
   onSelect,
   onSeeAll,
 }: {
   agents: Agent[];
   totalCount: number;
-  readyCount: number;
+  activeCount: number;
   onSelect: (agent: Agent) => void;
   onSeeAll: () => void;
 }) {
+  const meta = totalCount > 0
+    ? activeCount > 0
+      ? `${activeCount} active · ${totalCount}`
+      : `${totalCount}`
+    : undefined;
   return (
     <section className="ctx-panel-section base-rail-section">
       <SectionLabel
         title="Recent agents"
-        meta={totalCount > 0 ? `${readyCount} ready · ${totalCount}` : undefined}
+        meta={meta}
         onSeeAll={totalCount > 0 ? onSeeAll : undefined}
       />
       {agents.length === 0 ? (

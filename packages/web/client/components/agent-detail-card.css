@@ -100,11 +100,13 @@
   flex-shrink: 0;
 }
 
+.agent-card-dot--active,
 .agent-card-dot--working {
   box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .agent-card-dot--available { background: var(--green); }
+.agent-card-dot--unavailable,
 .agent-card-dot--offline { background: color-mix(in srgb, var(--ink) 25%, transparent); }
 
 .agent-card-state {
@@ -114,8 +116,10 @@
   font-size: var(--text-xs);
 }
 
+.agent-card-state--active,
 .agent-card-state--working { color: var(--accent); }
 .agent-card-state--available { color: var(--green); }
+.agent-card-state--unavailable,
 .agent-card-state--offline { color: var(--muted); }
 
 .agent-card-sep {

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { listPlans } from "@/lib/plans";
 import { listEngDocs } from "@/lib/eng-docs";
-import { STUDIO_PAGES } from "@/lib/studio-pages";
+import {
+  STUDIO_INSERTION_POINTS,
+  STUDIO_PAGES,
+  studiesForInsertionPoint,
+} from "@/lib/studio-pages";
 
 export default function Landing() {
   const plans = listPlans();
@@ -13,6 +17,7 @@ export default function Landing() {
   const atoms = STUDIO_PAGES.filter(
     (p) => p.bucket === "atoms" && p.href !== "/atoms",
   );
+  const insertionPoints = STUDIO_INSERTION_POINTS;
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
@@ -105,6 +110,29 @@ export default function Landing() {
         </ul>
       </Section>
 
+      <Section title="Insertion Points" count={insertionPoints.length}>
+        <ul className="grid gap-3">
+          {insertionPoints.map((point) => {
+            const studies = studiesForInsertionPoint(point.id);
+
+            return (
+              <li key={point.id}>
+                <InsertionPointCard
+                  id={point.id}
+                  title={point.label}
+                  kind={`${point.scope.toUpperCase()} · ${point.surface?.toUpperCase() ?? "ANY"}`}
+                  blurb={point.blurb}
+                  studies={studies.map((study) => ({
+                    href: study.href,
+                    label: study.label,
+                  }))}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      </Section>
+
       <p className="mt-12 max-w-prose font-sans text-[11px] leading-relaxed text-studio-ink-faint">
         Plans are markdown files in{" "}
         <code className="font-mono text-[10px] text-studio-ink">plans/</code>;
@@ -114,6 +142,10 @@ export default function Landing() {
         and register it in{" "}
         <code className="font-mono text-[10px] text-studio-ink">
           lib/studio-pages.ts
+        </code>
+        . Studio-mode host anchors are registered in the same file via{" "}
+        <code className="font-mono text-[10px] text-studio-ink">
+          STUDIO_INSERTION_POINTS
         </code>
         .
       </p>
@@ -187,5 +219,56 @@ function Card({
         </p>
       ) : null}
     </Link>
+  );
+}
+
+function InsertionPointCard({
+  id,
+  title,
+  kind,
+  blurb,
+  studies,
+}: {
+  id: string;
+  title: string;
+  kind: string;
+  blurb?: string;
+  studies: Array<{ href: string; label: string }>;
+}) {
+  return (
+    <div className="rounded-md border border-studio-edge px-5 py-4">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
+          ·
+        </div>
+        <div className="font-display text-[19px] font-medium tracking-tight text-studio-ink">
+          {title}
+        </div>
+        <div className="font-mono text-[9px] uppercase tracking-[0.20em] text-studio-ink-faint">
+          {kind}
+        </div>
+      </div>
+      <p className="ml-5 mt-1.5 font-mono text-[11px] text-studio-ink-faint">
+        {id}
+      </p>
+      {blurb ? (
+        <p className="ml-5 mt-1.5 font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+          {blurb}
+        </p>
+      ) : null}
+      {studies.length > 0 ? (
+        <div className="ml-5 mt-3 flex flex-wrap gap-2">
+          {studies.map((study) => (
+            <Link
+              key={study.href}
+              href={study.href}
+              className="rounded-sm border border-studio-edge px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-studio-ink-faint transition-colors hover:border-studio-ink hover:text-studio-ink"
+            >
+              {study.label}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -1,24 +1,23 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
-import { actorColor } from "../lib/colors.ts";
-import { AgentAvatar } from "../components/AgentAvatar.tsx";
+import { WorkList } from "../components/WorkList.tsx";
+import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { actorColor, stateColor } from "../lib/colors.ts";
 import { api } from "../lib/api.ts";
+import { copyTextToClipboard } from "../lib/clipboard.ts";
+import { dismissOperatorAttention } from "../lib/operator-attention.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { timeAgo } from "../lib/time.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
-import {
-  resolveActiveSessionId,
-  resolveSelectedSessionId,
-  sortSessionsByRecency,
-} from "../lib/session-catalog.ts";
 import { filterAgentsByMachineScope } from "../lib/machine-scope.ts";
 import { BackToPicker } from "../scout/slots/BackToPicker.tsx";
 import { openContent } from "../scout/slots/openContent.ts";
 import { useScout } from "../scout/Provider.tsx";
+import { useContextMenu, type MenuItem } from "../components/ContextMenu.tsx";
 import { DataTable, type DataTableColumn } from "../components/DataTable/DataTable.tsx";
 import { VantageHandoffButton } from "../components/VantageHandoffButton.tsx";
+import { AgentLiveActions } from "../components/AgentLiveActions.tsx";
 import { ObservedTopologyPanel } from "../components/ObservedTopologyPanel.tsx";
 import type {
   AgentTab,
@@ -31,7 +30,6 @@ import type {
   Message,
   Route,
   SessionEntry,
-  SessionCatalogEntry,
   SessionCatalogWithResume,
   TailDiscoveredProcess,
   TailDiscoverySnapshot,
@@ -40,7 +38,6 @@ import type {
 import { ConversationScreen } from "./ConversationScreen.tsx";
 import { SessionObserve } from "./SessionObserve.tsx";
 import { AgentsSubnav } from "./AgentsSubnav.tsx";
-import { AgentDirectoryStudioInjection } from "../studio/AgentDirectoryStudioInjection.tsx";
 import "./agents-screen.css";
 import "./ops-atop.css";
 import "./ops-screen.css";
@@ -141,11 +138,36 @@ type AgentInventoryColumnKey =
   | "session"
   | "last";
 
-type AgentsLibraryViewMode = "cards" | "tree";
+type AgentManagementProfile = {
+  harness: string;
+  source: string;
+  detail: string;
+  active: boolean;
+  switchable: boolean;
+};
+
+type AgentManagementState = {
+  agentId: string;
+  editable: boolean;
+  currentHarness: string | null;
+  profiles: AgentManagementProfile[];
+  canSwitchHarness: boolean;
+  projectConfigPath: string | null;
+  projectRoot: string | null;
+  runtimeCwd: string | null;
+  canRepair: boolean;
+  canRetire: boolean;
+  staleLocalRegistration: boolean;
+  retiredFromFleet: boolean;
+  replacedByAgentId: string | null;
+};
 
 type TimeHorizonKey = "1h" | "24h" | "7d" | "all";
+type AgentsLibraryViewMode = "board" | "directory";
 
-const DEFAULT_TIME_HORIZON: TimeHorizonKey = "24h";
+const DEFAULT_TIME_HORIZON: TimeHorizonKey = "all";
+const ACTIVE_AGENT_LIMIT = 6;
+const PROJECT_ROW_AGENT_LIMIT = 5;
 const PROJECT_OVERVIEW_AGENT_LIMIT = 8;
 const PROJECT_OVERVIEW_SESSION_LIMIT = 3;
 
@@ -209,6 +231,7 @@ type ProjectTreeSessionNode = {
   key: string;
   kind: ProjectTreeSessionKind;
   status: string;
+  typeLabel: string;
   harness: string;
   label: string;
   detail: string | null;
@@ -250,38 +273,36 @@ const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
 function agentInventoryStatusClass(status: AgentInventoryStatus): string {
   switch (status) {
     case "working":
-      return "working";
+      return "active";
     case "ready":
       return "available";
     case "not_ready":
-      return "offline";
+      return "unavailable";
   }
 }
 
 function agentInventoryStatusLabel(status: AgentInventoryStatus): string {
   switch (status) {
     case "working":
-      return "working";
+      return "active";
     case "ready":
-      return "ready";
+      return "";
     case "not_ready":
-      return "not ready";
+      return "unavailable";
   }
 }
 
 const PROJECT_TREE_DEFAULT_SORT: ProjectTreeSort = { key: "target", dir: 1 };
 
 const PROJECT_TREE_COLUMNS: ProjectTreeColumn[] = [
-  { key: "target", label: "Target", sortable: true },
-  { key: "state", label: "State", sortable: true },
+  { key: "target", label: "Agent / session", sortable: true },
+  { key: "state", label: "Evidence", sortable: true },
   { key: "harness", label: "Harness", sortable: true },
-  { key: "branch", label: "Branch / cwd", sortable: true },
-  { key: "sessions", label: "Sessions", sortable: true },
+  { key: "branch", label: "Branch / type", sortable: true },
+  { key: "sessions", label: "Linked", sortable: true },
   { key: "last", label: "Last", sortable: true },
   { key: "actions", label: "Actions", sortable: false },
 ];
-
-const NATIVE_SESSION_ACTIVE_WINDOW_MS = 60_000;
 
 function basename(path: string | null | undefined): string | null {
   if (!path) return null;
@@ -460,10 +481,7 @@ function nativeSessionMatchesAgent(session: NativeSessionRow, row: AgentInventor
     || nativeProcessMatchesAgent(session.process, row);
 }
 
-function buildNativeSessionRows(
-  discovery: TailDiscoverySnapshot | null,
-  now: number,
-): NativeSessionRow[] {
+function buildNativeSessionRows(discovery: TailDiscoverySnapshot | null): NativeSessionRow[] {
   if (!discovery) return [];
 
   const rows: NativeSessionRow[] = [];
@@ -487,9 +505,7 @@ function buildNativeSessionRows(
       sessionId: transcript.sessionId,
       mtimeMs: transcript.mtimeMs,
       size: transcript.size,
-      status: lastActivityAt && now - lastActivityAt <= NATIVE_SESSION_ACTIVE_WINDOW_MS
-        ? "active"
-        : "idle",
+      status: "idle",
       process: null,
       lastActivityAt,
     });
@@ -678,10 +694,9 @@ function ensureProjectSlice(
 
 function updateProjectSliceSummary(project: ProjectSlice): void {
   const hasWorkingAgent = project.agents.some((row) => row.status === "working");
-  const hasActiveNativeSession = project.nativeSessions.some((row) => row.status === "active");
   const hasActiveWorkflow = project.workflows.some((row) => row.activeTaskCount > 0 || row.status === "running");
   const hasReadyAgent = project.agents.some((row) => row.status === "ready");
-  project.status = hasWorkingAgent || hasActiveNativeSession || hasActiveWorkflow
+  project.status = hasWorkingAgent || hasActiveWorkflow
     ? "working"
     : hasReadyAgent
       ? "ready"
@@ -774,7 +789,8 @@ function scoutSessionNode(session: SessionEntry): ProjectTreeSessionNode {
   return {
     key: `scout:${session.id}`,
     kind: "scout",
-    status: session.kind,
+    status: "observed",
+    typeLabel: formatLabel(session.kind) ?? session.kind,
     harness,
     label: session.title || session.agentName || session.id,
     detail: session.preview ?? session.id,
@@ -787,7 +803,8 @@ function nativeSessionNode(session: NativeSessionRow): ProjectTreeSessionNode {
   return {
     key: `native:${session.key}`,
     kind: "native",
-    status: session.status,
+    status: session.status === "active" ? "live" : "recent",
+    typeLabel: "native",
     harness: session.source,
     label: shortSessionId(session.sessionId ?? session.refId),
     detail: session.transcriptPath ?? session.process?.command ?? session.cwd,
@@ -802,8 +819,8 @@ function workflowSessionNode(workflow: ProjectWorkflowRow): ProjectTreeSessionNo
   const completed = workflow.taskCount > 0
     ? `${workflow.completedTaskCount}/${workflow.taskCount} tasks`
     : "workflow";
-  const active = workflow.activeTaskCount > 0
-    ? `${workflow.activeTaskCount} active`
+  const running = workflow.activeTaskCount > 0
+    ? `${workflow.activeTaskCount} running`
     : completed;
   const traceDetail = workflow.parentSessionId
     ? `parent session ${shortSessionId(workflow.parentSessionId)}`
@@ -811,13 +828,14 @@ function workflowSessionNode(workflow: ProjectWorkflowRow): ProjectTreeSessionNo
   return {
     key: `workflow:${workflow.key}`,
     kind: "workflow",
-    status: "workflow",
+    status: workflow.activeTaskCount > 0 || workflow.status === "running" ? "running" : "observed",
+    typeLabel: "workflow",
     harness: workflow.source,
     label: workflow.label,
     detail: workflow.description && traceDetail
       ? `${workflow.description} · ${traceDetail}`
-      : workflow.description ?? (traceDetail ? `Claude workflow observed from ${traceDetail}` : `${workflow.workerCount} workers · ${active}`),
-    subLabel: `${workflow.workerCount} workers · ${active}`,
+      : workflow.description ?? (traceDetail ? `Claude workflow observed from ${traceDetail}` : `${workflow.workerCount} workers · ${running}`),
+    subLabel: `${workflow.workerCount} workers · ${running}`,
     lastActivityAt: workflow.lastActivityAt,
     route: workflow.parentSessionId
       ? { view: "sessions", sessionId: workflow.parentSessionId }
@@ -845,10 +863,9 @@ function projectTreeAgentBranchValue(row: AgentInventoryRow): string {
 }
 
 function projectTreeSessionStateRank(session: ProjectTreeSessionNode): number {
-  if (session.kind === "workflow") return 0;
-  if (session.status === "active") return 0;
-  if (session.status === "direct") return 1;
-  if (session.status === "idle") return 2;
+  if (session.status === "running" || session.status === "live") return 0;
+  if (session.status === "observed") return 1;
+  if (session.status === "recent") return 2;
   return 3;
 }
 
@@ -871,7 +888,7 @@ function sortProjectTreeSessions(sessions: ProjectTreeSessionNode[]): ProjectTre
 }
 
 function showProjectLevelSessionInOverview(session: ProjectTreeSessionNode): boolean {
-  return session.kind === "workflow" || (session.kind === "native" && session.status === "active");
+  return session.kind === "workflow" || (session.kind === "native" && session.status === "live");
 }
 
 function timeHorizonCutoff(horizon: TimeHorizonKey, now: number): number | null {
@@ -916,7 +933,7 @@ function compareProjectTreeSessions(
       result = compareNullableText(left.harness, right.harness);
       break;
     case "branch":
-      result = compareNullableText(left.kind, right.kind);
+      result = compareNullableText(left.typeLabel, right.typeLabel);
       break;
     case "sessions":
       result = 0;
@@ -1087,10 +1104,15 @@ function writeCollapsedProjectTreeRows(storageKey: string, rows: Set<string>): v
 }
 
 function AgentInventoryStatusCell({ row }: { row: AgentInventoryRow }) {
+  const label = agentInventoryStatusLabel(row.status);
+  if (!label) {
+    return <span className="s-agents-inventory-status s-agents-inventory-status--quiet" />;
+  }
+
   return (
     <span className={`s-agents-inventory-status s-agents-inventory-status--${agentInventoryStatusClass(row.status)}`}>
       <span className="s-agents-inventory-status-dot" />
-      {row.stateLabel.toLowerCase()}
+      {label}
     </span>
   );
 }
@@ -1107,11 +1129,11 @@ function AgentInventoryAgentCell({ row }: { row: AgentInventoryRow }) {
 }
 
 function AgentInventoryTaskCell({ row }: { row: AgentInventoryRow }) {
-  const preview = row.activeTask ?? row.session?.preview ?? row.stateLabel;
+  const preview = row.activeTask ?? row.session?.preview ?? "";
   return (
     <span
       className={`s-agents-inventory-task${row.activeTask ? "" : " s-agents-inventory-task--dim"}`}
-      title={preview}
+      title={preview || undefined}
     >
       {preview}
     </span>
@@ -1186,7 +1208,8 @@ const AGENT_INVENTORY_COLUMNS: DataTableColumn<AgentInventoryRow, AgentInventory
   },
   {
     key: "active",
-    label: "Active",
+    label: "Asks",
+    tip: "In-flight Scout asks assigned to this agent.",
     cls: "s-atop-col-num",
     kind: "number",
     defaultWidth: 70,
@@ -1328,15 +1351,211 @@ function resolveSelectedAgent(agents: Agent[], selectedAgentId?: string): Agent 
   return uniqueCandidates.length === 1 ? uniqueCandidates[0]! : null;
 }
 
+function compactProfilePath(path: string | null | undefined): string | null {
+  if (!path) return null;
+  if (path.startsWith("/Users/")) {
+    const [, , , ...rest] = path.split("/");
+    return `~/${rest.join("/")}`;
+  }
+  return path;
+}
+
+function AgentManagementStrip({
+  agent,
+  management,
+  navigate,
+  returnTo,
+  onRefresh,
+}: {
+  agent: Agent;
+  management: AgentManagementState | null;
+  navigate: (r: Route) => void;
+  returnTo: Route;
+  onRefresh: () => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const activeHarness = management?.currentHarness ?? agent.harness ?? null;
+  const switchableProfiles = management?.canSwitchHarness
+    ? management.profiles.filter((profile) => profile.switchable)
+    : [];
+  const alternateProfiles = switchableProfiles.filter((profile) => !profile.active);
+  const configPath = management?.projectConfigPath ?? null;
+  const configLabel = compactProfilePath(configPath) ?? "Agent config";
+
+  const runAction = async (action: string, task: () => Promise<string | null | undefined>) => {
+    setBusyAction(action);
+    setNotice(null);
+    try {
+      const message = await task();
+      if (message) setNotice(message);
+      await onRefresh();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const switchHarness = (harness: string) => {
+    void runAction(`switch:${harness}`, async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/harness`, {
+        method: "POST",
+        body: JSON.stringify({ harness, restart: true }),
+      });
+      return `Switched to ${harness}`;
+    });
+  };
+
+  const repairRegistration = () => {
+    void runAction("repair", async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/repair`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      return "Registration repaired";
+    });
+  };
+
+  const retireRegistration = () => {
+    if (!window.confirm(`Retire ${agent.name} from the visible fleet?`)) {
+      return;
+    }
+    void runAction("retire", async () => {
+      await api(`/api/agents/${encodeURIComponent(agent.id)}/retire`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      return "Registration retired";
+    });
+  };
+
+  const openConfig = () => {
+    void runAction("config", async () => {
+      if (configPath) {
+        try {
+          await api("/api/file/reveal", {
+            method: "POST",
+            body: JSON.stringify({ path: configPath }),
+          });
+          return "Opened config";
+        } catch {
+          await copyTextToClipboard(configPath);
+          return "Copied config path";
+        }
+      }
+      openContent(
+        navigate,
+        { view: "settings", section: "agents", agentId: agent.id },
+        { returnTo },
+      );
+      return "Opened agent config";
+    });
+  };
+
+  return (
+    <div className="s-profile-management" aria-label="Agent management actions">
+      <div className="s-profile-management-head">
+        <span className="s-profile-management-label">Manage</span>
+        <span className="s-profile-management-status">
+          {notice ?? (activeHarness ? `current ${activeHarness}` : "profile controls")}
+        </span>
+      </div>
+      <div className="s-profile-management-grid">
+        <div className="s-profile-management-card s-profile-management-card--profiles">
+          <div className="s-profile-management-card-copy">
+            <span className="s-profile-management-card-title">Switch profile</span>
+            <span className="s-profile-management-card-detail">
+              {alternateProfiles.length > 0
+                ? switchableProfiles.map((profile) => profile.harness).join(" / ")
+                : management?.canSwitchHarness
+                  ? "No alternate profile"
+                  : "Single profile"}
+            </span>
+          </div>
+          <div className="s-profile-management-profile-actions">
+            {alternateProfiles.length > 0 ? alternateProfiles.map((profile) => (
+              <button
+                key={profile.harness}
+                type="button"
+                className="s-profile-management-btn"
+                onClick={() => switchHarness(profile.harness)}
+                disabled={Boolean(busyAction)}
+                title={profile.detail}
+              >
+                {busyAction === `switch:${profile.harness}` ? "Switching" : profile.harness}
+              </button>
+            )) : (
+              <button
+                type="button"
+                className="s-profile-management-btn"
+                disabled
+              >
+                {activeHarness ?? "Profile"}
+              </button>
+            )}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={repairRegistration}
+          disabled={Boolean(busyAction) || management?.canRepair === false}
+        >
+          <span className="s-profile-management-card-title">
+            {busyAction === "repair" ? "Repairing" : "Repair registration"}
+          </span>
+          <span className="s-profile-management-card-detail">
+            {management?.replacedByAgentId ?? compactProfilePath(management?.projectRoot) ?? "Refresh setup"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={retireRegistration}
+          disabled={Boolean(busyAction) || management?.canRetire === false}
+        >
+          <span className="s-profile-management-card-title">
+            {agent.retiredFromFleet || management?.retiredFromFleet
+              ? "Retired"
+              : busyAction === "retire"
+                ? "Retiring"
+                : agent.staleLocalRegistration || management?.staleLocalRegistration
+                  ? "Hide stale registration"
+                  : "Retire registration"}
+          </span>
+          <span className="s-profile-management-card-detail">
+            {agent.staleLocalRegistration || management?.staleLocalRegistration
+              ? "Superseded local route"
+              : "Remove from fleet"}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="s-profile-management-card s-profile-management-card--button"
+          onClick={openConfig}
+          disabled={Boolean(busyAction)}
+        >
+          <span className="s-profile-management-card-title">
+            {busyAction === "config" ? "Opening" : "Open / edit config"}
+          </span>
+          <span className="s-profile-management-card-detail">{configLabel}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 
 function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume; agentId: string }) {
   const { navigate, route } = useScout();
   const [sent, setSent] = useState(false);
   const shortId = catalog.activeSessionId?.slice(0, 8) ?? null;
   const active = catalog.sessions.find((s) => s.id === catalog.activeSessionId);
+  const canTakeover = Boolean(active?.canTakeover && catalog.resumeCommand);
 
   const runTakeover = () => {
-    if (!catalog.resumeCommand) return;
+    if (!canTakeover || !catalog.resumeCommand) return;
     void queueTakeover({
       command: catalog.resumeCommand,
       cwd: catalog.resumeCwd,
@@ -1367,12 +1586,12 @@ function SessionFacet({ catalog, agentId }: { catalog: SessionCatalogWithResume;
         >
           Pair
         </button>
-        {catalog.resumeCommand && (
+        {canTakeover && (
           <button
             type="button"
             className="s-profile-facet-action"
             onClick={runTakeover}
-            title={catalog.resumeCommand}
+            title={catalog.resumeCommand ?? undefined}
           >
             {sent ? "Going…" : "Takeover"}
           </button>
@@ -1401,18 +1620,36 @@ function formatContextAge(ms: number | null): string {
   return remainder > 0 ? `${hours}h ${remainder}m old` : `${hours}h old`;
 }
 
-function contextLoadPercent(context: LocalAgentContextState): number {
-  const turnRatio = context.policy.maxTurns > 0
-    ? context.turnCount / context.policy.maxTurns
-    : 0;
-  return Math.max(0, Math.min(100, Math.round(turnRatio * 100)));
+function contextWindowPercent(context: LocalAgentContextState): number | null {
+  const percent = context.contextWindow?.usedPercent;
+  return typeof percent === "number" && Number.isFinite(percent)
+    ? Math.max(0, Math.min(100, Math.round(percent)))
+    : null;
+}
+
+function formatTokenCount(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  return `${Math.round(value)}`;
 }
 
 function contextTurnLabel(context: LocalAgentContextState): string {
-  if (context.policy.maxTurns <= 0) {
-    return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
-  }
-  return `${context.turnCount} / ${context.policy.maxTurns} turns`;
+  return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
+}
+
+function contextWindowTokenLabel(context: LocalAgentContextState): string | null {
+  const contextInput = formatTokenCount(context.contextWindow?.contextInputTokens);
+  const window = formatTokenCount(context.contextWindow?.contextWindowTokens);
+  if (contextWindowPercent(context) !== null && contextInput && window) return `${contextInput} / ${window} tokens`;
+  if (window) return `${window} window`;
+  return null;
+}
+
+function contextWindowMetricLabel(context: LocalAgentContextState): string {
+  const percent = contextWindowPercent(context);
+  if (percent !== null) return `${percent}% used`;
+  return context.contextWindow?.contextWindowTokens ? "usage unknown" : "window unknown";
 }
 
 function formatContextLastActivity(
@@ -1440,33 +1677,39 @@ function ContextFacet({
   resetting: boolean;
   onReset: () => void;
 }) {
-  const percent = contextLoadPercent(context);
+  const percent = contextWindowPercent(context);
+  const metric = contextWindowMetricLabel(context);
   const turns = contextTurnLabel(context);
+  const tokens = contextWindowTokenLabel(context);
   const lastActivity = formatContextLastActivity(
     lastActivityAt,
     context.sessionAgeMs,
   );
+  const detail = [tokens, turns, lastActivity].filter(Boolean).join(" · ");
   const resetDisabled = resetting || context.currentTurnActive;
   return (
     <div className="s-profile-facet s-profile-context">
       <div className="s-profile-facet-label">Context</div>
       <div className="s-profile-context-head">
-        <span className="s-profile-context-metric">{percent}% used</span>
+        <span className="s-profile-context-metric">{metric}</span>
         <button
           type="button"
           className="s-profile-facet-action"
           disabled={resetDisabled}
           onClick={onReset}
-          title={context.currentTurnActive ? "Agent is currently working" : "Start a fresh session"}
+          title={context.currentTurnActive ? "Agent is currently active" : "Start a fresh session"}
         >
           {resetting ? "Starting..." : "New"}
         </button>
       </div>
-      <div className="s-profile-context-gauge" aria-label={`Context load ${percent}%`}>
-        <div className="s-profile-context-gauge-fill" style={{ width: `${percent}%` }} />
+      <div
+        className="s-profile-context-gauge"
+        aria-label={percent === null ? "Context window usage unavailable" : `Context window usage ${percent}%`}
+      >
+        <div className="s-profile-context-gauge-fill" style={{ width: `${percent ?? 0}%` }} />
       </div>
-      <div className="s-profile-facet-detail" title={`${turns} · ${lastActivity}`}>
-        {turns} · {lastActivity}
+      <div className="s-profile-facet-detail" title={detail}>
+        {detail}
       </div>
     </div>
   );
@@ -1623,11 +1866,12 @@ function SignalFeed({
                 }
               }}
             >
-              <AgentAvatar
-                name={msg.actorName ?? "?"}
-                placement="turn"
+              <div
                 className="s-profile-signal-avatar"
-              />
+                style={{ background: actorColor(msg.actorName ?? "?") }}
+              >
+                {(msg.actorName ?? "?")[0].toUpperCase()}
+              </div>
               <div className="s-profile-signal-body">
                 <div className="s-profile-signal-header">
                   <span className="s-profile-signal-kind">{kindLabel}</span>
@@ -1649,441 +1893,6 @@ function SignalFeed({
   );
 }
 
-// ── Modular agent profile ──────────────────────────────────────────────────
-// Control surface made of stacked bands: a calm identity header (sprite + name),
-// then full-width module bands (Now · Recent work · Signal) that flow to fill the
-// canvas. Runtime/workspace metadata and collaborators live in the rail context
-// card, not here. Instrument language: near-black, mono-first, one emerald accent
-// for live signal, status as a small dot.
-
-function shortCwd(cwd: string | null | undefined): string | null {
-  if (!cwd) return null;
-  return cwd.startsWith("/Users/")
-    ? "~/" + cwd.split("/").slice(3).join("/")
-    : cwd;
-}
-
-function pathLeaf(p: string): string {
-  const parts = p.replace(/\/+$/, "").split("/");
-  return parts[parts.length - 1] || p;
-}
-
-function shortSessionLabel(id: string): string {
-  // Human session ids (e.g. "relay-hu") read fine; long hashes get elided.
-  return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
-}
-
-// Tiny monochrome line-glyphs (geometric, not emoji) for the essentials grid —
-// folder · branch · host · chip. Kept bit-for-bit with the studio rebalance
-// treatment (design/studio/.../agent-profile-rebalance) so the ports don't drift.
-function IcoFolder() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <path d="M2 4h4l1.4 1.6H14v6.4H2z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IcoBranch() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <circle cx="4.5" cy="3.5" r="1.5" />
-      <circle cx="4.5" cy="12.5" r="1.5" />
-      <circle cx="11.5" cy="5.5" r="1.5" />
-      <path d="M4.5 5v6M4.5 11c0-3 7-1.4 7-4" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IcoChip() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
-      <path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IcoHost() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <rect x="2.5" y="3.5" width="11" height="7" rx="1" />
-      <path d="M6 13h4M8 10.5V13" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-// One essentials cell: a faint line-glyph + its value, truncating. Grouped into
-// two columns (location: path / host · work: branch / harness·model) so the
-// composition reads without word labels.
-function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
-  return (
-    <span className="s-sess-glyph-cell" title={v}>
-      <span className="s-sess-glyph-ico">{ico}</span>
-      <span className="s-sess-glyph-v">{v}</span>
-    </span>
-  );
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return `${n}`;
-}
-
-function fmtCompactNumber(value: number | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
-  if (Math.abs(value) < 1_000) return `${Math.round(value)}`;
-  if (Math.abs(value) < 1_000_000) {
-    return `${(value / 1_000).toFixed(value % 1_000 === 0 ? 0 : 1)}k`;
-  }
-  return `${(value / 1_000_000).toFixed(1)}m`;
-}
-
-function fmtWindowSpan(seconds: number): string {
-  if (!Number.isFinite(seconds) || seconds <= 0) return "0s";
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const whole = Math.round(seconds);
-  const hours = Math.floor(whole / 3_600);
-  const minutes = Math.floor((whole % 3_600) / 60);
-  const secs = whole % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes >= 10 || secs === 0) return `${minutes}m`;
-  return `${minutes}m ${secs}s`;
-}
-
-// Bin trace events into intensity buckets across the session window, so the
-// sparkline reads the session's rhythm (warm-up · bursts · idle).
-function binEvents(events: { t: number }[], n = 32): number[] {
-  if (events.length === 0) return [];
-  const last = events[events.length - 1]!.t || 1;
-  const buckets = new Array<number>(n).fill(0);
-  for (const e of events) {
-    const idx = Math.min(n - 1, Math.max(0, Math.floor((e.t / last) * n)));
-    buckets[idx] += 1;
-  }
-  return buckets;
-}
-
-// A little chart of the session's rhythm — intensity bars, brighter where busier
-// (single accent, opacity = intensity). Matches the studio rebalance treatment.
-function ActivitySparkline({ buckets }: { buckets: number[] }) {
-  if (buckets.length === 0) return null;
-  const max = Math.max(...buckets, 1);
-  const W = 240;
-  const H = 20;
-  const gap = 1;
-  const bw = (W - gap * (buckets.length - 1)) / buckets.length;
-  return (
-    <div className="s-sum-spark">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="s-sum-spark-svg" aria-hidden>
-        {buckets.map((v, i) => {
-          const h = Math.max(1, (v / max) * H);
-          return (
-            <rect
-              key={i}
-              x={i * (bw + gap)}
-              y={H - h}
-              width={bw}
-              height={h}
-              fill="var(--accent)"
-              opacity={0.22 + 0.62 * (v / max)}
-            />
-          );
-        })}
-      </svg>
-      <div className="s-sum-spark-axis">
-        <span>session start</span>
-        <span>now</span>
-      </div>
-    </div>
-  );
-}
-
-// The center summary band for the focused session: the rhythm chart + key stats +
-// quantifiable context, then the primary action. Kept shallow on purpose — the
-// file detail and the rest live in the rail. Mirrors the studio SessionSummary.
-function SessionSummary({
-  agentId,
-  active,
-  onPrimary,
-  primaryLabel,
-  primaryTitle,
-}: {
-  agentId: string;
-  active: boolean;
-  onPrimary: () => void;
-  primaryLabel: string;
-  primaryTitle: string;
-}) {
-  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
-  const [ctx, setCtx] = useState<LocalAgentContextState | null>(null);
-
-  const load = useCallback(async () => {
-    const [o, c] = await Promise.all([
-      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agentId)}/observe`).catch(() => null),
-      api<LocalAgentContextState>(`/api/agents/${encodeURIComponent(agentId)}/session/context`).catch(() => null),
-    ]);
-    setObserve(o);
-    setCtx(c);
-  }, [agentId]);
-  useEffect(() => {
-    void load();
-  }, [load]);
-  useBrokerEvents(() => {
-    void load();
-  });
-
-  const data = observe?.data;
-  const events = data?.events ?? [];
-  const stats: Array<{ k: string; v: string }> = [
-    { k: "turns", v: fmtCompactNumber(ctx?.turnCount ?? data?.metadata?.session?.turnCount ?? 0) },
-    { k: "tools", v: fmtCompactNumber(events.filter((e) => e.kind === "tool").length) },
-    {
-      k: "edits",
-      v: fmtCompactNumber(
-        events.filter((e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write")).length,
-      ),
-    },
-    {
-      k: "reads",
-      v: fmtCompactNumber(events.filter((e) => e.kind === "tool" && e.tool === "read").length),
-    },
-    { k: "files", v: fmtCompactNumber(data?.files.length ?? 0) },
-    { k: "window", v: fmtWindowSpan(events.length > 0 ? events[events.length - 1]!.t : 0) },
-  ];
-
-  // Context, quantifiable: prefer real token fill (used / window) when the usage
-  // metadata carries a window; otherwise fall back to turn-load vs the policy.
-  const usage = data?.metadata?.usage;
-  const win = usage?.contextWindowTokens ?? 0;
-  const used = usage?.totalTokens ?? usage?.inputTokens ?? 0;
-  const tokenPct = win > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
-  const turnPct = ctx ? contextLoadPercent(ctx) : null;
-  const fillPct = tokenPct ?? turnPct ?? 0;
-  const ctxHead =
-    tokenPct !== null
-      ? `${fmtTokens(used)} / ${fmtTokens(win)} ctx`
-      : ctx
-        ? contextTurnLabel(ctx)
-        : "context";
-  // When the gauge already shows tokens, the runway adds turns + age. When it
-  // fell back to turn-load (head already shows turns), the runway is just age —
-  // don't print the turns twice.
-  const ctxAge = ctx && ctx.sessionAgeMs !== null ? formatContextAge(ctx.sessionAgeMs) : null;
-  const ctxRunway =
-    tokenPct !== null && ctx
-      ? `${contextTurnLabel(ctx)}${ctxAge ? ` · ${ctxAge}` : ""}`
-      : ctxAge;
-
-  return (
-    <div className="s-sum">
-      <div className="s-sum-cols">
-        <div className="s-sum-col s-sum-col--activity">
-          <div className="s-sum-label">Activity</div>
-          <ActivitySparkline buckets={binEvents(events)} />
-        </div>
-        <div className="s-sum-col s-sum-col--context">
-          <div className="s-sum-label">Context</div>
-          <div className="s-sum-ctx-head">
-            <span className="s-sum-ctx-size">{ctxHead}</span>
-            <span className="s-sum-ctx-pct">{fillPct}%</span>
-          </div>
-          <div className="s-sum-gauge" aria-label={`Context ${fillPct}%`}>
-            <div className="s-sum-gauge-fill" style={{ width: `${fillPct}%` }} />
-          </div>
-          {ctxRunway && <div className="s-sum-ctx-runway">{ctxRunway}</div>}
-        </div>
-      </div>
-      <div className="s-sum-foot">
-        <div className="s-sum-stats">
-          {stats.map((m, i) => (
-            <span key={m.k} className="s-sum-stat">
-              {i > 0 && <span className="s-sum-stat-sep">·</span>}
-              <span className="s-sum-stat-v">{m.v}</span>
-              <span className="s-sum-stat-k">{m.k}</span>
-            </span>
-          ))}
-        </div>
-        <button type="button" className="s-sess-explore-primary" onClick={onPrimary} title={primaryTitle}>
-          {primaryLabel}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Sessions-first center (Hybrid): a compact essentials header (state · cwd ·
-// branch · harness · model · host), then the agent's sessions by recency (active
-// first). Clicking a session selects it (shared with the rail) and expands a
-// light "exploring" strip with the one most-likely action — Continue (message
-// into the conversation) or Resume — inline, right where the eye is. The
-// secondary ways to engage (Observe / Take over / Trace) live in the rail, which
-// follows the same selection. Selecting never jumps straight into a terminal.
-function ModularProfileCenter({
-  agent,
-  name,
-  sessionCatalog,
-  navigate,
-  route,
-}: {
-  agent: Agent;
-  name: string;
-  sessionCatalog: SessionCatalogWithResume | null;
-  conversationId: string | null;
-  navigate: (r: Route) => void;
-  route: Route;
-}) {
-  const { focusedSession, focusSession } = useScout();
-  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
-
-  // Essentials as a 2×2 glyph grid (Tiered+): left column is location (path /
-  // host), right column is work (branch / harness·model), one faint line-glyph
-  // per cell. Format carries meaning, so no word labels. Model drops a redundant
-  // harness prefix (claude-opus-4-8 → opus-4-8).
-  const modelShort =
-    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
-      ? agent.model.slice(agent.harness.length + 1)
-      : agent.model ?? null;
-  const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
-  const hostShort = agent.homeNodeName
-    ? agent.homeNodeName.replace(/\.local$/i, "")
-    : null;
-  const chip =
-    [agent.harness, modelShort]
-      .filter((v): v is string => Boolean(v))
-      .join(" · ") || null;
-  const hasEssentials = Boolean(cwdShort || agent.branch || hostShort || chip);
-
-  const sessions = useMemo(
-    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
-    [sessionCatalog?.sessions, activeSessionId],
-  );
-
-  // Selection is shared with the rail (Provider): it defaults to the active (or
-  // most recent) session, and clicking a row only re-points it — never jumps.
-  const selectedSessionId = resolveSelectedSessionId(
-    agent.id,
-    focusedSession,
-    activeSessionId,
-    sessions,
-  );
-
-  const openMessage = () =>
-    navigate({ view: "agents", agentId: agent.id, tab: "message" });
-  const resumeSession = (s: SessionCatalogEntry) =>
-    openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
-
-  return (
-    <div className="s-sess-root">
-      <header className="s-sess-head">
-        <div className="s-sess-id">
-          <span className="s-sess-avatar">
-            <AgentAvatar agent={agent} size={54} tile presence={false} />
-          </span>
-          <div className="s-sess-id-copy">
-            <div className="s-sess-name-row">
-              <span className="s-sess-name">{name}</span>
-              {agent.handle && (
-                <span className="s-sess-handle">@{agent.handle.replace(/^@+/, "")}</span>
-              )}
-            </div>
-            {hasEssentials && (
-              <div className="s-sess-glyph">
-                <div className="s-sess-glyph-col">
-                  {cwdShort && <EssentialCell ico={<IcoFolder />} v={cwdShort} />}
-                  {hostShort && <EssentialCell ico={<IcoHost />} v={hostShort} />}
-                </div>
-                <div className="s-sess-glyph-col">
-                  {agent.branch && <EssentialCell ico={<IcoBranch />} v={agent.branch} />}
-                  {chip && <EssentialCell ico={<IcoChip />} v={chip} />}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
-            distinct action from per-session Continue and the Message tab, so
-            "Message" isn't duplicated across the tab, the header, and Continue. */}
-        <button type="button" className="s-sess-action" onClick={openMessage}>
-          + New session
-        </button>
-      </header>
-
-      <section className="s-sess-band">
-        <header className="s-sess-band-head">
-          <span className="s-sess-band-label">Recent sessions</span>
-          {sessions.length > 0 && (
-            <span className="s-sess-band-meta">{sessions.length} sessions</span>
-          )}
-        </header>
-        <div className="s-sess-list">
-          {sessions.length === 0 ? (
-            <div className="s-sess-empty">No sessions yet — message {name} to start one.</div>
-          ) : (
-            sessions.map((s) => {
-              const active = s.id === activeSessionId;
-              const selected = s.id === selectedSessionId;
-              const harnessLabel =
-                s.transport ?? s.harness ?? agent.transport ?? agent.harness ?? "session";
-              // No status words (active/ready/live) — the live session reads as
-              // `now` in the accent; ended ones show how long ago, dim.
-              const when = active
-                ? "now"
-                : s.endedAt
-                  ? `ended · ${timeAgo(s.endedAt) || "recent"}`
-                  : timeAgo(s.startedAt) || "recent";
-              return (
-                <div key={s.id} className={`s-sess-item${selected ? " s-sess-item--selected" : ""}`}>
-                  <button
-                    type="button"
-                    className={`s-sess-row${active ? " s-sess-row--active" : ""}${selected ? " s-sess-row--selected" : ""}`}
-                    onClick={() => focusSession(agent.id, s.id)}
-                    aria-expanded={selected}
-                  >
-                    <span
-                      className="s-mod-dot s-sess-row-dot"
-                      style={{
-                        background: active ? "var(--accent)" : "var(--dim)",
-                        opacity: active ? 1 : 0.55,
-                      }}
-                    />
-                    <span className="s-sess-row-main">
-                      <span className="s-sess-row-top">
-                        <span className="s-sess-row-id">{shortSessionLabel(s.id)}</span>
-                        <span className="s-sess-row-tag">{harnessLabel}</span>
-                      </span>
-                      <span className="s-sess-row-sub">
-                        {s.cwd ? pathLeaf(s.cwd) : "workspace"}
-                        {s.model ? ` · ${s.model}` : ""}
-                      </span>
-                    </span>
-                    <span
-                      className={`s-sess-row-when${active ? " s-sess-row-when--active" : ""}`}
-                    >
-                      {when}
-                    </span>
-                  </button>
-                  {selected && (
-                    <SessionSummary
-                      agentId={agent.id}
-                      active={active}
-                      onPrimary={() => (active ? openMessage() : resumeSession(s))}
-                      primaryLabel={active ? "Continue" : "Resume"}
-                      primaryTitle={
-                        active
-                          ? "Send a message into this conversation"
-                          : "Reopen this conversation and message it"
-                      }
-                    />
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function AgentDetailWithRail({
   agent,
   allAgents,
@@ -2099,18 +1908,58 @@ function AgentDetailWithRail({
   navigate: (r: Route) => void;
   activeTab: AgentTab;
 }) {
-  const { name } = agentLabel(agent, allAgents);
+  const { name, qualifier } = agentLabel(agent, allAgents);
+  const [work, setWork] = useState<WorkItem[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [fleet, setFleet] = useState<FleetState | null>(null);
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
-  const { route } = useScout();
+  const [contextState, setContextState] = useState<LocalAgentContextState | null>(null);
+  const [managementState, setManagementState] = useState<AgentManagementState | null>(null);
+  const [resettingContext, setResettingContext] = useState(false);
+  const [dismissingWorkId, setDismissingWorkId] = useState<string | null>(null);
+  const state = normalizeAgentState(agent.state);
+  const showContextMenu = useContextMenu();
+  const { route, reload } = useScout();
 
   const load = useCallback(async () => {
-    const catalogResult = await api<SessionCatalogWithResume>(
-      `/api/agents/${encodeURIComponent(agent.id)}/session-catalog`,
-    ).catch(() => null);
-    setSessionCatalog(catalogResult);
+    const [workResult, fleetResult] = await Promise.allSettled([
+      api<WorkItem[]>(`/api/work?agentId=${encodeURIComponent(agent.id)}&active=false&limit=12`),
+      api<FleetState>("/api/fleet"),
+    ]);
+    if (workResult.status === "fulfilled") setWork(workResult.value);
+    if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
   }, [agent.id]);
+
+  const dismissWorkAttention = useCallback(async (item: WorkItem) => {
+    setDismissingWorkId(item.id);
+    try {
+      await dismissOperatorAttention({
+        recordKind: "work_item",
+        recordId: item.id,
+        itemUpdatedAt: item.updatedAt,
+      });
+      await load();
+    } finally {
+      setDismissingWorkId(null);
+    }
+  }, [load]);
+
+  const loadMessages = useCallback(async () => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    try {
+      const result = await api<Message[]>(
+        `/api/messages?conversationId=${encodeURIComponent(conversationId)}&limit=20`,
+      );
+      setMessages(result);
+    } catch {
+      setMessages([]);
+    }
+  }, [conversationId]);
 
   const loadObserve = useCallback(async () => {
     setObserveLoading(true);
@@ -2147,13 +1996,76 @@ function AgentDetailWithRail({
     }
   }, [agent.id]);
 
+  const loadContextState = useCallback(async () => {
+    if (!agent.transport) {
+      setContextState(null);
+      return;
+    }
+    try {
+      const result = await api<LocalAgentContextState>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session/context`,
+      );
+      setContextState(result);
+    } catch {
+      setContextState(null);
+    }
+  }, [agent.id, agent.transport]);
+
+  const loadManagementState = useCallback(async () => {
+    try {
+      const result = await api<AgentManagementState>(
+        `/api/agents/${encodeURIComponent(agent.id)}/management`,
+      );
+      setManagementState(result);
+    } catch {
+      setManagementState(null);
+    }
+  }, [agent.id]);
+
+  const refreshAfterManagementAction = useCallback(async () => {
+    await Promise.allSettled([
+      loadManagementState(),
+      loadContextState(),
+      api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
+        .then(setSessionCatalog),
+      reload(),
+    ]);
+  }, [agent.id, loadContextState, loadManagementState, reload]);
+
+  const resetAgentContext = useCallback(async () => {
+    setResettingContext(true);
+    try {
+      const result = await api<{ ok: boolean; catalog: SessionCatalogWithResume }>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session/reset`,
+        { method: "POST" },
+      );
+      setSessionCatalog(result.catalog);
+      await loadContextState();
+      if (activeTab === "observe") {
+        await loadObserve();
+      }
+    } catch {
+      await loadContextState();
+    } finally {
+      setResettingContext(false);
+    }
+  }, [activeTab, agent.id, loadContextState, loadObserve]);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadMessages();
+    void loadContextState();
+    void loadManagementState();
+    api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agent.id)}/session-catalog`)
+      .then(setSessionCatalog)
+      .catch(() => {});
+  }, [load, loadMessages, loadContextState, loadManagementState, agent.id]);
 
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
+    setContextState(null);
+    setManagementState(null);
   }, [agent.id]);
 
   useEffect(() => {
@@ -2165,6 +2077,9 @@ function AgentDetailWithRail({
 
   useBrokerEvents(() => {
     void load();
+    void loadMessages();
+    void loadContextState();
+    void loadManagementState();
     if (activeTab === "observe") {
       void loadObserve();
     }
@@ -2180,21 +2095,454 @@ function AgentDetailWithRail({
     return () => clearInterval(timer);
   }, [activeTab, observe?.data.live, loadObserve]);
 
+  const currentWork = work.find(
+    (w) => w.state === "working" || w.state === "review",
+  );
+  const activeWork = work.filter(
+    (w) =>
+      (w.state === "working" || w.state === "review" || w.state === "waiting") &&
+      w.id !== currentWork?.id,
+  );
+  const recentDone = work.filter((w) => w.state === "done").slice(0, 5);
+
+  const roleLabel = formatLabel(agent.role) ?? formatLabel(agent.agentClass);
+  const harnessLabel = agent.harness;
+  const machineLabel = agent.authorityNodeName
+    ?? agent.homeNodeName
+    ?? agent.authorityNodeId
+    ?? agent.homeNodeId;
+  const machineDetail = agent.authorityNodeId && agent.homeNodeId && agent.authorityNodeId !== agent.homeNodeId
+    ? `home ${agent.homeNodeName ?? agent.homeNodeId}`
+    : null;
+  const selectorLabel = primaryAgentSelector(agent);
+  const authorityLabel = agent.authorityNodeName && agent.authorityNodeId
+    ? `${agent.authorityNodeName} (${agent.authorityNodeId})`
+    : agent.authorityNodeName ?? agent.authorityNodeId;
+  const homeLabel = agent.homeNodeName && agent.homeNodeId
+    ? `${agent.homeNodeName} (${agent.homeNodeId})`
+    : agent.homeNodeName ?? agent.homeNodeId;
+  const qualifierParts = [
+    agent.workspaceQualifier ? `workspace ${agent.workspaceQualifier}` : null,
+    agent.nodeQualifier ? `node ${agent.nodeQualifier}` : null,
+  ].filter(Boolean);
+  const eyebrowParts = [roleLabel, harnessLabel]
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const teammateCount = useMemo(
+    () => allAgents.filter((a) => a.project === agent.project).length,
+    [allAgents, agent.project],
+  );
+
+  const taskProgress = currentWork?.currentPhase === "review"
+    ? 85
+    : currentWork?.currentPhase === "working"
+      ? 50
+      : 20;
+  const currentWorkAgeMs = currentWork ? Date.now() - currentWork.lastMeaningfulAt : 0;
+  const currentWorkIsStale = currentWorkAgeMs > 30 * 60_000;
+  const currentTaskStatus = currentWork
+    ? currentWorkIsStale
+      ? `no recent signal · ${timeAgo(currentWork.lastMeaningfulAt)}`
+      : `${taskProgress}% · live`
+    : "";
+
+  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
+    { key: "profile", label: "Profile" },
+    { key: "observe", label: "Observe" },
+    { key: "message", label: "Message", disabled: !conversationId },
+  ];
+
+  const navigateToTab = (tab: AgentTab) => {
+    navigate({
+      view: "agents",
+      agentId: agent.id,
+      ...(conversationId ? { conversationId } : {}),
+      tab,
+    });
+  };
+
+  const renderTabs = (className = "") => (
+    <nav className={`s-profile-tabs${className ? ` ${className}` : ""}`}>
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
+          disabled={t.disabled}
+          onClick={() => navigateToTab(t.key)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
+  );
+
   return (
-    <div
-      className={`s-profile-center${
-        activeTab !== "profile" ? " s-profile-center--tabbed" : " s-profile-center--modular"
-      }`}
-    >
-      {activeTab === "profile" && (
-        <ModularProfileCenter
-          agent={agent}
-          name={name}
-          sessionCatalog={sessionCatalog}
-          conversationId={conversationId}
+    <div className={`s-profile-center${activeTab !== "profile" ? " s-profile-center--tabbed" : ""}`}>
+      <div className="s-profile-return-row">
+        <BackToPicker
+          slot="agents"
+          fallback={{ view: "agents" }}
           navigate={navigate}
-          route={route}
+          className="s-profile-back-position"
         />
+      </div>
+
+
+      {activeTab === "profile" ? (
+        <section
+          className="s-profile-identity"
+          onContextMenu={(e) => {
+            const sel = window.getSelection()?.toString().trim();
+            const items: MenuItem[] = [];
+            if (sel) {
+              items.push({
+                kind: "action",
+                label: "Copy Selection",
+                shortcut: "⌘C",
+                onSelect: () => {
+                  void copyTextToClipboard(sel);
+                },
+              });
+              items.push({ kind: "separator" });
+            }
+            items.push({
+              kind: "action",
+              label: "Copy Agent Name",
+              onSelect: () => {
+                void copyTextToClipboard(name);
+              },
+            });
+            items.push({
+              kind: "action",
+              label: "Copy Agent ID",
+              onSelect: () => {
+                void copyTextToClipboard(agent.id);
+              },
+            });
+            if (agent.handle) {
+              items.push({
+                kind: "action",
+                label: `Copy @${agent.handle}`,
+                onSelect: () => {
+                  void copyTextToClipboard(`@${agent.handle}`);
+                },
+              });
+            }
+            if (agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Selector",
+                onSelect: () => {
+                  void copyTextToClipboard(agent.selector ?? "");
+                },
+              });
+            }
+            if (agent.defaultSelector && agent.defaultSelector !== agent.selector) {
+              items.push({
+                kind: "action",
+                label: "Copy Default Selector",
+                onSelect: () => {
+                  void copyTextToClipboard(agent.defaultSelector ?? "");
+                },
+              });
+            }
+            showContextMenu(e, items);
+          }}
+        >
+          <div className="s-profile-identity-top">
+            <div className="s-profile-identity-avatar-wrap">
+              <div
+                className="s-profile-identity-avatar"
+                style={{ background: actorColor(agent.name) }}
+              >
+                {agent.name[0].toUpperCase()}
+              </div>
+              <span
+                className={`s-profile-identity-pulse s-profile-identity-pulse--${agentStateCssToken(state)}`}
+                style={{ background: stateColor(agent.state) }}
+              />
+            </div>
+            <div className="s-profile-identity-copy">
+              {eyebrowParts.length > 0 && (
+                <div className="s-profile-identity-eyebrow">
+                  {eyebrowParts.join(" · ")}
+                </div>
+              )}
+              <h1 className="s-profile-identity-name">
+                {name}
+                {qualifier && (
+                  <span className="s-profile-identity-name-qualifier">
+                    {qualifier}
+                  </span>
+                )}
+                {agent.handle && (
+                  <span className="s-profile-identity-name-handle">
+                    @{agent.handle}
+                  </span>
+                )}
+              </h1>
+              <div className="s-profile-identity-state-row">
+                <span className="s-profile-identity-state">
+                  <span
+                    className={`s-profile-identity-state-dot${state === "working" ? " s-profile-identity-state-dot--pulse" : ""}`}
+                    style={{ background: stateColor(agent.state) }}
+                  />
+                  <span className="s-profile-identity-state-label">
+                    {agentStateLabel(agent.state)}
+                  </span>
+                  {agent.updatedAt && (
+                    <span className="s-profile-identity-state-detail">
+                      &mdash; {timeAgo(agent.updatedAt)}
+                    </span>
+                  )}
+                  {agent.staleLocalRegistration && (
+                    <span className="s-profile-identity-state-detail">
+                      superseded registration
+                    </span>
+                  )}
+                </span>
+              </div>
+              <div className="s-profile-identity-qualified">
+                <span>{agent.id}</span>
+                {selectorLabel && <span>{selectorLabel}</span>}
+                {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                  <span>{agent.defaultSelector}</span>
+                )}
+              </div>
+              <AgentLiveActions
+                agent={agent}
+                catalog={sessionCatalog}
+                navigate={navigate}
+                returnTo={route}
+                variant="inline"
+              />
+              <AgentManagementStrip
+                agent={agent}
+                management={managementState}
+                navigate={navigate}
+                returnTo={route}
+                onRefresh={refreshAfterManagementAction}
+              />
+            </div>
+            {renderTabs()}
+          </div>
+        </section>
+      ) : (
+        <div className="s-profile-compact-tabs">
+          {renderTabs("s-profile-tabs--compact")}
+        </div>
+      )}
+
+      {activeTab === "profile" && (
+        <div className="s-profile-tab-content">
+          {(agent.id || selectorLabel || machineLabel || agent.project || agent.branch || agent.cwd || sessionCatalog?.activeSessionId || contextState) && (
+            <div className="s-profile-facets">
+              <div className="s-profile-facet s-profile-facet--identity">
+                <div className="s-profile-facet-label">Agent ID</div>
+                <div className="s-profile-facet-value s-profile-facet-value--mono">{agent.id}</div>
+                <div className="s-profile-facet-detail">
+                  definition {agent.definitionId}
+                </div>
+              </div>
+              {selectorLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Selector</div>
+                  <div className="s-profile-facet-value s-profile-facet-value--mono">{selectorLabel}</div>
+                  {agent.defaultSelector && agent.defaultSelector !== selectorLabel && (
+                    <div className="s-profile-facet-detail">
+                      default {agent.defaultSelector}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(qualifierParts.length > 0 || authorityLabel || homeLabel) && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Authority</div>
+                  <div className="s-profile-facet-value">{authorityLabel ?? machineLabel ?? "local"}</div>
+                  <div className="s-profile-facet-detail">
+                    {qualifierParts.length > 0
+                      ? qualifierParts.join(" · ")
+                      : homeLabel && homeLabel !== authorityLabel
+                        ? `home ${homeLabel}`
+                        : "qualified route"}
+                  </div>
+                </div>
+              )}
+              {machineLabel && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Machine</div>
+                  <div className="s-profile-facet-value">{machineLabel}</div>
+                  {machineDetail && (
+                    <div className="s-profile-facet-detail">{machineDetail}</div>
+                  )}
+                </div>
+              )}
+              {agent.project && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Workspace</div>
+                  <div className="s-profile-facet-value">{agent.project}</div>
+                  {teammateCount > 1 && (
+                    <div className="s-profile-facet-detail">
+                      {teammateCount} teammates
+                    </div>
+                  )}
+                </div>
+              )}
+              {(agent.branch || agent.projectRoot) && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Repo / Branch</div>
+                  <div className="s-profile-facet-value">
+                    {agent.projectRoot
+                      ? agent.projectRoot.split("/").pop()
+                      : agent.project ?? "—"}
+                  </div>
+                  {agent.branch && (
+                    <div className="s-profile-facet-detail">
+                      <span className="s-profile-facet-accent">⎇</span> {agent.branch}
+                    </div>
+                  )}
+                </div>
+              )}
+              {agent.cwd && (
+                <div className="s-profile-facet">
+                  <div className="s-profile-facet-label">Working Dir</div>
+                  <div className="s-profile-facet-value">
+                    {agent.cwd.startsWith("/Users/")
+                      ? "~/" + agent.cwd.split("/").slice(3).join("/")
+                      : agent.cwd}
+                  </div>
+                  {agent.updatedAt && (
+                    <div className="s-profile-facet-detail">
+                      uptime {timeAgo(agent.updatedAt)}
+                    </div>
+                  )}
+                </div>
+              )}
+              {sessionCatalog?.activeSessionId && (
+                <SessionFacet catalog={sessionCatalog} agentId={agent.id} />
+              )}
+              {contextState && (
+                <ContextFacet
+                  context={contextState}
+                  lastActivityAt={agent.updatedAt ?? null}
+                  resetting={resettingContext}
+                  onReset={() => void resetAgentContext()}
+                />
+              )}
+            </div>
+          )}
+          {currentWork && state === "working" && (
+            <>
+              <SectionRule
+                label="Current task"
+                right={currentTaskStatus}
+              />
+              <div className="s-profile-task">
+                <div className="s-profile-task-title">{currentWork.title}</div>
+                {currentWork.lastMeaningfulSummary && (
+                  <>
+                    <div className="s-profile-task-progress">
+                      <div
+                        className="s-profile-task-progress-bar"
+                        style={{ width: `${taskProgress}%` }}
+                      />
+                    </div>
+                    <div className="s-profile-task-action">
+                      <span className="s-profile-task-action-chevron">
+                        &rsaquo;
+                      </span>
+                      <span>{currentWork.lastMeaningfulSummary}</span>
+                      <span className="s-profile-task-cursor" />
+                    </div>
+                  </>
+                )}
+                <div className="s-profile-task-meta">
+                  <span>{currentWork.currentPhase}</span>
+                  <span>{timeAgo(currentWork.lastMeaningfulAt)}</span>
+                </div>
+                <div className="s-profile-task-controls" aria-label="Current task actions">
+                  <button
+                    type="button"
+                    className="s-profile-task-btn s-profile-task-btn--primary"
+                    onClick={() =>
+                      openContent(
+                        navigate,
+                        { view: "work", workId: currentWork.id },
+                        { returnTo: route },
+                      )}
+                  >
+                    Open work
+                  </button>
+                  <button
+                    type="button"
+                    className="s-profile-task-btn"
+                    onClick={() => navigateToTab("observe")}
+                  >
+                    Observe
+                  </button>
+                  {conversationId && (
+                    <button
+                      type="button"
+                      className="s-profile-task-btn"
+                      onClick={() => navigateToTab("message")}
+                    >
+                      Message
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeWork.length > 0 && (
+            <>
+              <SectionRule
+                label="In-flight work"
+                right={`${activeWork.length} in flight`}
+              />
+              <div className="s-profile-work">
+                <WorkList
+                  items={activeWork}
+                  navigate={navigate}
+                  emptyTitle="Nothing in flight"
+                  onDismissAttention={(item) => void dismissWorkAttention(item)}
+                  dismissingId={dismissingWorkId}
+                />
+              </div>
+            </>
+          )}
+
+          {recentDone.length > 0 && (
+            <>
+              <SectionRule
+                label={activeWork.length > 0 ? "Recently completed" : "Recent work"}
+                right={`${recentDone.length}`}
+              />
+              <div className="s-profile-work">
+                <WorkList
+                  items={recentDone}
+                  navigate={navigate}
+                  emptyTitle=""
+                />
+              </div>
+            </>
+          )}
+
+          <AgentActivityFeed
+            agent={agent}
+            fleet={fleet}
+            navigate={navigate}
+          />
+
+          <SignalFeed
+            messages={messages}
+            navigate={navigate}
+            conversationId={conversationId}
+            agentId={agent.id}
+          />
+        </div>
       )}
 
       {activeTab === "observe" && (
@@ -2318,18 +2666,7 @@ export function AgentsScreen({
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (
-      <AgentsRouteFrame
-        activeRoute={activeRoute ?? route}
-        navigate={navigate}
-        bar={
-          <AgentProfileBar
-            agent={selectedAgent}
-            conversationId={resolvedConversationId}
-            activeTab={resolvedTab}
-            navigate={navigate}
-          />
-        }
-      >
+      <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
         <AgentDetailWithRail
           agent={selectedAgent}
           allAgents={scopedAgents}
@@ -2344,70 +2681,17 @@ export function AgentsScreen({
 
   return (
     <AgentsRouteFrame activeRoute={activeRoute ?? route} navigate={navigate}>
-      <AgentDirectoryStudioInjection>
-        <AgentsLibrary
-          agents={scopedAgents}
-          fleet={fleet}
-          sessionByAgentId={sessionByAgentId}
-          conversationByAgentId={conversationByAgentId}
-          sessions={sessions}
-          discovery={discovery}
-          topologySnapshot={topologySnapshot}
-          navigate={navigate}
-        />
-      </AgentDirectoryStudioInjection>
-    </AgentsRouteFrame>
-  );
-}
-
-function AgentProfileBar({
-  agent,
-  conversationId,
-  activeTab,
-  navigate,
-}: {
-  agent: Agent;
-  conversationId: string | null;
-  activeTab: AgentTab;
-  navigate: (r: Route) => void;
-}) {
-  const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
-    { key: "profile", label: "Profile" },
-    // "Trace" = the parsed turn/tool feed (route stays `observe`). "Observe" is
-    // reserved for watching the live terminal (the rail's Terminal action), so
-    // the two surfaces no longer share a word.
-    { key: "observe", label: "Trace" },
-    { key: "message", label: "Message", disabled: !conversationId },
-  ];
-  const navigateToTab = (tab: AgentTab) =>
-    navigate({
-      view: "agents",
-      agentId: agent.id,
-      ...(conversationId ? { conversationId } : {}),
-      tab,
-    });
-  return (
-    <div className="s-agent-bar">
-      <BackToPicker
-        slot="agents"
-        fallback={{ view: "agents" }}
+      <AgentsLibrary
+        agents={scopedAgents}
+        fleet={fleet}
+        sessionByAgentId={sessionByAgentId}
+        conversationByAgentId={conversationByAgentId}
+        sessions={sessions}
+        discovery={discovery}
+        topologySnapshot={topologySnapshot}
         navigate={navigate}
-        className="s-agent-bar-back"
       />
-      <nav className="s-profile-tabs s-agent-bar-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`s-profile-tab${activeTab === t.key ? " s-profile-tab--active" : ""}`}
-            disabled={t.disabled}
-            onClick={() => navigateToTab(t.key)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
-    </div>
+    </AgentsRouteFrame>
   );
 }
 
@@ -2415,17 +2699,15 @@ function AgentsRouteFrame({
   activeRoute,
   children,
   navigate,
-  bar,
 }: {
   activeRoute: Route;
   children: ReactNode;
   navigate: (r: Route) => void;
-  bar?: ReactNode;
 }) {
   return (
     <div className="s-secondary-nav-shell">
       <div className="s-secondary-nav-bar">
-        {bar ?? <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />}
+        <AgentsSubnav activeRoute={activeRoute} navigate={navigate} />
       </div>
       <div className="s-secondary-nav-body">{children}</div>
     </div>
@@ -2453,18 +2735,14 @@ function AgentsLibrary({
 }) {
   const { route } = useScout();
   // Workflow / harness-topology telemetry is a power surface — the lean
-  // directory is just the project-grouped agent board (cards/tree).
+  // directory is just the project-grouped agent board/list.
   const workflowsEnabled = useOptionalFlag("surface.workflows", false);
   const [query, setQuery] = useState("");
   const [harnessFilter, setHarnessFilter] = useState<Set<string>>(() => new Set());
   const [statusFilter, setStatusFilter] = useState<Set<AgentInventoryStatus>>(() => new Set());
-  const [viewMode, setViewMode] = useState<AgentsLibraryViewMode>("cards");
+  const [viewMode, setViewMode] = useState<AgentsLibraryViewMode>("board");
   const [timeHorizon, setTimeHorizon] = useState<TimeHorizonKey>(DEFAULT_TIME_HORIZON);
   const [now, setNow] = useState(Date.now());
-  const [sort, setSort] = useState<{ key: AgentInventoryColumnKey; dir: 1 | -1 }>({
-    key: "status",
-    dir: 1,
-  });
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 15_000);
@@ -2494,8 +2772,8 @@ function AgentsLibrary({
   );
 
   const nativeSessions = useMemo(
-    () => buildNativeSessionRows(discovery, now),
-    [discovery, now],
+    () => buildNativeSessionRows(discovery),
+    [discovery],
   );
 
   const workflowRows = useMemo(
@@ -2539,14 +2817,10 @@ function AgentsLibrary({
   const summary = useMemo(
     () => ({
       total: horizonRows.length,
-      online: horizonRows.filter((row) => row.status !== "not_ready").length,
       working: horizonRows.filter((row) => row.status === "working").length,
-      ready: horizonRows.filter((row) => row.status === "ready").length,
-      notReady: horizonRows.filter((row) => row.status === "not_ready").length,
       projects: allProjects.length,
       scoutSessions: allProjects.reduce((sum, project) => sum + project.scoutSessions.length, 0),
       nativeSessions: horizonNativeSessions.length,
-      activeNativeSessions: horizonNativeSessions.filter((row) => row.status === "active").length,
     }),
     [allProjects, horizonNativeSessions, horizonRows],
   );
@@ -2565,7 +2839,7 @@ function AgentsLibrary({
 
   const statusOptions = useMemo(() => {
     const present = new Set(horizonRows.map((row) => row.status));
-    return (["working", "ready", "not_ready"] as AgentInventoryStatus[])
+    return (["working", "not_ready"] as AgentInventoryStatus[])
       .filter((status) => present.has(status));
   }, [horizonRows]);
 
@@ -2611,21 +2885,6 @@ function AgentsLibrary({
       : projects,
     [projects, selectedProjectKey],
   );
-  const visibleRows = useMemo(
-    () => selectedProjectKey
-      ? filteredRows.filter((row) => projectIdentityForAgentRow(row).key === selectedProjectKey)
-      : filteredRows,
-    [filteredRows, selectedProjectKey],
-  );
-
-  const secondarySort = useMemo(
-    () => (sort.key === "status"
-      ? undefined
-      : (a: AgentInventoryRow, b: AgentInventoryRow) =>
-        AGENT_STATUS_RANK[a.status] - AGENT_STATUS_RANK[b.status]),
-    [sort.key],
-  );
-
   const openAgent = (row: AgentInventoryRow) => {
     const conversationId = conversationByAgentId.get(row.agent.id);
     navigate({
@@ -2636,21 +2895,11 @@ function AgentsLibrary({
   };
 
   const selectProject = (project: ProjectSlice) => {
-    setViewMode("tree");
     navigate({ view: "agents", projectKey: project.key });
   };
 
   const clearProjectSelection = () => {
     navigate({ view: "agents" });
-  };
-
-  const toggleHarness = (harness: string) => {
-    setHarnessFilter((prev) => {
-      const next = new Set(prev);
-      if (next.has(harness)) next.delete(harness);
-      else next.add(harness);
-      return next;
-    });
   };
 
   const toggleStatus = (status: AgentInventoryStatus) => {
@@ -2662,87 +2911,110 @@ function AgentsLibrary({
     });
   };
 
+  const setSingleHarnessFilter = (harness: string) => {
+    setHarnessFilter(harness ? new Set([harness]) : new Set());
+  };
+
+  const clearFilters = () => {
+    setQuery("");
+    setHarnessFilter(new Set());
+    setStatusFilter(new Set());
+    setTimeHorizon(DEFAULT_TIME_HORIZON);
+    if (selectedProjectKey) clearProjectSelection();
+  };
+
+  const activeRows = useMemo(
+    () => filteredRows
+      .filter((row) => row.status === "working")
+      .sort((left, right) => (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0)),
+    [filteredRows],
+  );
+  const harnessSelectValue = harnessFilter.size === 1
+    ? [...harnessFilter][0] ?? ""
+    : "";
+  const hasActiveFilters = harnessFilter.size > 0
+    || statusFilter.size > 0
+    || Boolean(query.trim())
+    || Boolean(selectedProjectKey)
+    || timeHorizon !== DEFAULT_TIME_HORIZON;
+  const sessionTotal = summary.scoutSessions + summary.nativeSessions;
+  const visibleAgentText = `${filteredRows.length}/${summary.total} agents`;
+
   return (
     <div className="s-agents-library s-agents-library--inventory">
       <div className="s-agents-inventory">
-        <div className="s-atop-fbar">
-          <div className="s-atop-search">
-            <span className="s-atop-search-prompt">▸</span>
+        <div className="s-agent-directory-head">
+          <div className="s-agent-directory-title-block">
+            <div className="s-agent-directory-kicker">Agents</div>
+            <h1 className="s-agent-directory-title">
+              {viewMode === "board" ? "Board" : "Directory"}
+            </h1>
+            <div className="s-agent-directory-meta">
+              {visibleAgentText} · {visibleProjects.length}/{summary.projects} projects
+              {selectedProjectKey ? " · project selected" : ""}
+            </div>
+          </div>
+          <div className="s-agent-directory-stats" aria-label="Agents summary">
+            <div className="s-agent-directory-stat">
+              <strong>{summary.total}</strong>
+              <span>agents</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{summary.working}</strong>
+              <span>active</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{summary.projects}</strong>
+              <span>projects</span>
+            </div>
+            <div className="s-agent-directory-stat">
+              <strong>{sessionTotal}</strong>
+              <span>sessions</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="s-agent-directory-controls">
+          <label className="s-agent-directory-search">
+            <span className="s-agent-directory-search-icon">⌕</span>
             <input
-              className="s-atop-search-input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="filter projects · agents · sessions"
+              placeholder="Search agents, projects, sessions"
             />
-            <span className="s-atop-search-kbd">/</span>
-          </div>
-          <div className="s-agents-library-view" role="group" aria-label="Agents view">
-            <button
-              type="button"
-              className="s-agents-library-view-btn"
-              data-active={viewMode === "cards"}
-              onClick={() => setViewMode("cards")}
-            >
-              cards
-            </button>
-            <button
-              type="button"
-              className="s-agents-library-view-btn"
-              data-active={viewMode === "tree"}
-              onClick={() => setViewMode("tree")}
-            >
-              tree
-            </button>
-          </div>
-          <span className="s-atop-fbar-label">time</span>
-          {TIME_HORIZON_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`s-atop-pill s-atop-pill--time${timeHorizon === option.key ? " s-atop-pill--on" : ""}`}
-              onClick={() => setTimeHorizon(option.key)}
-            >
-              {option.label}
-            </button>
-          ))}
-          {selectedProjectKey && (
-            <>
-              <span className="s-atop-fbar-label">project</span>
+          </label>
+
+          {!selectedProjectKey && (
+            <div className="s-agent-view-toggle" role="group" aria-label="Agents view mode">
               <button
                 type="button"
-                className="s-atop-pill s-atop-pill--on s-atop-pill--project"
-                onClick={clearProjectSelection}
-                title="Return to all project overviews"
+                className="s-agent-view-toggle-btn"
+                data-active={viewMode === "board"}
+                onClick={() => setViewMode("board")}
               >
-                <span className="s-atop-pill-main">
-                  {selectedProject?.title ?? "selected project"}
-                </span>
-                <span className="s-atop-pill-ct">clear</span>
+                Board
               </button>
-            </>
+              <button
+                type="button"
+                className="s-agent-view-toggle-btn"
+                data-active={viewMode === "directory"}
+                onClick={() => setViewMode("directory")}
+              >
+                List
+              </button>
+            </div>
           )}
-          {harnessOptions.length > 0 && (
-            <>
-              <span className="s-atop-fbar-label">harness</span>
-              {harnessOptions.map(([harness, count]) => {
-                const on = harnessFilter.has(harness);
-                return (
-                  <button
-                    key={harness}
-                    type="button"
-                    className={`s-atop-pill s-atop-pill--harness${on ? " s-atop-pill--on" : ""}`}
-                    onClick={() => toggleHarness(harness)}
-                  >
-                    {harness}
-                    <span className="s-atop-pill-ct">{count}</span>
-                  </button>
-                );
-              })}
-            </>
-          )}
+
           {statusOptions.length > 0 && (
-            <>
-              <span className="s-atop-fbar-label">status</span>
+            <div className="s-agent-directory-segment" role="group" aria-label="Status filter">
+              <button
+                type="button"
+                className="s-agent-directory-segment-btn"
+                data-active={statusFilter.size === 0}
+                onClick={() => setStatusFilter(new Set())}
+              >
+                All
+              </button>
               {statusOptions.map((status) => {
                 const on = statusFilter.has(status);
                 const count = horizonRows.filter((row) => row.status === status).length;
@@ -2750,30 +3022,63 @@ function AgentsLibrary({
                   <button
                     key={status}
                     type="button"
-                    className={`s-atop-pill s-agents-inventory-pill--status-${agentInventoryStatusClass(status)}${on ? " s-atop-pill--on" : ""}`}
+                    className={`s-agent-directory-segment-btn s-agent-directory-segment-btn--${agentInventoryStatusClass(status)}`}
+                    data-active={on}
                     onClick={() => toggleStatus(status)}
                   >
                     {agentInventoryStatusLabel(status)}
-                    <span className="s-atop-pill-ct">{count}</span>
+                    <span>{count}</span>
                   </button>
                 );
               })}
-            </>
+            </div>
           )}
-          <div className="s-atop-fbar-spacer" />
-          {(harnessFilter.size > 0 || statusFilter.size > 0 || query || selectedProjectKey || timeHorizon !== DEFAULT_TIME_HORIZON) && (
+
+          <div className="s-agent-directory-menus">
+            <select
+              className="s-agent-directory-select"
+              value={harnessSelectValue}
+              onChange={(event) => setSingleHarnessFilter(event.target.value)}
+              aria-label="Harness filter"
+            >
+              <option value="">All harnesses</option>
+              {harnessOptions.map(([harness, count]) => (
+                <option key={harness} value={harness}>
+                  {harness} ({count})
+                </option>
+              ))}
+            </select>
+            <select
+              className="s-agent-directory-select"
+              value={timeHorizon}
+              onChange={(event) => setTimeHorizon(event.target.value as TimeHorizonKey)}
+              aria-label="Time range"
+            >
+              {TIME_HORIZON_OPTIONS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.key === "all" ? "All time" : `Last ${option.label}`}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedProjectKey && (
             <button
               type="button"
-              className="s-atop-pill"
-              onClick={() => {
-                setQuery("");
-                setHarnessFilter(new Set());
-                setStatusFilter(new Set());
-                setTimeHorizon(DEFAULT_TIME_HORIZON);
-                if (selectedProjectKey) clearProjectSelection();
-              }}
+              className="s-agent-directory-clear"
+              onClick={clearProjectSelection}
+              title="Return to all projects"
             >
-              clear
+              {selectedProject?.title ?? "Project"} ×
+            </button>
+          )}
+          {hasActiveFilters && (
+            <button
+              type="button"
+              className="s-agent-directory-clear"
+              onClick={clearFilters}
+            >
+              Reset
             </button>
           )}
         </div>
@@ -2788,6 +3093,10 @@ function AgentsLibrary({
               showEmpty
             />
           </div>
+        )}
+
+        {!selectedProjectKey && (
+          <ActiveAgentsStrip rows={activeRows} openAgent={openAgent} />
         )}
 
         <ProjectBoard
@@ -2805,24 +3114,65 @@ function AgentsLibrary({
 
         <div className="s-atop-keys">
           <span className="s-atop-keys-count">
-            {viewMode === "cards" ? (
-              <>
-                <strong>{visibleProjects.length}</strong> / {summary.projects} project{summary.projects === 1 ? "" : "s"}
-                {selectedProjectKey ? " selected" : ""}
-              </>
-            ) : (
-              <>
-                <strong>{visibleProjects.length}</strong> / {summary.projects} project tree{summary.projects === 1 ? "" : "s"}
-              </>
-            )}
+            <strong>{visibleProjects.length}</strong> / {summary.projects} project{summary.projects === 1 ? "" : "s"}
+            {selectedProjectKey ? " selected" : ""}
           </span>
           <span className="s-atop-keys-spacer" />
           <span>{timeHorizon === "all" ? "all time" : `last ${timeHorizon}`}</span>
-          <span>{summary.notReady} not ready</span>
           <span>{summary.nativeSessions} harness session{summary.nativeSessions === 1 ? "" : "s"}</span>
         </div>
       </div>
     </div>
+  );
+}
+
+function ActiveAgentsStrip({
+  rows,
+  openAgent,
+}: {
+  rows: AgentInventoryRow[];
+  openAgent: (row: AgentInventoryRow) => void;
+}) {
+  if (rows.length === 0) return null;
+  const shown = rows.slice(0, ACTIVE_AGENT_LIMIT);
+  const hidden = rows.length - shown.length;
+
+  return (
+    <section className="s-agent-active-strip" aria-label="Active agents">
+      <div className="s-agent-active-strip-head">
+        <span>Active now</span>
+        <strong>{rows.length}</strong>
+      </div>
+      <div className="s-agent-active-list">
+        {shown.map((row) => (
+          <button
+            key={row.agent.id}
+            type="button"
+            className="s-agent-active-item"
+            onClick={() => openAgent(row)}
+            title={primaryAgentSelector(row.agent) ?? row.agent.id}
+          >
+            <span
+              className="s-agent-active-dot"
+              style={{ background: stateColor(row.agent.state) }}
+              aria-hidden
+            />
+            <span className="s-agent-active-copy">
+              <span className="s-agent-active-name">{row.agent.name}</span>
+              <span className="s-agent-active-meta">
+                {row.project}{row.activeTask ? ` · ${row.activeTask}` : ""}
+              </span>
+            </span>
+            <span className="s-agent-active-time">
+              {row.lastActivityAt ? timeAgo(row.lastActivityAt) : "now"}
+            </span>
+          </button>
+        ))}
+        {hidden > 0 && (
+          <span className="s-agent-active-more">+{hidden}</span>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2877,20 +3227,250 @@ function ProjectBoard({
   }
 
   return (
-    <div className="s-agent-projects">
+    <div
+      className={
+        selectedProjectKey
+          ? "s-agent-projects s-agent-projects--selected"
+          : `s-agent-projects s-agent-projects--${mode}`
+      }
+    >
       {projects.map((project) => (
-        <ProjectSection
-          key={project.key}
-          project={project}
-          navigate={navigate}
-          route={route}
-          openAgent={openAgent}
-          selected={project.key === selectedProjectKey}
-          onSelectProject={onSelectProject}
-          mode={mode}
-        />
+        selectedProjectKey ? (
+          <ProjectSection
+            key={project.key}
+            project={project}
+            navigate={navigate}
+            route={route}
+            openAgent={openAgent}
+            selected={project.key === selectedProjectKey}
+            onSelectProject={onSelectProject}
+          />
+        ) : mode === "board" ? (
+          <ProjectVisualCard
+            key={project.key}
+            project={project}
+            openAgent={openAgent}
+            onSelectProject={onSelectProject}
+          />
+        ) : (
+          <ProjectSummaryRow
+            key={project.key}
+            project={project}
+            openAgent={openAgent}
+            onSelectProject={onSelectProject}
+          />
+        )
       ))}
     </div>
+  );
+}
+
+function projectSynopsis(project: ProjectSlice): string {
+  const workingAgents = project.agents.filter((row) => row.status === "working");
+  const workingSignal = workingAgents.find((row) => row.activeTask)?.activeTask;
+  if (workingSignal) return `Active: ${workingSignal}`;
+  if (workingAgents.length > 0) return `${countLabel(workingAgents.length, "agent")} active`;
+
+  const activeWorkflow = project.workflows.find((workflow) =>
+    workflow.activeTaskCount > 0 || workflow.status === "running",
+  );
+  if (activeWorkflow) {
+    const activeTasks = activeWorkflow.activeTaskCount > 0
+      ? `${activeWorkflow.activeTaskCount} active task${activeWorkflow.activeTaskCount === 1 ? "" : "s"}`
+      : "workflow active";
+    return `${activeWorkflow.label} · ${activeWorkflow.workerCount} workers · ${activeTasks}`;
+  }
+
+  const readyAgents = project.agents.filter((row) => row.status === "ready").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const harnessMix = projectHarnessMix(project);
+  const last = project.lastActivityAt ? ` · last ${timeAgo(project.lastActivityAt)}` : "";
+  if (readyAgents > 0 || sessionTotal > 0) {
+    const parts = [
+      harnessMix,
+      sessionTotal > 0 ? countLabel(sessionTotal, "session") : null,
+    ].filter((part): part is string => Boolean(part));
+    return `${parts.join(" · ")}${last}`;
+  }
+  return project.agents.length > 0 ? `${countLabel(project.agents.length, "agent")}${last}` : "No agents";
+}
+
+function projectHarnessMix(project: ProjectSlice): string {
+  const counts = new Map<string, number>();
+  const add = (value: string | null | undefined) => {
+    const label = formatLabel(value) ?? value;
+    if (!label) return;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  };
+  for (const row of project.agents) add(row.harness);
+  for (const session of project.nativeSessions) add(session.source);
+  for (const session of project.scoutSessions) add(session.harness);
+  for (const workflow of project.workflows) add(workflow.source);
+
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 2);
+  if (top.length === 0) return "no harness";
+  return top.map(([label, count]) => count > 1 ? `${label} ${count}` : label).join(" + ");
+}
+
+function projectActivityLabel(project: ProjectSlice): string | null {
+  if (project.agents.some((row) => row.status === "working")) return "active";
+  if (project.workflows.some((workflow) => workflow.activeTaskCount > 0 || workflow.status === "running")) {
+    return "active";
+  }
+  if (project.status === "not_ready") return "unavailable";
+  return null;
+}
+
+function ProjectVisualCard({
+  project,
+  openAgent,
+  onSelectProject,
+}: {
+  project: ProjectSlice;
+  openAgent: (row: AgentInventoryRow) => void;
+  onSelectProject: (project: ProjectSlice) => void;
+}) {
+  const activeCount = project.agents.filter((row) => row.status === "working").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const visibleAgents = project.agents.slice(0, 4);
+  const hiddenAgents = project.agents.length - visibleAgents.length;
+  const signal = projectSynopsis(project);
+  const stateClass = agentInventoryStatusClass(project.status);
+  const activityLabel = projectActivityLabel(project);
+
+  return (
+    <section className={`s-agent-project-card2 s-agent-project-card2--${stateClass}`}>
+      <button
+        type="button"
+        className="s-agent-project-card2-main"
+        onClick={() => onSelectProject(project)}
+        title={project.root ?? project.title}
+      >
+        {activityLabel && (
+          <span className="s-agent-project-card2-status">
+            <span
+              className="s-agent-project-card2-dot"
+              style={{ background: stateColor(project.status) }}
+              aria-hidden
+            />
+            {activityLabel}
+          </span>
+        )}
+        <span className="s-agent-project-card2-title">{project.title}</span>
+        <span className="s-agent-project-card2-root">{project.root ?? "No project root"}</span>
+        <span className="s-agent-project-card2-signal">{signal}</span>
+      </button>
+
+      <div className="s-agent-project-card2-metrics" aria-label={`${project.title} project counts`}>
+        {activeCount > 0 && (
+          <span className="s-agent-project-card2-metric s-agent-project-card2-metric--active">
+            {activeCount} active
+          </span>
+        )}
+        <span className="s-agent-project-card2-metric">{countLabel(project.agents.length, "agent")}</span>
+        {sessionTotal > 0 && (
+          <span className="s-agent-project-card2-metric">{countLabel(sessionTotal, "session")}</span>
+        )}
+        {project.lastActivityAt && (
+          <span className="s-agent-project-card2-metric">last {timeAgo(project.lastActivityAt)}</span>
+        )}
+      </div>
+
+      <div className="s-agent-project-card2-agents" aria-label={`${project.title} agents`}>
+        {visibleAgents.length > 0 ? visibleAgents.map((row) => (
+          <button
+            key={row.agent.id}
+            type="button"
+            className={`s-agent-project-card2-agent s-agent-project-card2-agent--${agentInventoryStatusClass(row.status)}`}
+            onClick={() => openAgent(row)}
+            title={primaryAgentSelector(row.agent) ?? row.agent.id}
+          >
+            <span
+              className="s-agent-project-card2-agent-dot"
+              style={{ background: stateColor(row.agent.state) }}
+              aria-hidden
+            />
+            <span>{row.agent.name}</span>
+          </button>
+        )) : (
+          <span className="s-agent-project-card2-empty">No agents</span>
+        )}
+        {hiddenAgents > 0 && (
+          <button
+            type="button"
+            className="s-agent-project-card2-agent s-agent-project-card2-agent--more"
+            onClick={() => onSelectProject(project)}
+          >
+            +{hiddenAgents}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ProjectSummaryRow({
+  project,
+  openAgent,
+  onSelectProject,
+}: {
+  project: ProjectSlice;
+  openAgent: (row: AgentInventoryRow) => void;
+  onSelectProject: (project: ProjectSlice) => void;
+}) {
+  const activeCount = project.agents.filter((row) => row.status === "working").length;
+  const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
+  const showAgentShortcuts = project.agents.length > 0 && project.agents.length <= 2;
+  const visibleAgents = showAgentShortcuts ? project.agents.slice(0, PROJECT_ROW_AGENT_LIMIT) : [];
+  const signal = projectSynopsis(project);
+  const stateClass = agentInventoryStatusClass(project.status);
+
+  return (
+    <section className={`s-agent-project-row s-agent-project-row--${stateClass}`}>
+      <button
+        type="button"
+        className="s-agent-project-row-main"
+        onClick={() => onSelectProject(project)}
+        title={project.root ?? project.title}
+      >
+        <span
+          className="s-agent-project-row-dot"
+          style={{ background: stateColor(project.status) }}
+          aria-hidden
+        />
+        <span className="s-agent-project-row-identity">
+          <span className="s-agent-project-row-title">{project.title}</span>
+          <span className="s-agent-project-row-root">{project.root ?? "No project root"}</span>
+        </span>
+        <span className="s-agent-project-row-signal">{signal}</span>
+        <span className="s-agent-project-row-facts">
+          {activeCount > 0 && <span className="s-agent-project-row-fact s-agent-project-row-fact--active">{activeCount} active</span>}
+          <span className="s-agent-project-row-fact">{countLabel(project.agents.length, "agent")}</span>
+          {sessionTotal > 0 && <span className="s-agent-project-row-fact">{countLabel(sessionTotal, "session")}</span>}
+          {project.lastActivityAt && <span className="s-agent-project-row-fact">last {timeAgo(project.lastActivityAt)}</span>}
+        </span>
+      </button>
+      {visibleAgents.length > 0 && (
+        <div className="s-agent-project-row-agents" aria-label={`${project.title} agents`}>
+          {visibleAgents.map((row) => (
+            <button
+              key={row.agent.id}
+              type="button"
+              className={`s-agent-project-row-agent s-agent-project-row-agent--${agentInventoryStatusClass(row.status)}`}
+              onClick={() => openAgent(row)}
+              title={primaryAgentSelector(row.agent) ?? row.agent.id}
+            >
+              <span
+                className="s-agent-project-row-agent-dot"
+                style={{ background: stateColor(row.agent.state) }}
+                aria-hidden
+              />
+              <span>{row.agent.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -2901,7 +3481,6 @@ function ProjectSection({
   openAgent,
   selected,
   onSelectProject,
-  mode,
 }: {
   project: ProjectSlice;
   navigate: (r: Route) => void;
@@ -2909,17 +3488,15 @@ function ProjectSection({
   openAgent: (row: AgentInventoryRow) => void;
   selected: boolean;
   onSelectProject: (project: ProjectSlice) => void;
-  mode: AgentsLibraryViewMode;
 }) {
-  const onlineAgents = project.agents.filter((row) => row.status !== "not_ready").length;
-  const activeWork = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
+  const activeAsks = project.agents.reduce((count, row) => count + row.activeAskCount, 0);
   const sessionTotal = project.nativeSessions.length + project.scoutSessions.length;
   const workflowTotal = project.workflows.length;
   const summaryParts = [
-    `${onlineAgents}/${project.agents.length} agents`,
+    countLabel(project.agents.length, "agent"),
     countLabel(sessionTotal, "session"),
     workflowTotal > 0 ? countLabel(workflowTotal, "workflow") : null,
-    activeWork > 0 ? countLabel(activeWork, "active task") : null,
+    activeAsks > 0 ? countLabel(activeAsks, "active ask") : null,
     project.lastActivityAt ? `last ${timeAgo(project.lastActivityAt)}` : null,
   ].filter((part): part is string => Boolean(part));
 
@@ -2946,8 +3523,8 @@ function ProjectSection({
         </div>
       </div>
 
-      {selected || mode === "tree" ? (
-        <ProjectLabeledAgentTree
+      {selected ? (
+        <ProjectTreeTable
           project={project}
           navigate={navigate}
           route={route}
@@ -3106,80 +3683,6 @@ function ProjectLabeledAgentSessionList({
   );
 }
 
-// One accent only — brightness encodes state, not hue (working brightest,
-// ready mid, everything else dim). Replaces the categorical stateColor() dots
-// on the Agents page per the locked Instrument direction.
-function treeDotColor(state: string | null): string {
-  switch (normalizeAgentState(state)) {
-    case "working":
-      return "var(--accent)";
-    case "ready":
-      return "color-mix(in srgb, var(--accent) 52%, var(--dim))";
-    default:
-      return "var(--dim)";
-  }
-}
-
-// Collapsible group of project-level sessions (workflow runs, native processes)
-// so low-signal rows don't render at the same weight as the agents above them.
-function ProjectTreeSessionGroup({
-  label,
-  noun,
-  nounPlural,
-  sessions,
-  open,
-  onToggle,
-  onOpenSession,
-}: {
-  label: string;
-  noun: string;
-  nounPlural: string;
-  sessions: ProjectTreeSessionNode[];
-  open: boolean;
-  onToggle: () => void;
-  onOpenSession: (session: ProjectTreeSessionNode) => void;
-}) {
-  if (sessions.length === 0) return null;
-  const count = sessions.length;
-  return (
-    <Fragment>
-      <div className="s-agent-project-tree-row s-agent-project-tree-row--group" role="row">
-        <div className="s-agent-project-tree-target">
-          <button
-            type="button"
-            className="s-agent-project-tree-toggle"
-            aria-label={`${open ? "Collapse" : "Expand"} ${label.toLowerCase()}`}
-            aria-expanded={open}
-            onClick={onToggle}
-          >
-            {open ? "▾" : "▸"}
-          </button>
-          <span className="s-agent-project-tree-copy">
-            <span className="s-agent-project-tree-primary">{label}</span>
-            <span className="s-agent-project-tree-secondary">
-              {count} {count === 1 ? noun : nounPlural}
-            </span>
-          </span>
-        </div>
-        <span className="s-agent-project-tree-muted" />
-        <span className="s-agent-project-tree-muted" />
-        <span className="s-agent-project-tree-muted" />
-        <span className="s-agent-project-tree-mono">
-          {sessions[0]?.lastActivityAt ? timeAgo(sessions[0].lastActivityAt) : "—"}
-        </span>
-      </div>
-      {open && sessions.map((session) => (
-        <ProjectTreeSessionRow
-          key={session.key}
-          session={session}
-          compact
-          onOpen={() => onOpenSession(session)}
-        />
-      ))}
-    </Fragment>
-  );
-}
-
 function ProjectLabeledAgentTree({
   project,
   navigate,
@@ -3199,45 +3702,6 @@ function ProjectLabeledAgentTree({
     ].filter(showProjectLevelSessionInOverview)),
     [project.workflows, tree.unassignedSessions],
   );
-  const workflowSessions = useMemo(
-    () => projectLevelSessions.filter((session) => session.kind === "workflow"),
-    [projectLevelSessions],
-  );
-  const otherSessions = useMemo(
-    () => projectLevelSessions.filter((session) => session.kind !== "workflow"),
-    [projectLevelSessions],
-  );
-
-  // Workflows and native processes each collapse into a group node, persisted
-  // per project. Default both to collapsed on first visit (each gated by its own
-  // marker) so the run/process lists don't bury the agents above them.
-  const collapsedStorageKey = `openscout.agents.labeledTree.collapsed:${project.key}`;
-  const workflowsKey = `${project.key}:workflows`;
-  const nativeKey = `${project.key}:native`;
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    const stored = readCollapsedProjectTreeRows(collapsedStorageKey);
-    for (const key of [workflowsKey, nativeKey]) {
-      const marker = `${key}:default`;
-      if (!stored.has(marker)) {
-        stored.add(key);
-        stored.add(marker);
-      }
-    }
-    return stored;
-  });
-  useEffect(() => {
-    writeCollapsedProjectTreeRows(collapsedStorageKey, collapsed);
-  }, [collapsed, collapsedStorageKey]);
-  const workflowsOpen = !collapsed.has(workflowsKey);
-  const nativeOpen = !collapsed.has(nativeKey);
-  const toggleRow = (key: string) => {
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
 
   const openSession = (session: ProjectTreeSessionNode) => {
     if (!session.route) return;
@@ -3264,7 +3728,7 @@ function ProjectLabeledAgentTree({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: treeDotColor(row.agent.state) }}
+                        style={{ background: stateColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3273,7 +3737,7 @@ function ProjectLabeledAgentTree({
                   </button>
                 </div>
                 <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
-                  {row.stateLabel.toLowerCase()}
+                  {agentInventoryStatusLabel(row.status)}
                 </span>
                 <span className="s-agent-project-tree-mono" title={row.agent.cwd ?? row.agent.projectRoot ?? undefined}>
                   {row.branch !== "—" ? row.branch : "—"}
@@ -3293,25 +3757,14 @@ function ProjectLabeledAgentTree({
           );
         })}
 
-        <ProjectTreeSessionGroup
-          label="Workflows"
-          noun="run"
-          nounPlural="runs"
-          sessions={workflowSessions}
-          open={workflowsOpen}
-          onToggle={() => toggleRow(workflowsKey)}
-          onOpenSession={openSession}
-        />
-
-        <ProjectTreeSessionGroup
-          label="Native processes"
-          noun="process"
-          nounPlural="processes"
-          sessions={otherSessions}
-          open={nativeOpen}
-          onToggle={() => toggleRow(nativeKey)}
-          onOpenSession={openSession}
-        />
+        {projectLevelSessions.map((session) => (
+          <ProjectTreeSessionRow
+            key={session.key}
+            session={session}
+            compact
+            onOpen={() => openSession(session)}
+          />
+        ))}
       </div>
     </div>
   );
@@ -3403,7 +3856,7 @@ function ProjectTreeTable({
             </span>
           </div>
           <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(project.status)}`}>
-            {agentInventoryStatusLabel(project.status)}
+            {projectActivityLabel(project) ?? ""}
           </span>
           <span className="s-agent-project-tree-muted">mixed</span>
           <span className="s-agent-project-tree-mono">{basename(project.root) ?? "—"}</span>
@@ -3430,7 +3883,7 @@ function ProjectTreeTable({
                   <span className="s-agent-project-tree-secondary">Not attached to a registered agent card</span>
                 </span>
               </div>
-              <span className="s-agent-project-tree-muted">observed</span>
+              <span className="s-agent-project-tree-muted" />
               <span className="s-agent-project-tree-muted">mixed</span>
               <span className="s-agent-project-tree-mono">{basename(project.root) ?? "—"}</span>
               <span className="s-agent-project-tree-mono">{tree.unassignedSessions.length}</span>
@@ -3475,7 +3928,7 @@ function ProjectTreeTable({
                     <span className="s-agent-project-tree-primary">
                       <span
                         className="s-agent-project-tree-dot"
-                        style={{ background: treeDotColor(row.agent.state) }}
+                        style={{ background: stateColor(row.agent.state) }}
                         aria-hidden
                       />
                       {row.agent.name}
@@ -3484,7 +3937,7 @@ function ProjectTreeTable({
                   </button>
                 </div>
                 <span className={`s-agent-project-tree-state s-agent-project-tree-state--${agentInventoryStatusClass(row.status)}`}>
-                  {row.stateLabel.toLowerCase()}
+                  {agentInventoryStatusLabel(row.status)}
                 </span>
                 <span className={harnessChipClass(row.harness)}>{row.harness}</span>
                 <span className="s-agent-project-tree-mono" title={row.agent.cwd ?? row.agent.projectRoot ?? undefined}>
@@ -3561,18 +4014,15 @@ function ProjectTreeSessionRow({
   );
 
   if (compact) {
-    // These rows live under a labeled group ("Workflows" / "Native processes"),
-    // so the per-row kind is redundant. Workflows surface their worker/task
-    // progress (status is always "workflow"); native rows keep their live state.
     return (
       <div className={rowClass} role="row">
         {target}
         <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-          {session.kind === "workflow" ? "" : session.status}
+          {session.status === "running" ? "active" : ""}
         </span>
-        <span className="s-agent-project-tree-muted">{session.subLabel ?? ""}</span>
-        <span className="s-agent-project-tree-muted" />
-        <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
+        <span className="s-agent-project-tree-muted">{session.typeLabel}</span>
+        <span className="s-agent-project-tree-muted">—</span>
+        <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "—"}</span>
       </div>
     );
   }
@@ -3581,12 +4031,12 @@ function ProjectTreeSessionRow({
     <div className={rowClass} role="row">
       {target}
       <span className={`s-agent-project-tree-state s-agent-project-tree-state--${classPart(session.status)}`}>
-        {session.status}
+        {session.status === "running" ? "active" : ""}
       </span>
       <span className={harnessChipClass(session.harness)}>{session.harness}</span>
-      <span className="s-agent-project-tree-muted">{session.kind}</span>
+      <span className="s-agent-project-tree-muted">{session.typeLabel}</span>
       <span className="s-agent-project-tree-muted">—</span>
-      <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "live"}</span>
+      <span className="s-agent-project-tree-mono">{session.lastActivityAt ? timeAgo(session.lastActivityAt) : "—"}</span>
       <span className="s-agent-project-tree-actions">
         <button
           type="button"
@@ -3625,7 +4075,7 @@ function ProjectAgentCard({
       <span className="s-agent-project-card-top">
         <span
           className="s-agent-project-card-dot"
-          style={{ background: treeDotColor(row.agent.state) }}
+          style={{ background: stateColor(row.agent.state) }}
           aria-hidden="true"
         />
         <span className="s-agent-project-card-name">{row.agent.name}</span>
@@ -3645,7 +4095,7 @@ function ProjectAgentCard({
           <span className="s-agent-project-chip s-agent-project-chip--session">session {shortSessionId(row.session?.id ?? row.agent.harnessSessionId)}</span>
         )}
         {row.activeAskCount > 0 && (
-          <span className="s-agent-project-chip s-agent-project-chip--active">{row.activeAskCount} active</span>
+          <span className="s-agent-project-chip s-agent-project-chip--active">{row.activeAskCount} in flight</span>
         )}
       </span>
     </button>

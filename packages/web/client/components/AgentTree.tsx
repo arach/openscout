@@ -158,7 +158,7 @@ export function AgentTree({
               <span className="mesh-tree-project-count">{group.agents.length}</span>
               <span className="mesh-tree-counts">
                 {group.counts.working > 0 && (
-                  <span className="mesh-tree-count mesh-tree-count--working">
+                  <span className="mesh-tree-count mesh-tree-count--active">
                     <span className="mesh-tree-count-dot" />
                     {group.counts.working}
                   </span>
@@ -170,7 +170,7 @@ export function AgentTree({
                   </span>
                 )}
                 {group.counts.not_ready > 0 && (
-                  <span className="mesh-tree-count mesh-tree-count--offline">
+                  <span className="mesh-tree-count mesh-tree-count--unavailable">
                     <span className="mesh-tree-count-dot" />
                     {group.counts.not_ready}
                   </span>

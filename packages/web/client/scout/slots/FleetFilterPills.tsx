@@ -2,18 +2,16 @@ import "./fleet-shared.css";
 
 export type FleetStateToken = "working" | "ready" | "not_ready";
 
-const STATE_TOKENS: readonly FleetStateToken[] = ["working", "ready", "not_ready"];
+const STATE_TOKENS: readonly FleetStateToken[] = ["working"];
 
-const STATE_LABELS: Record<FleetStateToken, string> = {
-  working: "working",
-  ready: "ready",
-  not_ready: "not ready",
+const STATE_LABELS: Partial<Record<FleetStateToken, string>> = {
+  working: "active",
 };
 
 const STATE_CLASS_TOKENS: Record<FleetStateToken, string> = {
-  working: "working",
+  working: "active",
   ready: "available",
-  not_ready: "offline",
+  not_ready: "unavailable",
 };
 
 type Props = {
@@ -34,7 +32,7 @@ export function FleetFilterPills({ active, onToggle }: Props) {
             onClick={() => onToggle(t)}
             aria-pressed={on}
           >
-            {STATE_LABELS[t]}
+            {STATE_LABELS[t] ?? t}
           </button>
         );
       })}

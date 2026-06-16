@@ -171,6 +171,7 @@ export function ConversationInspector() {
     [agents, agentId],
   );
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [liveExpanded, setLiveExpanded] = useState(false);
   const [tailPreviewEvents, setTailPreviewEvents] = useState<TailEvent[]>([]);
   const [visibleTailPreviewEvents, setVisibleTailPreviewEvents] = useState<TailEvent[]>([]);
   const visibleTailPreviewEventsRef = useRef<TailEvent[]>([]);
@@ -526,12 +527,11 @@ export function ConversationInspector() {
     : showTmuxPeek
       ? "Terminal"
       : "Activity";
-  const liveSummary = activeFlight?.summary?.trim()
-    ?? (activeSessionId && !showTmuxPeek
-      ? "Terminal session is live."
-      : visibleTailPreviewEvents.length > 0 && !showTmuxPeek
-        ? "Streaming matching Tail events."
-        : null);
+  const liveSummary = activeSessionId && !showTmuxPeek
+    ? "Terminal session is live."
+    : visibleTailPreviewEvents.length > 0 && !showTmuxPeek
+      ? "Streaming matching Tail events."
+      : null;
   const tailRouteQuery = buildTailRouteQuery(tailPreviewContext, tailPreviewEvents);
   const showLiveActivity = Boolean(agent && (activeFlight || activeSessionId || tailPreviewEvents.length > 0 || showTmuxPeek));
   const showTailStream = !showTmuxPeek;
@@ -565,7 +565,7 @@ export function ConversationInspector() {
             {agentName}
           </div>
           {agentHandle && (
-            <div className="ctx-panel-conversation-handle">@{agentHandle}</div>
+            <div className="ctx-panel-conversation-handle">@{agentHandle.replace(/^@+/, "")}</div>
           )}
           <div className="ctx-panel-conversation-state">
             <span
@@ -577,113 +577,8 @@ export function ConversationInspector() {
         </div>
       </section>
 
-      {activeFlight && (
-        <section className="ctx-panel-section">
-          <div className="ctx-panel-section-label">Now</div>
-          <div className="ctx-panel-conversation-flight">
-            <div className="ctx-panel-conversation-flight-row">
-              <span className="ctx-panel-conversation-flight-label">
-                {flightStateLabel(activeFlight.state)}
-              </span>
-              {activeFlight.startedAt && (
-                <span className="ctx-panel-conversation-flight-time">
-                  {timeAgo(activeFlight.startedAt)}
-                </span>
-              )}
-            </div>
-            {activeFlight.summary && (
-              <div className="ctx-panel-conversation-flight-summary">
-                {activeFlight.summary}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
       <section className="ctx-panel-section">
-        <div className="ctx-panel-section-label">Workspace</div>
-        {hasWorkspaceContext ? (
-          <div className="ctx-panel-workspace-card">
-            <div className="ctx-panel-workspace-head">
-              <div className="ctx-panel-workspace-kicker">Project</div>
-              <div
-                className="ctx-panel-workspace-title"
-                title={workspaceRoot ?? workspaceName ?? undefined}
-              >
-                {workspaceName ?? "Unscoped workspace"}
-              </div>
-            </div>
-            {workspacePath && (
-              <div className="ctx-panel-workspace-path" title={workspaceRoot ?? workspacePath}>
-                {workspacePath}
-              </div>
-            )}
-            {workspaceMeta.length > 0 && (
-              <div className="ctx-panel-workspace-strip">
-                {workspaceMeta.map((item) => (
-                  <span key={item} className="ctx-panel-workspace-chip">
-                    {item}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="ctx-panel-empty">No workspace metadata yet</div>
-        )}
-      </section>
-
-      {showSessionContext && (
-        <section className="ctx-panel-section">
-          <div className="ctx-panel-section-label">Session</div>
-          <div className="ctx-panel-session-card">
-            <div className="ctx-panel-session-head">
-              <div className="ctx-panel-session-primary">
-                {sessionKindLabel && (
-                  <div className="ctx-panel-session-kind">{sessionKindLabel}</div>
-                )}
-                {primarySessionId && (
-                  <div className="ctx-panel-session-id" title={primarySessionId}>
-                    {primarySessionLabel ?? primarySessionId}
-                  </div>
-                )}
-              </div>
-              {agentId && primarySessionId && (
-                <VantageHandoffButton
-                  agentId={agentId}
-                  className="ctx-panel-vantage-button"
-                  statusClassName="ctx-panel-vantage-status"
-                  label="Open"
-                  openingLabel="Opening..."
-                />
-              )}
-            </div>
-            {(showHarnessSessionDetail || harnessLogPath) && (
-              <div className="ctx-panel-session-meta">
-                {showHarnessSessionDetail && harnessSessionId && (
-                  <div className="ctx-panel-session-meta-item">
-                    <span>Harness session</span>
-                    <strong title={harnessSessionId}>
-                      {harnessSessionLabel ?? harnessSessionId}
-                    </strong>
-                  </div>
-                )}
-                {harnessLogPath && (
-                  <div className="ctx-panel-session-meta-item">
-                    <span>Harness log</span>
-                    <strong title={harnessLogPath}>
-                      {pathLeaf(harnessLogPath) ?? harnessLogPath}
-                    </strong>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-
-      <section className="ctx-panel-section">
-        <div className="ctx-panel-section-label">Activity</div>
+        <div className="ctx-panel-section-label">Status</div>
         <div className={`ctx-panel-activity-card${workInMotion ? " ctx-panel-activity-card--active" : ""}`}>
           <div className="ctx-panel-activity-head">
             <span
@@ -691,43 +586,122 @@ export function ConversationInspector() {
               style={{ background: workInMotion ? "var(--green)" : stateColor(agentState) }}
             />
             <div className="ctx-panel-activity-main">
-              <div className="ctx-panel-activity-title">{activityTitle}</div>
-              <div
-                className="ctx-panel-activity-sub"
-                title={lastAt ? formatAbsoluteTimestamp(lastAt) : undefined}
-              >
-                {activitySubtitle}
+              <div className="ctx-panel-activity-title">
+                <span>{activityTitle}</span>
+                {activeFlight?.startedAt && (
+                  <span
+                    className="ctx-panel-activity-title-time"
+                    title={formatAbsoluteTimestamp(activeFlight.startedAt)}
+                  >
+                    {timeAgo(activeFlight.startedAt)}
+                  </span>
+                )}
               </div>
+              {!activeFlight && (
+                <div
+                  className="ctx-panel-activity-sub"
+                  title={lastAt ? formatAbsoluteTimestamp(lastAt) : undefined}
+                >
+                  {activitySubtitle}
+                </div>
+              )}
             </div>
           </div>
-          {activeFlight && (
-            <div className="ctx-panel-activity-ledger">
-              <span className="ctx-panel-activity-ledger-label">
-                {flightStateLabel(activeFlight.state)}
-              </span>
-              {activeFlight.startedAt && (
-                <span
-                  className="ctx-panel-activity-ledger-time"
-                  title={formatAbsoluteTimestamp(activeFlight.startedAt)}
-                >
-                  {timeAgo(activeFlight.startedAt)}
-                </span>
+          {activeFlight?.summary && (
+            <div className="ctx-panel-activity-summary">{activeFlight.summary}</div>
+          )}
+          {(typeof messageCount === "number" || typeof participantCount === "number") && (
+            <div className="ctx-panel-activity-facts">
+              {typeof messageCount === "number" && (
+                <Fact label="Messages" value={`${messageCount}`} />
+              )}
+              {typeof participantCount === "number" && (
+                <Fact label="People" value={`${participantCount}`} />
               )}
             </div>
           )}
-          <div className="ctx-panel-activity-facts">
-            {typeof messageCount === "number" && (
-              <Fact label="Messages" value={`${messageCount}`} />
-            )}
-            {typeof participantCount === "number" && (
-              <Fact label="People" value={`${participantCount}`} />
-            )}
-            {agentStateNormalized && (
-              <Fact label="Agent" value={agentStateLabel(agentState)} />
-            )}
-          </div>
         </div>
       </section>
+
+      {(hasWorkspaceContext || showSessionContext) && (
+        <section className="ctx-panel-section">
+          <div className="ctx-panel-section-label">Workspace</div>
+          <div className="ctx-panel-context-stack">
+            {hasWorkspaceContext && (
+              <div className="ctx-panel-workspace-card">
+                <div className="ctx-panel-workspace-head">
+                  <div className="ctx-panel-workspace-kicker">Project</div>
+                  <div
+                    className="ctx-panel-workspace-title"
+                    title={workspaceRoot ?? workspaceName ?? undefined}
+                  >
+                    {workspaceName ?? "Unscoped workspace"}
+                  </div>
+                </div>
+                {workspacePath && (
+                  <div className="ctx-panel-workspace-path" title={workspaceRoot ?? workspacePath}>
+                    {workspacePath}
+                  </div>
+                )}
+                {workspaceMeta.length > 0 && (
+                  <div className="ctx-panel-workspace-strip">
+                    {workspaceMeta.map((item) => (
+                      <span key={item} className="ctx-panel-workspace-chip">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {showSessionContext && (
+              <div className="ctx-panel-session-card">
+                <div className="ctx-panel-session-head">
+                  <div className="ctx-panel-session-primary">
+                    {sessionKindLabel && (
+                      <div className="ctx-panel-session-kind">{sessionKindLabel}</div>
+                    )}
+                    {primarySessionId && (
+                      <div className="ctx-panel-session-id" title={primarySessionId}>
+                        {primarySessionLabel ?? primarySessionId}
+                      </div>
+                    )}
+                  </div>
+                  {agentId && primarySessionId && (
+                    <VantageHandoffButton
+                      agentId={agentId}
+                      className="ctx-panel-vantage-button"
+                      statusClassName="ctx-panel-vantage-status"
+                      label="Open"
+                      openingLabel="Opening..."
+                    />
+                  )}
+                </div>
+                {(showHarnessSessionDetail || harnessLogPath) && (
+                  <div className="ctx-panel-session-meta">
+                    {showHarnessSessionDetail && harnessSessionId && (
+                      <div className="ctx-panel-session-meta-item">
+                        <span>Harness session</span>
+                        <strong title={harnessSessionId}>
+                          {harnessSessionLabel ?? harnessSessionId}
+                        </strong>
+                      </div>
+                    )}
+                    {harnessLogPath && (
+                      <div className="ctx-panel-session-meta-item">
+                        <span>Harness log</span>
+                        <strong title={harnessLogPath}>
+                          {pathLeaf(harnessLogPath) ?? harnessLogPath}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {preview && (
         <section className="ctx-panel-section ctx-panel-conversation-preview">
@@ -748,7 +722,7 @@ export function ConversationInspector() {
               </span>
             )}
           </div>
-          <div className={`ctx-panel-live-card${workInMotion ? " ctx-panel-live-card--active" : ""}`}>
+          <div className={`ctx-panel-live-card${workInMotion ? " ctx-panel-live-card--active" : ""}${liveExpanded ? " ctx-panel-live-card--expanded" : ""}`}>
             <AgentLiveActions
               agent={agent}
               catalog={catalog}
@@ -760,10 +734,20 @@ export function ConversationInspector() {
             {liveSummary && (
               <div className="ctx-panel-live-summary">{liveSummary}</div>
             )}
-            {showTmuxPeek && (
-              <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
+            {(showTmuxPeek || showTailStream) && (
+              <button
+                type="button"
+                className="ctx-panel-live-toggle"
+                onClick={() => setLiveExpanded((value) => !value)}
+                aria-expanded={liveExpanded}
+              >
+                {liveExpanded ? "Hide live output" : "Show live output"}
+              </button>
             )}
-            {showTailStream && (
+            {liveExpanded && showTmuxPeek && (
+              <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} enabled={liveExpanded} />
+            )}
+            {liveExpanded && showTailStream && (
               <div className="ctx-panel-live-stream" aria-live="polite">
                 {visibleTailPreviewEvents.length > 0 ? (
                   <ol className="ctx-panel-live-events">
@@ -791,7 +775,7 @@ export function ConversationInspector() {
                 )}
               </div>
             )}
-            {hasTailPreviewScope && (
+            {liveExpanded && hasTailPreviewScope && (
               <button
                 type="button"
                 className="ctx-panel-live-tail-button"

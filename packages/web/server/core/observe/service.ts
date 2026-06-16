@@ -65,6 +65,7 @@ export interface ObserveFile {
 export interface ObserveUsageMeta {
   assistantMessages?: number;
   inputTokens?: number;
+  contextInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
   cacheReadInputTokens?: number;
@@ -537,6 +538,9 @@ function buildObserveMetadata(
   }
   if (metadataNumber(observeUsage, "inputTokens") !== undefined) {
     usageMeta.inputTokens = metadataNumber(observeUsage, "inputTokens");
+  }
+  if (metadataNumber(observeUsage, "contextInputTokens") !== undefined) {
+    usageMeta.contextInputTokens = metadataNumber(observeUsage, "contextInputTokens");
   }
   if (metadataNumber(observeUsage, "outputTokens") !== undefined) {
     usageMeta.outputTokens = metadataNumber(observeUsage, "outputTokens");

@@ -17,6 +17,7 @@ export type CodexQuotaWindowObservation = {
 
 export type CodexUsageObservation = {
   inputTokens?: number;
+  contextInputTokens?: number;
   cacheReadInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
@@ -351,9 +352,11 @@ export function readCodexRolloutUsageObservation(
 
   const info = observedRecord(record.info);
   const totalTokenUsage = observedRecord(info?.total_token_usage);
+  const lastTokenUsage = observedRecord(info?.last_token_usage);
   const rateLimits = observedRecord(record.rate_limits);
   const observation: CodexUsageObservation = {
     inputTokens: observedNumber(totalTokenUsage?.input_tokens),
+    contextInputTokens: observedNumber(lastTokenUsage?.input_tokens),
     cacheReadInputTokens: observedNumber(totalTokenUsage?.cached_input_tokens),
     outputTokens: observedNumber(totalTokenUsage?.output_tokens),
     reasoningOutputTokens: observedNumber(totalTokenUsage?.reasoning_output_tokens),
@@ -366,6 +369,7 @@ export function readCodexRolloutUsageObservation(
 
   const hasUsage = [
     observation.inputTokens,
+    observation.contextInputTokens,
     observation.cacheReadInputTokens,
     observation.outputTokens,
     observation.reasoningOutputTokens,

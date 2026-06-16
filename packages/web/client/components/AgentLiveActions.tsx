@@ -4,7 +4,7 @@ import { Eye, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAgentState } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
-import { queueTakeover } from "../lib/terminal-takeover.ts";
+import { canTakeoverTerminalSession, queueTakeover } from "../lib/terminal-takeover.ts";
 import { timeAgo } from "../lib/time.ts";
 import type { Agent, Route, SessionCatalogWithResume } from "../lib/types.ts";
 import { useScout } from "../scout/Provider.tsx";
@@ -73,7 +73,11 @@ export function AgentLiveActions({
   );
   const state = normalizeAgentState(agent.state);
   const canObserveTerminal = agent.transport === "tmux" && Boolean(activeSessionId);
-  const canTakeover = canObserveTerminal || Boolean(resolvedCatalog?.resumeCommand);
+  const canTakeover = canTakeoverTerminalSession({
+    agent,
+    catalog: resolvedCatalog,
+    session: activeSession,
+  });
   const hasLiveTurn = state === "working";
   const isCompact = variant === "compact";
   const status = hasLiveTurn
@@ -124,6 +128,7 @@ export function AgentLiveActions({
       openTerminal("takeover");
       return;
     }
+    if (!canTakeover) return;
     const command = resolvedCatalog?.resumeCommand;
     if (!command) return;
     setTakeoverSent(true);

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -21,6 +21,7 @@ import {
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
+  resolveLocalAgentContextWindowUsage,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
@@ -33,7 +34,22 @@ const originalCodeXBin = process.env.CODEX_BIN;
 const originalPath = process.env.PATH;
 const originalNodeQualifier = process.env.OPENSCOUT_NODE_QUALIFIER;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+const originalOpenScoutHome = process.env.OPENSCOUT_HOME;
+const originalOperatorName = process.env.OPENSCOUT_OPERATOR_NAME;
+const originalOperatorHandle = process.env.OPENSCOUT_OPERATOR_HANDLE;
 const tempPaths = new Set<string>();
+
+function useTestOperatorIdentity(name = "operator", handle = "operator"): void {
+  const home = mkdtempSync(join(tmpdir(), "openscout-user-config-"));
+  tempPaths.add(home);
+  process.env.OPENSCOUT_HOME = home;
+  process.env.OPENSCOUT_OPERATOR_NAME = name;
+  process.env.OPENSCOUT_OPERATOR_HANDLE = handle;
+}
+
+beforeEach(() => {
+  useTestOperatorIdentity();
+});
 
 afterEach(() => {
   if (originalCodexBin === undefined) {
@@ -61,6 +77,21 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
   }
+  if (originalOpenScoutHome === undefined) {
+    delete process.env.OPENSCOUT_HOME;
+  } else {
+    process.env.OPENSCOUT_HOME = originalOpenScoutHome;
+  }
+  if (originalOperatorName === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_NAME;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_NAME = originalOperatorName;
+  }
+  if (originalOperatorHandle === undefined) {
+    delete process.env.OPENSCOUT_OPERATOR_HANDLE;
+  } else {
+    process.env.OPENSCOUT_OPERATOR_HANDLE = originalOperatorHandle;
+  }
 
   for (const tempPath of tempPaths) {
     rmSync(tempPath, { recursive: true, force: true });
@@ -76,6 +107,72 @@ function writeFakeCodexExecutable(directory: string): string {
 }
 
 describe("local agent prompts", () => {
+  test("derives context-window usage from observed token metadata", () => {
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-1",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            contextInputTokens: 1080,
+            totalTokens: 1080,
+            contextWindowTokens: 200_000,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: 1080,
+      totalTokens: 1080,
+      contextWindowTokens: 200_000,
+      usedPercent: 1,
+    });
+
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-2",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            totalTokens: 42,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: null,
+      totalTokens: 42,
+      contextWindowTokens: null,
+      usedPercent: null,
+    });
+
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-3",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            contextInputTokens: 129_200,
+            totalTokens: 4_604_127,
+            contextWindowTokens: 258_400,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: 129_200,
+      totalTokens: 4_604_127,
+      contextWindowTokens: 258_400,
+      usedPercent: 50,
+    });
+  });
+
   test("accepts an explicit Codex executable for app-server warmup even when PATH is empty", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-warmup-"));
     tempPaths.add(tempRoot);
@@ -428,6 +525,39 @@ describe("local agent prompts", () => {
     expect(prompt).not.toContain("OpenScout invocation for");
     expect(prompt).not.toContain("Requester:");
     expect(prompt).not.toContain("Action:");
+  });
+
+  test("direct invocation prompt shows configured actor display names without losing ids", () => {
+    useTestOperatorIdentity("Arach", "arach");
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "ranger",
+      {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "ranger",
+        action: "consult",
+        task: "Review the handoff labels.",
+        conversationId: "dm.operator.ranger.main.mini",
+        messageId: "msg-moi5w7kt-1hjg5e",
+        execution: {
+          session: "new",
+        },
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+        metadata: {
+          requesterDisplayName: "Arach",
+          targetDisplayName: "Ranger",
+        },
+      },
+    );
+
+    expect(prompt.startsWith(
+      "⌖ Arach (@arach) → Ranger (@ranger) · ask:1hjg5e › Review the handoff labels.",
+    )).toBe(true);
+    expect(prompt).toContain('"fromAgentId": "operator"');
+    expect(prompt).toContain('"toAgentId": "ranger"');
   });
 
   test("direct invocation prompt skips fenced protocol blocks when summarizing title text", () => {

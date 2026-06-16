@@ -1,4 +1,4 @@
-import { Activity, BookOpen, Code2, ExternalLink, FileText, FolderTree, MessageSquare } from "lucide-react";
+import { Activity, BookOpen, Clipboard, Code2, ExternalLink, FileText, FolderTree, MessageSquare, Radio } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { DocumentFocusViewer, type DocumentFocusKind } from "../components/DocumentFocusViewer.tsx";
 import { StatusPill } from "../components/StatusPill.tsx";
@@ -154,6 +154,163 @@ function WorkActionButton({
       {icon}
       <span>{children}</span>
     </button>
+  );
+}
+
+function askSourceLabel(source: string | null | undefined): string {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("mcp")) return "MCP ask";
+  if (normalized.includes("cli")) return "CLI ask";
+  if (normalized) return `${source} ask`;
+  return "Scout ask";
+}
+
+function askLifecycleLabel(detail: WorkDetail): string {
+  const ask = detail.primaryInvocation;
+  const agent = ask?.targetAgentName ?? ask?.targetAgentId ?? detail.ownerName ?? detail.ownerId ?? "The agent";
+  const state = ask?.state ?? detail.activeFlights[0]?.state ?? detail.state;
+  switch (state) {
+    case "running":
+      return `${agent} is running in background. Synchronous wait may have expired, but the ask is still active.`;
+    case "waking":
+      return `${agent} is waking up for this ask.`;
+    case "queued":
+      return `${agent} has the ask queued.`;
+    case "waiting":
+    case "review":
+      return `${agent} paused and is waiting for the next move.`;
+    case "completed":
+    case "done":
+      return `${agent} completed this ask.`;
+    case "failed":
+      return `${agent} reported a failure for this ask.`;
+    case "cancelled":
+      return "This ask was cancelled.";
+    default:
+      return `${agent} is attached to this work item.`;
+  }
+}
+
+function workAskStatusText(detail: WorkDetail): string {
+  const ask = detail.primaryInvocation;
+  const rows = [
+    `Work: ${detail.id}`,
+    `State: ${detail.currentPhase}`,
+    ask ? `Source: ${askSourceLabel(ask.source)}` : null,
+    ask?.targetAgentName || ask?.targetAgentId ? `Resolved agent: ${ask.targetAgentName ?? ask.targetAgentId}` : null,
+    ask?.requestedHarness ? `Requested harness: ${ask.requestedHarness}` : null,
+    ask?.resolvedHarness ? `Resolved harness: ${ask.resolvedHarness}` : null,
+    ask?.resolvedSessionId ? `Session: ${ask.resolvedSessionId}` : null,
+    ask?.flightId ? `Flight: ${ask.flightId}` : null,
+    ask?.invocationId ? `Invocation: ${ask.invocationId}` : null,
+    detail.conversationId ? `Conversation: ${detail.conversationId}` : null,
+    askLifecycleLabel(detail),
+  ];
+  return rows.filter(Boolean).join("\n");
+}
+
+function idsText(detail: WorkDetail): string {
+  const ask = detail.primaryInvocation;
+  return [
+    `workId=${detail.id}`,
+    ask?.flightId ? `flightId=${ask.flightId}` : null,
+    ask?.invocationId ? `invocationId=${ask.invocationId}` : null,
+    detail.conversationId ? `conversationId=${detail.conversationId}` : null,
+    ask?.targetAgentId ? `agentId=${ask.targetAgentId}` : null,
+    ask?.resolvedSessionId ? `sessionId=${ask.resolvedSessionId}` : null,
+  ].filter(Boolean).join("\n");
+}
+
+function copyText(value: string): void {
+  void navigator.clipboard?.writeText(value);
+}
+
+function WorkAskOverview({
+  detail,
+  navigate,
+}: {
+  detail: WorkDetail;
+  navigate: (r: Route) => void;
+}) {
+  const { route } = useScout();
+  const ask = detail.primaryInvocation;
+  const tailQuery = buildWorkTailContext(detail).query;
+  const ids = idsText(detail);
+  const sourceLabel = askSourceLabel(ask?.source);
+  const resolvedAgent = ask?.targetAgentName ?? ask?.targetAgentId ?? detail.ownerName ?? detail.ownerId ?? "—";
+  const prompt = ask?.task ?? initialWorkBriefSummary(detail) ?? detail.summary ?? "No original prompt captured.";
+  const observeRoute: Route | null = ask?.resolvedSessionId
+    ? {
+        view: "sessions",
+        sessionId: ask.resolvedSessionId,
+        ...(ask.targetAgentId ? { agentId: ask.targetAgentId } : {}),
+      }
+    : ask?.targetAgentId
+    ? { view: "agents", agentId: ask.targetAgentId, tab: "observe" }
+    : null;
+  const observeLabel = ask?.resolvedSessionId ? "Observe session" : "Observe agent";
+  const tailRoute: Route = {
+    view: "ops",
+    mode: "tail",
+    ...(tailQuery ? { tailQuery } : {}),
+    workId: detail.id,
+    ...(ask?.flightId ? { flightId: ask.flightId } : {}),
+    ...(ask?.invocationId ? { invocationId: ask.invocationId } : {}),
+    ...(detail.conversationId ? { conversationId: detail.conversationId } : {}),
+    ...(ask?.resolvedSessionId ? { sessionId: ask.resolvedSessionId } : {}),
+    ...(ask?.targetAgentId ? { targetAgentId: ask.targetAgentId } : {}),
+  };
+
+  return (
+    <section className="s-work-casefile-section s-work-ask-overview" data-kind="ask" data-work-id={detail.id} data-flight-id={ask?.flightId ?? undefined} data-invocation-id={ask?.invocationId ?? undefined} data-agent-id={ask?.targetAgentId ?? undefined}>
+      <div className="s-work-ask-head">
+        <div>
+          <div className="s-work-ask-badges">
+            <span className="s-work-ask-badge s-work-ask-badge-primary">ASK created</span>
+            <span className="s-work-ask-badge">{sourceLabel}</span>
+            {ask?.state && <span className="s-work-ask-badge">{ask.state}</span>}
+          </div>
+          <h2 className="s-agent-section-title s-work-ask-title">Ask / work source of truth</h2>
+          <p className="s-work-ask-lifecycle">{askLifecycleLabel(detail)}</p>
+        </div>
+      </div>
+
+      <div className="s-work-ask-grid">
+        <div className="s-work-ask-prompt">
+          <span className="s-work-ask-label">Original prompt</span>
+          <p>{renderWithMentions(prompt)}</p>
+        </div>
+        <dl className="s-work-ask-facts">
+          <div><dt>Requested harness</dt><dd>{ask?.requestedHarness ?? "default"}</dd></div>
+          <div><dt>Resolved agent</dt><dd>{resolvedAgent}</dd></div>
+          <div><dt>Resolved harness</dt><dd>{ask?.resolvedHarness ?? "—"}</dd></div>
+          <div><dt>Session</dt><dd>{ask?.resolvedSessionId ?? ask?.targetSessionId ?? "—"}</dd></div>
+          <div><dt>Flight</dt><dd>{ask?.flightId ?? "—"}</dd></div>
+          <div><dt>Invocation</dt><dd>{ask?.invocationId ?? "—"}</dd></div>
+          <div><dt>Work</dt><dd>{detail.id}</dd></div>
+          <div><dt>Conversation</dt><dd>{detail.conversationId ?? "—"}</dd></div>
+        </dl>
+      </div>
+
+      <div className="s-work-ask-actions">
+        {observeRoute && (
+          <WorkActionButton primary icon={<Radio aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, observeRoute, { returnTo: route })}>{observeLabel}</WorkActionButton>
+        )}
+        <WorkActionButton icon={<Clipboard aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => copyText(workAskStatusText(detail))}>Copy status</WorkActionButton>
+        {detail.conversationId && (
+          <WorkActionButton icon={<MessageSquare aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}>Open chat</WorkActionButton>
+        )}
+        <WorkActionButton icon={<ExternalLink aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, { view: "work", workId: detail.id }, { returnTo: route })}>Open work</WorkActionButton>
+        {ask?.resolvedSessionId && (
+          <WorkActionButton icon={<Radio aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, { view: "sessions", sessionId: ask.resolvedSessionId! }, { returnTo: route })}>Open session</WorkActionButton>
+        )}
+        <WorkActionButton icon={<Activity aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, tailRoute, { returnTo: route })}>Scout tail</WorkActionButton>
+        {ids && <WorkActionButton icon={<Clipboard aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => copyText(ids)}>Copy MCP ids</WorkActionButton>}
+        {detail.conversationId && (
+          <WorkActionButton icon={<MessageSquare aria-hidden="true" size={13} strokeWidth={1.8} />} onClick={() => openContent(navigate, { view: "conversation", conversationId: detail.conversationId! }, { returnTo: route })}>Nudge agent</WorkActionButton>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -705,6 +862,52 @@ function buildWorkTailContext(detail: WorkDetail): WorkTailContext {
   };
 }
 
+function timelineKindLabel(item: WorkDetail["timeline"][number]): string {
+  if (item.kind === "message") {
+    return item.title || (item.detailKind === "agent" ? "reply" : "thread update");
+  }
+  if (item.kind === "flight_started") return "agent output";
+  if (item.kind === "flight_completed") return item.detailKind === "completed" ? "reply" : item.detailKind ?? "flight";
+  if (item.detailKind === "created") return "ASK created";
+  return item.title ?? item.kind.replace(/_/g, " ");
+}
+
+function WorkTimelinePanel({ detail }: { detail: WorkDetail }) {
+  const items = detail.timeline.slice(0, 18);
+  if (items.length === 0) return null;
+  return (
+    <section className="s-work-casefile-section s-work-timeline-panel">
+      <div className="s-agent-section-heading">
+        <div>
+          <h2 className="s-agent-section-title">Timeline</h2>
+          <p className="s-work-section-note">Ask lifecycle, follow-up requirements, flight state, and replies attached to this work item.</p>
+        </div>
+      </div>
+      <div className="s-work-timeline-list">
+        {items.map((item) => (
+          <article
+            key={item.id}
+            className={`s-work-timeline-row s-work-timeline-row-${item.kind}`}
+            data-kind={item.kind}
+            data-flight-id={item.flightId ?? undefined}
+            data-work-id={detail.id}
+            data-conversation-id={item.conversationId ?? detail.conversationId ?? undefined}
+          >
+            <span className="s-work-timeline-badge">{timelineKindLabel(item)}</span>
+            <div className="s-work-timeline-body">
+              <div className="s-work-timeline-meta">
+                <span>{item.actorName ?? item.actorId ?? "system"}</span>
+                <span>{timeAgo(item.at)}</span>
+              </div>
+              {item.summary && <p>{renderWithMentions(item.summary)}</p>}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function WorkTailPanel({
   detail,
   navigate,
@@ -734,7 +937,7 @@ function WorkTailPanel({
               { returnTo: route },
             )}
         >
-          Open Tail
+          Scout tail
         </WorkActionButton>
       </div>
       <div className="s-work-tail-frame">
@@ -885,7 +1088,9 @@ export function WorkDetailScreen({
 
       <div className="s-work-casefile-layout s-work-casefile-layout-main">
         <div className="s-work-casefile-main s-work-casefile-main-materials">
+          <WorkAskOverview detail={visibleDetail} navigate={navigate} />
           <WorkMaterials detail={visibleDetail} navigate={navigate} />
+          <WorkTimelinePanel detail={visibleDetail} />
         </div>
 
         <WorkTailPanel detail={visibleDetail} navigate={navigate} />

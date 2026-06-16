@@ -19,31 +19,19 @@ export function HomeAgentsInspector() {
     );
   }
 
-  const ready = agents.filter((a) => isAgentOnline(a.state));
-  const notReady = agents.filter((a) => !isAgentOnline(a.state));
+  const sortedAgents = [...agents].sort((left, right) =>
+    Number(isAgentOnline(right.state)) - Number(isAgentOnline(left.state))
+    || (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+    || left.name.localeCompare(right.name),
+  );
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      {ready.length > 0 && (
-        <Section label="Ready" count={ready.length}>
-          {ready.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
-          ))}
-        </Section>
-      )}
-      {notReady.length > 0 && (
-        <Section label="Not ready" count={notReady.length}>
-          {notReady.map((agent) => (
-            <AgentRow
-              key={agent.id}
-              agent={agent}
-              onOpen={openFromHome}
-              subLabel={agentStateLabel(agent.state)}
-              dim
-            />
-          ))}
-        </Section>
-      )}
+      <Section label="Agents" count={agents.length}>
+        {sortedAgents.map((agent) => (
+          <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} dim={!isAgentOnline(agent.state)} />
+        ))}
+      </Section>
     </div>
   );
 }
@@ -75,18 +63,13 @@ function Section({
 function AgentRow({
   agent,
   onOpen,
-  subLabel,
   dim,
 }: {
   agent: Agent;
   onOpen: (agent: Agent) => void;
-  // Secondary state line. Omitted for ready rows — the section header already
-  // says "Ready" and the timestamp carries the real signal, so repeating
-  // "Ready" on all N rows is noise. Kept for not-ready rows where the specific
-  // state (offline / dormant / …) actually differentiates.
-  subLabel?: string;
   dim?: boolean;
 }) {
+  const stateLabel = agentStateLabel(agent.state);
   return (
     <button
       onClick={() => onOpen(agent)}
@@ -101,9 +84,9 @@ function AgentRow({
         <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
           {agent.name}
         </span>
-        {subLabel && (
+        {stateLabel && (
           <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
-            {subLabel}
+            {stateLabel}
           </span>
         )}
       </div>

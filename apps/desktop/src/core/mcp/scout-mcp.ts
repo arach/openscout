@@ -175,6 +175,7 @@ type ScoutFollowLinks = {
   chat: string | null;
   work: string | null;
   agent: string | null;
+  observe: string | null;
 };
 
 type ScoutReplyNotificationParams = {
@@ -258,6 +259,19 @@ function hasExplicitAgentSender(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.OPENSCOUT_AGENT?.trim());
 }
 
+function defaultMcpSenderId(env: NodeJS.ProcessEnv): string | undefined {
+  const replyContext = parseScoutReplyContextFromEnv(env);
+  const activeAgentId = replyContext?.toAgentId?.trim();
+  if (activeAgentId) {
+    return activeAgentId;
+  }
+
+  // Let the shared sender resolver preserve OPENSCOUT_AGENT exactly when this
+  // MCP server is running inside a managed agent session. Human-started MCP
+  // clients keep the canonical operator actor id.
+  return hasExplicitAgentSender(env) ? undefined : "operator";
+}
+
 async function resolveMcpSenderId(
   deps: Pick<ScoutMcpDependencies, "resolveSenderId">,
   senderId: string | null | undefined,
@@ -265,7 +279,7 @@ async function resolveMcpSenderId(
   env: NodeJS.ProcessEnv,
 ): Promise<string> {
   return deps.resolveSenderId(
-    senderId ?? (hasExplicitAgentSender(env) ? undefined : "operator"),
+    senderId ?? defaultMcpSenderId(env),
     currentDirectory,
     env,
   );
@@ -1049,6 +1063,7 @@ const followLinksSchema = z.object({
   chat: z.string().nullable(),
   work: z.string().nullable(),
   agent: z.string().nullable(),
+  observe: z.string().nullable(),
 });
 
 const sendRoutingAdviceSchema = z.object({
@@ -1337,6 +1352,41 @@ function buildSendRoutingAdvice(
   return null;
 }
 
+function isSessionObserveUrl(url: string | null | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+  try {
+    const pathname = new URL(url).pathname;
+    return pathname.startsWith("/sessions/")
+      || /\/agents\/[^/]+\/sessions\//.test(pathname);
+  } catch {
+    return url.startsWith("/sessions/")
+      || /\/agents\/[^/]+\/sessions\//.test(url);
+  }
+}
+
+function renderFollowLinkText(result: {
+  followUrl?: string | null;
+  links?: ScoutFollowLinks;
+}): string {
+  const observeUrl = result.links?.observe ?? result.followUrl ?? null;
+  const tailUrl = result.links?.tail ?? null;
+  const observeLabel = isSessionObserveUrl(observeUrl)
+    ? "Observe session"
+    : "Observe agent";
+  if (observeUrl && tailUrl && tailUrl !== observeUrl) {
+    return ` ${observeLabel}: ${observeUrl} Scout tail: ${tailUrl}`;
+  }
+  if (observeUrl) {
+    return ` ${observeLabel}: ${observeUrl}`;
+  }
+  if (tailUrl) {
+    return ` Scout tail: ${tailUrl}`;
+  }
+  return "";
+}
+
 function renderMcpSendSummary(result: {
   usedBroker: boolean;
   conversationId: string | null;
@@ -1374,7 +1424,7 @@ function renderMcpSendSummary(result: {
     : "";
   const route = result.conversationId ? ` in ${result.conversationId}` : "";
   const message = result.messageId ? ` (${result.messageId})` : "";
-  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
+  const followText = renderFollowLinkText(result);
   const wakeText = result.wake && result.flightId
     ? ` Wake queued as ${result.flightId}.${followText}`
     : result.flightId
@@ -1397,6 +1447,7 @@ function renderMcpAskSummary(result: {
   waitStatus?: string;
   flight?: ScoutFlightRecord | null;
   followUrl?: string | null;
+  links?: ScoutFollowLinks;
   targetDiagnostic?: Record<string, unknown> | null;
   startSuggestion?: ScoutMcpStartSuggestion | null;
 }): string {
@@ -1418,7 +1469,7 @@ function renderMcpAskSummary(result: {
     result.workId ? `work ${result.workId}` : null,
   ].filter(Boolean);
   const detailText = details.length > 0 ? `; ${details.join(", ")}` : "";
-  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
+  const followText = renderFollowLinkText(result);
   if (result.waitStatus === "pending" && result.flightId) {
     const state = result.flight?.state ? ` ${result.flight.state}` : "";
     return `Ask dispatch is still${state}; use invocations_wait with flightId=${result.flightId}.${followText}`;
@@ -1565,13 +1616,22 @@ function buildScoutFollowArtifacts(
     targetAgentId: input.targetAgentId ?? input.flight?.targetAgentId ?? null,
   };
   const origin = resolveScoutWebOrigin(env);
-  const followPath =
-    buildFollowPath(ids, "tail") ??
-    (ids.conversationId ? `/c/${encodeURIComponent(ids.conversationId)}` : null);
+  const observePath = ids.sessionId && ids.targetAgentId
+    ? `/agents/${encodeURIComponent(ids.targetAgentId)}/sessions/${encodeURIComponent(ids.sessionId)}`
+    : ids.sessionId
+    ? `/sessions/${encodeURIComponent(ids.sessionId)}`
+    : ids.targetAgentId
+    ? `/agents/${encodeURIComponent(ids.targetAgentId)}?tab=observe`
+    : null;
+  const followPath = observePath
+    ?? (ids.workId ? `/work/${encodeURIComponent(ids.workId)}` : null)
+    ?? (ids.conversationId ? `/c/${encodeURIComponent(ids.conversationId)}` : null)
+    ?? buildFollowPath(ids, "tail");
 
   const follow = followPath ? buildScoutPath(origin, followPath) : null;
   const tailPath = buildFollowPath(ids, "tail");
   const sessionPath = buildFollowPath(ids, "session");
+  const observe = observePath ? buildScoutPath(origin, observePath) : null;
   const links: ScoutFollowLinks = {
     follow,
     tail: tailPath ? buildScoutPath(origin, tailPath) : null,
@@ -1585,6 +1645,7 @@ function buildScoutFollowArtifacts(
     agent: ids.targetAgentId
       ? buildScoutPath(origin, `/agents/${encodeURIComponent(ids.targetAgentId)}?tab=message`)
       : null,
+    observe,
   };
 
   return { ids, links, followUrl: follow };
@@ -1701,6 +1762,7 @@ function renderInvocationLookupSummary(result: {
   output: string | null;
   error: string | null;
   followUrl?: string | null;
+  links?: ScoutFollowLinks;
 }): string {
   if (!result.found || !result.flight) {
     return `Flight ${result.flightId} was not found.`;
@@ -1711,7 +1773,7 @@ function renderInvocationLookupSummary(result: {
   if ((result.flight.state === "failed" || result.flight.state === "cancelled") && result.error) {
     return result.error;
   }
-  const followText = result.followUrl ? ` Follow: ${result.followUrl}` : "";
+  const followText = renderFollowLinkText(result);
   if (result.waitStatus === "pending") {
     return `Flight ${result.flightId} is still ${result.flight.state}.${followText}`;
   }

@@ -23,6 +23,12 @@ describe("follow route resolution", () => {
       view: "ops",
       mode: "tail",
       tailQuery: "session-1|flight-1|inv-1|agent.main|conv-1|work-1",
+      flightId: "flight-1",
+      invocationId: "inv-1",
+      conversationId: "conv-1",
+      workId: "work-1",
+      sessionId: "session-1",
+      targetAgentId: "agent.main",
     });
   });
 
@@ -37,7 +43,7 @@ describe("follow route resolution", () => {
     })).toBe("flight-1|agent.main");
   });
 
-  test("falls back to a focused tail route when no primary surface exists", () => {
+  test("defaults to observe when an agent is known", () => {
     expect(routeForFollowTarget({
       flightId: "flight-1",
       invocationId: "inv-1",
@@ -46,9 +52,41 @@ describe("follow route resolution", () => {
       sessionId: null,
       targetAgentId: "agent.main",
     }, undefined)).toEqual({
+      view: "agents",
+      agentId: "agent.main",
+      tab: "observe",
+    });
+  });
+
+  test("defaults to concrete agent session observe when agent and session are known", () => {
+    expect(routeForFollowTarget({
+      flightId: "flight-1",
+      invocationId: "inv-1",
+      conversationId: null,
+      workId: "work-1",
+      sessionId: "session-1",
+      targetAgentId: "agent.main",
+    }, undefined)).toEqual({
+      view: "sessions",
+      agentId: "agent.main",
+      sessionId: "session-1",
+    });
+  });
+
+  test("falls back to a focused tail route when no primary surface exists", () => {
+    expect(routeForFollowTarget({
+      flightId: "flight-1",
+      invocationId: "inv-1",
+      conversationId: null,
+      workId: null,
+      sessionId: null,
+      targetAgentId: null,
+    }, undefined)).toEqual({
       view: "ops",
       mode: "tail",
-      tailQuery: "flight-1|inv-1|agent.main",
+      tailQuery: "flight-1|inv-1",
+      flightId: "flight-1",
+      invocationId: "inv-1",
     });
   });
 

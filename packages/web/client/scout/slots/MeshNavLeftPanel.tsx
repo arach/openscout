@@ -116,13 +116,15 @@ export function MeshNavLeftPanel() {
           const visible = full ? sorted : sorted.slice(0, COMPACT_LIMIT);
           const overflow = sorted.length - visible.length;
           const machineActive = selectedId === b.machineId && selectedType === "node";
-          const working = b.agents.filter((a) => normalizeAgentState(a.state) === "working").length;
+          const active = b.agents.filter((a) => normalizeAgentState(a.state) === "working").length;
           const meta =
             b.agents.length > 0
-              ? `${working}/${b.agents.length}`
+              ? active > 0
+                ? `${active} active · ${b.agents.length}`
+                : `${b.agents.length}`
               : b.online
                 ? "—"
-                : "not ready";
+                : "unavailable";
           return (
             <div key={b.machineId} className="mesh-nav-machine">
               <RailRow
