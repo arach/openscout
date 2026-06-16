@@ -647,7 +647,7 @@ function AgentContextPanel({
             {agent.name}
           </span>
           {agent.handle && (
-            <span className="text-[10px] font-mono text-cyan-400/70">
+            <span className="text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
               @{agent.handle}
             </span>
           )}
@@ -916,7 +916,7 @@ function RunningSessions({
               onContextMenu={(event) => showContextMenu(event, menuItems)}
               className={`rounded border px-2 py-1.5 transition-colors ${
                 active
-                  ? "border-cyan-400/40 bg-cyan-400/[0.08]"
+                  ? "border-[color-mix(in_srgb,var(--accent)_40%,transparent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)]"
                   : "border-[var(--scout-chrome-border-soft)] bg-[var(--scout-chrome-hover)]"
               }`}
             >
@@ -935,7 +935,7 @@ function RunningSessions({
                 <span className="flex min-w-0 flex-col">
                   <span className="flex min-w-0 items-center gap-1.5">
                     {active && (
-                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300" />
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--accent)]" />
                     )}
                     <span className="truncate font-mono text-[10.5px] text-[var(--scout-chrome-ink)]">
                       {shortSessionId(session.id)}
@@ -949,7 +949,7 @@ function RunningSessions({
                   </span>
                 </span>
                 <span className="flex shrink-0 flex-col items-end">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-cyan-400/70">
+                  <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--accent)]">
                     {active ? "active" : "running"}
                   </span>
                   <span className="mt-0.5 max-w-[78px] truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
@@ -1267,7 +1267,7 @@ function PathRow({
         type="button"
         title={`Reveal ${path}`}
         onClick={() => revealPath({ path, basePath, agentId, sessionId })}
-        className="min-w-0 truncate bg-transparent p-0 text-right font-mono text-[11px] text-cyan-400/80 hover:text-[var(--scout-chrome-ink)] hover:underline"
+        className="min-w-0 truncate bg-transparent p-0 text-right font-mono text-[11px] text-[var(--accent)] hover:text-[var(--scout-chrome-ink)] hover:underline"
       >
         {value}
       </button>

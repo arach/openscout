@@ -3463,9 +3463,11 @@ private struct ScoutAgentInspector: View {
         .scoutDepth()
     }
 
-    /// Sessions attached to this agent. Each row discloses progressively: role
-    /// + metadata at rest, quick actions on hover, a mini-card with the full
-    /// action set when engaged (tapped open). Only one expands at a time.
+    /// Sessions attached to this agent. Rows are navigation-first: role +
+    /// metadata at rest (no height-shifting hover swap), expanding to a
+    /// mini-card with the full action set when engaged (tapped open). The
+    /// canonical Observe/Message verbs live once, up in Engage. Only one
+    /// expands at a time.
     private var sessionsList: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             ScoutEyebrow(text: "Sessions")
@@ -4554,8 +4556,6 @@ private struct ScoutInspectorSessionRow: View {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(ScoutPalette.dim)
-            } else if hovering {
-                quickActions
             } else {
                 Text(channel.ageLabel)
                     .font(HudFont.mono(HudTextSize.micro))
@@ -4576,25 +4576,6 @@ private struct ScoutInspectorSessionRow: View {
                     .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
             )
             .fixedSize()
-    }
-
-    private var quickActions: some View {
-        HStack(spacing: HudSpacing.xs) {
-            quickIcon("eye", tint: ScoutPalette.statusOk, help: "Observe", action: onObserve)
-            quickIcon("bubble.left", tint: ScoutPalette.muted, help: "Message", action: onMessage)
-        }
-    }
-
-    private func quickIcon(_ name: String, tint: Color, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: name)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain).scoutPointerCursor()
-        .help(help)
     }
 
     private var metaLine: some View {

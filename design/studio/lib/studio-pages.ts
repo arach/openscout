@@ -563,6 +563,16 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Per-agent sidebar card — no AVAILABLE tag, header→profile, Observe top-right, New-session CTA explored three ways.",
   },
   {
+    href: "/studies/agent-inspector-dm",
+    label: "Agent Inspector · contexts",
+    bucket: "studies",
+    surface: "macos",
+    family: "agent-cards",
+    status: "concept",
+    source: ["apps/macos/Sources/Scout/ScoutRootView.swift"],
+    blurb: "One inspector card flexed across the contexts it serves (switch at top): your own DM (one bound session elevated, Engage strip removed, Runtime promoted into a Session block with Traces · Watch · Take over, no Message); an agent↔agent DM (two sides, each its own session, Message returns as Interject); and the agent view with no DM (sessions as a peer list, Message present). The rule that unifies them: Message shows only when you're not already a participant. Includes the Current ↔ Proposed before/after.",
+  },
+  {
     href: "/studies/agents-tree",
     label: "Agents Tree",
     bucket: "studies",
