@@ -21,6 +21,7 @@ import {
   normalizeClaudeRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
+  resolveLocalAgentContextWindowUsage,
   stripLocalAgentReplyMetadata,
 } from "./local-agents";
 import { DEFAULT_BROKER_URL } from "./broker-process-manager";
@@ -106,6 +107,72 @@ function writeFakeCodexExecutable(directory: string): string {
 }
 
 describe("local agent prompts", () => {
+  test("derives context-window usage from observed token metadata", () => {
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-1",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            contextInputTokens: 1080,
+            totalTokens: 1080,
+            contextWindowTokens: 200_000,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: 1080,
+      totalTokens: 1080,
+      contextWindowTokens: 200_000,
+      usedPercent: 1,
+    });
+
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-2",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            totalTokens: 42,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: null,
+      totalTokens: 42,
+      contextWindowTokens: null,
+      usedPercent: null,
+    });
+
+    expect(resolveLocalAgentContextWindowUsage({
+      session: {
+        id: "session-3",
+        name: "Codex",
+        adapterType: "codex",
+        status: "active",
+        providerMeta: {
+          observeUsage: {
+            contextInputTokens: 129_200,
+            totalTokens: 4_604_127,
+            contextWindowTokens: 258_400,
+          },
+        },
+      },
+      turns: [],
+    })).toEqual({
+      contextInputTokens: 129_200,
+      totalTokens: 4_604_127,
+      contextWindowTokens: 258_400,
+      usedPercent: 50,
+    });
+  });
+
   test("accepts an explicit Codex executable for app-server warmup even when PATH is empty", () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-warmup-"));
     tempPaths.add(tempRoot);

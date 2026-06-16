@@ -677,6 +677,7 @@ export type ObserveFile = {
 export type ObserveUsageMeta = {
   assistantMessages?: number;
   inputTokens?: number;
+  contextInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
   cacheReadInputTokens?: number;
@@ -786,6 +787,12 @@ export type LocalAgentContextState = {
   sessionAgeMs: number | null;
   turnCount: number;
   currentTurnActive: boolean;
+  contextWindow: {
+    contextInputTokens: number | null;
+    totalTokens: number | null;
+    contextWindowTokens: number | null;
+    usedPercent: number | null;
+  } | null;
   canAutoReset: boolean;
   policy: {
     maxTurns: number;

@@ -1621,18 +1621,36 @@ function formatContextAge(ms: number | null): string {
   return remainder > 0 ? `${hours}h ${remainder}m old` : `${hours}h old`;
 }
 
-function contextLoadPercent(context: LocalAgentContextState): number {
-  const turnRatio = context.policy.maxTurns > 0
-    ? context.turnCount / context.policy.maxTurns
-    : 0;
-  return Math.max(0, Math.min(100, Math.round(turnRatio * 100)));
+function contextWindowPercent(context: LocalAgentContextState): number | null {
+  const percent = context.contextWindow?.usedPercent;
+  return typeof percent === "number" && Number.isFinite(percent)
+    ? Math.max(0, Math.min(100, Math.round(percent)))
+    : null;
+}
+
+function formatTokenCount(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
+  return `${Math.round(value)}`;
 }
 
 function contextTurnLabel(context: LocalAgentContextState): string {
-  if (context.policy.maxTurns <= 0) {
-    return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
-  }
-  return `${context.turnCount} / ${context.policy.maxTurns} turns`;
+  return `${context.turnCount} turn${context.turnCount === 1 ? "" : "s"}`;
+}
+
+function contextWindowTokenLabel(context: LocalAgentContextState): string | null {
+  const contextInput = formatTokenCount(context.contextWindow?.contextInputTokens);
+  const window = formatTokenCount(context.contextWindow?.contextWindowTokens);
+  if (contextWindowPercent(context) !== null && contextInput && window) return `${contextInput} / ${window} tokens`;
+  if (window) return `${window} window`;
+  return null;
+}
+
+function contextWindowMetricLabel(context: LocalAgentContextState): string {
+  const percent = contextWindowPercent(context);
+  if (percent !== null) return `${percent}% used`;
+  return context.contextWindow?.contextWindowTokens ? "usage unknown" : "window unknown";
 }
 
 function formatContextLastActivity(
@@ -1660,18 +1678,21 @@ function ContextFacet({
   resetting: boolean;
   onReset: () => void;
 }) {
-  const percent = contextLoadPercent(context);
+  const percent = contextWindowPercent(context);
+  const metric = contextWindowMetricLabel(context);
   const turns = contextTurnLabel(context);
+  const tokens = contextWindowTokenLabel(context);
   const lastActivity = formatContextLastActivity(
     lastActivityAt,
     context.sessionAgeMs,
   );
+  const detail = [tokens, turns, lastActivity].filter(Boolean).join(" · ");
   const resetDisabled = resetting || context.currentTurnActive;
   return (
     <div className="s-profile-facet s-profile-context">
       <div className="s-profile-facet-label">Context</div>
       <div className="s-profile-context-head">
-        <span className="s-profile-context-metric">{percent}% used</span>
+        <span className="s-profile-context-metric">{metric}</span>
         <button
           type="button"
           className="s-profile-facet-action"
@@ -1682,11 +1703,14 @@ function ContextFacet({
           {resetting ? "Starting..." : "New"}
         </button>
       </div>
-      <div className="s-profile-context-gauge" aria-label={`Context load ${percent}%`}>
-        <div className="s-profile-context-gauge-fill" style={{ width: `${percent}%` }} />
+      <div
+        className="s-profile-context-gauge"
+        aria-label={percent === null ? "Context window usage unavailable" : `Context window usage ${percent}%`}
+      >
+        <div className="s-profile-context-gauge-fill" style={{ width: `${percent ?? 0}%` }} />
       </div>
-      <div className="s-profile-facet-detail" title={`${turns} · ${lastActivity}`}>
-        {turns} · {lastActivity}
+      <div className="s-profile-facet-detail" title={detail}>
+        {detail}
       </div>
     </div>
   );

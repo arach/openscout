@@ -1366,6 +1366,7 @@ export function buildCodexRolloutSessionSnapshot(
   const blocksByCallId = new Map<string, BlockState>();
   let currentTurnId: string | null = null;
   let lastObservedAt: number | null = null;
+  let previousInputTokens: number | undefined;
 
   const ensureTurn = (turnId: string, startedAt?: number) => {
     const existing = turnsById.get(turnId);
@@ -1468,6 +1469,22 @@ export function buildCodexRolloutSessionSnapshot(
         const observedUsage = readCodexRolloutUsageObservation(payload, timestamp);
         if (observedUsage) {
           const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
+          const fallbackContextInputTokens = observedUsage.inputTokens === undefined
+            ? undefined
+            : previousInputTokens === undefined
+              ? observedUsage.inputTokens
+              : observedUsage.inputTokens - previousInputTokens;
+          const contextInputTokens = observedUsage.contextInputTokens !== undefined && observedUsage.contextInputTokens > 0
+            ? observedUsage.contextInputTokens
+            : fallbackContextInputTokens;
+          if (
+            contextInputTokens !== undefined
+            && contextInputTokens > 0
+            && (observedUsage.contextWindowTokens === undefined || contextInputTokens <= observedUsage.contextWindowTokens)
+          ) {
+            setObserveNumber(usage, "contextInputTokens", contextInputTokens);
+          }
+          previousInputTokens = observedUsage.inputTokens ?? previousInputTokens;
           setObserveNumber(usage, "inputTokens", observedUsage.inputTokens);
           setObserveNumber(usage, "cacheReadInputTokens", observedUsage.cacheReadInputTokens);
           setObserveNumber(usage, "outputTokens", observedUsage.outputTokens);

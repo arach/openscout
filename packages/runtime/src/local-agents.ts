@@ -151,6 +151,13 @@ export type LocalAgentContextPolicy = {
   agingRatio: number;
 };
 
+export type LocalAgentContextWindowUsage = {
+  contextInputTokens: number | null;
+  totalTokens: number | null;
+  contextWindowTokens: number | null;
+  usedPercent: number | null;
+};
+
 export type LocalAgentContextState = {
   agentId: string;
   state: "fresh" | "aging" | "stale";
@@ -161,6 +168,7 @@ export type LocalAgentContextState = {
   sessionAgeMs: number | null;
   turnCount: number;
   currentTurnActive: boolean;
+  contextWindow: LocalAgentContextWindowUsage | null;
   canAutoReset: boolean;
   policy: LocalAgentContextPolicy;
   model: string | null;
@@ -307,6 +315,52 @@ function normalizeContextTimestamp(value: number | undefined): number | null {
     return null;
   }
   return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+function metadataRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function finiteMetadataNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function resolveLocalAgentContextWindowUsage(
+  snapshot: SessionState | null | undefined,
+): LocalAgentContextWindowUsage | null {
+  const providerMeta = metadataRecord(snapshot?.session.providerMeta);
+  const observeUsage = metadataRecord(providerMeta?.observeUsage);
+  if (!observeUsage) {
+    return null;
+  }
+
+  const observedContextInputTokens = finiteMetadataNumber(observeUsage.contextInputTokens);
+  const totalTokens = finiteMetadataNumber(observeUsage.totalTokens);
+  const contextWindowTokens = finiteMetadataNumber(observeUsage.contextWindowTokens);
+  if (observedContextInputTokens === null && totalTokens === null && contextWindowTokens === null) {
+    return null;
+  }
+
+  const fallbackContextInputTokens = totalTokens !== null
+    && contextWindowTokens !== null
+    && totalTokens <= contextWindowTokens
+    ? totalTokens
+    : null;
+  const contextInputTokens = observedContextInputTokens ?? fallbackContextInputTokens;
+  const usedPercent = contextInputTokens !== null
+    && contextWindowTokens !== null
+    && contextWindowTokens > 0
+    ? Math.max(0, Math.min(100, Math.round((contextInputTokens / contextWindowTokens) * 100)))
+    : null;
+
+  return {
+    contextInputTokens,
+    totalTokens,
+    contextWindowTokens,
+    usedPercent,
+  };
 }
 
 export function classifyLocalAgentContextState(input: {
@@ -1745,6 +1799,7 @@ export async function getLocalAgentContextState(agentId: string): Promise<LocalA
     sessionAgeMs,
     turnCount,
     currentTurnActive,
+    contextWindow: resolveLocalAgentContextWindowUsage(snapshot),
     policy,
     model: readLaunchModelForHarness(harness, launchArgs) ?? snapshot?.session.model ?? null,
     harness,

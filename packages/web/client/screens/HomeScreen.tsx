@@ -61,6 +61,7 @@ type ObserveAgentSummary = {
       // Real token usage. `data.contextUsage` is deliberately ignored — it's a
       // synthetic ramp (syntheticContextUsage), not actual window utilization.
       usage?: {
+        contextInputTokens?: number | null;
         totalTokens?: number | null;
         contextWindowTokens?: number | null;
       };
@@ -759,8 +760,12 @@ export function HomeScreen({
         // synthetic ramp. Null when the harness doesn't report both numbers.
         const total = usage?.totalTokens;
         const window = usage?.contextWindowTokens;
-        const contextPct = typeof total === "number" && typeof window === "number" && window > 0
-          ? Math.min(100, Math.round((total / window) * 100))
+        const contextInput = usage?.contextInputTokens
+          ?? (typeof total === "number" && typeof window === "number" && total <= window
+            ? total
+            : null);
+        const contextPct = typeof contextInput === "number" && typeof window === "number" && window > 0
+          ? Math.min(100, Math.round((contextInput / window) * 100))
           : null;
         next[summary.agentId] = {
           sessionId: session?.externalSessionId ?? null,
