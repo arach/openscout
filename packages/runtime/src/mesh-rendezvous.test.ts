@@ -1,4 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   OPENSCOUT_IROH_MESH_ALPN,
@@ -13,6 +17,42 @@ import {
   resolveMeshRendezvousPublishConfig,
   startMeshRendezvousPublisher,
 } from "./mesh-rendezvous.js";
+import { writeOpenScoutSettings } from "./setup.js";
+
+const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
+const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
+const testDirectories = new Set<string>();
+
+beforeEach(() => {
+  const home = mkdtempSync(join(tmpdir(), "openscout-rendezvous-test-"));
+  testDirectories.add(home);
+  process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "support");
+  process.env.OPENSCOUT_CONTROL_HOME = join(home, "control");
+  process.env.OPENSCOUT_RELAY_HUB = join(home, "relay");
+});
+
+afterEach(() => {
+  if (originalSupportDirectory === undefined) {
+    delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+  } else {
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
+  }
+  if (originalControlHome === undefined) {
+    delete process.env.OPENSCOUT_CONTROL_HOME;
+  } else {
+    process.env.OPENSCOUT_CONTROL_HOME = originalControlHome;
+  }
+  if (originalRelayHub === undefined) {
+    delete process.env.OPENSCOUT_RELAY_HUB;
+  } else {
+    process.env.OPENSCOUT_RELAY_HUB = originalRelayHub;
+  }
+  for (const directory of testDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  testDirectories.clear();
+});
 
 describe("mesh rendezvous publisher", () => {
   test("resolves opt-in publish config from env", () => {
@@ -40,6 +80,21 @@ describe("mesh rendezvous publisher", () => {
     })).toMatchObject({
       url: "https://mesh.oscout.net",
       sessionToken: "abc",
+    });
+  });
+
+  test("uses OpenScout Network settings as the rendezvous opt-in", async () => {
+    await writeOpenScoutSettings({
+      network: {
+        openScoutNetwork: {
+          discoveryEnabled: true,
+          rendezvousUrl: "https://mesh.example.test/",
+        },
+      },
+    });
+
+    expect(resolveMeshRendezvousPublishConfig({})).toMatchObject({
+      url: "https://mesh.example.test",
     });
   });
 

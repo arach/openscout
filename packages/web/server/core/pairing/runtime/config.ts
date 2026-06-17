@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { readOpenScoutNetworkSettingsSync } from "@openscout/runtime/open-scout-network";
+
 export type PairingSessionConfig = {
   adapter: string;
   name: string;
@@ -72,9 +74,11 @@ export function savePairingConfig(config: PairingConfig): void {
 
 export function resolvedPairingConfig(env: NodeJS.ProcessEnv = process.env) {
   const config = loadPairingConfig();
+  const osn = readOpenScoutNetworkSettingsSync();
   const relay = env.OPENSCOUT_PAIRING_RELAY_URL?.trim()
     || env.OPENSCOUT_MOBILE_PAIRING_RELAY_URL?.trim()
-    || config.relay;
+    || config.relay
+    || (osn.discoveryEnabled ? osn.pairingRelayUrl : undefined);
   return {
     relay: typeof relay === "string" && relay.trim().length > 0
       ? relay.trim()

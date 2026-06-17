@@ -105,7 +105,7 @@ private struct SettingsRootView: View {
                             switch selected {
                             case .diagnostics: DiagnosticsTab(controller: controller)
                             case .about:       AboutTab(controller: controller)
-                            case .advanced:    AdvancedTab()
+                            case .advanced:    AdvancedTab(controller: controller)
                             }
                         }
                         .padding(16)
@@ -703,33 +703,84 @@ private struct AboutTab: View {
 // MARK: - Advanced
 
 private struct AdvancedTab: View {
+    @ObservedObject var controller: OpenScoutAppController
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(ShellPalette.muted)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                        .frame(width: 14, height: 14)
 
-            Text("MORE CONTROLS COMING")
-                .font(MenuType.mono(11, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(ShellPalette.dim)
+                    Image(systemName: "network")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(ShellPalette.ink)
 
-            Text("Advanced options will land here once they're ready. You haven't broken anything.")
-                .font(MenuType.body(11))
-                .foregroundStyle(ShellPalette.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
+                    Text("OPENSCOUT NETWORK")
+                        .font(MenuType.mono(11, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(ShellPalette.ink)
+
+                    Text(controller.openScoutNetwork.statusLabel)
+                        .font(MenuType.mono(12, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+
+                    Spacer()
+
+                    Toggle("", isOn: Binding(
+                        get: { controller.openScoutNetwork.discoveryEnabled },
+                        set: { controller.setOpenScoutNetworkDiscoveryEnabled($0) }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(controller.openScoutNetworkActionPending)
+                    .help("OpenScout Network discovery")
+                }
+
+                Text(controller.openScoutNetwork.statusDetail)
+                    .font(MenuType.body(11.5))
+                    .foregroundStyle(ShellPalette.copy)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                VStack(spacing: 5) {
+                    KVRow(entry: KVEntry(key: "Rendezvous", value: controller.openScoutNetwork.rendezvousURL))
+                    KVRow(entry: KVEntry(key: "Relay", value: controller.openScoutNetwork.pairingRelayURL))
+                    KVRow(entry: KVEntry(key: "Session", value: controller.openScoutNetwork.sessionAvailable ? "Signed in" : "Missing"))
+                    KVRow(entry: KVEntry(key: "Settings", value: controller.openScoutNetwork.settingsPath, path: controller.openScoutNetwork.settingsPath))
+                }
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+                    Button("Restart relay") {
+                        controller.restartPairing()
+                    }
+                    .buttonStyle(SecondaryPillStyle())
+                    .disabled(controller.pairingActionPending)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(ShellPalette.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(ShellPalette.line, lineWidth: 1)
+            )
         }
-        .padding(36)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(ShellPalette.surfaceFill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(ShellPalette.line, lineWidth: 1)
-        )
+    }
+
+    private var statusColor: Color {
+        if controller.openScoutNetworkActionPending || controller.pairingActionPending {
+            return ShellPalette.warning
+        }
+        if !controller.openScoutNetwork.discoveryEnabled {
+            return ShellPalette.muted
+        }
+        return controller.openScoutNetwork.sessionAvailable ? ShellPalette.success : ShellPalette.warning
     }
 }
 

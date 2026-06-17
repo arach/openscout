@@ -11,6 +11,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { isLoopbackHost } from "./broker-process-manager.js";
+import {
+  readOpenScoutNetworkSessionTokenFromKeychain,
+  readOpenScoutNetworkSettingsSync,
+} from "./open-scout-network.js";
 
 export interface MeshRendezvousPublishConfig {
   url: string;
@@ -39,15 +43,24 @@ const DEFAULT_RENDEZVOUS_INTERVAL_MS = 30_000;
 export function resolveMeshRendezvousPublishConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): MeshRendezvousPublishConfig | undefined {
-  const rawUrl = env.OPENSCOUT_MESH_RENDEZVOUS_URL?.trim();
-  if (!rawUrl || rawUrl.toLowerCase() === "false" || rawUrl === "0") {
+  const explicitUrl = env.OPENSCOUT_MESH_RENDEZVOUS_URL?.trim();
+  if (explicitUrl?.toLowerCase() === "false" || explicitUrl === "0") {
+    return undefined;
+  }
+  const settings = readOpenScoutNetworkSettingsSync();
+  const rawUrl = explicitUrl || (settings.discoveryEnabled ? settings.rendezvousUrl : "");
+  if (!rawUrl) {
     return undefined;
   }
 
+  const token = env.OPENSCOUT_MESH_RENDEZVOUS_TOKEN?.trim() || undefined;
+  const sessionToken = env.OPENSCOUT_MESH_RENDEZVOUS_SESSION?.trim()
+    || (token ? undefined : readOpenScoutNetworkSessionTokenFromKeychain());
+
   return {
     url: rawUrl.replace(/\/$/, ""),
-    token: env.OPENSCOUT_MESH_RENDEZVOUS_TOKEN?.trim() || undefined,
-    sessionToken: env.OPENSCOUT_MESH_RENDEZVOUS_SESSION?.trim() || undefined,
+    token,
+    sessionToken: sessionToken || undefined,
     ttlMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_TTL_MS, DEFAULT_RENDEZVOUS_TTL_MS),
     intervalMs: readPositiveInteger(env.OPENSCOUT_MESH_RENDEZVOUS_INTERVAL_MS, DEFAULT_RENDEZVOUS_INTERVAL_MS),
   };

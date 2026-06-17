@@ -118,6 +118,11 @@
       "bun": "./src/local-config.ts",
       "default": "./dist/local-config.js"
     },
+    "./open-scout-network": {
+      "types": "./src/open-scout-network.ts",
+      "bun": "./src/open-scout-network.ts",
+      "default": "./dist/open-scout-network.js"
+    },
     "./local-edge": {
       "types": "./src/local-edge.ts",
       "bun": "./src/local-edge.ts",
