@@ -133,7 +133,7 @@ private struct TailRowModel: Identifiable {
 
 private extension TailRowModel {
     var hasSession: Bool {
-        !clean(sessionId).isEmpty
+        !cleanString(sessionId).isEmpty
     }
 
     var routingHandle: String {
@@ -146,7 +146,7 @@ private extension TailRowModel {
 
     var sessionURL: URL {
         guard hasSession else { return tailRelativeURL("/sessions") }
-        return tailRelativeURL("/sessions/\(tailPercentPath(sessionId))")
+        return tailRelativeURL("/sessions/\(tailPercentPath(cleanString(sessionId)))")
     }
 
     var followURL: URL {
@@ -156,7 +156,7 @@ private extension TailRowModel {
         )
         var queryItems = [URLQueryItem(name: "view", value: "tail")]
         if hasSession {
-            queryItems.append(URLQueryItem(name: "sessionId", value: clean(sessionId)))
+            queryItems.append(URLQueryItem(name: "sessionId", value: cleanString(sessionId)))
         }
         if let agentId = clean(agentId) {
             queryItems.append(URLQueryItem(name: "targetAgentId", value: agentId))
@@ -183,7 +183,7 @@ private extension TailRowModel {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private func clean(_ value: String) -> String {
+    private func cleanString(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
