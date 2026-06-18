@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { createReadStream, existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -39,6 +39,11 @@ import {
   selectPreferredAgentEndpoint,
   type EndpointPreference,
 } from "./core/agent-endpoints.ts";
+import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
+import {
+  queryDiscoveredTerminalSessions,
+  terminalSurfaceKey,
+} from "./terminal-session-discovery.ts";
 import {
   getImageBlob,
   ImageBlobError,
@@ -61,6 +66,8 @@ import {
   queryFollowTarget,
   queryHeartrate,
   queryRuns,
+  queryTerminalSessions,
+  type WebAgent,
 } from "./db-queries.ts";
 import {
   conversationIdForAgent,
@@ -207,7 +214,7 @@ import {
   saveOpenScoutOnboardingProject,
   skipOpenScoutOnboarding,
 } from "@openscout/runtime/onboarding";
-import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import {
   invokeCodexAppServerAgent,
@@ -331,6 +338,16 @@ export type TerminalRunRequest = {
   agentId?: string | null;
 };
 
+export type TerminalRelayDestroyRequest = {
+  sessionId?: string;
+};
+
+export type TerminalSurfaceControlRequest = {
+  backend?: string;
+  sessionName?: string;
+  action?: string;
+};
+
 export type TmuxPanePeekRequest = {
   agentId: string;
   sessionId: string;
@@ -358,6 +375,8 @@ export type CreateOpenScoutWebServerOptions = {
   trustedHosts?: string[];
   trustedOrigins?: string[];
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
+  destroyTerminalRelaySession?: (sessionId: string) => Promise<boolean>;
+  destroyTerminalRelaySurface?: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
@@ -981,6 +1000,471 @@ function firstMetadataString(...values: Array<unknown>): string | null {
   return null;
 }
 
+function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+}
+
+function parseTerminalSessionLimit(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(1000, Math.floor(parsed)) : 100;
+}
+
+function parseTerminalSessionDiscoveryFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "backend";
+}
+
+function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit" | "force-quit-bridge" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "interrupt"
+    || normalized === "quit"
+    || normalized === "stop-job"
+    || normalized === "restart-resume"
+    || normalized === "detach"
+    || normalized === "force-quit"
+    || normalized === "force-quit-bridge"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+type TmuxPaneProcess = {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  comm: string;
+};
+
+type ProcessCommandRow = TmuxPaneProcess & {
+  command: string;
+};
+
+type RelayRuntimeState = {
+  agentId?: string;
+  projectRoot?: string;
+  sessionId?: string;
+  promptFile?: string;
+  launchScript?: string;
+};
+
+function parseProcessNumber(value: string | undefined): number | null {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function tmuxPaneDetail(sessionName: string): { panePid: number; paneTty: string; paneCurrentPath: string | null } | null {
+  try {
+    const output = execFileSync("tmux", [
+      "display-message",
+      "-p",
+      "-t",
+      sessionName,
+      "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const [pidRaw, ttyRaw, pathRaw] = output.split("\t");
+    const panePid = parseProcessNumber(pidRaw);
+    const paneTty = ttyRaw?.replace(/^\/dev\//u, "").trim();
+    const paneCurrentPath = pathRaw?.trim() || null;
+    return panePid && paneTty ? { panePid, paneTty, paneCurrentPath } : null;
+  } catch {
+    return null;
+  }
+}
+
+function processRowsForTty(tty: string): TmuxPaneProcess[] {
+  try {
+    const output = execFileSync("ps", [
+      "-t",
+      tty,
+      "-o",
+      "pid=,ppid=,pgid=,comm=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const comm = parts.slice(3).join(" ");
+        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
+      })
+      .filter((row): row is TmuxPaneProcess => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function allProcessRows(): TmuxPaneProcess[] {
+  try {
+    const output = execFileSync("ps", [
+      "-axo",
+      "pid=,ppid=,pgid=,comm=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const comm = parts.slice(3).join(" ");
+        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
+      })
+      .filter((row): row is TmuxPaneProcess => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function allProcessCommandRows(): ProcessCommandRow[] {
+  try {
+    const output = execFileSync("ps", [
+      "-axo",
+      "pid=,ppid=,pgid=,command=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const command = parts.slice(3).join(" ");
+        const comm = command.split(/\s+/u)[0] ?? "";
+        return pid && ppid && pgid && comm && command
+          ? { pid, ppid, pgid, comm, command }
+          : null;
+      })
+      .filter((row): row is ProcessCommandRow => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function processRowsForTmuxPane(detail: { panePid: number; paneTty: string }): TmuxPaneProcess[] {
+  const byPid = new Map<number, TmuxPaneProcess>();
+  // Keep tty-derived parentage first: macOS can report long-running tmux pane
+  // children as reparented elsewhere, while the tty scan still exposes the
+  // pane-to-Claude relationship we need to find no-tty shell jobs.
+  for (const row of processRowsForTty(detail.paneTty)) {
+    byPid.set(row.pid, row);
+  }
+  for (const row of allProcessRows()) {
+    if (!byPid.has(row.pid)) byPid.set(row.pid, row);
+  }
+  return [...byPid.values()];
+}
+
+function descendantsOf(rootPid: number, rows: TmuxPaneProcess[]): Set<number> {
+  const descendants = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (row.ppid !== rootPid && !descendants.has(row.ppid)) continue;
+      if (descendants.has(row.pid)) continue;
+      descendants.add(row.pid);
+      changed = true;
+    }
+  }
+  return descendants;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killProcesses(pids: number[], signal: NodeJS.Signals): number {
+  let killed = 0;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+      killed += 1;
+    } catch {
+      // The process may already be gone.
+    }
+  }
+  return killed;
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:+=@%-]+$/u.test(value)) {
+    return value;
+  }
+  return `'${value.replace(/'/gu, `'\\''`)}'`;
+}
+
+function readProcessCwd(pid: number): string | null {
+  try {
+    const output = execFileSync("lsof", [
+      "-a",
+      "-p",
+      String(pid),
+      "-d",
+      "cwd",
+      "-Fn",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    for (const line of output.split(/\r?\n/u)) {
+      if (!line.startsWith("n")) continue;
+      const value = line.slice(1).trim();
+      if (value) return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function claudeProjectDirForCwd(cwd: string): string {
+  return join(homedir(), ".claude", "projects", cwd.replace(/\//gu, "-"));
+}
+
+function mostRecentClaudeSessionForCwd(cwd: string): { sessionId: string; transcriptPath: string } | null {
+  const dir = claudeProjectDirForCwd(cwd);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let best: { sessionId: string; transcriptPath: string; mtimeMs: number } | null = null;
+  for (const entry of entries) {
+    if (!entry.endsWith(".jsonl")) continue;
+    const transcriptPath = join(dir, entry);
+    try {
+      const mtimeMs = statSync(transcriptPath).mtimeMs;
+      if (!best || mtimeMs > best.mtimeMs) {
+        best = {
+          sessionId: entry.slice(0, -".jsonl".length),
+          transcriptPath,
+          mtimeMs,
+        };
+      }
+    } catch {
+      // Ignore stale entries that disappeared while scanning.
+    }
+  }
+  return best ? { sessionId: best.sessionId, transcriptPath: best.transcriptPath } : null;
+}
+
+function readRelayRuntimeStateForTmuxSession(sessionName: string): RelayRuntimeState | null {
+  const agentsDir = resolveOpenScoutSupportPaths().relayAgentsDirectory;
+  let entries: string[];
+  try {
+    entries = readdirSync(agentsDir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const statePath = join(agentsDir, entry, "state.json");
+    try {
+      const parsed = JSON.parse(readFileSync(statePath, "utf8")) as RelayRuntimeState;
+      if (parsed.sessionId === sessionName) return parsed;
+    } catch {
+      // Ignore malformed or partially-written runtime state files.
+    }
+  }
+  return null;
+}
+
+function resumeScriptFromLaunchScript(launchScript: string, sessionId: string): string {
+  const resumePrefix = `exec claude --resume ${shellQuote(sessionId)} `;
+  const rewritten = launchScript.replace(/(^|\n)(\s*)claude\s+/u, `$1$2${resumePrefix}`);
+  return rewritten === launchScript
+    ? `${launchScript}\n# OpenScout resume fallback\n${resumePrefix}\n`
+    : rewritten;
+}
+
+function forceQuitRelayAgentProcessTree(agentId: string): boolean {
+  const rows = allProcessCommandRows();
+  const claudeRoots = rows.filter((row) =>
+    /(^|\/)claude(\s|$)/u.test(row.command) && row.command.includes(agentId)
+  );
+  const targetPids = new Set<number>();
+  for (const root of claudeRoots) {
+    targetPids.add(root.pid);
+    const descendants = descendantsOf(root.pid, rows);
+    const targetGroups = new Set<number>([root.pgid]);
+    for (const row of rows) {
+      if (descendants.has(row.pid)) {
+        targetPids.add(row.pid);
+        targetGroups.add(row.pgid);
+      }
+    }
+    for (const row of rows) {
+      if (targetGroups.has(row.pgid)) targetPids.add(row.pid);
+    }
+  }
+  return terminateProcessesWithEscalation([...targetPids]);
+}
+
+function restartClaudeWithResumeInTmuxSurface(sessionName: string): { ok: boolean; sessionId: string | null; transcriptPath: string | null } {
+  const runtimeState = readRelayRuntimeStateForTmuxSession(sessionName);
+  const detail = tmuxPaneDetail(sessionName);
+  const surface = detail ? claudeRowsInTmuxSurface(sessionName) : null;
+  const liveClaudeCwd = surface?.claudeRows[0]?.pid
+    ? readProcessCwd(surface.claudeRows[0].pid)
+    : null;
+  const cwd = runtimeState?.projectRoot
+    ?? liveClaudeCwd
+    ?? detail?.paneCurrentPath
+    ?? null;
+  if (!cwd) return { ok: false, sessionId: null, transcriptPath: null };
+  const transcript = mostRecentClaudeSessionForCwd(cwd);
+  if (!transcript) return { ok: false, sessionId: null, transcriptPath: null };
+
+  const launchScriptPath = runtimeState?.launchScript;
+  const launchScript = launchScriptPath && existsSync(launchScriptPath)
+    ? readFileSync(launchScriptPath, "utf8")
+    : `#!/bin/bash
+set -uo pipefail
+cd ${shellQuote(cwd)}
+exec claude --resume ${shellQuote(transcript.sessionId)}
+`;
+  const resumeScript = resumeScriptFromLaunchScript(launchScript, transcript.sessionId);
+
+  try {
+    if (runtimeState?.agentId) {
+      forceQuitRelayAgentProcessTree(runtimeState.agentId);
+    } else if (detail) {
+      forceQuitClaudeInTmuxSurface(sessionName);
+    }
+    const command = `bash -lc ${shellQuote(resumeScript)}`;
+    if (detail) {
+      execFileSync("tmux", [
+        "respawn-pane",
+        "-k",
+        "-t",
+        sessionName,
+        "-c",
+        cwd,
+        command,
+      ], { stdio: "ignore" });
+    } else {
+      execFileSync("tmux", [
+        "new-session",
+        "-d",
+        "-s",
+        sessionName,
+        "-c",
+        cwd,
+        command,
+      ], { stdio: "ignore" });
+    }
+    return { ok: true, sessionId: transcript.sessionId, transcriptPath: transcript.transcriptPath };
+  } catch {
+    return { ok: false, sessionId: transcript.sessionId, transcriptPath: transcript.transcriptPath };
+  }
+}
+
+function terminateProcessesWithEscalation(pids: number[]): boolean {
+  const targetPids = [...new Set(pids)]
+    .filter((pid) => Number.isFinite(pid) && pid > 0)
+    .sort((left, right) => right - left);
+  if (targetPids.length === 0) return false;
+  killProcesses(targetPids, "SIGTERM");
+  const stillAlive = targetPids.filter(processExists);
+  if (stillAlive.length > 0) {
+    setTimeout(() => {
+      killProcesses(stillAlive.filter(processExists), "SIGKILL");
+    }, 750);
+  }
+  return true;
+}
+
+function claudeRowsInTmuxSurface(sessionName: string): {
+  detail: { panePid: number; paneTty: string };
+  rows: TmuxPaneProcess[];
+  panePgid: number;
+  claudeRows: TmuxPaneProcess[];
+} | null {
+  const detail = tmuxPaneDetail(sessionName);
+  if (!detail) return null;
+  const rows = processRowsForTmuxPane(detail);
+  const descendantPids = descendantsOf(detail.panePid, rows);
+  const panePgid = rows.find((row) => row.pid === detail.panePid)?.pgid ?? detail.panePid;
+  const claudeRows = rows.filter((row) =>
+    descendantPids.has(row.pid) && /(^|\/)claude$/u.test(row.comm)
+  );
+  return { detail, rows, panePgid, claudeRows };
+}
+
+function stopClaudeActiveJobInTmuxSurface(sessionName: string): boolean {
+  const surface = claudeRowsInTmuxSurface(sessionName);
+  if (!surface) return false;
+  const targetPids = new Set<number>();
+  for (const claudeRow of surface.claudeRows) {
+    const claudeDescendants = descendantsOf(claudeRow.pid, surface.rows);
+    const jobGroups = new Set(
+      surface.rows
+        .filter((row) =>
+          claudeDescendants.has(row.pid)
+          && row.pgid !== surface.panePgid
+          && row.pgid !== claudeRow.pgid
+        )
+        .map((row) => row.pgid),
+    );
+    for (const row of surface.rows) {
+      if (claudeDescendants.has(row.pid) && jobGroups.has(row.pgid)) {
+        targetPids.add(row.pid);
+      }
+    }
+  }
+  return terminateProcessesWithEscalation([...targetPids]);
+}
+
+function forceQuitClaudeInTmuxSurface(sessionName: string): boolean {
+  const surface = claudeRowsInTmuxSurface(sessionName);
+  if (!surface) return false;
+  const targetPids = [...new Set(surface.claudeRows.flatMap((row) =>
+    surface.rows
+      .filter((candidate) => candidate.pid === row.pid || descendantsOf(row.pid, surface.rows).has(candidate.pid))
+      .map((candidate) => candidate.pid)
+  ))].sort((left, right) => right - left);
+  return terminateProcessesWithEscalation(targetPids);
+}
+
+function controlTmuxSurface(sessionName: string, action: "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit"): boolean {
+  try {
+    if (action === "interrupt") {
+      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-c"], { stdio: "ignore" });
+      return true;
+    }
+    if (action === "quit") {
+      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-d"], { stdio: "ignore" });
+      return true;
+    }
+    if (action === "stop-job") {
+      return stopClaudeActiveJobInTmuxSurface(sessionName);
+    }
+    if (action === "restart-resume") {
+      return restartClaudeWithResumeInTmuxSurface(sessionName).ok;
+    }
+    if (action === "force-quit") {
+      return forceQuitClaudeInTmuxSurface(sessionName);
+    }
+    execFileSync("tmux", ["detach-client", "-s", sessionName], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function metadataTimestampMs(value: unknown): number | undefined {
   const numeric = typeof value === "number"
     ? value
@@ -1142,36 +1626,25 @@ function brokerAgentToWebAgent(
     updatedAt: metadataTimestampMs(endpointMetadata.lastCompletedAt)
       ?? metadataTimestampMs(endpointMetadata.updatedAt)
       ?? null,
-    createdAt: metadataTimestampMs(agentMetadata.createdAt) ?? null,
-    transport: stringField(endpoint, "transport") ?? null,
-    selector: stringField(agent, "selector") ?? handle,
-    defaultSelector: stringField(agent, "defaultSelector") ?? stringField(agent, "selector") ?? handle,
-    nodeQualifier: stringField(agent, "nodeQualifier") ?? null,
-    workspaceQualifier: stringField(agent, "workspaceQualifier") ?? null,
-    wakePolicy: stringField(agent, "wakePolicy") ?? null,
-    capabilities: brokerAgentCapabilities(agent, protocol),
-    project: stringField(agentMetadata, "project") ?? null,
-    branch: stringField(agentMetadata, "branch") ?? null,
-    role: null,
-    model: stringField(endpointMetadata, "model") ?? null,
-    harnessSessionId: stringField(endpoint, "sessionId")
-      ?? stringField(endpointMetadata, "a2aContextId")
-      ?? stringField(endpointMetadata, "contextId")
-      ?? null,
-    harnessLogPath: stringField(endpointMetadata, "logPath") ?? null,
-    conversationId: conversationIdForAgent(agentId),
-    authorityNodeId,
-    authorityNodeName: stringField(authorityNode, "name") ?? null,
-    homeNodeId,
-    homeNodeName: stringField(homeNode, "name") ?? null,
-    ownerId,
-    ownerName: stringField(owner, "displayName") ?? null,
-    ownerHandle: stringField(owner, "handle") ?? null,
-    staleLocalRegistration: false,
-    retiredFromFleet: false,
-    replacedByAgentId: null,
-    providerName: provider.providerName,
-    providerUrl: provider.providerUrl,
+    terminalSurface: resolveTerminalSurface({
+      transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+      endpointSessionId: endpoint?.sessionId ?? null,
+      metadata: endpointMetadata,
+    }),
+    harnessLogPath: null,
+    conversationId: conversationIdForAgent(agent.id),
+    authorityNodeId: agent.authorityNodeId ?? null,
+    authorityNodeName: brokerNodeName(broker, agent.authorityNodeId),
+    homeNodeId: agent.homeNodeId ?? null,
+    homeNodeName: brokerNodeName(broker, agent.homeNodeId),
+    ownerId: agent.ownerId ?? null,
+    ownerName: owner.name,
+    ownerHandle: owner.handle,
+    staleLocalRegistration: metadataBooleanValue(agentMetadata, "staleLocalRegistration"),
+    retiredFromFleet: metadataBooleanValue(agentMetadata, "retiredFromFleet"),
+    replacedByAgentId: metadataStringValue(agentMetadata, "replacedByAgentId"),
+    providerName: provider.name,
+    providerUrl: provider.url,
     protocol,
     skills: brokerAgentSkills(agentMetadata),
   };
@@ -1192,27 +1665,23 @@ async function readWebAgentsWithBrokerCards(existingAgents: WebAgentRecord[]): P
   return [...byId.values()];
 }
 
-function matchesAgentRouteParam(agent: WebAgentRecord, value: string): boolean {
-  return agent.id === value
-    || agent.handle === value
-    || agent.selector === value
-    || agent.defaultSelector === value;
+async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
+  const agents = queryAgents().map(withResolvedHarnessSessionIdentity);
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  if (!broker) {
+    return agents;
+  }
+  const existingIds = new Set(agents.map((agent) => agent.id));
+  const brokerAgents = brokerCardAgentsForWeb(broker).filter(
+    (agent) => !existingIds.has(agent.id),
+  );
+  return [...agents, ...brokerAgents];
 }
 
-function parseRepoDiffCacheMode(value: string | undefined): "reload" | "prefer" | "only" {
-  return value === "prefer" || value === "only" || value === "reload" ? value : "reload";
-}
-
-function normalizeRepoDiffFileFilters(worktreePath: string, files: string[]): string[] | undefined {
-  const root = resolve(worktreePath);
-  const seen = new Set<string>();
-  for (const file of files) {
-    const trimmed = file.trim();
-    if (!trimmed) continue;
-    const absolute = isAbsolute(trimmed) ? resolve(trimmed) : resolve(root, trimmed);
-    if (!isInsideRoot(root, absolute) || absolute === root) continue;
-    const rel = relative(root, absolute);
-    if (rel && !seen.has(rel)) seen.add(rel);
+async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+  const agent = queryAgentById(agentId);
+  if (agent) {
+    return withResolvedHarnessSessionIdentity(agent);
   }
   return seen.size > 0 ? [...seen] : undefined;
 }
@@ -1267,6 +1736,21 @@ function jsonResponse(
       ...headers,
     },
   });
+}
+
+function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
+  if (!agent.terminalSurface || agent.harness !== "claude") {
+    return agent;
+  }
+  const cwd = agent.cwd ?? agent.projectRoot;
+  const transcript = cwd ? mostRecentClaudeSessionForCwd(cwd) : null;
+  if (!transcript?.sessionId || transcript.sessionId === agent.harnessSessionId) {
+    return agent;
+  }
+  return {
+    ...agent,
+    harnessSessionId: transcript.sessionId,
+  };
 }
 
 const TMUX_PEEK_DEFAULT_LINES = 44;
@@ -1352,23 +1836,26 @@ function normalizeTmuxPeekBody(body: string, lines: number, columns: number): {
 
 function resolveTmuxPeekTarget(agent: ReturnType<typeof queryAgents>[number], endpoint: AgentEndpoint | null): TmuxPeekTarget | null {
   const endpointMetadata = agentEndpointMetadata(endpoint);
-  const tmuxSession = firstMetadataString(
-    endpointMetadata.tmuxSession,
-    endpoint?.sessionId,
-    agent.harnessSessionId,
-    endpointMetadata.runtimeInstanceId,
-  );
+  const terminalSurface = agent.terminalSurface?.backend === "tmux"
+    ? agent.terminalSurface
+    : resolveTerminalSurface({
+        transport: endpoint?.transport ?? agent.transport,
+        endpointSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
+        metadata: endpointMetadata,
+      });
+  if (!terminalSurface || terminalSurface.backend !== "tmux") {
+    return null;
+  }
+  const tmuxSession = terminalSurface.sessionName;
   const paneTarget = firstMetadataString(
+    terminalSurface.paneId,
     endpoint?.pane,
     endpointMetadata.paneTarget,
     endpointMetadata.tmuxPane,
     tmuxSession,
   );
-  const tmuxBacked = agent.transport === "tmux"
-    || endpoint?.transport === "tmux"
-    || Boolean(firstMetadataString(endpointMetadata.tmuxSession));
 
-  if (!tmuxBacked || !tmuxSession || !paneTarget) {
+  if (!tmuxSession || !paneTarget) {
     return null;
   }
 
@@ -1594,6 +2081,7 @@ function buildAgentSessionCatalogPayload(input: {
   harness: string | null;
   cwd: string;
   transport?: string | null;
+  terminalSurface?: WebAgent["terminalSurface"];
   activeSessionId?: string | null;
   model?: string | null;
   startedAt?: number | null;
@@ -1619,8 +2107,21 @@ function buildAgentSessionCatalogPayload(input: {
     endpointMetadata.externalSessionId,
     endpointMetadata.threadId,
   );
-  const fallbackTmuxSessionId = input.transport === "tmux"
-    ? input.activeSessionId ?? null
+  const observedHarnessSession = input.harness === "claude"
+    ? mostRecentClaudeSessionForCwd(input.cwd)
+    : null;
+  const harnessNativeSessionId = firstMetadataString(
+    endpointMetadata.externalSessionId,
+    endpointMetadata.threadId,
+    observedHarnessSession?.sessionId,
+  );
+  const terminalSurface = input.terminalSurface ?? resolveTerminalSurface({
+    transport: input.transport,
+    endpointSessionId: input.activeSessionId,
+    metadata: endpointMetadata,
+  });
+  const fallbackTerminalSessionId = terminalSurface
+    ? input.activeSessionId ?? terminalSurface.sessionName
     : null;
   const catalogActiveMatchesProfile = Boolean(
     catalogActiveSession
@@ -1628,8 +2129,8 @@ function buildAgentSessionCatalogPayload(input: {
     && (!input.transport || !catalogActiveSession.transport || catalogActiveSession.transport === input.transport),
   );
   const sessionId = catalogActiveMatchesProfile
-    ? catalog.activeSessionId
-    : endpointSessionId ?? fallbackTmuxSessionId ?? catalog.activeSessionId;
+    ? harnessNativeSessionId ?? catalog.activeSessionId
+    : harnessNativeSessionId ?? endpointSessionId ?? fallbackTerminalSessionId ?? catalog.activeSessionId;
   const harnessEntry = findHarnessEntry(input.harness);
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
@@ -1640,6 +2141,7 @@ function buildAgentSessionCatalogPayload(input: {
     endpointMetadata.resumeSessionPath,
     endpointMetadata.historyPath,
   );
+  const sessionHistoryPath = historyPath ?? observedHarnessSession?.transcriptPath ?? null;
   const provider = firstMetadataString(endpointMetadata.provider);
   const source = firstMetadataString(endpointMetadata.source) ?? "broker-endpoint";
   const startedAt = metadataTimestampMs(endpointMetadata.lastStartedAt)
@@ -1665,10 +2167,18 @@ function buildAgentSessionCatalogPayload(input: {
           ...(input.transport ? { transport: input.transport } : {}),
           ...(input.model ? { model: input.model } : {}),
           ...(provider ? { provider } : {}),
-          ...(historyPath ? { historyPath } : {}),
+          ...(sessionHistoryPath ? { historyPath: sessionHistoryPath } : {}),
+          ...(terminalSurface?.sessionName && terminalSurface.sessionName !== sessionId
+            ? { surfaceSessionId: terminalSurface.sessionName }
+            : {}),
           source,
-        }),
-        ...catalogSessions.map(enrichSession),
+          canObserve: Boolean(sessionHistoryPath) || Boolean(terminalSurface),
+          // Terminal surfaces are taken over by grabbing the live pane (no
+          // resume command needed); other transports need a resume command.
+          // Both paths are takeoverable.
+          canTakeover: Boolean(terminalSurface) || Boolean(resumeCommand),
+        },
+        ...catalog.sessions,
       ]
     : catalogSessions.map(enrichSession);
   return {
@@ -2234,7 +2744,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed")) {
+  for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed" && item.attention !== "silent")) {
     const noteworthy = ask.attention === "badge";
     const noteworthyTitle = ask.statusLabel === "Stopped" ? "Ask stopped" : "Ask interrupted";
     items.push({
@@ -3628,9 +4138,98 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) =>
-    c.json(await readWebAgentsWithBrokerCards(queryAgents())),
-  );
+  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/terminal-sessions", (c) => {
+    const backend = parseTerminalSessionBackend(c.req.query("backend"));
+    if (c.req.query("backend") && !backend) {
+      return c.json({ error: "backend must be tmux or zellij" }, 400);
+    }
+    const limit = parseTerminalSessionLimit(c.req.query("limit"));
+    const sessions = queryTerminalSessions({
+      ...(c.req.query("harness") ? { harness: c.req.query("harness") } : {}),
+      ...(c.req.query("sourceSessionId") ? { sourceSessionId: c.req.query("sourceSessionId") } : {}),
+      ...(backend ? { backend } : {}),
+      limit,
+    });
+    const includeDiscovered = parseTerminalSessionDiscoveryFlag(c.req.query("includeDiscovered"));
+    const discovered = includeDiscovered
+      ? queryDiscoveredTerminalSessions({
+          ...(backend ? { backend } : {}),
+          limit: Math.max(0, limit - sessions.length),
+          excludeSurfaces: sessions.flatMap((session) =>
+            session.surfaces.map((surface) => terminalSurfaceKey(surface.backend, surface.sessionName))
+          ),
+        })
+      : [];
+    const visibleSessions = [...sessions, ...discovered];
+    return c.json({
+      ok: true,
+      count: visibleSessions.length,
+      sessions: visibleSessions,
+    });
+  });
+  app.get("/api/terminal-sessions/peek", async (c) => {
+    const backend = parseTerminalSessionBackend(c.req.query("backend"));
+    const sessionName = firstMetadataString(c.req.query("sessionName"));
+    const capturedAt = Date.now();
+    const lines = parseTmuxPeekLineCount(c.req.query("lines"));
+    const columns = parseTmuxPeekColumnCount(c.req.query("cols") ?? c.req.query("columns"));
+
+    if (!backend) {
+      return c.json({ error: "backend must be tmux or zellij" }, 400);
+    }
+    if (!sessionName) {
+      return c.json({ error: "sessionName is required" }, 400);
+    }
+    if (backend !== "tmux") {
+      return c.json({
+        available: false,
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        reason: `${backend} previews are not available yet.`,
+      });
+    }
+
+    const capture = await (options.captureTmuxPane ?? defaultCaptureTmuxPane)({
+      agentId: "terminal",
+      sessionId: sessionName,
+      paneTarget: sessionName,
+      cwd: null,
+      lines,
+      columns,
+    });
+    if (!capture) {
+      return c.json({
+        available: false,
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        reason: "The tmux pane is not available right now.",
+      });
+    }
+
+    const normalized = normalizeTmuxPeekBody(capture.body, lines, columns);
+    return c.json({
+      available: true,
+      agentId: "terminal",
+      sessionId: sessionName,
+      capturedAt,
+      body: normalized.body,
+      lineCount: capture.lineCount ?? normalized.lineCount,
+      columnCount: normalized.columnCount,
+      truncated: capture.truncated ?? normalized.truncated,
+      reason: null,
+    });
+  });
   app.get("/api/agents/:id", async (c) => {
     const id = c.req.param("id");
     const agent = queryAgentById(id)
@@ -3915,6 +4514,7 @@ export async function createOpenScoutWebServer(
         harness: agent.harness,
         cwd,
         transport: agent.transport,
+        terminalSurface: agent.terminalSurface,
         activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
         model: agent.model,
         startedAt: agent.createdAt ?? agent.updatedAt,
@@ -4669,6 +5269,65 @@ export async function createOpenScoutWebServer(
       return c.json({ error: message }, 503);
     }
     return c.json({ ok: true });
+  });
+
+  app.post("/api/terminal-relay/session/destroy", async (c) => {
+    const body = await c.req.json<TerminalRelayDestroyRequest>().catch((): Partial<TerminalRelayDestroyRequest> => ({}));
+    const sessionId = body.sessionId?.trim();
+    if (!sessionId) return c.json({ error: "missing sessionId" }, 400);
+    if (!options.destroyTerminalRelaySession) {
+      return c.json({ error: "terminal relay is unavailable" }, 503);
+    }
+    try {
+      const destroyed = await options.destroyTerminalRelaySession(sessionId);
+      return c.json({ ok: true, destroyed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to destroy terminal session";
+      return c.json({ error: message }, 503);
+    }
+  });
+
+  app.post("/api/terminal-sessions/control", async (c) => {
+    const body = await c.req.json<TerminalSurfaceControlRequest>().catch((): Partial<TerminalSurfaceControlRequest> => ({}));
+    const backend = parseTerminalSessionBackend(body.backend);
+    const sessionName = body.sessionName?.trim();
+    const action = parseTerminalSurfaceControlAction(body.action);
+
+    if (!backend) return c.json({ error: "backend must be tmux or zellij" }, 400);
+    if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
+    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
+
+    let delivered = false;
+    let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
+    if (backend === "tmux" && action === "restart-resume") {
+      resumeResult = restartClaudeWithResumeInTmuxSurface(sessionName);
+      delivered = resumeResult.ok;
+    } else if (backend === "tmux" && action !== "force-quit-bridge") {
+      delivered = controlTmuxSurface(sessionName, action);
+    } else if (action !== "force-quit-bridge") {
+      return c.json({ error: `${backend} surface control is not available yet` }, 400);
+    }
+
+    let destroyed = 0;
+    if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
+      if (options.destroyTerminalRelaySurface) {
+        destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
+      }
+      if (backend === "tmux" && action !== "restart-resume") {
+        controlTmuxSurface(sessionName, "detach");
+      }
+    }
+
+    return c.json({
+      ok: true,
+      action,
+      backend,
+      sessionName,
+      delivered,
+      destroyed,
+      resumeSessionId: resumeResult?.sessionId ?? null,
+      resumeTranscriptPath: resumeResult?.transcriptPath ?? null,
+    });
   });
 
   app.post(routes.vantageOpenPath, async (c) => {

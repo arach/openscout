@@ -44,6 +44,17 @@ type PendingCommand = {
   agentId?: string | null;
 };
 
+function sessionMatchesSurface(
+  session: Session,
+  backend: string | undefined,
+  sessionName: string | undefined,
+): boolean {
+  if (!backend || !sessionName || session.backend !== backend) return false;
+  return session.terminalSession === sessionName
+    || session.tmuxSession === sessionName
+    || session.zellijSession === sessionName;
+}
+
 let pendingCommand: PendingCommand | null = null;
 
 function queueTerminalCommand(input: PendingCommand): void {
@@ -163,6 +174,39 @@ const server = createServer(async (req, res) => {
       agentId: body?.agentId?.trim() || null,
     });
     writeJson(res, 200, { ok: true });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/terminal/session/destroy") {
+    const body = await readJson<{ sessionId?: string }>(req);
+    const sessionId = body?.sessionId?.trim();
+    if (!sessionId) {
+      writeJson(res, 400, { error: "missing sessionId" });
+      return;
+    }
+    const existed = sessions.has(sessionId);
+    if (existed) {
+      destroy(sessionId);
+    }
+    writeJson(res, 200, { ok: true, destroyed: existed });
+    return;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/terminal/session/destroy-surface") {
+    const body = await readJson<{ backend?: string; sessionName?: string }>(req);
+    const backend = body?.backend?.trim();
+    const sessionName = body?.sessionName?.trim();
+    if (!backend || !sessionName) {
+      writeJson(res, 400, { error: "missing backend or sessionName" });
+      return;
+    }
+    let destroyed = 0;
+    for (const [id, session] of [...sessions]) {
+      if (!sessionMatchesSurface(session, backend, sessionName)) continue;
+      destroy(id);
+      destroyed += 1;
+    }
+    writeJson(res, 200, { ok: true, destroyed });
     return;
   }
 

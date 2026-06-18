@@ -19,6 +19,8 @@ export type ManagedTerminalRelay = {
   healthcheck: () => Promise<boolean>;
   readHealth: () => Promise<TerminalRelayHealth | null>;
   queueCommand: (request: TerminalRelayRunRequest) => Promise<void>;
+  destroySession: (sessionId: string) => Promise<boolean>;
+  destroySurface: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
   shutdown: () => void;
   targetHttpUrl: string;
   targetWebSocketUrl: string;
@@ -357,6 +359,30 @@ function createManagedRelayHandle(input: {
       if (!response.ok) {
         throw new Error("Terminal relay rejected queued command");
       }
+    },
+    destroySession: async (sessionId: string) => {
+      const response = await fetch(`${input.targetHttpUrl}/api/terminal/session/destroy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (!response.ok) {
+        throw new Error("Terminal relay rejected session destroy");
+      }
+      const body = await response.json().catch(() => null) as { destroyed?: unknown } | null;
+      return body?.destroyed === true;
+    },
+    destroySurface: async (backend: "tmux" | "zellij", sessionName: string) => {
+      const response = await fetch(`${input.targetHttpUrl}/api/terminal/session/destroy-surface`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backend, sessionName }),
+      });
+      if (!response.ok) {
+        throw new Error("Terminal relay rejected surface destroy");
+      }
+      const body = await response.json().catch(() => null) as { destroyed?: unknown } | null;
+      return typeof body?.destroyed === "number" ? body.destroyed : 0;
     },
     shutdown() {
       if (input.child) {

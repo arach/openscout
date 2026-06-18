@@ -175,6 +175,19 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "One token set (the exact sRGB of native ScoutThemeColors) and the whole shell rebuilt from it — Comms, Agents, Repos, Tail, Settings as window mockups. Default skin is the live app theme: juniper · light · indigo.",
   },
   {
+    href: "/studies/scout-icon-treatments",
+    label: "Scout Icon Treatments",
+    bucket: "studies",
+    surface: "cross",
+    status: "in-flight",
+    source: [
+      "design/studio/app/studies/scout-icon-treatments/page.tsx",
+      "apps/macos/Sources/ScoutMenu/AppDelegate.swift",
+      "assets/icons/app/os.icon/Assets/AppIcon.png",
+    ],
+    blurb: "Menu-bar and app-icon optical sizes side by side: protected small status marks, full app icon, and tiny simplified cube treatments so the mark keeps its O-shaped read at status-bar scale.",
+  },
+  {
     href: "/studies/scout-ios",
     label: "Scout iOS Theme",
     bucket: "studies",
@@ -331,6 +344,50 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The right-side inspector sidebar in the locked Instrument language (near-black, mono-first, telemetry over decoration), shown in context and as three takes — Telemetry · Readout · Modules — to converge the sidebar's design language. The center list is explored elsewhere.",
   },
   {
+    href: "/studies/home-sidebar",
+    label: "Home · Sidebar",
+    bucket: "studies",
+    surface: "web",
+    family: "navigation",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/home-sidebar/page.tsx",
+      "packages/web/client/screens/home/left.tsx",
+      "packages/web/client/screens/home/content.tsx",
+    ],
+    blurb:
+      "The Home route left rail — what ships today in BaseLeftRail (Recent agents · Recent activity · Needs attention, each with an all escape) vs a lens-first alternative (Needs you / Moving / Quiet + foot jump tiles). Center Home is dimmed; the study is the rail definition only.",
+  },
+  {
+    href: "/studies/agents-projects-first",
+    label: "Agents · Projects First",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-projects-first/page.tsx",
+      "packages/web/client/screens/AgentsScreen.tsx",
+      "packages/web/client/scout/slots/LeftPanel.tsx",
+    ],
+    blurb:
+      "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
+  },
+  {
+    href: "/studies/agents-top-collapse",
+    label: "Agents · Top Collapse",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-top-collapse/page.tsx",
+      "packages/web/client/screens/AgentsScreen.tsx",
+      "packages/web/client/screens/agents-screen.css",
+      "packages/web/client/scout/slots/LeftPanel.tsx",
+    ],
+    blurb:
+      "The live Agents top stacks five control bands — two searches, two status filters, time, harness, view — before the first card (~7 operable controls). Three takes switchable in place: Before (faithful pile), Tucked (view · search · one filters disclosure), Ruthless (cards/tree hero + one search-carries-everything + a single 24h hint → 2 controls). Status is roster vocab → deleted, shown as an in-card activity signal; harness folds into search (type `claude`). A ledger documents the verdict on every control. Ruthless recommended.",
+  },
+  {
     href: "/studies/agent-profile-tidy",
     label: "Agent Profile · Tidy Pass",
     bucket: "studies",
@@ -399,6 +456,21 @@ export const STUDIO_PAGES: StudioPage[] = [
       "apps/macos/Sources/Scout/ScoutCommsView.swift",
     ],
     blurb: "The conversation surface broken out from the design system — recency groups, labeled filters, unread emphasis, ask answered/pending, pinned Ask, collapsible turns, composer hint. Carries the unreadCount + askState data contract for the native port.",
+  },
+  {
+    href: "/studies/scout-conversation-presentations",
+    label: "Scout Comms · Presentations",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/scout-conversation-presentations/page.tsx",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "packages/web/client/screens/ConversationScreen.tsx",
+    ],
+    blurb: "The active-agent message stream as switchable treatments (the Presentation control is the future macOS setting): Transcript (sender-led, grouped), Split (alternating sides), Document (reading-first), Ledger (dense ops log). Two fixes — a live Working turn fills the dead air before a reply lands (flight state · latest activity event · motion meter, mirroring the web's Currently-working panel), and one collapse rule across all treatments: the latest turn is always full, recent turns stay full, only older long turns fold. No 'Show more' on what's in front of you.",
   },
   {
     href: "/studies/scout-comms-inspector",
@@ -712,6 +784,21 @@ export const STUDIO_PAGES: StudioPage[] = [
       "docs/eng/sco-059-session-knowledge-search-exploration.md",
     ],
     blurb: "Interactive QMD-style pass over six real sessions: files, index rows, queries, and raw drilldown.",
+  },
+  {
+    href: "/studies/terminal-sessions",
+    label: "Terminal Sessions",
+    bucket: "studies",
+    surface: "web",
+    family: "runtime",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/terminal-sessions/page.tsx",
+      "docs/eng/sco-030-claude-code-tmux-personal-dev-transport.md",
+      "docs/eng/sco-031-native-terminal-surfaces.md",
+      "packages/web/client/screens/TerminalScreen.tsx",
+    ],
+    blurb: "Scout-managed terminal sessions: create from Scout, run any command, attach through the relay, and materialize harness sessions through interchangeable terminal surfaces.",
   },
   {
     href: "/studies/workflow-run",

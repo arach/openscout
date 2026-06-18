@@ -15,9 +15,14 @@ export function resolveActiveSessionId(
   agent: Agent,
   catalog: SessionCatalogWithResume | null,
 ): string | null {
+  const fallbackTerminalSessionId = agent.terminalSurface
+    ? agent.harnessSessionId ?? agent.terminalSurface.sessionName
+    : agent.transport === "tmux"
+      ? agent.harnessSessionId ?? null
+      : null;
   return (
     catalog?.activeSessionId ??
-    (agent.transport === "tmux" ? agent.harnessSessionId ?? null : null)
+    fallbackTerminalSessionId
   );
 }
 
@@ -55,20 +60,23 @@ export function resolveSelectedSessionId(
 }
 
 /** Per-session engage capabilities. The catalog flags *enable* a surface; the
- *  transport adds the cases the flags may miss — a tmux pane is always
+ *  transport adds the cases the flags may miss — a terminal surface is always
  *  observable and takeoverable (you grab the live pane; no resume command
  *  needed), and any resume command makes a session takeoverable. We OR these
- *  rather than letting a stale `false` flag veto a tmux session, which matches
- *  what the takeover handler can actually do. Only a live session qualifies. */
+ *  rather than letting a stale `false` flag veto an attached surface, which
+ *  matches what the takeover handler can actually do. Only a live session
+ *  qualifies. */
 export function sessionEngage(
   agent: Agent,
   catalog: SessionCatalogWithResume | null,
   session: SessionCatalogEntry,
   active: boolean,
 ): { canObserve: boolean; canTakeover: boolean } {
-  const isTmux = agent.transport === "tmux";
-  const canObserve = active && (Boolean(session.canObserve) || isTmux);
+  const hasTerminalSurface = Boolean(
+    agent.terminalSurface || (agent.transport === "tmux" && agent.harnessSessionId),
+  );
+  const canObserve = active && (Boolean(session.canObserve) || hasTerminalSurface);
   const canTakeover =
-    active && (Boolean(session.canTakeover) || isTmux || Boolean(catalog?.resumeCommand));
+    active && (Boolean(session.canTakeover) || hasTerminalSurface || Boolean(catalog?.resumeCommand));
   return { canObserve, canTakeover };
 }

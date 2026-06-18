@@ -395,16 +395,26 @@ function findWorkspaceRootFromRuntimeDir(runtimePackageDir: string): string | nu
   }
 }
 
+function workspaceScoutdAllowed(): boolean {
+  const raw = process.env.OPENSCOUT_ALLOW_WORKSPACE_SCOUTD?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBrokerServiceConfig()): ScoutdCommand | null {
   const explicit = resolveEnvExecutable(process.env.OPENSCOUT_SCOUTD_BIN);
   if (explicit) {
     return { path: explicit, source: "env" };
   }
 
+  const workspaceRoot = findWorkspaceRootFromRuntimeDir(config.runtimePackageDir);
   const packageCandidates = [
     join(config.runtimePackageDir, "bin", "scoutd"),
     join(config.runtimePackageDir, "native", "scoutd"),
     join(config.runtimePackageDir, "scoutd"),
+    workspaceRoot ? join(workspaceRoot, "packages", "cli", "bin", "scoutd") : null,
+    workspaceRoot ? join(workspaceRoot, "packages", "runtime", "bin", "scoutd") : null,
+    join(config.runtimeDirectory, "scoutd"),
+    join(dirname(config.runtimePackageDir), "scout", "bin", "scoutd"),
   ];
   for (const candidate of packageCandidates) {
     const resolved = executableCandidate(candidate);
@@ -413,11 +423,15 @@ export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBroker
     }
   }
 
-  const workspaceRoot = findWorkspaceRootFromRuntimeDir(config.runtimePackageDir);
-  if (workspaceRoot) {
+  const fromPath = resolveExecutableName("scoutd");
+  if (fromPath) {
+    return { path: fromPath, source: "path" };
+  }
+
+  if (workspaceRoot && workspaceScoutdAllowed()) {
     for (const candidate of [
-      join(workspaceRoot, "target", "debug", "scoutd"),
       join(workspaceRoot, "target", "release", "scoutd"),
+      join(workspaceRoot, "target", "debug", "scoutd"),
     ]) {
       const resolved = executableCandidate(candidate);
       if (resolved) {
@@ -426,8 +440,7 @@ export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBroker
     }
   }
 
-  const fromPath = resolveExecutableName("scoutd");
-  return fromPath ? { path: fromPath, source: "path" } : null;
+  return null;
 }
 
 function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: string): NodeJS.ProcessEnv {

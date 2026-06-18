@@ -1,0 +1,123 @@
+/* Agents · Projects First — project is the primary object; a few recent
+   sessions under each. Minimum cognitive load: default rows show only what's
+   required (title + recency); coordinates (ref · agent · branch) reveal on
+   select; idle projects collapse until opened. Crisp radii, thin rules, no
+   status lights — the one emerald accent is reserved for attention. */
+
+.wrap { display: flex; flex-direction: column; gap: 22px; }
+
+/* ── Scout window frame ───────────────────────────────────────────────────── */
+.frame {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--studio-edge);
+  border-radius: 7px;
+  background: var(--studio-canvas);
+  overflow: hidden;
+  box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.5);
+}
+.nav { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 15px; border-bottom: 1px solid var(--studio-edge); background: var(--studio-canvas-alt); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 12px; color: var(--studio-ink); }
+.brandMark { width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--studio-edge-strong); display: grid; place-items: center; }
+.brandMark::before { content: ""; width: 4px; height: 4px; border-radius: 1px; background: var(--scout-accent); }
+.navTabs { display: flex; gap: 19px; font-size: 10px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; }
+.navTab { color: var(--studio-ink-faint); }
+.navTabActive { color: var(--studio-ink); position: relative; }
+.navTabActive::after { content: ""; position: absolute; left: 0; right: 0; bottom: -13px; height: 2px; background: var(--scout-accent); }
+
+.body { display: flex; min-height: 440px; }
+
+/* ── lens rail ────────────────────────────────────────────────────────────── */
+.rail { width: 184px; flex: none; border-right: 1px solid var(--studio-edge); background: var(--studio-canvas-alt); padding: 13px 10px; display: flex; flex-direction: column; gap: 3px; }
+.railHead { font-size: 9px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--studio-ink-faint); padding: 0 3px 4px; }
+.lens { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; border-radius: 4px; font-size: 11.5px; font-weight: 500; color: var(--studio-ink-muted); cursor: pointer; }
+.lensOn { background: var(--studio-surface); color: var(--studio-ink); }
+.lensLabel { display: flex; align-items: center; gap: 8px; }
+.lensDot { width: 5px; height: 5px; border-radius: 50%; background: var(--scout-accent); flex: none; }
+.lensCount { font-size: 9.5px; color: var(--studio-ink-faint); }
+.railDivide { height: 1px; background: var(--studio-edge); margin: 9px 2px; }
+.railBottom { margin-top: auto; display: flex; flex-direction: column; gap: 9px; }
+.railSecondaryHead { font-size: 9px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--studio-ink-faint); padding: 0 3px; }
+.railSecondary { display: flex; flex-direction: column; gap: 3px; padding: 8px 9px; border: 1px solid var(--studio-edge); border-radius: 4px; cursor: pointer; }
+.railSecondary:hover { background: var(--studio-surface); }
+.railSecondaryTop { display: flex; align-items: center; justify-content: space-between; font-size: 10.5px; font-weight: 500; color: var(--studio-ink-muted); }
+.railSecondaryArrow { color: var(--studio-ink-faint); }
+.railSecondaryCap { font-size: 8.5px; line-height: 1.35; color: var(--studio-ink-faint); }
+.railFoot { font-size: 10px; line-height: 1.5; color: var(--studio-ink-faint); padding: 0 3px; }
+
+/* ── main board ───────────────────────────────────────────────────────────── */
+.main { flex: 1; min-width: 0; padding: 14px 16px 18px; display: flex; flex-direction: column; gap: 11px; }
+.boardTop { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--studio-edge); }
+.view { display: flex; flex: none; border: 1px solid var(--studio-edge); border-radius: 4px; overflow: hidden; }
+.viewBtn { padding: 0 11px; height: 28px; display: flex; align-items: center; font-size: 10.5px; font-weight: 600; color: var(--studio-ink-faint); border-right: 1px solid var(--studio-edge); cursor: pointer; }
+.viewBtn:last-child { border-right: 0; }
+.viewBtnOn { background: var(--studio-surface); color: var(--studio-ink); }
+.boardSearch { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; border: 1px solid var(--studio-edge); border-radius: 4px; padding: 0 10px; color: var(--studio-ink-faint); font-size: 11.5px; }
+.boardSearchKbd { margin-left: auto; border: 1px solid var(--studio-edge); border-radius: 3px; padding: 1px 5px; font-size: 9px; }
+
+/* ── project view ─────────────────────────────────────────────────────────── */
+.projects { display: flex; flex-direction: column; gap: 8px; }
+.proj { border: 1px solid var(--studio-edge); border-radius: 5px; background: var(--studio-canvas-alt); overflow: hidden; }
+.projAttn { border-color: color-mix(in oklab, var(--scout-accent) 38%, var(--studio-edge)); }
+.projHead { display: flex; align-items: center; gap: 9px; padding: 10px 13px; cursor: pointer; }
+.projChevron { flex: none; font-size: 9px; color: var(--studio-ink-faint); width: 9px; transition: transform 130ms ease; }
+.projChevronOpen { transform: rotate(90deg); }
+.projIdent { display: flex; align-items: baseline; gap: 9px; flex: none; }
+.projName { font-size: 13px; font-weight: 600; color: var(--studio-ink); }
+.projNameIdle { color: var(--studio-ink-muted); }
+.projPath { font-size: 10.5px; color: var(--studio-ink-faint); }
+.projAttnTag { flex: none; font-size: 8.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--studio-ink); background: var(--scout-accent-soft); padding: 2px 7px; border-radius: 3px; }
+.projDigest { margin-left: auto; flex: none; font-size: 10px; color: var(--studio-ink-faint); }
+
+.sessions { border-top: 1px solid var(--studio-edge); padding: 4px 6px 6px; background: var(--studio-canvas); }
+/* single fixed-height line; the coordinates reveal inline in the row's slack on
+   select, so selecting never grows the row or shifts the block below */
+.session { display: flex; align-items: center; gap: 11px; padding: 6px 9px; border-radius: 4px; cursor: pointer; }
+.session:hover { background: var(--studio-canvas-alt); }
+.sessionSelected { background: var(--studio-canvas-alt); }
+.sessionTitle { flex: 0 0 44ch; min-width: 0; font-size: 11px; color: var(--studio-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sessionTitleWorking { color: var(--studio-ink); }
+.sessionTitleAttn { color: var(--studio-ink); font-weight: 500; }
+.sessionSpacer { flex: 1 1 auto; min-width: 8px; }
+.sessionTime { flex: none; width: 42px; text-align: right; font-size: 9.5px; color: var(--studio-ink-faint); }
+.sessionMeta { display: flex; align-items: center; font-size: 9px; color: var(--studio-ink-faint); }
+
+/* revealed coordinates as left-aligned columns — tabular, not a table. Shared
+   by both views; fixed-width slots so fields line up along a column, the gap
+   carried by each slot's trailing width (no separators). */
+.colRef { flex: none; width: 12ch; color: var(--studio-ink-muted); }
+.colCard { flex: none; width: 9ch; color: var(--studio-ink-muted); }
+.colHarness { flex: none; width: 9ch; }
+.colBranch { flex: none; max-width: 26ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sessionMore { display: inline-flex; padding: 6px 9px; font-size: 10px; color: var(--studio-ink-faint); cursor: pointer; }
+.sessionMore:hover { color: var(--studio-ink-muted); }
+
+/* ── recent view — compact, flat, time-ordered ────────────────────────────── */
+.recencyList { display: flex; flex-direction: column; border: 1px solid var(--studio-edge); border-radius: 5px; overflow: hidden; }
+/* single fixed-height line so hover never reflows the list — the peek appears
+   inline in the row's slack; project stays pinned right, nothing below moves */
+.recRow { display: flex; align-items: center; gap: 11px; padding: 8px 12px; border-bottom: 1px solid var(--studio-edge); cursor: pointer; }
+.recRow:last-child { border-bottom: 0; }
+.recRow:hover { background: var(--studio-canvas-alt); }
+.recRowSelected { background: var(--studio-canvas-alt); }
+.recTime { flex: none; width: 36px; font-size: 10px; color: var(--studio-ink-faint); font-variant-numeric: tabular-nums; }
+.recTitle { flex: 0 0 44ch; min-width: 0; font-size: 11.5px; color: var(--studio-ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recTitleWorking { color: var(--studio-ink); }
+.recTitleAttn { color: var(--studio-ink); font-weight: 500; }
+.recSpacer { flex: 1 1 auto; min-width: 8px; }
+.recTag { flex: none; font-size: 8px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--studio-ink); background: var(--scout-accent-soft); padding: 2px 6px; border-radius: 3px; }
+.recProject { flex: none; font-size: 10px; color: var(--studio-ink-muted); }
+/* reveal tiers, inline (no second line) — hover: ref + card; click adds harness + branch */
+.recDetail { display: none; align-items: center; font-size: 9px; color: var(--studio-ink-faint); }
+.recRow:hover .recDetail,
+.recRowSelected .recDetail { display: flex; }
+.recFull { display: none; align-items: center; }
+.recRowSelected .recFull { display: inline-flex; }
+.recSep { opacity: 0.45; flex: none; }
+
+/* ── rationale ────────────────────────────────────────────────────────────── */
+.noteHead { font-size: 9px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--studio-ink-faint); margin-bottom: 9px; }
+.note { display: grid; grid-template-columns: repeat(auto-fit, minmax(238px, 1fr)); gap: 1px; border: 1px solid var(--studio-edge); border-radius: 6px; overflow: hidden; background: var(--studio-edge); }
+.noteCell { background: var(--studio-canvas); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.noteTitle { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; font-weight: 600; color: var(--studio-ink); }
+.noteBody { font-size: 10.5px; line-height: 1.45; color: var(--studio-ink-faint); }
+.noteBody b { color: var(--studio-ink-muted); font-weight: 600; }

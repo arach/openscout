@@ -1,5 +1,4 @@
 import { createElement, type ReactNode } from "react";
-import { Compass } from "lucide-react";
 import type { HudsonApp, AppIntent } from "@hudsonkit";
 import { ScoutProvider } from "./Provider.tsx";
 import { ScoutContent } from "./slots/Content.tsx";
@@ -237,7 +236,28 @@ export function createScoutApp(options: { initialTheme?: ScoutTheme } = {}): Hud
     description:
       "All your agents, one message away. Scout is a control plane for managing coding agents: one agent means a DM, group work means an explicit channel, Tell stays conversational, Ask is owned work with a reply path, and shared updates mean broadcast.",
     mode: "panel",
-    icon: createElement(Compass, { size: 14, strokeWidth: 1.2 }),
+    icon: createElement(
+      "svg",
+      {
+        width: 14,
+        height: 14,
+        viewBox: "0 0 20 20",
+        fill: "none",
+        stroke: "currentColor",
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        "aria-hidden": true,
+      },
+      createElement("polygon", {
+        points: "10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1",
+        strokeWidth: 1.9,
+      }),
+      createElement("polygon", {
+        points: "10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4",
+        strokeWidth: 1.32,
+        opacity: 0.74,
+      }),
+    ),
 
     Provider: ({ children }: { children: ReactNode }) =>
       createElement(ScoutProvider, { initialTheme, children }),

@@ -40,6 +40,7 @@ scout up / session start → runtime creates or attaches session → broker regi
 |---|---|---|
 | prewarm / start | `scout up <agent>` | alias for session start path |
 | explicit start | `scout session start --agent X --harness Y` | creates compatible session |
+| intake existing | `scout session intake --harness Y --session <id> --backend tmux\|zellij` | materializes a disposable local terminal surface |
 | attach existing | `scout session attach --agent X --harness Y --session <id>` | |
 | inspect | `scout session inspect --agent X --harness Y` | |
 | stop | `scout down <agent>` | detach/stop local session |

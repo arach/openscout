@@ -49,6 +49,18 @@
   background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
+.rr-row--motion .rr-row-head {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green) 7%, transparent), transparent 64%),
+    transparent;
+}
+
+.rr-row--active.rr-row--motion .rr-row-head {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%),
+    color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
 /* Leading dot or icon */
 
 .rr-row-dot {
@@ -182,6 +194,79 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.rr-row-activity {
+  min-height: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: 1px;
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 650;
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+}
+
+.rr-row-activity--pending {
+  color: var(--accent);
+}
+
+.rr-row-activity--attention {
+  color: var(--amber);
+}
+
+.rr-row-activity-bars {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 10px;
+  display: inline-grid;
+  grid-template-columns: repeat(4, 1fr);
+  align-items: end;
+  gap: 2px;
+}
+
+.rr-row-activity-bars span {
+  display: block;
+  min-height: 3px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  opacity: 0.45;
+  animation: rr-row-activity-rise 1.05s ease-in-out infinite;
+}
+
+.rr-row-activity-bars span:nth-child(1) { height: 38%; animation-delay: 0ms; }
+.rr-row-activity-bars span:nth-child(2) { height: 72%; animation-delay: 110ms; }
+.rr-row-activity-bars span:nth-child(3) { height: 52%; animation-delay: 220ms; }
+.rr-row-activity-bars span:nth-child(4) { height: 84%; animation-delay: 330ms; }
+
+.rr-row-activity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes rr-row-activity-rise {
+  0%, 100% {
+    opacity: 0.38;
+    transform: scaleY(0.66);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rr-row-activity-bars span {
+    animation: none;
+    opacity: 0.8;
+    transform: none;
+  }
 }
 
 /* Trailing */

@@ -68,6 +68,18 @@ struct ScoutObserveSidecarPanel: View {
     /// as the native app — not the web's generic light/dark (warm + green accent).
     /// See `ScoutEmbedTheme`.
     private var observeURL: URL {
+        let sessionRef = agent.harnessSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let sessionRef, !sessionRef.isEmpty {
+            let base = ScoutWeb.baseURL()
+                .appending(path: "embed")
+                .appending(path: "session")
+            var components = URLComponents(url: base, resolvingAgainstBaseURL: false)
+            components?.queryItems = [
+                URLQueryItem(name: "ref", value: sessionRef),
+            ] + ScoutEmbedTheme.queryItems(for: colorScheme)
+            return components?.url ?? base
+        }
+
         let base = ScoutWeb.baseURL()
             .appending(path: "embed")
             .appending(path: "observe")

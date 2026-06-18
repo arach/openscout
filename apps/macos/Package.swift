@@ -73,5 +73,12 @@ let package = Package(
             ],
             path: "Tests/ScoutAppCoreTests"
         ),
+        .testTarget(
+            name: "ScoutMenuTests",
+            dependencies: [
+                "ScoutMenu",
+            ],
+            path: "Tests/ScoutMenuTests"
+        ),
     ]
 )

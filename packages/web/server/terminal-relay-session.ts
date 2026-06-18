@@ -17,10 +17,16 @@ export interface SessionInitMessage {
   workspaceFiles?: Record<string, string>;
   /** How long (ms) to keep the PTY alive after the client disconnects. Defaults to 30 min. */
   orphanTTL?: number;
-  /** PTY backend. 'pty' spawns a fresh process (default). 'tmux' attaches to a named tmux session. */
-  backend?: 'pty' | 'tmux';
-  /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
+  /** PTY backend. 'pty' spawns a fresh process (default). Terminal backends attach to a named surface. */
+  backend?: 'pty' | 'tmux' | 'zellij';
+  /** Generic terminal surface session name. */
+  terminalSession?: string;
+  /** For tmux backend: the tmux session name. */
   tmuxSession?: string;
+  /** For zellij backend: the zellij session name. */
+  zellijSession?: string;
+  /** For zellij backend: socket directory to preserve across attach/watch calls. */
+  zellijSocketDir?: string;
   /** Process to spawn. 'claude' (default), 'pi', or 'shell' for a normal login shell. */
   agent?: 'claude' | 'pi' | 'shell';
   /** For pi agent: provider name (e.g. 'minimax', 'github-copilot'). */
@@ -91,9 +97,15 @@ export interface Session {
   /** How long this session survives without a client (ms). */
   orphanTTL: number;
   /** PTY backend type. */
-  backend: 'pty' | 'tmux';
+  backend: 'pty' | 'tmux' | 'zellij';
+  /** Generic terminal surface session name. */
+  terminalSession?: string;
   /** tmux session name (only set when backend is 'tmux'). */
   tmuxSession?: string;
+  /** zellij session name (only set when backend is 'zellij'). */
+  zellijSession?: string;
+  /** zellij socket directory (only set when backend is 'zellij'). */
+  zellijSocketDir?: string;
   /** Whether the PTY process has exited. */
   exited: boolean;
   exitCode: number | null;
@@ -245,6 +257,84 @@ function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
   }
 }
 
+function resolveZellijSocketDir(raw?: string): string {
+  const home = process.env.HOME || '/tmp';
+  const configured = raw?.trim() || process.env.ZELLIJ_SOCKET_DIR?.trim() || process.env.OPENSCOUT_ZELLIJ_SOCKET_DIR?.trim();
+  const candidate = configured || join(home, '.openscout', 'zellij-sockets');
+  return candidate === '~' ? home : candidate.startsWith('~/') ? join(home, candidate.slice(2)) : candidate;
+}
+
+function zellijEnv(baseEnv: Record<string, string | undefined>, socketDir: string): Record<string, string | undefined> {
+  try {
+    mkdirSync(socketDir, { recursive: true });
+  } catch {}
+  return { ...baseEnv, ZELLIJ_SOCKET_DIR: socketDir };
+}
+
+/** Check if a zellij session exists. */
+function zellijSessionExists(name: string, env: Record<string, string | undefined>): boolean {
+  try {
+    const output = execFileSync('zellij', ['list-sessions'], {
+      env: env as NodeJS.ProcessEnv,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim().split(/\s+/u)[0])
+      .some((sessionName) => sessionName === name);
+  } catch {
+    return false;
+  }
+}
+
+/** Spawn a PTY that attaches to a zellij session (creating it if needed). */
+function spawnZellijSession(
+  zellijName: string,
+  cols: number,
+  rows: number,
+  cwd: string,
+  commandBin: string,
+  commandArgs: string[],
+  env: Record<string, string | undefined>,
+  socketDir: string,
+): IPty {
+  const effectiveEnv = zellijEnv(env, socketDir);
+  const exists = zellijSessionExists(zellijName, effectiveEnv);
+
+  if (!exists) {
+    execFileSync('zellij', ['attach', '--create-background', zellijName], {
+      env: effectiveEnv as NodeJS.ProcessEnv,
+      stdio: 'ignore',
+    });
+    execFileSync('zellij', [
+      '--session',
+      zellijName,
+      'action',
+      'new-pane',
+      '--cwd',
+      cwd,
+      '--',
+      commandBin,
+      ...commandArgs,
+    ], {
+      env: effectiveEnv as NodeJS.ProcessEnv,
+      stdio: 'ignore',
+    });
+    console.log(`[relay] Created zellij session: ${zellijName}`);
+  } else {
+    console.log(`[relay] Attaching to existing zellij session: ${zellijName}`);
+  }
+
+  return pty.spawn('zellij', ['attach', zellijName], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd,
+    env: effectiveEnv,
+  });
+}
+
 /** Bootstrap workspace files into a directory (only creates if missing). */
 function bootstrapFiles(cwd: string, files: Record<string, string>, sessionId: string) {
   for (const [relPath, content] of Object.entries(files)) {
@@ -304,7 +394,10 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   const cols = Math.max(msg.cols || 80, 20);
   const rows = Math.max(msg.rows || 24, 4);
   const backend = msg.backend || 'pty';
-  const tmuxName = msg.tmuxSession || `hudson-${id}`;
+  const terminalName = msg.terminalSession || msg.tmuxSession || msg.zellijSession || `hudson-${id}`;
+  const tmuxName = msg.tmuxSession || terminalName;
+  const zellijName = msg.zellijSession || terminalName;
+  const zellijSocketDir = resolveZellijSocketDir(msg.zellijSocketDir);
   const agent = msg.agent || 'claude';
 
   // ---- Pre-flight: locate command binary ----
@@ -342,9 +435,15 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     return null;
   }
 
-  // ---- Pre-flight: tmux backend requires tmux ----
+  // ---- Pre-flight: terminal backends require their multiplexer ----
   if (backend === 'tmux' && !findBin('tmux')) {
     const reason = 'tmux not found. Install it with: brew install tmux';
+    console.error(`[relay] Session ${id} failed: ${reason}`);
+    send(ws, { type: 'session:error', error: reason });
+    return null;
+  }
+  if (backend === 'zellij' && !findBin('zellij')) {
+    const reason = 'zellij not found. Install it with: brew install zellij';
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
     return null;
@@ -385,6 +484,9 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     if (backend === 'tmux') {
       console.log(`[relay] Session ${id}: tmux backend (session: ${tmuxName}) in ${cwd} [agent: ${agent}]`);
       ptyProcess = spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env);
+    } else if (backend === 'zellij') {
+      console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}) in ${cwd} [agent: ${agent}]`);
+      ptyProcess = spawnZellijSession(zellijName, cols, rows, cwd, agentBin, agentArgs, env, zellijSocketDir);
     } else {
       console.log(`[relay] Session ${id}: pty backend, spawning ${agentBin} in ${cwd} [agent: ${agent}]`);
       ptyProcess = pty.spawn(agentBin, agentArgs, {
@@ -414,7 +516,8 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     reapTimer: null,
     orphanTTL,
     backend,
-    ...(backend === 'tmux' ? { tmuxSession: tmuxName } : {}),
+    ...(backend === 'tmux' ? { terminalSession: tmuxName, tmuxSession: tmuxName } : {}),
+    ...(backend === 'zellij' ? { terminalSession: zellijName, zellijSession: zellijName, zellijSocketDir } : {}),
     exited: false,
     exitCode: null,
   };
@@ -525,6 +628,8 @@ export function destroy(sessionId: string) {
   sessions.delete(sessionId);
   if (session.backend === 'tmux') {
     console.log(`[relay] Session ${sessionId} bridge destroyed (tmux session '${session.tmuxSession}' still alive)`);
+  } else if (session.backend === 'zellij') {
+    console.log(`[relay] Session ${sessionId} bridge destroyed (zellij session '${session.zellijSession}' still alive)`);
   } else {
     console.log(`[relay] Session ${sessionId} destroyed`);
   }

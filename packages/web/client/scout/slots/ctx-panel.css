@@ -1630,6 +1630,7 @@
   flex-direction: column;
   gap: var(--space-sm);
   padding: var(--space-sm);
+  min-height: 0;
   border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: var(--radius-lg);
   background:
@@ -1683,6 +1684,127 @@
   margin: 0;
 }
 
+.ctx-panel-live-session-card {
+  position: relative;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 52%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 64%, var(--bg));
+}
+
+.ctx-panel-live-session-card--active {
+  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--green) 8%, transparent), transparent 72%),
+    color-mix(in srgb, var(--surface) 74%, var(--bg));
+}
+
+.ctx-panel-live-session-card--active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--green) 78%, white),
+    transparent
+  );
+  background-size: 180% 100%;
+  animation: ctx-panel-live-session-scan 1.8s ease-in-out infinite;
+}
+
+.ctx-panel-live-session-copy {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-3xs);
+}
+
+.ctx-panel-live-session-copy span,
+.ctx-panel-live-files-label span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ctx-panel-live-session-copy span {
+  color: var(--dim);
+}
+
+.ctx-panel-live-session-card--active .ctx-panel-live-session-copy span,
+.ctx-panel-live-files-label span {
+  color: var(--green);
+}
+
+.ctx-panel-live-session-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 700;
+  line-height: var(--leading-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-panel-live-session-copy small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-panel-live-session-pulse {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--ink) 36%, var(--dim));
+}
+
+.ctx-panel-live-session-pulse span {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.ctx-panel-live-session-card--active .ctx-panel-live-session-pulse {
+  color: var(--green);
+}
+
+.ctx-panel-live-session-card--active .ctx-panel-live-session-pulse span {
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.ctx-panel-live-session-card--active .ctx-panel-live-session-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  opacity: 0.42;
+  animation: ctx-panel-live-session-ping 1.8s ease-out infinite;
+}
+
 .ctx-panel-tmux-peek {
   min-width: 0;
   display: grid;
@@ -1691,6 +1813,11 @@
   border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--bg) 82%, black);
+}
+
+.ctx-panel-tmux-peek--conversation {
+  border-color: color-mix(in srgb, var(--border) 52%, transparent);
+  background: color-mix(in srgb, var(--surface) 54%, var(--bg));
 }
 
 .ctx-panel-tmux-peek-head {
@@ -1706,7 +1833,7 @@
   color: var(--dim);
 }
 
-.ctx-panel-tmux-peek-head span:first-child {
+.ctx-panel-tmux-peek-head > span:first-child {
   min-width: 0;
   flex: 1;
 }
@@ -1730,6 +1857,42 @@
 .ctx-panel-tmux-peek-session {
   max-width: 34%;
   color: color-mix(in srgb, var(--ink) 44%, var(--dim));
+}
+
+.ctx-panel-tmux-peek-refresh {
+  flex: 0 0 auto;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  color: color-mix(in srgb, var(--ink) 58%, var(--dim));
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.ctx-panel-tmux-peek-refresh:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: color-mix(in srgb, var(--ink) 82%, var(--accent));
+}
+
+.ctx-panel-tmux-peek-refresh:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.ctx-panel-tmux-peek-refresh svg {
+  flex: 0 0 auto;
 }
 
 .ctx-panel-tmux-peek-screen,
@@ -1770,6 +1933,12 @@
   background: color-mix(in srgb, var(--ink) 18%, transparent);
 }
 
+.ctx-panel-tmux-peek--conversation .ctx-panel-tmux-peek-screen,
+.ctx-panel-tmux-peek--conversation .ctx-panel-tmux-peek-empty {
+  background: color-mix(in srgb, black 24%, var(--bg));
+  color: color-mix(in srgb, var(--ink) 64%, var(--muted));
+}
+
 .ctx-panel-tmux-peek-empty {
   display: grid;
   place-items: center;
@@ -1800,6 +1969,99 @@
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+.ctx-panel-live-files {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--border) 38%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 52%, transparent);
+}
+
+.ctx-panel-live-files-label {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.ctx-panel-live-files-label strong {
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--green) 16%, transparent);
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.ctx-panel-live-file-list {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ctx-panel-live-file {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-height: 22px;
+  padding: var(--space-2xs) var(--space-xs);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  animation: ctx-panel-live-file-enter 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ctx-panel-live-file--changed {
+  border-color: color-mix(in srgb, var(--green) 24%, transparent);
+  background: color-mix(in srgb, var(--green) 7%, transparent);
+  color: var(--ink);
+}
+
+.ctx-panel-live-file--read {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+.ctx-panel-live-file-mark {
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 800;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.ctx-panel-live-file--read .ctx-panel-live-file-mark {
+  color: var(--dim);
+}
+
+.ctx-panel-live-file-path {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-panel-live-file-time {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
 }
 
 .ctx-panel-live-stream {
@@ -1876,8 +2138,45 @@
   }
 }
 
+@keyframes ctx-panel-live-session-scan {
+  0% { background-position: 180% 0; }
+  100% { background-position: -180% 0; }
+}
+
+@keyframes ctx-panel-live-session-ping {
+  0% {
+    opacity: 0.48;
+    transform: scale(0.72);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.42);
+  }
+}
+
+@keyframes ctx-panel-live-file-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(7px) scale(0.98);
+  }
+
+  52% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ctx-panel-live-event {
+  .ctx-panel-live-event,
+  .ctx-panel-live-file,
+  .ctx-panel-live-session-card::before,
+  .ctx-panel-live-session-pulse::after {
     animation: none;
   }
 }

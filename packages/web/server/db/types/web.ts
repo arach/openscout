@@ -9,6 +9,13 @@ import type { AgentRun } from "@openscout/protocol";
 
 import type { AgentSummaryState, WorkAttention } from "./common.ts";
 
+export type WebTerminalSurfaceDescriptor = {
+  backend: "tmux" | "zellij";
+  sessionName: string;
+  paneId: string | null;
+  socketDir: string | null;
+};
+
 export type WebAgent = {
   id: string;
   definitionId: string;
@@ -33,6 +40,7 @@ export type WebAgent = {
   role: string | null;
   model: string | null;
   harnessSessionId: string | null;
+  terminalSurface: WebTerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
   conversationId: string;
   authorityNodeId: string | null;
@@ -174,6 +182,11 @@ export type WebFlight = {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  dispatchOutcome?: {
+    status: string;
+    reason: string | null;
+    checkedAt: number | null;
+  } | null;
 };
 
 export type WebWorkInvocation = {

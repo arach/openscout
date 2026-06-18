@@ -25,6 +25,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { RefreshCw } from "lucide-react";
 import type { ParsedPatch } from "@pierre/diffs";
 import type { CodeViewItem } from "@pierre/diffs/react";
 
@@ -61,6 +62,8 @@ export type RepoDiffViewerProps = {
   files?: string[];
   /** Optional session scope; when present the server derives changed files. */
   session?: RepoDiffSessionRequest | null;
+  /** Force the first snapshot request to bypass the server repo-diff cache. */
+  forceInitialLoad?: boolean;
   /** Optional close affordance (rendered in the header when present). */
   onClose?: () => void;
   /** Optional "open as page" affordance (promotes the panel to the
@@ -125,12 +128,17 @@ type SnapshotFreshness = {
   refreshing: boolean;
   refreshError: string | null;
 };
+type SnapshotLoadOptions = {
+  force?: boolean;
+  preserveCurrent?: boolean;
+};
 
 export function RepoDiffViewer({
   path,
   layers = DEFAULT_LAYERS,
   files,
   session,
+  forceInitialLoad = false,
   onClose,
   onOpenAsPage,
   className,
@@ -166,6 +174,7 @@ export function RepoDiffViewer({
   const [fetchPhase, setFetchPhase] = useState<FetchPhase>("loading");
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [freshness, setFreshness] = useState<SnapshotFreshness | null>(null);
+  const snapshotRef = useRef<ScoutRepoDiffSnapshot | null>(null);
 
   const [pierre, setPierre] = useState<PierreRuntime | null>(null);
   const [pierrePhase, setPierrePhase] = useState<PierrePhase>("loading");
@@ -174,14 +183,30 @@ export function RepoDiffViewer({
   const [activeLayer, setActiveLayer] = useState<RepoDiffLayerKind | null>(null);
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<DiffLayout>("split");
+  const initialForceCompletedRef = useRef(false);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   // ── Fetch the snapshot ────────────────────────────────────────────────────
-  const loadSnapshot = useCallback(async () => {
+  const loadSnapshot = useCallback(async (options: SnapshotLoadOptions = {}) => {
     const cached = readRepoDiffCache(path, requestedLayers, requestScope);
+    const forceLoad = options.force === true
+      || (forceInitialLoad && !initialForceCompletedRef.current);
+    const preserveCurrent = options.preserveCurrent === true && snapshotRef.current != null;
     setFetchError(null);
-    if (cached) {
+    if (cached && !forceLoad) {
       setSnapshot(cached.snapshot);
       setFreshness(freshnessFromCache(cached, true));
+      setFetchPhase("ready");
+    } else if (preserveCurrent) {
+      setFreshness((prev) => ({
+        fetchedAt: prev?.fetchedAt ?? Date.now(),
+        cacheHit: prev?.cacheHit ?? false,
+        refreshing: true,
+        refreshError: null,
+      }));
       setFetchPhase("ready");
     } else {
       setFetchPhase("loading");
@@ -189,9 +214,12 @@ export function RepoDiffViewer({
     }
     try {
       const record = await fetchRepoDiffSnapshot(path, requestedLayers, {
-        force: cached != null,
+        force: forceLoad || cached != null,
         ...requestScope,
       });
+      if (forceLoad) {
+        initialForceCompletedRef.current = true;
+      }
       setSnapshot(record.snapshot);
       setFreshness(freshnessFromRecord(record, false));
       setFetchPhase("ready");
@@ -200,15 +228,24 @@ export function RepoDiffViewer({
       if (cached) {
         setFreshness(freshnessFromCache(cached, false, message));
         setFetchPhase("ready");
+      } else if (preserveCurrent) {
+        setFreshness((prev) => prev
+          ? { ...prev, refreshing: false, refreshError: message }
+          : prev);
+        setFetchPhase("ready");
       } else {
         setFetchError(message);
         setFetchPhase("error");
       }
     }
-  }, [path, requestedLayers, requestScope]);
+  }, [forceInitialLoad, path, requestedLayers, requestScope]);
 
   useEffect(() => {
     void loadSnapshot();
+  }, [loadSnapshot]);
+
+  const refreshSnapshot = useCallback(() => {
+    void loadSnapshot({ force: true, preserveCurrent: true });
   }, [loadSnapshot]);
 
   // ── Load Pierre once (runtime esm.sh import) ──────────────────────────────
@@ -340,6 +377,8 @@ export function RepoDiffViewer({
         onLayer={setActiveLayer}
         layout={layout}
         onLayout={setLayout}
+        refreshing={freshness?.refreshing === true}
+        onRefresh={refreshSnapshot}
         onClose={onClose}
         onOpenAsPage={onOpenAsPage}
       />
@@ -462,6 +501,8 @@ function Header({
   onLayer,
   layout,
   onLayout,
+  refreshing,
+  onRefresh,
   onClose,
   onOpenAsPage,
 }: {
@@ -473,6 +514,8 @@ function Header({
   onLayer: (layer: RepoDiffLayerKind) => void;
   layout: DiffLayout;
   onLayout: (layout: DiffLayout) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
   onClose?: () => void;
   onOpenAsPage?: () => void;
 }) {
@@ -515,6 +558,16 @@ function Header({
             Split
           </button>
         </div>
+        <button
+          type="button"
+          className={`rd-close${refreshing ? " spinning" : ""}`}
+          aria-label="Refresh diff"
+          title="Fetch fresh diff"
+          onClick={onRefresh}
+          disabled={refreshing}
+        >
+          <RefreshCw size={14} strokeWidth={2} aria-hidden />
+        </button>
         {onOpenAsPage ? (
           <button
             type="button"

@@ -34,9 +34,12 @@ let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
 let queryAgentsResult: Array<Record<string, unknown>> = [];
+let queryTerminalSessionsResult: Array<Record<string, unknown>> = [];
+let queryDiscoveredTerminalSessionsResult: Array<Record<string, unknown>> = [];
 let brokerDiagnosticsResult: Record<string, unknown> = makeBrokerDiagnostics();
 let pairingStateResult: Record<string, unknown> = makePairingState();
 let pairingSessionSnapshotsResult: SessionState[] = [];
+let queryFleetResult: Record<string, unknown> | null = null;
 
 let querySessionByIdImpl: (conversationId: string) => {
   id?: string;
@@ -97,7 +100,7 @@ mock.module("./db-queries.ts", () => ({
   queryConversationDefinitionById: (conversationId: string) =>
     queryConversationDefinitionByIdImpl(conversationId),
   queryHeartrate: () => [],
-  queryFleet: () => ({
+  queryFleet: () => queryFleetResult ?? ({
     generatedAt: Date.now(),
     totals: { active: 0, recentCompleted: 0, needsAttention: 0, activity: 0 },
     activeAsks: [],
@@ -112,12 +115,36 @@ mock.module("./db-queries.ts", () => ({
     queryRunsCalls.push(opts);
     return [];
   },
+  queryTerminalSessions: () => queryTerminalSessionsResult,
   queryRecentMessages: () => [],
   querySessions: () => [],
   querySessionById: (conversationId: string) =>
     querySessionByIdImpl(conversationId),
   queryWorkItems: () => [],
   queryWorkItemById: () => null,
+}));
+
+mock.module("./terminal-session-discovery.ts", () => ({
+  parseTmuxSessionList: (output: string) => output
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, windows, attached] = line.includes("|") ? line.split("|") : line.split("\t");
+      return { name, windows: Number.parseInt(windows ?? "1", 10), attached: Number.parseInt(attached ?? "0", 10) };
+    }),
+  parseZellijSessionList: (output: string) => output
+    .replace(/\x1B\[[0-?]*[ -/]*[@-~]/gu, "")
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => ({
+      name: line.split(/\s+/u)[0] ?? "",
+      state: /\bEXITED\b/iu.test(line) ? "exited" : "live",
+      raw: line,
+    })),
+  queryDiscoveredTerminalSessions: () => queryDiscoveredTerminalSessionsResult,
+  terminalSurfaceKey: (backend: string, sessionName: string) => `${backend}:${sessionName}`,
 }));
 
 mock.module("./pairing.ts", () => ({
@@ -577,7 +604,10 @@ beforeEach(() => {
   };
   scoutRelayConfigResult = {};
   brokerDiagnosticsResult = makeBrokerDiagnostics();
+  queryFleetResult = null;
   queryAgentsResult = [];
+  queryTerminalSessionsResult = [];
+  queryDiscoveredTerminalSessionsResult = [];
   readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
@@ -1367,6 +1397,55 @@ describe("createOpenScoutWebServer", () => {
     expect(item?.actions.some((action) => action.route?.view === "settings")).toBe(false);
   });
 
+  test("does not resurrect dismissed failed asks in operator attention", async () => {
+    const now = 1_700_000_000_000;
+    const failedAsk = (id: string, attention: "badge" | "silent") => ({
+      invocationId: id,
+      flightId: `flight-${id}`,
+      agentId: "agent-1",
+      agentName: "Agent One",
+      conversationId: "conv-1",
+      collaborationRecordId: null,
+      task: `Task ${id}`,
+      status: "failed",
+      statusLabel: "Interrupted",
+      acknowledgedAt: null,
+      attention,
+      agentState: "not_ready",
+      harness: "claude",
+      transport: "claude_stream_json",
+      summary: `Summary ${id}`,
+      startedAt: now - 2_000,
+      updatedAt: now - 1_000,
+    });
+    queryFleetResult = {
+      generatedAt: now,
+      totals: { active: 0, recentCompleted: 2, needsAttention: 0, activity: 0 },
+      activeAsks: [],
+      recentCompleted: [
+        failedAsk("inv-dismissed", "silent"),
+        failedAsk("inv-visible", "badge"),
+      ],
+      needsAttention: [],
+      activity: [],
+    };
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/operator-attention");
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      items: Array<{ id: string }>;
+    };
+    const ids = body.items.map((item) => item.id);
+    expect(ids).not.toContain("ask:inv-dismissed");
+    expect(ids).toContain("ask:inv-visible");
+  });
+
   test("passes run filters to the run registry API", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -1603,6 +1682,72 @@ describe("createOpenScoutWebServer", () => {
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
+  });
+
+  test("serves registered terminal sessions", async () => {
+    queryTerminalSessionsResult = [{
+      id: "ts.abc",
+      harness: "claude",
+      sourceSessionId: "claude-session-123",
+      cwd: "/tmp/openscout",
+      resumeCommand: "claude --resume claude-session-123",
+      surfaces: [{
+        backend: "zellij",
+        sessionName: "scout-zj-demo",
+        paneId: "terminal_0",
+        attachCommand: ["env", "ZELLIJ_SOCKET_DIR=/tmp/z", "zellij", "attach", "scout-zj-demo"],
+        observeCommand: ["env", "ZELLIJ_SOCKET_DIR=/tmp/z", "zellij", "watch", "scout-zj-demo"],
+        relay: { backend: "zellij", sessionName: "scout-zj-demo", zellijSession: "scout-zj-demo" },
+        state: "live",
+        socketDir: "/tmp/z",
+      }],
+      createdAt: 1,
+      updatedAt: 2,
+    }];
+    queryDiscoveredTerminalSessionsResult = [{
+      id: "discovered.tmux.demo",
+      harness: "tmux",
+      sourceSessionId: "raw-tmux-demo",
+      cwd: "",
+      resumeCommand: "tmux attach -t raw-tmux-demo",
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "raw-tmux-demo",
+        paneId: null,
+        attachCommand: ["tmux", "attach", "-t", "raw-tmux-demo"],
+        observeCommand: null,
+        relay: { backend: "tmux", sessionName: "raw-tmux-demo", tmuxSession: "raw-tmux-demo" },
+        state: "live",
+      }],
+      createdAt: 3,
+      updatedAt: 3,
+      metadata: { source: "backend-discovery", registryState: "discovered" },
+    }];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/terminal-sessions?backend=zellij");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      count: 1,
+      sessions: queryTerminalSessionsResult,
+    });
+
+    const inventoryResponse = await server.app.request(
+      "http://localhost/api/terminal-sessions?includeDiscovered=1",
+    );
+
+    expect(inventoryResponse.status).toBe(200);
+    await expect(inventoryResponse.json()).resolves.toEqual({
+      ok: true,
+      count: 2,
+      sessions: [...queryTerminalSessionsResult, ...queryDiscoveredTerminalSessionsResult],
+    });
   });
 
   test("redirects the remote pairing page to the iOS deep link", async () => {

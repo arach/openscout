@@ -11,6 +11,7 @@ import { db } from "./internal/db.ts";
 import { conversationIdForAgent } from "./internal/conversation-ids.ts";
 import { metadataString } from "./internal/parse.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
+import { resolveTerminalSurface } from "../core/terminal-surfaces.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
@@ -186,6 +187,11 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       role: (meta.role as string) ?? null,
       model: (meta.model as string) ?? metadataString(endpointMeta, "model"),
       harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
+      terminalSurface: resolveTerminalSurface({
+        transport: r.transport,
+        endpointSessionId: r.session_id,
+        metadata: endpointMeta,
+      }),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
       conversationId: conversationIdForAgent(r.id),
       authorityNodeId: r.authority_node_id,

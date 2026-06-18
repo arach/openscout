@@ -60,7 +60,13 @@ export function resolveHarnessSessionId(
   }
 
   if (transport === "claude_stream_json") {
-    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
+    const runtimeInstanceId = metadataString(metadata, "runtimeInstanceId")
+      ?? metadataString(metadata, "runtimeSessionId");
+    const externalSessionId = metadataString(metadata, "externalSessionId");
+    if (externalSessionId) {
+      return externalSessionId;
+    }
+    return endpointSessionId && endpointSessionId !== runtimeInstanceId ? endpointSessionId : null;
   }
 
   return null;

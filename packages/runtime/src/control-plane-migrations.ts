@@ -10,6 +10,7 @@ import {
   CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA,
   CONTROL_PLANE_SCHEMA_VERSION,
   CONTROL_PLANE_SQLITE_SCHEMA,
+  CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA,
 } from "./schema.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
@@ -56,6 +57,13 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
       if (!hasColumn(database, "flights", "labels_json")) {
         database.exec("ALTER TABLE flights ADD COLUMN labels_json TEXT");
       }
+    },
+  },
+  {
+    id: "terminal-session-registry",
+    description: "Creates the Scout-owned terminal session registry (harness session + surfaces).",
+    apply(database) {
+      database.exec(CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA);
     },
   },
   {

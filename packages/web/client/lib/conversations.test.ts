@@ -70,6 +70,22 @@ describe("conversation flight presence", () => {
     expect(isConversationWorkingTurnWithoutRecentUpdate(flight, 1_000_000)).toBe(false);
   });
 
+  test("does not mark queued-until-online flights as no recent update", () => {
+    const nowMs = 2_000_000_000_000;
+    const flight = {
+      state: "queued",
+      startedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS - 1,
+      dispatchOutcome: {
+        status: "queued_until_online",
+        reason: "no_runnable_endpoint",
+        checkedAt: nowMs - CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS - 1,
+      },
+    };
+
+    expect(shouldShowConversationWorkingTurn(flight)).toBe(true);
+    expect(isConversationWorkingTurnWithoutRecentUpdate(flight, nowMs)).toBe(false);
+  });
+
   test("treats a no-recent-update working turn as answered after a newer agent reply", () => {
     const nowMs = 2_000_000_000_000;
     const flight = {
