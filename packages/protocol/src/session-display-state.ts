@@ -59,6 +59,20 @@ export interface ScoutDisplayUsage {
   source?: "provider_exact" | "tokenizer_estimate" | "char_heuristic" | "manual_estimate";
 }
 
+export interface ScoutDisplayTurn {
+  id: ScoutId;
+  status: "streaming" | "completed" | "interrupted" | "error";
+  startedAt: number;
+  endedAt?: number;
+  blockCount: number;
+  messageCount: number;
+  toolCount: number;
+  attentionCount: number;
+  summary?: string;
+  updatedAt: number;
+  metadata?: MetadataMap;
+}
+
 export interface ScoutSessionDisplayState {
   sessionId: ScoutId;
   phase: ScoutSessionDisplayPhase;
@@ -66,9 +80,11 @@ export interface ScoutSessionDisplayState {
   activeTools: Record<ScoutId, ScoutDisplayTool>;
   attention: Record<ScoutId, ScoutDisplayAttentionItem>;
   activeSubagents: Record<ScoutId, ScoutDisplaySubagent>;
+  turns: ScoutDisplayTurn[];
   tasks: ScoutDisplayTask[];
   usage?: ScoutDisplayUsage;
   updatedAt: number;
+  metadata?: MetadataMap;
 }
 
 export type ScoutSessionDisplayEvent =
@@ -80,6 +96,7 @@ export type ScoutSessionDisplayEvent =
   | { type: "attention_closed"; itemId: ScoutId; at: number }
   | { type: "subagent_started"; subagent: ScoutDisplaySubagent; at?: number }
   | { type: "subagent_finished"; subagentId: ScoutId; failed?: boolean; summary?: string; at: number }
+  | { type: "turns_snapshot"; turns: ScoutDisplayTurn[]; at: number }
   | { type: "tasks_snapshot"; tasks: ScoutDisplayTask[]; at: number }
   | { type: "usage_updated"; usage: ScoutDisplayUsage; at: number }
   | { type: "reset_thread"; at: number };
@@ -95,6 +112,7 @@ export function createScoutSessionDisplayState(input: {
     activeTools: {},
     attention: {},
     activeSubagents: {},
+    turns: [],
     tasks: [],
     updatedAt: input.now ?? 0,
   };
@@ -172,6 +190,8 @@ export function reduceScoutSessionDisplayState(
         updatedAt: event.at,
       };
     }
+    case "turns_snapshot":
+      return { ...state, turns: [...event.turns], updatedAt: event.at };
     case "tasks_snapshot":
       return { ...state, tasks: [...event.tasks], updatedAt: event.at };
     case "usage_updated":
