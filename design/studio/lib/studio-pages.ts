@@ -547,6 +547,20 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Agent state vocabulary — three densities.",
   },
   {
+    href: "/studies/activity-system",
+    label: "Activity System",
+    bucket: "studies",
+    surface: "cross",
+    family: "agent-pulse",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/activity-system/page.tsx",
+      "packages/protocol/src/activity.ts",
+      "packages/runtime/src/activity-projection.ts",
+    ],
+    blurb: "Cross-surface activity architecture: shell digest, agent rows, focused session detail, and operator attention from one projection.",
+  },
+  {
     href: "/studies/agent-identity",
     label: "Agent Identity",
     bucket: "studies",
