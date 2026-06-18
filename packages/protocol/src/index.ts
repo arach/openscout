@@ -21,6 +21,7 @@ export * from "./budget.js";
 export * from "./agent-broker-feed.js";
 export * from "./durable-actions.js";
 export * from "./observed-status.js";
+export * from "./activity.js";
 export * from "./harness-feature-support.js";
 export * from "./native-interactions.js";
 export * from "./session-display-state.js";

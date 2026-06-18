@@ -33,6 +33,7 @@ export * from "./mobile-push.js";
 export * from "./permission-policy.js";
 export * from "./agent-run-registry.js";
 export * from "./observed-status-projection.js";
+export * from "./activity-projection.js";
 export * from "./issue-runner.js";
 export * from "./issue-runner-service.js";
 export * from "./session-attention.js";
