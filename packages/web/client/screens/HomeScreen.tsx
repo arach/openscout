@@ -17,7 +17,7 @@ import {
 import { actorColor } from "../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState } from "../lib/agent-state.ts";
-import { usePersistentNumber, usePersistentString } from "../lib/persistent-state.ts";
+import { usePersistentNumber } from "../lib/persistent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { conversationForAgent, routeMachineId } from "../lib/router.ts";
 import {
@@ -41,9 +41,9 @@ import type {
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
 
-// Live context for an active agent, pulled from the observe summary endpoint
+// Live context for a working agent, pulled from the observe summary endpoint
 // (the bulk /api/agents list doesn't carry session/model/token usage).
-type ActiveAgentContext = {
+type WorkingAgentContext = {
   sessionId: string | null;
   model: string | null;
   contextPct: number | null;
@@ -81,21 +81,9 @@ const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
 const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
-const NO_RECENT_SIGNAL_INACTIVE_KEY = "openscout.home.noRecentSignalInactive.v1";
-const NO_RECENT_SIGNAL_INACTIVE_LIMIT = 200;
 const LOCAL_TAIL_RECENT_LIMIT = 1000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
-
-type NoRecentSignalItem = {
-  agentId: string;
-  agentName: string;
-  updatedAtMs: number;
-  summary: string;
-  route: Route;
-  hasAgentState: boolean;
-  askCount: number;
-};
 
 function formatAge(timestamp: number | null | undefined, nowMs: number): string {
   const timestampMs = normalizeTimestampMs(timestamp);
@@ -244,40 +232,13 @@ function isFreshMovingTimestamp(
   return timestampMs !== null && nowMs - timestampMs <= MOVING_ACTIVE_WINDOW_MS;
 }
 
-function parseNoRecentSignalInactive(raw: string): Record<string, number> {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return {};
-    }
-    const inactive: Record<string, number> = {};
-    for (const [agentId, value] of Object.entries(parsed)) {
-      const timestamp = typeof value === "number" ? value : Number(value);
-      if (agentId && Number.isFinite(timestamp)) {
-        inactive[agentId] = timestamp;
-      }
-    }
-    return inactive;
-  } catch {
-    return {};
-  }
-}
-
-function encodeNoRecentSignalInactive(inactive: Record<string, number>): string {
-  const trimmed = Object.entries(inactive)
-    .filter((entry): entry is [string, number] => Number.isFinite(entry[1]))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, NO_RECENT_SIGNAL_INACTIVE_LIMIT);
-  return JSON.stringify(Object.fromEntries(trimmed));
-}
-
 function routeForFleetAsk(ask: FleetAsk): Route {
   if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
   if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
   return { view: "agents", agentId: ask.agentId };
 }
 
-// ── Active-agent card helpers ───────────────────────────────────────────────
+// ── Working-agent card helpers ──────────────────────────────────────────────
 function middleTruncate(value: string, max = 118): string {
   if (value.length <= max) return value;
   const head = Math.ceil((max - 1) * 0.58);
@@ -430,15 +391,6 @@ function workingCardLiveLabel(card: AgentWorkingCardData, nowMs: number): string
   const age = card.execution.lastEventAt ? formatAge(card.execution.lastEventAt, nowMs) : null;
   if (card.execution.state === "idle") return age ? `idle · ${age}` : "idle";
   return age ? `live · ${age}` : "live";
-}
-
-function noRecentSignalSourceLabel(item: NoRecentSignalItem): string {
-  const parts: string[] = [];
-  if (item.hasAgentState) parts.push("agent state");
-  if (item.askCount > 0) {
-    parts.push(`${item.askCount} ask${item.askCount === 1 ? "" : "s"}`);
-  }
-  return parts.join(" + ") || "no recent signal";
 }
 
 type HeartrateBucketView = {
@@ -670,14 +622,6 @@ export function HomeScreen({
   }, [load]);
 
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [noRecentSignalInactiveRaw, setNoRecentSignalInactiveRaw] = usePersistentString(
-    NO_RECENT_SIGNAL_INACTIVE_KEY,
-    "{}",
-  );
-  const noRecentSignalInactive = useMemo(
-    () => parseNoRecentSignalInactive(noRecentSignalInactiveRaw),
-    [noRecentSignalInactiveRaw],
-  );
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
@@ -712,7 +656,7 @@ export function HomeScreen({
     [movingAsks, nowMs],
   );
   const needsYouItems = useMemo(() => scopedFleet?.needsAttention ?? [], [scopedFleet]);
-  const activeAskByAgent = useMemo(() => {
+  const movingAskByAgent = useMemo(() => {
     const byAgent = new Map<string, FleetAsk>();
     for (const ask of freshMovingAsks) {
       const current = byAgent.get(ask.agentId);
@@ -724,35 +668,34 @@ export function HomeScreen({
     }
     return byAgent;
   }, [freshMovingAsks]);
-  const active = useMemo(
+  const workingAgents = useMemo(
     () =>
       agents.filter((agent) =>
         normalizeAgentState(agent.state) === "working" &&
-        (isFreshMovingTimestamp(agent.updatedAt, nowMs) || activeAskByAgent.has(agent.id))
+        (isFreshMovingTimestamp(agent.updatedAt, nowMs) || movingAskByAgent.has(agent.id))
       ),
-    [activeAskByAgent, agents, nowMs],
+    [movingAskByAgent, agents, nowMs],
   );
-  const activeIds = useMemo(() => new Set(active.map((agent) => agent.id)), [active]);
 
-  // Enrich active cards with live session id, model, and context-window usage.
-  // One batched observe-summary call covers every active agent (only a handful).
-  const activeIdsKey = useMemo(
-    () => active.map((agent) => agent.id).sort().join(","),
-    [active],
+  // Enrich working cards with live session id, model, and context-window usage.
+  // One batched observe-summary call covers every visible working agent (only a handful).
+  const workingAgentIdsKey = useMemo(
+    () => workingAgents.map((agent) => agent.id).sort().join(","),
+    [workingAgents],
   );
-  const [activeContext, setActiveContext] = useState<Record<string, ActiveAgentContext>>({});
+  const [workingContext, setWorkingContext] = useState<Record<string, WorkingAgentContext>>({});
   useEffect(() => {
-    if (!activeIdsKey) {
-      setActiveContext({});
+    if (!workingAgentIdsKey) {
+      setWorkingContext({});
       return;
     }
     let cancelled = false;
     const load = async () => {
       const summaries = await api<ObserveAgentSummary[]>(
-        `/api/observe/agents?ids=${encodeURIComponent(activeIdsKey)}`,
+        `/api/observe/agents?ids=${encodeURIComponent(workingAgentIdsKey)}`,
       ).catch(() => null);
       if (cancelled || !summaries) return;
-      const next: Record<string, ActiveAgentContext> = {};
+      const next: Record<string, WorkingAgentContext> = {};
       for (const summary of summaries) {
         const session = summary?.data?.metadata?.session;
         const usage = summary?.data?.metadata?.usage;
@@ -773,7 +716,7 @@ export function HomeScreen({
           contextPct,
         };
       }
-      setActiveContext(next);
+      setWorkingContext(next);
     };
     void load();
     const timer = setInterval(load, 15_000);
@@ -781,77 +724,13 @@ export function HomeScreen({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [activeIdsKey]);
-  const workingAgentsWithoutRecentSignal = useMemo(
-    () =>
-      agents.filter((agent) =>
-        normalizeAgentState(agent.state) === "working" && !activeIds.has(agent.id)
-      ),
-    [activeIds, agents],
-  );
-  const movingAsksWithoutRecentSignal = useMemo(
-    () => movingAsks.filter((ask) => !isFreshMovingTimestamp(ask.updatedAt, nowMs)),
-    [movingAsks, nowMs],
-  );
-  const noRecentSignalItems = useMemo<NoRecentSignalItem[]>(() => {
-    const byAgent = new Map<string, NoRecentSignalItem>();
-    const upsert = (item: NoRecentSignalItem) => {
-      const current = byAgent.get(item.agentId);
-      if (!current) {
-        byAgent.set(item.agentId, item);
-        return;
-      }
-      const useNextDetail = item.updatedAtMs >= current.updatedAtMs;
-      byAgent.set(item.agentId, {
-        agentId: item.agentId,
-        agentName: current.agentName || item.agentName,
-        updatedAtMs: Math.max(current.updatedAtMs, item.updatedAtMs),
-        summary: useNextDetail ? item.summary : current.summary,
-        route: useNextDetail ? item.route : current.route,
-        hasAgentState: current.hasAgentState || item.hasAgentState,
-        askCount: current.askCount + item.askCount,
-      });
-    };
-
-    for (const agent of workingAgentsWithoutRecentSignal) {
-      upsert({
-        agentId: agent.id,
-        agentName: agent.name,
-        updatedAtMs: normalizeTimestampMs(agent.updatedAt) ?? 0,
-        summary: agent.cwd ?? agent.projectRoot ?? agent.project ?? agent.branch ?? "Registered as working",
-        route: { view: "agents", agentId: agent.id, tab: "profile" },
-        hasAgentState: true,
-        askCount: 0,
-      });
-    }
-
-    for (const ask of movingAsksWithoutRecentSignal) {
-      upsert({
-        agentId: ask.agentId,
-        agentName: ask.agentName ?? ask.agentId,
-        updatedAtMs: normalizeTimestampMs(ask.updatedAt) ?? 0,
-        summary: ask.summary ?? ask.task ?? ask.statusLabel,
-        route: routeForFleetAsk(ask),
-        hasAgentState: false,
-        askCount: 1,
-      });
-    }
-
-    return [...byAgent.values()].sort((a, b) => b.updatedAtMs - a.updatedAtMs);
-  }, [movingAsksWithoutRecentSignal, workingAgentsWithoutRecentSignal]);
-  const visibleNoRecentSignalItems = useMemo(
-    () =>
-      noRecentSignalItems.filter(
-        (item) => (noRecentSignalInactive[item.agentId] ?? -1) < item.updatedAtMs,
-      ),
-    [noRecentSignalInactive, noRecentSignalItems],
-  );
-  const movingAsksWithoutActiveAgent = useMemo(
+  }, [workingAgentIdsKey]);
+  const movingAsksWithoutWorkingAgent = useMemo(
     () =>
       freshMovingAsks.filter(
-        (ask) => !active.some((agent) => agent.id === ask.agentId),
+        (ask) => !workingAgents.some((agent) => agent.id === ask.agentId),
       ),
-    [active, freshMovingAsks],
+    [workingAgents, freshMovingAsks],
   );
 
   const totalNeedsYou = needsYouAsks.length + needsYouItems.length;
@@ -922,7 +801,7 @@ export function HomeScreen({
 
   // Native/unmanaged actors observed via the activity firehose in the last 10 minutes.
   // Anything Scout already tracks as a managed agent is excluded — those render as NowCard.
-  const observedActiveActors = useMemo<FleetActivity[]>(() => {
+  const observedMovingActors = useMemo<FleetActivity[]>(() => {
     const ACTIVE_WINDOW_MS = 10 * 60_000;
     const cutoff = nowMs - ACTIVE_WINDOW_MS;
     const items = scopedFleet?.activity ?? [];
@@ -957,25 +836,10 @@ export function HomeScreen({
     );
   }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
-  const markNoRecentSignalInactive = useCallback((item: NoRecentSignalItem) => {
-    setNoRecentSignalInactiveRaw(encodeNoRecentSignalInactive({
-      ...noRecentSignalInactive,
-      [item.agentId]: item.updatedAtMs,
-    }));
-  }, [setNoRecentSignalInactiveRaw, noRecentSignalInactive]);
-
-  const markAllNoRecentSignalInactive = useCallback(() => {
-    const next = { ...noRecentSignalInactive };
-    for (const item of visibleNoRecentSignalItems) {
-      next[item.agentId] = item.updatedAtMs;
-    }
-    setNoRecentSignalInactiveRaw(encodeNoRecentSignalInactive(next));
-  }, [setNoRecentSignalInactiveRaw, noRecentSignalInactive, visibleNoRecentSignalItems]);
-
   const narrativeParts = useMemo(() => {
     const parts: string[] = [];
-    if (active.length > 0)
-      parts.push(`${active.length} agent${active.length === 1 ? " is" : "s are"} working now`);
+    if (workingAgents.length > 0)
+      parts.push(`${workingAgents.length} agent${workingAgents.length === 1 ? " is" : "s are"} working now`);
     if (waiting.length > 0)
       parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} ready`);
     if (totalOperatorQueue > 0)
@@ -985,7 +849,7 @@ export function HomeScreen({
     if (parts.length === 0)
       parts.push("no agents are connected yet");
     return parts;
-  }, [active, waiting, totalOperatorQueue, agents]);
+  }, [workingAgents, waiting, totalOperatorQueue, agents]);
   const syncLabel = loading
     ? "syncing"
     : error
@@ -1045,10 +909,10 @@ export function HomeScreen({
         <HomeHero {...heroProps} />
 
         {/* ── What's moving ──────────────────────────────────────── */}
-        {(active.length > 0 || observedActiveActors.length > 0 || movingAsksWithoutActiveAgent.length > 0) && (
+        {(workingAgents.length > 0 || observedMovingActors.length > 0 || movingAsksWithoutWorkingAgent.length > 0) && (
           <div className="s-fleet-section">
             <SectionRule
-              label={`What's moving · ${active.length + observedActiveActors.length + movingAsksWithoutActiveAgent.length}`}
+              label={`What's moving · ${workingAgents.length + observedMovingActors.length + movingAsksWithoutWorkingAgent.length}`}
               right={
                 <button
                   className="s-link-btn"
@@ -1058,24 +922,24 @@ export function HomeScreen({
                 </button>
               }
             />
-            {(active.length > 0 || observedActiveActors.length > 0) && (
+            {(workingAgents.length > 0 || observedMovingActors.length > 0) && (
               <div
                 className="s-now-grid"
                 style={{
-                  gridTemplateColumns: `repeat(${Math.min(active.length + observedActiveActors.length, 3)}, 1fr)`,
+                  gridTemplateColumns: `repeat(${Math.min(workingAgents.length + observedMovingActors.length, 3)}, 1fr)`,
                 }}
               >
-                {active.map((agent) => (
+                {workingAgents.map((agent) => (
                   <NowCard
                     key={agent.id}
                     agent={agent}
-                    ask={activeAskByAgent.get(agent.id) ?? null}
-                    context={activeContext[agent.id] ?? null}
+                    ask={movingAskByAgent.get(agent.id) ?? null}
+                    context={workingContext[agent.id] ?? null}
                     nowMs={nowMs}
                     navigate={navigate}
                   />
                 ))}
-                {observedActiveActors.map((actor) => (
+                {observedMovingActors.map((actor) => (
                   <ObservedActorCard
                     key={actor.id}
                     actor={actor}
@@ -1085,9 +949,9 @@ export function HomeScreen({
                 ))}
               </div>
             )}
-            {movingAsksWithoutActiveAgent.length > 0 && (
+            {movingAsksWithoutWorkingAgent.length > 0 && (
               <div className="s-moving-ask-list">
-                {movingAsksWithoutActiveAgent.map((ask) => (
+                {movingAsksWithoutWorkingAgent.map((ask) => (
                   <MovingAskRow
                     key={ask.invocationId}
                     ask={ask}
@@ -1096,34 +960,6 @@ export function HomeScreen({
                 ))}
               </div>
             )}
-          </div>
-        )}
-
-        {/* ── No recent signal review ─────────────────────────────── */}
-        {visibleNoRecentSignalItems.length > 0 && (
-          <div className="s-fleet-section" id="home-no-recent-signal">
-            <SectionRule
-              label={`No recent signal · ${visibleNoRecentSignalItems.length}`}
-              right={
-                <button
-                  type="button"
-                  className="s-link-btn"
-                  onClick={markAllNoRecentSignalInactive}
-                >
-                  mark all inactive
-                </button>
-              }
-            />
-            <div className="s-no-recent-signal-list">
-              {visibleNoRecentSignalItems.map((item) => (
-                <NoRecentSignalRow
-                  key={item.agentId}
-                  item={item}
-                  navigate={navigate}
-                  onMarkInactive={() => markNoRecentSignalInactive(item)}
-                />
-              ))}
-            </div>
           </div>
         )}
 
@@ -1634,7 +1470,7 @@ function NowCard({
 }: {
   agent: Agent;
   ask?: FleetAsk | null;
-  context?: ActiveAgentContext | null;
+  context?: WorkingAgentContext | null;
   nowMs: number;
   navigate: (r: Route) => void;
 }) {
@@ -1877,66 +1713,6 @@ function MovingAskRow({
         {timeAgo(ask.updatedAt)}
       </span>
     </button>
-  );
-}
-
-function NoRecentSignalRow({
-  item,
-  navigate,
-  onMarkInactive,
-}: {
-  item: NoRecentSignalItem;
-  navigate: (r: Route) => void;
-  onMarkInactive: () => void;
-}) {
-  const age = item.updatedAtMs > 0 ? timeAgo(item.updatedAtMs) : "unknown";
-  const source = noRecentSignalSourceLabel(item);
-  const summary = summarize(item.summary, 180);
-
-  return (
-    <div className="s-no-recent-signal-row">
-      <button
-        type="button"
-        className="s-no-recent-signal-main"
-        onClick={() => navigate(item.route)}
-      >
-        <span
-          className="s-avatar s-avatar-sm"
-          style={{ background: actorColor(item.agentName) }}
-        >
-          {item.agentName[0]?.toUpperCase() ?? "?"}
-        </span>
-        <span className="s-no-recent-signal-copy">
-          <span className="s-no-recent-signal-name">{item.agentName}</span>
-          <span className="s-no-recent-signal-meta">
-            <span>last signal {age}</span>
-            <span>{source}</span>
-            <span>hidden after {formatLookback(MOVING_ACTIVE_WINDOW_MS)} idle</span>
-          </span>
-          {summary && <span className="s-no-recent-signal-summary">{summary}</span>}
-        </span>
-      </button>
-      <div className="s-no-recent-signal-actions">
-        <button
-          type="button"
-          className="s-icon-btn"
-          title="Open source"
-          onClick={() => navigate(item.route)}
-        >
-          <ExternalLink size={14} aria-hidden="true" />
-          <span>Open</span>
-        </button>
-        <button
-          type="button"
-          className="s-icon-btn"
-          title="Mark inactive"
-          onClick={onMarkInactive}
-        >
-          <Check size={14} aria-hidden="true" />
-          <span>Mark inactive</span>
-        </button>
-      </div>
-    </div>
   );
 }
 
