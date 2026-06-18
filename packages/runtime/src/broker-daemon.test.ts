@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -54,6 +54,7 @@ function expectOpaqueNamedConversation(
 const harnesses = new Set<BrokerHarness>();
 const hangingServers = new Set<ReturnType<typeof Bun.serve>>();
 const pairingHomes = new Set<string>();
+const temporaryDirectories = new Set<string>();
 
 afterEach(async () => {
   for (const harness of harnesses) {
@@ -71,6 +72,10 @@ afterEach(async () => {
     rmSync(home, { recursive: true, force: true });
   }
   pairingHomes.clear();
+  for (const directory of temporaryDirectories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  temporaryDirectories.clear();
 });
 
 async function startBroker(input: {
@@ -121,6 +126,50 @@ function writeRelayAgentRegistry(
     `${JSON.stringify({ version: 1, agents }, null, 2)}\n`,
     "utf8",
   );
+}
+
+function writeFakeTmuxBin(binDirectory: string): string {
+  mkdirSync(binDirectory, { recursive: true });
+  const logPath = join(binDirectory, "tmux.log");
+  const tmuxPath = join(binDirectory, "tmux");
+  writeFileSync(
+    tmuxPath,
+    [
+      "#!/usr/bin/env bash",
+      "set -euo pipefail",
+      "cmd=\"${1:-}\"",
+      "if [ $# -gt 0 ]; then shift; fi",
+      "if [ -n \"${OPENSCOUT_FAKE_TMUX_LOG:-}\" ]; then",
+      "  printf '%s %s\\n' \"$cmd\" \"$*\" >> \"$OPENSCOUT_FAKE_TMUX_LOG\"",
+      "fi",
+      "case \"$cmd\" in",
+      "  has-session)",
+      "    exit 0",
+      "    ;;",
+      "  capture-pane)",
+      "    printf '\\n'",
+      "    exit 0",
+      "    ;;",
+      "  load-buffer)",
+      "    cat >/dev/null",
+      "    exit 0",
+      "    ;;",
+      "  new-session)",
+      "    printf '%%1\\n'",
+      "    exit 0",
+      "    ;;",
+      "  paste-buffer|send-keys|delete-buffer|pipe-pane)",
+      "    exit 0",
+      "    ;;",
+      "  *)",
+      "    exit 0",
+      "    ;;",
+      "esac",
+    ].join("\n") + "\n",
+    "utf8",
+  );
+  chmodSync(tmuxPath, 0o755);
+  return logPath;
 }
 
 async function drainProcessOutput(stream: ReadableStream<Uint8Array> | null): Promise<void> {
@@ -1907,6 +1956,103 @@ describe("broker daemon comms layer", () => {
       endpointId: "endpoint-sleepy-pairing",
       transport: "pairing_bridge",
     }));
+  }, 15_000);
+
+  test("dispatches to an active broker-only tmux endpoint instead of queueing until online", async () => {
+    const fakeBin = mkdtempSync(join(tmpdir(), "openscout-fake-tmux-"));
+    temporaryDirectories.add(fakeBin);
+    const tmuxLogPath = writeFakeTmuxBin(fakeBin);
+    const sessionId = "relay-card-active-claude";
+    const harness = await startBroker({
+      env: {
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        OPENSCOUT_FAKE_TMUX_LOG: tmuxLogPath,
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+      },
+    });
+
+    await postJson(harness.baseUrl, "/v1/agents", {
+      id: "card-active",
+      kind: "agent",
+      definitionId: "card-active",
+      displayName: "Card Active",
+      handle: "card-active",
+      labels: ["relay", "project", "agent", "local-agent"],
+      selector: "@card-active",
+      defaultSelector: "@card-active",
+      metadata: {
+        source: "relay-agent-registry",
+        project: "Card",
+        projectRoot: "/tmp/card",
+        tmuxSession: sessionId,
+        cardLifecycle: {
+          kind: "one_time",
+          createdAt: Date.now(),
+          createdById: "operator",
+          expiresAt: Date.now() + 60_000,
+          maxUses: 1,
+        },
+      },
+      agentClass: "general",
+      capabilities: ["chat", "invoke", "deliver"],
+      wakePolicy: "on_demand",
+      homeNodeId: harness.nodeId,
+      authorityNodeId: harness.nodeId,
+      advertiseScope: "local",
+    });
+
+    await postJson(harness.baseUrl, "/v1/endpoints", {
+      id: "endpoint-card-active-tmux",
+      agentId: "card-active",
+      nodeId: harness.nodeId,
+      harness: "claude",
+      transport: "tmux",
+      state: "active",
+      sessionId,
+      cwd: "/tmp/card",
+      projectRoot: "/tmp/card",
+      metadata: {
+        source: "relay-agent-registry",
+        tmuxSession: sessionId,
+        runtimeInstanceId: sessionId,
+        lastStartedAt: Date.now(),
+      },
+    });
+
+    const response = await postJson<{
+      accepted: boolean;
+      flightId: string;
+      state: string;
+    }>(harness.baseUrl, "/v1/invocations", {
+      id: "inv-card-active",
+      requesterId: "operator",
+      requesterNodeId: harness.nodeId,
+      targetAgentId: "card-active",
+      action: "wake",
+      task: "Ping active card.",
+      ensureAwake: true,
+      stream: false,
+      createdAt: Date.now(),
+      metadata: { source: "test" },
+    });
+
+    expect(response.accepted).toBe(true);
+
+    const snapshot = await waitFor(
+      () => getJson<{
+        flights: Record<string, { state: string; summary?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (value) => value.flights[response.flightId]?.state === "completed",
+    );
+    const flight = snapshot.flights[response.flightId];
+
+    expect(flight?.summary).toBe("Card Active received the message.");
+    expect(flight?.metadata?.dispatchAck).toEqual(expect.objectContaining({
+      endpointId: "endpoint-card-active-tmux",
+      transport: "tmux",
+      sessionId,
+    }));
+    expect(readFileSync(tmuxLogPath, "utf8")).toContain("send-keys");
   }, 15_000);
 
   test("keeps replayed invocations available to daemon routes after restart", async () => {

@@ -196,14 +196,19 @@ struct ScoutConversationListBar: View {
         }
     }
 
+    // One compact toolbar row instead of two stacked full-width controls: the
+    // scope filter (icon-only segmented, instant one-tap switching) hugs the
+    // leading edge, the search field grows to fill the rest. Reads as a refined
+    // macOS toolbar and holds up at the 224pt min column width.
     private var controls: some View {
-        VStack(spacing: HudSpacing.sm) {
+        HStack(spacing: HudSpacing.sm) {
             ScoutConversationFilterControl(selection: $filter)
             ScoutSearchField("Search", text: $query, focus: searchFocused)
+                .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, ScoutDesign.listGutter)
         .padding(.top, HudSpacing.md)
-        .padding(.bottom, HudSpacing.xxl)
+        .padding(.bottom, HudSpacing.lg)
     }
 
     private enum RecencyBucket: String, Hashable, CaseIterable {
@@ -442,13 +447,14 @@ struct ScoutListNewButton: View {
 struct ScoutConversationFilterControl: View {
     @Binding var selection: ScoutChannelFilter
 
-    /// A single crisp segmented toggle: one hairline-thin track, the active
-    /// segment a solid accent block with a bg-color label. Replaces both the old
-    /// muddy 12%-tint active state and the short-lived separate-pill experiment —
-    /// the grouped toggle is the better treatment; it just needed a crisp active
-    /// fill and a thin (0.5pt) border to match the studio's line weight.
-    private let trackRadius: CGFloat = HudRadius.card
+    /// A compact icon-only segmented toggle: one hairline-thin track, the active
+    /// segment a solid accent block with a bg-color glyph (tray / person / #).
+    /// Hugs its content so it can ride beside the search field on a single row;
+    /// labels move into hover tooltips. Height matches the search field so the
+    /// two read as one toolbar.
+    private let trackRadius: CGFloat = HudRadius.standard
     private var segmentRadius: CGFloat { trackRadius - 2 }
+    private let segmentWidth: CGFloat = 28
 
     var body: some View {
         HStack(spacing: HudSpacing.xxs) {
@@ -457,11 +463,11 @@ struct ScoutConversationFilterControl: View {
                 Button {
                     selection = option
                 } label: {
-                    Text(option.title)
+                    Image(systemName: option.icon)
                         .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
                         .foregroundStyle(isActive ? ScoutPalette.bg : ScoutPalette.muted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 22)
+                        .frame(width: segmentWidth)
+                        .frame(maxHeight: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: segmentRadius, style: .continuous)
                                 .fill(isActive ? ScoutPalette.accent : Color.clear)
@@ -473,7 +479,8 @@ struct ScoutConversationFilterControl: View {
             }
         }
         .padding(2)
-        .frame(maxWidth: .infinity)
+        .frame(height: HudLayout.fieldHeight)
+        .fixedSize(horizontal: true, vertical: false)
         .background(
             RoundedRectangle(cornerRadius: trackRadius, style: .continuous)
                 .fill(ScoutSurface.inset)

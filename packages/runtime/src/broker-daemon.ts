@@ -4679,6 +4679,7 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
       shouldUseExistingSession
       || existing.transport === "pairing_bridge"
       || isA2AHttpEndpoint(existing)
+      || isBrokerRunnableLocalAgentTransport(existing.transport)
     )
   ) {
     return existing;

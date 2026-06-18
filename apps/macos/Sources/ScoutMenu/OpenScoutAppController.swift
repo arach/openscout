@@ -243,6 +243,50 @@ final class OpenScoutAppController: ObservableObject {
         }
     }
 
+    func setOpenScoutNetworkKeepPairingRelayRunning(_ enabled: Bool) {
+        guard !openScoutNetworkActionPending else {
+            return
+        }
+
+        openScoutNetworkActionPending = true
+        lastError = nil
+
+        Task {
+            defer {
+                openScoutNetworkActionPending = false
+            }
+
+            do {
+                var settings = OpenScoutNetworkSettingsStore.load()
+                settings.keepPairingRelayRunning = enabled
+                try OpenScoutNetworkSettingsStore.save(settings)
+                refreshOpenScoutNetworkState()
+                if settings.discoveryEnabled && enabled {
+                    try await ensureOpenScoutNetworkPairingRelay()
+                }
+            } catch {
+                lastError = error.localizedDescription
+            }
+
+            requestRefresh(reason: .manual)
+        }
+    }
+
+    func signInOpenScoutNetwork() {
+        let settings = OpenScoutNetworkSettingsStore.load()
+        guard var components = URLComponents(string: settings.rendezvousURL) else {
+            return
+        }
+        components.path = "/v1/auth/github/start"
+        components.queryItems = [
+            URLQueryItem(name: "return_to", value: "/v1/auth/native/complete"),
+        ]
+        guard let url = components.url else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     func openTailscale() {
         guard !tailscaleActionPending else {
             return

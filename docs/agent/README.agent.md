@@ -115,6 +115,9 @@ only when you mean one specific known target.
   `integration-contract.agent.md`.
 - Capability-first routing: project + harness first, returned handle for
   follow-up, broker-suggested/pinned name only after the worker is known good.
+- Spec-backed handoffs should reference the durable spec or prompt file instead
+  of pasting its full text into the Scout message. Keep the file as the source
+  of truth for traceability; see `docs/agent/scout-comms.agent.md`.
 
 ## Common Checks
 

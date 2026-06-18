@@ -58,30 +58,30 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 // MARK: - Root
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
-    case diagnostics, about, advanced
+    case network, diagnostics, about
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .network:     return "Network"
         case .diagnostics: return "Diagnostics"
         case .about:       return "About"
-        case .advanced:    return "Advanced"
         }
     }
 
     var symbol: String {
         switch self {
+        case .network:     return "network"
         case .diagnostics: return "stethoscope"
         case .about:       return "info.circle"
-        case .advanced:    return "slider.horizontal.3"
         }
     }
 }
 
 private struct SettingsRootView: View {
     @ObservedObject var controller: OpenScoutAppController
-    @State private var selected: SettingsTab = .diagnostics
+    @State private var selected: SettingsTab = .network
 
     var body: some View {
         ZStack {
@@ -103,9 +103,9 @@ private struct SettingsRootView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         Group {
                             switch selected {
+                            case .network:     NetworkTab(controller: controller)
                             case .diagnostics: DiagnosticsTab(controller: controller)
                             case .about:       AboutTab(controller: controller)
-                            case .advanced:    AdvancedTab(controller: controller)
                             }
                         }
                         .padding(16)
@@ -700,14 +700,14 @@ private struct AboutTab: View {
     }
 }
 
-// MARK: - Advanced
+// MARK: - Network
 
-private struct AdvancedTab: View {
+private struct NetworkTab: View {
     @ObservedObject var controller: OpenScoutAppController
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 12) {
+            SettingsCard {
                 HStack(spacing: 10) {
                     Circle()
                         .fill(statusColor)
@@ -728,15 +728,6 @@ private struct AdvancedTab: View {
                         .foregroundStyle(ShellPalette.ink)
 
                     Spacer()
-
-                    Toggle("", isOn: Binding(
-                        get: { controller.openScoutNetwork.discoveryEnabled },
-                        set: { controller.setOpenScoutNetworkDiscoveryEnabled($0) }
-                    ))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .disabled(controller.openScoutNetworkActionPending)
-                    .help("OpenScout Network discovery")
                 }
 
                 Text(controller.openScoutNetwork.statusDetail)
@@ -744,32 +735,72 @@ private struct AdvancedTab: View {
                     .foregroundStyle(ShellPalette.copy)
                     .fixedSize(horizontal: false, vertical: true)
 
+                SettingsToggleRow(
+                    title: "Publish this Mac",
+                    detail: "Make this Mac discoverable through OpenScout Network for paired devices and mesh-aware Scout peers.",
+                    isOn: Binding(
+                        get: { controller.openScoutNetwork.discoveryEnabled },
+                        set: { controller.setOpenScoutNetworkDiscoveryEnabled($0) }
+                    ),
+                    disabled: controller.openScoutNetworkActionPending
+                )
+
+                SettingsToggleRow(
+                    title: "Keep mobile relay available",
+                    detail: "Keep the OSN pairing bridge running so paired iPhone and iPad clients can reconnect without scanning again.",
+                    isOn: Binding(
+                        get: { controller.openScoutNetwork.keepPairingRelayRunning },
+                        set: { controller.setOpenScoutNetworkKeepPairingRelayRunning($0) }
+                    ),
+                    disabled: !controller.openScoutNetwork.discoveryEnabled
+                        || controller.openScoutNetworkActionPending
+                        || controller.pairingActionPending
+                )
+
                 VStack(spacing: 5) {
-                    KVRow(entry: KVEntry(key: "Rendezvous", value: controller.openScoutNetwork.rendezvousURL))
+                    KVRow(entry: KVEntry(key: "Account", value: controller.openScoutNetwork.sessionAvailable ? "Signed in" : "Not signed in"))
+                    KVRow(entry: KVEntry(key: "Discovery", value: controller.openScoutNetwork.rendezvousURL))
                     KVRow(entry: KVEntry(key: "Relay", value: controller.openScoutNetwork.pairingRelayURL))
-                    KVRow(entry: KVEntry(key: "Session", value: controller.openScoutNetwork.sessionAvailable ? "Signed in" : "Missing"))
-                    KVRow(entry: KVEntry(key: "Settings", value: controller.openScoutNetwork.settingsPath, path: controller.openScoutNetwork.settingsPath))
                 }
 
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
+
+                    if !controller.openScoutNetwork.sessionAvailable {
+                        Button("Sign in") {
+                            controller.signInOpenScoutNetwork()
+                        }
+                        .buttonStyle(PrimaryPillStyle())
+                    }
+
                     Button("Restart relay") {
                         controller.restartPairing()
                     }
                     .buttonStyle(SecondaryPillStyle())
-                    .disabled(controller.pairingActionPending)
+                    .disabled(controller.pairingActionPending || !controller.openScoutNetwork.discoveryEnabled)
                 }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(ShellPalette.card)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(ShellPalette.line, lineWidth: 1)
-            )
+
+            SettingsCard {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+
+                    Text("SETTINGS FILE")
+                        .font(MenuType.mono(10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.muted)
+
+                    Spacer()
+                }
+
+                KVRow(entry: KVEntry(
+                    key: "Path",
+                    value: controller.openScoutNetwork.settingsPath,
+                    path: controller.openScoutNetwork.settingsPath
+                ))
+            }
         }
     }
 
@@ -781,6 +812,69 @@ private struct AdvancedTab: View {
             return ShellPalette.muted
         }
         return controller.openScoutNetwork.sessionAvailable ? ShellPalette.success : ShellPalette.warning
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+    }
+}
+
+private struct SettingsToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+    var disabled = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(MenuType.mono(11, weight: .semibold))
+                    .foregroundStyle(disabled ? ShellPalette.muted : ShellPalette.ink)
+
+                Text(detail)
+                    .font(MenuType.body(11))
+                    .foregroundStyle(ShellPalette.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(disabled)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.surfaceFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
     }
 }
 

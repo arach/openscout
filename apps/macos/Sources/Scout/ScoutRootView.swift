@@ -1178,10 +1178,11 @@ struct ScoutRootView: View {
     }
 
     // Studio `.composerBox` — a single rounded box with an internal toolbar.
-    // The field rides the top with a crisp accent edge (`.composerField`); a
-    // hairline-separated bar below (`.composerBar`) carries the hint/status on
-    // the left and the harmonized attach · mic · send controls on the right.
-    // The buttons live *inside* the box rather than floating beside it.
+    // The field rides the top; a hairline-separated bar below (`.composerBar`)
+    // carries the hint/status on the left and the harmonized attach · mic · send
+    // controls on the right. The buttons live *inside* the box rather than
+    // floating beside it. Focus is carried by the well's border, fill, and
+    // shadow — no left-edge accent rule (banned styleguide treatment).
     private var composerInputWell: some View {
         VStack(spacing: 0) {
             composerFieldRow
@@ -1210,10 +1211,9 @@ struct ScoutRootView: View {
         }
     }
 
-    // The compose line: the multiline field, an inline dictation waveform, and
-    // a crisp accent edge marking the active line. Keeps the original
-    // GeometryReader + ScoutComposerInputFrameKey measurement intact (the
-    // suggestions popover anchors off it) — only the surrounding chrome moved.
+    // The compose line: the multiline field plus an inline dictation waveform.
+    // Keeps the original GeometryReader + ScoutComposerInputFrameKey measurement
+    // intact (the suggestions popover anchors off it).
     private var composerFieldRow: some View {
         HStack(alignment: .top, spacing: HudSpacing.sm) {
             ZStack(alignment: .topLeading) {
@@ -1288,16 +1288,6 @@ struct ScoutRootView: View {
         .padding(.top, HudSpacing.lg)
         .padding(.bottom, HudSpacing.md)
         .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-        // Studio `.composerField` accent edge — a crisp 2pt rule marking the
-        // active compose line whenever a conversation is selected.
-        .overlay(alignment: .leading) {
-            if store.selectedCId != nil {
-                Rectangle()
-                    .fill(ScoutPalette.accent)
-                    .frame(width: 2)
-                    .opacity(composerFocused ? 1 : 0.45)
-            }
-        }
     }
 
     // Studio `.composerBar` — the internal toolbar: hint/status on the left,
@@ -1854,9 +1844,13 @@ struct ScoutRootView: View {
     private var tailContent: some View {
         ScoutTailContent(
             tail: tail,
+            agents: store.agents,
             onOpenSession: { event in
                 guard !event.sessionId.isEmpty else { return }
                 withAnimation(.easeOut(duration: 0.14)) { tailSessionEvent = event }
+            },
+            onOpenAgent: { agent in
+                observeAgent(agent)
             }
         )
     }
