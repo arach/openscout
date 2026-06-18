@@ -1514,38 +1514,57 @@ function brokerSnapshotFromContext(context: unknown): BrokerSnapshotRecord | nul
   return context.snapshot;
 }
 
-function brokerEndpointForAgent(
-  snapshot: BrokerSnapshotRecord,
+function latestBrokerAgentTimestamp(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  endpoint: AgentEndpoint | null,
+): number | null {
+  const agentMetadata = recordInput(agent.metadata);
+  const endpointMetadata = agentEndpointMetadata(endpoint);
+  const timestamps = [
+    agentMetadata?.createdAt,
+    agentMetadata?.registeredAt,
+    agentMetadata?.updatedAt,
+    endpointMetadata.lastSeenAt,
+    endpointMetadata.lastEnsuredAt,
+    endpointMetadata.startedAt,
+    endpointMetadata.lastStartedAt,
+    endpointMetadata.lastCompletedAt,
+    endpointMetadata.lastFailedAt,
+  ].map(metadataTimestampMs).filter((value): value is number => value !== undefined);
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
+function brokerAgentFlightPhase(
+  broker: ScoutBrokerContext,
   agentId: string,
-): Record<string, unknown> | null {
-  const endpoints = Object.values(recordCollection(snapshot.endpoints)).filter(
-    (endpoint) => stringField(endpoint, "agentId") === agentId,
-  );
-  const rank = (state: string | undefined) => {
-    switch (state) {
-      case "active":
-      case "idle":
-      case "waiting":
-      case "available":
-        return 0;
-      case "offline":
-        return 5;
-      default:
-        return 4;
+): "in_turn" | "in_flight" | null {
+  let phase: "in_turn" | "in_flight" | null = null;
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    if (flight.targetAgentId !== agentId || !ACTIVE_BROKER_FLIGHT_STATES.has(flight.state)) {
+      continue;
     }
-  };
-  return [...endpoints].sort((left, right) =>
-    rank(stringField(left, "state")) - rank(stringField(right, "state")),
-  )[0] ?? null;
+    if (flight.state === "running") {
+      return "in_turn";
+    }
+    phase = "in_flight";
+  }
+  return phase;
 }
 
 function summarizeBrokerAgentState(
-  endpoint: Record<string, unknown> | null,
-  wakePolicy: string | null,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  endpoint: AgentEndpoint | null,
+  flightPhase: "in_turn" | "in_flight" | null,
 ): string {
-  const rawState = stringField(endpoint, "state");
-  if (rawState && rawState !== "offline") return "available";
-  return wakePolicy === "on_demand" || wakePolicy === "always_on" ? "available" : "offline";
+  if (flightPhase === "in_turn") {
+    return "working";
+  }
+  if (flightPhase === "in_flight") {
+    return "in_flight";
+  }
+  void agent;
+  void endpoint;
+  return "available";
 }
 
 function brokerAgentProtocol(agentMetadata: Record<string, unknown>): string | null {
@@ -1614,17 +1633,34 @@ function brokerAgentToWebAgent(
   const provider = brokerAgentProvider(agentMetadata);
 
   return {
-    id: agentId,
-    definitionId: stringField(agent, "definitionId") ?? agentId,
-    name: stringField(agent, "displayName") ?? stringField(actors[agentId], "displayName") ?? agentId,
-    handle,
-    agentClass: stringField(agent, "agentClass") ?? "general",
-    harness: stringField(endpoint, "harness") ?? null,
-    state: summarizeBrokerAgentState(endpoint, stringField(agent, "wakePolicy") ?? null),
-    projectRoot: stringField(endpoint, "projectRoot") ?? null,
-    cwd: stringField(endpoint, "cwd") ?? stringField(endpoint, "projectRoot") ?? null,
-    updatedAt: metadataTimestampMs(endpointMetadata.lastCompletedAt)
-      ?? metadataTimestampMs(endpointMetadata.updatedAt)
+    id: agent.id,
+    definitionId: agent.definitionId,
+    name: agent.displayName,
+    handle: agent.handle ?? null,
+    agentClass: agent.agentClass,
+    harness: endpoint?.harness ?? metadataStringValue(agentMetadata, "harness"),
+    state: summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+    projectRoot: compactPath(projectRoot),
+    cwd: compactPath(cwd),
+    updatedAt,
+    createdAt,
+    transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+    selector: agent.selector ?? metadataStringValue(agentMetadata, "selector"),
+    defaultSelector: agent.defaultSelector ?? metadataStringValue(agentMetadata, "defaultSelector"),
+    nodeQualifier: agent.nodeQualifier ?? metadataStringValue(agentMetadata, "nodeQualifier"),
+    workspaceQualifier: agent.workspaceQualifier ?? metadataStringValue(agentMetadata, "workspaceQualifier"),
+    wakePolicy: agent.wakePolicy,
+    capabilities: brokerAgentCapabilitiesForWeb(agent, agentMetadata),
+    project: metadataStringValue(agentMetadata, "project") ?? projectNameFromRoot(projectRoot),
+    branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
+    role: null,
+    model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
+    harnessSessionId: endpoint?.sessionId
+      ?? metadataStringValue(endpointMetadata, "externalSessionId")
+      ?? metadataStringValue(endpointMetadata, "threadId")
+      ?? metadataStringValue(endpointMetadata, "a2aContextId")
+      ?? metadataStringValue(endpointMetadata, "a2aTaskId")
+      ?? metadataStringValue(agentMetadata, "externalSessionId")
       ?? null,
     terminalSurface: resolveTerminalSurface({
       transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),

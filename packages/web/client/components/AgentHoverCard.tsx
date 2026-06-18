@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { constructAgentIdentity, type AgentIdentity } from "@openscout/protocol";
 
 import { api } from "../lib/api.ts";
-import { normalizeAgentState } from "../lib/agent-state.ts";
+import { normalizeAgentState, isAgentCallable, isAgentInTurn } from "../lib/agent-state.ts";
 import { useScout } from "../scout/Provider.tsx";
 import type { Agent } from "../lib/types.ts";
 import { AgentDetailCard } from "./AgentDetailCard.tsx";
@@ -90,7 +90,7 @@ function agentIdentityRank(agent: Agent, identity: AgentIdentity): number {
     identity.profile,
   ].filter(Boolean).length * 100;
   const state = normalizeAgentState(agent.state);
-  const stateRank = state === "working" ? 30 : state === "ready" ? 20 : 0;
+  const stateRank = isAgentInTurn(agent.state, agent) ? 30 : isAgentCallable(agent.state, agent) ? 20 : 0;
   return exact + specificity + stateRank + Math.min(agent.updatedAt ?? 0, 9_999_999_999) / 1_000_000_000;
 }
 

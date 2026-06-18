@@ -511,6 +511,8 @@ function buildLocalAgentProjectContextPrompt(context: LocalAgentSystemPromptTemp
     "Project context:",
     `  - Codebase root: ${context.projectPath}`,
     `  - Projects root: ${context.projectsRoot}`,
+    "  - Read AGENTS.md at the codebase root when present (also agents.md or .well-known/agents.md)",
+    "  - OpenScout product discovery: fetch https://openscout.app/.well-known/scout.json then /.well-known/agent.md",
     "  - Use the Scout CLI for broker reads and writes; do not call broker HTTP endpoints directly",
     `  - Scout skill: ${context.scoutSkill}`,
   ].join("\n");

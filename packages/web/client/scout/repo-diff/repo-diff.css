@@ -231,16 +231,12 @@
 .rd-file-row {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-xs) var(--space-lg);
-  border: 0;
   border-left: 2px solid transparent;
   background: transparent;
   color: var(--ink);
   font-family: var(--rd-mono);
   text-align: left;
-  cursor: pointer;
 }
 .rd-file-row:hover {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
@@ -248,6 +244,39 @@
 .rd-file-row.on {
   background: var(--rd-sel);
   border-left-color: var(--accent);
+}
+.rd-file-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
+  padding: var(--space-xs) 0 var(--space-xs) var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rd-file-include {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 var(--space-sm);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  cursor: pointer;
+}
+.rd-file-include:hover,
+.rd-file-include:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: var(--rd-sel);
+  color: var(--ink);
 }
 .rd-file-glyph {
   display: grid;
@@ -382,6 +411,84 @@
   flex: none;
   border-radius: var(--radius-pill);
   background: currentColor;
+}
+
+/* ── Diff comment handoff ────────────────────────────────────────────── */
+.rd-comment {
+  padding: var(--space-sm) var(--space-2xl);
+  border-bottom: 1px solid var(--rd-line);
+  background: color-mix(in srgb, var(--bg) 90%, black);
+}
+.rd-comment-main {
+  display: grid;
+  grid-template-columns: minmax(132px, 190px) minmax(0, 1fr) auto;
+  gap: var(--space-sm);
+  align-items: stretch;
+}
+.rd-comment select,
+.rd-comment textarea,
+.rd-comment-send {
+  border: 1px solid var(--rd-line-strong);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 96%, var(--ink) 4%);
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-xs);
+}
+.rd-comment select {
+  min-width: 0;
+  padding: 0 var(--space-sm);
+}
+.rd-comment textarea {
+  min-width: 0;
+  resize: vertical;
+  padding: var(--space-xs) var(--space-sm);
+  line-height: 1.35;
+}
+.rd-comment textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 76%, transparent);
+}
+.rd-comment-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-width: 84px;
+  padding: 0 var(--space-md);
+  cursor: pointer;
+}
+.rd-comment-send:hover:not(:disabled) {
+  background: var(--rd-sel);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.rd-comment-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+.rd-comment-spin {
+  animation: rd-spin 0.7s linear infinite;
+}
+.rd-comment-meta {
+  min-height: 16px;
+  margin-top: var(--space-2xs);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.rd-comment-meta .ok {
+  color: var(--rd-add);
+}
+.rd-comment-meta .err {
+  color: var(--rd-del);
+}
+@media (max-width: 720px) {
+  .rd-comment-main {
+    grid-template-columns: 1fr;
+  }
+  .rd-comment select,
+  .rd-comment-send {
+    min-height: 30px;
+  }
 }
 
 /* ── Centered states (empty / binary / loading / error) ──────────────── */

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { formatLabel } from "../../lib/text.ts";
@@ -76,7 +76,7 @@ type WorkRow = {
 };
 
 function projectWorkingCount(project: ProjectSlice): number {
-  return project.agents.filter((row) => row.status === "working").length;
+  return project.agents.filter((row) => row.status === "in_turn" || row.status === "in_flight").length;
 }
 
 function projectNeedsAttention(project: ProjectSlice): boolean {
@@ -93,7 +93,7 @@ function agentWorkRow(row: AgentInventoryRow): WorkRow {
     harness: row.harness,
     branch: row.branch && row.branch !== "—" ? row.branch : null,
     time: row.lastActivityAt,
-    working: row.status === "working",
+    working: row.status === "in_turn" || row.status === "in_flight",
     attn: row.activeAskCount > 0,
   };
 }
@@ -122,6 +122,10 @@ export function AgentsLibrary({
   // directory is just the project-grouped agent board (cards/tree).
   const workflowsEnabled = useOptionalFlag("surface.workflows", false);
   const [query, setQuery] = useState("");
+  // Search is engage-on-demand: the box stays out of the way until you reach for
+  // it (the search action, or "/"), so the board leads with the list, not chrome.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   // Project blocks expand by default when a project has working agents; idle
   // projects fold to a line. `openOverride` records explicit user toggles.
   const [openOverride, setOpenOverride] = useState<Record<string, boolean>>({});
@@ -137,6 +141,27 @@ export function AgentsLibrary({
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 15_000);
     return () => window.clearInterval(id);
+  }, []);
+
+  // Focus the box the moment search is engaged.
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
+  // "/" reaches for search from anywhere on the board (skip while typing).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const inEditable = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || (target?.isContentEditable ?? false);
+      if (inEditable) return;
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const activeAsksByAgent = useMemo(() => {
@@ -173,7 +198,7 @@ export function AgentsLibrary({
 
   const horizonRows = useMemo(
     () => rows.filter((row) =>
-      isWithinTimeHorizon(row.lastActivityAt, timeHorizon, now, row.status === "working"),
+      isWithinTimeHorizon(row.lastActivityAt, timeHorizon, now, row.status === "in_turn" || row.status === "in_flight"),
     ),
     [now, rows, timeHorizon],
   );
@@ -206,7 +231,7 @@ export function AgentsLibrary({
 
   const summary = useMemo(
     () => ({
-      notReady: horizonRows.filter((row) => row.status === "not_ready").length,
+      notReady: horizonRows.filter((row) => row.status === "blocked").length,
       projects: allProjects.length,
       nativeSessions: horizonNativeSessions.length,
     }),
@@ -306,19 +331,33 @@ export function AgentsLibrary({
   return (
     <div className="s-agents-library s-agents-library--inventory">
       <div className="s-agents-inventory">
-        {/* Search only — filters fold in here later. */}
-        <div className="s-pf-toolbar">
-          <div className="s-atop-search s-pf-search">
-            <span className="s-atop-search-prompt">▸</span>
-            <input
-              className="s-atop-search-input"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="search projects · agents · sessions"
-            />
-            <span className="s-atop-search-kbd">/</span>
+        {/* Search has no standing button — the board leads with the list. Press
+            "/" to engage; the box appears only once you've reached for it. */}
+        {searchOpen && (
+          <div className="s-pf-toolbar">
+            <div className="s-atop-search s-pf-search">
+              <span className="s-atop-search-prompt">▸</span>
+              <input
+                ref={searchInputRef}
+                className="s-atop-search-input"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="search projects · agents · sessions"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setQuery("");
+                    setSearchOpen(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (!query.trim()) setSearchOpen(false);
+                }}
+              />
+              <span className="s-atop-search-kbd">esc</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {workflowsEnabled && (
           <div className="s-agents-library-topology">

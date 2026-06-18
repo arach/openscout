@@ -32,7 +32,7 @@ import {
   type MissionActivityState,
   type MissionGroupMode,
 } from "../../lib/mission-control-store.ts";
-import { normalizeAgentState, agentStateLabel } from "../../lib/agent-state.ts";
+import { normalizeAgentState, agentStateLabel, isAgentBusy } from "../../lib/agent-state.ts";
 import {
   summarizeObserveEvent,
   useObservePolling,
@@ -242,7 +242,7 @@ function agentSubject(
   agent: Agent,
   activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
 ): CanvasSubject {
-  const stateOrder: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
+  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
   const state = normalizeAgentState(agent.state);
   const activityState = activity?.current ? "active" : activity?.recent ? "recent" : "idle";
   return {
@@ -302,7 +302,7 @@ function agentLastActivityAt(
   return Math.max(
     sessionsLastAt.get(agent.id) ?? 0,
     observeLastEventAt(observe),
-    normalizeAgentState(agent.state) === "working" ? agent.updatedAt ?? 0 : 0,
+    isAgentBusy(agent.state) ? agent.updatedAt ?? 0 : 0,
   );
 }
 
@@ -311,7 +311,7 @@ function isAgentCurrentlyActive(
   observe: ObserveCacheEntry | undefined,
 ): boolean {
   return (
-    normalizeAgentState(agent.state) === "working" ||
+    isAgentBusy(agent.state) ||
     observe?.data.live === true ||
     (observe?.data.events ?? []).some((event) => event.live === true)
   );
@@ -341,7 +341,7 @@ function compareAgentsByActivity(
 ): number {
   const activity = compareActivity(activityByAgent.get(a.id), activityByAgent.get(b.id));
   if (activity !== 0) return activity;
-  const stateOrder: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
+  const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
   const state = (stateOrder[normalizeAgentState(a.state)] ?? 1)
     - (stateOrder[normalizeAgentState(b.state)] ?? 1);
   if (state !== 0) return state;
@@ -1372,7 +1372,7 @@ function ObserveTile({
     <div
       className={[
         "s-mission-tile",
-        state === "working" ? "s-mission-tile--working" : null,
+        state === "in_turn" || state === "in_flight" ? "s-mission-tile--working" : null,
         hasAsk ? "s-mission-tile--asking" : null,
         selected ? "s-mission-tile--selected" : null,
         canvasFocused ? "s-mission-tile--canvas-focused" : null,
@@ -1421,7 +1421,7 @@ function ObserveTile({
             <div className="s-mission-evt">
               <span className="s-mission-evt-bead" style={{ background: "var(--dim)" }} />
               <span className="s-mission-evt-text" style={{ color: "var(--dim)" }}>
-                {state === "not_ready" ? "No session data" : "Waiting for events…"}
+                {state === "blocked" ? "No session data" : "Waiting for events…"}
               </span>
             </div>
           </div>
@@ -2093,7 +2093,7 @@ function Minimap({
                   width: TILE_W * mmScale,
                   height: TILE_H * mmScale,
                   background: agent ? actorColor(agent.name) : "var(--dim)",
-                  opacity: agent && normalizeAgentState(agent.state) === "working" ? 0.8 : 0.35,
+                  opacity: agent && isAgentBusy(agent.state) ? 0.8 : 0.35,
                 }}
               />
             );

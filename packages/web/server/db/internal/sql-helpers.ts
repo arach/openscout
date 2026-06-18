@@ -68,16 +68,58 @@ export const LATEST_AGENT_ENDPOINT_JOIN = `LEFT JOIN agent_endpoints ep ON ep.id
   LIMIT 1
 )`;
 
+export type AgentFlightPhase = "in_turn" | "in_flight";
+
+export const ACTIVE_FLIGHT_STATES = ["running", "waking", "waiting", "queued"] as const;
+
+export const ACTIVE_FLIGHT_STATES_SQL = sqlStringList([...ACTIVE_FLIGHT_STATES]);
+
 export function isExecutingFlightState(state: string | null): boolean {
   return state === "running";
 }
 
+export function isActiveFlightState(state: string | null): boolean {
+  return state === "running"
+    || state === "queued"
+    || state === "waking"
+    || state === "waiting";
+}
+
+export function agentFlightPhaseFromFlightState(state: string | null): AgentFlightPhase | null {
+  if (state === "running") {
+    return "in_turn";
+  }
+  if (state === "queued" || state === "waking" || state === "waiting") {
+    return "in_flight";
+  }
+  return null;
+}
+
+export function queryAgentFlightPhases(): Map<string, AgentFlightPhase> {
+  const phases = new Map<string, AgentFlightPhase>();
+  const rows = db().prepare(
+    `SELECT target_agent_id, state FROM flights
+     WHERE state IN (${sqlPlaceholders(ACTIVE_FLIGHT_STATES.length)})`,
+  ).all(...ACTIVE_FLIGHT_STATES) as Array<{ target_agent_id: string; state: string }>;
+
+  for (const row of rows) {
+    const phase = agentFlightPhaseFromFlightState(row.state);
+    if (!phase) {
+      continue;
+    }
+    const existing = phases.get(row.target_agent_id);
+    if (existing !== "in_turn") {
+      phases.set(row.target_agent_id, phase);
+    }
+  }
+  return phases;
+}
+
 export function queryExecutingAgentIds(): Set<string> {
   return new Set(
-    (db().prepare(
-      `SELECT DISTINCT target_agent_id FROM flights
-       WHERE state = 'running'`,
-    ).all() as Array<{ target_agent_id: string }>).map((row) => row.target_agent_id),
+    [...queryAgentFlightPhases().entries()]
+      .filter(([, phase]) => phase === "in_turn")
+      .map(([agentId]) => agentId),
   );
 }
 
@@ -88,37 +130,42 @@ export function activeAgentMetadataPredicate(alias: string): string {
 
 export function summarizeAgentState(
   rawState: string | null,
-  isWorking: boolean,
-  wakePolicy?: string | null,
+  flightPhase: AgentFlightPhase | null,
+  options: { blocked?: boolean } = {},
 ): AgentSummaryState {
-  if (isWorking) {
+  if (flightPhase === "in_turn") {
     return "working";
   }
-  const wakeableWithoutEndpoint = wakePolicy === "on_demand" || wakePolicy === "always_on";
-  if ((!rawState || rawState === "offline") && wakeableWithoutEndpoint) {
-    return "available";
+  if (flightPhase === "in_flight") {
+    return "in_flight";
   }
-  return rawState && rawState !== "offline" ? "available" : "offline";
+  if (options.blocked) {
+    return "offline";
+  }
+  // Callable default: cold endpoint / offline process does not mean unavailable.
+  void rawState;
+  return "available";
 }
 
 export function summarizeAgentStatusLabel(
   rawState: string | null,
-  isWorking: boolean,
-  wakePolicy?: string | null,
+  flightPhase: AgentFlightPhase | null,
+  options: { blocked?: boolean } = {},
 ): string {
-  switch (summarizeAgentState(rawState, isWorking, wakePolicy)) {
+  switch (summarizeAgentState(rawState, flightPhase, options)) {
     case "working":
-      return "Working";
+      return "In turn";
+    case "in_flight":
+      return "In flight";
     case "available":
-      return "Available";
+      return "Callable";
     default:
-      return "Offline";
+      return "Blocked";
   }
 }
 
 /* ── Activity / work state constants and predicates ── */
 
-export const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
 export const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 

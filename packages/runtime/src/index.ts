@@ -21,6 +21,8 @@ export * from "./control-plane-agents.js";
 export * from "./scout-broker.js";
 export * from "./codex-app-server.js";
 export * from "./pi-rpc.js";
+export * from "./coding-agent-host.js";
+export * from "./openscout-discovery.js";
 export * from "./setup.js";
 export * from "./managed-installs.js";
 export * from "./onboarding.js";

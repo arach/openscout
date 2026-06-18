@@ -2,7 +2,7 @@ import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../lib/api.ts";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import type {
@@ -208,7 +208,7 @@ function buildHarnessRows(
         acc[normalizeAgentState(agent.state)] += 1;
         return acc;
       },
-      { working: 0, ready: 0, not_ready: 0 },
+      { in_turn: 0, in_flight: 0, callable: 0, blocked: 0 },
     );
     const latestAgentAt = rowAgents.reduce<number | null>(
       (latest, agent) => Math.max(latest ?? 0, agent.updatedAt ?? agent.createdAt ?? 0) || latest,
@@ -230,9 +230,9 @@ function buildHarnessRows(
       transports: uniqueValues(rowAgents.map((agent) => agent.transport)),
       models: uniqueValues(rowAgents.map((agent) => agent.model)),
       projects: uniqueValues(rowAgents.map((agent) => pathLeaf(agent.projectRoot) ?? agent.project ?? pathLeaf(agent.cwd))),
-      working: stateCounts.working,
-      ready: stateCounts.ready,
-      notReady: stateCounts.not_ready,
+      working: stateCounts.in_turn + stateCounts.in_flight,
+      ready: stateCounts.callable,
+      notReady: stateCounts.blocked,
       latestSeen: Math.max(latestAgentAt ?? 0, latestObservationAt ?? 0, latestBudgetAt ?? 0) || null,
     };
   }).sort((left, right) => {
@@ -468,7 +468,7 @@ export function HarnessesScreen({ navigate }: { navigate: (r: Route) => void }) 
     [scopedAgents, serviceGauges, topologySnapshot],
   );
   const activeHarnesses = rows.filter((row) => row.agents.length > 0 || row.gauge || row.observations.length > 0).length;
-  const workingAgents = scopedAgents.filter((agent) => normalizeAgentState(agent.state) === "working").length;
+  const workingAgents = scopedAgents.filter((agent) => isAgentBusy(agent.state)).length;
 
   return (
     <div className="s-ops">

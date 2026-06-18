@@ -19,6 +19,7 @@ import {
   scoutFlags,
 } from "./lib/scout-flags.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { useScout } from "./scout/Provider.tsx";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
@@ -208,6 +209,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
+  const { route } = useScout();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -512,8 +514,15 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
+  // The agents directory has nothing "in context" until an agent is engaged, so
+  // the Context inspector loads minimized there and opens itself when you tap an
+  // agent into context. This only overrides the rendered collapse — the stored
+  // `rightCollapsed` preference is untouched, so engaged views keep their state.
+  const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
+  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext;
+
   const leftPushInset = leftCollapsed ? 0 : leftWidth;
-  const rightPushInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
+  const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
@@ -597,8 +606,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 side="right"
                 title={app.rightPanel?.title ?? "Inspector"}
                 icon={app.rightPanel?.icon}
-                isCollapsed={rightCollapsed}
-                onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
+                isCollapsed={effectiveRightCollapsed}
+                onToggleCollapse={() => {
+                  // Nothing to inspect on the agents directory, so the expand
+                  // affordance is inert there — don't flip the stored preference.
+                  if (inspectorHasNothingInContext) return;
+                  setRightCollapsed(!rightCollapsed);
+                }}
                 width={rightWidth}
                 onResizeStart={handleResizeStart("right")}
                 style={rightPanelOverlaysContent ? panelOverlayStyle("right") : undefined}

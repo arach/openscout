@@ -16,7 +16,7 @@ import {
 } from "../../lib/time.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { usePersistentNumber, usePersistentString } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { conversationForAgent, routeMachineId } from "../../lib/router.ts";
@@ -382,7 +382,7 @@ function buildAgentWorkingCardData(
     || agent.project
     || `Working in ${agent.project ?? "workspace"}`;
   const askStatus: WorkingCardTaskStatus = ask?.status ?? "working";
-  const agentWorking = normalizeAgentState(agent.state) === "working";
+  const agentWorking = isAgentBusy(agent.state);
   const executionState: WorkingCardExecutionState =
     askStatus === "completed" ? "delivered"
       : askStatus === "failed" ? "failed"
@@ -676,7 +676,7 @@ export function HomeContent({
     () =>
       agents.filter((a) => {
         const s = normalizeAgentState(a.state);
-        return s === "ready";
+        return s === "callable";
       }),
     [agents],
   );
@@ -707,7 +707,7 @@ export function HomeContent({
   const active = useMemo(
     () =>
       agents.filter((agent) =>
-        normalizeAgentState(agent.state) === "working" &&
+        isAgentBusy(agent.state) &&
         (isFreshMovingTimestamp(agent.updatedAt, nowMs) || activeAskByAgent.has(agent.id))
       ),
     [activeAskByAgent, agents, nowMs],
@@ -761,7 +761,7 @@ export function HomeContent({
   const workingAgentsWithoutRecentSignal = useMemo(
     () =>
       agents.filter((agent) =>
-        normalizeAgentState(agent.state) === "working" && !activeIds.has(agent.id)
+        isAgentBusy(agent.state) && !activeIds.has(agent.id)
       ),
     [activeIds, agents],
   );
@@ -1596,8 +1596,8 @@ function sortedCatchupAgents(agents: Agent[]): Agent[] {
   return [...agents].sort((a, b) => {
     const aState = normalizeAgentState(a.state);
     const bState = normalizeAgentState(b.state);
-    const aRank = aState === "ready" ? 0 : aState === "working" ? 1 : 2;
-    const bRank = bState === "ready" ? 0 : bState === "working" ? 1 : 2;
+    const aRank = aState === "callable" ? 0 : (aState === "in_turn" || aState === "in_flight") ? 1 : 2;
+    const bRank = bState === "callable" ? 0 : (bState === "in_turn" || bState === "in_flight") ? 1 : 2;
     return aRank - bRank || a.name.localeCompare(b.name);
   });
 }

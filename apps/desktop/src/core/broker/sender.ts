@@ -10,6 +10,7 @@ import {
   readProjectConfig,
   readRelayAgentOverrides,
 } from "@openscout/runtime/setup";
+import { isCodingAgentHost } from "@openscout/runtime";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 export function resolveScoutAgentName(agentName?: string | null): string {
@@ -30,7 +31,7 @@ export function resolveHumanAskSenderName(
   if (agentName?.trim()) {
     return agentName.trim();
   }
-  if (env.OPENSCOUT_AGENT?.trim()) {
+  if (isCodingAgentHost(env)) {
     return undefined;
   }
   return "operator";

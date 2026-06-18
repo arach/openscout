@@ -1,4 +1,4 @@
-import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateLabel, normalizeAgentState, type AgentInventoryStatus } from "../../lib/agent-state.ts";
 import { conversationForAgent } from "../../lib/router.ts";
 import { formatLabel } from "../../lib/text.ts";
 import type {
@@ -73,7 +73,7 @@ export function shouldPreferDirectSession(candidate: SessionEntry & { agentId: s
   return candidate.id < existing.id;
 }
 
-export type AgentInventoryStatus = "working" | "ready" | "not_ready";
+export type { AgentInventoryStatus } from "../../lib/agent-state.ts";
 
 export type AgentInventoryRow = {
   agent: Agent;
@@ -184,30 +184,34 @@ export type SessionInitiationResult = {
 };
 
 export const AGENT_STATUS_RANK: Record<AgentInventoryStatus, number> = {
-  working: 0,
-  ready: 1,
-  not_ready: 2,
+  in_turn: 0,
+  in_flight: 1,
+  callable: 2,
+  blocked: 3,
 };
 
 export function agentInventoryStatusClass(status: AgentInventoryStatus): string {
   switch (status) {
-    case "working":
+    case "in_turn":
+    case "in_flight":
       return "working";
-    case "ready":
+    case "callable":
       return "available";
-    case "not_ready":
+    case "blocked":
       return "offline";
   }
 }
 
 export function agentInventoryStatusLabel(status: AgentInventoryStatus): string {
   switch (status) {
-    case "working":
-      return "working";
-    case "ready":
-      return "ready";
-    case "not_ready":
-      return "not ready";
+    case "in_turn":
+      return "in turn";
+    case "in_flight":
+      return "in flight";
+    case "callable":
+      return "callable";
+    case "blocked":
+      return "blocked";
   }
 }
 
@@ -573,14 +577,14 @@ export function rowForAgentInventory(
   session: SessionEntry | null,
   activeAsks: FleetAsk[],
 ): AgentInventoryRow {
-  const status = normalizeAgentState(agent.state) as AgentInventoryStatus;
+  const status = normalizeAgentState(agent.state, agent);
   const project = agent.project ?? basename(agent.projectRoot) ?? "Unscoped";
   const branch = agent.branch ?? "—";
   const harness = formatLabel(agent.harness) ?? formatLabel(agent.agentClass) ?? "agent";
   return {
     agent,
     status,
-    stateLabel: agentStateLabel(agent.state),
+    stateLabel: agentStateLabel(agent.state, agent),
     project,
     branch,
     harness,
@@ -602,7 +606,7 @@ export function emptyProjectSlice(identity: ProjectIdentity): ProjectSlice {
     scoutSessions: [],
     nativeSessions: [],
     workflows: [],
-    status: "not_ready",
+    status: "callable",
     lastActivityAt: null,
   };
 }
@@ -627,15 +631,15 @@ export function ensureProjectSlice(
 }
 
 export function updateProjectSliceSummary(project: ProjectSlice): void {
-  const hasWorkingAgent = project.agents.some((row) => row.status === "working");
+  const hasBusyAgent = project.agents.some((row) => row.status === "in_turn" || row.status === "in_flight");
   const hasActiveNativeSession = project.nativeSessions.some((row) => row.status === "active");
   const hasActiveWorkflow = project.workflows.some((row) => row.activeTaskCount > 0 || row.status === "running");
-  const hasReadyAgent = project.agents.some((row) => row.status === "ready");
-  project.status = hasWorkingAgent || hasActiveNativeSession || hasActiveWorkflow
-    ? "working"
-    : hasReadyAgent
-      ? "ready"
-      : "not_ready";
+  const hasCallableAgent = project.agents.some((row) => row.status === "callable");
+  project.status = hasBusyAgent || hasActiveNativeSession || hasActiveWorkflow
+    ? "in_turn"
+    : hasCallableAgent
+      ? "callable"
+      : "blocked";
 
   const agentActivity = project.agents.map((row) => row.lastActivityAt ?? 0);
   const scoutActivity = project.scoutSessions.map((session) => session.lastMessageAt ?? 0);
@@ -1008,9 +1012,10 @@ export function projectIdentityForAgent(agent: Agent): ProjectIdentity {
 
 export function treeDotColor(state: string | null): string {
   switch (normalizeAgentState(state)) {
-    case "working":
+    case "in_turn":
+    case "in_flight":
       return "var(--accent)";
-    case "ready":
+    case "callable":
       return "color-mix(in srgb, var(--accent) 52%, var(--dim))";
     default:
       return "var(--dim)";

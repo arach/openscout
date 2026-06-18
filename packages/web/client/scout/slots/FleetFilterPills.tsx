@@ -1,17 +1,21 @@
 import "./fleet-shared.css";
 
-export type FleetStateToken = "working" | "ready" | "not_ready";
+export type FleetStateToken = "in_turn" | "in_flight" | "callable" | "blocked";
 
-const STATE_TOKENS: readonly FleetStateToken[] = ["working"];
+const STATE_TOKENS: readonly FleetStateToken[] = ["in_turn", "in_flight", "callable", "blocked"];
 
-const STATE_LABELS: Partial<Record<FleetStateToken, string>> = {
-  working: "active",
+const STATE_LABELS: Record<FleetStateToken, string> = {
+  in_turn: "in turn",
+  in_flight: "in flight",
+  callable: "callable",
+  blocked: "blocked",
 };
 
 const STATE_CLASS_TOKENS: Record<FleetStateToken, string> = {
-  working: "active",
-  ready: "available",
-  not_ready: "unavailable",
+  in_turn: "working",
+  in_flight: "working",
+  callable: "available",
+  blocked: "offline",
 };
 
 type Props = {

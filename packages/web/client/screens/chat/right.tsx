@@ -11,7 +11,7 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
-import { agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateLabel, isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
 import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
@@ -509,7 +509,7 @@ export function ConversationInspector() {
     agent?.terminalSurface?.backend === "tmux"
     || (agent?.transport === "tmux" && agent.harnessSessionId),
   );
-  const workInMotion = Boolean(activeFlight || agentStateNormalized === "working");
+  const workInMotion = Boolean(activeFlight || isAgentBusy(agentState, agent));
   const activityTitle = workInMotion
     ? activeFlight
       ? flightStateLabel(activeFlight.state)

@@ -96,6 +96,9 @@ export function resolveRightPane(route: Route): ReactNode {
     case "fleet":
       return <HomeRight />;
     case "agents":
+      // Inspector only when an agent is engaged — the directory/list view has no
+      // one specific thing to inspect, so the panel stays empty there.
+      return route.agentId ? <AgentsRight /> : null;
     case "agent-info":
       return <AgentsRight />;
     case "sessions":

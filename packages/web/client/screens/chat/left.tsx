@@ -27,7 +27,7 @@ import { routeMachineId } from "../../lib/router.ts";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
 import type { Agent, FleetAsk, MessagesFilter, MessagesSort, SessionEntry } from "../../lib/types.ts";
 
-const STATE_RANK: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
+const STATE_RANK: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
 
 type ConversationGroup = {
   key: string;
@@ -312,7 +312,7 @@ export function ChatLeft() {
                   meta={activeAskCount > 0
                     ? `${activeAskCount} active · ${messagesGroupMeta(group)}`
                     : messagesGroupMeta(group)}
-                  tone={workingAskCount > 0 ? "working" : group.bestState}
+                  tone={workingAskCount > 0 ? "in_turn" : group.bestState}
                   caret={isOpen ? "open" : "closed"}
                   active={anyActive && !isOpen}
                   unread={group.unreadCount > 0 && !isOpen}
@@ -371,7 +371,7 @@ function askRowTone(
   agent: Agent | undefined,
   ask: FleetAsk,
 ): AgentDisplayState | "dm" {
-  if (ask.status === "working") return "working";
+  if (ask.status === "working") return "in_turn";
   return agent ? normalizeAgentState(agent.state) : "dm";
 }
 
@@ -432,7 +432,7 @@ function buildConversationGroups(
         label,
         isChannel: channel,
         conversations: [],
-        bestState: "not_ready",
+        bestState: "blocked",
         latestUpdate: 0,
         unreadCount: 0,
       };

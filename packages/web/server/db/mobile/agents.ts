@@ -12,10 +12,11 @@ import { compact } from "../internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
-  queryExecutingAgentIds,
+  queryAgentFlightPhases,
   sqlTimestampMsExpression,
   summarizeAgentState,
   summarizeAgentStatusLabel,
+  type AgentFlightPhase,
 } from "../internal/sql-helpers.ts";
 import type {
   MobileAgentDetail,
@@ -49,7 +50,7 @@ export function queryMobileAgents(
   limit = 50,
   filters: { query?: string | null } = {},
 ): MobileAgentSummary[] {
-  const executingAgentIds = queryExecutingAgentIds();
+  const flightPhases = queryAgentFlightPhases();
   const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const query = filters.query?.trim().toLowerCase();
@@ -136,9 +137,9 @@ export function queryMobileAgents(
     let meta: Record<string, unknown> = {};
     try { meta = r.metadata_json ? JSON.parse(r.metadata_json) : {}; } catch {}
 
-    const isWorking = executingAgentIds.has(r.id);
-    const state = summarizeAgentState(r.state, isWorking, r.wake_policy);
-    const statusLabel = summarizeAgentStatusLabel(r.state, isWorking, r.wake_policy);
+    const flightPhase = flightPhases.get(r.id) ?? null;
+    const state = summarizeAgentState(r.state, flightPhase);
+    const statusLabel = summarizeAgentStatusLabel(r.state, flightPhase);
 
     return {
       id: r.id,
@@ -205,7 +206,7 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   let capabilities: string[] = [];
   try { capabilities = row.capabilities_json ? JSON.parse(row.capabilities_json) : []; } catch {}
 
-  const executingAgentIds = queryExecutingAgentIds();
+  const flightPhases = queryAgentFlightPhases();
   const flightStartedAtExpression = sqlTimestampMsExpression("started_at");
 
   const activeFlights = (db().prepare(
@@ -255,9 +256,9 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     `SELECT MAX(${sqlTimestampMsExpression("created_at")}) AS last_at FROM messages WHERE actor_id = ?`,
   ).get(agentId) as { last_at: number | null } | null)?.last_at ?? null;
 
-  const isWorking = executingAgentIds.has(row.id);
-  const state = summarizeAgentState(row.state, isWorking, row.wake_policy);
-  const statusLabel = summarizeAgentStatusLabel(row.state, isWorking, row.wake_policy);
+  const flightPhase = flightPhases.get(row.id) ?? null;
+  const state = summarizeAgentState(row.state, flightPhase);
+  const statusLabel = summarizeAgentStatusLabel(row.state, flightPhase);
 
   return {
     id: row.id,

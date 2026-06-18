@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { SpriteAvatar, agentSpriteProps } from "./SpriteAvatar.tsx";
 import { stateColor } from "../lib/colors.ts";
-import { normalizeAgentState } from "../lib/agent-state.ts";
+import { isAgentBusy, isAgentInTurn, isAgentOnline, normalizeAgentState } from "../lib/agent-state.ts";
 
 /**
  * AgentAvatar — the single entry point for agent (and channel) avatars.
@@ -110,10 +110,9 @@ export function AgentAvatar({
   // Presence dot — only when shown and the agent reads as online (working /
   // ready). Color + pulse follow the canonical stateColor mapping.
   const showDot = presence ?? t.presence;
-  const norm = normalizeAgentState(agent?.state ?? null);
-  const online = norm === "working" || norm === "ready";
+  const online = isAgentOnline(agent?.state ?? null);
   const corner = showDot && online ? stateColor(agent?.state ?? null) : undefined;
-  const cornerPulse = showDot && norm === "working";
+  const cornerPulse = showDot && isAgentInTurn(agent?.state ?? null);
 
   const resolvedSize = size ?? t.size;
 

@@ -693,6 +693,11 @@
   margin: 0 0 5px;
   overflow-wrap: anywhere;
 }
+.scan-detail-examples {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+}
 .scan-details li::marker {
   color: var(--faint);
 }

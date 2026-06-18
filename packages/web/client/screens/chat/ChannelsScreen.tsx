@@ -6,7 +6,7 @@ import {
   conversationShortLabel,
   isGroupConversation,
 } from "../../lib/conversations.ts";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, isAgentOnline } from "../../lib/agent-state.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo, fullTimestamp } from "../../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
@@ -114,7 +114,7 @@ function MembersHeaderControl({
     return Array.from(collected.values());
   }, [formalMemberIds, extraActors, agents]);
 
-  const onlineCount = members.filter((m) => m.state !== "not_ready").length;
+  const onlineCount = members.filter((m) => isAgentOnline(m.state)).length;
   const guestCount = members.filter((m) => !m.isMember).length;
 
   const [rosterOpen, setRosterOpen] = useState(false);
@@ -300,7 +300,7 @@ function RosterRow({
               {!member.isMember && <span className="ch-members-roster-guest-tag">guest</span>}
             </span>
           </div>
-          {member.state === "working" && (
+          {member.state === "in_turn" || state === "in_flight" && (
             <span className="ch-members-roster-state">working</span>
           )}
         </button>
