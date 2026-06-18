@@ -11,6 +11,7 @@ import { actorColor, stateColor } from "../../lib/colors.ts";
 import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
+import { resolveAgentTerminalSurface } from "../../lib/terminal-relay.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { agentIdFromConversation } from "../../lib/router.ts";
 import {
@@ -19,6 +20,7 @@ import {
   sessionEngage,
   sortSessionsByRecency,
 } from "../../lib/session-catalog.ts";
+import { pathLeaf } from "./model.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { AgentLiveActions } from "../../components/AgentLiveActions.tsx";
@@ -75,12 +77,6 @@ function fmtWindowSpan(seconds: number): string {
 
 function shortHostLabel(value: string): string {
   return value.replace(/\.local$/i, "").replace(/-local-openscout$/i, "");
-}
-
-function pathLeaf(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, "");
-  const parts = normalized.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
 }
 
 function agentProjectLabel(agent: Agent): string {
@@ -586,7 +582,7 @@ function AgentContextPanel({
   // Take over a resumable harness by replaying its resume command into a
   // terminal; an existing terminal surface is driven in place.
   const runTakeover = () => {
-    if (agentHasTerminalSurface(agent)) {
+    if (resolveAgentTerminalSurface(agent)) {
       takeoverTerminal();
       return;
     }
@@ -688,7 +684,7 @@ function AgentContextPanel({
           />
         )}
 
-        {agentTerminalSurface(agent)?.backend === "tmux" && (
+        {resolveAgentTerminalSurface(agent)?.backend === "tmux" && (
           <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
         )}
 
@@ -737,7 +733,7 @@ function AgentContextPanel({
         variant="compact"
       />
 
-      {agentTerminalSurface(agent)?.backend === "tmux" && (
+      {resolveAgentTerminalSurface(agent)?.backend === "tmux" && (
         <TmuxPeekPanel agentId={agent.id} lines={44} columns={132} />
       )}
 
@@ -930,7 +926,7 @@ function RunningSessions({
   returnTo: Route;
 }) {
   const showContextMenu = useContextMenu();
-  const terminalSurface = agentTerminalSurface(agent);
+  const terminalSurface = resolveAgentTerminalSurface(agent);
   const activeSessionId = catalog?.activeSessionId
     ?? (terminalSurface ? agent.harnessSessionId ?? terminalSurface.sessionName : null);
   const sessions = useMemo(
@@ -1087,7 +1083,7 @@ function buildRunningSessions(
   activeSessionId: string | null,
 ): SessionCatalogEntry[] {
   const sessions = [...(catalog?.sessions ?? [])];
-  const terminalSurface = agentTerminalSurface(agent);
+  const terminalSurface = resolveAgentTerminalSurface(agent);
   if (
     terminalSurface &&
     activeSessionId &&
@@ -1108,23 +1104,6 @@ function buildRunningSessions(
     const right = b.endedAt ?? b.startedAt;
     return compareTimestampsDesc(left, right);
   });
-}
-
-function agentTerminalSurface(agent: Agent) {
-  if (agent.terminalSurface) return agent.terminalSurface;
-  if (agent.transport === "tmux" && agent.harnessSessionId) {
-    return {
-      backend: "tmux" as const,
-      sessionName: agent.harnessSessionId,
-      paneId: null,
-      socketDir: null,
-    };
-  }
-  return null;
-}
-
-function agentHasTerminalSurface(agent: Agent): boolean {
-  return Boolean(agentTerminalSurface(agent));
 }
 
 function shortSessionId(value: string): string {

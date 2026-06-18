@@ -79,7 +79,7 @@ export function resolveContentPane(route: Route, navigate: Navigate): ReactNode 
     case "ops":
       return <OpsContent route={route} navigate={navigate} />;
     case "terminal":
-      return <TerminalContent route={route} navigate={navigate} />;
+      return <TerminalContent route={route as Extract<Route, { view: "terminal" }>} navigate={navigate} />;
     case "work":
       return <WorkContent route={route} navigate={navigate} />;
     case "follow":

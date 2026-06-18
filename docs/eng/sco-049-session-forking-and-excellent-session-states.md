@@ -164,6 +164,13 @@ type InvocationExecutionPreference = {
     includeBrokerRecords?: boolean;
     includeObservedHarnessMaterial?: boolean;
   };
+  lineage?: {
+    parentSessionId?: ScoutId;
+    parentHarnessThreadId?: string;
+    forkSourceKind?: "native_thread_clone" | "scout_state_snapshot";
+    forkSourceId?: ScoutId | string;
+    forkedAt?: number;
+  };
 };
 ```
 
@@ -325,13 +332,16 @@ Candidate capability names:
 
 | Capability | Meaning |
 | --- | --- |
-| `session.fork.native` | Harness can branch from a provider/runtime thread without synthetic context. |
-| `session.fork.synthetic` | Harness can accept a Scout-built handoff in a fresh session. |
-| `session.resume.exact` | Harness can continue a specific session id. |
-| `session.reuse.compatible` | Harness can safely receive asks in an existing compatible session. |
+| `session.fork` | Harness adapter can satisfy Scout fork policy, either natively or through a synthesized handoff. |
+| `session.nativeThreadClone` | Harness can clone/branch a provider/runtime thread without synthetic context. |
+| `session.resume` | Harness can continue a specific session id. |
+| `session.followUps` | Harness can queue a follow-up while a run is active. |
+| `session.steer` | Harness can redirect or replace the active run. |
+| `events.displayState` | Harness or adapter can supply a render-ready state projection. |
+| `events.normalizedStream` | Harness adapter can emit normalized Scout observed events. |
 
 Codex may support native thread resume today, but a true provider-native fork
-needs to be verified before advertising `session.fork.native`. Until then,
+needs to be verified before advertising `session.nativeThreadClone`. Until then,
 Codex should support synthesized forks.
 
 Claude stream JSON should likely start with synthesized forks. Pi and future

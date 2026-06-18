@@ -10,6 +10,7 @@ import { RailRow } from "../../scout/slots/RailRow.tsx";
 import { FleetSearch } from "../../scout/slots/FleetSearch.tsx";
 import { FleetFilterPills, type FleetStateToken } from "../../scout/slots/FleetFilterPills.tsx";
 import { openAgent } from "../../scout/slots/openAgent.ts";
+import { AGENT_STATUS_RANK, projectIdentityForAgent } from "./model.ts";
 
 type ParentGroup = {
   key: string;
@@ -19,68 +20,44 @@ type ParentGroup = {
   latestUpdate: number;
 };
 
-const STATE_RANK: Record<string, number> = { working: 0, ready: 1, not_ready: 2 };
-
-function pathBasename(path: string | null | undefined): string | null {
-  const cleaned = path?.trim().replace(/\/+$/, "");
-  if (!cleaned) return null;
-  const idx = cleaned.lastIndexOf("/");
-  return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
-}
-
-function normalizedProjectLabel(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed.toLowerCase() : null;
-}
-
-function worktreeFamilyFromRoot(root: string | null | undefined): string | null {
-  const leaf = normalizedProjectLabel(pathBasename(root));
-  if (!leaf || leaf === "~") return null;
-  const match = leaf.match(/^(.+?)(?:-(?:parity|codex))?-c\d+$/);
-  return match?.[1] ?? null;
-}
-
-function agentProject(agent: Agent): string {
-  return worktreeFamilyFromRoot(agent.projectRoot ?? agent.cwd)
-    ?? normalizedProjectLabel(agent.project)
-    ?? normalizedProjectLabel(pathBasename(agent.projectRoot ?? agent.cwd))
-    ?? "other";
-}
-
 function projectRouteKeyForGroup(group: ParentGroup): string {
-  return `project:${group.key || "unscoped"}`;
+  return group.key;
 }
 
 function buildGroups(agents: Agent[]): ParentGroup[] {
-  const map = new Map<string, Agent[]>();
+  const map = new Map<string, { label: string; agents: Agent[] }>();
   for (const agent of agents) {
-    const key = agentProject(agent);
-    const list = map.get(key);
-    if (list) list.push(agent);
-    else map.set(key, [agent]);
+    const identity = projectIdentityForAgent(agent);
+    const group = map.get(identity.key);
+    if (group) {
+      group.agents.push(agent);
+    } else {
+      map.set(identity.key, { label: identity.title, agents: [agent] });
+    }
   }
 
   const groups: ParentGroup[] = [];
-  for (const [key, list] of map) {
+  for (const [key, group] of map) {
+    const list = group.agents;
     list.sort((a, b) => {
-      const sd = (STATE_RANK[normalizeAgentState(a.state)] ?? 9) -
-                 (STATE_RANK[normalizeAgentState(b.state)] ?? 9);
+      const sd = (AGENT_STATUS_RANK[normalizeAgentState(a.state)] ?? 9) -
+                 (AGENT_STATUS_RANK[normalizeAgentState(b.state)] ?? 9);
       if (sd !== 0) return sd;
       return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
     });
 
     const bestState = list.reduce<AgentDisplayState>((best, a) => {
       const s = normalizeAgentState(a.state);
-      return (STATE_RANK[s] ?? 9) < (STATE_RANK[best] ?? 9) ? s : best;
+      return (AGENT_STATUS_RANK[s] ?? 9) < (AGENT_STATUS_RANK[best] ?? 9) ? s : best;
     }, "not_ready");
 
     const latestUpdate = Math.max(...list.map((a) => a.updatedAt ?? 0));
 
-    groups.push({ key, label: key, agents: list, bestState, latestUpdate });
+    groups.push({ key, label: group.label, agents: list, bestState, latestUpdate });
   }
 
   groups.sort((a, b) => {
-    const sd = (STATE_RANK[a.bestState] ?? 9) - (STATE_RANK[b.bestState] ?? 9);
+    const sd = (AGENT_STATUS_RANK[a.bestState] ?? 9) - (AGENT_STATUS_RANK[b.bestState] ?? 9);
     if (sd !== 0) return sd;
     return b.latestUpdate - a.latestUpdate;
   });

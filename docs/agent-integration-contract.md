@@ -80,6 +80,9 @@ Session invariants:
 - exact session asks should route work by `targetSessionId` to continue context;
   asks without a target session may route by agent/project and create the
   lightest usable fresh session/card
+- forked asks should route work to a new execution session seeded from
+  `forkFromStateId` or `forkFromSessionId`; the source session is context, not
+  the work target
 - project-path asks do not require a caller-created card first; if no card
   resolves for that project, the broker can create a one-time card as part of
   accepting the work
@@ -201,6 +204,13 @@ Use the narrowest available mechanism:
 - for an action approval, emit an approval/action state
 - for durable work blocked on a person, update the work item to `waiting`
 - for host-level permission prompts, forward the host prompt into Scout as an operator attention or unblock request when that host integration exists
+
+Harness-native interaction tools should be translated at the adapter boundary:
+native questions become Scout questions or unblock requests, native plan
+approvals become approval/review state, native task tools project into work
+items, and native subagent activity links to child invocations/flights or
+observed child activity. Do not expose a vendor's native tool contract as the
+Scout product contract one-for-one.
 
 Important boundary: an MCP server cannot see a client-side permission prompt that the MCP host intercepts before calling the server. Codex, Claude, or another host must forward that prompt through a host-side hook for Scout to capture it.
 

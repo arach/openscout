@@ -22,6 +22,8 @@ export * from "./agent-broker-feed.js";
 export * from "./durable-actions.js";
 export * from "./observed-status.js";
 export * from "./harness-feature-support.js";
+export * from "./native-interactions.js";
+export * from "./session-display-state.js";
 export * from "./capability-matrix.js";
 export * from "./debug-attach.js";
 export * from "./scout-dispatch.js";

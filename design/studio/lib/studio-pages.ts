@@ -373,6 +373,20 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
   },
   {
+    href: "/studies/agents-rail-actions",
+    label: "Agents · Rail Actions",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-rail-actions/page.tsx",
+      "packages/web/client/screens/agents/left.tsx",
+      "packages/web/client/screens/resolve-panes.tsx",
+    ],
+    blurb:
+      "Keep the main view as the list (projects, or the agents under them) and move only the chrome. Search and New-chat leave the center and become rail actions that open a ⌘K command palette (cross-fleet lookup: agents · sessions) / a small composer over the list, then close — no pinned filter box, no second search staged in the center. Kept deliberately simple: two actions, the few agents you last touched, a settings foot (pointers/lenses cut for now). One emerald accent reserved for attention.",
+  },
+  {
     href: "/studies/agents-top-collapse",
     label: "Agents · Top Collapse",
     bucket: "studies",
