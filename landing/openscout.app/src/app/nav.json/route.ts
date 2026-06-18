@@ -9,7 +9,20 @@ export function GET() {
   return Response.json({
     name: "OpenScout Docs",
     description: "Machine-readable docs navigation for agents and tools.",
+    discovery: {
+      readOrder: [
+        "manifest",
+        "agentInstructions",
+        "agentsGuide",
+        "llms",
+        "nav",
+        "install",
+      ],
+    },
     entrypoints: {
+      manifest: "/.well-known/scout.json",
+      agentInstructions: "/.well-known/agent.md",
+      agentInstructionsAlt: "/.well-known/agents.md",
       agents: "/agents.md",
       llms: "/llms.txt",
       llmsFull: "/llms-full.txt",

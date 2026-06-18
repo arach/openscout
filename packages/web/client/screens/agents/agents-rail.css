@@ -1,0 +1,246 @@
+/* Agents rail — an actions column, not the roster. The list (projects/agents)
+   lives in the main pane; the rail only launches things: Search, New chat, the
+   agents you last touched, and Settings at the foot. */
+
+.s-agents-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  flex-shrink: 0;
+}
+
+.s-rail-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  font-weight: 500;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.s-rail-action:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+
+.s-rail-action--primary {
+  border-color: color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.s-rail-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--dim);
+}
+
+.s-rail-action:hover .s-rail-action-icon {
+  color: var(--accent);
+}
+
+.s-rail-action-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.s-agents-recent {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-lg) 0 var(--space-md);
+}
+
+.s-rail-see-all {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
+  text-transform: lowercase;
+}
+
+.s-rail-see-all:hover {
+  color: var(--accent);
+}
+
+.s-agents-foot {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+  border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+/* ── New chat composer overlay ── */
+
+.s-newchat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.s-newchat-panel {
+  width: 460px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.6);
+}
+
+.s-newchat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+
+.s-newchat-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.s-newchat-close {
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.s-newchat-close:hover {
+  color: var(--ink);
+}
+
+.s-newchat-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.s-newchat-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.s-newchat-field-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.s-newchat-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.s-newchat-target {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+.s-newchat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--border) 46%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-newchat-well {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 84px;
+  resize: vertical;
+  padding: var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-newchat-well::placeholder {
+  color: var(--muted);
+}
+
+.s-newchat-error {
+  font-size: var(--text-sm);
+  color: var(--red);
+}
+
+.s-newchat-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.s-newchat-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-newchat-start {
+  margin-left: auto;
+  padding: var(--space-xs) var(--space-lg);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--bg);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.s-newchat-start:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

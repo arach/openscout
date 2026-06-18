@@ -58,7 +58,11 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean = true) {
 function listButtons(list: HTMLElement): HTMLElement[] {
   return Array.from(
     list.querySelectorAll<HTMLElement>(
-      ":scope > button:not([disabled]), :scope > [role='button']:not([aria-disabled='true'])",
+      [
+        ":scope > button:not([disabled])",
+        ":scope > [role='button']:not([aria-disabled='true'])",
+        ":scope > * > button[data-list-primary]:not([disabled])",
+      ].join(", "),
     ),
   );
 }

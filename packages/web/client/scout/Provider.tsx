@@ -21,7 +21,7 @@ import {
 import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
-import { SettingsDrawer } from "../screens/SettingsDrawer.tsx";
+import { SettingsDrawer } from "../screens/settings/SettingsDrawer.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 import { resolveScoutNativeThemeVars } from "../lib/theme.ts";

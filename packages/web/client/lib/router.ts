@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
+import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {
   AgentTab,
   FollowPreferredView,
@@ -351,10 +352,26 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "terminal") {
     const mode = parseTerminalMode(url.searchParams.get("mode"));
+    const terminalSessionId = url.searchParams.get("session")?.trim() || undefined;
+    const terminalSurfaceKey = url.searchParams.get("surface")?.trim() || undefined;
+    const pathSurfaceKey = surfaceKeyFromParts(
+      parts[1] ? decodeURIComponent(parts[1]) : undefined,
+      parts[2] ? decodeURIComponent(parts.slice(2).join("/")) : undefined,
+    );
+    if (pathSurfaceKey) {
+      return {
+        view: "terminal",
+        terminalSurfaceKey: pathSurfaceKey,
+        ...(terminalSessionId ? { terminalSessionId } : {}),
+        ...(mode ? { mode } : {}),
+      };
+    }
     return {
       view: "terminal",
       ...(parts[1] ? { agentId: decodeURIComponent(parts[1]) } : {}),
       ...(mode ? { mode } : {}),
+      ...(!parts[1] && terminalSessionId ? { terminalSessionId } : {}),
+      ...(!parts[1] && terminalSurfaceKey ? { terminalSurfaceKey } : {}),
     };
   }
   if (parts[0] === "ops") {
@@ -525,10 +542,22 @@ export function routePath(r: Route): string {
       return `/follow${search ? `?${search}` : ""}`;
     }
     case "terminal":
-      if (!r.mode) {
-        return r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal";
+      if (r.agentId) {
+        const params = new URLSearchParams();
+        if (r.mode) params.set("mode", r.mode);
+        return `/terminal/${encodeURIComponent(r.agentId)}${searchSuffix(params)}`;
       }
-      return `${r.agentId ? `/terminal/${encodeURIComponent(r.agentId)}` : "/terminal"}?mode=${r.mode}`;
+      {
+        const params = new URLSearchParams();
+        if (r.mode) params.set("mode", r.mode);
+        const surfaceParts = surfacePartsFromKey(r.terminalSurfaceKey);
+        if (surfaceParts) {
+          return `/terminal/${encodeURIComponent(surfaceParts.backend)}/${encodeURIComponent(surfaceParts.sessionName)}${searchSuffix(params)}`;
+        }
+        if (r.terminalSessionId) params.set("session", r.terminalSessionId);
+        if (r.terminalSurfaceKey) params.set("surface", r.terminalSurfaceKey);
+        return `/terminal${searchSuffix(params)}`;
+      }
   }
 }
 
@@ -566,7 +595,7 @@ function routeKey(r: Route): string {
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
-      return `terminal:${r.agentId ?? ""}:${r.mode ?? "takeover"}`;
+      return `terminal:${r.agentId ?? ""}:${r.terminalSessionId ?? ""}:${r.terminalSurfaceKey ?? ""}:${r.mode ?? "detail"}`;
     case "repo-diff":
       return `repo-diff:${r.path}`;
     default:

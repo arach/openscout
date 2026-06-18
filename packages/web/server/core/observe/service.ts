@@ -602,6 +602,29 @@ function firstString(
   return null;
 }
 
+function historyPathSessionId(path: string): string | null {
+  const name = basename(path).trim();
+  if (!name) {
+    return null;
+  }
+  return name.replace(/\.(jsonl|json)$/u, "") || null;
+}
+
+function historySnapshotSessionId(history: HistorySnapshotResult): string | null {
+  const providerMeta = snapshotProviderMeta(history.snapshot);
+  const snapshotSessionId = history.snapshot.session.id?.startsWith("history:")
+    ? null
+    : history.snapshot.session.id;
+  return firstString(
+    providerMeta.externalSessionId,
+    providerMeta.threadId,
+    providerMeta.transportSessionId,
+    providerMeta.nativeSessionId,
+    snapshotSessionId,
+    historyPathSessionId(history.historyPath),
+  );
+}
+
 function resolveHistoryCandidate(
   agent: WebAgent,
   snapshot: SessionState | null,
@@ -1339,13 +1362,14 @@ async function resolveSnapshotSource(
     }
   }
   if (historySnapshot) {
+    const historySessionId = historySnapshotSessionId(historySnapshot);
     return {
       source: "history",
       historyPath: historySnapshot.historyPath,
       snapshot: historySnapshot.snapshot,
       timedEvents: historySnapshot.timedEvents,
       live: live || isLiveSessionSnapshot(historySnapshot.snapshot),
-      sessionId: liveSnapshot?.session.id ?? endpoint?.sessionId ?? null,
+      sessionId: liveSnapshot?.session.id ?? historySessionId ?? endpoint?.sessionId ?? null,
     };
   }
 
@@ -1371,13 +1395,14 @@ async function resolveSnapshotSource(
     }
   }
   if (agentHistorySnapshot) {
+    const historySessionId = historySnapshotSessionId(agentHistorySnapshot);
     return {
       source: "history",
       historyPath: agentHistorySnapshot.historyPath,
       snapshot: agentHistorySnapshot.snapshot,
       timedEvents: agentHistorySnapshot.timedEvents,
       live: false,
-      sessionId: endpoint?.sessionId ?? agentHistorySnapshot.snapshot.session.id ?? null,
+      sessionId: historySessionId ?? endpoint?.sessionId ?? null,
     };
   }
 

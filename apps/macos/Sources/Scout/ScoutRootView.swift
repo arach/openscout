@@ -21,6 +21,48 @@ final class ScoutFeeds: ObservableObject {
     let tail = ScoutTailStore()
 }
 
+#if os(macOS)
+private struct ScoutAppIconMark: View {
+    let size: CGFloat
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        Group {
+            if let icon = Self.appIcon() {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: size, height: size)
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            } else {
+                Text("S")
+                    .font(HudFont.mono(HudTextSize.base, weight: .bold))
+                    .foregroundStyle(ScoutPalette.bg)
+                    .frame(width: size, height: size)
+                    .background(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(ScoutPalette.accent)
+                    )
+            }
+        }
+        .accessibilityLabel("Scout")
+    }
+
+    private static func appIcon() -> NSImage? {
+        if let appIconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let image = NSImage(contentsOf: appIconURL) {
+            return image
+        }
+
+        if let image = NSImage(named: NSImage.applicationIconName), image.isValid {
+            return image
+        }
+
+        return nil
+    }
+}
+#endif
+
 private struct ScoutDiffSheetRequest {
     let worktree: RepoWorktree
     let sessionId: String?
@@ -161,11 +203,7 @@ struct ScoutRootView: View {
                 maxLabelWidth: 260,
                 collapseLabelWidth: 44,
                 railHeader: {
-                    Text("S")
-                        .font(HudFont.mono(HudTextSize.base, weight: .bold))
-                        .foregroundStyle(ScoutPalette.bg)
-                        .frame(width: 24, height: 24)
-                        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(manifest.accent))
+                    ScoutAppIconMark(size: 24, cornerRadius: HudRadius.standard)
                 },
                 labelHeader: {
                     Text("Scout")
@@ -1957,7 +1995,7 @@ struct ScoutRootView: View {
                         }
                     },
                     onOpenWeb: {
-                        ScoutWeb.open(path: "/embed/observe/\(agent.id)")
+                        ScoutWeb.open(path: observeWebPath(for: agent))
                     }
                 )
                 .id(agent.id)
@@ -2311,6 +2349,15 @@ struct ScoutRootView: View {
         agentContentMode = .roster
         observeSidecarResizePreviewWidth = nil
         observeSidecarAgent = agent
+    }
+
+    private func observeWebPath(for agent: ScoutAgent) -> String {
+        if let sessionRef = agent.harnessSessionId?.nilIfEmpty {
+            let encoded = sessionRef.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? sessionRef
+            return "/embed/session?ref=\(encoded)"
+        }
+        let encodedAgentId = agent.id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? agent.id
+        return "/embed/observe/\(encodedAgentId)"
     }
 
     private func previewAgent(_ agent: ScoutAgent) {
@@ -3464,6 +3511,7 @@ private struct ScoutAgentInspector: View {
         HudCard {
             VStack(alignment: .leading, spacing: HudSpacing.lg) {
                 essentials
+                agentEngage
                 if let observe = observePayload, observe.hasSummarySignal {
                     HudDivider(color: ScoutDesign.hairline)
                     summary(observe)
@@ -3515,6 +3563,7 @@ private struct ScoutAgentInspector: View {
                             }
                         },
                         onObserve: openObserve,
+                        onTakeover: { ScoutWeb.open(path: "/terminal/\(agent.id)?mode=takeover") },
                         onMessage: { openSession(channel) },
                         onFork: { startSession(.continueContext) }
                     )
@@ -3559,6 +3608,21 @@ private struct ScoutAgentInspector: View {
                 ScoutCopyButton(text: cardSummary, help: "Copy agent details")
             }
             glyphFacts
+        }
+    }
+
+    /// Agent-level engage — Observe (the native pane) + Take over (the web's
+    /// live terminal). Both operate the agent's bound session, so the bar only
+    /// shows when there's a live session to engage. Per-session engage lives on
+    /// each row below; this is the one-tap path into the agent's current work.
+    @ViewBuilder
+    private var agentEngage: some View {
+        if sessionId != nil {
+            HStack(spacing: HudSpacing.sm) {
+                ScoutObserveChip(action: openObserve)
+                ScoutTakeoverChip(action: { ScoutWeb.open(path: "/terminal/\(agent.id)?mode=takeover") })
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -3612,7 +3676,7 @@ private struct ScoutAgentInspector: View {
             "path      \(agent.workspace)",
         ]
         if let selectedChannel { lines.append("cId       \(selectedChannel.cId)") }
-        if let sessionId { lines.append("session   \(sessionId)") }
+        if let sessionId { lines.append("harnessSession \(sessionId)") }
         return lines.joined(separator: "\n")
     }
 
@@ -3801,11 +3865,13 @@ private struct ScoutAgentInspector: View {
     private var runtimeFacts: some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
             ScoutEyebrow(text: "Runtime")
+            ScoutInspectorKVRow("Harness", value: agent.harness?.nilIfEmpty ?? "—", valueColor: agent.harness?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
+            ScoutAgentModelRow(agent: agent)
             ScoutInspectorKVRow("Transport", value: agent.transport?.nilIfEmpty ?? "—", valueColor: agent.transport?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
             ScoutInspectorKVRow("Role", value: agent.roleLabel)
             ScoutInspectorKVRow("Class", value: agent.agentClass?.nilIfEmpty ?? "—", valueColor: agent.agentClass?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
             if let sessionId {
-                ScoutCopyKVRow(key: "Session", value: sessionId)
+                ScoutCopyKVRow(key: "Harness session", value: sessionId)
             }
         }
     }
@@ -4520,6 +4586,7 @@ private struct ScoutInspectorSessionRow: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     let onObserve: () -> Void
+    let onTakeover: () -> Void
     let onMessage: () -> Void
     let onFork: () -> Void
     @State private var hovering = false
@@ -4566,6 +4633,14 @@ private struct ScoutInspectorSessionRow: View {
             }
             .buttonStyle(.plain).scoutPointerCursor()
             .help(isExpanded ? "Collapse" : "Expand \(channel.rowTitle)")
+
+            // Per-session engage, surfaced without a tap: always on the working
+            // row, hover-revealed on the rest. The expanded card carries the
+            // full labeled set (Observe · Take over · Message · Fork).
+            if !isExpanded && (hovering || isWorking) {
+                ScoutRowQuickAction(icon: "eye", help: "Observe", accent: true, action: onObserve)
+                ScoutRowQuickAction(icon: "hand.raised", help: "Take over", accent: false, action: onTakeover)
+            }
 
             if isExpanded {
                 Image(systemName: "chevron.up")
@@ -4638,13 +4713,19 @@ private struct ScoutInspectorSessionRow: View {
         }
     }
 
-    /// Per-session verbs as equal, single-line cells. Take over joins to make
-    /// the 2×2 once it has a backend — until then it's not faked.
+    /// Per-session verbs as equal, single-line cells in a 2×2: Observe · Take
+    /// over on top, Message · Fork below. Take over pushes to the web's live
+    /// terminal (no native backend yet), so it's real, not faked.
     private var actionGrid: some View {
-        HStack(spacing: HudSpacing.xs) {
-            ScoutSessionActionCell(icon: "eye", title: "Observe", accent: true, action: onObserve)
-            ScoutSessionActionCell(icon: "bubble.left", title: "Message", accent: false, action: onMessage)
-            ScoutSessionActionCell(icon: "arrow.triangle.branch", title: "Fork", accent: false, action: onFork)
+        VStack(spacing: HudSpacing.xs) {
+            HStack(spacing: HudSpacing.xs) {
+                ScoutSessionActionCell(icon: "eye", title: "Observe", accent: true, action: onObserve)
+                ScoutSessionActionCell(icon: "hand.raised", title: "Take over", accent: false, action: onTakeover)
+            }
+            HStack(spacing: HudSpacing.xs) {
+                ScoutSessionActionCell(icon: "bubble.left", title: "Message", accent: false, action: onMessage)
+                ScoutSessionActionCell(icon: "arrow.triangle.branch", title: "Fork", accent: false, action: onFork)
+            }
         }
     }
 }
@@ -4694,6 +4775,34 @@ private struct ScoutSessionActionCell: View {
     private var border: Color {
         if accent { return ScoutPalette.statusOk.opacity(0.45) }
         return ScoutDesign.hairlineStrong
+    }
+}
+
+/// Compact icon-only engage on a collapsed session row — Observe (accent) and
+/// Take over. Shown on hover, or always on the working row. The labeled set
+/// lives in the expanded card; this is the no-tap shortcut.
+private struct ScoutRowQuickAction: View {
+    let icon: String
+    let help: String
+    let accent: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(accent ? ScoutPalette.statusOk : (hovering ? ScoutPalette.ink : ScoutPalette.muted))
+                .frame(width: 20, height: 18)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .fill(hovering ? (accent ? ScoutPalette.statusOk.opacity(0.14) : ScoutSurface.hover) : Color.clear)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .help(help)
     }
 }
 
@@ -4776,6 +4885,42 @@ private struct ScoutObserveChip: View {
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
         .help("Observe")
+    }
+}
+
+/// Take over — grabs the live terminal to drive it. macOS has no native
+/// take-over backend yet, so it pushes to the web app (which does), the same
+/// way the profile + diff affordances open web routes. Neutral chip (Observe
+/// is the accented one); matches ScoutObserveChip's height so they sit level.
+private struct ScoutTakeoverChip: View {
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: HudSpacing.xs) {
+                Image(systemName: "hand.raised")
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                Text("TAKE OVER")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .tracking(0.4)
+            }
+            .foregroundStyle(hovering ? ScoutPalette.ink : ScoutPalette.muted)
+            .padding(.horizontal, HudSpacing.sm)
+            .frame(height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .fill(hovering ? ScoutSurface.hover : ScoutSurface.inset)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous))
+        }
+        .buttonStyle(.plain).scoutPointerCursor()
+        .onHover { hovering = $0 }
+        .help("Take over — opens the live terminal in the web app")
     }
 }
 

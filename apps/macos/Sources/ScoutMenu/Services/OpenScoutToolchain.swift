@@ -36,7 +36,7 @@ struct OpenScoutToolchain {
             return CommandDescriptor(
                 executableURL: scoutd.url,
                 arguments: [subcommand, "--json"],
-                environment: scoutdEnvironment(),
+                environment: scoutdEnvironment(scoutd: scoutd),
                 currentDirectoryURL: workspaceContextRoot()
             )
         }
@@ -143,17 +143,43 @@ struct OpenScoutToolchain {
             return explicit
         }
 
-        if let repoRoot = resolver.resolveRepoRoot() {
+        if let runtimePackageDirectory = runtimePackageDirectory() {
             let candidates = [
-                repoRoot.appending(path: "target/debug/scoutd"),
-                repoRoot.appending(path: "target/release/scoutd"),
+                runtimePackageDirectory.appending(path: "bin/scoutd"),
+                runtimePackageDirectory.appending(path: "native/scoutd"),
+                runtimePackageDirectory.appending(path: "scoutd"),
             ]
             for candidate in candidates where resolver.isExecutable(candidate) {
                 return OpenScoutResolvedExecutable(url: candidate.standardizedFileURL, source: .repo)
             }
         }
 
-        return resolver.resolveExecutable(envKeys: [], names: ["scoutd"])
+        if let repoRoot = resolver.resolveRepoRoot() {
+            let candidates = [
+                repoRoot.appending(path: "packages/cli/bin/scoutd"),
+                repoRoot.appending(path: "packages/runtime/bin/scoutd"),
+            ]
+            for candidate in candidates where resolver.isExecutable(candidate) {
+                return OpenScoutResolvedExecutable(url: candidate.standardizedFileURL, source: .repo)
+            }
+        }
+
+        if let fromPath = resolver.resolveExecutable(envKeys: [], names: ["scoutd"]) {
+            return fromPath
+        }
+
+        if resolver.environmentFlag("OPENSCOUT_ALLOW_WORKSPACE_SCOUTD"),
+           let repoRoot = resolver.resolveRepoRoot() {
+            let candidates = [
+                repoRoot.appending(path: "target/release/scoutd"),
+                repoRoot.appending(path: "target/debug/scoutd"),
+            ]
+            for candidate in candidates where resolver.isExecutable(candidate) {
+                return OpenScoutResolvedExecutable(url: candidate.standardizedFileURL, source: .repo)
+            }
+        }
+
+        return nil
     }
 
     func pairingControlHint() -> String? {
@@ -205,8 +231,11 @@ struct OpenScoutToolchain {
     /// (the same source `ScoutBroker.baseURL()` reads), so forward that — but
     /// only when the environment does not already pin a broker target, to avoid
     /// overriding an explicit override.
-    private func scoutdEnvironment() -> [String: String] {
+    private func scoutdEnvironment(scoutd: OpenScoutResolvedExecutable? = nil) -> [String: String] {
         var env = defaultEnvironment()
+        if let scoutd {
+            env["OPENSCOUT_SCOUTD_BIN"] = scoutd.url.path
+        }
 
         let processEnv = ProcessInfo.processInfo.environment
         func hasEnv(_ key: String) -> Bool {

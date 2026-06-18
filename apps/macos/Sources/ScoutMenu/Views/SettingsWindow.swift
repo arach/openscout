@@ -79,7 +79,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-private struct SettingsRootView: View {
+struct SettingsRootView: View {
     @ObservedObject var controller: OpenScoutAppController
     @State private var selected: SettingsTab = .network
 

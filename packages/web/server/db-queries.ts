@@ -73,3 +73,9 @@ export {
   querySessions,
   querySessionById,
 } from "./db/sessions.ts";
+export {
+  queryTerminalSessions,
+} from "./db/terminal-sessions.ts";
+export type {
+  TerminalSessionListOptions,
+} from "./db/terminal-sessions.ts";

@@ -138,11 +138,11 @@ import {
   invokeLocalAgentEndpoint,
   loadRegisteredLocalAgentBindings,
   pruneOneTimeLocalAgentCards,
-  retireConsumedOneTimeLocalAgentCards,
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
   startLocalAgent,
   SUPPORTED_SCOUT_HARNESSES,
+  type LocalAgentBinding,
 } from "./local-agents.js";
 import {
   upsertScoutAgentCardFromInput,
@@ -3671,6 +3671,7 @@ async function syncRegisteredLocalAgents(): Promise<void> {
     );
   }
 
+  await archiveSupersededLocalTransportEndpoints(bindings);
   await archiveStaleRegisteredLocalAgents(bindings);
   await reconcileStaleWorkingFlights();
   await reconcileStaleLocalDeliveries();
@@ -3719,6 +3720,54 @@ async function syncRegisteredLocalAgents(): Promise<void> {
   }
 
   registeredLocalAgentsRegistrySignature = await relayAgentRegistrySignature();
+}
+
+const managedLocalSessionTransports = new Set([
+  "claude_stream_json",
+  "codex_app_server",
+  "pi_rpc",
+  "tmux",
+]);
+
+async function archiveSupersededLocalTransportEndpoints(bindings: LocalAgentBinding[]): Promise<void> {
+  const activeByAgentHarness = new Map<string, AgentEndpoint>();
+  for (const binding of bindings) {
+    const endpoint = binding.endpoint;
+    activeByAgentHarness.set(`${endpoint.agentId}\0${endpoint.nodeId}\0${endpoint.harness ?? ""}`, endpoint);
+  }
+
+  const snapshot = runtime.snapshot();
+  const retiredAt = Date.now();
+  for (const endpoint of Object.values(snapshot.endpoints)) {
+    if (endpoint.nodeId !== nodeId) {
+      continue;
+    }
+    if (!managedLocalSessionTransports.has(endpoint.transport)) {
+      continue;
+    }
+    const active = activeByAgentHarness.get(`${endpoint.agentId}\0${endpoint.nodeId}\0${endpoint.harness ?? ""}`);
+    if (!active || active.id === endpoint.id || active.transport === endpoint.transport) {
+      continue;
+    }
+    if (endpoint.state === "offline" && endpoint.metadata?.supersededLocalTransport === true) {
+      continue;
+    }
+
+    await persistEndpoint({
+      ...endpoint,
+      state: "offline",
+      metadata: {
+        ...(endpoint.metadata ?? {}),
+        supersededLocalTransport: true,
+        replacedByEndpointId: active.id,
+        replacedByTransport: active.transport,
+        retiredAt,
+        lastError: `superseded by ${active.transport} local agent endpoint`,
+        lastFailedAt: retiredAt,
+      },
+    });
+    console.log(`[openscout-runtime] archived superseded local transport endpoint ${endpoint.id} -> ${active.id}`);
+  }
 }
 
 async function retireLegacyPairingSessionAgents(): Promise<void> {
@@ -4346,33 +4395,6 @@ async function maybeForwardFlightToAuthority(flight: FlightRecord): Promise<void
   await brokerPostJson<{ ok: boolean }>(authority.authorityNode.brokerUrl!, "/v1/flights", flight);
 }
 
-async function retireConsumedOneTimeCardsForMessage(message: MessageRecord): Promise<void> {
-  if (message.class !== "agent" || message.actorId === systemActor.id) {
-    return;
-  }
-  const conversation = runtime.conversation(message.conversationId);
-  if (!conversation || conversation.kind !== "direct") {
-    return;
-  }
-  const retired = await retireConsumedOneTimeLocalAgentCards({
-    conversationId: conversation.id,
-    actorId: message.actorId,
-    participantIds: conversation.participantIds,
-  }).catch((error) => {
-    console.warn(`[openscout-runtime] one-time card cleanup failed: ${error instanceof Error ? error.message : String(error)}`);
-    return [];
-  });
-  if (retired.length === 0) {
-    return;
-  }
-  console.log(
-    `[openscout-runtime] retired ${retired.length} consumed one-time card${retired.length === 1 ? "" : "s"}`,
-  );
-  await syncRegisteredLocalAgentsIfChanged("one-time card consumed").catch((error) => {
-    console.warn(`[openscout-runtime] one-time card broker sync failed: ${error instanceof Error ? error.message : String(error)}`);
-  });
-}
-
 async function postConversationMessage(
   message: MessageRecord,
 ): Promise<{
@@ -4400,7 +4422,6 @@ async function postConversationMessage(
   await forwardPeerBrokerDeliveries(message, deliveries);
   await applyProjectedEntries(entries);
   await reconcileStaleLocalDeliveries();
-  await retireConsumedOneTimeCardsForMessage(message);
   await completeInvocationsForBrokerReply(message);
   return { ok: true, message, deliveries };
 }
@@ -4572,6 +4593,25 @@ function endpointMatchesTargetSession(endpoint: AgentEndpoint, sessionId: string
   return endpointSessionAliasValues(endpoint).includes(normalizedSessionId);
 }
 
+function localEndpointPreferenceRank(endpoint: AgentEndpoint): number {
+  if (endpoint.transport === "tmux") {
+    return 0;
+  }
+  if (endpoint.transport === "claude_stream_json") {
+    return 50;
+  }
+  return 10;
+}
+
+function compareLocalEndpointPreference(left: AgentEndpoint, right: AgentEndpoint): number {
+  const rankDelta = localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right);
+  if (rankDelta !== 0) {
+    return rankDelta;
+  }
+  return Math.max(endpointStartedAt(right), endpointTerminalAt(right))
+    - Math.max(endpointStartedAt(left), endpointTerminalAt(left));
+}
+
 function invocationTargetSessionId(invocation: InvocationRequest): string | undefined {
   return invocation.execution?.targetSessionId?.trim()
     || metadataStringValue(invocation.metadata, "targetSessionId")
@@ -4592,7 +4632,10 @@ function activeLocalEndpointForAgent(
     }
     return targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true;
   });
-  return candidates.find((endpoint) => (
+  const orderedCandidates = targetSessionId
+    ? candidates
+    : [...candidates].sort(compareLocalEndpointPreference);
+  return orderedCandidates.find((endpoint) => (
     isA2AHttpEndpoint(endpoint)
       ? true
       : endpoint.transport === "pairing_bridge"

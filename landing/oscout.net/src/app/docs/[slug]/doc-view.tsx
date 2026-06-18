@@ -212,6 +212,8 @@ function formatDiagramLabel(src: string) {
 
 function AgentPaths({ rawUrl }: { rawUrl: string }) {
   const links = [
+    { href: "/.well-known/scout.json", label: "scout.json" },
+    { href: "/.well-known/agent.md", label: "agent.md" },
     { href: "/agents.md", label: "agents.md" },
     { href: "/llms.txt", label: "llms.txt" },
     { href: "/llms-full.txt", label: "llms-full.txt" },

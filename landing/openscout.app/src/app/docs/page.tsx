@@ -107,6 +107,8 @@ export default function DocsIndex() {
           </p>
           <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
+              { href: "/.well-known/scout.json", label: "scout.json", body: "Broker manifest" },
+              { href: "/.well-known/agent.md", label: "agent.md", body: "Well-known discovery entry" },
               { href: "/llms.txt", label: "llms.txt", body: "Compact LLM index" },
               { href: "/llms-full.txt", label: "llms-full.txt", body: "Full context bundle" },
               { href: "/nav.json", label: "nav.json", body: "Docs graph" },

@@ -110,13 +110,21 @@ struct BrokerRestartTelemetry: Decodable, Sendable, Equatable {
     }
 
     var shouldWarn: Bool {
-        if let backoffMilliseconds, backoffMilliseconds > 0 {
-            return true
-        }
+        if hasActiveBackoff { return true }
         if isRestartPending {
             return true
         }
         return (restartCount ?? 0) >= Self.warningRestartThreshold
+    }
+
+    var hasActiveBackoff: Bool {
+        guard let backoffMilliseconds, backoffMilliseconds > 0 else { return false }
+        if isRestartPending { return true }
+
+        // Older telemetry may only expose a backoff value while a restart is
+        // pending. When the daemon says the base runtime is running, the value
+        // is just the next delay it would use after a future exit.
+        return normalizedBaseState == nil
     }
 
     var isRestartPending: Bool {
@@ -137,7 +145,7 @@ struct BrokerRestartTelemetry: Decodable, Sendable, Equatable {
             parts.append("Runtime restart warning")
         }
 
-        if let backoffMilliseconds, backoffMilliseconds > 0 {
+        if hasActiveBackoff, let backoffMilliseconds, backoffMilliseconds > 0 {
             parts.append("backoff \(Self.formatDuration(milliseconds: backoffMilliseconds))")
         } else if isRestartPending {
             parts.append("base \(baseState ?? "exited")")
@@ -151,7 +159,7 @@ struct BrokerRestartTelemetry: Decodable, Sendable, Equatable {
     }
 
     func backoffLabel() -> String? {
-        guard let backoffMilliseconds, backoffMilliseconds > 0 else { return nil }
+        guard hasActiveBackoff, let backoffMilliseconds, backoffMilliseconds > 0 else { return nil }
         return Self.formatDuration(milliseconds: backoffMilliseconds)
     }
 

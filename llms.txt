@@ -23,6 +23,8 @@ finalized; package manifests currently use `UNLICENSED`.
 ## Start Here
 
 - [`README.md`](./README.md) — repo overview and bootstrap
+- [`https://openscout.app/.well-known/scout.json`](https://openscout.app/.well-known/scout.json) — product manifest (remote)
+- [`https://openscout.app/.well-known/agent.md`](https://openscout.app/.well-known/agent.md) — agent discovery entry (remote)
 - [`docs/README.md`](./docs/README.md) — docs map and reading order
 - [`install.md`](./install.md) — install/bootstrap guide with success criteria and support footprint
 - [`docs/quickstart.md`](./docs/quickstart.md) — first healthy local run

@@ -158,6 +158,49 @@ describe("setup inventory", () => {
     expect(resolveOpenScoutSetupContextRoot()).toBe(overrideRoot);
   });
 
+  test("keeps new Claude project profiles on tmux even with a legacy stream-json default", async () => {
+    const home = join(tmpdir(), `openscout-setup-claude-transport-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sourceRoot = join(home, "dev");
+    const projectRoot = join(sourceRoot, "legacy-default");
+
+    testDirectories.add(home);
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    writeFileSync(join(projectRoot, "CLAUDE.md"), "# Legacy default\n", "utf8");
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+
+    await writeOpenScoutSettings({
+      agents: {
+        defaultHarness: "claude",
+        defaultTransport: "claude_stream_json",
+      },
+      discovery: {
+        workspaceRoots: [sourceRoot],
+        includeCurrentRepo: true,
+      },
+    }, {
+      currentDirectory: projectRoot,
+    });
+
+    const setup = await initializeOpenScoutSetup({ currentDirectory: projectRoot });
+    const manifest = JSON.parse(readFileSync(join(projectRoot, ".openscout", "project.json"), "utf8")) as {
+      agent?: {
+        runtime?: {
+          profiles?: {
+            claude?: { transport?: string };
+          };
+        };
+      };
+    };
+
+    expect(setup.createdProjectConfig).toBe(true);
+    expect(manifest.agent?.runtime?.profiles?.claude?.transport).toBe("tmux");
+  });
+
   test("walks source roots recursively and records harness evidence per project", async () => {
     const home = join(tmpdir(), `openscout-setup-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const sourceRoot = join(home, "dev");

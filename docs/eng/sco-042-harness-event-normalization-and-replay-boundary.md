@@ -93,6 +93,52 @@ Event-specific payloads SHOULD be compact. Large command output, screenshots,
 files, and full tool responses should be referenced by source cursor or artifact
 id rather than embedded.
 
+## Native Interaction Mapping
+
+Harness-native interaction tools should map into Scout records and projections
+instead of becoming separate product contracts. Obvious names should stay
+obvious, but Scout owns the meaning at the broker boundary.
+
+| Native interaction | Scout mapping |
+| --- | --- |
+| user question, such as `ask_user` | `question` or `unblock_request(kind: "question")` plus session projection |
+| plan review, such as `submit_plan` | approval/review unblock, optionally linked to a work item |
+| task tools, such as `task_write` / `task_update` / `task_complete` / `task_check` | work item task projection plus session projection |
+| native child agent or `subagent` event | child invocation/flight when Scout owns it, or observed child activity linked to the parent flight |
+| tool approval event | `unblock_request(kind: "approval" | "permission")` |
+| follow-up queue | message queued against the current conversation/session context |
+| steer/redirect | flight/session redirect with an explicit reason |
+
+Adapters may use different native names. The normalized mapping lives in
+`packages/protocol/src/native-interactions.ts`; native names are source aliases,
+not Scout's durable record model.
+
+## Display State Reducer
+
+Every UI surface needs the same answer to "what is happening now?" and "what
+needs the operator?" Raw harness events are too detailed and too
+harness-specific for each surface to fold independently.
+
+Scout SHOULD maintain a pure display-state reducer:
+
+```ts
+Observed harness events + Scout broker events
+  -> session display reducer
+  -> SessionDisplayState projection
+  -> web / desktop / iOS / CLI
+```
+
+The display state is a projection, not canonical storage. It may include
+observed harness details such as active tools, current streamed message,
+pending approvals, pending questions, subagent activity, task snapshots, and
+usage. It must cite or link to source records where durable ownership matters.
+
+The first TypeScript contract lives in
+`packages/protocol/src/session-display-state.ts`. Runtime adapters can fold
+native events into this state while preserving the data boundary: Scout-owned
+coordination records remain canonical, and external harness transcript turns
+remain observed material.
+
 ## Replay Boundary
 
 Scout SHOULD support two replay modes:
@@ -171,11 +217,13 @@ that caused the transition.
 
 ## Implementation Sequence
 
-1. Add protocol types for canonical observed harness events.
+1. Add protocol types for canonical observed harness events, native interaction
+   mapping, and session display projections.
 2. Define fixture layout and expected JSON format.
 3. Move current adapter normalization tests onto the fixture contract.
 4. Add adapter capability reports for event coverage and replay support.
-5. Update runtime/web/mobile consumers to render canonical observed events.
+5. Update runtime/web/mobile consumers to render canonical observed events and
+   display projections.
 6. Add diagnostics that distinguish broker-owned facts from observed harness
    material.
 
@@ -187,4 +235,6 @@ that caused the transition.
 - UI surfaces can render common activity without harness-specific branching for
   basic assistant, tool, command, plan, approval, usage, terminal, and error
   events.
+- Web, desktop, iOS, and CLI can consume the same session display projection
+  for active tools, attention, subagents, tasks, usage, and current message.
 - Large raw output is referenced or bounded, not copied into broker records.

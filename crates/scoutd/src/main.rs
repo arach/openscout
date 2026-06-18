@@ -4,7 +4,7 @@ compile_error!("scoutd first slice requires a Unix-like platform.");
 use std::collections::HashSet;
 use std::env;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::ExitStatusExt;
@@ -111,6 +111,8 @@ fn run() -> Result<(), String> {
     }
 
     let json = args.iter().any(|arg| arg == "--json");
+    let fix = args.iter().any(|arg| arg == "--fix");
+    let yes = args.iter().any(|arg| arg == "--yes");
     let command = args
         .iter()
         .find(|arg| !arg.starts_with("--"))
@@ -125,7 +127,7 @@ fn run() -> Result<(), String> {
             Ok(())
         }
         "doctor" => {
-            let report = doctor_report(&config);
+            let report = doctor_report(&config, DoctorOptions { fix, yes });
             print_doctor(&report, json);
             Ok(())
         }
@@ -356,6 +358,24 @@ struct DoctorReport {
     status: ServiceStatus,
     processes: Vec<ProcessInfo>,
     warnings: Vec<String>,
+    repairs: Vec<DoctorRepair>,
+    fix_requested: bool,
+    yes: bool,
+}
+
+#[derive(Clone, Debug)]
+struct DoctorRepair {
+    id: String,
+    title: String,
+    status: String,
+    detail: Option<String>,
+    changed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct DoctorOptions {
+    fix: bool,
+    yes: bool,
 }
 
 fn install_service(config: &Config) -> Result<ServiceStatus, String> {
@@ -931,7 +951,7 @@ fn health_body_reports_ok(body: &str) -> bool {
     after_colon.trim_start().starts_with("true")
 }
 
-fn doctor_report(config: &Config) -> DoctorReport {
+fn doctor_report(config: &Config, options: DoctorOptions) -> DoctorReport {
     let status = broker_service_status(config);
     let processes = process_snapshot();
     let mut warnings = Vec::new();
@@ -1009,10 +1029,102 @@ fn doctor_report(config: &Config) -> DoctorReport {
         }
     }
 
+    let repairs = doctor_repairs(config, &status, options);
+
     DoctorReport {
         status,
         processes,
         warnings,
+        repairs,
+        fix_requested: options.fix,
+        yes: options.yes,
+    }
+}
+
+fn doctor_repairs(config: &Config, status: &ServiceStatus, options: DoctorOptions) -> Vec<DoctorRepair> {
+    if !options.fix {
+        return Vec::new();
+    }
+
+    let mut repairs = Vec::new();
+    if status.config.broker_socket_path.exists() && !status.health.reachable {
+        repairs.push(remove_file_repair(
+            "stale-broker-socket",
+            "Remove stale broker socket",
+            &status.config.broker_socket_path,
+            options,
+        ));
+    }
+
+    for (id, title, path) in [
+        (
+            "stale-base-pid",
+            "Remove stale base pid file",
+            config.runtime_directory.join("base-fallback.pid"),
+        ),
+        (
+            "stale-broker-pid",
+            "Remove stale broker pid file",
+            config.runtime_directory.join("broker-fallback.pid"),
+        ),
+    ] {
+        if let Some(pid) = read_pid_file(&path) {
+            if !pid_is_alive(pid) {
+                repairs.push(remove_file_repair(id, title, &path, options));
+            }
+        }
+    }
+
+    repairs
+}
+
+fn read_pid_file(path: &Path) -> Option<u32> {
+    let raw = fs::read_to_string(path).ok()?;
+    raw.trim().parse::<u32>().ok()
+}
+
+fn pid_is_alive(pid: u32) -> bool {
+    Command::new("/bin/kill")
+        .arg("-0")
+        .arg(pid.to_string())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn remove_file_repair(id: &str, title: &str, path: &Path, options: DoctorOptions) -> DoctorRepair {
+    if !options.yes {
+        return DoctorRepair {
+            id: id.to_string(),
+            title: title.to_string(),
+            status: "skipped".to_string(),
+            detail: Some(format!("Pass --yes to remove {}.", path.display())),
+            changed: false,
+        };
+    }
+
+    match fs::remove_file(path) {
+        Ok(()) => DoctorRepair {
+            id: id.to_string(),
+            title: title.to_string(),
+            status: "applied".to_string(),
+            detail: Some(format!("Removed {}.", path.display())),
+            changed: true,
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => DoctorRepair {
+            id: id.to_string(),
+            title: title.to_string(),
+            status: "already-clean".to_string(),
+            detail: Some(format!("Already absent: {}.", path.display())),
+            changed: false,
+        },
+        Err(error) => DoctorRepair {
+            id: id.to_string(),
+            title: title.to_string(),
+            status: "failed".to_string(),
+            detail: Some(format!("Failed to remove {}: {error}.", path.display())),
+            changed: false,
+        },
     }
 }
 
@@ -1620,7 +1732,7 @@ fn print_version() {
 
 fn print_help() {
     println!(
-        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise|version> [--json]\n\n\
+        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise|version> [--json] [--fix] [--yes]\n\n\
          Native daemon for the OpenScout local control plane."
     );
 }
@@ -1679,6 +1791,28 @@ fn print_doctor(report: &DoctorReport, json: bool) {
             }
         }
         println!("processes: {}", report.processes.len());
+        if report.fix_requested {
+            if report.repairs.is_empty() {
+                println!("repairs: none");
+            } else {
+                println!("repairs:");
+                for repair in &report.repairs {
+                    println!(
+                        "- {} [{}]{}",
+                        repair.title,
+                        repair.status,
+                        repair
+                            .detail
+                            .as_deref()
+                            .map(|detail| format!(" {detail}"))
+                            .unwrap_or_default()
+                    );
+                }
+            }
+            if !report.yes {
+                println!("repair mode: dry-run; pass --yes to apply");
+            }
+        }
     }
 }
 
@@ -1827,11 +1961,32 @@ fn doctor_json(report: &DoctorReport) -> String {
         .map(process_json)
         .collect::<Vec<_>>()
         .join(",");
+    let repairs = report
+        .repairs
+        .iter()
+        .map(repair_json)
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "{{\"status\":{},\"warnings\":[{}],\"processes\":[{}]}}",
+        "{{\"status\":{},\"warnings\":[{}],\"processes\":[{}],\"fix\":{{\"supported\":true,\"requested\":{},\"yes\":{},\"actions\":[{}]}},\"repairs\":[{}]}}",
         status_json(&report.status),
         warnings,
         processes,
+        report.fix_requested,
+        report.yes,
+        repairs,
+        repairs,
+    )
+}
+
+fn repair_json(repair: &DoctorRepair) -> String {
+    format!(
+        "{{\"id\":{},\"title\":{},\"status\":{},\"detail\":{},\"changed\":{}}}",
+        json_string(&repair.id),
+        json_string(&repair.title),
+        json_string(&repair.status),
+        json_opt_str(repair.detail.as_deref()),
+        repair.changed,
     )
 }
 

@@ -191,21 +191,6 @@
   white-space: nowrap;
 }
 
-.rw-context-shell {
-  display: none;
-  width: 340px;
-  flex: 0 0 auto;
-  position: sticky;
-  top: 24px;
-  align-self: flex-start;
-}
-
-@media (min-width: 1024px) {
-  .rw-context-shell {
-    display: block;
-  }
-}
-
 .stats {
   display: flex;
   align-items: stretch;
@@ -708,6 +693,11 @@
   margin: 0 0 5px;
   overflow-wrap: anywhere;
 }
+.scan-detail-examples {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+}
 .scan-details li::marker {
   color: var(--faint);
 }
@@ -742,6 +732,25 @@
 }
 .rw-ctx * {
   box-sizing: border-box;
+}
+
+/* Rail host — when the CONTEXT panel lives in the app's global right Inspector
+ * rail (see scout/inspector/ReposInspector.tsx) it fills the rail flush: the
+ * SidePanel supplies the surrounding chrome, so we drop the standalone card's
+ * border / radius / viewport-height cap and let the panel stretch full height. */
+.rw-ctx-rail-scope {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+.rw-ctx-rail-scope .rw-ctx {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
 }
 
 /* empty state */

@@ -19,7 +19,7 @@ export function useObservePolling(agents: Agent[]): ObserveCache {
     .map((agent) => agent.id.trim())
     .filter((agentId) => agentId.length > 0)
     .join(",");
-  const pollIntervalMs = agents.some((agent) => normalizeAgentState(agent.state) === "working")
+  const pollIntervalMs = agents.some((agent) => isAgentBusy(agent.state))
     ? ACTIVE_POLL_INTERVAL_MS
     : IDLE_POLL_INTERVAL_MS;
 

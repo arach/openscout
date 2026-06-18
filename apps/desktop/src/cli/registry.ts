@@ -18,7 +18,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "whoami", summary: "Resolve your current Scout sender identity" },
   { name: "inbox", summary: "Read recent direct or addressed messages for this identity" },
   { name: "send", summary: "Tell one target or post to an explicit channel" },
-  { name: "session", summary: "Actions on a harness session (fork)" },
+  { name: "session", summary: "Actions on a harness session" },
   { name: "speak", summary: "Send and speak aloud via TTS" },
   { name: "ask", summary: "Hand work to one agent and wait for acknowledgement" },
   { name: "wait", summary: "Wait for an ask by invocation, flight, message, or ref" },

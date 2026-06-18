@@ -1,0 +1,470 @@
+/* Home · Sidebar — the left rail on the Home route. Current (BaseLeftRail)
+   vs Lenses (attention-first). Crisp mono frame, thin rules, accent reserved
+   for needs-attention signal. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.frame {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border: 1px solid var(--studio-edge);
+  border-radius: 7px;
+  background: var(--studio-canvas);
+  overflow: hidden;
+  box-shadow: 0 8px 24px -18px rgba(0, 0, 0, 0.5);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 15px;
+  border-bottom: 1px solid var(--studio-edge);
+  background: var(--studio-canvas-alt);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--studio-ink);
+}
+
+.brandMark {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--studio-edge-strong);
+  display: grid;
+  place-items: center;
+}
+
+.brandMark::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--scout-accent);
+}
+
+.navTabs {
+  display: flex;
+  gap: 19px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.navTabActive {
+  color: var(--studio-ink);
+  position: relative;
+}
+
+.navTabActive::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -13px;
+  height: 2px;
+  background: var(--scout-accent);
+}
+
+.navTab {
+  color: var(--studio-ink-faint);
+}
+
+.body {
+  display: flex;
+  min-height: 460px;
+}
+
+/* ── left rail ──────────────────────────────────────────────────────────── */
+
+.rail {
+  width: 220px;
+  flex: none;
+  border-right: 1px solid var(--studio-edge);
+  background: var(--studio-canvas-alt);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.railTop {
+  padding: 10px 10px 8px;
+  border-bottom: 1px solid var(--studio-edge);
+}
+
+.mode {
+  display: flex;
+  border: 1px solid var(--studio-edge);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.modeBtn {
+  flex: 1;
+  height: 26px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  cursor: pointer;
+}
+
+.modeBtnOn {
+  background: var(--studio-surface);
+  color: var(--studio-ink);
+}
+
+.railScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 10px;
+}
+
+.section {
+  padding: 0 10px 12px;
+}
+
+.section + .section {
+  border-top: 1px solid var(--studio-edge);
+  padding-top: 10px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 3px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+}
+
+.sectionMeta {
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--studio-ink-faint);
+}
+
+.seeAll {
+  border: 0;
+  padding: 0;
+  background: none;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  cursor: pointer;
+}
+
+.seeAll:hover {
+  color: var(--scout-accent);
+}
+
+.empty {
+  padding: 6px 3px;
+  font-size: 10.5px;
+  color: var(--studio-ink-faint);
+  font-style: italic;
+}
+
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--studio-surface);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  margin-top: 5px;
+}
+
+.dotWorking {
+  background: var(--status-warn-fg);
+}
+
+.dotNeutral {
+  background: var(--studio-ink-faint);
+}
+
+.dotAttn {
+  background: var(--scout-accent);
+}
+
+.rowBody {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rowTop {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--studio-ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowUnread .rowName {
+  color: var(--studio-ink);
+  font-weight: 600;
+}
+
+.rowTime {
+  flex: none;
+  font-size: 9px;
+  color: var(--studio-ink-faint);
+}
+
+.rowSub {
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: var(--studio-ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* lens rail (proposed) */
+
+.lensList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 10px;
+  border-bottom: 1px solid var(--studio-edge);
+}
+
+.lens {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--studio-ink-muted);
+  cursor: pointer;
+}
+
+.lensOn {
+  background: var(--studio-surface);
+  color: var(--studio-ink);
+}
+
+.lensLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lensDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--scout-accent);
+  flex: none;
+}
+
+.lensCount {
+  font-size: 9.5px;
+  color: var(--studio-ink-faint);
+}
+
+.railFoot {
+  margin-top: auto;
+  padding: 10px;
+  border-top: 1px solid var(--studio-edge);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jumpGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.jump {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--studio-edge);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--studio-ink-muted);
+  cursor: pointer;
+}
+
+.jump:hover {
+  background: var(--studio-surface);
+}
+
+.jumpCap {
+  font-size: 8.5px;
+  line-height: 1.35;
+  color: var(--studio-ink-faint);
+  font-weight: 400;
+}
+
+.footNote {
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: var(--studio-ink-faint);
+  padding: 0 2px;
+}
+
+/* ── dimmed home center ───────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--studio-canvas);
+}
+
+.hero {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--studio-edge);
+}
+
+.heroGreet {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--studio-ink);
+  letter-spacing: -0.02em;
+}
+
+.heroSub {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--studio-ink-faint);
+}
+
+.block {
+  border: 1px solid var(--studio-edge);
+  border-radius: 5px;
+  background: var(--studio-canvas-alt);
+  padding: 12px 14px;
+}
+
+.blockLabel {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  margin-bottom: 8px;
+}
+
+.blockLines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ghostLine {
+  height: 8px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--studio-ink) 6%, transparent);
+}
+
+.ghostLineShort {
+  width: 62%;
+}
+
+.mainNote {
+  margin-top: auto;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--studio-ink-faint);
+}
+
+/* ── principles ─────────────────────────────────────────────────────────── */
+
+.noteHead {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint);
+  margin-bottom: 9px;
+}
+
+.note {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(238px, 1fr));
+  gap: 1px;
+  border: 1px solid var(--studio-edge);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--studio-edge);
+}
+
+.noteCell {
+  background: var(--studio-canvas);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.noteTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--studio-ink);
+}
+
+.noteBody {
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--studio-ink-faint);
+}
+
+.noteBody b {
+  color: var(--studio-ink-muted);
+  font-weight: 600;
+}

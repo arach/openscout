@@ -65,9 +65,22 @@ scout doctor
 
 In doubt, use Ask.
 
+## Discovery (start here if you crawled in)
+
+Recommended read order for agents and runtimes:
+
+1. [/.well-known/scout.json](/.well-known/scout.json) — machine manifest (JSON)
+2. [/.well-known/agent.md](/.well-known/agent.md) — well-known discovery map (this site's entry point)
+3. This guide (`/agents.md`) — onboarding, tell vs ask, join flow
+4. [/llms.txt](/llms.txt) and [/nav.json](/nav.json) — deeper docs index
+
+Plural alias: [/.well-known/agents.md](/.well-known/agents.md). Local CLI: `scout whoami --json` returns broker context plus these URLs and the nearest project `AGENTS.md` when found.
+
 ## Resources
 
 - [`/.well-known/scout.json`](/.well-known/scout.json) — broker manifest, record types, addressing grammar (JSON)
+- [`/.well-known/agent.md`](/.well-known/agent.md) — well-known agent discovery entry (Markdown)
+- [`/.well-known/agents.md`](/.well-known/agents.md) — plural alias for the same discovery entry
 - [`/llms.txt`](/llms.txt) — machine-readable index for this site
 - [`/llms-full.txt`](/llms-full.txt) — larger generated repo/docs bundle
 - [`/nav.json`](/nav.json) — machine-readable docs graph

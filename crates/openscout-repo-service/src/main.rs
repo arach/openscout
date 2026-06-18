@@ -745,6 +745,10 @@ fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Run a bounded `git` subprocess and capture stdout bytes. Kills the child if
 /// it outlives `timeout`. Shared by the scan and diff commands.
+///
+/// Stdout/stderr are drained on helper threads while the parent polls for exit.
+/// Without concurrent reads, large `git diff` output can fill the pipe buffer
+/// (~64 KiB), block the child, and look like a timeout even when Git is fast.
 pub(crate) fn git_capture(cwd: &Path, args: &[&str], timeout: Duration) -> Result<Vec<u8>, String> {
     let mut child = Command::new("git")
         .args(args)
@@ -754,27 +758,53 @@ pub(crate) fn git_capture(cwd: &Path, args: &[&str], timeout: Duration) -> Resul
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
+
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture git stdout".to_string())?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture git stderr".to_string())?;
+
+    let stdout_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        buf
+    });
+
     let started = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| error.to_string())?;
-                if output.status.success() {
-                    return Ok(output.stdout);
+            Ok(Some(status)) => {
+                let stdout = stdout_handle
+                    .join()
+                    .map_err(|_| "git stdout reader panicked".to_string())?;
+                let stderr = stderr_handle
+                    .join()
+                    .map_err(|_| "git stderr reader panicked".to_string())?;
+                if status.success() {
+                    return Ok(stdout);
                 }
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(if stderr.is_empty() {
+                let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
+                return Err(if stderr_text.is_empty() {
                     format!("git {} failed", args.join(" "))
                 } else {
-                    stderr
+                    stderr_text
                 });
             }
             Ok(None) => {
                 if started.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
                     return Err(format!("git {} timed out", args.join(" ")));
                 }
                 thread::sleep(POLL_INTERVAL);

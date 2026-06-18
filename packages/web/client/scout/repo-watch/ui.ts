@@ -15,6 +15,7 @@ import type {
   RepoWatchAgentRef,
   RepoWatchAttentionLevel,
   RepoWatchBranchSummary,
+  RepoWatchProject,
   RepoWatchWorktree,
 } from "./types.ts";
 
@@ -129,6 +130,36 @@ export function uniqueAgents(wt: RepoWatchWorktree): RepoWatchAgentRef[] {
 export function pathLeaf(p: string): string {
   const parts = p.replace(/\/+$/, "").split("/");
   return parts[parts.length - 1] || p;
+}
+
+/** Distinguishing worktree label within a grouped repo row — strips a shared
+ *  project prefix when the path leaf repeats it (e.g. `openscout-fix` → `fix`). */
+export function worktreeDisplayLeaf(
+  wt: RepoWatchWorktree,
+  project: RepoWatchProject,
+): string {
+  const leaf = pathLeaf(wt.path);
+  if (leaf === project.name) return leaf;
+  if (leaf.startsWith(project.name + "-")) return leaf.slice(project.name.length + 1);
+  return leaf;
+}
+
+/** Sort key for the table's name column — project name across groups, leaf
+ *  within a group. `sign` is 1 for ascending, −1 for descending. */
+export function compareWorktreeNames(
+  a: { wt: RepoWatchWorktree; project: RepoWatchProject },
+  b: { wt: RepoWatchWorktree; project: RepoWatchProject },
+  sign: number,
+): number {
+  const an =
+    a.project.id === b.project.id
+      ? worktreeDisplayLeaf(a.wt, a.project)
+      : a.project.name;
+  const bn =
+    b.project.id === b.project.id
+      ? worktreeDisplayLeaf(b.wt, b.project)
+      : b.project.name;
+  return an.localeCompare(bn) * sign;
 }
 
 /** Abbreviated path for display (…/dev/openscout/foo). */
