@@ -3,6 +3,7 @@ import type {
   SessionCatalogEntry,
   SessionCatalogWithResume,
 } from "./types.ts";
+import { resolveAgentTerminalSurface } from "./terminal-relay.ts";
 
 // Shared session-catalog selection logic for the agent profile. The center
 // (session list) and the rail (session-focused context) are decoupled slots
@@ -15,11 +16,10 @@ export function resolveActiveSessionId(
   agent: Agent,
   catalog: SessionCatalogWithResume | null,
 ): string | null {
-  const fallbackTerminalSessionId = agent.terminalSurface
-    ? agent.harnessSessionId ?? agent.terminalSurface.sessionName
-    : agent.transport === "tmux"
-      ? agent.harnessSessionId ?? null
-      : null;
+  const terminalSurface = resolveAgentTerminalSurface(agent);
+  const fallbackTerminalSessionId = terminalSurface
+    ? agent.harnessSessionId ?? terminalSurface.sessionName
+    : null;
   return (
     catalog?.activeSessionId ??
     fallbackTerminalSessionId
@@ -72,9 +72,7 @@ export function sessionEngage(
   session: SessionCatalogEntry,
   active: boolean,
 ): { canObserve: boolean; canTakeover: boolean } {
-  const hasTerminalSurface = Boolean(
-    agent.terminalSurface || (agent.transport === "tmux" && agent.harnessSessionId),
-  );
+  const hasTerminalSurface = Boolean(resolveAgentTerminalSurface(agent));
   const canObserve = active && (Boolean(session.canObserve) || hasTerminalSurface);
   const canTakeover =
     active && (Boolean(session.canTakeover) || hasTerminalSurface || Boolean(catalog?.resumeCommand));

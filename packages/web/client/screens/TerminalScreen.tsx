@@ -1,1 +1,1 @@
-export { TerminalScreen } from "./terminal/TerminalScreen.tsx";
+export { TerminalScreen } from "./terminal/Terminal.tsx";

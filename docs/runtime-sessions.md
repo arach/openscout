@@ -335,7 +335,7 @@ Session policy should be explicit because "which worker should do this" and
 | Policy | Meaning | Session id role |
 | --- | --- | --- |
 | `new` | Run the work in fresh model context. | No session id required. Existing project agents should not force user-visible ambiguity. |
-| `reuse` | Deprecated compatibility hint. Card routing must not rely on this for sticky context. | Ignored unless a concrete session id is also present. |
+| `reuse` | Prefer a compatible warm session as an optimization, but start fresh if none is clearly suitable. | No exact session id required. Legacy `any` maps to this policy. |
 | `existing` | Continue one exact session. | `targetSessionId` is the target and must resolve to that session owner. |
 | `fork` | Start a new session from an excellent prior state. | `forkFromStateId` is preferred; `forkFromSessionId` means derive a source state from that session. |
 
@@ -348,6 +348,11 @@ records and observed harness material, with the same data-ownership boundary as
 ordinary session observation. It should not bulk import the source transcript
 into Scout messages.
 
+Use `clone` for the implementation mechanism that copies a harness-native
+thread or state. Use `fork` for the Scout routing policy that creates a new
+execution session from prior state. A fork may be implemented by native clone or
+by a synthesized Scout handoff.
+
 The strongest fork sources are curated base states: a small set of carefully
 constructed states that stay useful for recurring work. These should appear
 ahead of raw sessions when choosing what to fork from.
@@ -358,6 +363,11 @@ Proposed request shape:
 execution: {
   session: "fork",
   forkFromStateId: "state-session-abc123-review-ready",
+  // or forkFromSessionId: "session-source-abc123"
+  forkContext: {
+    includeBrokerRecords: true,
+    includeObservedHarnessMaterial: true
+  }
 }
 ```
 

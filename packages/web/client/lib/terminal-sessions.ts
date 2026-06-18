@@ -162,3 +162,21 @@ export function compactTerminalName(sessionName: string): string {
     .replace(/-arts-mac-mini-local-(claude|codex)$/u, "")
     .replace(/^(claude|codex|tmux)-/u, "$1 · ");
 }
+
+export function terminalSummaryDetailRows(target: RegisteredTerminalTarget): Array<[string, string]> {
+  const origin = target.session.metadata?.registryState === "discovered" ? "Backend" : "Scout";
+  const backendState = typeof target.session.metadata?.backendState === "string"
+    ? target.session.metadata.backendState
+    : target.surface.state;
+  const condition = terminalConditionLabel(target.session, target.surface);
+  return [
+    ["Backend", target.surface.backend],
+    ["Session", target.surface.sessionName],
+    ["Origin", origin],
+    ["Condition", condition],
+    ["State", backendState],
+    ["Harness", target.session.harness],
+    ["Working Dir", target.session.cwd],
+    ["Source Id", target.session.sourceSessionId],
+  ].filter((entry): entry is [string, string] => Boolean(entry[1]));
+}
