@@ -127,17 +127,17 @@ function MeshHud({
             </button>
             <button
               type="button"
-              className={`mesh-mode-btn${stateFilter === "working" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshStateFilter("working")}
+              className={`mesh-mode-btn${stateFilter === "in_turn" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("in_turn")}
             >
-              Working
+              In turn
             </button>
             <button
               type="button"
-              className={`mesh-mode-btn${stateFilter === "ready" ? " mesh-mode-btn--active" : ""}`}
-              onClick={() => setMeshStateFilter("ready")}
+              className={`mesh-mode-btn${stateFilter === "callable" ? " mesh-mode-btn--active" : ""}`}
+              onClick={() => setMeshStateFilter("callable")}
             >
-              Ready
+              Callable
             </button>
           </div>
         </div>

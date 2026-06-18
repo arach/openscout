@@ -25,11 +25,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { RefreshCw } from "lucide-react";
+import { pathLeaf } from "../repo-watch/ui.ts";
+import { Loader2, MessageSquare, Plus, RefreshCw, SendHorizontal } from "lucide-react";
 import type { ParsedPatch } from "@pierre/diffs";
 import type { CodeViewItem } from "@pierre/diffs/react";
 
 import "./repo-diff.css";
+import { api } from "../../lib/api.ts";
 import {
   fetchRepoDiffSnapshot,
   readRepoDiffCache,
@@ -38,6 +40,14 @@ import {
   type RepoDiffCacheRead,
   type RepoDiffSessionRequest,
 } from "./cache.ts";
+import {
+  buildRepoDiffCommentBody,
+  defaultRepoDiffCommentTarget,
+  repoDiffContextSnippet,
+  repoDiffCommentTargets,
+  repoDiffFileForKey,
+  type RepoDiffCommentTarget,
+} from "./comment-context.ts";
 import {
   loadPierre,
   mountPierreDiff,
@@ -111,12 +121,6 @@ function fileKey(file: RepoDiffFile, index: number): string {
   return `${file.oldPath ?? ""}→${file.newPath ?? ""}#${index}`;
 }
 
-function leafName(path: string): string {
-  const cleaned = path.replace(/\/+$/, "");
-  const parts = cleaned.split("/");
-  return parts[parts.length - 1] || cleaned;
-}
-
 // ── Layer / fetch state ─────────────────────────────────────────────────────
 
 type FetchPhase = "loading" | "ready" | "error";
@@ -184,10 +188,24 @@ export function RepoDiffViewer({
   const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<DiffLayout>("split");
   const initialForceCompletedRef = useRef(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentTargetId, setCommentTargetId] = useState("scout");
+  const [commentTargetManual, setCommentTargetManual] = useState(false);
+  const [commentPending, setCommentPending] = useState(false);
+  const [commentStatus, setCommentStatus] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
   }, [snapshot]);
+
+  useEffect(() => {
+    setCommentDraft("");
+    setCommentTargetManual(false);
+    setCommentStatus(null);
+    setCommentError(null);
+  }, [filesKey, path, sessionKey]);
 
   // ── Fetch the snapshot ────────────────────────────────────────────────────
   const loadSnapshot = useCallback(async (options: SnapshotLoadOptions = {}) => {
@@ -315,6 +333,18 @@ export function RepoDiffViewer({
     if (!snapshot || !activeLayer) return null;
     return snapshot.layers.find((l) => l.kind === activeLayer) ?? null;
   }, [snapshot, activeLayer]);
+  const selectedFile = useMemo(
+    () => repoDiffFileForKey(layer, selectedFileKey, fileKey),
+    [layer, selectedFileKey],
+  );
+  const commentTargets = useMemo(
+    () => snapshot ? repoDiffCommentTargets(snapshot) : [],
+    [snapshot],
+  );
+  const defaultCommentTarget = useMemo(
+    () => snapshot ? defaultRepoDiffCommentTarget(snapshot) : null,
+    [snapshot],
+  );
 
   // Reset / clamp the selected file when the layer changes.
   useEffect(() => {
@@ -328,6 +358,108 @@ export function RepoDiffViewer({
       return keys[0] ?? null;
     });
   }, [layer]);
+
+  useEffect(() => {
+    setCommentTargetId((current) => {
+      if (commentTargetManual && current === "scout") return current;
+      if (commentTargets.some((target) => target.id === current)) return current;
+      return defaultCommentTarget?.id ?? "scout";
+    });
+  }, [commentTargetManual, commentTargets, defaultCommentTarget?.id]);
+
+  const submitDiffComment = useCallback(async () => {
+    const trimmed = commentDraft.trim();
+    if (!trimmed || commentPending || !snapshot) return;
+
+    const target = commentTargets.find((candidate) => candidate.id === commentTargetId) ?? null;
+    const body = buildRepoDiffCommentBody({
+      comment: trimmed,
+      snapshot,
+      activeLayer,
+      selectedFile,
+    });
+
+    setCommentPending(true);
+    setCommentStatus(null);
+    setCommentError(null);
+    try {
+      if (target) {
+        await api("/api/ask", {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            targetAgentId: target.id,
+            targetLabel: target.label,
+            metadata: {
+              source: "repo-diff",
+              originSurface: "repo-diff",
+              handoffKind: "repo-diff-comment",
+              targetAgentId: target.id,
+              worktreePath: snapshot.worktreePath,
+              activeLayer,
+              selectedFile: selectedFile ? fileDisplayPath(selectedFile) : null,
+              scopeKind: snapshot.scope?.kind ?? "worktree",
+            },
+          }),
+        });
+        setCommentStatus(`Sent to ${target.label}`);
+      } else {
+        await api("/api/send", {
+          method: "POST",
+          body: JSON.stringify({ body }),
+        });
+        setCommentStatus("Sent to Scout");
+      }
+      setCommentDraft("");
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCommentPending(false);
+    }
+  }, [
+    activeLayer,
+    commentDraft,
+    commentPending,
+    commentTargetId,
+    commentTargets,
+    selectedFile,
+    snapshot,
+  ]);
+  const insertCommentText = useCallback((text: string) => {
+    setCommentDraft((current) => {
+      const textarea = commentTextareaRef.current;
+      if (!textarea) {
+        return current.trim() ? `${current.trimEnd()}\n${text}` : text;
+      }
+
+      const textareaActive = document.activeElement === textarea;
+      const start = textareaActive ? textarea.selectionStart ?? current.length : current.length;
+      const end = textareaActive ? textarea.selectionEnd ?? start : start;
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const prefix = before && !before.endsWith("\n") ? "\n" : "";
+      const suffix = after && !after.startsWith("\n") ? "\n" : "";
+      const next = `${before}${prefix}${text}${suffix}${after}`;
+      const caret = before.length + prefix.length + text.length;
+      queueMicrotask(() => {
+        textarea.focus();
+        textarea.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+    setCommentStatus(null);
+    setCommentError(null);
+    queueMicrotask(() => commentTextareaRef.current?.focus());
+  }, []);
+  const includeFileInComment = useCallback((file: RepoDiffFile, key: string) => {
+    if (!snapshot) return;
+    setSelectedFileKey(key);
+    insertCommentText(repoDiffContextSnippet({
+      snapshot,
+      activeLayer,
+      file,
+    }));
+  }, [activeLayer, insertCommentText, snapshot]);
 
   // ── Loading / error gates ─────────────────────────────────────────────────
   if (fetchPhase === "loading" && !snapshot) {
@@ -364,7 +496,7 @@ export function RepoDiffViewer({
 
   if (!snapshot) return <Viewer className={className} />;
 
-  const heading = title ?? leafName(snapshot.worktreePath);
+  const heading = title ?? pathLeaf(snapshot.worktreePath);
 
   return (
     <Viewer className={className}>
@@ -379,11 +511,37 @@ export function RepoDiffViewer({
         onLayout={setLayout}
         refreshing={freshness?.refreshing === true}
         onRefresh={refreshSnapshot}
+        onFocusComment={() => {
+          commentTextareaRef.current?.scrollIntoView({ block: "nearest" });
+          commentTextareaRef.current?.focus();
+        }}
         onClose={onClose}
         onOpenAsPage={onOpenAsPage}
       />
 
       <SnapshotDiagnostics snapshot={snapshot} />
+
+      <DiffCommentComposer
+        snapshot={snapshot}
+        selectedFile={selectedFile}
+        targets={commentTargets}
+        targetId={commentTargetId}
+        onTargetId={(value) => {
+          setCommentTargetManual(true);
+          setCommentTargetId(value);
+        }}
+        draft={commentDraft}
+        onDraft={(value) => {
+          setCommentDraft(value);
+          setCommentStatus(null);
+          setCommentError(null);
+        }}
+        pending={commentPending}
+        status={commentStatus}
+        error={commentError}
+        textareaRef={commentTextareaRef}
+        onSubmit={submitDiffComment}
+      />
 
       {/* Pierre renders in its own ISOLATED React root (DiffSurface →
           PierreCodeView → mountPierreDiff), so the worker pool + CodeView live
@@ -394,6 +552,7 @@ export function RepoDiffViewer({
           layer={layer}
           selectedFileKey={selectedFileKey}
           onSelect={setSelectedFileKey}
+          onIncludeFile={includeFileInComment}
         />
         <DiffSurface
           layer={layer}
@@ -503,6 +662,7 @@ function Header({
   onLayout,
   refreshing,
   onRefresh,
+  onFocusComment,
   onClose,
   onOpenAsPage,
 }: {
@@ -516,6 +676,7 @@ function Header({
   onLayout: (layout: DiffLayout) => void;
   refreshing: boolean;
   onRefresh: () => void;
+  onFocusComment: () => void;
   onClose?: () => void;
   onOpenAsPage?: () => void;
 }) {
@@ -540,6 +701,15 @@ function Header({
         <DiffFreshness freshness={freshness} generatedAt={snapshot.generatedAt} />
       </div>
       <div className="rd-header-actions">
+        <button
+          type="button"
+          className="rd-close"
+          aria-label="Comment on diff"
+          title="Comment on diff"
+          onClick={onFocusComment}
+        >
+          <MessageSquare size={14} strokeWidth={2} aria-hidden />
+        </button>
         <div className="rd-segmented" role="group" aria-label="Diff layout">
           <button
             type="button"
@@ -604,6 +774,105 @@ function DiffScopePill({ snapshot }: { snapshot: ScoutRepoDiffSnapshot }) {
     <span className={`rd-scope-pill ${scope.kind}`} title={title}>
       {label}
     </span>
+  );
+}
+
+function DiffCommentComposer({
+  snapshot,
+  selectedFile,
+  targets,
+  targetId,
+  onTargetId,
+  draft,
+  onDraft,
+  pending,
+  status,
+  error,
+  textareaRef,
+  onSubmit,
+}: {
+  snapshot: ScoutRepoDiffSnapshot;
+  selectedFile: RepoDiffFile | null;
+  targets: RepoDiffCommentTarget[];
+  targetId: string;
+  onTargetId: (targetId: string) => void;
+  draft: string;
+  onDraft: (value: string) => void;
+  pending: boolean;
+  status: string | null;
+  error: string | null;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onSubmit: () => void;
+}) {
+  const target = targets.find((candidate) => candidate.id === targetId) ?? null;
+  const targetLabel = target?.label ?? "Scout";
+  const bestTargetId = targets[0]?.id ?? null;
+  const selectedFileLabel = selectedFile ? fileDisplayPath(selectedFile) : null;
+  const canSubmit = draft.trim().length > 0 && !pending;
+
+  return (
+    <div className="rd-comment">
+      <div className="rd-comment-main">
+        <select
+          value={target?.id ?? "scout"}
+          onChange={(event) => onTargetId(event.currentTarget.value)}
+          onKeyDown={(event) => event.stopPropagation()}
+          disabled={pending}
+          aria-label="Diff comment target"
+          title="Diff comment target"
+        >
+          {targets.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {candidate.label}{candidate.id === bestTargetId ? " · best context" : ""}
+            </option>
+          ))}
+          <option value="scout">Scout</option>
+        </select>
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={(event) => onDraft(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
+          rows={2}
+          disabled={pending}
+          placeholder={`Comment for ${targetLabel}`}
+          aria-label="Diff comment"
+        />
+        <button
+          type="button"
+          className="rd-comment-send"
+          disabled={!canSubmit}
+          onClick={onSubmit}
+          title="Send diff comment"
+          aria-label="Send diff comment"
+        >
+          {pending ? (
+            <Loader2 size={13} className="rd-comment-spin" aria-hidden />
+          ) : (
+            <SendHorizontal size={13} aria-hidden />
+          )}
+          <span>{pending ? "Sending" : "Send"}</span>
+        </button>
+      </div>
+      <div className="rd-comment-meta">
+        {error ? (
+          <span className="err">{error}</span>
+        ) : status ? (
+          <span className="ok">{status}</span>
+        ) : (
+          <span>
+            {snapshot.scope?.kind === "session" ? "Session diff" : "Worktree diff"}
+            {selectedFileLabel ? ` · ${selectedFileLabel}` : ""}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -752,10 +1021,12 @@ function FilesRail({
   layer,
   selectedFileKey,
   onSelect,
+  onIncludeFile,
 }: {
   layer: RepoDiffLayer | null;
   selectedFileKey: string | null;
   onSelect: (key: string) => void;
+  onIncludeFile: (file: RepoDiffFile, key: string) => void;
 }) {
   return (
     <div className="rd-rail">
@@ -773,23 +1044,27 @@ function FilesRail({
             file.newPath &&
             file.oldPath !== file.newPath;
           return (
-            <button
+            <div
               key={key}
-              type="button"
               className={"rd-file-row" + (key === selectedFileKey ? " on" : "")}
-              onClick={() => onSelect(key)}
               title={renamed ? `${file.oldPath} → ${file.newPath}` : display}
             >
-              <span className={`rd-file-glyph ${file.status}`}>
-                {STATUS_GLYPH[file.status]}
-              </span>
-              <span className="rd-file-id">
-                <span className="rd-file-name">{name}</span>
-                <span className="rd-file-dir">
-                  {renamed ? `${file.oldPath} → ${dir || name}` : dir}
+              <button
+                type="button"
+                className="rd-file-pick"
+                onClick={() => onSelect(key)}
+              >
+                <span className={`rd-file-glyph ${file.status}`}>
+                  {STATUS_GLYPH[file.status]}
                 </span>
-                <FileTags file={file} />
-              </span>
+                <span className="rd-file-id">
+                  <span className="rd-file-name">{name}</span>
+                  <span className="rd-file-dir">
+                    {renamed ? `${file.oldPath} → ${dir || name}` : dir}
+                  </span>
+                  <FileTags file={file} />
+                </span>
+              </button>
               <span className="rd-file-churn">
                 {file.binary ? (
                   <span className="add" style={{ color: "var(--muted)" }}>
@@ -802,7 +1077,19 @@ function FilesRail({
                   </>
                 )}
               </span>
-            </button>
+              <button
+                type="button"
+                className="rd-file-include"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onIncludeFile(file, key);
+                }}
+                aria-label={`Include ${display} in comment`}
+                title="Include in comment"
+              >
+                <Plus size={12} strokeWidth={2} aria-hidden />
+              </button>
+            </div>
           );
         })}
       </div>

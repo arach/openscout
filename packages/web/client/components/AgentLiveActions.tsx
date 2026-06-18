@@ -2,7 +2,7 @@ import "./agent-live-actions.css";
 
 import { Eye, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { normalizeAgentState } from "../lib/agent-state.ts";
+import { normalizeAgentState, isAgentCallable, isAgentInTurn } from "../lib/agent-state.ts";
 import { api } from "../lib/api.ts";
 import { queueTakeover } from "../lib/terminal-takeover.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -83,7 +83,7 @@ export function AgentLiveActions({
   const state = normalizeAgentState(agent.state);
   const canObserveTerminal = Boolean(terminalSurface && activeSessionId);
   const canTakeover = canObserveTerminal || Boolean(resolvedCatalog?.resumeCommand);
-  const hasLiveTurn = state === "working";
+  const hasLiveTurn = isAgentInTurn(agent.state, agent);
   const isCompact = variant === "compact";
   const status = hasLiveTurn
     ? activeSessionId
@@ -95,8 +95,8 @@ export function AgentLiveActions({
       ? isCompact
         ? canObserveTerminal ? "Terminal" : "Trace"
         : `${canObserveTerminal ? "Terminal" : "Trace"} ${shortSession(activeSessionId)}`
-    : state === "ready"
-      ? "Ready"
+    : isAgentCallable(agent.state, agent)
+      ? "Callable"
       : "No live turn";
   const statusDetail = activeSession?.startedAt
     ? timeAgo(activeSession.startedAt)

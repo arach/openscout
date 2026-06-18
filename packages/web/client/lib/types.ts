@@ -342,7 +342,7 @@ export type FleetAsk = {
   statusLabel: string;
   acknowledgedAt: number | null;
   attention: "silent" | "badge" | "interrupt";
-  agentState: "offline" | "available" | "working";
+  agentState: "offline" | "available" | "in_flight" | "working";
   harness: string | null;
   transport: string | null;
   summary: string | null;

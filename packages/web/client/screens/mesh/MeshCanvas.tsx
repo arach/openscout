@@ -393,8 +393,8 @@ function ClusterRegion({
     const acc = { working: 0, ready: 0, notReady: 0 };
     for (const agent of cluster.instances) {
       const state = normalizeAgentState(agent.state);
-      if (state === "working") acc.working += 1;
-      else if (state === "ready") acc.ready += 1;
+      if (state === "in_turn" || state === "in_flight") acc.working += 1;
+      else if (state === "callable") acc.ready += 1;
       else acc.notReady += 1;
     }
     return acc;
@@ -552,8 +552,8 @@ function packMachineSections(
     let offlineCount = 0;
     for (const a of bucket.agents) {
       const s = normalizeAgentState(a.state);
-      if (s === "working") workingCount += 1;
-      else if (s === "ready") availableCount += 1;
+      if (s === "in_turn" || s === "in_flight") workingCount += 1;
+      else if (s === "callable") availableCount += 1;
       else offlineCount += 1;
     }
     const dominantState: "working" | "available" | "offline" =

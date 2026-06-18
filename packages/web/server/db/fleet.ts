@@ -18,7 +18,7 @@ import { db } from "./internal/db.ts";
 import { normalizeTimestampMs } from "./internal/parse.ts";
 import { compact } from "./internal/paths.ts";
 import {
-  isExecutingFlightState,
+  agentFlightPhaseFromFlightState,
   isStaleActiveFlight,
   sqlJoinClauses,
   sqlPlaceholders,
@@ -421,7 +421,7 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
           ? "badge"
           : "interrupt"
         : "silent",
-    agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
+    agentState: summarizeAgentState(row.endpoint_state, agentFlightPhaseFromFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
     summary: queuedUntilOnline

@@ -5,6 +5,8 @@
  * bridge can fulfil reads from SQLite without round-tripping the broker.
  */
 
+import type { AgentSummaryState } from "./common.ts";
+
 export type MobileAgentSummary = {
   id: string;
   title: string;
@@ -13,7 +15,7 @@ export type MobileAgentSummary = {
   workspaceRoot: string | null;
   harness: string | null;
   transport: string | null;
-  state: "offline" | "available" | "working";
+  state: AgentSummaryState;
   statusLabel: string;
   sessionId: string | null;
   /// The broker conversation the phone should open for this agent — its operator

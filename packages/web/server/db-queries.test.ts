@@ -1389,7 +1389,7 @@ describe("web db query agents", () => {
     }
   });
 
-  test("does not mark queued backlog as working when nothing is executing", () => {
+  test("marks queued backlog as in flight rather than in turn", () => {
     const store = createSeededStore();
 
     try {
@@ -1453,8 +1453,8 @@ describe("web db query agents", () => {
       const listEntry = queryAgents(10).find((entry) => entry.id === "agent-2");
       const detail = queryMobileAgentDetail("agent-2");
 
-      expect(listEntry?.state).toBe("available");
-      expect(detail?.state).toBe("available");
+      expect(listEntry?.state).toBe("in_flight");
+      expect(detail?.state).toBe("in_flight");
       expect(detail?.activeFlights.map((flight) => flight.state)).toEqual(["queued"]);
     } finally {
       store.close();

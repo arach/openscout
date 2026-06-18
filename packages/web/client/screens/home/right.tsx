@@ -1,6 +1,6 @@
 import { useScout } from "../../scout/Provider.tsx";
 import { openAgent } from "../../scout/slots/openAgent.ts";
-import { agentStateLabel, isAgentOnline } from "../../lib/agent-state.ts";
+import { agentStateLabel, isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent } from "../../lib/types.ts";
@@ -19,26 +19,42 @@ export function HomeRight() {
     );
   }
 
-  const ready = agents.filter((a) => isAgentOnline(a.state));
-  const notReady = agents.filter((a) => !isAgentOnline(a.state));
+  const busy = agents.filter((agent) => {
+    const state = normalizeAgentState(agent.state, agent);
+    return state === "in_turn" || state === "in_flight";
+  });
+  const callable = agents.filter((agent) => isAgentOnline(agent.state, agent) && !busy.includes(agent));
+  const blocked = agents.filter((agent) => !isAgentOnline(agent.state, agent));
 
   return (
     <div className="flex flex-col h-full overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
-      {ready.length > 0 && (
-        <Section label="Ready" count={ready.length}>
-          {ready.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
-          ))}
-        </Section>
-      )}
-      {notReady.length > 0 && (
-        <Section label="Not ready" count={notReady.length}>
-          {notReady.map((agent) => (
+      {busy.length > 0 && (
+        <Section label="In progress" count={busy.length}>
+          {busy.map((agent) => (
             <AgentRow
               key={agent.id}
               agent={agent}
               onOpen={openFromHome}
-              subLabel={agentStateLabel(agent.state)}
+              subLabel={agentStateLabel(agent.state, agent)}
+            />
+          ))}
+        </Section>
+      )}
+      {callable.length > 0 && (
+        <Section label="Callable" count={callable.length}>
+          {callable.map((agent) => (
+            <AgentRow key={agent.id} agent={agent} onOpen={openFromHome} />
+          ))}
+        </Section>
+      )}
+      {blocked.length > 0 && (
+        <Section label="Blocked" count={blocked.length}>
+          {blocked.map((agent) => (
+            <AgentRow
+              key={agent.id}
+              agent={agent}
+              onOpen={openFromHome}
+              subLabel={agentStateLabel(agent.state, agent)}
               dim
             />
           ))}
@@ -80,10 +96,6 @@ function AgentRow({
 }: {
   agent: Agent;
   onOpen: (agent: Agent) => void;
-  // Secondary state line. Omitted for ready rows — the section header already
-  // says "Ready" and the timestamp carries the real signal, so repeating
-  // "Ready" on all N rows is noise. Kept for not-ready rows where the specific
-  // state (offline / dormant / …) actually differentiates.
   subLabel?: string;
   dim?: boolean;
 }) {
@@ -98,20 +110,15 @@ function AgentRow({
     >
       <AgentAvatar agent={agent} placement="row" />
       <div className="flex flex-col min-w-0 flex-1">
-        <span className="truncate text-[12px] text-[var(--scout-chrome-ink)] transition-colors group-hover:text-[var(--scout-chrome-ink-strong)]">
-          {agent.name}
-        </span>
-        {subLabel && (
-          <span className="truncate text-[10px] font-mono text-[var(--scout-chrome-ink-faint)]">
-            {subLabel}
+        <span className="truncate font-medium text-[var(--scout-chrome-ink)]">{agent.name}</span>
+        {subLabel ? (
+          <span className="truncate text-[10px] text-[var(--scout-chrome-ink-faint)]">{subLabel}</span>
+        ) : agent.updatedAt ? (
+          <span className="truncate text-[10px] text-[var(--scout-chrome-ink-ghost)]">
+            {timeAgo(agent.updatedAt)}
           </span>
-        )}
+        ) : null}
       </div>
-      {agent.updatedAt && (
-        <span className="shrink-0 text-[9px] font-mono tabular-nums text-[var(--scout-chrome-ink-ghost)]">
-          {timeAgo(agent.updatedAt)}
-        </span>
-      )}
     </button>
   );
 }

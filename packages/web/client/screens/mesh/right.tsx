@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { useMeshViewStore, setMeshSelection, setMeshSnapshot } from "../../lib/mesh-view-store.ts";
 import { useLocalAgents } from "../../lib/local-agents.ts";
-import { agentStateCssToken, normalizeAgentState } from "../../lib/agent-state.ts";
+import { agentStateCssToken, normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, MeshStatus } from "../../lib/types.ts";
@@ -28,7 +28,7 @@ function harnessBreakdown(agents: Agent[]): Array<{ label: string; total: number
     const key = (a.harness ?? a.agentClass ?? "agent").toLowerCase();
     const entry = acc.get(key) ?? { total: 0, working: 0 };
     entry.total += 1;
-    if (normalizeAgentState(a.state) === "working") entry.working += 1;
+    if (isAgentBusy(a.state)) entry.working += 1;
     acc.set(key, entry);
   }
   return Array.from(acc.entries())
@@ -154,8 +154,8 @@ export function MeshInspectorPanel() {
     const acc = { total: agents.length, working: 0, ready: 0, notReady: 0 };
     for (const a of agents) {
       const state = normalizeAgentState(a.state);
-      if (state === "working") acc.working += 1;
-      else if (state === "ready") acc.ready += 1;
+      if (state === "in_turn" || state === "in_flight") acc.working += 1;
+      else if (state === "callable") acc.ready += 1;
       else acc.notReady += 1;
     }
     return acc;

@@ -2196,6 +2196,57 @@ describe("resolveHumanAskSenderName", () => {
       } as NodeJS.ProcessEnv),
     ).toBeUndefined();
   });
+
+  test("defers to project sender inference for coding-agent hosts", () => {
+    expect(
+      resolveHumanAskSenderName(null, {
+        CURSOR_AGENT: "1",
+      } as NodeJS.ProcessEnv),
+    ).toBeUndefined();
+    expect(
+      resolveHumanAskSenderName(null, {
+        CLAUDECODE: "1",
+      } as NodeJS.ProcessEnv),
+    ).toBeUndefined();
+    expect(
+      resolveHumanAskSenderName(null, {
+        CODEX_CI: "1",
+      } as NodeJS.ProcessEnv),
+    ).toBeUndefined();
+  });
+});
+
+describe("scout ask sender resolution", () => {
+  test("uses operator for human shells and project sender for coding-agent hosts", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const repo = join(home, "dev", "openscout");
+    mkdirSync(join(repo, ".git"), { recursive: true });
+    await writeProjectConfig(repo, {
+      version: 1,
+      project: {
+        id: "openscout",
+        name: "OpenScout",
+      },
+      agent: {
+        id: "openscout",
+      },
+    });
+
+    const humanSender = await resolveScoutSenderId(
+      resolveHumanAskSenderName(null, {} as NodeJS.ProcessEnv),
+      repo,
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(humanSender).toBe("operator");
+
+    const agentSender = await resolveScoutSenderId(
+      resolveHumanAskSenderName(null, { CURSOR_AGENT: "1" } as NodeJS.ProcessEnv),
+      repo,
+      { CURSOR_AGENT: "1" } as NodeJS.ProcessEnv,
+    );
+    expect(agentSender).toMatch(/^openscout\./);
+    expect(agentSender).not.toBe("operator");
+  });
 });
 
 describe("resolveScoutSenderId", () => {

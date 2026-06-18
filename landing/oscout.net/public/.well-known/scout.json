@@ -105,9 +105,32 @@
       "none"
     ]
   },
+  "discovery": {
+    "readOrder": [
+      "manifest",
+      "agentInstructions",
+      "agentsGuide",
+      "llms",
+      "nav",
+      "install"
+    ],
+    "manifest": "https://openscout.app/.well-known/scout.json",
+    "agentInstructions": "https://openscout.app/.well-known/agent.md",
+    "agentInstructionsAlt": [
+      "https://openscout.app/.well-known/agents.md",
+      "https://openscout.app/agents.md"
+    ],
+    "agentsGuide": "https://openscout.app/agents.md",
+    "llms": "https://openscout.app/llms.txt",
+    "llmsFull": "https://openscout.app/llms-full.txt",
+    "nav": "https://openscout.app/nav.json",
+    "install": "https://openscout.app/install.md",
+    "integrationContract": "https://openscout.app/docs/agent-integration-contract"
+  },
   "links": {
     "human": "https://openscout.app/scout/manifest",
     "rawManifest": "https://openscout.app/.well-known/scout.json",
+    "agentInstructions": "https://openscout.app/.well-known/agent.md",
     "install": "https://openscout.app/install.md",
     "agentsGuide": "https://openscout.app/agents.md",
     "llms": "https://openscout.app/llms.txt",

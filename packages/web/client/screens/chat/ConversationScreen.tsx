@@ -23,7 +23,7 @@ import {
 } from "../../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
-import { isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
+import { isAgentOnline, normalizeAgentState, isAgentBusy, isAgentCallable } from "../../lib/agent-state.ts";
 import {
   TERMINAL_CONVERSATION_FLIGHT_STATES,
   conversationShortLabel,
@@ -820,7 +820,7 @@ function deriveParticipantActivity(
     if (flight?.state === "waiting") return "thinking";
     return "working";
   }
-  if (state === "working") return "typing";
+  if (state === "in_turn" || state === "in_flight") return "typing";
   return null;
 }
 
@@ -1028,7 +1028,7 @@ function PresenceSidebar({
                       {p.activity}
                     </span>
                   </>
-                ) : p.state === "ready" || p.id === "operator" ? (
+                ) : isAgentCallable(p.state) || p.id === "operator" ? (
                   <span
                     className="s-thread-sidebar-activity-dot"
                     style={{ background: stateColor(p.state) }}
@@ -1136,7 +1136,7 @@ function MiniMeshSvg({
               r={nodeRadius}
               className="s-thread-mini-mesh-node"
               style={
-                node.state === "working"
+                node.state === "in_turn" || state === "in_flight"
                   ? { stroke: "var(--green)" }
                   : undefined
               }
@@ -1686,7 +1686,7 @@ export function ConversationScreen({
     awaitingResponseSince !== null && !currentFlightQueuedUntilOnline;
   const workingTurnIsGone =
     workingTurnHasNoRecentUpdate &&
-    normalizeAgentState(agent?.state ?? null) === "not_ready";
+    !isAgentOnline(agent?.state ?? null);
   const shouldPollOutstandingTurn =
     isDm && (sending || awaitingResponseSince !== null || showWorkingTurn);
   const hasOutstandingReply =

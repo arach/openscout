@@ -156,11 +156,11 @@ const intents: AppIntent[] = [
   },
   {
     commandId: "scout:open:*",
-    title: "Open Agent Conversation",
+    title: "Open Agent",
     description:
-      "Open the DM lane for one specific agent. One agent maps to a DM; group work belongs in an explicit channel and broadcasts belong in the shared channel.",
+      "Open the agent's view (runtime, sessions, inspector) for one specific agent.",
     category: "navigation",
-    keywords: ["open", "chat", "conversation", "dm", "message"],
+    keywords: ["open", "agent", "view", "inspect"],
     params: [
       {
         name: "agentId",
@@ -170,57 +170,16 @@ const intents: AppIntent[] = [
     ],
   },
   {
-    commandId: "scout:send:*",
-    title: "Tell Agent",
+    commandId: "scout:message:*",
+    title: "Message Agent",
     description:
-      "Open or compose the DM tell/update path for one specific agent. Use Tell for heads-up, replies, status, and steering an active turn inside the same DM.",
+      "Open the DM conversation for one specific agent to message them. One agent maps to a DM; group work belongs in an explicit channel and broadcasts belong in the shared channel.",
     category: "workspace",
-    keywords: ["tell", "message", "update", "dm", "reply", "steer"],
+    keywords: ["message", "chat", "conversation", "dm", "tell", "ask", "reply"],
     params: [
       {
         name: "agentId",
-        description: "The agent identifier to tell",
-        type: "string",
-      },
-      {
-        name: "message",
-        description: "The message body to send",
-        type: "string",
-      },
-    ],
-  },
-  {
-    commandId: "scout:ask:*",
-    title: "Ask Agent",
-    description:
-      "Open the DM ask path for one specific agent. Use Ask when the meaning is 'own this work and get back to me' and keep follow-up in the same DM.",
-    category: "workspace",
-    keywords: ["ask", "assign", "task", "dm", "work", "reply"],
-    params: [
-      {
-        name: "agentId",
-        description: "The agent identifier to ask",
-        type: "string",
-      },
-      {
-        name: "message",
-        description: "The message body to send",
-        type: "string",
-      },
-    ],
-  },
-  {
-    commandId: "scout:interrupt:*",
-    title: "Interrupt Agent",
-    description:
-      "Send Ctrl-C to interrupt a working agent. The commandId is scout:interrupt:{agentId}.",
-    category: "workspace",
-    keywords: ["stop", "interrupt", "cancel", "halt", "kill"],
-    dangerous: true,
-    params: [
-      {
-        name: "agentId",
-        description: "The agent identifier to interrupt",
+        description: "The agent identifier to message",
         type: "string",
       },
     ],

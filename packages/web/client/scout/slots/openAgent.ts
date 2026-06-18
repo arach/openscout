@@ -8,6 +8,7 @@ import { setNavReturn } from "../../lib/nav-return.ts";
  */
 export type OpenAgentFrom =
   | "agents-tree"
+  | "agents-rail"
   | "mesh-canvas"
   | "mesh-tree"
   | "fleet-map"

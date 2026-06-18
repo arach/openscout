@@ -1755,27 +1755,37 @@ function latestBrokerAgentTimestamp(
   return timestamps.length > 0 ? Math.max(...timestamps) : null;
 }
 
-function activeBrokerFlightForAgent(
+function brokerAgentFlightPhase(
   broker: ScoutBrokerContext,
   agentId: string,
-): boolean {
-  return Object.values(broker.snapshot.flights ?? {}).some(
-    (flight) => flight.targetAgentId === agentId && ACTIVE_BROKER_FLIGHT_STATES.has(flight.state),
-  );
+): "in_turn" | "in_flight" | null {
+  let phase: "in_turn" | "in_flight" | null = null;
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    if (flight.targetAgentId !== agentId || !ACTIVE_BROKER_FLIGHT_STATES.has(flight.state)) {
+      continue;
+    }
+    if (flight.state === "running") {
+      return "in_turn";
+    }
+    phase = "in_flight";
+  }
+  return phase;
 }
 
 function summarizeBrokerAgentState(
   agent: ScoutBrokerContext["snapshot"]["agents"][string],
   endpoint: AgentEndpoint | null,
-  isWorking: boolean,
+  flightPhase: "in_turn" | "in_flight" | null,
 ): string {
-  if (isWorking) {
+  if (flightPhase === "in_turn") {
     return "working";
   }
-  if (endpoint?.state && endpoint.state !== "offline") {
-    return "available";
+  if (flightPhase === "in_flight") {
+    return "in_flight";
   }
-  return agent.wakePolicy === "on_demand" ? "available" : "offline";
+  void agent;
+  void endpoint;
+  return "available";
 }
 
 function brokerNodeName(
@@ -1931,7 +1941,7 @@ function brokerAgentCardToWebAgent(
     handle: agent.handle ?? null,
     agentClass: agent.agentClass,
     harness: endpoint?.harness ?? metadataStringValue(agentMetadata, "harness"),
-    state: summarizeBrokerAgentState(agent, endpoint, activeBrokerFlightForAgent(broker, agent.id)),
+    state: summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
     projectRoot: compactPath(projectRoot),
     cwd: compactPath(cwd),
     updatedAt,

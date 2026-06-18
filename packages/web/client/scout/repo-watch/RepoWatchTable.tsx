@@ -30,16 +30,17 @@ import type {
 import {
   attentionRank,
   shortPath,
-  pathLeaf,
   agentLive,
   agentHandle,
   uniqueAgents,
   churnOf,
   wtState,
   fmt,
+  compareWorktreeNames,
   type WtState,
 } from "./ui.ts";
 import { BranchLabel } from "./parts.tsx";
+import { summarizeScanDiagnostics } from "./scan-diagnostics.ts";
 
 /* ── Row model — one flattened row per worktree, carrying its parent repo ─── */
 interface Row {
@@ -277,6 +278,8 @@ function ScanCoverage({
   onScanMore: () => void;
 }) {
   const coverage = scanCoverage(snapshot);
+  const diagnostics = summarizeScanDiagnostics(snapshot.warnings);
+  const rawDiagnosticCount = diagnostics.reduce((total, diagnostic) => total + diagnostic.rawCount, 0);
   return (
     <div className="scan-coverage">
       <div className="scan-coverage-row">
@@ -290,12 +293,22 @@ function ScanCoverage({
           <span className="scan-chip">{scanDepth === "expanded" ? "expanded" : "standard"}</span>
         )}
       </div>
-      {snapshot.warnings.length > 0 ? (
+      {diagnostics.length > 0 ? (
         <details className="scan-details">
-          <summary>{fmt(snapshot.warnings.length)} diagnostic{snapshot.warnings.length === 1 ? "" : "s"}</summary>
+          <summary>
+            {fmt(diagnostics.length)} diagnostic group{diagnostics.length === 1 ? "" : "s"}
+            {rawDiagnosticCount !== diagnostics.length ? ` (${fmt(rawDiagnosticCount)} raw)` : ""}
+          </summary>
           <ul>
-            {snapshot.warnings.map((warning, index) => (
-              <li key={`${index}:${warning}`}>{warning}</li>
+            {diagnostics.map((diagnostic, index) => (
+              <li key={`${index}:${diagnostic.message}`}>
+                <span>{diagnostic.message}</span>
+                {diagnostic.examples.length > 0 ? (
+                  <span className="scan-detail-examples">
+                    {diagnostic.examples.join(" · ")}
+                  </span>
+                ) : null}
+              </li>
             ))}
           </ul>
         </details>
@@ -694,16 +707,12 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
   }
 
   const cmp = (a: Row, b: Row): number => {
-    if (key === "name") {
-      const an = a.project.id === b.project.id ? leafName(a.wt, a.project) : a.project.name;
-      const bn = a.project.id === b.project.id ? leafName(b.wt, b.project) : b.project.name;
-      return an.localeCompare(bn) * sign;
-    }
+    if (key === "name") return compareWorktreeNames(a, b, sign);
     const d = (score(a) - score(b)) * sign;
     if (d !== 0) return d;
     const ar = attentionRank(a.wt.attention) - attentionRank(b.wt.attention);
     if (ar !== 0) return ar;
-    return a.wt.name.localeCompare(b.wt.name);
+    return a.wt.path.localeCompare(b.wt.path);
   };
 
   const projectScore = (g: Row[]): number =>
@@ -719,12 +728,4 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
   const out: Row[] = [];
   for (const g of ordered) out.push(...[...g].sort(cmp));
   return out;
-}
-
-/* For a grouped repo, the row leads with the worktree's distinguishing leaf. */
-function leafName(wt: RepoWatchWorktree, project: RepoWatchProject): string {
-  const leaf = pathLeaf(wt.path);
-  if (leaf === project.name) return leaf;
-  if (leaf.startsWith(project.name + "-")) return leaf.slice(project.name.length + 1);
-  return leaf;
 }

@@ -116,6 +116,17 @@ Default sender resolution is:
 3. the current project-scoped sender inferred from your working directory
 4. your operator name when you're outside a project context
 
+Coding-agent hosts use the project-scoped sender for `scout ask` automatically when
+the CLI detects a host harness signal:
+
+- **Scout-managed:** `OPENSCOUT_AGENT`, `OPENSCOUT_MANAGED_AGENT`
+- **Cursor:** `CURSOR_AGENT=1`
+- **Claude Code:** `CLAUDECODE=1`, `CLAUDE_CODE_CHILD_SESSION`, `CLAUDE_CODE_REMOTE`, session ids
+- **Codex:** `CODEX_THREAD_ID`, `CODEX_CI=1`, `CODEX_SANDBOX`, proposed `AGENT=codex`
+
+Run `scout whoami --json` to see which signal matched. Human terminal shells still
+default to `operator` unless `--as` or a host signal is present.
+
 That keeps ordinary collaboration simple:
 
 ```bash

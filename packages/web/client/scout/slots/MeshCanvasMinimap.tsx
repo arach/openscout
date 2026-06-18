@@ -8,7 +8,7 @@ import {
 } from "../../lib/mesh-view-store.ts";
 import { useScout } from "../Provider.tsx";
 import { bucketAgentsByMachine, type MachineBucket } from "../../lib/mesh-buckets.ts";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, isAgentBusy, isAgentCallable } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import "./mesh-rail-rack.css";
 
@@ -125,10 +125,10 @@ function RackBody({
         const hidden = hiddenMachineIds.has(bucket.machineId);
         const active = selectedId === bucket.machineId && selectedType === "node";
         const working = bucket.agents.filter(
-          (a) => normalizeAgentState(a.state) === "working",
+          (a) => isAgentBusy(a.state),
         ).length;
         const ready = bucket.agents.filter(
-          (a) => normalizeAgentState(a.state) === "ready",
+          (a) => isAgentCallable(a.state),
         ).length;
         const dominant =
           !bucket.online
@@ -229,7 +229,7 @@ function MapBody({
         {buckets.map((b) => {
           const active = selectedId === b.machineId && selectedType === "node";
           const working = b.agents.filter(
-            (a) => normalizeAgentState(a.state) === "working",
+            (a) => isAgentBusy(a.state),
           ).length;
           const dominant =
             !b.online

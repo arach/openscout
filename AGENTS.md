@@ -4,6 +4,8 @@ See [DEV_INSTRUCTIONS.md](./DEV_INSTRUCTIONS.md) for repository-wide development
 
 For fast project context, read [llms.txt](./llms.txt), then the dense agent notes in [docs/agent/README.agent.md](./docs/agent/README.agent.md). If you need a larger copy/paste context bundle, use [llms-full.txt](./llms-full.txt).
 
+OpenScout product discovery (remote): [https://openscout.app/.well-known/scout.json](https://openscout.app/.well-known/scout.json) then [https://openscout.app/.well-known/agent.md](https://openscout.app/.well-known/agent.md). Local CLI: `scout whoami --json` returns the same URLs plus the nearest project instruction file when found.
+
 Host-specific instruction files [CODEX.md](./CODEX.md) and [CLAUDE.md](./CLAUDE.md) are intentionally thin redirects. Keep shared guidance here or in `docs/agent`, not duplicated per host.
 
 ## Work Preservation

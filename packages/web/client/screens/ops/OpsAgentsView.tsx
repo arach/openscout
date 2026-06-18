@@ -2,7 +2,7 @@ import "./ops-agents.css";
 
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { isAgentBusy, isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -65,7 +65,7 @@ type AgentOpsColumnKey =
   | "errors"
   | "lastActive";
 
-const STATE_RANK: Record<AgentOpsRow["state"], number> = { working: 0, ready: 1, not_ready: 2 };
+const STATE_RANK: Record<AgentOpsRow["state"], number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
 
 const AGENT_COLUMNS: DataTableColumn<AgentOpsRow, AgentOpsColumnKey>[] = [
   {
@@ -499,8 +499,8 @@ export function OpsAgentsView({
     selectMode: "preview",
   });
 
-  const running = rows.filter((row) => row.state === "working").length;
-  const online = rows.filter((row) => row.state !== "not_ready").length;
+  const running = rows.filter((row) => row.state === "in_turn" || row.state === "in_flight").length;
+  const online = rows.filter((row) => isAgentOnline(row.agent.state, row.agent)).length;
   const tokens = rows.reduce((sum, row) => sum + (row.usage.total ?? 0), 0);
   const apiCost = rows.some((row) => row.cost.totalUsd != null)
     ? rows.reduce((sum, row) => sum + (row.cost.totalUsd ?? 0), 0)

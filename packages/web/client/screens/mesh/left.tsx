@@ -11,7 +11,9 @@ import {
   type AgentStateToken,
 } from "../../lib/mesh-view-store.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
+import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
+import { bucketAgentsByMachine, type MachineBucket } from "../../lib/mesh-buckets.ts";
+import { useFleetActiveAsks } from "../../lib/use-fleet-active-asks.ts";
 import { RailRow } from "../../scout/slots/RailRow.tsx";
 import { FleetSearch } from "../../scout/slots/FleetSearch.tsx";
 import { FleetFilterPills } from "../../scout/slots/FleetFilterPills.tsx";
@@ -114,7 +116,7 @@ export function MeshLeft() {
           const visible = full ? sorted : sorted.slice(0, COMPACT_LIMIT);
           const overflow = sorted.length - visible.length;
           const machineActive = selectedId === b.machineId && selectedType === "node";
-          const working = b.agents.filter((a) => normalizeAgentState(a.state) === "working").length;
+          const working = b.agents.filter((a) => isAgentBusy(a.state)).length;
           const meta =
             b.agents.length > 0
               ? `${working}/${b.agents.length}`

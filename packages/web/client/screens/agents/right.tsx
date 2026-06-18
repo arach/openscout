@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { openAgent } from "../../scout/slots/openAgent.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
-import {
-  agentStateLabel,
-  isAgentOnline,
-  normalizeAgentState,
-} from "../../lib/agent-state.ts";
+import { agentStateLabel, isAgentOnline, normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
 import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
 import { api } from "../../lib/api.ts";
@@ -220,7 +216,7 @@ function AgentsDirectoryContextPanel({
   route: Route;
 }) {
   const working = useMemo(
-    () => agents.filter((agent) => normalizeAgentState(agent.state) === "working"),
+    () => agents.filter((agent) => isAgentBusy(agent.state)),
     [agents],
   );
   const online = useMemo(
@@ -1426,8 +1422,9 @@ function InspectorMesh({
     const peers = agents.filter((a) => a.id !== focusAgent.id);
     const stateRank = (s: string) => {
       const n = normalizeAgentState(s);
-      if (n === "working") return 0;
-      if (n === "ready") return 1;
+      if (n === "in_turn") return 0;
+      if (n === "in_flight") return 1;
+      if (n === "callable") return 2;
       return 2;
     };
     return peers
@@ -1508,7 +1505,7 @@ function InspectorMesh({
 
       {nodes.map((n) => {
         const nState = normalizeAgentState(n.agent.state);
-        const isActive = nState === "working" || nState === "ready";
+        const isActive = nState === "in_turn" || nState === "in_flight" || nState === "callable";
         const r = n.focused ? 14 : 9;
         return (
           <g
