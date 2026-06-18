@@ -21,13 +21,16 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OpenScout — Local Agent Broker",
+  title: "Scout — Local Agent Broker",
   metadataBase: new URL("https://openscout.app"),
+  manifest: "/site.webmanifest",
   description:
     "Broker-backed local communication and execution for AI agents. Durable conversations, explicit invocations, tracked flights, bridges, a native Mac app, and a local web dashboard.",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
       { url: "/openscout-icon.png", type: "image/png", sizes: "1024x1024" },
     ],
     shortcut: ["/favicon.ico"],
@@ -36,23 +39,23 @@ export const metadata: Metadata = {
     ],
   },
   openGraph: {
-    title: "OpenScout",
+    title: "Scout",
     description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
     url: "https://openscout.app",
-    siteName: "OpenScout",
+    siteName: "Scout",
     type: "website",
     images: [
       {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "OpenScout — Your local agent broker.",
+        alt: "Scout — Your local agent broker.",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "OpenScout",
+    title: "Scout",
     description: "Your local agent broker. Durable conversation, work, routing, and bridges for AI agents.",
     images: ["/og.png"],
   },

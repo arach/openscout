@@ -24,6 +24,7 @@ export type Agent = {
   role: string | null;
   model: string | null;
   harnessSessionId: string | null;
+  terminalSurface: TerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
   conversationId: string;
   authorityNodeId?: string | null;
@@ -40,6 +41,13 @@ export type Agent = {
   providerUrl?: string | null;
   protocol?: string | null;
   skills?: string[];
+};
+
+export type TerminalSurfaceDescriptor = {
+  backend: "tmux" | "zellij";
+  sessionName: string;
+  paneId: string | null;
+  socketDir: string | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -564,6 +572,11 @@ export type Flight = {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  dispatchOutcome?: {
+    status: string;
+    reason: string | null;
+    checkedAt: number | null;
+  } | null;
 };
 
 export type WorkItem = {
@@ -734,6 +747,7 @@ export type SessionCatalogEntry = {
   provider?: string | null;
   source?: string;
   historyPath?: string;
+  surfaceSessionId?: string | null;
   canObserve?: boolean;
   canTakeover?: boolean;
 };
@@ -1166,7 +1180,13 @@ export type Route =
       sessionId?: string;
       targetAgentId?: string;
     }
-  | { view: "terminal"; agentId?: string; mode?: "observe" | "takeover" };
+  | {
+      view: "terminal";
+      agentId?: string;
+      mode?: "observe" | "takeover";
+      terminalSessionId?: string;
+      terminalSurfaceKey?: string;
+    };
 
 export type AgentTab = "profile" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop";

@@ -40,6 +40,9 @@ import type {
   MessageRecord,
   NodeDefinition,
   ScoutDispatchRecord,
+  TerminalSessionRecord,
+  TerminalSessionRecordInput,
+  TerminalSurface,
   ThreadCollaborationEventSummary,
   ThreadCollaborationSummary,
   ThreadEventEnvelope,
@@ -384,6 +387,18 @@ export type RuntimeSessionAliasRecord = {
   expiresAt?: number;
 };
 
+interface TerminalSessionRow {
+  id: string;
+  harness: string;
+  source_session_id: string;
+  cwd: string;
+  resume_command: string;
+  surfaces_json: string | null;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 interface BudgetUsageRow {
   id: string;
   scope: BudgetUsageRecord["scope"];
@@ -553,6 +568,25 @@ function runtimeSessionFromRow(row: RuntimeSessionRow): RuntimeSessionIndexRecor
     lastSeenAt: row.last_seen_at,
     endedAt: row.ended_at ?? undefined,
     expiresAt: row.expires_at ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
+  };
+}
+
+/** Deterministic registry id so re-intaking the same harness session updates one record. */
+function terminalSessionRegistryId(harness: string, sourceSessionId: string): string {
+  return `ts.${stableHash(`${harness}${sourceSessionId}`)}`;
+}
+
+function terminalSessionFromRow(row: TerminalSessionRow): TerminalSessionRecord {
+  return {
+    id: row.id,
+    harness: row.harness,
+    sourceSessionId: row.source_session_id,
+    cwd: row.cwd,
+    resumeCommand: row.resume_command,
+    surfaces: parseJson<TerminalSurface[]>(row.surfaces_json, []),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     metadata: parseJson<Record<string, unknown> | undefined>(row.metadata_json, undefined),
@@ -1256,6 +1290,82 @@ export class SQLiteControlPlaneStore {
        LIMIT ?`,
       params,
     ).map(runtimeSessionFromRow);
+  }
+
+  // Terminal session registry.
+  // A stable harness session (identity) owning N disposable terminal surfaces
+  // (tmux/zellij/future). Re-intaking the same harness session updates one
+  // record. Surface merge/append policy is the caller's concern (intake);
+  // this store persists the record faithfully.
+
+  upsertTerminalSession(input: TerminalSessionRecordInput): TerminalSessionRecord {
+    const id = input.id?.trim() || terminalSessionRegistryId(input.harness, input.sourceSessionId);
+    const now = currentTimestampMs();
+    const surfacesJson = JSON.stringify(input.surfaces ?? []);
+    const metadataJson = stringify(input.metadata);
+    this.db.query(
+      `INSERT INTO terminal_session_registry (
+         id, harness, source_session_id, cwd, resume_command, surfaces_json, metadata_json, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+       ON CONFLICT(id) DO UPDATE SET
+         harness = excluded.harness,
+         source_session_id = excluded.source_session_id,
+         cwd = excluded.cwd,
+         resume_command = excluded.resume_command,
+         surfaces_json = excluded.surfaces_json,
+         metadata_json = excluded.metadata_json,
+         updated_at = excluded.updated_at`,
+    ).run(id, input.harness, input.sourceSessionId, input.cwd, input.resumeCommand, surfacesJson, metadataJson, now, now);
+    const record = this.getTerminalSession(id);
+    if (!record) {
+      throw new Error(`failed to persist terminal session registry record ${id}`);
+    }
+    return record;
+  }
+
+  getTerminalSession(id: string): TerminalSessionRecord | null {
+    const row = queryGet<TerminalSessionRow, [string]>(
+      this.readDb,
+      "SELECT * FROM terminal_session_registry WHERE id = ?1",
+      id,
+    );
+    return row ? terminalSessionFromRow(row) : null;
+  }
+
+  listTerminalSessions(options: {
+    harness?: string;
+    sourceSessionId?: string;
+    backend?: TerminalSurface["backend"];
+    limit?: number;
+  } = {}): TerminalSessionRecord[] {
+    const predicates: string[] = [];
+    const params: SQLiteBinding[] = [];
+    if (options.harness) {
+      predicates.push("harness = ?");
+      params.push(options.harness);
+    }
+    if (options.sourceSessionId) {
+      predicates.push("source_session_id = ?");
+      params.push(options.sourceSessionId);
+    }
+    const limit = normalizedListLimit(options.limit, 100, 1000);
+    params.push(limit);
+    const where = predicates.length ? `WHERE ${predicates.join(" AND ")}` : "";
+    const records = queryAllDynamic<TerminalSessionRow>(
+      this.readDb,
+      `SELECT *
+       FROM terminal_session_registry
+       ${where}
+       ORDER BY updated_at DESC, id ASC
+       LIMIT ?`,
+      params,
+    ).map(terminalSessionFromRow);
+    if (!options.backend) {
+      return records;
+    }
+    return records.filter((record) =>
+      record.surfaces.some((surface) => surface.backend === options.backend),
+    );
   }
 
   pruneExpiredRuntimeSessions(now = currentTimestampMs()): { aliasesDeleted: number; sessionsDeleted: number } {

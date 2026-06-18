@@ -185,6 +185,18 @@
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
 }
+.rd-close:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+.rd-close:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.rd-close.spinning svg {
+  animation: rd-spin 0.7s linear infinite;
+  transform-origin: center;
+}
 
 /* ── Body: files rail + diff surface ─────────────────────────────────── */
 .rd-body {

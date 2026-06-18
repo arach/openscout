@@ -547,7 +547,7 @@ const audienceContent: Record<
 const SCHEMA_ORG_LD = {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
-  name: "OpenScout",
+  name: "Scout",
   applicationCategory: "DeveloperApplication",
   operatingSystem: "macOS, Linux",
   softwareVersion: SCOUT_VERSION,
@@ -656,30 +656,15 @@ function LogoMark({ size = "sm" }: { size?: "sm" | "md" }) {
   const pixelSize = size === "md" ? 32 : 26;
   return (
     <span
-      className="flex shrink-0 items-center justify-center text-[var(--site-ink)]"
+      className="flex shrink-0 items-center justify-center"
       style={{ width: pixelSize, height: pixelSize }}
       aria-hidden
     >
-      <svg
-        viewBox="0 0 32 32"
-        width={pixelSize}
-        height={pixelSize}
-        fill="none"
-        stroke="currentColor"
-      >
-        {/* peer connections */}
-        <line x1="16" y1="16" x2="16" y2="6"  strokeWidth="1" opacity="0.45" />
-        <line x1="16" y1="16" x2="6"  y2="22" strokeWidth="1" opacity="0.45" />
-        <line x1="16" y1="16" x2="26" y2="22" strokeWidth="1" opacity="0.45" />
-        {/* peers */}
-        <circle cx="16" cy="6"  r="2"   fill="currentColor" stroke="none" />
-        <circle cx="6"  cy="22" r="2"   fill="currentColor" stroke="none" />
-        <circle cx="26" cy="22" r="2"   fill="currentColor" stroke="none" />
-        {/* broker (center) */}
-        <circle cx="16" cy="16" r="3.4" fill="currentColor" stroke="none" />
-        <circle cx="16" cy="16" r="3.4" fill="none" stroke="var(--site-page-bg)" strokeWidth="1.2" opacity="0.9" />
-        <circle cx="16" cy="16" r="2"   fill="currentColor" stroke="none" />
-      </svg>
+      <img
+        src="/openscout-icon.png"
+        alt=""
+        className="h-full w-full rounded-[6px] bg-black ring-1 ring-[var(--site-border-strong)]"
+      />
     </span>
   );
 }
@@ -792,13 +777,6 @@ export default function Home() {
             <LogoMark />
             <span className="font-[family-name:var(--font-spectral)] text-lg font-semibold tracking-tight text-[var(--site-ink)]">
               Scout
-            </span>
-            <span
-              className="hidden font-[family-name:var(--font-mono-display)] text-[11px] tracking-tight text-[var(--site-muted)] sm:inline-flex sm:items-baseline sm:gap-1.5"
-              aria-hidden
-            >
-              <span className="text-[var(--site-border-strong)]">·</span>
-              the OpenScout broker
             </span>
           </Link>
 

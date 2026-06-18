@@ -18,7 +18,10 @@ const MAX_CACHE_ENTRIES = 24;
 const MAX_PREFETCH_PER_BATCH = 4;
 
 const cache = new Map<string, Omit<RepoDiffCacheRecord, "cacheHit">>();
-const inFlight = new Map<string, Promise<RepoDiffCacheRecord>>();
+const inFlight = new Map<string, {
+  force: boolean;
+  request: Promise<RepoDiffCacheRecord>;
+}>();
 const queuedPrefetches = new Set<string>();
 let prefetchQueue = Promise.resolve();
 
@@ -101,13 +104,16 @@ export async function fetchRepoDiffSnapshot(
   options: { force?: boolean; files?: readonly string[]; session?: RepoDiffSessionRequest | null } = {},
 ): Promise<RepoDiffCacheRecord> {
   const key = cacheKey(path, layers, options);
+  const active = inFlight.get(key);
+  if (active && (!options.force || active.force)) {
+    return active.request;
+  }
+
   if (!options.force) {
     const existing = cache.get(key);
     if (existing && Date.now() - existing.fetchedAt <= DEFAULT_MAX_AGE_MS) {
       return { ...existing, cacheHit: true };
     }
-    const active = inFlight.get(key);
-    if (active) return active;
   }
 
   const url = buildRepoDiffUrl(path, layers, {
@@ -125,11 +131,13 @@ export async function fetchRepoDiffSnapshot(
     return { ...record, cacheHit: false };
   });
 
-  inFlight.set(key, request);
+  inFlight.set(key, { force: options.force === true, request });
   try {
     return await request;
   } finally {
-    inFlight.delete(key);
+    if (inFlight.get(key)?.request === request) {
+      inFlight.delete(key);
+    }
   }
 }
 

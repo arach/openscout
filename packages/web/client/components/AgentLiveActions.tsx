@@ -65,14 +65,23 @@ export function AgentLiveActions({
   }, [agent.id, catalog]);
 
   const resolvedCatalog = catalog === undefined ? loadedCatalog : catalog;
+  const terminalSurface = agent.terminalSurface
+    ?? (agent.transport === "tmux" && agent.harnessSessionId
+      ? {
+          backend: "tmux" as const,
+          sessionName: agent.harnessSessionId,
+          paneId: null,
+          socketDir: null,
+        }
+      : null);
   const activeSessionId = resolvedCatalog?.activeSessionId
-    ?? (agent.transport === "tmux" ? agent.harnessSessionId ?? null : null);
+    ?? (terminalSurface ? agent.harnessSessionId ?? terminalSurface.sessionName : null);
   const activeSession = useMemo(
     () => resolvedCatalog?.sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, resolvedCatalog?.sessions],
   );
   const state = normalizeAgentState(agent.state);
-  const canObserveTerminal = agent.transport === "tmux" && Boolean(activeSessionId);
+  const canObserveTerminal = Boolean(terminalSurface && activeSessionId);
   const canTakeover = canObserveTerminal || Boolean(resolvedCatalog?.resumeCommand);
   const hasLiveTurn = state === "working";
   const isCompact = variant === "compact";
@@ -98,7 +107,7 @@ export function AgentLiveActions({
     ? isCompact ? "Observe" : "Observe terminal"
     : isCompact ? "Trace" : "Observe trace";
   const observeTitle = canObserveTerminal
-    ? "Observe the tmux terminal"
+    ? "Observe the live terminal"
     : "Open the web observe trace";
 
   const openTerminal = (mode: "observe" | "takeover") => {

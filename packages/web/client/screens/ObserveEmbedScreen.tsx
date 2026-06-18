@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import type { AgentObservePayload } from "../lib/types.ts";
-import { SessionObserve } from "./SessionObserve.tsx";
+import { SessionObserve } from "./sessions/SessionObserve.tsx";
 
 type ObserveEmbedScreenProps = {
   agentId: string;

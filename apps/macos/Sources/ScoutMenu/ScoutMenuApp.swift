@@ -6,7 +6,17 @@ struct ScoutMenuApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsRootView(controller: OpenScoutAppController.shared)
+                .frame(width: 720, height: 540)
+                .preferredColorScheme(.dark)
+        }
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    SettingsWindowController.shared.show(controller: OpenScoutAppController.shared)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
         }
     }
 }

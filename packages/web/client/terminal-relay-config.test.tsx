@@ -156,6 +156,46 @@ describe("terminal relay config", () => {
     );
   });
 
+  test("TerminalScreen attaches terminal-surface agents to zellij sessions", () => {
+    useTerminalRelayMock.mockClear();
+    terminalRelayProps = null;
+    scoutAgents = [{
+      id: "agent-1",
+      name: "Agent One",
+      handle: null,
+      transport: "claude_stream_json",
+      harness: "claude",
+      harnessSessionId: "source-session-1",
+      terminalSurface: {
+        backend: "zellij",
+        sessionName: "scout-zj-source-session-1",
+        paneId: "terminal_0",
+        socketDir: "/Users/test/.openscout/zellij-sockets",
+      },
+      cwd: "/tmp/agent-1",
+      projectRoot: "/tmp/agent-1",
+    }];
+    installWindow();
+
+    renderToStaticMarkup(createElement(TerminalScreen, {
+      agentId: "agent-1",
+      navigate: () => {},
+    }));
+
+    expect(useTerminalRelayMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        autoConnect: true,
+        backend: "zellij",
+        healthUrl: "https://scout.test/ws/terminal/health",
+        sessionKey: "scout-terminal-zellij-agent-1-scout-zj-source-session-1",
+        terminalSession: "scout-zj-source-session-1",
+        zellijSession: "scout-zj-source-session-1",
+        zellijSocketDir: "/Users/test/.openscout/zellij-sockets",
+        url: "wss://scout.test/ws/terminal?agentId=agent-1",
+      }),
+    );
+  });
+
   test("TerminalScreen makes tmux observe mode read-only", () => {
     useTerminalRelayMock.mockClear();
     baseRelaySendInput.mockClear();

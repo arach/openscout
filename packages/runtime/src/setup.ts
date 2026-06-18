@@ -891,7 +891,7 @@ function normalizeTransport(
     return "tmux";
   }
 
-  return fallback === "codex_app_server" ? "claude_stream_json" : fallback;
+  return harness === "claude" ? "tmux" : fallback;
 }
 
 function normalizeHarnessProfile(

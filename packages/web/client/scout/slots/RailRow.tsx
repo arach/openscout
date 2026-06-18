@@ -35,6 +35,10 @@ type RailRowProps = {
   detail?: ReactNode;
   /** Whether detail is visible. */
   expanded?: boolean;
+  /** A compact live-work label shown under the subtitle. */
+  activityLabel?: string;
+  /** Visual tone for the compact live-work label. */
+  activityTone?: "pending" | "working" | "attention";
   onClick?: (event: React.MouseEvent) => void;
   onKeyDown?: (event: React.KeyboardEvent) => void;
   onPointerEnter?: (event: React.PointerEvent) => void;
@@ -58,6 +62,8 @@ export function RailRow({
   depth = 0,
   detail,
   expanded,
+  activityLabel,
+  activityTone = "working",
   onClick,
   onKeyDown,
   onPointerEnter,
@@ -77,6 +83,7 @@ export function RailRow({
     selected && "rr-row--selected",
     unread && "rr-row--unread",
     expanded && "rr-row--expanded",
+    activityLabel && "rr-row--motion",
   ]
     .filter(Boolean)
     .join(" ");
@@ -104,6 +111,17 @@ export function RailRow({
         <span className="rr-row-body">
           <span className="rr-row-name">{name}</span>
           {sub && <span className="rr-row-sub">{sub}</span>}
+          {activityLabel && (
+            <span className={`rr-row-activity rr-row-activity--${activityTone}`}>
+              <span className="rr-row-activity-bars" aria-hidden>
+                <span />
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="rr-row-activity-label">{activityLabel}</span>
+            </span>
+          )}
         </span>
         {meta && <span className="rr-row-meta">{meta}</span>}
       </button>

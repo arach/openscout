@@ -97,8 +97,6 @@ struct MainView: View {
 
     private var topBar: some View {
         HStack(spacing: 10) {
-            statusDot
-
             Text("OPENSCOUT")
                 .font(MenuType.mono(11, weight: .bold))
                 .tracking(1.6)
@@ -160,22 +158,6 @@ struct MainView: View {
         .padding(.horizontal, 14)
         .frame(height: 38)
         .background(ShellPalette.chrome)
-    }
-
-    private var statusDot: some View {
-        Circle()
-            .fill(overallStatusColor)
-            .frame(width: 7, height: 7)
-    }
-
-    private var overallStatusColor: Color {
-        if !controller.broker.reachable { return ShellPalette.error }
-        if !controller.webReachable { return ShellPalette.error }
-        if controller.broker.hasRestartWarning { return ShellPalette.warning }
-        if controller.tailscale.available && !controller.tailscale.running {
-            return ShellPalette.warning
-        }
-        return ShellPalette.success
     }
 
     private var footerBar: some View {
@@ -408,7 +390,7 @@ struct MainView: View {
 
     private var relayTint: Color {
         if controller.pairingActionPending { return ShellPalette.warning }
-        if !controller.pairing.isRunning { return ShellPalette.error }
+        if !controller.pairing.isRunning { return ShellPalette.ink }
         if controller.pairing.qrArt != nil { return ShellPalette.warning }
         return ShellPalette.ink
     }

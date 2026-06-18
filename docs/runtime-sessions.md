@@ -219,6 +219,7 @@ and skills. Command names may evolve, but the behavior should not be ambiguous.
 | Operation | Meaning |
 | --- | --- |
 | `session start` | Create a new concrete harness session for an agent |
+| `session intake` | Materialize an existing harness session through a local terminal backend |
 | `session attach` | Attach an agent endpoint to an existing harness session |
 | `session list` | Show known sessions and endpoint attachments |
 | `session stop` | Stop or detach a concrete session |
@@ -228,9 +229,18 @@ Expected CLI shape:
 
 ```bash
 scout session start --agent hudson --harness codex
+scout session intake --harness codex --session <id> --project .
 scout session attach --agent hudson --harness codex --session <id>
 scout session inspect --agent hudson --harness codex
 ```
+
+`session intake` is the local handoff helper: it turns a harness-native session id
+into an attachable local runtime surface. The stable input is the harness, session
+id, and resume cwd; the terminal backend is disposable. A user should be able to
+materialize the same harness session through tmux, Zellij, SSH, or a later
+host-control protocol without changing the session identity. It does not by
+itself claim broker ownership of the endpoint; `session attach` is the operation
+that binds an agent endpoint to a session record.
 
 `scout up` may remain as a friendly alias, but internally it must resolve to a
 session operation and print exactly what it did.

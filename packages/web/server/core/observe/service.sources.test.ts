@@ -526,7 +526,7 @@ describe("loadAgentObservePayload", () => {
     expect(payload).not.toBeNull();
     expect(payload?.source).toBe("history");
     expect(payload?.historyPath).toBe(historyPath);
-    expect(payload?.sessionId).toBe("relay-talkie-claude");
+    expect(payload?.sessionId).toBe("claude-upstream-session");
     expect(payload?.data.events.some((event) => event.text.includes("hello from discovered Claude history"))).toBe(true);
   });
 

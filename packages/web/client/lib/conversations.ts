@@ -49,14 +49,20 @@ export function isActiveConversationFlight(
 }
 
 export function shouldShowConversationWorkingTurn(
-  flight: (Pick<Flight, "state"> & Partial<Pick<Flight, "summary">>) | null | undefined,
+  flight: (Pick<Flight, "state"> & Partial<Pick<Flight, "summary" | "dispatchOutcome">>) | null | undefined,
 ): boolean {
   return isActiveConversationFlight(flight)
     && !isRequesterWaitTimeoutConversationFlight(flight);
 }
 
+export function isQueuedUntilOnlineConversationFlight(
+  flight: Partial<Pick<Flight, "dispatchOutcome">> | null | undefined,
+): boolean {
+  return flight?.dispatchOutcome?.status === "queued_until_online";
+}
+
 export function isRequesterWaitTimeoutConversationFlight(
-  flight: Pick<Flight, "summary"> | null | undefined,
+  flight: Partial<Pick<Flight, "summary">> | null | undefined,
 ): boolean {
   return Boolean(
     flight?.summary?.includes("Scout stopped waiting for a synchronous result")
@@ -65,11 +71,14 @@ export function isRequesterWaitTimeoutConversationFlight(
 }
 
 export function isConversationWorkingTurnWithoutRecentUpdate(
-  flight: Pick<Flight, "state" | "startedAt"> | null | undefined,
+  flight: (Pick<Flight, "state" | "startedAt"> & Partial<Pick<Flight, "dispatchOutcome">>) | null | undefined,
   nowMs = Date.now(),
   activeWindowMs = CONVERSATION_WORKING_TURN_ACTIVE_WINDOW_MS,
 ): boolean {
   if (!isActiveConversationFlight(flight)) {
+    return false;
+  }
+  if (isQueuedUntilOnlineConversationFlight(flight)) {
     return false;
   }
   const startedAt = normalizeTimestampMs(flight?.startedAt);

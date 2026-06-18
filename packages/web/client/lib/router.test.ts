@@ -148,6 +148,33 @@ describe("agents route parsing", () => {
     });
   });
 
+  test("terminal routes preserve registered session surface deep links", () => {
+    const route = routeFromUrl("http://127.0.0.1:3200/terminal?session=ts.123&surface=zellij%3Ascout-zj&mode=observe");
+
+    expect(route).toEqual({
+      view: "terminal",
+      terminalSessionId: "ts.123",
+      terminalSurfaceKey: "zellij:scout-zj",
+      mode: "observe",
+    });
+    expect(routePath(route)).toBe("/terminal/zellij/scout-zj?mode=observe");
+  });
+
+  test("terminal routes support backend/session path deep links", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:3200/terminal/tmux/relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude?mode=takeover",
+    );
+
+    expect(route).toEqual({
+      view: "terminal",
+      terminalSurfaceKey: "tmux:relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude",
+      mode: "takeover",
+    });
+    expect(routePath(route)).toBe(
+      "/terminal/tmux/relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude?mode=takeover",
+    );
+  });
+
   test("ops issues route accepts error-oriented aliases", () => {
     expect(routeFromUrl("http://127.0.0.1:3200/ops/plan")).toEqual({
       view: "ops",

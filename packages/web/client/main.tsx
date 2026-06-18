@@ -5,7 +5,7 @@ import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
-import { SessionEmbedScreen } from "./screens/SessionEmbedScreen.tsx";
+import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,

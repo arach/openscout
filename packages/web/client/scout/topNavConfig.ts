@@ -3,6 +3,7 @@ import type { Route } from "../lib/types.ts";
 export type TopNavKey =
   | "home"
   | "agents"
+  | "terminals"
   | "chat"
   | "search"
   | "ops"
@@ -16,17 +17,18 @@ export type TopNavItem = {
   route: Route;
 };
 
-// Full nav — today's default. Home · Agents · Chat · Search · Ops, with the
+// Full nav — today's default. Home · Agents · Terminals · Chat · Search · Ops, with the
 // Ops cluster (Control/Dispatch/Repos/Mesh/Tail/Runtime/Plans) one level down.
 export const TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Agents", route: { view: "agents" } },
+  { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
   { key: "search", label: "Search", route: { view: "search" } },
   { key: "ops", label: "Ops", route: { view: "ops" } },
 ];
 
-// Clean / lean launch nav — mirrors the macOS core. Home · Agents · Chat ·
+// Clean / lean launch nav — mirrors the macOS core. Home · Agents · Terminals · Chat ·
 // Tail · Dispatch · Repos. Tail/Dispatch/Repos are promoted out of the Ops
 // cluster to the primary bar; Search + the rest of Ops (Control/Mesh/Runtime/
 // Plans) drop off the bar and stay reachable via the Ops subnav + ⌘K palette.
@@ -34,6 +36,7 @@ export const TOP_NAV_ITEMS: TopNavItem[] = [
 export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Agents", route: { view: "agents" } },
+  { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
   { key: "tail", label: "Tail", route: { view: "ops", mode: "tail" } },
   { key: "dispatch", label: "Dispatch", route: { view: "broker" } },
@@ -49,6 +52,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   conversations: "Chat",
   messages: "Chat",
   sessions: "Sessions",
+  terminal: "Terminals",
   repos: "Repos",
   harnesses: "Providers",
   search: "Search",
@@ -82,8 +86,9 @@ export function topNavKeyForRoute(
     case "agents":
     case "agent-info":
     case "sessions":
-    case "terminal":
       return "agents";
+    case "terminal":
+      return "terminals";
     case "conversation":
     case "conversations":
     case "messages":
