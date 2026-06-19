@@ -83,7 +83,7 @@ function createResolver(input: {
   const persistedEndpoints: AgentEndpoint[] = [];
   const upsertedActors: ActorIdentity[] = [];
   const upsertedAgents: AgentDefinition[] = [];
-  const ensuredBindings: Array<{ agentId: string; harness?: string }> = [];
+  const ensuredBindings: Array<{ agentId: string; harness?: string; includeDiscovered?: boolean }> = [];
   const ensuredSessionEndpoints: AgentEndpoint[] = [];
   const resolver = new BrokerLocalEndpointResolver({
     nodeId: "node-1",
@@ -94,7 +94,11 @@ function createResolver(input: {
       return input.onlineSession ?? { externalSessionId: "revived-session" };
     },
     async ensureLocalAgentBindingOnline(agentId, _nodeId, options) {
-      ensuredBindings.push({ agentId, harness: options.harness });
+      ensuredBindings.push({
+        agentId,
+        harness: options.harness,
+        includeDiscovered: options.includeDiscovered,
+      });
       return input.bindings?.[agentId] ?? null;
     },
     async upsertActor(actor) {
@@ -244,7 +248,11 @@ describe("BrokerLocalEndpointResolver", () => {
       ensureAwake: true,
       execution: { harness: "codex" },
     }))).resolves.toEqual(endpoint);
-    expect(harness.ensuredBindings).toEqual([{ agentId: "agent-1", harness: "codex" }]);
+    expect(harness.ensuredBindings).toEqual([{
+      agentId: "agent-1",
+      harness: "codex",
+      includeDiscovered: false,
+    }]);
     expect(harness.upsertedActors).toEqual([actor]);
     expect(harness.upsertedAgents).toEqual([agent]);
     expect(harness.persistedEndpoints).toEqual([endpoint]);

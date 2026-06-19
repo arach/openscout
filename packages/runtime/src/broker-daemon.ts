@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { stat, unlink } from "node:fs/promises";
+import { readFile, stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
@@ -533,8 +533,12 @@ async function migrateUnqualifiedRelayAgentKeys(): Promise<void> {
 async function readRelayAgentRegistrySignature(): Promise<string | null> {
   try {
     const registryPath = resolveOpenScoutSupportPaths().relayAgentsRegistryPath;
-    const info = await stat(registryPath);
-    return `${info.mtimeMs}:${info.size}`;
+    const [info, body] = await Promise.all([
+      stat(registryPath),
+      readFile(registryPath),
+    ]);
+    const digest = createHash("sha256").update(body).digest("hex");
+    return `${info.mtimeMs}:${info.size}:sha256:${digest}`;
   } catch (error) {
     if (
       error

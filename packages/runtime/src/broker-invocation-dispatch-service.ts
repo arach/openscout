@@ -181,11 +181,14 @@ export class BrokerInvocationDispatchService {
       targetAgentId: resolved.agent.id,
     };
 
-    const unavailable = this.deps.describeUnavailableInvocationTarget?.(
-      this.deps.runtime.snapshot(),
-      resolved.agent,
-      targetSessionIdForInvocation(invocation),
-    );
+    const targetSessionId = targetSessionIdForInvocation(invocation);
+    const unavailable = targetSessionId
+      ? null
+      : this.deps.describeUnavailableInvocationTarget?.(
+          this.deps.runtime.snapshot(),
+          resolved.agent,
+          targetSessionId,
+        );
     if (unavailable && this.deps.buildUnavailableDispatchEnvelope) {
       const envelope = this.deps.buildUnavailableDispatchEnvelope(
         askedLabelForRouteTarget(payload),

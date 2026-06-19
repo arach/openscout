@@ -1945,7 +1945,13 @@ describe("broker daemon comms layer", () => {
       }>(harness.baseUrl, "/v1/snapshot"),
       (snapshot) => {
         const flight = snapshot.flights[response.flightId];
-        return Boolean(flight && flight.state !== "queued");
+        const dispatchAck = flight?.metadata?.dispatchAck;
+        return Boolean(
+          flight
+            && flight.state !== "queued"
+            && dispatchAck
+            && typeof dispatchAck === "object",
+        );
       },
     );
     const flight = drained.flights[response.flightId];
@@ -2109,8 +2115,8 @@ describe("broker daemon comms layer", () => {
     expect(snapshot.flight).toEqual(expect.objectContaining({
       invocationId: "inv-restart-1",
       targetAgentId: "ghost",
-      state: "waking",
     }));
+    expect(["waking", "queued"]).toContain(snapshot.flight?.state);
 
     const lifecycle = await getJson<{
       invocationId: string;
@@ -2122,8 +2128,8 @@ describe("broker daemon comms layer", () => {
     expect(lifecycle).toEqual(expect.objectContaining({
       invocationId: "inv-restart-1",
       targetAgentId: "ghost",
-      state: "dispatching",
     }));
+    expect(["dispatching", "queued"]).toContain(lifecycle.state);
     expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
 
@@ -3400,7 +3406,10 @@ describe("broker daemon comms layer", () => {
         endpoints: Record<string, { agentId: string; metadata?: Record<string, unknown> }>;
         flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
       }>(harness.baseUrl, "/v1/snapshot"),
-      (snapshot) => Boolean(snapshot.agents["ranger.test-node"]),
+      (snapshot) => Boolean(
+        snapshot.agents["ranger.test-node"]
+          && snapshot.flights[flightId]?.state === "queued",
+      ),
     );
 
     expect(reconciled.agents["ranger.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);

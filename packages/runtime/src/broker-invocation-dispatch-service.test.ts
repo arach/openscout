@@ -362,6 +362,52 @@ describe("BrokerInvocationDispatchService", () => {
     expect(harness.launched).toEqual([]);
   });
 
+  test("accepts exact-session invocations even when unavailable preflight would reject them", async () => {
+    const resolvedAgent = agent({ id: "agent-stale", displayName: "Stale Agent" });
+    const harness = createHarness({
+      agents: { [resolvedAgent.id]: resolvedAgent },
+      resolution: { kind: "resolved", agent: resolvedAgent },
+      describeUnavailableInvocationTarget: () => ({
+        agentId: resolvedAgent.id,
+        displayName: resolvedAgent.displayName,
+        reason: "session_reference_not_attachable",
+        detail: "session is stale",
+        wakePolicy: "manual",
+        endpointState: "offline",
+        transport: "codex_app_server",
+        projectRoot: "/repo",
+      }),
+    });
+
+    const result = await harness.service.handleInvocationRequest(invocation({
+      id: "invocation-stale-session",
+      targetAgentId: "placeholder",
+      targetLabel: "session:relay-stale",
+      execution: {
+        session: "existing",
+        targetSessionId: "relay-stale",
+      },
+    }));
+    await Bun.sleep(0);
+
+    expect(result).toEqual(expect.objectContaining({
+      accepted: true,
+      invocationId: "invocation-stale-session",
+      flightId: "flight-1",
+      targetAgentId: "agent-stale",
+    }));
+    expect(harness.dispatches).toEqual([]);
+    expect(harness.recordInvocationCalls).toHaveLength(1);
+    expect(harness.launched).toEqual([
+      expect.objectContaining({
+        invocation: expect.objectContaining({
+          id: "invocation-stale-session",
+          targetAgentId: "agent-stale",
+        }),
+      }),
+    ]);
+  });
+
   test("dispatches remote-authority invocations to the peer outbox", async () => {
     const remoteAgent = agent({
       id: "agent-remote",

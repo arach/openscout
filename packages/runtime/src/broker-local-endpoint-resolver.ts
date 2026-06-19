@@ -168,7 +168,7 @@ export class BrokerLocalEndpointResolver {
     }
 
     const binding = await this.options.ensureLocalAgentBindingOnline(invocation.targetAgentId, this.options.nodeId, {
-      includeDiscovered: true,
+      includeDiscovered: false,
       harness: requestedHarness,
     });
     if (!binding) {
