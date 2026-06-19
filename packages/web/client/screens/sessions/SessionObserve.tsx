@@ -1248,9 +1248,10 @@ function SessionHeader({
 
   const displayId = catalog.activeSessionId ?? sessionId;
   const shortId = displayId ? displayId.slice(0, 8) : null;
+  const canTakeover = Boolean(active?.canTakeover && catalog.resumeCommand);
 
   const runTakeover = useCallback(() => {
-    if (!catalog.resumeCommand) return;
+    if (!canTakeover || !catalog.resumeCommand) return;
     void queueTakeover({
       command: catalog.resumeCommand,
       cwd: catalog.resumeCwd,
@@ -1259,7 +1260,7 @@ function SessionHeader({
       openContent(navigate, { view: "terminal", agentId }, { returnTo: route });
     });
     setSent(true);
-  }, [catalog.resumeCommand, catalog.resumeCwd, navigate, route, agentId]);
+  }, [canTakeover, catalog.resumeCommand, catalog.resumeCwd, navigate, route, agentId]);
 
   const openPair = useCallback(() => {
     navigate({
@@ -1289,11 +1290,11 @@ function SessionHeader({
           >
             Pair
           </button>
-          {catalog.resumeCommand && (
+          {canTakeover && (
             <button
               className="s-observe-takeover-btn"
               onClick={runTakeover}
-              title={catalog.resumeCommand}
+              title={catalog.resumeCommand ?? undefined}
             >
               {sent ? "Sent" : "Takeover"}
             </button>
@@ -1371,7 +1372,7 @@ export function SessionObserve({
 }) {
   const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
-  const { events, files, contextUsage } = observeData;
+  const { events, files } = observeData;
   const liveSession = observeData.live === true;
   const sessionStartMs = observeData.metadata?.session?.sessionStart;
 
@@ -1485,10 +1486,13 @@ export function SessionObserve({
     (e) => e.kind === "tool" && (e.tool === "edit" || e.tool === "write"),
   ).length;
   const observedWindowSeconds = events.length > 0 ? events[events.length - 1]!.t : 0;
-  const derivedLoadPercent = contextUsage && contextUsage.length > 0
-    ? Math.round((contextUsage[contextUsage.length - 1] ?? 0) * 100)
+  const derivedLoadPercent = typeof usageMeta?.contextInputTokens === "number"
+    && typeof usageMeta.contextWindowTokens === "number"
+    && usageMeta.contextWindowTokens > 0
+    ? Math.max(0, Math.min(100, Math.round((usageMeta.contextInputTokens / usageMeta.contextWindowTokens) * 100)))
     : null;
   const usageStatCards = [
+    { label: "Context input", value: usageMeta?.contextInputTokens },
     { label: "Input", value: usageMeta?.inputTokens },
     { label: "Output", value: usageMeta?.outputTokens },
     { label: "Cache hit", value: usageMeta?.cacheReadInputTokens },
@@ -1547,7 +1551,7 @@ export function SessionObserve({
       : null,
     derivedLoadPercent !== null
       ? {
-          label: "Derived load",
+          label: "Window load",
           value: `${derivedLoadPercent}%`,
           tone: derivedLoadPercent >= 80 ? "warn" : "default",
         }
@@ -1709,11 +1713,11 @@ export function SessionObserve({
         <div>
           <div className="s-observe-rail-label">Context window</div>
           <DetailRows rows={windowRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
-          {contextUsage && contextUsage.length >= 2 ? (
+          {derivedLoadPercent !== null ? (
             <>
-              <ContextMeter data={contextUsage} cursor={cursor / duration} />
+              <ContextMeter data={[derivedLoadPercent / 100, derivedLoadPercent / 100]} cursor={cursor / duration} />
               <div className="s-observe-ctx-detail">
-                Derived session load across the observed trace.
+                Meter uses latest context input divided by the model window.
               </div>
             </>
           ) : windowRows.length === 0 ? (

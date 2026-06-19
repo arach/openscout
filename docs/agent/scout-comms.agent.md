@@ -51,6 +51,29 @@ transcripts.
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 
+## Spec-Backed Handoffs
+
+When work is defined in a durable spec, prompt, plan, or handoff file, the Scout
+message should reference that file instead of embedding the whole document.
+
+This is a traceability rule, not a size workaround:
+
+- the file remains the source of truth for review and follow-up
+- the broker record stays compact and points at the artifact that changed
+- future agents can diff, amend, or cite the spec path directly
+
+Preferred shape:
+
+```bash
+scout ask --project /path/to/repo --harness claude \
+  "Please implement docs/eng/sco-068-unified-native-settings.md. Use that spec as the source of truth. Report changed files, checks run, and blockers."
+```
+
+Use repo-relative paths when the target is in the same checkout. Use absolute
+paths when the recipient needs an unambiguous local path. Paste the full spec
+only when the target cannot access the file, and state that reason in the
+handoff.
+
 ## Runtime Sessions
 
 - agent = stable addressable identity

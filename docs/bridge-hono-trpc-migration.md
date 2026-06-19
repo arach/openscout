@@ -47,7 +47,7 @@ When this hits a heterogeneous user base — slow transports, concurrent devices
 - Already used for the web server at `src/server/index.ts`
 - Native Bun support, zero overhead
 - Middleware ecosystem (CORS, logging, rate limiting, compression)
-- Clean route composition vs. the manual if/switch in broker-daemon.ts
+- Clean route composition vs. the manual if/switch in broker-http-router.ts
 
 ### tRPC v11
 
@@ -387,7 +387,7 @@ tRPC: client subscribes to `events` procedure. Events arrive as `{ id, result: {
 
 ### Phase 4: Broker Daemon (Future)
 
-The broker HTTP server (`packages/runtime/src/broker-daemon.ts`) is also a candidate for Hono migration — same manual routing pattern, ~1600 lines. Lower priority since it's internal, but the pattern is identical.
+The broker HTTP router (`packages/runtime/src/broker-http-router.ts`) is also a candidate for Hono migration — same manual if/switch routing pattern (~1k lines). `broker-daemon.ts` is now the composition root only. Lower priority since it's internal, but the pattern is identical.
 
 ## Dependencies
 

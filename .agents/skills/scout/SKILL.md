@@ -79,6 +79,25 @@ The broker/runtime should return durable ids such as `conversationId`, `messageI
 
 Use `scout send --to ...` instead of placing the route inside the message body. Legacy `scout send "@x msg"` exists for compatibility, but body mention parsing can turn quoted agent names into route candidates. With `--to`, text such as `@codex` inside the body remains payload.
 
+## Spec-backed handoffs
+
+When the work is defined in a durable spec, prompt, plan, or handoff file, send
+a short Scout ask that points to the file instead of pasting the full contents
+into the message. This is for traceability, not message-size limits: Scout
+messages are local, but the file should remain the source of truth for review,
+diffs, and follow-up.
+
+Use a shape like:
+
+```bash
+scout ask --project /path/to/repo --harness claude \
+  "Please implement docs/eng/sco-068-unified-native-settings.md. Use that spec as the source of truth. Report changed files, checks run, and blockers."
+```
+
+Prefer repo-relative paths when the target is in the same checkout. Use an
+absolute path only when that makes the file unambiguous for the target. Paste
+the full text only when the recipient cannot access the file, and say why.
+
 ## Orientation loop
 
 Run the smallest command that answers the uncertainty. Prefer broker-provided

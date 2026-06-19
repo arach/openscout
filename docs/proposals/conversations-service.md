@@ -327,10 +327,10 @@ The projection must update from the broker's existing durable write boundary.
 
 Relevant current broker code:
 
+- `packages/runtime/src/broker-durable-store.ts`
+  - `runDurableWrite()` / `commitDurableEntries()` / `applyProjectedEntries()`
 - `packages/runtime/src/broker-daemon.ts`
-  - `runDurableWrite()`
-  - `commitDurableEntries()`
-  - `applyProjectedEntries()`
+  - composition root that wires the durable store
 - `packages/runtime/src/broker-journal.ts`
   - journal append / compaction behavior
 
@@ -416,11 +416,11 @@ V6 changes that:
 
 ### Endpoint selection rule
 
-The projection MUST use deterministic endpoint selection equivalent to `homeEndpointForAgent()` in `packages/runtime/src/broker-daemon.ts`, not `Object.values(...).find(...)`.
+The projection MUST use deterministic endpoint selection equivalent to `homeEndpointForAgent()` in `packages/runtime/src/broker-local-invocation-helpers.ts` (also used by `broker-home-service.ts`), not `Object.values(...).find(...)`.
 
 Relevant code path:
 
-- `packages/runtime/src/broker-daemon.ts`
+- `packages/runtime/src/broker-local-invocation-helpers.ts`
   - `homeEndpointForAgent()`
 
 This is required so:

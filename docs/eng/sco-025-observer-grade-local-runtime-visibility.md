@@ -602,7 +602,8 @@ Likely implementation anchors:
 - `packages/protocol/src/agent-runs.ts`
 - `packages/runtime/src/agent-run-registry.ts`
 - `packages/runtime/src/harness-catalog.ts`
-- `packages/runtime/src/broker-daemon.ts`
+- `packages/runtime/src/broker-daemon.ts` (composition root)
+- `packages/runtime/src/broker-core-service.ts`, `broker-home-service.ts`, `broker-repo-tail-service.ts`
 - `packages/runtime/src/local-agents.ts`
 - `packages/runtime/src/tail/types.ts`
 - `packages/agent-sessions/src/state.ts`

@@ -71,6 +71,7 @@
   background: color-mix(in srgb, var(--dim) 55%, transparent);
 }
 
+.rr-row-dot--active,
 .rr-row-dot--working {
   /* background set inline via stateColor for theming consistency */
 }
@@ -79,6 +80,7 @@
   /* background set inline via stateColor */
 }
 
+.rr-row-dot--unavailable,
 .rr-row-dot--offline {
   background: color-mix(in srgb, var(--dim) 45%, transparent);
 }

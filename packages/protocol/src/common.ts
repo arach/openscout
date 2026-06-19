@@ -9,10 +9,18 @@ export type ActorKind =
   | "device";
 
 export type AgentState =
+  | "registered"
+  | "attaching"
+  | "waking"
   | "offline"
   | "idle"
   | "active"
-  | "waiting";
+  | "waiting"
+  | "working"
+  | "unreachable"
+  | "failed"
+  | "superseded"
+  | "stopped";
 
 export type VisibilityScope = "private" | "workspace" | "public" | "system";
 

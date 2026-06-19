@@ -18,6 +18,7 @@ import {
   isAgentLaneLive,
   lanePrimaryLabel,
   rosterIssuesFromTailDiscovery,
+  shouldPollAgentForLaneObserve,
   sortLanesWithStableOrder,
   type AgentLane,
   type AgentLaneHorizonKey,
@@ -131,13 +132,7 @@ export function AgentLanesView({
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
   const [inspectedLaneId, setInspectedLaneId] = useState<string | null>(null);
   const observeAgents = useMemo(
-    () => scoutAgents.filter((agent) => {
-      if (agent.harnessSessionId?.trim()) return true;
-      if (agent.state && /^(working|active|running|in_turn|in_flight|queued|waking|dispatching)$/i.test(agent.state.trim())) {
-        return true;
-      }
-      return agent.updatedAt ? now - agent.updatedAt <= agentLaneHorizonWindowMs(horizon) : false;
-    }),
+    () => scoutAgents.filter((agent) => shouldPollAgentForLaneObserve(agent, now, horizon)),
     [scoutAgents, now, horizon],
   );
   const observeCache = useObservePolling(observeAgents);

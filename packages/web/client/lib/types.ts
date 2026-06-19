@@ -579,6 +579,32 @@ export type Flight = {
   } | null;
 };
 
+export type WorkInvocation = {
+  invocationId: string;
+  flightId: string | null;
+  action: string;
+  task: string;
+  source: string | null;
+  requestedHarness: string | null;
+  requestedModel: string | null;
+  requestedPermissionProfile: string | null;
+  targetSessionId: string | null;
+  requesterId: string | null;
+  requesterName: string | null;
+  targetAgentId: string | null;
+  targetAgentName: string | null;
+  resolvedHarness: string | null;
+  resolvedTransport: string | null;
+  resolvedSessionId: string | null;
+  conversationId: string | null;
+  workId: string | null;
+  state: string | null;
+  summary: string | null;
+  createdAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+};
+
 export type WorkItem = {
   id: string;
   title: string;
@@ -666,6 +692,7 @@ export type ObserveFile = {
 export type ObserveUsageMeta = {
   assistantMessages?: number;
   inputTokens?: number;
+  contextInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
   cacheReadInputTokens?: number;
@@ -776,6 +803,12 @@ export type LocalAgentContextState = {
   sessionAgeMs: number | null;
   turnCount: number;
   currentTurnActive: boolean;
+  contextWindow: {
+    contextInputTokens: number | null;
+    totalTokens: number | null;
+    contextWindowTokens: number | null;
+    usedPercent: number | null;
+  } | null;
   canAutoReset: boolean;
   policy: {
     maxTurns: number;
@@ -1035,6 +1068,8 @@ export type WorkDetail = WorkItem & {
   childWork: WorkItem[];
   activeFlights: Flight[];
   timeline: WorkTimelineItem[];
+  primaryInvocation: WorkInvocation | null;
+  allFlights: Flight[];
   inventory?: WorkMaterialsInventory;
 };
 
@@ -1148,7 +1183,7 @@ export type Route =
       filter?: MessagesFilter;
       sort?: MessagesSort;
     } & MachineScopedRoute)
-  | ({ view: "sessions"; sessionId?: string } & MachineScopedRoute)
+  | ({ view: "sessions"; sessionId?: string; agentId?: string } & MachineScopedRoute)
   | ({ view: "repos" } & MachineScopedRoute)
   | ({ view: "harnesses" } & MachineScopedRoute)
   // A diff path is absolute + machine-local, so this is intentionally not
@@ -1171,7 +1206,18 @@ export type Route =
   | ({ view: "activity" } & MachineScopedRoute)
   | ({ view: "work"; workId: string } & MachineScopedRoute)
   | { view: "settings"; section?: "agents"; agentId?: string }
-  | { view: "ops"; mode?: OpsMode; tailQuery?: string; planDocumentId?: string }
+  | {
+      view: "ops";
+      mode?: OpsMode;
+      tailQuery?: string;
+      planDocumentId?: string;
+      flightId?: string;
+      invocationId?: string;
+      conversationId?: string;
+      workId?: string;
+      sessionId?: string;
+      targetAgentId?: string;
+    }
   | {
       view: "follow";
       preferredView?: FollowPreferredView;

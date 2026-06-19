@@ -2,6 +2,10 @@
 
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  insertionPointForId,
+  studyForInsertionPoint,
+} from "@/lib/studio-pages";
 
 type StudyMode = "before" | "after";
 type AgentState = "working" | "ready" | "attention" | "offline";
@@ -155,6 +159,10 @@ const STATE_COLOR: Record<AgentState, string> = {
   attention: "var(--status-error-fg)",
   offline: "var(--studio-ink-faint)",
 };
+
+const HOST_ANCHOR = "agents.directory";
+const HOST_INSERTION_POINT = insertionPointForId(HOST_ANCHOR);
+const HOST_STUDY = studyForInsertionPoint(HOST_ANCHOR);
 
 export default function AgentViewBeforeAfterPage() {
   const [mode, setMode] = useState<StudyMode>("before");
@@ -747,26 +755,48 @@ function AnchorFrame({
 
 function AnchorInventory() {
   return (
-    <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
-      <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
-        candidate insertion points
-      </div>
-      <div className="mt-3 space-y-2">
-        {ANCHORS.map((anchor) => (
-          <div
-            key={anchor.id}
-            className="grid grid-cols-[1fr_72px] gap-3 border-b border-studio-edge pb-2 last:border-b-0 last:pb-0"
-          >
+    <div className="space-y-5">
+      <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
+        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          registered host point
+        </div>
+        <div className="mt-3 space-y-2">
+          <div className="grid grid-cols-[1fr_72px] gap-3 border-b border-studio-edge pb-2">
             <code className="truncate font-mono text-[11px] text-studio-ink-muted">
-              {anchor.id}
+              {HOST_INSERTION_POINT?.id ?? HOST_ANCHOR}
             </code>
             <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
-              {anchor.scope}
+              {HOST_INSERTION_POINT?.scope ?? "page"}
             </span>
           </div>
-        ))}
-      </div>
-    </section>
+          <div className="font-sans text-[12px] leading-relaxed text-studio-ink-faint">
+            {HOST_STUDY?.label ?? "Agent View Before / After"} ·{" "}
+            {HOST_STUDY?.target?.mode ?? "replace"}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-md border border-studio-edge bg-studio-surface p-4">
+        <div className="font-mono text-[9px] uppercase tracking-eyebrow text-studio-ink-faint">
+          candidate section points
+        </div>
+        <div className="mt-3 space-y-2">
+          {ANCHORS.map((anchor) => (
+            <div
+              key={anchor.id}
+              className="grid grid-cols-[1fr_72px] gap-3 border-b border-studio-edge pb-2 last:border-b-0 last:pb-0"
+            >
+              <code className="truncate font-mono text-[11px] text-studio-ink-muted">
+                {anchor.id}
+              </code>
+              <span className="justify-self-end rounded bg-studio-canvas-alt px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+                {anchor.scope}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 

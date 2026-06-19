@@ -276,13 +276,17 @@ struct OpenScoutToolchain {
 
     private func pairingRuntimeEnvironment() -> [String: String] {
         var env = defaultEnvironment()
+        let settings = OpenScoutNetworkSettingsStore.load()
+        guard settings.discoveryEnabled else {
+            return env
+        }
         guard let session = OpenScoutNetworkSessionStore.loadSessionToken() else {
             return env
         }
 
         let processEnv = ProcessInfo.processInfo.environment
         if !hasProcessEnv("OPENSCOUT_MESH_RENDEZVOUS_URL", processEnv) {
-            env["OPENSCOUT_MESH_RENDEZVOUS_URL"] = "https://mesh.oscout.net"
+            env["OPENSCOUT_MESH_RENDEZVOUS_URL"] = settings.rendezvousURL
         }
         if !hasProcessEnv("OPENSCOUT_MESH_RENDEZVOUS_SESSION", processEnv) {
             env["OPENSCOUT_MESH_RENDEZVOUS_SESSION"] = session
@@ -290,7 +294,7 @@ struct OpenScoutToolchain {
         if !hasProcessEnv("OPENSCOUT_PAIRING_RELAY_URL", processEnv),
            !hasProcessEnv("OPENSCOUT_MOBILE_PAIRING_RELAY_URL", processEnv),
            !hasConfiguredPairingRelay() {
-            env["OPENSCOUT_PAIRING_RELAY_URL"] = "wss://mesh.oscout.net/v1/relay"
+            env["OPENSCOUT_PAIRING_RELAY_URL"] = settings.pairingRelayURL
         }
         return env
     }

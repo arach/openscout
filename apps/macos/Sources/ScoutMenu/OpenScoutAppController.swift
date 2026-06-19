@@ -83,9 +83,21 @@ final class OpenScoutAppController: ObservableObject {
         var controlHint: String? = nil
     }
 
+    struct OpenScoutNetworkViewState: Sendable {
+        var discoveryEnabled: Bool = false
+        var rendezvousURL: String = OpenScoutNetworkSettings.defaultRendezvousURL
+        var pairingRelayURL: String = OpenScoutNetworkSettings.defaultPairingRelayURL
+        var keepPairingRelayRunning: Bool = true
+        var sessionAvailable: Bool = false
+        var settingsPath: String = OpenScoutNetworkSettingsStore.settingsPath()
+        var statusLabel: String = "Off"
+        var statusDetail: String = "OpenScout Network discovery is off."
+    }
+
     @Published private(set) var broker = BrokerState()
     @Published private(set) var pairing = PairingViewState()
     @Published private(set) var tailscale = TailscaleViewState()
+    @Published private(set) var openScoutNetwork = OpenScoutNetworkViewState()
     @Published private(set) var webReachable = false
     @Published private(set) var lastError: String? = nil
     @Published private(set) var menuBarSymbolName = "bolt.horizontal.circle"
@@ -93,6 +105,7 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var brokerActionPending = false
     @Published private(set) var pairingActionPending = false
+    @Published private(set) var openScoutNetworkActionPending = false
     @Published private(set) var tailscaleActionPending = false
     @Published private(set) var webActionPending = false
     @Published private(set) var webServerStartedByApp = false
@@ -254,6 +267,79 @@ final class OpenScoutAppController: ObservableObject {
             }
             requestRefresh(reason: .manual)
         }
+    }
+
+    func setOpenScoutNetworkDiscoveryEnabled(_ enabled: Bool) {
+        guard !openScoutNetworkActionPending else {
+            return
+        }
+
+        openScoutNetworkActionPending = true
+        lastError = nil
+
+        Task {
+            defer {
+                openScoutNetworkActionPending = false
+            }
+
+            do {
+                var settings = OpenScoutNetworkSettingsStore.load()
+                settings.discoveryEnabled = enabled
+                try OpenScoutNetworkSettingsStore.save(settings)
+                refreshOpenScoutNetworkState()
+                if enabled {
+                    try await ensureOpenScoutNetworkPairingRelay()
+                }
+            } catch {
+                lastError = error.localizedDescription
+            }
+
+            requestRefresh(reason: .manual)
+        }
+    }
+
+    func setOpenScoutNetworkKeepPairingRelayRunning(_ enabled: Bool) {
+        guard !openScoutNetworkActionPending else {
+            return
+        }
+
+        openScoutNetworkActionPending = true
+        lastError = nil
+
+        Task {
+            defer {
+                openScoutNetworkActionPending = false
+            }
+
+            do {
+                var settings = OpenScoutNetworkSettingsStore.load()
+                settings.keepPairingRelayRunning = enabled
+                try OpenScoutNetworkSettingsStore.save(settings)
+                refreshOpenScoutNetworkState()
+                if settings.discoveryEnabled && enabled {
+                    try await ensureOpenScoutNetworkPairingRelay()
+                }
+            } catch {
+                lastError = error.localizedDescription
+            }
+
+            requestRefresh(reason: .manual)
+        }
+    }
+
+    func signInOpenScoutNetwork() {
+        let settings = OpenScoutNetworkSettingsStore.load()
+        guard var components = URLComponents(string: settings.rendezvousURL) else {
+            return
+        }
+        components.path = "/v1/auth/github/start"
+        components.queryItems = [
+            URLQueryItem(name: "return_to", value: "/v1/auth/native/complete"),
+        ]
+        guard let url = components.url else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     func openTailscale() {
@@ -534,9 +620,81 @@ final class OpenScoutAppController: ObservableObject {
 
         pairing = await pairingService.loadState()
         tailscale = await tailscaleService.loadState()
+        refreshOpenScoutNetworkState()
+        await reconcileOpenScoutNetworkDiscovery()
         webReachable = await isWebSurfaceReachable()
         await refreshPairingRequests()
         updateMenuBarPresentation()
+    }
+
+    private func refreshOpenScoutNetworkState() {
+        let settings = OpenScoutNetworkSettingsStore.load()
+        let sessionAvailable = OpenScoutNetworkSessionStore.loadSessionToken() != nil
+        let relayReady = pairing.isRunning
+            && ((pairing.relay?.hasPrefix(settings.pairingRelayURL) ?? false)
+                || pairing.relay == settings.pairingRelayURL)
+        let statusLabel: String
+        let detail: String
+
+        if !settings.discoveryEnabled {
+            statusLabel = "Off"
+            detail = "OpenScout Network discovery is off."
+        } else if !sessionAvailable {
+            statusLabel = "Sign in required"
+            detail = "Sign in to OpenScout Network before publishing this Mac."
+        } else if settings.keepPairingRelayRunning && !relayReady {
+            statusLabel = "Starting relay"
+            detail = "OpenScout Network discovery is on; starting the pairing relay."
+        } else {
+            statusLabel = "On"
+            detail = "OpenScout Network discovery is on."
+        }
+
+        openScoutNetwork = OpenScoutNetworkViewState(
+            discoveryEnabled: settings.discoveryEnabled,
+            rendezvousURL: settings.rendezvousURL,
+            pairingRelayURL: settings.pairingRelayURL,
+            keepPairingRelayRunning: settings.keepPairingRelayRunning,
+            sessionAvailable: sessionAvailable,
+            settingsPath: OpenScoutNetworkSettingsStore.settingsPath(),
+            statusLabel: statusLabel,
+            statusDetail: detail
+        )
+    }
+
+    private func reconcileOpenScoutNetworkDiscovery() async {
+        let settings = OpenScoutNetworkSettingsStore.load()
+        guard settings.discoveryEnabled,
+              settings.keepPairingRelayRunning,
+              OpenScoutNetworkSessionStore.loadSessionToken() != nil,
+              !pairingActionPending,
+              !openScoutNetworkActionPending else {
+            return
+        }
+
+        let relayMatches = pairing.relay == settings.pairingRelayURL
+            || (pairing.relay?.hasPrefix(settings.pairingRelayURL) ?? false)
+        guard !pairing.isRunning || !relayMatches else {
+            return
+        }
+
+        do {
+            try await ensureOpenScoutNetworkPairingRelay()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func ensureOpenScoutNetworkPairingRelay() async throws {
+        guard !pairingActionPending else {
+            return
+        }
+        pairingActionPending = true
+        defer {
+            pairingActionPending = false
+        }
+        pairing = try await pairingService.control(pairing.isRunning ? .restart : .start)
+        refreshOpenScoutNetworkState()
     }
 
     private func updateMenuBarPresentation() {

@@ -153,6 +153,26 @@ export function hasProviderHarnessSession(agent: Agent): boolean {
   return !isTransportRefInHarnessSlot(sessionId, agent.terminalSurface);
 }
 
+/** Warmed-up codex app-server relay waiting for work — not an active lane. */
+export function isIdleCodexRelay(agent: Agent): boolean {
+  return agent.transport === "codex_app_server" && agent.state === "available";
+}
+
+/** Poll observe only for agents that may produce lane-worthy trace activity. */
+export function shouldPollAgentForLaneObserve(
+  agent: Agent,
+  now: number = Date.now(),
+  horizon: AgentLaneHorizonKey = DEFAULT_AGENT_LANE_HORIZON,
+): boolean {
+  if (isIdleCodexRelay(agent)) return false;
+  if (agent.harnessSessionId?.trim()) return true;
+  if (agent.state && /^(working|active|running|in_turn|in_flight|queued|waking|dispatching)$/i.test(agent.state.trim())) {
+    return true;
+  }
+  const windowMs = agentLaneHorizonWindowMs(horizon);
+  return agent.updatedAt ? now - agent.updatedAt <= windowMs : false;
+}
+
 /** @deprecated Use isTransportRefInHarnessSlot */
 export function isRelayHarnessSession(value: string | null | undefined): boolean {
   return isTransportRefInHarnessSlot(value);
@@ -740,12 +760,21 @@ const PLACEHOLDER_EVENT_MARKERS = [
   "waiting for a live session",
 ];
 
+function isWarmupBootObserveEvent(event: ObserveEvent): boolean {
+  if (event.kind !== "boot" && event.kind !== "system") return false;
+  const text = event.text.trim().toLowerCase();
+  const detail = (event.detail ?? "").trim().toLowerCase();
+  if (!text.includes("session started")) return false;
+  return detail.includes("turns: 0") && detail.includes("status: idle");
+}
+
 function isSubstantiveObserveEvent(event: ObserveEvent): boolean {
   if (event.kind === "tool" || event.kind === "think" || event.kind === "ask" || event.kind === "message") {
     return true;
   }
   if (event.kind === "note") return true;
   if (event.kind === "system" || event.kind === "boot") {
+    if (isWarmupBootObserveEvent(event)) return false;
     const text = event.text.trim().toLowerCase();
     return !PLACEHOLDER_EVENT_MARKERS.some((marker) => text.includes(marker));
   }
@@ -1409,6 +1438,7 @@ export function buildAgentLanes(input: {
   }
 
   for (const agent of scoutAgents) {
+    if (isIdleCodexRelay(agent)) continue;
     if (!hasDesignedAgentCard(agent, "scout")) continue;
     if (!hasProviderHarnessSession(agent)) continue;
     if (agentSharesTranscriptSession(agent, representedTranscriptSessionRefs)) {

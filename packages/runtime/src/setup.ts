@@ -28,6 +28,11 @@ import {
   writeClaudeStatuslineDelegate,
 } from "./claude-statusline.js";
 import { upsertManagedInstall } from "./managed-installs.js";
+import {
+  defaultOpenScoutNetworkSettings,
+  normalizeOpenScoutNetworkSettings,
+  type OpenScoutNetworkRuntimeSettings,
+} from "./open-scout-network.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
@@ -214,6 +219,9 @@ export type OpenScoutSettings = {
       ownerNodeId: string;
     };
   };
+  network: {
+    openScoutNetwork: OpenScoutNetworkRuntimeSettings;
+  };
   phone: {
     favorites: string[];
     quickHits: string[];
@@ -336,6 +344,9 @@ export type UpdateOpenScoutSettingsInput = {
   ui?: Partial<OpenScoutSettings["ui"]>;
   bridges?: {
     telegram?: Partial<OpenScoutSettings["bridges"]["telegram"]>;
+  };
+  network?: {
+    openScoutNetwork?: Partial<OpenScoutSettings["network"]["openScoutNetwork"]>;
   };
   phone?: Partial<OpenScoutSettings["phone"]>;
 };
@@ -1129,6 +1140,9 @@ function defaultSettings(): OpenScoutSettings {
         ownerNodeId: "",
       },
     },
+    network: {
+      openScoutNetwork: defaultOpenScoutNetworkSettings(),
+    },
     phone: {
       favorites: [],
       quickHits: [],
@@ -1589,6 +1603,7 @@ async function normalizeSettingsRecord(
   const agents = typeof candidate.agents === "object" && candidate.agents ? candidate.agents as Record<string, unknown> : {};
   const bridges = typeof candidate.bridges === "object" && candidate.bridges ? candidate.bridges as Record<string, unknown> : {};
   const telegram = typeof bridges.telegram === "object" && bridges.telegram ? bridges.telegram as Record<string, unknown> : {};
+  const network = typeof candidate.network === "object" && candidate.network ? candidate.network as Record<string, unknown> : {};
   const phone = typeof candidate.phone === "object" && candidate.phone ? candidate.phone as Record<string, unknown> : {};
   const ui = typeof candidate.ui === "object" && candidate.ui ? candidate.ui as Record<string, unknown> : {};
   const oldOperatorName = typeof candidate.operatorName === "string" ? candidate.operatorName : undefined;
@@ -1675,6 +1690,9 @@ async function normalizeSettingsRecord(
         defaultConversationId: normalizeTelegramConversationId(telegram.defaultConversationId),
         ownerNodeId: normalizeOptionalString(telegram.ownerNodeId),
       },
+    },
+    network: {
+      openScoutNetwork: normalizeOpenScoutNetworkSettings(network.openScoutNetwork),
     },
     phone: {
       favorites: normalizeStringList(phone.favorites),
@@ -1851,6 +1869,14 @@ export async function writeOpenScoutSettings(settings: UpdateOpenScoutSettingsIn
       telegram: {
         ...current.bridges.telegram,
         ...(settings.bridges?.telegram ?? {}),
+      },
+    },
+    network: {
+      ...current.network,
+      ...(settings.network ?? {}),
+      openScoutNetwork: {
+        ...current.network.openScoutNetwork,
+        ...(settings.network?.openScoutNetwork ?? {}),
       },
     },
     phone: {

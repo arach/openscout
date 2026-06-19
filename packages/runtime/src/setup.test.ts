@@ -9,6 +9,7 @@ import {
   initializeOpenScoutSetup,
   installClaudeStatuslineTool,
   installScoutSkillToHarnesses,
+  readOpenScoutSettings,
   resolveOpenScoutSetupContextRoot,
   writeOpenScoutSettings,
 } from "./setup.js";
@@ -57,6 +58,37 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("persists OpenScout Network discovery settings", async () => {
+    const home = join(tmpdir(), `openscout-osn-settings-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+
+    const defaults = await readOpenScoutSettings();
+    expect(defaults.network.openScoutNetwork.discoveryEnabled).toBe(false);
+    expect(defaults.network.openScoutNetwork.pairingRelayUrl).toBe("wss://mesh.oscout.net/v1/relay");
+
+    const settings = await writeOpenScoutSettings({
+      network: {
+        openScoutNetwork: {
+          discoveryEnabled: true,
+          rendezvousUrl: "https://mesh.example.test/",
+          keepPairingRelayRunning: false,
+        },
+      },
+    });
+
+    expect(settings.network.openScoutNetwork).toEqual({
+      discoveryEnabled: true,
+      rendezvousUrl: "https://mesh.example.test",
+      pairingRelayUrl: "wss://mesh.oscout.net/v1/relay",
+      keepPairingRelayRunning: false,
+    });
+  });
+
   test("records installed harness skills in the managed install ledger", async () => {
     const home = join(tmpdir(), `openscout-managed-installs-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 

@@ -90,9 +90,9 @@ interface UpsertAgentCardResponse {
 
 ## Implementation
 
-### Broker Daemon
+### Broker HTTP router
 
-Add to `broker-daemon.ts` route handler:
+Add to `broker-http-router.ts` (or `broker-http-entity-write-routes.ts` for entity writes):
 
 ```typescript
 // POST /v1/endpoints
@@ -167,4 +167,5 @@ Pure addition — no existing APIs change. External agents that don't register s
 - `packages/protocol/src/scout-agent-card.ts` — `ScoutAgentCard`, `buildScoutReturnAddress()`
 - `packages/runtime/src/scout-agent-cards.ts` — `buildScoutAgentCard()`
 - `packages/runtime/src/broker.ts` — `runtime.upsertEndpoint()`, `runtime.deleteEndpoint()`
-- `packages/runtime/src/broker-daemon.ts` — route handler patterns
+- `packages/runtime/src/broker-http-router.ts` — route handler patterns
+- `packages/runtime/src/broker-daemon.ts` — composition root (wires services, does not own routes)

@@ -12,6 +12,7 @@ import {
   invokeCodexAppServerAgent,
   isCodexAppServerExitError,
   normalizeCodexAppServerLaunchArgs,
+  readCodexAppServerModelFromLaunchArgs,
   readCodexAppServerReasoningEffortFromLaunchArgs,
   resolveCodexExecutableCandidates,
   sendCodexAppServerAgent,
@@ -997,6 +998,13 @@ describe("buildCodexAppServerSessionSnapshot", () => {
           info: {
             model_context_window: 200000,
             total_token_usage: {
+              input_tokens: 501000,
+              cached_input_tokens: 250,
+              output_tokens: 80,
+              reasoning_output_tokens: 20,
+              total_tokens: 501080,
+            },
+            last_token_usage: {
               input_tokens: 1000,
               cached_input_tokens: 250,
               output_tokens: 80,
@@ -1044,11 +1052,12 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 
     expect(snapshot).not.toBeNull();
     expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
-      inputTokens: 1000,
+      contextInputTokens: 1000,
+      inputTokens: 501000,
       cacheReadInputTokens: 250,
       outputTokens: 80,
       reasoningOutputTokens: 20,
-      totalTokens: 1080,
+      totalTokens: 501080,
       contextWindowTokens: 200000,
       planType: "plus",
     }));
@@ -1231,6 +1240,15 @@ describe("ensureCodexAppServerAgentOnline", () => {
       "-c",
       "model=\"gpt-5.4-mini\"",
     ]);
+  });
+
+  test("expands GPT model shorthand for app-server sessions", () => {
+    expect(normalizeCodexAppServerLaunchArgs(["--model", "5.5"])).toEqual([
+      "-c",
+      "model=\"gpt-5.5\"",
+    ]);
+    expect(readCodexAppServerModelFromLaunchArgs(["--model", "5.5"])).toBe("gpt-5.5");
+    expect(readCodexAppServerModelFromLaunchArgs(["-c", "model=\"5.4-mini\""])).toBe("gpt-5.4-mini");
   });
 
   test("normalizes reasoning effort launch args for app-server sessions", () => {

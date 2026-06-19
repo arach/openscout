@@ -394,5 +394,7 @@ ln -s ~/dev/pi-scout ~/.pi/agent/extensions/pi-scout
 - `pi-intercom` UI patterns (`~/.local/lib/node_modules/pi-intercom/ui/`)
 - `pi-subagents` render helpers (`~/.local/lib/node_modules/pi-subagents/render-helpers.ts`)
 - Scout `/v1/deliver` API (SCO-014)
-- Scout broker daemon: `packages/runtime/src/broker-daemon.ts`
+- Scout broker composition root: `packages/runtime/src/broker-daemon.ts`
+- Scout broker HTTP router: `packages/runtime/src/broker-http-router.ts`
+- Scout broker deliver path: `packages/runtime/src/broker-delivery-acceptance-service.ts`
 - Scout broker process manager: `packages/runtime/src/broker-process-manager.ts`

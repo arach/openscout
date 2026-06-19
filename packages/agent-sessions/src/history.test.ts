@@ -513,6 +513,12 @@ describe("history snapshot replay", () => {
           info: {
             model_context_window: 200000,
             total_token_usage: {
+              input_tokens: 400000,
+              cached_input_tokens: 40,
+              output_tokens: 20,
+              reasoning_output_tokens: 7,
+            },
+            last_token_usage: {
               input_tokens: 100,
               cached_input_tokens: 40,
               output_tokens: 20,
@@ -576,7 +582,8 @@ describe("history snapshot replay", () => {
           gitBranch: "codex/embed-vox-transcription",
         }),
         observeUsage: expect.objectContaining({
-          inputTokens: 100,
+          contextInputTokens: 100,
+          inputTokens: 400000,
           outputTokens: 20,
           reasoningOutputTokens: 7,
           cacheReadInputTokens: 40,

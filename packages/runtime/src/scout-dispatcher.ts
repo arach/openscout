@@ -12,7 +12,6 @@ import {
   type AgentIdentity,
   type AgentIdentityCandidate,
   type AgentIdentityDiagnosis,
-  type ScoutCandidateEndpointState,
   type ScoutDispatchCandidate,
   type ScoutDispatchEnvelope,
   type ScoutDispatchKind,
@@ -21,6 +20,12 @@ import {
 } from "@openscout/protocol";
 
 import type { createInMemoryControlRuntime } from "./broker.js";
+import {
+  endpointAvailabilityScore,
+  endpointCandidateState,
+  endpointMatchesTargetSession,
+  homeEndpointForAgent,
+} from "./broker-endpoint-selection.js";
 
 export type RuntimeSnapshot = ReturnType<ReturnType<typeof createInMemoryControlRuntime>["snapshot"]>;
 
@@ -120,23 +125,11 @@ export function buildAgentLabelCandidates(
     .map((agent) => buildAgentLabelCandidate(snapshot, agent));
 }
 
-function preferredEndpointForAgent(
-  snapshot: RuntimeSnapshot,
-  agentId: string,
-): AgentEndpoint | undefined {
-  const endpoints = Object.values(snapshot.endpoints ?? {}).filter(
-    (endpoint) => endpoint.agentId === agentId,
-  );
-  return endpoints.find((endpoint) => endpoint.state === "active")
-    ?? endpoints.find((endpoint) => endpoint.state === "idle" || endpoint.state === "waiting")
-    ?? endpoints[0];
-}
-
 function projectRootForAgent(
   snapshot: RuntimeSnapshot,
   agent: AgentDefinition,
 ): string | undefined {
-  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  const endpoint = homeEndpointForAgent(snapshot, agent.id);
   return endpoint?.projectRoot?.trim()
     || metadataStringValue(agent.metadata, "projectRoot")
     || endpoint?.cwd?.trim();
@@ -152,7 +145,7 @@ function buildAgentLabelCandidate(
   agent: AgentDefinition,
 ): BrokerAgentCandidate {
   const metadata = agent.metadata ?? {};
-  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  const endpoint = homeEndpointForAgent(snapshot, agent.id);
   const aliases = [
     agent.handle,
     metadataStringValue(metadata, "handle"),
@@ -274,29 +267,14 @@ export function resolveAgentLabel(
   };
 }
 
-function endpointRank(endpoint: AgentEndpoint | undefined): number {
-  switch (endpoint?.state) {
-    case "active":
-      return 40;
-    case "idle":
-      return 30;
-    case "waiting":
-      return 20;
-    case "offline":
-      return 0;
-    default:
-      return 10;
-  }
-}
-
 function projectCandidateRank(
   snapshot: RuntimeSnapshot,
   agent: AgentDefinition,
   preferLocalNodeId: string | undefined,
 ): number {
-  const endpoint = preferredEndpointForAgent(snapshot, agent.id);
+  const endpoint = homeEndpointForAgent(snapshot, agent.id);
   const nodeRank = preferLocalNodeId && agent.authorityNodeId === preferLocalNodeId ? 100 : 0;
-  return nodeRank + endpointRank(endpoint);
+  return nodeRank + endpointAvailabilityScore(endpoint);
 }
 
 function resolveProjectPathTarget(
@@ -341,44 +319,13 @@ function resolveProjectPathTarget(
   };
 }
 
-const ENDPOINT_SESSION_ALIAS_METADATA_KEYS = [
-  "sessionId",
-  "externalSessionId",
-  "threadId",
-  "nativeSessionId",
-  "runtimeSessionId",
-  "runtimeInstanceId",
-  "tmuxSession",
-  "pairingSessionId",
-] as const;
-
-function endpointSessionAliasValues(endpoint: AgentEndpoint): string[] {
-  const values = [
-    endpoint.id,
-    endpoint.sessionId,
-    ...ENDPOINT_SESSION_ALIAS_METADATA_KEYS.map((key) => metadataStringValue(endpoint.metadata, key)),
-  ];
-  const aliases = values
-    .map((value) => value?.trim())
-    .filter((value): value is string => Boolean(value));
-  return [...new Set(aliases)];
-}
-
-function endpointMatchesSessionId(endpoint: AgentEndpoint, sessionId: string): boolean {
-  const normalizedSessionId = sessionId.trim();
-  if (!normalizedSessionId) {
-    return false;
-  }
-  return endpointSessionAliasValues(endpoint).includes(normalizedSessionId);
-}
-
 function resolveSessionTarget(
   snapshot: RuntimeSnapshot,
   sessionId: string,
   options: { helpers: Pick<DispatcherHelpers, "isStale"> },
 ): BrokerLabelResolution {
   const candidates = Object.values(snapshot.endpoints)
-    .filter((endpoint) => endpointMatchesSessionId(endpoint, sessionId))
+    .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId))
     .map((endpoint) => snapshot.agents[endpoint.agentId])
     .filter((agent): agent is AgentDefinition => Boolean(agent))
     .map((agent) => agent);
@@ -478,16 +425,6 @@ export function resolveBrokerRouteTarget(
   });
 }
 
-function normalizeEndpointState(state: AgentEndpoint["state"] | undefined): ScoutCandidateEndpointState {
-  if (state === "active" || state === "idle" || state === "waiting") {
-    return "online";
-  }
-  if (state === "offline") {
-    return "offline";
-  }
-  return "unknown";
-}
-
 export function summarizeDispatchCandidate(
   agent: AgentDefinition,
   snapshot: RuntimeSnapshot,
@@ -510,7 +447,7 @@ export function summarizeDispatchCandidate(
       ?? endpoint?.cwd
       ?? metadataStringValue(agent.metadata, "projectRoot")
       ?? null,
-    endpointState: normalizeEndpointState(endpoint?.state),
+    endpointState: endpointCandidateState(endpoint?.state),
     transport: endpoint?.transport ?? null,
   };
 }

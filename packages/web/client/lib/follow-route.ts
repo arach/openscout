@@ -44,7 +44,26 @@ function tailRouteForFollowTarget(target: FollowTarget): Route {
     view: "ops",
     mode: "tail",
     ...(tailQuery ? { tailQuery } : {}),
+    ...(target.flightId ? { flightId: target.flightId } : {}),
+    ...(target.invocationId ? { invocationId: target.invocationId } : {}),
+    ...(target.conversationId ? { conversationId: target.conversationId } : {}),
+    ...(target.workId ? { workId: target.workId } : {}),
+    ...(target.sessionId ? { sessionId: target.sessionId } : {}),
+    ...(target.targetAgentId ? { targetAgentId: target.targetAgentId } : {}),
   };
+}
+
+function observeRouteForFollowTarget(target: FollowTarget): Route | null {
+  if (target.sessionId) {
+    return {
+      view: "sessions",
+      sessionId: target.sessionId,
+      ...(target.targetAgentId ? { agentId: target.targetAgentId } : {}),
+    };
+  }
+  return target.targetAgentId
+    ? { view: "agents", agentId: target.targetAgentId, tab: "observe" }
+    : null;
 }
 
 export function routeForFollowTarget(
@@ -64,11 +83,19 @@ export function routeForFollowTarget(
     return tailRouteForFollowTarget(target);
   }
 
+  const observeRoute = observeRouteForFollowTarget(target);
+  if (observeRoute) {
+    return observeRoute;
+  }
   if (target.workId) {
     return { view: "work", workId: target.workId };
   }
   if (target.sessionId) {
-    return { view: "sessions", sessionId: target.sessionId };
+    return {
+      view: "sessions",
+      sessionId: target.sessionId,
+      ...(target.targetAgentId ? { agentId: target.targetAgentId } : {}),
+    };
   }
   if (target.conversationId) {
     return { view: "conversation", conversationId: target.conversationId };

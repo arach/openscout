@@ -171,6 +171,7 @@ mock.module("./core/broker/service.ts", () => ({
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
   markScoutConversationRead: async () => null,
   readScoutUnblockRequests: async () => readUnblockRequestsResult,
+  registerScoutLocalAgentBinding: async () => null,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
     reachable: false,
@@ -181,6 +182,7 @@ mock.module("./core/broker/service.ts", () => ({
     error: "offline",
   }),
   resolveScoutBrokerUrl: () => "http://broker.test",
+  retireScoutLocalAgentBinding: async () => false,
   sendScoutMessage: async (input: Record<string, unknown>) => {
     sendScoutMessageCalls.push(input);
     return sendScoutMessageResult;
@@ -953,6 +955,115 @@ describe("createOpenScoutWebServer", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual([]);
+  });
+
+  test("does not advertise terminal takeover for protocol-backed sessions", async () => {
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Codex Relay",
+        harness: "codex",
+        transport: "codex_app_server",
+        harnessSessionId: "codex-thread-1",
+        cwd: "/tmp/project",
+        projectRoot: "/tmp/project",
+      },
+    ];
+    scoutBrokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "active",
+            sessionId: "codex-thread-1",
+            cwd: "/tmp/project",
+            projectRoot: "/tmp/project",
+            metadata: {
+              threadPath: "/tmp/project/.codex/thread.jsonl",
+            },
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents/agent-1/session-catalog",
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
+      activeSessionId: "codex-thread-1",
+      resumeCommand: "codex resume -C /tmp/project codex-thread-1",
+    });
+    expect(body.sessions).toEqual([
+      expect.objectContaining({
+        id: "codex-thread-1",
+        transport: "codex_app_server",
+        canObserve: true,
+        canTakeover: false,
+      }),
+    ]);
+  });
+
+  test("advertises terminal takeover only for CLI resume transports", async () => {
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Codex CLI",
+        harness: "codex",
+        transport: "codex_exec",
+        harnessSessionId: "codex-thread-1",
+        cwd: "/tmp/project",
+        projectRoot: "/tmp/project",
+      },
+    ];
+    scoutBrokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-1": {
+            id: "endpoint-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_exec",
+            state: "active",
+            sessionId: "codex-thread-1",
+            cwd: "/tmp/project",
+            projectRoot: "/tmp/project",
+            metadata: {},
+          },
+        },
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(
+      "http://localhost/api/agents/agent-1/session-catalog",
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as Record<string, unknown>;
+    expect(body.sessions).toEqual([
+      expect.objectContaining({
+        id: "codex-thread-1",
+        transport: "codex_exec",
+        canTakeover: true,
+      }),
+    ]);
   });
 
   test("serves a bounded tmux peek for a broker-backed agent", async () => {

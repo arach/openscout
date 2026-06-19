@@ -46,6 +46,7 @@ import type {
 } from "./broker-api.js";
 import { loadOpenScoutRuntimeBuildIdentity } from "./build-info.js";
 import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
+import { listBrokerMessages } from "./broker-core-message-read-model.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { ActivityItem } from "./sqlite-store.js";
@@ -150,56 +151,6 @@ function normalizeLimit(limit?: number): number {
   return typeof limit === "number" && Number.isFinite(limit) && limit > 0
     ? Math.min(limit, 500)
     : 100;
-}
-
-function listBrokerMessages(
-  runtime: BrokerCoreRuntime,
-  input: ScoutBrokerMessageQuery = {},
-): MessageRecord[] {
-  const snapshot = runtime.snapshot();
-  const limit = normalizeLimit(input.limit);
-  const participantId = input.participantId?.trim();
-  const matchesParticipant = (message: MessageRecord): boolean => {
-    if (!participantId) {
-      return true;
-    }
-    const conversation = snapshot.conversations[message.conversationId];
-    const participantConversation = Boolean(conversation?.participantIds.includes(participantId));
-    const directConversation = conversation?.kind === "direct" || conversation?.kind === "group_direct";
-    const authored = message.actorId === participantId;
-    const addressed = Boolean(message.mentions?.some((mention) => mention.actorId === participantId))
-      || Boolean(message.audience?.notify?.includes(participantId))
-      || Boolean(message.audience?.invoke?.includes(participantId))
-      || Boolean(message.audience?.visibleTo?.includes(participantId));
-
-    if (input.inboxOnly) {
-      return addressed || (participantConversation && directConversation);
-    }
-    return authored || addressed || participantConversation;
-  };
-
-  return Object.values(snapshot.messages)
-    .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
-    .filter((message) =>
-      !input.conversationId || message.conversationId === input.conversationId
-    )
-    .filter(matchesParticipant)
-    .filter((message) =>
-      input.since === null || input.since === undefined
-        ? true
-        : message.createdAt >= input.since
-    )
-    .sort((lhs, rhs) => rhs.createdAt - lhs.createdAt)
-    .slice(0, limit)
-    .reverse();
-}
-
-function isBrokerRequesterWaitTimeoutStatusMessage(message: MessageRecord): boolean {
-  if (message.class !== "status" || metadataString(message.metadata, "source") !== "broker") {
-    return false;
-  }
-  return message.body.includes("Scout stopped waiting for a synchronous result")
-    || message.body.includes("the requester stopped waiting after");
 }
 
 async function listBrokerActivity(

@@ -110,6 +110,18 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=observe");
   });
 
+
+  test("agent-scoped session routes round-trip", () => {
+    const route = routeFromUrl("http://127.0.0.1:3200/agents/hudson.main/sessions/codex-thread-1");
+
+    expect(route).toEqual({
+      view: "sessions",
+      agentId: "hudson.main",
+      sessionId: "codex-thread-1",
+    });
+    expect(routePath(route)).toBe("/agents/hudson.main/sessions/codex-thread-1");
+  });
+
   test("follow routes preserve Scout ids and preferred view", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:3200/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",

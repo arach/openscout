@@ -1904,6 +1904,10 @@ export class SQLiteControlPlaneStore {
     this.recordEndpointBudgetObservations(endpoint);
   }
 
+  deleteEndpoint(endpointId: string): void {
+    this.db.query("DELETE FROM agent_endpoints WHERE id = ?1").run(endpointId);
+  }
+
   private markRuntimeSessionsForEndpointEnded(
     endpointId: string,
     keepSessionId: string | null,

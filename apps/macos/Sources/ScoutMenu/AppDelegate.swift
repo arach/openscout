@@ -263,10 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func signInOpenScoutNetwork() {
-        guard let url = URL(string: "https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        controller.signInOpenScoutNetwork()
     }
 
     @objc
