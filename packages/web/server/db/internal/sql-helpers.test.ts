@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { closeDb } from "./db.ts";
 import {
   ACTIVE_FLIGHT_STATES,
   agentFlightPhaseFromFlightState,
@@ -62,6 +67,30 @@ describe("queryAgentFlightPhases", () => {
   });
 
   test("queryAgentFlightPhases parses against the control-plane flights table", () => {
-    expect(() => queryAgentFlightPhases()).not.toThrow();
+    const previousControlHome = process.env.OPENSCOUT_CONTROL_HOME;
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-sql-helpers-"));
+    mkdirSync(controlHome, { recursive: true });
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    rawDb.exec(`
+      CREATE TABLE flights (
+        id TEXT PRIMARY KEY,
+        target_agent_id TEXT NOT NULL,
+        state TEXT NOT NULL
+      );
+    `);
+    rawDb.close();
+    closeDb();
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    try {
+      expect(() => queryAgentFlightPhases()).not.toThrow();
+    } finally {
+      closeDb();
+      if (previousControlHome === undefined) {
+        delete process.env.OPENSCOUT_CONTROL_HOME;
+      } else {
+        process.env.OPENSCOUT_CONTROL_HOME = previousControlHome;
+      }
+      rmSync(controlHome, { recursive: true, force: true });
+    }
   });
 });

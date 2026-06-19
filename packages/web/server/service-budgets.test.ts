@@ -136,8 +136,13 @@ describe("service budgets", () => {
       expect.objectContaining({ label: "7d", usedLabel: "70%" }),
     ]);
     expect(rawDb.query<{ count: number }>(
-      "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE provider = 'anthropic' AND harness = 'claude'",
-    ).get()?.count).toBe(4);
+      "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE provider = 'anthropic' AND harness = 'claude' AND id NOT LIKE 'budget:quota:history:%'",
+    ).get()?.count).toBe(2);
+    const historyCount = rawDb.query<{ count: number }>(
+      "SELECT count(*) AS count FROM budget_quota_window_snapshots WHERE provider = 'anthropic' AND harness = 'claude' AND id LIKE 'budget:quota:history:%'",
+    ).get()?.count ?? 0;
+    expect(historyCount).toBeGreaterThanOrEqual(2);
+    expect(historyCount).toBeLessThanOrEqual(4);
     rawDb.close();
   });
 

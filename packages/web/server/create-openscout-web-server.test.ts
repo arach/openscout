@@ -957,7 +957,7 @@ describe("createOpenScoutWebServer", () => {
     expect(await response.json()).toEqual([]);
   });
 
-  test("does not advertise terminal takeover for protocol-backed sessions", async () => {
+  test("advertises terminal takeover for protocol-backed sessions with resume commands", async () => {
     queryAgentsResult = [
       {
         id: "agent-1",
@@ -1010,7 +1010,7 @@ describe("createOpenScoutWebServer", () => {
         id: "codex-thread-1",
         transport: "codex_app_server",
         canObserve: true,
-        canTakeover: false,
+        canTakeover: true,
       }),
     ]);
   });
