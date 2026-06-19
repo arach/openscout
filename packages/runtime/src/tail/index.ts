@@ -19,6 +19,7 @@ export type {
   DiscoveredTranscript,
   DiscoverySnapshot,
   TailContext,
+  TailDiscoveryIssue,
   TailDiscoveryScope,
   TailEvent,
   TailEventKind,

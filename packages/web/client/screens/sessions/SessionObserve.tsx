@@ -20,6 +20,12 @@ import type {
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
 import { collapseObserveDisplayRows } from "../../lib/observe-display.ts";
+import {
+  filterObserveEventsForHorizon,
+  laneSnippetText,
+  laneTextNeedsExpand,
+  laneToolArgSnippet,
+} from "../../lib/lane-observe.ts";
 import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
@@ -308,15 +314,84 @@ function buildToolCopyText(event: SessionEvent): string {
 
 /* ── Event blocks ── */
 
-function ThinkBlock({ event }: { event: SessionEvent }) {
+function LaneExpandToggle({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="s-observe-block">
-      <div className="s-observe-think-label">thinking</div>
-      <div className="s-observe-think-text">
-        <span className="s-observe-quoted">{event.text}</span>
-        {event.live && <span className="s-observe-cursor" />}
+    <button
+      type="button"
+      className="s-observe-lane-expand"
+      onClick={onToggle}
+      aria-expanded={expanded}
+    >
+      {expanded ? "Less" : "More"}
+    </button>
+  );
+}
+
+function LaneExpandableText({
+  text,
+  className,
+  laneMode = false,
+  live = false,
+  renderExpanded,
+}: {
+  text: string;
+  className: string;
+  laneMode?: boolean;
+  live?: boolean;
+  renderExpanded?: (value: string) => ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const normalized = text.trim();
+  if (!laneMode) {
+    return (
+      <div className={className}>
+        {renderExpanded ? renderExpanded(normalized) : normalized}
+        {live && <span className="s-observe-cursor" />}
       </div>
-      <CopyButton text={event.text ?? ""} label="Copy thought" />
+    );
+  }
+
+  const needsExpand = laneTextNeedsExpand(normalized);
+  const snippet = laneSnippetText(normalized);
+  const body = expanded
+    ? (renderExpanded ? renderExpanded(normalized) : normalized)
+    : snippet;
+
+  return (
+    <div className={`s-observe-lane-expandable${expanded ? " s-observe-lane-expandable--open" : ""}`}>
+      <div className={className}>
+        {body}
+        {live && <span className="s-observe-cursor" />}
+      </div>
+      {needsExpand && (
+        <LaneExpandToggle
+          expanded={expanded}
+          onToggle={() => setExpanded((value) => !value)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ThinkBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+  const text = event.text ?? "";
+  return (
+    <div className={`s-observe-block${laneMode ? " s-observe-think--lane" : ""}`}>
+      <div className="s-observe-think-label">thinking</div>
+      <LaneExpandableText
+        text={text}
+        className="s-observe-think-text"
+        laneMode={laneMode}
+        live={event.live}
+        renderExpanded={(value) => <span className="s-observe-quoted">{value}</span>}
+      />
+      {!laneMode && <CopyButton text={text} label="Copy thought" />}
     </div>
   );
 }
@@ -360,38 +435,56 @@ function toolArgLabel(event: SessionEvent): string | undefined {
   return arg;
 }
 
-function ToolBlock({ event }: { event: SessionEvent }) {
+function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+  const [expanded, setExpanded] = useState(false);
   const glyph = TOOL_GLYPH[observeToolGlyphKey(event.tool)] ?? "▸";
   const command = toolArgLabel(event);
-  const outcome = event.result?.outcome?.trim();
+  const fullCommand = command ?? event.arg?.trim() ?? "";
+  const laneCommand = laneMode ? laneToolArgSnippet(fullCommand) : fullCommand;
+  const outcome = typeof event.result?.outcome === "string"
+    ? event.result.outcome.trim()
+    : (typeof event.result?.outcome === "number" ? String(event.result.outcome) : undefined);
   const showOutcome = Boolean(outcome && outcome !== "success");
   const hasBody = !!(showOutcome || event.diff || event.stream);
+  const laneExpandable = laneMode && (
+    hasBody
+    || laneTextNeedsExpand(fullCommand, 96, 2)
+    || Boolean(event.diff?.preview && laneTextNeedsExpand(event.diff.preview, 120, 4))
+  );
 
   return (
-    <div className="s-observe-tool s-observe-block">
+    <div className={`s-observe-tool s-observe-block${laneMode ? " s-observe-tool--lane" : ""}`}>
       <div
-        className={`s-observe-tool-header${hasBody ? " s-observe-tool-header--has-body" : ""}`}
+        className={`s-observe-tool-header${hasBody && !laneMode ? " s-observe-tool-header--has-body" : ""}`}
       >
         <span className="s-observe-tool-glyph">{glyph}</span>
         <span className="s-observe-tool-cmd">
           <span className="s-observe-tool-cmd-name">{event.tool}</span>
-          {command ? (
+          {laneCommand ? (
             <>
               {" "}
-              <span className="s-observe-tool-cmd-arg">{command}</span>
+              <span className="s-observe-tool-cmd-arg">{laneCommand}</span>
             </>
-          ) : event.arg ? (
-            <> {event.arg}</>
           ) : null}
           {outcome === "success" && (
             <span className="s-observe-tool-outcome s-observe-tool-outcome--success">
               ok
             </span>
           )}
+          {laneMode && event.diff && (
+            <span className="s-observe-tool-diff-inline" aria-label={`${event.diff.add} additions, ${event.diff.del} deletions`}>
+              <span className="s-observe-tool-diff-add">+{event.diff.add}</span>
+              <span className="s-observe-tool-diff-del">−{event.diff.del}</span>
+            </span>
+          )}
         </span>
       </div>
 
-      {showOutcome && event.result && (
+      {laneExpandable && (
+        <LaneExpandToggle expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+      )}
+
+      {(!laneMode || expanded) && showOutcome && event.result && (
         <div className="s-observe-tool-result">
           {Object.entries(event.result)
             .map(([k, v]) => `${k}: ${v}`)
@@ -399,7 +492,7 @@ function ToolBlock({ event }: { event: SessionEvent }) {
         </div>
       )}
 
-      {event.diff && (
+      {(!laneMode || expanded) && event.diff && (
         <div className="s-observe-tool-diff">
           <div className="s-observe-tool-diff-stats">
             <span className="s-observe-tool-diff-add">+{event.diff.add}</span>
@@ -412,31 +505,41 @@ function ToolBlock({ event }: { event: SessionEvent }) {
               </>
             )}
           </div>
-          <DiffPreview preview={event.diff.preview} />
+          {laneMode && !expanded
+            ? null
+            : <DiffPreview preview={event.diff.preview} />}
         </div>
       )}
 
-      {event.stream && (
+      {(!laneMode || expanded) && fullCommand && laneMode && expanded && (
+        <pre className="s-observe-tool-stream s-observe-tool-stream--lane">{fullCommand}</pre>
+      )}
+
+      {(!laneMode || expanded) && event.stream && (
         <pre className="s-observe-tool-stream">{event.stream.join("\n")}</pre>
       )}
 
-      <CopyButton text={buildToolCopyText(event)} label="Copy tool call" />
+      {!laneMode && <CopyButton text={buildToolCopyText(event)} label="Copy tool call" />}
     </div>
   );
 }
 
-function AskLine({ event }: { event: SessionEvent }) {
+function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const toLabel = event.to === "human" ? "you" : event.to ?? "?";
   const copyText = event.answer
     ? `${event.text}\n\n↳ ${event.to ?? "you"}: ${event.answer}`
     : event.text ?? "";
   return (
-    <div className="s-observe-ask s-observe-block">
+    <div className={`s-observe-ask s-observe-block${laneMode ? " s-observe-ask--lane" : ""}`}>
       <div className="s-observe-ask-label">↗ ask → {toLabel}</div>
-      <div className="s-observe-ask-text">
-        <span className="s-observe-quoted">{event.text}</span>
-      </div>
-      {event.answer && (
+      <LaneExpandableText
+        text={event.text ?? ""}
+        className="s-observe-ask-text"
+        laneMode={laneMode}
+        live={event.live}
+        renderExpanded={(value) => <span className="s-observe-quoted">{value}</span>}
+      />
+      {event.answer && (!laneMode || laneTextNeedsExpand(event.answer)) && (
         <div className="s-observe-ask-answer">
           <span className="s-observe-ask-answer-meta">
             ↳ @{event.to ?? "you"} · +{(event.answerT ?? event.t) - event.t}s
@@ -444,20 +547,25 @@ function AskLine({ event }: { event: SessionEvent }) {
           <div className="s-observe-ask-answer-text">{event.answer}</div>
         </div>
       )}
-      <CopyButton text={copyText} label="Copy ask" />
+      {!laneMode && <CopyButton text={copyText} label="Copy ask" />}
     </div>
   );
 }
 
-function MessageLine({ event }: { event: SessionEvent }) {
+function MessageLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const toLabel = event.to === "human" ? "you" : event.to ?? "?";
+  const text = event.text ?? "";
   return (
-    <div className="s-observe-block">
+    <div className={`s-observe-block${laneMode ? " s-observe-message--lane" : ""}`}>
       <div className="s-observe-message-label">→ message → {toLabel}</div>
-      <div className="s-observe-message-text">
-        <MessageMarkup text={event.text} />
-      </div>
-      <CopyButton text={event.text ?? ""} label="Copy message" />
+      <LaneExpandableText
+        text={text}
+        className="s-observe-message-text"
+        laneMode={laneMode}
+        live={event.live}
+        renderExpanded={(value) => <MessageMarkup text={value} />}
+      />
+      {!laneMode && <CopyButton text={text} label="Copy message" />}
     </div>
   );
 }
@@ -604,10 +712,10 @@ function StreamRow({
 
       <span className="s-observe-row-bead" style={{ background: accent }} />
 
-      {event.kind === "think" && <ThinkBlock event={event} />}
-      {event.kind === "tool" && <ToolBlock event={event} />}
-      {event.kind === "ask" && <AskLine event={event} />}
-      {event.kind === "message" && <MessageLine event={event} />}
+      {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
+      {event.kind === "tool" && <ToolBlock event={event} laneMode={laneMode} />}
+      {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
+      {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
       {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
       {(event.kind === "system" || event.kind === "boot") && (
         <SystemLine event={event} laneMode={laneMode} />
@@ -1201,14 +1309,17 @@ export function SessionObserve({
   showRail = true,
   variant = "default",
   traceLimit,
+  traceWindowMs,
 }: {
   data?: SessionObserveData;
   agentId?: string;
   sessionId?: string | null;
   showRail?: boolean;
   variant?: "default" | "lane";
-  /** Lane mode: cap how many recent events render in the stream. */
+  /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
+  /** Lane mode: only render observe events inside this wall-clock window. */
+  traceWindowMs?: number;
 }) {
   const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
@@ -1268,9 +1379,16 @@ export function SessionObserve({
   }, [playing, duration, speed]);
 
   const visible = (() => {
-    const filtered = events.filter((event) => event.t <= cursor);
-    if (laneMode && traceLimit && traceLimit > 0) {
-      return filtered.slice(-traceLimit);
+    let filtered = events.filter((event) => event.t <= cursor);
+    if (laneMode && traceWindowMs && traceWindowMs > 0) {
+      filtered = filterObserveEventsForHorizon(
+        filtered,
+        sessionStartMs,
+        now,
+        traceWindowMs,
+      );
+    } else if (laneMode && traceLimit && traceLimit > 0) {
+      filtered = filtered.slice(-traceLimit);
     }
     return filtered;
   })();

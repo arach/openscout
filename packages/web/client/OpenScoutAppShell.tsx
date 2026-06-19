@@ -24,6 +24,7 @@ import {
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { useScout } from "./scout/Provider.tsx";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
+import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
 
@@ -745,6 +746,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         onClose={() => setShowFlagPanel(false)}
         audienceOptions={SCOUT_AUDIENCE_ORDER}
       />
+      <PairingRequestPrompt />
     </>
   );
 }

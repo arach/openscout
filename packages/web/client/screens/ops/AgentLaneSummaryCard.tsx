@@ -29,10 +29,16 @@ export function AgentLaneSummaryCard({
   const primaryLabel = lanePrimaryLabel(agent, source);
   const statusLabel = laneStatusLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
-  const preview = buildAgentLanePreview(observe, agent);
-  const meta = preview
-    ? [preview.harness, preview.model, preview.branch].filter(Boolean)
-    : [];
+  const preview = buildAgentLanePreview(observe, agent, { isLive });
+  const facts = lane.facts;
+  const specRow = [
+    facts?.model ?? preview?.model,
+    facts?.effort,
+    preview?.harness ?? agent.harness,
+    facts?.attribution,
+    facts?.branch ?? preview?.branch,
+  ].filter(Boolean);
+  const recentFiles = (facts?.touchedFiles.length ? facts.touchedFiles : preview?.files ?? []).slice(0, 5);
   const summaryPrimedRef = useRef(false);
   const prevHeadlineRef = useRef<string | null>(null);
   const [focusEntering, setFocusEntering] = useState(false);
@@ -85,8 +91,8 @@ export function AgentLaneSummaryCard({
 
       <div className="s-agent-lane-summary-body">
         <div className="s-agent-lane-summary-panel">
-          {meta.length > 0 && (
-            <div className="s-agent-lane-summary-meta">{meta.join(" · ")}</div>
+          {specRow.length > 0 && (
+            <div className="s-agent-lane-summary-meta">{specRow.join(" · ")}</div>
           )}
 
           <div className={`s-agent-lane-summary-focus${focusEntering ? " s-agent-lane-summary-focus--enter" : ""}`}>
@@ -124,14 +130,18 @@ export function AgentLaneSummaryCard({
                 )}
               </div>
 
-              {preview.files.length > 0 && (
+              {recentFiles.length > 0 && (
                 <div className="s-agent-lane-summary-files">
-                  {preview.files.map((file) => (
-                    <div key={file.path} className="s-agent-lane-summary-file" title={file.path}>
+                  {recentFiles.map((file, index) => (
+                    <div
+                      key={file.path?.trim() || `file-${index}`}
+                      className="s-agent-lane-summary-file"
+                      title={file.path?.trim() || undefined}
+                    >
                       <span className={`s-agent-lane-preview-file-state s-agent-lane-preview-file-state--${file.state}`}>
                         {FILE_STATE_LABEL[file.state] ?? file.state}
                       </span>
-                      <span className="s-agent-lane-preview-file-path">{filePreviewLabel(file.path)}</span>
+                      <span className="s-agent-lane-preview-file-path">{filePreviewLabel(file)}</span>
                     </div>
                   ))}
                 </div>

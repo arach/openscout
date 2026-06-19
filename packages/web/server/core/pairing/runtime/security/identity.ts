@@ -42,6 +42,23 @@ function loadIdentity(): KeyPair {
   };
 }
 
+/**
+ * Return this bridge's public key (hex) if an identity already exists, without
+ * creating one. Used by the always-on LAN discovery beacon, which must not
+ * mint an identity merely by booting the web server.
+ */
+export function tryLoadIdentityPublicKeyHex(): string | null {
+  if (!existsSync(IDENTITY_FILE)) return null;
+  try {
+    const data: SerializedIdentity = JSON.parse(readFileSync(IDENTITY_FILE, "utf8"));
+    return typeof data.publicKey === "string" && data.publicKey.length > 0
+      ? data.publicKey
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function createAndSaveIdentity(): KeyPair {
   const keyPair = generateKeyPair();
   mkdirSync(PAIRING_DIR, { recursive: true });

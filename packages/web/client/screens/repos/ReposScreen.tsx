@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { api } from "../../lib/api.ts";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -774,51 +775,64 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
     <div className="repo-watch-scope">
       <div className={"rw-scope tone-" + tone}>
         <div className="rw-page-shell">
-          {/* Shared toolbar: view toggle (left) + tone toggle (right). */}
+          {/* Refresh is the primary action; view/tone live in a minor display menu. */}
           <div className="rw-toolbar">
-            <div className="rw-tone" role="group" aria-label="View">
-              {VIEWS.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={v === view ? "on" : ""}
-                  aria-pressed={v === view}
-                  onClick={() => setView(v)}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-            <div className="rw-tone" role="group" aria-label="Refresh">
-              <button
-                type="button"
-                onClick={scanNow}
-                disabled={refreshing || scanMorePending}
-              >
-                {refreshing ? "Scanning" : "Refresh"}
-              </button>
-              {refreshReceipt ? (
-                <span className="rw-refresh-receipt">{refreshReceipt}</span>
-              ) : null}
-            </div>
-            <div
-              className="rw-tone"
-              style={{ marginLeft: "auto" }}
-              role="group"
-              aria-label="Console tone"
+            <button
+              type="button"
+              className="rw-refresh-main"
+              onClick={scanNow}
+              disabled={refreshing || scanMorePending}
             >
-              {TONES.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  className={t === tone ? "on" : ""}
-                  aria-pressed={t === tone}
-                  onClick={() => setTone(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+              <RefreshCw
+                size={14}
+                aria-hidden="true"
+                className={refreshing ? "rw-refresh-spin" : undefined}
+              />
+              <span>{refreshing ? "Scanning" : "Refresh"}</span>
+            </button>
+            {refreshReceipt ? (
+              <span className="rw-refresh-receipt">{refreshReceipt}</span>
+            ) : null}
+            <details className="rw-display-menu">
+              <summary aria-label="Display options">
+                <SlidersHorizontal size={14} aria-hidden="true" />
+                <span>Display</span>
+              </summary>
+              <div className="rw-display-panel">
+                <div className="rw-display-row">
+                  <span className="rw-display-label">View</span>
+                  <div className="rw-tone" role="group" aria-label="View">
+                    {VIEWS.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        className={v === view ? "on" : ""}
+                        aria-pressed={v === view}
+                        onClick={() => setView(v)}
+                      >
+                        {v}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rw-display-row">
+                  <span className="rw-display-label">Tone</span>
+                  <div className="rw-tone" role="group" aria-label="Console tone">
+                    {TONES.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        className={t === tone ? "on" : ""}
+                        aria-pressed={t === tone}
+                        onClick={() => setTone(t)}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
           {/* The worktree CONTEXT panel now lives in the global Inspector rail
               (scout/inspector/ReposInspector.tsx), so the table/drift view fills

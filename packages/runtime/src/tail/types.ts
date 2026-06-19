@@ -59,10 +59,20 @@ export type DiscoveredTranscript = {
   size: number;
 };
 
+export type TailDiscoveryIssueKind = "transcript_path_collision";
+
+export type TailDiscoveryIssue = {
+  kind: TailDiscoveryIssueKind;
+  sessionKey: string;
+  message: string;
+  transcriptPaths: string[];
+};
+
 export type DiscoverySnapshot = {
   generatedAt: number;
   processes: DiscoveredProcess[];
   transcripts: DiscoveredTranscript[];
+  issues?: TailDiscoveryIssue[];
   totals: {
     total: number;
     scoutManaged: number;

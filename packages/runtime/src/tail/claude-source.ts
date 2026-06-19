@@ -179,46 +179,39 @@ function fallbackCwdForPath(filePath: string): string | null {
   return dirName ? decodeProjectDir(dirName) : null;
 }
 
-function isClaudeWorkflowJournalFile(root: string, filePath: string): boolean {
-  const rel = relative(root, filePath);
-  if (!rel || rel.startsWith("..")) return false;
-  const parts = rel.split(/[\\/]/).filter(Boolean);
-  if (parts.at(-1) !== "journal.jsonl") return false;
-  return parts.includes("subagents") && parts.includes("workflows");
-}
-
-function walkRecentJsonlFiles(
+/** Session transcripts live directly under each encoded project dir — not nested paths. */
+function listRecentClaudeProjectTranscripts(
   root: string,
   scope: TailDiscoveryScope,
 ): TranscriptFileStat[] {
   const cutoff = Date.now() - discoveryWindowMs(scope);
-  const found: Array<{ path: string; mtimeMs: number; size: number }> = [];
-  const stack = [root];
-  while (stack.length > 0) {
-    const dir = stack.pop()!;
-    let entries: string[] = [];
+  const found: TranscriptFileStat[] = [];
+  let projectDirs: string[] = [];
+  try {
+    projectDirs = readdirSync(root);
+  } catch {
+    return [];
+  }
+
+  for (const entry of projectDirs) {
+    const projectDir = join(root, entry);
     try {
-      entries = readdirSync(dir);
+      if (!statSync(projectDir).isDirectory()) continue;
     } catch {
       continue;
     }
-    for (const entry of entries) {
-      const path = join(dir, entry);
-      let stats;
+    for (const file of listJsonlFiles(projectDir)) {
+      const path = join(projectDir, file);
       try {
-        stats = statSync(path);
+        const stats = statSync(path);
+        if (stats.mtimeMs < cutoff) continue;
+        found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
       } catch {
         continue;
       }
-      if (stats.isDirectory()) {
-        stack.push(path);
-        continue;
-      }
-      if (!entry.endsWith(".jsonl") || stats.mtimeMs < cutoff) continue;
-      if (isClaudeWorkflowJournalFile(root, path)) continue;
-      found.push({ path, mtimeMs: stats.mtimeMs, size: stats.size });
     }
   }
+
   return found
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
     .slice(0, discoveryLimit(scope));
@@ -269,7 +262,7 @@ function summarizeBlocks(content: unknown): string {
   return clip(parts.join(" · "));
 }
 
-function pickTimestamp(obj: Record<string, unknown>): number {
+function pickTimestamp(obj: Record<string, unknown>): number | null {
   const candidates = [
     obj.timestamp,
     (obj.message as Record<string, unknown> | undefined)?.timestamp,
@@ -284,7 +277,7 @@ function pickTimestamp(obj: Record<string, unknown>): number {
       return candidate < 1e12 ? candidate * 1000 : candidate;
     }
   }
-  return Date.now();
+  return null;
 }
 
 function classifyKind(rawType: string, blocks: unknown): TailEventKind {
@@ -380,6 +373,7 @@ function parseClaudeLine(line: string, ctx: TailContext): TailEvent | null {
       : "";
 
   const ts = pickTimestamp(obj);
+  if (ts === null) return null;
   const kind = classifyKind(rawType, blocks);
   const summary = summaryForType(rawType, obj, blocks)
     || `[${rawType}]`;
@@ -415,7 +409,7 @@ export const ClaudeSource: TranscriptSource = {
   discoverTranscripts(_processes: DiscoveredProcess[], scope: TailDiscoveryScope = "shallow"): DiscoveredTranscript[] {
     const root = projectsRoot();
     if (!existsSync(root)) return [];
-    return walkRecentJsonlFiles(root, scope).map((file) => {
+    return listRecentClaudeProjectTranscripts(root, scope).map((file) => {
       const meta = readClaudeMetadata(file);
       const cwd = meta.cwd ?? fallbackCwdForPath(file.path);
       const sessionId = meta.sessionId ?? basename(file.path).replace(/\.jsonl$/, "");
