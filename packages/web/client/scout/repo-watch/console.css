@@ -73,6 +73,11 @@
   color: #fff;
 }
 
+.rw-page-shell {
+  width: 100%;
+  padding: 24px;
+}
+
 /* ── Tone permutations — same structure, different console temperature. ──
  * Base `.rw-table` is Warm. `.tone-cool` shifts to a slate/teal graphite;
  * `.tone-mono` desaturates to near-monochrome with coral the only surviving
@@ -145,12 +150,52 @@
   color: var(--ink-1);
 }
 
-/* shared toolbar — view toggle (left) + tone toggle (right), above both views */
+/* shared toolbar — primary refresh plus quieter display options */
 .rw-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.rw-refresh-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 6px 11px;
+  border: 1px solid color-mix(in oklab, var(--amber) 44%, var(--line-2));
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--amber) 15%, var(--bg-2));
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.rw-refresh-main:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--amber) 62%, var(--line-2));
+  background: color-mix(in oklab, var(--amber) 22%, var(--bg-2));
+}
+
+.rw-refresh-main:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.rw-refresh-spin {
+  animation: rw-spin 0.9s linear infinite;
+}
+
+@keyframes rw-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* tone toggle — Warm · Cool · Mono (also used for the Table | Drift toggle) */
@@ -191,19 +236,65 @@
   white-space: nowrap;
 }
 
-.rw-context-shell {
-  display: none;
-  width: 340px;
-  flex: 0 0 auto;
-  position: sticky;
-  top: 24px;
-  align-self: flex-start;
+.rw-display-menu {
+  position: relative;
+  margin-left: auto;
+  font-family: var(--mono);
 }
 
-@media (min-width: 1024px) {
-  .rw-context-shell {
-    display: block;
-  }
+.rw-display-menu summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--copy);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rw-display-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.rw-display-menu summary:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+
+.rw-display-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  min-width: 238px;
+  padding: 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+}
+
+.rw-display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rw-display-label {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .stats {
@@ -708,6 +799,11 @@
   margin: 0 0 5px;
   overflow-wrap: anywhere;
 }
+.scan-detail-examples {
+  display: block;
+  margin-top: 2px;
+  color: var(--faint);
+}
 .scan-details li::marker {
   color: var(--faint);
 }
@@ -718,6 +814,149 @@
   text-align: center;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* ─── Open pull requests ─── */
+.rw-open-prs {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--ink-1);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.rw-open-prs-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.rw-open-prs-eyebrow {
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.rw-open-prs-title {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.rw-open-prs-meta {
+  padding: 2px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  color: var(--copy);
+  background: var(--rail-2);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.rw-open-prs-list {
+  display: grid;
+}
+
+.rw-open-pr-group {
+  display: grid;
+}
+
+.rw-open-pr-group + .rw-open-pr-group {
+  border-top: 1px solid var(--line);
+}
+
+.rw-open-pr-group-label {
+  padding: 8px 16px 5px;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--rail-2) 62%, transparent);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.rw-open-pr {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+  text-decoration: none;
+}
+
+.rw-open-pr:last-child {
+  border-bottom: 0;
+}
+
+.rw-open-pr:hover {
+  background: var(--row-hover);
+}
+
+.rw-open-pr-main,
+.rw-open-pr-detail {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.rw-open-pr-number {
+  flex: 0 0 auto;
+  color: var(--amber);
+  font-size: 10.5px;
+}
+
+.rw-open-pr-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rw-open-pr-detail {
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rw-open-pr-detail span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rw-open-prs-empty {
+  padding: 12px 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .rw-open-pr {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .rw-open-pr-detail {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────
@@ -742,6 +981,25 @@
 }
 .rw-ctx * {
   box-sizing: border-box;
+}
+
+/* Rail host — when the CONTEXT panel lives in the app's global right Inspector
+ * rail (see scout/inspector/ReposInspector.tsx) it fills the rail flush: the
+ * SidePanel supplies the surrounding chrome, so we drop the standalone card's
+ * border / radius / viewport-height cap and let the panel stretch full height. */
+.rw-ctx-rail-scope {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+.rw-ctx-rail-scope .rw-ctx {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
 }
 
 /* empty state */

@@ -185,19 +185,36 @@
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
 }
+.rd-close:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+.rd-close:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.rd-close.spinning svg {
+  animation: rd-spin 0.7s linear infinite;
+  transform-origin: center;
+}
 
 /* ── Body: files rail + diff surface ─────────────────────────────────── */
 .rd-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
 
 .rd-rail {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 248px;
   flex: none;
+  min-height: 0;
   border-right: 1px solid var(--rd-line);
   background: var(--rd-rail-bg);
 }
@@ -216,19 +233,74 @@
   overflow-y: auto;
   padding: var(--space-2xs) 0;
 }
+.rd-rail-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  z-index: 2;
+  width: 8px;
+  cursor: col-resize;
+}
+.rd-rail-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 3px;
+  bottom: 0;
+  width: 1px;
+  background: transparent;
+}
+.rd-rail-resizer:hover::after,
+.rd-rail-resizer:active::after {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.rd-dir-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  padding-top: var(--space-2xs);
+  padding-right: var(--space-sm);
+  padding-bottom: var(--space-2xs);
+  border: 0;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  color: color-mix(in srgb, var(--muted) 92%, var(--ink));
+  font-family: var(--rd-mono);
+  font-size: var(--text-2xs);
+  text-align: left;
+  cursor: pointer;
+}
+.rd-dir-row:hover {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+}
+.rd-dir-caret {
+  width: 12px;
+  flex: none;
+  color: var(--muted);
+}
+.rd-dir-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rd-dir-count {
+  flex: none;
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+}
 .rd-file-row {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
   width: 100%;
-  padding: var(--space-xs) var(--space-lg);
-  border: 0;
   border-left: 2px solid transparent;
   background: transparent;
   color: var(--ink);
   font-family: var(--rd-mono);
   text-align: left;
-  cursor: pointer;
 }
 .rd-file-row:hover {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
@@ -236,6 +308,42 @@
 .rd-file-row.on {
   background: var(--rd-sel);
   border-left-color: var(--accent);
+}
+.rd-file-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
+  padding-top: var(--space-xs);
+  padding-right: 0;
+  padding-bottom: var(--space-xs);
+  padding-left: var(--space-lg);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rd-file-include {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin: 0 var(--space-sm);
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  cursor: pointer;
+}
+.rd-file-include:hover,
+.rd-file-include:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  background: var(--rd-sel);
+  color: var(--ink);
 }
 .rd-file-glyph {
   display: grid;
@@ -320,11 +428,14 @@
 
 /* ── Diff surface (Pierre CodeView lives here) ───────────────────────── */
 .rd-surface {
+  grid-row: 2;
+  grid-column: 2;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
+  position: relative;
 }
 .rd-surface-scroll {
   flex: 1;
@@ -343,6 +454,32 @@
 .rd-codeview-host {
   height: 100%;
   min-height: 0;
+}
+
+.rd-selection-context-chip {
+  position: absolute;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  max-width: 124px;
+  padding: 0 var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--rd-line));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 82%, var(--accent) 18%);
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+}
+.rd-selection-context-chip:hover,
+.rd-selection-context-chip:focus-visible {
+  background: var(--accent);
+  color: var(--bg);
+  outline: none;
 }
 
 /* ── Banners (truncation / diagnostics / binary — spec §14) ──────────── */
@@ -370,6 +507,258 @@
   flex: none;
   border-radius: var(--radius-pill);
   background: currentColor;
+}
+
+/* ── Diff comment handoff ────────────────────────────────────────────── */
+.rd-comment {
+  grid-row: 1;
+  grid-column: 2;
+  z-index: 8;
+  padding: var(--space-xs) var(--space-lg);
+  border-bottom: 1px solid var(--rd-line);
+  background: color-mix(in srgb, var(--surface) 86%, var(--bg));
+}
+.rd-comment-context {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-xs);
+  max-height: 136px;
+  margin-bottom: var(--space-xs);
+  overflow: auto;
+}
+.rd-context-item {
+  min-width: 0;
+  border: 1px solid var(--rd-line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 90%, var(--ink) 10%);
+  overflow: hidden;
+}
+.rd-context-item.line {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--rd-line));
+}
+.rd-context-item.selection {
+  border-color: color-mix(in srgb, var(--green) 24%, var(--rd-line));
+}
+.rd-context-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 24px;
+  padding: 0 var(--space-xs);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+}
+.rd-context-icon {
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--accent) 74%, var(--muted));
+}
+.rd-context-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+.rd-context-detail {
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rd-context-remove {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rd-context-remove:hover:not(:disabled),
+.rd-context-remove:focus-visible {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--ink);
+  outline: none;
+}
+.rd-context-remove:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.rd-context-preview {
+  max-height: 84px;
+  margin: 0;
+  padding: var(--space-2xs) var(--space-sm) var(--space-xs);
+  overflow: auto;
+  border-top: 1px solid var(--rd-line);
+  color: color-mix(in srgb, var(--ink) 88%, var(--muted));
+  font-family: var(--rd-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.35;
+  white-space: pre;
+}
+.rd-comment-main {
+  display: grid;
+  grid-template-columns: minmax(132px, 172px) minmax(0, 1fr) 72px;
+  gap: var(--space-xs);
+  align-items: start;
+}
+.rd-target-button,
+.rd-comment textarea,
+.rd-comment-send {
+  border: 1px solid var(--rd-line-strong);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 96%, var(--ink) 4%);
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+.rd-target-button:focus-visible,
+.rd-comment textarea:focus-visible,
+.rd-comment-send:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--rd-line-strong));
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.rd-target-picker {
+  position: relative;
+  min-width: 0;
+}
+.rd-target-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--space-sm);
+  cursor: pointer;
+}
+.rd-target-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rd-target-button svg {
+  flex: none;
+  color: var(--muted);
+}
+.rd-target-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+.rd-target-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  width: min(260px, max(100%, 172px));
+  max-height: 184px;
+  overflow: auto;
+  padding: var(--space-2xs);
+  border: 1px solid var(--rd-line-strong);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.42);
+}
+.rd-target-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  min-height: 26px;
+  padding: 0 var(--space-xs);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--rd-mono);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+.rd-target-option:hover,
+.rd-target-option:focus-visible,
+.rd-target-option[aria-selected="true"] {
+  background: var(--rd-sel);
+  outline: none;
+}
+.rd-target-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rd-target-option-suffix {
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+.rd-target-option-check {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  color: var(--accent);
+}
+.rd-comment textarea {
+  min-width: 0;
+  min-height: 34px;
+  max-height: 96px;
+  resize: vertical;
+  overflow: auto;
+  padding: 7px var(--space-sm);
+}
+.rd-comment textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 76%, transparent);
+}
+.rd-comment-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  width: 72px;
+  height: 34px;
+  padding: 0 var(--space-sm);
+  cursor: pointer;
+}
+.rd-comment-send:hover:not(:disabled) {
+  background: var(--rd-sel);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+.rd-comment-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+}
+.rd-comment-spin {
+  animation: rd-spin 0.7s linear infinite;
+}
+.rd-comment-meta {
+  min-height: 14px;
+  margin-top: var(--space-2xs);
+  color: var(--muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+}
+.rd-comment-meta .ok {
+  color: var(--rd-add);
+}
+.rd-comment-meta .err {
+  color: var(--rd-del);
+}
+@media (max-width: 720px) {
+  .rd-comment-main {
+    grid-template-columns: 1fr;
+  }
+  .rd-target-button,
+  .rd-comment-send {
+    width: 100%;
+  }
 }
 
 /* ── Centered states (empty / binary / loading / error) ──────────────── */

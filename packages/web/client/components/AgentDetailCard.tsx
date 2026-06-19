@@ -47,7 +47,7 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
           <div className="agent-card-meta">
             <span
               className={`agent-card-dot agent-card-dot--${stateClass}`}
-              style={state === "working" ? { background: stateColor(agent.state) } : undefined}
+              style={state === "in_turn" || state === "in_flight" ? { background: stateColor(agent.state) } : undefined}
             />
             {stateLabel && (
               <span className={`agent-card-state agent-card-state--${stateClass}`}>{stateLabel}</span>

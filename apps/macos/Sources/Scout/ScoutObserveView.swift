@@ -116,7 +116,7 @@ private struct ScoutObserveSourceStrip: View {
             ScoutObserveMetric(title: "Files", value: "\(payload.data.files.count)", icon: "doc.text")
             ScoutObserveMetric(title: "Updated", value: payload.updatedLabel, icon: "clock")
             if let sessionId = payload.sessionId?.nilIfEmpty {
-                ScoutObserveMetric(title: "Session", value: sessionId, icon: "number")
+                ScoutObserveMetric(title: "Harness session", value: sessionId, icon: "number")
             }
             Spacer(minLength: HudSpacing.xxl)
             Text(agent.workspace)
@@ -392,7 +392,7 @@ private struct ScoutObserveStatusCard: View {
                 HudKVRow("Updated", value: payload.updatedLabel)
                 HudKVRow("Live", value: payload.data.live ? "yes" : "no", valueColor: payload.data.live ? ScoutPalette.statusOk : ScoutPalette.muted)
                 if let sessionId = payload.sessionId?.nilIfEmpty {
-                    HudKVRow("Session", value: sessionId)
+                    HudKVRow("Harness session", value: sessionId)
                 }
                 if let historyPath = payload.historyPath?.nilIfEmpty {
                     HudKVRow("History", value: historyPath)
@@ -418,6 +418,9 @@ private struct ScoutObserveSessionCard: View {
 
     private var rows: [(String, String)] {
         [
+            ("Harness session", session.externalSessionId),
+            ("Thread", session.threadId),
+            ("Thread path", session.threadPath),
             ("Adapter", session.adapterType),
             ("Model", session.model),
             ("Provider", session.modelProvider),

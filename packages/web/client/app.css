@@ -10,6 +10,15 @@
   --sidebar-w: 280px;
   --hud-canvas-dot-minor: rgba(255, 255, 255, 0.055);
   --hud-canvas-dot-major: rgba(255, 255, 255, 0.10);
+
+  /* Brand typefaces. Inter + JetBrains Mono are already loaded in index.html,
+     but the hud tokens defaulted to bare system stacks, so the whole app
+     rendered in system-ui / SF Mono. Point the tokens at the loaded faces so
+     the sans (--font-sans) and mono (--font-mono) aliases — and the base
+     elements that read --hud-font-* directly — all pick up the brand type. */
+  --hud-font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --hud-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
   font-family: var(--hud-font-sans);
   font-size: var(--hud-text-base);
   line-height: 1.5;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api.ts";
-import { normalizeAgentState } from "./agent-state.ts";
+import { isAgentBusy } from "./agent-state.ts";
 import type { Agent, AgentObservePayload, ObserveEvent } from "./types.ts";
 
 const ACTIVE_POLL_INTERVAL_MS = 2500;
@@ -19,7 +19,7 @@ export function useObservePolling(agents: Agent[]): ObserveCache {
     .map((agent) => agent.id.trim())
     .filter((agentId) => agentId.length > 0)
     .join(",");
-  const pollIntervalMs = agents.some((agent) => normalizeAgentState(agent.state) === "working")
+  const pollIntervalMs = agents.some((agent) => isAgentBusy(agent.state))
     ? ACTIVE_POLL_INTERVAL_MS
     : IDLE_POLL_INTERVAL_MS;
 

@@ -975,7 +975,7 @@ private struct ScoutDiffDividerHandleRep: View {
 
 // MARK: - Preview
 
-#if DEBUG
+#if DEBUG && canImport(PreviewsMacros)
 #Preview("Branch diff sheet · bottom") {
     ScoutBranchDiffSheet(
         worktreePath: "/Users/art/dev/openscout",

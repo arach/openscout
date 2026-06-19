@@ -74,11 +74,18 @@ struct ConnectScreen: View {
                         LanPairTargetRow(
                             target: target,
                             isPairing: model.lanPairingTargetId == target.id,
+                            isAwaitingApproval: model.lanPairAwaitingApproval
+                                && model.lanPairingTargetId == target.id,
                             onPair: { Task { await model.pairWithLanTarget(target) } }
                         )
                     }
                 }
-                if let error = model.lanPairError {
+                if model.lanPairAwaitingApproval {
+                    Text("Approve the request on your Mac to finish pairing.")
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutInk.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let error = model.lanPairError {
                     Text(error)
                         .font(HudFont.mono(HudTextSize.micro))
                         .foregroundStyle(HudPalette.statusError)
@@ -260,7 +267,13 @@ struct ConnectScreen: View {
 private struct LanPairTargetRow: View {
     let target: AppModel.LanPairTarget
     let isPairing: Bool
+    let isAwaitingApproval: Bool
     let onPair: () -> Void
+
+    private var label: String {
+        if isAwaitingApproval { return "WAITING" }
+        return isPairing ? "PAIRING" : "PAIR"
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
@@ -272,7 +285,7 @@ private struct LanPairTargetRow: View {
                     .font(HudFont.ui(HudTextSize.md))
                     .foregroundStyle(HudPalette.ink)
                     .lineLimit(1)
-                Text(target.detail)
+                Text(isAwaitingApproval ? "waiting for approval · \(target.hostName)" : target.detail)
                     .font(HudFont.mono(HudTextSize.micro))
                     .foregroundStyle(ScoutInk.dim)
                     .lineLimit(1)
@@ -282,7 +295,7 @@ private struct LanPairTargetRow: View {
             Spacer(minLength: HudSpacing.md)
 
             Button(action: onPair) {
-                Text(isPairing ? "PAIRING" : "PAIR")
+                Text(label)
                     .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                     .tracking(0.8)
                     .foregroundStyle(HudPalette.accent)

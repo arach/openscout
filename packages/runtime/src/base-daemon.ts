@@ -21,6 +21,7 @@ import {
   type OpenScoutLocalEdgeConfig,
   type OpenScoutLocalEdgeScheme,
 } from "./local-edge.js";
+import { openScoutNetworkServiceEnvironment } from "./open-scout-network.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const RESTART_MIN_DELAY_MS = 1_000;
@@ -132,6 +133,7 @@ function spawnBroker(): void {
       OPENSCOUT_BROKER_SOCKET_PATH: config.brokerSocketPath,
       OPENSCOUT_CONTROL_HOME: config.controlHome,
       OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
+      ...openScoutNetworkServiceEnvironment(process.env),
       ...(webTrustedHostsEnv ? { OPENSCOUT_WEB_TRUSTED_HOSTS: webTrustedHostsEnv } : {}),
     },
     stdio: ["ignore", stdout, stderr],

@@ -38,6 +38,19 @@ Scout can answer four questions when the route is not already obvious:
 
 Treat that as an orientation loop, not a mandatory preflight.
 
+## Remote onboarding (OpenScout product context)
+
+When you need OpenScout semantics before routing locally:
+
+1. `scout whoami --json` — sender, broker URL, `discovery` URLs, and `projectAgentsMd` when Scout finds one
+2. Fetch `discovery.manifest` (or `https://openscout.app/.well-known/scout.json`)
+3. Read `discovery.agentInstructions`, then `discovery.agentsGuide`
+4. Follow `discovery.llms` / `discovery.nav` when you need deeper docs
+
+Well-known paths on the site: `/.well-known/agent.md` (singular entry), `/.well-known/agents.md` (plural alias), `/agents.md` (full guide).
+
+In a git checkout, prefer the repo's **`AGENTS.md`** for project-specific build/test/style rules.
+
 ## Resolve the CLI only when needed
 
 If `scout` is missing from `PATH`, locate the binary:
@@ -65,6 +78,25 @@ When the workspace is known and there is one intended recipient, do not burn ext
 The broker/runtime should return durable ids such as `conversationId`, `messageId`, `flightId`, `workId`, or a short `ref`. Use those handles for follow-up. When the broker also returns a friendly handle for the dispatched worker, treat it as the human mnemonic; do not invent a generic agent name. Only fall back to orientation when the route is ambiguous or the sender context is wrong.
 
 Use `scout send --to ...` instead of placing the route inside the message body. Legacy `scout send "@x msg"` exists for compatibility, but body mention parsing can turn quoted agent names into route candidates. With `--to`, text such as `@codex` inside the body remains payload.
+
+## Spec-backed handoffs
+
+When the work is defined in a durable spec, prompt, plan, or handoff file, send
+a short Scout ask that points to the file instead of pasting the full contents
+into the message. This is for traceability, not message-size limits: Scout
+messages are local, but the file should remain the source of truth for review,
+diffs, and follow-up.
+
+Use a shape like:
+
+```bash
+scout ask --project /path/to/repo --harness claude \
+  "Please implement docs/eng/sco-068-unified-native-settings.md. Use that spec as the source of truth. Report changed files, checks run, and blockers."
+```
+
+Prefer repo-relative paths when the target is in the same checkout. Use an
+absolute path only when that makes the file unambiguous for the target. Paste
+the full text only when the recipient cannot access the file, and say why.
 
 ## Orientation loop
 
@@ -238,6 +270,12 @@ If the shell or host path might not preserve the acting agent identity automatic
 ```bash
 scout ask --as premotion.master.mini --to hudson "Build the editable CodeViewer and report back with the integration-ready surface."
 ```
+
+Coding-agent hosts (Cursor `CURSOR_AGENT=1`, Claude `CLAUDECODE=1` / cloud
+session vars, Codex `CODEX_CI` / `CODEX_THREAD_ID`, Scout-managed harnesses)
+infer the project-scoped sender for `scout ask` automatically — omit `--as`
+unless you need a different identity than `scout whoami` reports. Check
+`codingAgentHost` in `scout whoami --json` to see which vendor signal matched.
 
 Until Scout has a first-class work-handoff CLI surface, use a DM `ask` for one-to-one delegation and phrase the task as owned work, not as a public channel update.
 

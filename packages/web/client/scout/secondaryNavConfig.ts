@@ -78,6 +78,13 @@ export const OPS_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
       {
+        id: "lanes",
+        label: "Lanes",
+        route: { view: "ops", mode: "lanes" },
+        active: (route) => route.view === "ops" && route.mode === "lanes",
+        hideInLean: true,
+      },
+      {
         id: "control",
         label: "Control",
         route: { view: "ops", mode: "mission" },

@@ -23,9 +23,11 @@ import {
 } from "./harness-catalog.js";
 import {
   DEFAULT_OPERATOR_NAME,
+  installClaudeStatuslineTool,
   initializeOpenScoutSetup,
   installScoutSkillToHarnesses,
   readOpenScoutSettings,
+  type ClaudeStatuslineInstallReport,
   type RelayRuntimeTransport,
   writeOpenScoutSettings,
   type SetupResult,
@@ -82,6 +84,7 @@ export type OpenScoutOnboardingSetupResult = {
   brokerWarning: string | null;
   catalog: HarnessCatalogSnapshot;
   scoutSkill: ScoutSkillInstallReport;
+  claudeStatusline: ClaudeStatuslineInstallReport;
   state: OpenScoutOnboardingState;
 };
 
@@ -446,7 +449,10 @@ export async function runOpenScoutOnboardingSetup(input: {
   });
 
   const setup = await initializeOpenScoutSetup({ currentDirectory: contextRoot });
-  const scoutSkill = await installScoutSkillToHarnesses();
+  const [scoutSkill, claudeStatusline] = await Promise.all([
+    installScoutSkillToHarnesses(),
+    installClaudeStatuslineTool(),
+  ]);
   const catalog = await loadHarnessCatalogSnapshot();
   let broker = await brokerServiceStatus();
   let brokerWarning: string | null = null;
@@ -472,6 +478,7 @@ export async function runOpenScoutOnboardingSetup(input: {
     brokerWarning,
     catalog,
     scoutSkill,
+    claudeStatusline,
     state: await loadOpenScoutOnboardingState({
       currentDirectory: contextRoot,
       broker,

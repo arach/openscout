@@ -34,6 +34,10 @@ import type {
   WorkerPoolOptions,
 } from "@pierre/diffs/react";
 import type { ParsedPatch } from "@pierre/diffs";
+import type {
+  RepoDiffLineContext,
+  RepoDiffSelectionContext,
+} from "./line-context.ts";
 
 /**
  * Pinned Pierre version. THIS STRING IS THE CACHE KEY — esm.sh versioned URLs
@@ -284,6 +288,9 @@ export type PierreDiffRenderInput = {
   items: unknown[];
   theme: string;
   layout: "unified" | "split";
+  lineContexts?: RepoDiffLineContext[];
+  onIncludeLineContext?: (line: RepoDiffLineContext) => void;
+  onIncludeSelectionContext?: (selection: RepoDiffSelectionContext) => void;
 };
 
 export type PierreScrollBehavior = "instant" | "smooth" | "smooth-auto";
@@ -296,6 +303,118 @@ export type PierreDiffHandle = {
 };
 
 type CodeViewScrollHandle = { scrollTo: (target: unknown) => void } | null;
+
+type DiffItemLike = {
+  id?: unknown;
+  type?: unknown;
+  fileDiff?: {
+    name?: unknown;
+    prevName?: unknown;
+  };
+};
+
+type CodeViewLineRangeLike = {
+  start?: unknown;
+  side?: unknown;
+  end?: unknown;
+  endSide?: unknown;
+};
+
+function toNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function filePathCandidates(item: unknown): string[] {
+  const diffItem = item as DiffItemLike;
+  const fileDiff = diffItem?.type === "diff" ? diffItem.fileDiff : null;
+  return [fileDiff?.name, fileDiff?.prevName].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+}
+
+function lineContextMatchesPoint(
+  context: RepoDiffLineContext,
+  lineNumber: number,
+  side: unknown,
+): boolean {
+  if (side === "additions") return context.newLine === lineNumber;
+  if (side === "deletions") return context.oldLine === lineNumber;
+  return context.newLine === lineNumber || context.oldLine === lineNumber;
+}
+
+function findPointIndex(
+  contexts: RepoDiffLineContext[],
+  lineNumber: number,
+  side: unknown,
+): number {
+  return contexts.findIndex((context) =>
+    lineContextMatchesPoint(context, lineNumber, side),
+  );
+}
+
+function findLastPointIndex(
+  contexts: RepoDiffLineContext[],
+  lineNumber: number,
+  side: unknown,
+): number {
+  for (let i = contexts.length - 1; i >= 0; i -= 1) {
+    if (lineContextMatchesPoint(contexts[i], lineNumber, side)) return i;
+  }
+  return -1;
+}
+
+function lineContextSelectionText(lines: RepoDiffLineContext[]): string {
+  return lines
+    .map((line) => {
+      const sign = line.side === "add" ? "+" : line.side === "del" ? "-" : " ";
+      const lineNumber = line.newLine ?? line.oldLine;
+      const label = lineNumber != null ? `${lineNumber}: ` : "";
+      return `${sign} ${label}${line.text}`;
+    })
+    .join("\n");
+}
+
+function findLineRangeContexts({
+  range,
+  item,
+  lineContexts,
+}: {
+  range: CodeViewLineRangeLike | null;
+  item: unknown;
+  lineContexts: RepoDiffLineContext[];
+}): RepoDiffLineContext[] | null {
+  if (!range) return null;
+  const start = toNumber(range.start);
+  const end = toNumber(range.end);
+  if (start == null || end == null) return null;
+
+  const candidates = filePathCandidates(item);
+  const fileContexts = lineContexts.filter(
+    (context) => candidates.length === 0 || candidates.includes(context.filePath),
+  );
+  const startIndex = findPointIndex(fileContexts, start, range.side);
+  const endIndex = findLastPointIndex(
+    fileContexts,
+    end,
+    range.endSide ?? range.side,
+  );
+  if (startIndex < 0 || endIndex < 0) return null;
+
+  const from = Math.min(startIndex, endIndex);
+  const to = Math.max(startIndex, endIndex);
+  const selectedLines = fileContexts.slice(from, to + 1);
+  return selectedLines.length > 0 ? selectedLines : null;
+}
+
+function selectionContextFromLines(
+  selectedLines: RepoDiffLineContext[],
+): RepoDiffSelectionContext {
+  return {
+    layer: selectedLines[0]?.layer ?? null,
+    filePath: selectedLines[0]?.filePath ?? null,
+    text: lineContextSelectionText(selectedLines),
+  };
+}
 
 /**
  * Mount Pierre's `WorkerPoolContextProvider` + `CodeView` into `container` using
@@ -324,7 +443,14 @@ export function mountPierreDiff(
     codeView = handle;
   };
   return {
-    render({ items, theme, layout }) {
+    render({
+      items,
+      theme,
+      layout,
+      lineContexts = [],
+      onIncludeLineContext,
+      onIncludeSelectionContext,
+    }) {
       root.render(
         runtime.createElement(
           runtime.WorkerPoolContextProvider,
@@ -335,7 +461,29 @@ export function mountPierreDiff(
           runtime.createElement(runtime.CodeView, {
             className: "rd-codeview",
             items,
-            options: { theme, diffStyle: layout, stickyHeaders: true },
+            options: {
+              theme,
+              diffStyle: layout,
+              stickyHeaders: true,
+              enableGutterUtility: Boolean(onIncludeLineContext),
+              enableLineSelection: Boolean(onIncludeSelectionContext),
+              lineHoverHighlight: "number",
+              onGutterUtilityClick: (range: unknown, item: unknown) => {
+                const selectedLines = findLineRangeContexts({
+                  range: range as CodeViewLineRangeLike,
+                  item,
+                  lineContexts,
+                });
+                if (!selectedLines) return;
+                if (selectedLines.length === 1 && onIncludeLineContext) {
+                  onIncludeLineContext(selectedLines[0]);
+                  return;
+                }
+                if (onIncludeSelectionContext) {
+                  onIncludeSelectionContext(selectionContextFromLines(selectedLines));
+                }
+              },
+            },
             ref: setCodeView,
           }),
         ),

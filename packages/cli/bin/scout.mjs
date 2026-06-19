@@ -15,6 +15,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binDir = dirname(fileURLToPath(import.meta.url));
 const distEntry = resolve(binDir, "../dist/main.mjs");
+const statuslineEntry = resolve(binDir, "../dist/statusline.mjs");
+const sourceStatuslineCommand = resolve(binDir, "../../../apps/desktop/src/cli/commands/statusline.ts");
 const packageJsonPath = resolve(binDir, "../package.json");
 
 if (!process.env.SCOUT_APP_VERSION && existsSync(packageJsonPath)) {
@@ -31,6 +33,36 @@ if (!process.env.SCOUT_APP_VERSION && existsSync(packageJsonPath)) {
 if (!existsSync(distEntry)) {
   console.error("Scout CLI dist entry is missing. Reinstall @openscout/scout or rebuild the package.");
   process.exit(1);
+}
+
+async function runSourceStatuslineCommand() {
+  try {
+    const { runStatuslineCommand } = await import(pathToFileURL(sourceStatuslineCommand).href);
+    await runStatuslineCommand({
+      env: process.env,
+      output: {
+        writeText(value) {
+          process.stdout.write(`${value}\n`);
+        },
+      },
+      stderr(message) {
+        process.stderr.write(`${message}\n`);
+      },
+    }, process.argv.slice(3));
+  } catch {
+    process.stdout.write("Scout | Claude status\n");
+  }
+}
+
+if (process.argv[2] === "statusline" && process.argv[3] === "claude") {
+  if (existsSync(statuslineEntry)) {
+    await import(pathToFileURL(statuslineEntry).href);
+  } else if (existsSync(sourceStatuslineCommand)) {
+    await runSourceStatuslineCommand();
+  } else {
+    await import(pathToFileURL(distEntry).href);
+  }
+  process.exit(0);
 }
 
 await import(pathToFileURL(distEntry).href);

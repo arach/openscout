@@ -174,9 +174,10 @@ const HARNESS_HUE: Record<string, number> = {
 };
 
 const STATE_TONE: Record<AgentDisplayState, Tone> = {
-  working: { l: 0.75, c: 0.16 },
-  ready: { l: 0.73, c: 0.13 },
-  not_ready: { l: 0.5, c: 0.02 },
+  in_turn: { l: 0.75, c: 0.16 },
+  in_flight: { l: 0.72, c: 0.14 },
+  callable: { l: 0.73, c: 0.13 },
+  blocked: { l: 0.5, c: 0.02 },
 };
 
 /** Derive sprite hue + tone from an agent's harness + state. */

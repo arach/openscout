@@ -12,17 +12,21 @@ export type RepoDiffCacheRead = Omit<RepoDiffCacheRecord, "cacheHit"> & {
   fresh: boolean;
 };
 
-const DEFAULT_LAYERS: RepoDiffLayerKind[] = ["unstaged", "staged"];
+const DEFAULT_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
 const DEFAULT_MAX_AGE_MS = 30_000;
 const MAX_CACHE_ENTRIES = 24;
-const MAX_PREFETCH_PER_BATCH = 4;
+const DEFAULT_PREFETCH_LIMIT = 12;
 
 const cache = new Map<string, Omit<RepoDiffCacheRecord, "cacheHit">>();
-const inFlight = new Map<string, Promise<RepoDiffCacheRecord>>();
+const inFlight = new Map<string, {
+  force: boolean;
+  request: Promise<RepoDiffCacheRecord>;
+}>();
 const queuedPrefetches = new Set<string>();
 let prefetchQueue = Promise.resolve();
 
 type RepoDiffRequestCacheMode = "prefer" | "reload" | "only";
+export type RepoDiffRequestTier = "summary" | "patch";
 export type RepoDiffSessionRequest = {
   sessionId?: string | null;
   agentId?: string | null;
@@ -31,6 +35,8 @@ export type RepoDiffSessionRequest = {
 export type RepoDiffRequestOptions = {
   cache?: RepoDiffRequestCacheMode;
   rehydrate?: boolean;
+  tier?: RepoDiffRequestTier;
+  cacheScope?: string;
   files?: readonly string[];
   session?: RepoDiffSessionRequest | null;
 };
@@ -57,18 +63,19 @@ export function buildRepoDiffUrl(
   for (const layer of layers) params.append("layer", layer);
   if (options.cache) params.set("cache", options.cache);
   if (options.rehydrate) params.set("rehydrate", "1");
+  if (options.tier) params.set("tier", options.tier);
   return `/api/repo-diff/${options.session ? "session" : "worktree"}?${params.toString()}`;
 }
 
 function cacheKey(
   path: string,
   layers: readonly RepoDiffLayerKind[],
-  options: Pick<RepoDiffRequestOptions, "files" | "session"> = {},
+  options: Pick<RepoDiffRequestOptions, "files" | "session" | "tier" | "cacheScope"> = {},
 ): string {
   const scope = options.session
     ? `session:${options.session.sessionId ?? ""}:${options.session.agentId ?? ""}:${options.session.include ?? "changed"}`
     : `worktree:${(options.files ?? []).join("\n")}`;
-  return `${path}\u0000${layers.join(",")}\u0000${scope}`;
+  return `${path}\u0000${layers.join(",")}\u0000${options.tier ?? "summary"}\u0000${options.cacheScope ?? ""}\u0000${scope}`;
 }
 
 function trimCache(): void {
@@ -82,7 +89,7 @@ function trimCache(): void {
 export function readRepoDiffCache(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
-  options: Pick<RepoDiffRequestOptions, "files" | "session"> = {},
+  options: Pick<RepoDiffRequestOptions, "files" | "session" | "tier" | "cacheScope"> = {},
   maxAgeMs = DEFAULT_MAX_AGE_MS,
 ): RepoDiffCacheRead | null {
   const record = cache.get(cacheKey(path, layers, options));
@@ -98,16 +105,25 @@ export function readRepoDiffCache(
 export async function fetchRepoDiffSnapshot(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
-  options: { force?: boolean; files?: readonly string[]; session?: RepoDiffSessionRequest | null } = {},
+  options: {
+    force?: boolean;
+    tier?: RepoDiffRequestTier;
+    cacheScope?: string;
+    files?: readonly string[];
+    session?: RepoDiffSessionRequest | null;
+  } = {},
 ): Promise<RepoDiffCacheRecord> {
   const key = cacheKey(path, layers, options);
+  const active = inFlight.get(key);
+  if (active && (!options.force || active.force)) {
+    return active.request;
+  }
+
   if (!options.force) {
     const existing = cache.get(key);
     if (existing && Date.now() - existing.fetchedAt <= DEFAULT_MAX_AGE_MS) {
       return { ...existing, cacheHit: true };
     }
-    const active = inFlight.get(key);
-    if (active) return active;
   }
 
   const url = buildRepoDiffUrl(path, layers, {
@@ -116,6 +132,7 @@ export async function fetchRepoDiffSnapshot(
       : { cache: "prefer" as const, rehydrate: true }),
     files: options.files,
     session: options.session,
+    tier: options.tier ?? "summary",
   });
   const request = api<ScoutRepoDiffSnapshot>(url).then((snapshot) => {
     const record = { snapshot, fetchedAt: Date.now() };
@@ -125,11 +142,13 @@ export async function fetchRepoDiffSnapshot(
     return { ...record, cacheHit: false };
   });
 
-  inFlight.set(key, request);
+  inFlight.set(key, { force: options.force === true, request });
   try {
     return await request;
   } finally {
-    inFlight.delete(key);
+    if (inFlight.get(key)?.request === request) {
+      inFlight.delete(key);
+    }
   }
 }
 
@@ -137,8 +156,8 @@ export function prefetchRepoDiffSnapshot(
   path: string,
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
 ): void {
-  const key = cacheKey(path, layers);
-  if (readRepoDiffCache(path, layers)?.fresh) return;
+  const key = cacheKey(path, layers, { tier: "summary" });
+  if (readRepoDiffCache(path, layers, { tier: "summary" })?.fresh) return;
   if (inFlight.has(key) || queuedPrefetches.has(key)) return;
   queuedPrefetches.add(key);
   prefetchQueue = prefetchQueue
@@ -155,8 +174,10 @@ export function prefetchRepoDiffSnapshot(
 export function prefetchRepoDiffSnapshots(
   paths: readonly string[],
   layers: readonly RepoDiffLayerKind[] = DEFAULT_LAYERS,
+  options: { limit?: number } = {},
 ): void {
-  for (const path of paths.slice(0, MAX_PREFETCH_PER_BATCH)) {
+  const limit = Math.max(0, Math.min(options.limit ?? DEFAULT_PREFETCH_LIMIT, MAX_CACHE_ENTRIES));
+  for (const path of paths.slice(0, limit)) {
     prefetchRepoDiffSnapshot(path, layers);
   }
 }

@@ -16,7 +16,7 @@ import {
   getLocalAgentEndpointSessionSnapshot,
   getLocalAgentSessionSnapshot,
 } from "@openscout/runtime/local-agents";
-import { getTailDiscovery } from "@openscout/runtime/tail";
+import { getTailDiscovery, readTailEventsForSession } from "@openscout/runtime/tail";
 import type { AgentEndpoint } from "@openscout/protocol";
 
 import type { WebAgent } from "../../db-queries.ts";
@@ -28,6 +28,7 @@ import {
   selectPreferredAgentEndpoint,
 } from "../agent-endpoints.ts";
 import { loadScoutBrokerContext } from "../broker/service.ts";
+import { buildObserveDataFromTail } from "./tail-observe.ts";
 
 export type ObserveEventKind =
   | "think"
@@ -41,6 +42,7 @@ export type ObserveEventKind =
 export interface ObserveEvent {
   id: string;
   t: number;
+  at?: number;
   kind: ObserveEventKind;
   text: string;
   tool?: string;
@@ -206,6 +208,17 @@ export type SessionRefObservePayload =
       agentId: null;
       source: "history";
       fidelity: "timestamped" | "synthetic";
+      historyPath: string;
+      sessionId: string;
+      updatedAt: number;
+      data: ObserveData;
+    }
+  | {
+      kind: "tail";
+      refId: string;
+      agentId: null;
+      source: "tail";
+      fidelity: "synthetic";
       historyPath: string;
       sessionId: string;
       updatedAt: number;
@@ -600,6 +613,29 @@ function firstString(
     }
   }
   return null;
+}
+
+function historyPathSessionId(path: string): string | null {
+  const name = basename(path).trim();
+  if (!name) {
+    return null;
+  }
+  return name.replace(/\.(jsonl|json)$/u, "") || null;
+}
+
+function historySnapshotSessionId(history: HistorySnapshotResult): string | null {
+  const providerMeta = snapshotProviderMeta(history.snapshot);
+  const snapshotSessionId = history.snapshot.session.id?.startsWith("history:")
+    ? null
+    : history.snapshot.session.id;
+  return firstString(
+    providerMeta.externalSessionId,
+    providerMeta.threadId,
+    providerMeta.transportSessionId,
+    providerMeta.nativeSessionId,
+    snapshotSessionId,
+    historyPathSessionId(history.historyPath),
+  );
 }
 
 function resolveHistoryCandidate(
@@ -1261,7 +1297,10 @@ export function buildObserveDataFromSnapshot(
   const builtEntries = eventDrafts
     .map((draft, index) => ({
       draft,
-      event: draft.build(seconds[index] ?? 0),
+      event: {
+        ...draft.build(seconds[index] ?? 0),
+        at: draft.timestampMs,
+      },
     }))
     .filter(({ event }) => event.text.length > 0 || event.kind === "tool" || event.kind === "boot");
   const events = builtEntries.map((entry) => entry.event);
@@ -1339,13 +1378,14 @@ async function resolveSnapshotSource(
     }
   }
   if (historySnapshot) {
+    const historySessionId = historySnapshotSessionId(historySnapshot);
     return {
       source: "history",
       historyPath: historySnapshot.historyPath,
       snapshot: historySnapshot.snapshot,
       timedEvents: historySnapshot.timedEvents,
       live: live || isLiveSessionSnapshot(historySnapshot.snapshot),
-      sessionId: liveSnapshot?.session.id ?? endpoint?.sessionId ?? null,
+      sessionId: liveSnapshot?.session.id ?? historySessionId ?? endpoint?.sessionId ?? null,
     };
   }
 
@@ -1371,13 +1411,14 @@ async function resolveSnapshotSource(
     }
   }
   if (agentHistorySnapshot) {
+    const historySessionId = historySnapshotSessionId(agentHistorySnapshot);
     return {
       source: "history",
       historyPath: agentHistorySnapshot.historyPath,
       snapshot: agentHistorySnapshot.snapshot,
       timedEvents: agentHistorySnapshot.timedEvents,
       live: false,
-      sessionId: endpoint?.sessionId ?? agentHistorySnapshot.snapshot.session.id ?? null,
+      sessionId: historySessionId ?? endpoint?.sessionId ?? null,
     };
   }
 
@@ -1498,23 +1539,43 @@ export async function loadSessionRefObservePayload(
         adapterType: historyEntry.adapterType,
       })
     : null;
-  if (!historyEntry || !historySnapshot) {
+  if (historyEntry && historySnapshot) {
+    return {
+      kind: "history",
+      refId: normalizedRef,
+      agentId: null,
+      source: "history",
+      fidelity: historySnapshot.timedEvents.length > 0 ? "timestamped" : "synthetic",
+      historyPath: historySnapshot.historyPath,
+      sessionId: normalizedRef,
+      updatedAt: Date.now(),
+      data: buildObserveDataFromSnapshot(
+        historySnapshot.snapshot,
+        historySnapshot.timedEvents,
+        false,
+      ),
+    };
+  }
+
+  let nativeTail = await readTailEventsForSession(normalizedRef).catch(() => null);
+  if (!nativeTail) {
+    nativeTail = await readTailEventsForSession(normalizedRef, { forceDiscovery: true }).catch(() => null);
+  }
+  if (!nativeTail) {
     return null;
   }
 
+  const sessionId = nativeTail.transcript.sessionId?.trim() || normalizedRef;
+  const current = Date.now() - nativeTail.transcript.mtimeMs <= 5 * 60_000;
   return {
-    kind: "history",
+    kind: "tail",
     refId: normalizedRef,
     agentId: null,
-    source: "history",
-    fidelity: historySnapshot.timedEvents.length > 0 ? "timestamped" : "synthetic",
-    historyPath: historySnapshot.historyPath,
-    sessionId: normalizedRef,
+    source: "tail",
+    fidelity: "synthetic",
+    historyPath: nativeTail.transcript.transcriptPath,
+    sessionId,
     updatedAt: Date.now(),
-    data: buildObserveDataFromSnapshot(
-      historySnapshot.snapshot,
-      historySnapshot.timedEvents,
-      false,
-    ),
+    data: buildObserveDataFromTail(nativeTail.transcript, nativeTail.events, current),
   };
 }

@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
-import { createReadStream, existsSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { execFile, execFileSync } from "node:child_process";
+import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { promisify } from "node:util";
 
 import { Hono, type Context } from "hono";
 import type {
@@ -27,6 +28,8 @@ import {
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
+import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
+import { startScoutPairLanBeacon } from "./pairing-lan-beacon.ts";
 import {
   createCachedSnapshot,
   installScoutApiMiddleware,
@@ -39,6 +42,11 @@ import {
   selectPreferredAgentEndpoint,
   type EndpointPreference,
 } from "./core/agent-endpoints.ts";
+import { resolveTerminalSurface } from "./core/terminal-surfaces.ts";
+import {
+  queryDiscoveredTerminalSessions,
+  terminalSurfaceKey,
+} from "./terminal-session-discovery.ts";
 import {
   getImageBlob,
   ImageBlobError,
@@ -61,12 +69,20 @@ import {
   queryFollowTarget,
   queryHeartrate,
   queryRuns,
+  queryTerminalSessions,
+  type WebAgent,
 } from "./db-queries.ts";
 import {
-  conversationIdForAgent,
   configuredOperatorActorIds,
+  conversationIdForAgent,
   parseDirectConversationId,
 } from "./db/internal/conversation-ids.ts";
+import {
+  compact as compactPath,
+  isTransportSessionRef,
+  resolveHarnessSessionId,
+  resolveHarnessSessionIdForAgent,
+} from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
@@ -76,10 +92,9 @@ import {
   loadScoutRelayConfig,
   markScoutConversationRead,
   readScoutUnblockRequests,
-  registerScoutLocalAgentBinding,
-  retireScoutLocalAgentBinding,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
+  type ScoutBrokerContext,
   sendScoutConversationMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
@@ -111,6 +126,8 @@ import {
   getRepoDiffSnapshot,
   projectSessionsAttention,
   sessionApprovalAttentionId,
+  type RepoDiffFile,
+  type RepoDiffLayer,
   type RepoDiffLayerKind,
   type RepoDiffSnapshotOptions,
   type ScoutRepoDiffSnapshot,
@@ -187,6 +204,10 @@ import {
   type OpenScoutVantageHandoffInput,
 } from "./vantage-handoff.ts";
 import {
+  createSignedScoutServicesRestartUrl,
+  parseScoutServicesRestartTarget,
+} from "./scout-services-deeplink.ts";
+import {
   loadUserConfig,
   saveUserConfig,
   resolveOperatorName,
@@ -207,7 +228,7 @@ import {
   saveOpenScoutOnboardingProject,
   skipOpenScoutOnboarding,
 } from "@openscout/runtime/onboarding";
-import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import {
   invokeCodexAppServerAgent,
@@ -325,10 +346,22 @@ import {
 } from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
+const execFileAsync = promisify(execFile);
+
 export type TerminalRunRequest = {
   command: string;
   cwd?: string | null;
   agentId?: string | null;
+};
+
+export type TerminalRelayDestroyRequest = {
+  sessionId?: string;
+};
+
+export type TerminalSurfaceControlRequest = {
+  backend?: string;
+  sessionName?: string;
+  action?: string;
 };
 
 export type TmuxPanePeekRequest = {
@@ -358,6 +391,8 @@ export type CreateOpenScoutWebServerOptions = {
   trustedHosts?: string[];
   trustedOrigins?: string[];
   runTerminalCommand?: (request: TerminalRunRequest) => Promise<void>;
+  destroyTerminalRelaySession?: (sessionId: string) => Promise<boolean>;
+  destroyTerminalRelaySurface?: (backend: "tmux" | "zellij", sessionName: string) => Promise<number>;
   createVantageHandoff?: (request: OpenScoutVantageHandoffInput) => Promise<OpenScoutVantageHandoff>;
   terminalRelayHealthcheck?: () => Promise<boolean>;
   revealPath?: (targetPath: string) => Promise<void> | void;
@@ -371,12 +406,679 @@ export type CreateOpenScoutWebServerOptions = {
   };
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
+  repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
 };
 
 const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
   timeoutMs: 15_000,
   includeBinaryPatch: false,
 };
+
+const REPO_DIFF_SUMMARY_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
+  ...REPO_DIFF_VIEWER_LIMITS,
+  includeRawPatch: false,
+  includeParsedHunks: false,
+};
+
+const REPO_DIFF_CACHE_MAX_ENTRIES = 64;
+const REPO_DIFF_GIT_MAX_BUFFER = 16 * 1024 * 1024;
+const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
+const REPO_PRS_MAX_PATHS = 16;
+const REPO_PRS_DEFAULT_LIMIT = 12;
+
+type RepoDiffCacheMode = "reload" | "prefer" | "only";
+type RepoDiffTier = "patch" | "summary";
+type RepoDiffCacheEntry = {
+  snapshot: ScoutRepoDiffSnapshot;
+  storedAt: number;
+};
+
+type RepoPullRequestLoadOptions = {
+  paths: string[];
+  limitPerRepo: number;
+};
+
+type GhPullRequest = {
+  number?: number;
+  title?: string;
+  url?: string;
+  state?: string;
+  isDraft?: boolean;
+  headRefName?: string;
+  baseRefName?: string;
+  updatedAt?: string;
+  author?: { login?: string | null } | null;
+};
+
+type RepoPullRequestItem = {
+  id: string;
+  repo: string;
+  path: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: string | null;
+  updatedAt: string | null;
+};
+
+type RepoPullRequestSnapshot = {
+  generatedAt: number;
+  source: "gh";
+  paths: string[];
+  pullRequests: RepoPullRequestItem[];
+  warnings: string[];
+};
+
+type RepoDiffScopeMetadata =
+  | {
+      kind: "worktree";
+      label: string;
+      worktreePath: string;
+      filteredPaths: string[];
+    }
+  | {
+      kind: "session";
+      label: string;
+      worktreePath: string;
+      refId: string | null;
+      agentId: string | null;
+      sessionId: string | null;
+      filteredPaths: string[];
+      touchedFiles: number;
+      changedFiles: number;
+      include: "changed" | "all";
+      caveat: "path-filtered-not-hunk-provenance";
+    };
+type ScopedRepoDiffSnapshot = ScoutRepoDiffSnapshot & {
+  scope?: RepoDiffScopeMetadata;
+};
+
+function parseRepoDiffCacheMode(value: string | undefined, force: string | undefined): RepoDiffCacheMode {
+  if (force === "1" || force === "true") return "reload";
+  switch (value) {
+    case "only":
+      return "only";
+    case "prefer":
+      return "prefer";
+    case "reload":
+    case "refresh":
+    case "live":
+      return "reload";
+    default:
+      return "reload";
+  }
+}
+
+function parseRepoDiffTier(value: string | undefined): RepoDiffTier {
+  return value === "summary" ? "summary" : "patch";
+}
+
+function wantsRepoDiffRehydrate(value: string | undefined): boolean {
+  return value === "1" || value === "true";
+}
+
+function repoDiffCacheKey(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  baseRef: string | undefined;
+  compareRef: string | undefined;
+  tier: RepoDiffTier;
+  stateKey: string | undefined;
+  paths?: readonly string[];
+}): string {
+  return [
+    input.worktreePath.trim(),
+    input.layers.join(","),
+    input.baseRef ?? "",
+    input.compareRef ?? "",
+    input.tier,
+    input.stateKey ?? "",
+    ...(input.paths?.length ? [input.paths.join("\n")] : []),
+  ].join("\u0000");
+}
+
+const REPO_DIFF_TRUNK_REFS = [
+  "origin/main",
+  "main",
+  "origin/master",
+  "master",
+  "origin/trunk",
+  "trunk",
+];
+
+function runGitRaw(currentDirectory: string, args: string[]): string | null {
+  try {
+    return execFileSync("git", ["-C", currentDirectory, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function resolveGitCommitRef(worktreePath: string, ref: string): string | null {
+  return runGitValue(worktreePath, ["rev-parse", "--verify", `${ref}^{commit}`]);
+}
+
+function preferredRepoDiffBaseRef(worktreePath: string): string | null {
+  const upstream = runGitValue(worktreePath, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ]);
+  for (const candidate of [...REPO_DIFF_TRUNK_REFS, upstream].filter(Boolean) as string[]) {
+    if (candidate === "HEAD") continue;
+    if (resolveGitCommitRef(worktreePath, candidate)) return candidate;
+  }
+  return null;
+}
+
+function resolveRepoDiffBranchRefs(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  baseRef?: string;
+  compareRef?: string;
+}): { baseRef?: string; compareRef?: string } {
+  if (!input.layers.includes("branch")) {
+    return { baseRef: input.baseRef, compareRef: input.compareRef };
+  }
+  const compareRef = input.compareRef?.trim() || "HEAD";
+  const compareOid = resolveGitCommitRef(input.worktreePath, compareRef);
+  if (!compareOid) {
+    return { baseRef: input.baseRef, compareRef: input.compareRef };
+  }
+  const baseCandidate = input.baseRef?.trim() || preferredRepoDiffBaseRef(input.worktreePath);
+  if (!baseCandidate) {
+    return { compareRef: compareOid };
+  }
+  const baseOid = resolveGitCommitRef(input.worktreePath, baseCandidate);
+  if (!baseOid) {
+    return { baseRef: baseCandidate, compareRef: compareOid };
+  }
+  const mergeBase = runGitValue(input.worktreePath, ["merge-base", baseOid, compareOid]);
+  return {
+    baseRef: mergeBase ?? baseOid,
+    compareRef: compareOid,
+  };
+}
+
+function repoDiffStateKey(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  baseRef?: string;
+  compareRef?: string;
+  paths?: readonly string[];
+}): string {
+  const parts: string[] = [];
+  if (input.layers.includes("branch")) {
+    parts.push(`branch:${input.baseRef ?? ""}..${input.compareRef ?? ""}`);
+  }
+  const pathArgs = input.paths?.length ? ["--", ...input.paths] : [];
+  if (input.layers.includes("staged")) {
+    const staged = runGitRaw(input.worktreePath, [
+      "diff",
+      "--cached",
+      "--raw",
+      "-z",
+      ...pathArgs,
+    ]);
+    parts.push(`staged:${stableHash(staged ?? "unavailable")}`);
+  }
+  if (input.layers.includes("unstaged")) {
+    const status = runGitRaw(input.worktreePath, [
+      "status",
+      "--porcelain=v2",
+      "-z",
+      "--",
+      ...(input.paths ?? []),
+    ]);
+    const diff = runGitRaw(input.worktreePath, [
+      "diff",
+      "--numstat",
+      "-z",
+      ...pathArgs,
+    ]);
+    parts.push(`unstaged:${stableHash(`${status ?? "unavailable"}\0${diff ?? ""}`)}`);
+  }
+  return parts.join("|");
+}
+
+function uniqueNonEmpty(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of values) {
+    const value = raw.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function normalizeRepoDiffPathFilters(worktreePath: string, rawPaths: readonly string[]): string[] {
+  const worktreeRoot = resolve(worktreePath);
+  const paths: string[] = [];
+  for (const rawPath of rawPaths) {
+    const trimmed = rawPath.trim();
+    if (!trimmed) continue;
+    const absolute = isAbsolute(trimmed)
+      ? resolve(trimmed)
+      : resolve(worktreeRoot, trimmed);
+    const relativePath = relative(worktreeRoot, absolute);
+    if (!relativePath || relativePath === "." || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+      continue;
+    }
+    paths.push(relativePath.replace(/\\/g, "/"));
+  }
+  return uniqueNonEmpty(paths);
+}
+
+function repoDiffPathFiltersFromQuery(c: Context, worktreePath: string): string[] {
+  return normalizeRepoDiffPathFilters(worktreePath, [
+    ...(c.req.queries("file") ?? []),
+    ...(c.req.queries("pathspec") ?? []),
+  ]);
+}
+
+function withRepoDiffScope(
+  snapshot: ScoutRepoDiffSnapshot,
+  scope: RepoDiffScopeMetadata,
+): ScopedRepoDiffSnapshot {
+  return { ...snapshot, scope };
+}
+
+function repoDiffLayerLabels(kind: RepoDiffLayerKind): { base: string | null; compare: string | null } {
+  switch (kind) {
+    case "unstaged":
+      return { base: "index", compare: "working tree" };
+    case "staged":
+      return { base: "HEAD", compare: "index" };
+    case "branch":
+      return { base: null, compare: null };
+  }
+}
+
+function repoDiffGitArgs(input: {
+  kind: RepoDiffLayerKind;
+  baseRef?: string;
+  compareRef?: string;
+}): { selector: string[]; baseLabel: string | null; compareLabel: string | null; missing?: string } {
+  switch (input.kind) {
+    case "unstaged":
+      return { selector: ["diff"], baseLabel: "index", compareLabel: "working tree" };
+    case "staged":
+      return { selector: ["diff", "--cached"], baseLabel: "HEAD", compareLabel: "index" };
+    case "branch": {
+      const base = input.baseRef?.trim();
+      if (!base) {
+        return {
+          selector: ["diff"],
+          baseLabel: null,
+          compareLabel: input.compareRef ?? null,
+          missing: "Branch layer requires a base ref.",
+        };
+      }
+      const compare = input.compareRef?.trim() || "HEAD";
+      return {
+        selector: ["diff", base, compare],
+        baseLabel: base,
+        compareLabel: compare,
+      };
+    }
+  }
+}
+
+function runRepoDiffGit(worktreePath: string, args: string[], maxBuffer = REPO_DIFF_GIT_MAX_BUFFER): string | null {
+  try {
+    return execFileSync("git", ["-C", worktreePath, ...args], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 5_000,
+      maxBuffer,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function repoDiffPathArgs(paths: readonly string[] | undefined): string[] {
+  return paths && paths.length > 0 ? ["--", ...paths] : [];
+}
+
+function repoDiffFileStatus(statusCode: string): RepoDiffFile["status"] {
+  switch (statusCode.charAt(0)) {
+    case "A":
+      return "added";
+    case "M":
+      return "modified";
+    case "D":
+      return "deleted";
+    case "R":
+      return "renamed";
+    case "C":
+      return "copied";
+    case "T":
+      return "typechange";
+    case "U":
+      return "conflict";
+    default:
+      return "unknown";
+  }
+}
+
+type RepoDiffNumstat = {
+  additions: number | null;
+  deletions: number | null;
+  binary: boolean;
+};
+
+function parseRepoDiffNumstatZ(output: string): Map<string, RepoDiffNumstat> {
+  const stats = new Map<string, RepoDiffNumstat>();
+  const tokens = output.split("\0");
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) continue;
+    const parts = token.split("\t");
+    if (parts.length < 3) continue;
+    let path = parts.slice(2).join("\t");
+    if (!path && index + 2 < tokens.length) {
+      // With -z, rename/copy numstat records are: add<TAB>del<TAB><NUL>old<NUL>new<NUL>.
+      index += 2;
+      path = tokens[index] || tokens[index - 1] || "";
+    }
+    if (!path) continue;
+    const binary = parts[0] === "-" || parts[1] === "-";
+    stats.set(path, {
+      additions: binary ? null : Number(parts[0]) || 0,
+      deletions: binary ? null : Number(parts[1]) || 0,
+      binary,
+    });
+  }
+  return stats;
+}
+
+function parseRepoDiffRawZ(output: string, numstat: Map<string, RepoDiffNumstat>): RepoDiffFile[] {
+  const files: RepoDiffFile[] = [];
+  const tokens = output.split("\0");
+  for (let index = 0; index < tokens.length; index += 1) {
+    const meta = tokens[index];
+    if (!meta?.startsWith(":")) continue;
+    const fields = meta.slice(1).split(/\s+/);
+    if (fields.length < 5) continue;
+    const statusCode = fields[4] ?? "";
+    const status = repoDiffFileStatus(statusCode);
+    const twoPathRecord = status === "renamed" || status === "copied";
+    const firstPath = tokens[index + 1] || null;
+    const secondPath = twoPathRecord ? (tokens[index + 2] || null) : null;
+    index += twoPathRecord ? 2 : 1;
+
+    let oldPath = firstPath;
+    let newPath = twoPathRecord ? secondPath : firstPath;
+    if (status === "added") oldPath = null;
+    if (status === "deleted") newPath = null;
+
+    const stat = numstat.get(newPath ?? "") ?? numstat.get(oldPath ?? "");
+    files.push({
+      oldPath,
+      newPath,
+      status,
+      oldOid: fields[2] ?? null,
+      newOid: fields[3] ?? null,
+      oldMode: fields[0] ?? null,
+      newMode: fields[1] ?? null,
+      similarity: twoPathRecord ? Number.parseInt(statusCode.slice(1), 10) || null : null,
+      binary: stat?.binary ?? false,
+      additions: stat?.additions ?? null,
+      deletions: stat?.deletions ?? null,
+      hunks: [],
+      truncated: false,
+    });
+  }
+  return files;
+}
+
+function repoDiffDisplayPath(file: RepoDiffFile): string {
+  return file.newPath ?? file.oldPath ?? "";
+}
+
+function recentBranchDiffPaths(input: {
+  worktreePath: string;
+  baseRef?: string;
+  compareRef?: string;
+  paths?: readonly string[];
+}): string[] {
+  if (!input.baseRef) return [];
+  const range = `${input.baseRef}..${input.compareRef || "HEAD"}`;
+  const output = runRepoDiffGit(input.worktreePath, [
+    "log",
+    "--name-only",
+    "--pretty=format:",
+    "--diff-filter=ACMRTUXB",
+    range,
+    ...repoDiffPathArgs(input.paths),
+  ]);
+  return uniqueNonEmpty((output ?? "").split(/\r?\n/));
+}
+
+function sortRepoDiffFilesRecentFirst(files: RepoDiffFile[], recentPaths: readonly string[]): RepoDiffFile[] {
+  if (recentPaths.length === 0) return files;
+  const rank = new Map(recentPaths.map((path, index) => [path, index]));
+  return files
+    .map((file, index) => ({ file, index }))
+    .sort((left, right) => {
+      const leftRank = rank.get(repoDiffDisplayPath(left.file)) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.get(repoDiffDisplayPath(right.file)) ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.file);
+}
+
+function buildGitRepoDiffLayer(input: {
+  worktreePath: string;
+  kind: RepoDiffLayerKind;
+  baseRef?: string;
+  compareRef?: string;
+  paths?: readonly string[];
+  tier: RepoDiffTier;
+  diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }>;
+}): RepoDiffLayer | null {
+  const resolved = repoDiffGitArgs(input);
+  if (resolved.missing) {
+    input.diagnostics.push({
+      level: "warning",
+      kind: "branch_refs_missing",
+      message: resolved.missing,
+      path: null,
+    });
+    return null;
+  }
+  const pathArgs = repoDiffPathArgs(input.paths);
+  const raw = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--raw", "-z", ...pathArgs]) ?? "";
+  const numstat = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--numstat", "-z", ...pathArgs]) ?? "";
+  const shortstat = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--shortstat", ...pathArgs])
+    ?.trim() || null;
+  let files = parseRepoDiffRawZ(raw, parseRepoDiffNumstatZ(numstat));
+  if (input.kind === "branch") {
+    files = sortRepoDiffFilesRecentFirst(files, recentBranchDiffPaths(input));
+  }
+
+  const patchFlags = [
+    "--no-color",
+    "--no-ext-diff",
+    "--default-prefix",
+    "--full-index",
+    "-U3",
+  ];
+  const patchArgs = [...resolved.selector, ...patchFlags, ...pathArgs];
+  const command = ["git", ...patchArgs];
+  let rawPatch: string | null = null;
+  let rawPatchBytes = 0;
+  let truncated = false;
+
+  if (input.tier === "patch") {
+    const patch = runRepoDiffGit(input.worktreePath, patchArgs, REPO_DIFF_GIT_MAX_BUFFER) ?? "";
+    rawPatchBytes = Buffer.byteLength(patch);
+    const maxPatchBytes = REPO_DIFF_VIEWER_LIMITS.maxPatchBytes ?? 2_000_000;
+    if (rawPatchBytes > maxPatchBytes) {
+      truncated = true;
+      rawPatch = patch.slice(0, maxPatchBytes);
+      input.diagnostics.push({
+        level: "warning",
+        kind: "patch_truncated",
+        message: `Patch text truncated to ${maxPatchBytes} of ${rawPatchBytes} bytes.`,
+        path: null,
+      });
+    } else {
+      rawPatch = patch;
+    }
+  }
+
+  return {
+    kind: input.kind,
+    baseLabel: resolved.baseLabel,
+    compareLabel: resolved.compareLabel,
+    command,
+    patchOid: stableHash(`${command.join("\0")}\0${raw}\0${numstat}\0${shortstat ?? ""}\0${rawPatch ?? ""}`),
+    rawPatch,
+    rawPatchBytes,
+    truncated,
+    files,
+    shortstat,
+  };
+}
+
+function buildGitRepoDiffSnapshot(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  baseRef?: string;
+  compareRef?: string;
+  tier: RepoDiffTier;
+  paths?: readonly string[];
+}): ScoutRepoDiffSnapshot {
+  const diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }> = [];
+  const layers = input.layers
+    .map((kind) => buildGitRepoDiffLayer({
+      worktreePath: input.worktreePath,
+      kind,
+      baseRef: input.baseRef,
+      compareRef: input.compareRef,
+      paths: input.paths,
+      tier: input.tier,
+      diagnostics,
+    }))
+    .filter((layer): layer is RepoDiffLayer => Boolean(layer));
+
+  if (input.tier === "summary" && layers.some((layer) => layer.files.length > 100)) {
+    diagnostics.push({
+      level: "info",
+      kind: "large_diff_strategy",
+      message: "Loaded a recent-first file inventory; select a file to fetch its patch text.",
+      path: null,
+    });
+  }
+
+  const renderKey = stableHash([
+    "git-repo-diff",
+    input.worktreePath,
+    input.tier,
+    input.baseRef ?? "",
+    input.compareRef ?? "",
+    input.paths?.join("\n") ?? "",
+    layers.map((layer) => `${layer.kind}:${layer.patchOid}`).join("|"),
+  ].join("\0"));
+
+  return {
+    schema: "openscout.repo.diff/v1",
+    generatedAt: Date.now(),
+    worktreePath: input.worktreePath,
+    layers,
+    coverage: {
+      requestedLayers: input.layers.length,
+      emittedLayers: layers.length,
+      files: layers.reduce((sum, layer) => sum + layer.files.length, 0),
+      patchBytes: layers.reduce((sum, layer) => sum + layer.rawPatchBytes, 0),
+      truncatedLayers: layers.filter((layer) => layer.truncated).length,
+      scanBudgetReached: false,
+    },
+    diagnostics,
+    scout: { worktreeId: `worktree:${stableHash(input.worktreePath)}`, projectId: null, agents: [], sessions: [], hints: [] },
+    render: {
+      renderKey,
+      cachePolicy: "local-disposable",
+      preferredTheme: "pierre-dark",
+      preferredLayout: "split",
+    },
+  };
+}
+
+function shouldUseGitRepoDiffFallback(input: {
+  tier: RepoDiffTier;
+  paths?: readonly string[];
+}): boolean {
+  return input.tier === "summary" || (input.paths?.length ?? 0) > 0;
+}
+
+function emptyRepoDiffSnapshot(input: {
+  worktreePath: string;
+  layers: readonly RepoDiffLayerKind[];
+  scope: RepoDiffScopeMetadata;
+}): ScopedRepoDiffSnapshot {
+  const layers = input.layers.map((kind) => {
+    const labels = repoDiffLayerLabels(kind);
+    return {
+      kind,
+      baseLabel: labels.base,
+      compareLabel: labels.compare,
+      command: ["git", "diff"],
+      patchOid: stableHash(`empty:${input.worktreePath}:${kind}:${input.scope.kind}`),
+      rawPatch: "",
+      rawPatchBytes: 0,
+      truncated: false,
+      files: [],
+      shortstat: null,
+    };
+  });
+  return {
+    schema: "openscout.repo.diff/v1",
+    generatedAt: Date.now(),
+    worktreePath: input.worktreePath,
+    layers,
+    coverage: {
+      requestedLayers: input.layers.length,
+      emittedLayers: layers.length,
+      files: 0,
+      patchBytes: 0,
+      truncatedLayers: 0,
+      scanBudgetReached: false,
+    },
+    diagnostics: [],
+    scout: { worktreeId: null, projectId: null, agents: [], sessions: [], hints: [] },
+    render: {
+      renderKey: stableHash(`empty-render:${input.worktreePath}:${input.layers.join(",")}:${input.scope.kind}`),
+      cachePolicy: "local-disposable",
+      preferredTheme: "pierre-dark",
+      preferredLayout: "split",
+    },
+    scope: input.scope,
+  };
+}
+
+function trimRepoDiffCache(cache: Map<string, RepoDiffCacheEntry>): void {
+  while (cache.size > REPO_DIFF_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (!oldest) break;
+    cache.delete(oldest);
+  }
+}
 
 type FleetHomeBrief = {
   id: string;
@@ -981,6 +1683,471 @@ function firstMetadataString(...values: Array<unknown>): string | null {
   return null;
 }
 
+function parseTerminalSessionBackend(value: string | undefined): "tmux" | "zellij" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+}
+
+function parseTerminalSessionLimit(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(1000, Math.floor(parsed)) : 100;
+}
+
+function parseTerminalSessionDiscoveryFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "backend";
+}
+
+function parseTerminalSurfaceControlAction(value: string | undefined): "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit" | "force-quit-bridge" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "interrupt"
+    || normalized === "quit"
+    || normalized === "stop-job"
+    || normalized === "restart-resume"
+    || normalized === "detach"
+    || normalized === "force-quit"
+    || normalized === "force-quit-bridge"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+type TmuxPaneProcess = {
+  pid: number;
+  ppid: number;
+  pgid: number;
+  comm: string;
+};
+
+type ProcessCommandRow = TmuxPaneProcess & {
+  command: string;
+};
+
+type RelayRuntimeState = {
+  agentId?: string;
+  projectRoot?: string;
+  sessionId?: string;
+  promptFile?: string;
+  launchScript?: string;
+};
+
+function parseProcessNumber(value: string | undefined): number | null {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function tmuxPaneDetail(sessionName: string): { panePid: number; paneTty: string; paneCurrentPath: string | null } | null {
+  try {
+    const output = execFileSync("tmux", [
+      "display-message",
+      "-p",
+      "-t",
+      sessionName,
+      "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const [pidRaw, ttyRaw, pathRaw] = output.split("\t");
+    const panePid = parseProcessNumber(pidRaw);
+    const paneTty = ttyRaw?.replace(/^\/dev\//u, "").trim();
+    const paneCurrentPath = pathRaw?.trim() || null;
+    return panePid && paneTty ? { panePid, paneTty, paneCurrentPath } : null;
+  } catch {
+    return null;
+  }
+}
+
+function processRowsForTty(tty: string): TmuxPaneProcess[] {
+  try {
+    const output = execFileSync("ps", [
+      "-t",
+      tty,
+      "-o",
+      "pid=,ppid=,pgid=,comm=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const comm = parts.slice(3).join(" ");
+        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
+      })
+      .filter((row): row is TmuxPaneProcess => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function allProcessRows(): TmuxPaneProcess[] {
+  try {
+    const output = execFileSync("ps", [
+      "-axo",
+      "pid=,ppid=,pgid=,comm=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const comm = parts.slice(3).join(" ");
+        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
+      })
+      .filter((row): row is TmuxPaneProcess => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function allProcessCommandRows(): ProcessCommandRow[] {
+  try {
+    const output = execFileSync("ps", [
+      "-axo",
+      "pid=,ppid=,pgid=,command=",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const parts = line.split(/\s+/u);
+        const pid = parseProcessNumber(parts[0]);
+        const ppid = parseProcessNumber(parts[1]);
+        const pgid = parseProcessNumber(parts[2]);
+        const command = parts.slice(3).join(" ");
+        const comm = command.split(/\s+/u)[0] ?? "";
+        return pid && ppid && pgid && comm && command
+          ? { pid, ppid, pgid, comm, command }
+          : null;
+      })
+      .filter((row): row is ProcessCommandRow => Boolean(row));
+  } catch {
+    return [];
+  }
+}
+
+function processRowsForTmuxPane(detail: { panePid: number; paneTty: string }): TmuxPaneProcess[] {
+  const byPid = new Map<number, TmuxPaneProcess>();
+  // Keep tty-derived parentage first: macOS can report long-running tmux pane
+  // children as reparented elsewhere, while the tty scan still exposes the
+  // pane-to-Claude relationship we need to find no-tty shell jobs.
+  for (const row of processRowsForTty(detail.paneTty)) {
+    byPid.set(row.pid, row);
+  }
+  for (const row of allProcessRows()) {
+    if (!byPid.has(row.pid)) byPid.set(row.pid, row);
+  }
+  return [...byPid.values()];
+}
+
+function descendantsOf(rootPid: number, rows: TmuxPaneProcess[]): Set<number> {
+  const descendants = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (row.ppid !== rootPid && !descendants.has(row.ppid)) continue;
+      if (descendants.has(row.pid)) continue;
+      descendants.add(row.pid);
+      changed = true;
+    }
+  }
+  return descendants;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function killProcesses(pids: number[], signal: NodeJS.Signals): number {
+  let killed = 0;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, signal);
+      killed += 1;
+    } catch {
+      // The process may already be gone.
+    }
+  }
+  return killed;
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:+=@%-]+$/u.test(value)) {
+    return value;
+  }
+  return `'${value.replace(/'/gu, `'\\''`)}'`;
+}
+
+function readProcessCwd(pid: number): string | null {
+  try {
+    const output = execFileSync("lsof", [
+      "-a",
+      "-p",
+      String(pid),
+      "-d",
+      "cwd",
+      "-Fn",
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    for (const line of output.split(/\r?\n/u)) {
+      if (!line.startsWith("n")) continue;
+      const value = line.slice(1).trim();
+      if (value) return value;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function claudeProjectDirForCwd(cwd: string): string {
+  return join(homedir(), ".claude", "projects", cwd.replace(/\//gu, "-"));
+}
+
+function mostRecentClaudeSessionForCwd(cwd: string): { sessionId: string; transcriptPath: string } | null {
+  const dir = claudeProjectDirForCwd(cwd);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return null;
+  }
+  let best: { sessionId: string; transcriptPath: string; mtimeMs: number } | null = null;
+  for (const entry of entries) {
+    if (!entry.endsWith(".jsonl")) continue;
+    const transcriptPath = join(dir, entry);
+    try {
+      const mtimeMs = statSync(transcriptPath).mtimeMs;
+      if (!best || mtimeMs > best.mtimeMs) {
+        best = {
+          sessionId: entry.slice(0, -".jsonl".length),
+          transcriptPath,
+          mtimeMs,
+        };
+      }
+    } catch {
+      // Ignore stale entries that disappeared while scanning.
+    }
+  }
+  return best ? { sessionId: best.sessionId, transcriptPath: best.transcriptPath } : null;
+}
+
+function readRelayRuntimeStateForTmuxSession(sessionName: string): RelayRuntimeState | null {
+  const agentsDir = resolveOpenScoutSupportPaths().relayAgentsDirectory;
+  let entries: string[];
+  try {
+    entries = readdirSync(agentsDir);
+  } catch {
+    return null;
+  }
+  for (const entry of entries) {
+    const statePath = join(agentsDir, entry, "state.json");
+    try {
+      const parsed = JSON.parse(readFileSync(statePath, "utf8")) as RelayRuntimeState;
+      if (parsed.sessionId === sessionName) return parsed;
+    } catch {
+      // Ignore malformed or partially-written runtime state files.
+    }
+  }
+  return null;
+}
+
+function resumeScriptFromLaunchScript(launchScript: string, sessionId: string): string {
+  const resumePrefix = `exec claude --resume ${shellQuote(sessionId)} `;
+  const rewritten = launchScript.replace(/(^|\n)(\s*)claude\s+/u, `$1$2${resumePrefix}`);
+  return rewritten === launchScript
+    ? `${launchScript}\n# OpenScout resume fallback\n${resumePrefix}\n`
+    : rewritten;
+}
+
+function forceQuitRelayAgentProcessTree(agentId: string): boolean {
+  const rows = allProcessCommandRows();
+  const claudeRoots = rows.filter((row) =>
+    /(^|\/)claude(\s|$)/u.test(row.command) && row.command.includes(agentId)
+  );
+  const targetPids = new Set<number>();
+  for (const root of claudeRoots) {
+    targetPids.add(root.pid);
+    const descendants = descendantsOf(root.pid, rows);
+    const targetGroups = new Set<number>([root.pgid]);
+    for (const row of rows) {
+      if (descendants.has(row.pid)) {
+        targetPids.add(row.pid);
+        targetGroups.add(row.pgid);
+      }
+    }
+    for (const row of rows) {
+      if (targetGroups.has(row.pgid)) targetPids.add(row.pid);
+    }
+  }
+  return terminateProcessesWithEscalation([...targetPids]);
+}
+
+function restartClaudeWithResumeInTmuxSurface(sessionName: string): { ok: boolean; sessionId: string | null; transcriptPath: string | null } {
+  const runtimeState = readRelayRuntimeStateForTmuxSession(sessionName);
+  const detail = tmuxPaneDetail(sessionName);
+  const surface = detail ? claudeRowsInTmuxSurface(sessionName) : null;
+  const liveClaudeCwd = surface?.claudeRows[0]?.pid
+    ? readProcessCwd(surface.claudeRows[0].pid)
+    : null;
+  const cwd = runtimeState?.projectRoot
+    ?? liveClaudeCwd
+    ?? detail?.paneCurrentPath
+    ?? null;
+  if (!cwd) return { ok: false, sessionId: null, transcriptPath: null };
+  const transcript = mostRecentClaudeSessionForCwd(cwd);
+  if (!transcript) return { ok: false, sessionId: null, transcriptPath: null };
+
+  const launchScriptPath = runtimeState?.launchScript;
+  const launchScript = launchScriptPath && existsSync(launchScriptPath)
+    ? readFileSync(launchScriptPath, "utf8")
+    : `#!/bin/bash
+set -uo pipefail
+cd ${shellQuote(cwd)}
+exec claude --resume ${shellQuote(transcript.sessionId)}
+`;
+  const resumeScript = resumeScriptFromLaunchScript(launchScript, transcript.sessionId);
+
+  try {
+    if (runtimeState?.agentId) {
+      forceQuitRelayAgentProcessTree(runtimeState.agentId);
+    } else if (detail) {
+      forceQuitClaudeInTmuxSurface(sessionName);
+    }
+    const command = `bash -lc ${shellQuote(resumeScript)}`;
+    if (detail) {
+      execFileSync("tmux", [
+        "respawn-pane",
+        "-k",
+        "-t",
+        sessionName,
+        "-c",
+        cwd,
+        command,
+      ], { stdio: "ignore" });
+    } else {
+      execFileSync("tmux", [
+        "new-session",
+        "-d",
+        "-s",
+        sessionName,
+        "-c",
+        cwd,
+        command,
+      ], { stdio: "ignore" });
+    }
+    return { ok: true, sessionId: transcript.sessionId, transcriptPath: transcript.transcriptPath };
+  } catch {
+    return { ok: false, sessionId: transcript.sessionId, transcriptPath: transcript.transcriptPath };
+  }
+}
+
+function terminateProcessesWithEscalation(pids: number[]): boolean {
+  const targetPids = [...new Set(pids)]
+    .filter((pid) => Number.isFinite(pid) && pid > 0)
+    .sort((left, right) => right - left);
+  if (targetPids.length === 0) return false;
+  killProcesses(targetPids, "SIGTERM");
+  const stillAlive = targetPids.filter(processExists);
+  if (stillAlive.length > 0) {
+    setTimeout(() => {
+      killProcesses(stillAlive.filter(processExists), "SIGKILL");
+    }, 750);
+  }
+  return true;
+}
+
+function claudeRowsInTmuxSurface(sessionName: string): {
+  detail: { panePid: number; paneTty: string };
+  rows: TmuxPaneProcess[];
+  panePgid: number;
+  claudeRows: TmuxPaneProcess[];
+} | null {
+  const detail = tmuxPaneDetail(sessionName);
+  if (!detail) return null;
+  const rows = processRowsForTmuxPane(detail);
+  const descendantPids = descendantsOf(detail.panePid, rows);
+  const panePgid = rows.find((row) => row.pid === detail.panePid)?.pgid ?? detail.panePid;
+  const claudeRows = rows.filter((row) =>
+    descendantPids.has(row.pid) && /(^|\/)claude$/u.test(row.comm)
+  );
+  return { detail, rows, panePgid, claudeRows };
+}
+
+function stopClaudeActiveJobInTmuxSurface(sessionName: string): boolean {
+  const surface = claudeRowsInTmuxSurface(sessionName);
+  if (!surface) return false;
+  const targetPids = new Set<number>();
+  for (const claudeRow of surface.claudeRows) {
+    const claudeDescendants = descendantsOf(claudeRow.pid, surface.rows);
+    const jobGroups = new Set(
+      surface.rows
+        .filter((row) =>
+          claudeDescendants.has(row.pid)
+          && row.pgid !== surface.panePgid
+          && row.pgid !== claudeRow.pgid
+        )
+        .map((row) => row.pgid),
+    );
+    for (const row of surface.rows) {
+      if (claudeDescendants.has(row.pid) && jobGroups.has(row.pgid)) {
+        targetPids.add(row.pid);
+      }
+    }
+  }
+  return terminateProcessesWithEscalation([...targetPids]);
+}
+
+function forceQuitClaudeInTmuxSurface(sessionName: string): boolean {
+  const surface = claudeRowsInTmuxSurface(sessionName);
+  if (!surface) return false;
+  const targetPids = [...new Set(surface.claudeRows.flatMap((row) =>
+    surface.rows
+      .filter((candidate) => candidate.pid === row.pid || descendantsOf(row.pid, surface.rows).has(candidate.pid))
+      .map((candidate) => candidate.pid)
+  ))].sort((left, right) => right - left);
+  return terminateProcessesWithEscalation(targetPids);
+}
+
+function controlTmuxSurface(sessionName: string, action: "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit"): boolean {
+  try {
+    if (action === "interrupt") {
+      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-c"], { stdio: "ignore" });
+      return true;
+    }
+    if (action === "quit") {
+      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-d"], { stdio: "ignore" });
+      return true;
+    }
+    if (action === "stop-job") {
+      return stopClaudeActiveJobInTmuxSurface(sessionName);
+    }
+    if (action === "restart-resume") {
+      return restartClaudeWithResumeInTmuxSurface(sessionName).ok;
+    }
+    if (action === "force-quit") {
+      return forceQuitClaudeInTmuxSurface(sessionName);
+    }
+    execFileSync("tmux", ["detach-client", "-s", sessionName], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function metadataTimestampMs(value: unknown): number | undefined {
   const numeric = typeof value === "number"
     ? value
@@ -1005,268 +2172,377 @@ function activeEndpointForAgent(
   return selectPreferredAgentEndpoint(snapshot, agentId, preference);
 }
 
-type WebAgentRecord = ReturnType<typeof queryAgents>[number];
-type BrokerSnapshotRecord = Record<string, unknown>;
+const ACTIVE_BROKER_FLIGHT_STATES = new Set(["queued", "waking", "running", "waiting"]);
 
-function recordCollection(value: unknown): Record<string, Record<string, unknown>> {
-  if (!isRecord(value)) return {};
-  const entries: Array<[string, Record<string, unknown>]> = [];
-  for (const [key, entry] of Object.entries(value)) {
-    if (isRecord(entry)) entries.push([key, entry]);
+function metadataStringValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null {
+  return firstMetadataString(metadata?.[key]);
+}
+
+function metadataBooleanValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): boolean {
+  return metadata?.[key] === true;
+}
+
+function metadataStringArrayValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): string[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
   }
-  return Object.fromEntries(entries);
+  return value.map((entry) => String(entry).trim()).filter(Boolean);
 }
 
-function recordMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  return isRecord(value?.metadata) ? value.metadata : {};
-}
-
-function recordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
-}
-
-function brokerSnapshotFromContext(context: unknown): BrokerSnapshotRecord | null {
-  if (!isRecord(context) || !isRecord(context.snapshot)) return null;
-  return context.snapshot;
-}
-
-function brokerEndpointForAgent(
-  snapshot: BrokerSnapshotRecord,
-  agentId: string,
+function metadataRecordValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
 ): Record<string, unknown> | null {
-  const endpoints = Object.values(recordCollection(snapshot.endpoints)).filter(
-    (endpoint) => stringField(endpoint, "agentId") === agentId,
-  );
-  const rank = (state: string | undefined) => {
-    switch (state) {
-      case "active":
-      case "idle":
-      case "waiting":
-      case "available":
-        return 0;
-      case "offline":
-        return 5;
-      default:
-        return 4;
+  const value = metadata?.[key];
+  return recordInput(value);
+}
+
+function metadataRecordArrayValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): Record<string, unknown>[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(recordInput).filter((entry): entry is Record<string, unknown> => Boolean(entry));
+}
+
+function isBrokerAgentVisibleInWeb(agent: ScoutBrokerContext["snapshot"]["agents"][string]): boolean {
+  const metadata = recordInput(agent.metadata);
+  return metadataBooleanValue(metadata, "brokerRegistered")
+    && !metadataBooleanValue(metadata, "staleLocalRegistration")
+    && !metadataBooleanValue(metadata, "retiredFromFleet");
+}
+
+function latestBrokerAgentTimestamp(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  endpoint: AgentEndpoint | null,
+): number | null {
+  const agentMetadata = recordInput(agent.metadata);
+  const endpointMetadata = agentEndpointMetadata(endpoint);
+  const timestamps = [
+    agentMetadata?.createdAt,
+    agentMetadata?.registeredAt,
+    agentMetadata?.updatedAt,
+    endpointMetadata.lastSeenAt,
+    endpointMetadata.lastEnsuredAt,
+    endpointMetadata.startedAt,
+    endpointMetadata.lastStartedAt,
+    endpointMetadata.lastCompletedAt,
+    endpointMetadata.lastFailedAt,
+  ].map(metadataTimestampMs).filter((value): value is number => value !== undefined);
+  return timestamps.length > 0 ? Math.max(...timestamps) : null;
+}
+
+function brokerAgentFlightPhase(
+  broker: ScoutBrokerContext,
+  agentId: string,
+): "in_turn" | "in_flight" | null {
+  let phase: "in_turn" | "in_flight" | null = null;
+  for (const flight of Object.values(broker.snapshot.flights ?? {})) {
+    if (flight.targetAgentId !== agentId || !ACTIVE_BROKER_FLIGHT_STATES.has(flight.state)) {
+      continue;
     }
-  };
-  return [...endpoints].sort((left, right) =>
-    rank(stringField(left, "state")) - rank(stringField(right, "state")),
-  )[0] ?? null;
+    if (flight.state === "running") {
+      return "in_turn";
+    }
+    phase = "in_flight";
+  }
+  return phase;
 }
 
 function summarizeBrokerAgentState(
-  endpoint: Record<string, unknown> | null,
-  wakePolicy: string | null,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  endpoint: AgentEndpoint | null,
+  flightPhase: "in_turn" | "in_flight" | null,
 ): string {
-  const rawState = stringField(endpoint, "state");
-  if (rawState && rawState !== "offline") return "available";
-  return wakePolicy === "on_demand" || wakePolicy === "always_on" ? "available" : "offline";
+  if (flightPhase === "in_turn") {
+    return "working";
+  }
+  if (flightPhase === "in_flight") {
+    return "in_flight";
+  }
+  void agent;
+  void endpoint;
+  return "available";
 }
 
-function brokerAgentProtocol(agentMetadata: Record<string, unknown>): string | null {
-  const interfaces = recordArray(agentMetadata.supportedInterfaces);
-  const protocol = interfaces
-    .map((entry) => stringField(entry, "protocol") ?? stringField(entry, "name"))
-    .find((entry) => entry?.toLowerCase().includes("a2a"));
-  return protocol ? "A2A" : null;
+function brokerNodeName(
+  broker: ScoutBrokerContext,
+  nodeId: string | null | undefined,
+): string | null {
+  if (!nodeId) {
+    return null;
+  }
+  return broker.snapshot.nodes?.[nodeId]?.name ?? null;
 }
 
-function brokerAgentSkills(agentMetadata: Record<string, unknown>): string[] {
-  const card = isRecord(agentMetadata.a2aAgentCard)
-    ? agentMetadata.a2aAgentCard
-    : isRecord(agentMetadata.agentCard)
-    ? agentMetadata.agentCard
-    : {};
-  return recordArray(card.skills)
-    .map((skill) => stringField(skill, "name") ?? stringField(skill, "id"))
-    .filter((skill): skill is string => Boolean(skill));
+function brokerActorDisplay(
+  broker: ScoutBrokerContext,
+  actorId: string | null | undefined,
+): { name: string | null; handle: string | null } {
+  const actor = actorId ? broker.snapshot.actors?.[actorId] : null;
+  return {
+    name: actor?.displayName ?? null,
+    handle: actor?.handle ?? null,
+  };
 }
 
-function brokerAgentCapabilities(
-  agent: Record<string, unknown>,
-  protocol: string | null,
+function projectNameFromRoot(path: string | null): string | null {
+  const normalized = path?.trim();
+  return normalized ? basename(normalized) : null;
+}
+
+function brokerAgentIdentityMatches(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  value: string,
+): boolean {
+  return [
+    agent.id,
+    agent.definitionId,
+    agent.handle,
+    agent.selector,
+    agent.defaultSelector,
+  ].some((candidate) => candidate === value);
+}
+
+function brokerAgentCapabilitiesForWeb(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  metadata: Record<string, unknown> | null,
 ): string[] {
-  const capabilities = stringList(agent.capabilities, []);
-  if (capabilities.length > 0) return capabilities;
-  return protocol === "A2A" ? ["chat", "invoke"] : [];
+  const explicit = Array.isArray(agent.capabilities)
+    ? agent.capabilities.map((capability) => String(capability).trim()).filter(Boolean)
+    : [];
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  const metadataCapabilities = metadataStringArrayValue(metadata, "capabilities");
+  return metadataCapabilities.length > 0 ? metadataCapabilities : ["chat", "invoke"];
 }
 
-function brokerAgentProvider(agentMetadata: Record<string, unknown>): {
-  providerName: string | null;
-  providerUrl: string | null;
-} {
-  const card = isRecord(agentMetadata.a2aAgentCard)
-    ? agentMetadata.a2aAgentCard
-    : isRecord(agentMetadata.agentCard)
-    ? agentMetadata.agentCard
-    : {};
-  const provider = isRecord(card.provider) ? card.provider : {};
+function brokerAgentCardMetadata(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  return metadataRecordValue(metadata, "a2aAgentCard")
+    ?? metadataRecordValue(metadata, "agentCard");
+}
+
+function brokerAgentProvider(
+  metadata: Record<string, unknown> | null,
+  card: Record<string, unknown> | null,
+): { name: string | null; url: string | null } {
+  const provider = metadataRecordValue(card, "provider")
+    ?? metadataRecordValue(metadata, "provider");
   return {
-    providerName: stringField(provider, "organization") ?? stringField(provider, "name") ?? null,
-    providerUrl: stringField(provider, "url") ?? null,
+    name: firstMetadataString(
+      metadataStringValue(provider, "organization"),
+      metadataStringValue(provider, "name"),
+      metadataStringValue(metadata, "providerName"),
+    ),
+    url: firstMetadataString(
+      metadataStringValue(provider, "url"),
+      metadataStringValue(metadata, "providerUrl"),
+    ),
   };
 }
 
-function brokerAgentToWebAgent(
-  snapshot: BrokerSnapshotRecord,
-  agent: Record<string, unknown>,
-): WebAgentRecord | null {
-  const agentId = stringField(agent, "id");
-  if (!agentId) return null;
-  const actors = recordCollection(snapshot.actors);
-  const nodes = recordCollection(snapshot.nodes);
-  const endpoint = brokerEndpointForAgent(snapshot, agentId);
-  const agentMetadata = recordMetadata(agent);
-  const endpointMetadata = recordMetadata(endpoint);
-  const ownerId = stringField(agent, "ownerId") ?? null;
-  const owner = ownerId ? actors[ownerId] : undefined;
-  const authorityNodeId = stringField(agent, "authorityNodeId") ?? stringField(endpoint, "nodeId") ?? null;
-  const homeNodeId = stringField(agent, "homeNodeId") ?? authorityNodeId;
-  const authorityNode = authorityNodeId ? nodes[authorityNodeId] : undefined;
-  const homeNode = homeNodeId ? nodes[homeNodeId] : undefined;
-  const handle = stringField(agent, "handle") ?? stringField(agent, "selector") ?? null;
-  const protocol = brokerAgentProtocol(agentMetadata);
-  const provider = brokerAgentProvider(agentMetadata);
+function brokerAgentProtocol(
+  metadata: Record<string, unknown> | null,
+  endpointMetadata: Record<string, unknown>,
+): string | null {
+  const supportedInterfaces = metadataRecordArrayValue(metadata, "supportedInterfaces")
+    .concat(metadataRecordArrayValue(endpointMetadata, "supportedInterfaces"));
+  const protocol = firstMetadataString(
+    ...supportedInterfaces.map((entry) => metadataStringValue(entry, "protocol")),
+    metadataStringValue(metadata, "protocol"),
+    metadataStringValue(endpointMetadata, "protocol"),
+  );
+  if (protocol?.toLowerCase() === "a2a" || metadataStringValue(metadata, "a2aExecutionUrl")) {
+    return "A2A";
+  }
+  return protocol;
+}
+
+function brokerAgentSkillNames(
+  metadata: Record<string, unknown> | null,
+  card: Record<string, unknown> | null,
+): string[] {
+  const skills = metadataRecordArrayValue(card, "skills")
+    .concat(metadataRecordArrayValue(metadata, "skills"));
+  return Array.from(new Set(
+    skills
+      .map((skill) => firstMetadataString(
+        metadataStringValue(skill, "name"),
+        metadataStringValue(skill, "id"),
+      ))
+      .filter((skill): skill is string => Boolean(skill)),
+  ));
+}
+
+function brokerAgentCardToWebAgent(
+  broker: ScoutBrokerContext,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+): WebAgent | null {
+  if (!isBrokerAgentVisibleInWeb(agent)) {
+    return null;
+  }
+
+  const endpoint = activeEndpointForAgent(broker.snapshot, agent.id);
+  const agentMetadata = recordInput(agent.metadata);
+  const endpointMetadata = agentEndpointMetadata(endpoint);
+  const cardMetadata = brokerAgentCardMetadata(agentMetadata);
+  const provider = brokerAgentProvider(agentMetadata, cardMetadata);
+  const protocol = brokerAgentProtocol(agentMetadata, endpointMetadata);
+  const skills = brokerAgentSkillNames(agentMetadata, cardMetadata);
+  const projectRoot = firstMetadataString(
+    endpoint?.projectRoot,
+    metadataStringValue(endpointMetadata, "projectRoot"),
+    metadataStringValue(agentMetadata, "projectRoot"),
+  );
+  const cwd = firstMetadataString(
+    endpoint?.cwd,
+    metadataStringValue(endpointMetadata, "currentDirectory"),
+    metadataStringValue(endpointMetadata, "cwd"),
+    metadataStringValue(agentMetadata, "currentDirectory"),
+    metadataStringValue(agentMetadata, "cwd"),
+    projectRoot,
+  );
+  const owner = brokerActorDisplay(broker, agent.ownerId);
+  const createdAt = metadataTimestampMs(agentMetadata?.createdAt)
+    ?? metadataTimestampMs(agentMetadata?.registeredAt)
+    ?? null;
+  const updatedAt = latestBrokerAgentTimestamp(agent, endpoint) ?? createdAt;
 
   return {
-    id: agentId,
-    definitionId: stringField(agent, "definitionId") ?? agentId,
-    name: stringField(agent, "displayName") ?? stringField(actors[agentId], "displayName") ?? agentId,
-    handle,
-    agentClass: stringField(agent, "agentClass") ?? "general",
-    harness: stringField(endpoint, "harness") ?? null,
-    state: summarizeBrokerAgentState(endpoint, stringField(agent, "wakePolicy") ?? null),
-    projectRoot: stringField(endpoint, "projectRoot") ?? null,
-    cwd: stringField(endpoint, "cwd") ?? stringField(endpoint, "projectRoot") ?? null,
-    updatedAt: metadataTimestampMs(endpointMetadata.lastCompletedAt)
-      ?? metadataTimestampMs(endpointMetadata.updatedAt)
-      ?? null,
-    createdAt: metadataTimestampMs(agentMetadata.createdAt) ?? null,
-    transport: stringField(endpoint, "transport") ?? null,
-    selector: stringField(agent, "selector") ?? handle,
-    defaultSelector: stringField(agent, "defaultSelector") ?? stringField(agent, "selector") ?? handle,
-    nodeQualifier: stringField(agent, "nodeQualifier") ?? null,
-    workspaceQualifier: stringField(agent, "workspaceQualifier") ?? null,
-    wakePolicy: stringField(agent, "wakePolicy") ?? null,
-    capabilities: brokerAgentCapabilities(agent, protocol),
-    project: stringField(agentMetadata, "project") ?? null,
-    branch: stringField(agentMetadata, "branch") ?? null,
+    id: agent.id,
+    definitionId: agent.definitionId,
+    name: agent.displayName,
+    handle: agent.handle ?? null,
+    agentClass: agent.agentClass,
+    harness: endpoint?.harness ?? metadataStringValue(agentMetadata, "harness"),
+    state: summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+    projectRoot: compactPath(projectRoot),
+    cwd: compactPath(cwd),
+    updatedAt,
+    createdAt,
+    transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+    selector: agent.selector ?? metadataStringValue(agentMetadata, "selector"),
+    defaultSelector: agent.defaultSelector ?? metadataStringValue(agentMetadata, "defaultSelector"),
+    nodeQualifier: agent.nodeQualifier ?? metadataStringValue(agentMetadata, "nodeQualifier"),
+    workspaceQualifier: agent.workspaceQualifier ?? metadataStringValue(agentMetadata, "workspaceQualifier"),
+    wakePolicy: agent.wakePolicy,
+    capabilities: brokerAgentCapabilitiesForWeb(agent, agentMetadata),
+    project: metadataStringValue(agentMetadata, "project") ?? projectNameFromRoot(projectRoot),
+    branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
     role: null,
-    model: stringField(endpointMetadata, "model") ?? null,
-    harnessSessionId: stringField(endpoint, "sessionId")
-      ?? stringField(endpointMetadata, "a2aContextId")
-      ?? stringField(endpointMetadata, "contextId")
-      ?? null,
-    harnessLogPath: stringField(endpointMetadata, "logPath") ?? null,
-    conversationId: conversationIdForAgent(agentId),
-    authorityNodeId,
-    authorityNodeName: stringField(authorityNode, "name") ?? null,
-    homeNodeId,
-    homeNodeName: stringField(homeNode, "name") ?? null,
-    ownerId,
-    ownerName: stringField(owner, "displayName") ?? null,
-    ownerHandle: stringField(owner, "handle") ?? null,
-    staleLocalRegistration: false,
-    retiredFromFleet: false,
-    replacedByAgentId: null,
-    providerName: provider.providerName,
-    providerUrl: provider.providerUrl,
+    model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
+    harnessSessionId: resolveHarnessSessionIdForAgent(
+      endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+      endpoint?.sessionId ?? null,
+      {
+        ...agentMetadata,
+        ...endpointMetadata,
+      },
+      summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+    ),
+    terminalSurface: resolveTerminalSurface({
+      transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+      endpointSessionId: endpoint?.sessionId ?? null,
+      metadata: {
+        ...agentMetadata,
+        ...endpointMetadata,
+      },
+    }),
+    harnessLogPath: null,
+    conversationId: conversationIdForAgent(agent.id),
+    authorityNodeId: agent.authorityNodeId ?? null,
+    authorityNodeName: brokerNodeName(broker, agent.authorityNodeId),
+    homeNodeId: agent.homeNodeId ?? null,
+    homeNodeName: brokerNodeName(broker, agent.homeNodeId),
+    ownerId: agent.ownerId ?? null,
+    ownerName: owner.name,
+    ownerHandle: owner.handle,
+    staleLocalRegistration: metadataBooleanValue(agentMetadata, "staleLocalRegistration"),
+    retiredFromFleet: metadataBooleanValue(agentMetadata, "retiredFromFleet"),
+    replacedByAgentId: metadataStringValue(agentMetadata, "replacedByAgentId"),
+    providerName: provider.name,
+    providerUrl: provider.url,
     protocol,
-    skills: brokerAgentSkills(agentMetadata),
+    skills,
   };
 }
 
-async function readWebAgentsWithBrokerCards(existingAgents: WebAgentRecord[]): Promise<WebAgentRecord[]> {
+function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
+  return Object.values(broker.snapshot.agents ?? {})
+    .map((agent) => brokerAgentCardToWebAgent(broker, agent))
+    .filter((agent): agent is WebAgent => Boolean(agent))
+    .sort((left, right) =>
+      (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+      || left.name.localeCompare(right.name),
+    );
+}
+
+async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
+  const agents = queryAgents().map(withResolvedHarnessSessionIdentity);
   const broker = await loadScoutBrokerContext().catch(() => null);
-  const snapshot = brokerSnapshotFromContext(broker);
-  if (!snapshot) return existingAgents;
-
-  const byId = new Map(existingAgents.map((agent) => [agent.id, agent]));
-  for (const agent of Object.values(recordCollection(snapshot.agents))) {
-    const agentId = stringField(agent, "id");
-    if (!agentId || byId.has(agentId)) continue;
-    const projected = brokerAgentToWebAgent(snapshot, agent);
-    if (projected) byId.set(projected.id, projected);
+  if (!broker) {
+    return agents;
   }
-  return [...byId.values()];
+  const existingIds = new Set(agents.map((agent) => agent.id));
+  const brokerAgents = brokerCardAgentsForWeb(broker)
+    .filter((agent) => !existingIds.has(agent.id))
+    .map(withResolvedHarnessSessionIdentity);
+  return [...agents, ...brokerAgents];
 }
 
-function matchesAgentRouteParam(agent: WebAgentRecord, value: string): boolean {
-  return agent.id === value
-    || agent.handle === value
-    || agent.selector === value
-    || agent.defaultSelector === value;
-}
-
-function parseRepoDiffCacheMode(value: string | undefined): "reload" | "prefer" | "only" {
-  return value === "prefer" || value === "only" || value === "reload" ? value : "reload";
-}
-
-function normalizeRepoDiffFileFilters(worktreePath: string, files: string[]): string[] | undefined {
-  const root = resolve(worktreePath);
-  const seen = new Set<string>();
-  for (const file of files) {
-    const trimmed = file.trim();
-    if (!trimmed) continue;
-    const absolute = isAbsolute(trimmed) ? resolve(trimmed) : resolve(root, trimmed);
-    if (!isInsideRoot(root, absolute) || absolute === root) continue;
-    const rel = relative(root, absolute);
-    if (rel && !seen.has(rel)) seen.add(rel);
+async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
+  const agent = queryAgentById(agentId);
+  if (agent) {
+    return withResolvedHarnessSessionIdentity(agent);
   }
-  return seen.size > 0 ? [...seen] : undefined;
-}
-
-function repoDiffLimitsForTier(tier: string | undefined): RepoDiffSnapshotOptions["limits"] {
-  if (tier === "summary") {
-    return {
-      ...REPO_DIFF_VIEWER_LIMITS,
-      includeRawPatch: false,
-      includeParsedHunks: false,
-    };
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  if (!broker) {
+    return null;
   }
-  return REPO_DIFF_VIEWER_LIMITS;
+  const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
+    (candidate) => brokerAgentIdentityMatches(candidate, agentId),
+  );
+  const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
+  return brokerWebAgent ? withResolvedHarnessSessionIdentity(brokerWebAgent) : null;
 }
 
-function repoDiffCacheKey(input: {
-  worktreePath: string;
-  layers?: RepoDiffLayerKind[];
-  baseRef?: string;
-  compareRef?: string;
-  paths?: string[];
-  tier?: string;
-}): string {
-  return JSON.stringify({
-    worktreePath: resolve(input.worktreePath),
-    layers: input.layers ?? [],
-    baseRef: input.baseRef ?? null,
-    compareRef: input.compareRef ?? null,
-    paths: input.paths ?? [],
-    tier: input.tier ?? null,
-  });
-}
-
-function withRepoDiffScope(
-  snapshot: ScoutRepoDiffSnapshot,
-  paths: string[] | undefined,
-): ScoutRepoDiffSnapshot & { scope?: { kind: "worktree"; filteredPaths: string[] } } {
-  return paths && paths.length > 0
-    ? { ...snapshot, scope: { kind: "worktree", filteredPaths: paths } }
-    : snapshot;
-}
-
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers: Record<string, string> = {},
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...headers,
-    },
-  });
+function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
+  if (agent.harness !== "claude") {
+    return agent;
+  }
+  const cwd = agent.cwd ?? agent.projectRoot;
+  const transcript = cwd ? mostRecentClaudeSessionForCwd(cwd) : null;
+  if (!transcript?.sessionId) {
+    return agent;
+  }
+  const sessionId = agent.harnessSessionId?.trim() ?? "";
+  if (sessionId === transcript.sessionId) {
+    return agent;
+  }
+  if (sessionId && !isTransportSessionRef(sessionId)) {
+    return agent;
+  }
+  return {
+    ...agent,
+    harnessSessionId: transcript.sessionId,
+    harnessLogPath: agent.harnessLogPath ?? transcript.transcriptPath,
+  };
 }
 
 const TMUX_PEEK_DEFAULT_LINES = 44;
@@ -1352,23 +2628,26 @@ function normalizeTmuxPeekBody(body: string, lines: number, columns: number): {
 
 function resolveTmuxPeekTarget(agent: ReturnType<typeof queryAgents>[number], endpoint: AgentEndpoint | null): TmuxPeekTarget | null {
   const endpointMetadata = agentEndpointMetadata(endpoint);
-  const tmuxSession = firstMetadataString(
-    endpointMetadata.tmuxSession,
-    endpoint?.sessionId,
-    agent.harnessSessionId,
-    endpointMetadata.runtimeInstanceId,
-  );
+  const terminalSurface = agent.terminalSurface?.backend === "tmux"
+    ? agent.terminalSurface
+    : resolveTerminalSurface({
+        transport: endpoint?.transport ?? agent.transport,
+        endpointSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
+        metadata: endpointMetadata,
+      });
+  if (!terminalSurface || terminalSurface.backend !== "tmux") {
+    return null;
+  }
+  const tmuxSession = terminalSurface.sessionName;
   const paneTarget = firstMetadataString(
+    terminalSurface.paneId,
     endpoint?.pane,
     endpointMetadata.paneTarget,
     endpointMetadata.tmuxPane,
     tmuxSession,
   );
-  const tmuxBacked = agent.transport === "tmux"
-    || endpoint?.transport === "tmux"
-    || Boolean(firstMetadataString(endpointMetadata.tmuxSession));
 
-  if (!tmuxBacked || !tmuxSession || !paneTarget) {
+  if (!tmuxSession || !paneTarget) {
     return null;
   }
 
@@ -1594,6 +2873,7 @@ function buildAgentSessionCatalogPayload(input: {
   harness: string | null;
   cwd: string;
   transport?: string | null;
+  terminalSurface?: WebAgent["terminalSurface"];
   activeSessionId?: string | null;
   model?: string | null;
   startedAt?: number | null;
@@ -1601,16 +2881,8 @@ function buildAgentSessionCatalogPayload(input: {
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
-  type WebSessionCatalogEntry = (typeof catalog.sessions)[number] & {
-    canObserve?: boolean;
-    canTakeover?: boolean;
-    historyPath?: string;
-    provider?: string | null;
-    source?: string;
-  };
-  const catalogSessions = catalog.sessions as WebSessionCatalogEntry[];
   const catalogActiveSession = catalog.activeSessionId
-    ? catalogSessions.find((session) => session.id === catalog.activeSessionId) ?? null
+    ? catalog.sessions.find((session) => session.id === catalog.activeSessionId) ?? null
     : null;
   const endpointMetadata = agentEndpointMetadata(input.endpoint);
   const endpointSessionId = firstMetadataString(
@@ -1619,8 +2891,21 @@ function buildAgentSessionCatalogPayload(input: {
     endpointMetadata.externalSessionId,
     endpointMetadata.threadId,
   );
-  const fallbackTmuxSessionId = input.transport === "tmux"
-    ? input.activeSessionId ?? null
+  const observedHarnessSession = input.harness === "claude"
+    ? mostRecentClaudeSessionForCwd(input.cwd)
+    : null;
+  const harnessNativeSessionId = firstMetadataString(
+    endpointMetadata.externalSessionId,
+    endpointMetadata.threadId,
+    observedHarnessSession?.sessionId,
+  );
+  const terminalSurface = input.terminalSurface ?? resolveTerminalSurface({
+    transport: input.transport,
+    endpointSessionId: input.activeSessionId,
+    metadata: endpointMetadata,
+  });
+  const fallbackTerminalSessionId = terminalSurface
+    ? input.activeSessionId ?? terminalSurface.sessionName
     : null;
   const catalogActiveMatchesProfile = Boolean(
     catalogActiveSession
@@ -1628,36 +2913,28 @@ function buildAgentSessionCatalogPayload(input: {
     && (!input.transport || !catalogActiveSession.transport || catalogActiveSession.transport === input.transport),
   );
   const sessionId = catalogActiveMatchesProfile
-    ? catalog.activeSessionId
-    : endpointSessionId ?? fallbackTmuxSessionId ?? catalog.activeSessionId;
+    ? harnessNativeSessionId ?? catalog.activeSessionId
+    : harnessNativeSessionId ?? endpointSessionId ?? fallbackTerminalSessionId ?? catalog.activeSessionId;
   const harnessEntry = findHarnessEntry(input.harness);
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
-  const canTakeoverActiveSession = supportsTerminalTakeover(input.transport, resumeCommand);
+  const canResumeIntoTerminal = input.transport === "codex_exec";
   const historyPath = firstMetadataString(
     endpointMetadata.threadPath,
     endpointMetadata.resumeSessionPath,
     endpointMetadata.historyPath,
   );
+  const sessionHistoryPath = historyPath ?? observedHarnessSession?.transcriptPath ?? null;
   const provider = firstMetadataString(endpointMetadata.provider);
   const source = firstMetadataString(endpointMetadata.source) ?? "broker-endpoint";
   const startedAt = metadataTimestampMs(endpointMetadata.lastStartedAt)
     ?? metadataTimestampMs(endpointMetadata.startedAt)
     ?? input.startedAt
     ?? Date.now();
-  const enrichSession = (session: WebSessionCatalogEntry): WebSessionCatalogEntry => {
-    const transport = session.transport ?? input.transport ?? undefined;
-    const sessionHistoryPath = session.historyPath ?? (session.id === sessionId ? historyPath : undefined);
-    return {
-      ...session,
-      canObserve: Boolean(session.canObserve) || Boolean(sessionHistoryPath) || transport === "tmux",
-      canTakeover: session.id === sessionId && canTakeoverActiveSession,
-    };
-  };
-  const sessions = sessionId && !catalogSessions.some((session) => session.id === sessionId)
+  const sessions = sessionId && !catalog.sessions.some((session) => session.id === sessionId)
     ? [
-        enrichSession({
+        {
           id: sessionId,
           startedAt,
           cwd: input.cwd,
@@ -1665,12 +2942,20 @@ function buildAgentSessionCatalogPayload(input: {
           ...(input.transport ? { transport: input.transport } : {}),
           ...(input.model ? { model: input.model } : {}),
           ...(provider ? { provider } : {}),
-          ...(historyPath ? { historyPath } : {}),
+          ...(sessionHistoryPath ? { historyPath: sessionHistoryPath } : {}),
+          ...(terminalSurface?.sessionName && terminalSurface.sessionName !== sessionId
+            ? { surfaceSessionId: terminalSurface.sessionName }
+            : {}),
           source,
-        }),
-        ...catalogSessions.map(enrichSession),
+          canObserve: Boolean(sessionHistoryPath) || Boolean(terminalSurface),
+          // Terminal surfaces are taken over by grabbing the live pane (no
+          // resume command needed). For broker protocol endpoints, a resume
+          // command can still be useful copy, but it is not a live takeover.
+          canTakeover: Boolean(terminalSurface) || Boolean(resumeCommand && canResumeIntoTerminal),
+        },
+        ...catalog.sessions,
       ]
-    : catalogSessions.map(enrichSession);
+    : catalog.sessions;
   return {
     ...catalog,
     activeSessionId: sessionId,
@@ -1680,15 +2965,6 @@ function buildAgentSessionCatalogPayload(input: {
     resumeCommand,
     resumeCwd: input.cwd,
   };
-}
-
-function supportsTerminalTakeover(
-  transport: string | null | undefined,
-  resumeCommand: string | null,
-): boolean {
-  if (transport === "tmux") return true;
-  if (!resumeCommand) return false;
-  return transport === "codex_exec" || transport === "claude_resume";
 }
 
 function emptyAgentSessionCatalogPayload(agentId: string) {
@@ -1810,6 +3086,54 @@ function observedRevealPathSet(payload: Awaited<ReturnType<typeof loadRevealObse
   }
 
   return allowed;
+}
+
+type LoadedObservePayload = NonNullable<Awaited<ReturnType<typeof loadRevealObservePayload>>>;
+
+function observedWorktreePath(payload: LoadedObservePayload): string | null {
+  const sessionCwd = payload.data.metadata?.session?.cwd?.trim();
+  if (sessionCwd) {
+    return resolve(expandHomePath(sessionCwd));
+  }
+  if (payload.agentId) {
+    const agent = queryAgentById(payload.agentId);
+    const agentPath = agent?.cwd?.trim() || agent?.projectRoot?.trim();
+    if (agentPath) {
+      return resolve(expandHomePath(agentPath));
+    }
+  }
+  return null;
+}
+
+function sessionDiffInclude(value: string | undefined): "changed" | "all" {
+  return value === "all" || value === "touched" ? "all" : "changed";
+}
+
+function sessionDiffTouchedPaths(payload: LoadedObservePayload, include: "changed" | "all"): string[] {
+  return payload.data.files
+    .filter((file) => include === "all" || file.state !== "read")
+    .map((file) => file.path);
+}
+
+function sessionTouchedResponse(payload: LoadedObservePayload, refId: string | null) {
+  const worktreePath = observedWorktreePath(payload);
+  const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
+  return {
+    schema: "openscout.session.touched/v1",
+    refId,
+    agentId: payload.agentId,
+    sessionId: payload.sessionId,
+    source: payload.source,
+    fidelity: payload.fidelity,
+    historyPath: payload.historyPath,
+    worktreePath,
+    counts: {
+      files: payload.data.files.length,
+      changedFiles,
+      readFiles: payload.data.files.length - changedFiles,
+    },
+    files: payload.data.files,
+  };
 }
 
 function defaultRevealLocalPath(targetPath: string): void {
@@ -1965,6 +3289,137 @@ function loadOpenScoutBuildInfo(currentDirectory: string): OpenScoutBuildInfo {
     commit,
     dirty: dirtyStatus === null ? null : dirtyStatus.length > 0,
     mode: process.env.NODE_ENV === "production" ? "production" : "dev",
+  };
+}
+
+function repoPullRequestRoot(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  const candidate = resolve(trimmed);
+  try {
+    if (!statSync(candidate).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return runGitValue(candidate, ["rev-parse", "--show-toplevel"]) ?? candidate;
+}
+
+function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): string[] {
+  const sourcePaths = rawPaths.length > 0 ? rawPaths : [fallbackPath];
+  const seen = new Set<string>();
+  const roots: string[] = [];
+  for (const rawPath of sourcePaths) {
+    const root = repoPullRequestRoot(rawPath);
+    if (!root) continue;
+    const key = realpathSync(root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    roots.push(root);
+    if (roots.length >= REPO_PRS_MAX_PATHS) break;
+  }
+  return roots;
+}
+
+function repoNameFromGitRemote(remote: string | null, fallbackPath: string): string {
+  if (remote) {
+    const ssh = /^git@[^:]+:([^/]+\/.+?)(?:\.git)?$/.exec(remote);
+    if (ssh) return ssh[1];
+    try {
+      const url = new URL(remote);
+      const path = url.pathname.replace(/^\/+/, "").replace(/\.git$/, "");
+      if (path.includes("/")) return path;
+    } catch {
+      const local = remote.replace(/\.git$/, "");
+      if (local.includes("/")) return local.split("/").slice(-2).join("/");
+    }
+  }
+  return basename(fallbackPath);
+}
+
+function parseGhPullRequests(stdout: string, repo: string, path: string): RepoPullRequestItem[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const items: RepoPullRequestItem[] = [];
+  for (const raw of parsed as GhPullRequest[]) {
+    if (
+      typeof raw.number !== "number" ||
+      typeof raw.title !== "string" ||
+      typeof raw.url !== "string"
+    ) {
+      continue;
+    }
+    items.push({
+      id: `${repo}#${raw.number}`,
+      repo,
+      path,
+      number: raw.number,
+      title: raw.title,
+      url: raw.url,
+      state: typeof raw.state === "string" ? raw.state : "OPEN",
+      isDraft: Boolean(raw.isDraft),
+      headRefName: typeof raw.headRefName === "string" ? raw.headRefName : "",
+      baseRefName: typeof raw.baseRefName === "string" ? raw.baseRefName : "",
+      author: typeof raw.author?.login === "string" ? raw.author.login : null,
+      updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    });
+  }
+  return items;
+}
+
+async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promise<RepoPullRequestSnapshot> {
+  const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
+  const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
+  const results = await Promise.all(paths.map(async (path) => {
+    const remote = runGitValue(path, ["remote", "get-url", "origin"]);
+    const repo = repoNameFromGitRemote(remote, path);
+    try {
+      const result = await execFileAsync("gh", [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        String(limit),
+        "--json",
+        "number,title,url,state,isDraft,headRefName,baseRefName,author,updatedAt",
+      ], {
+        cwd: path,
+        encoding: "utf8",
+        timeout: 2_500,
+        maxBuffer: 512 * 1024,
+      });
+      return {
+        pullRequests: parseGhPullRequests(result.stdout, repo, path),
+        warning: null,
+      };
+    } catch {
+      return {
+        pullRequests: [],
+        warning: `${repo}: open PRs unavailable`,
+      };
+    }
+  }));
+
+  const pullRequests = results.flatMap((result) => result.pullRequests);
+  const warnings = results
+    .map((result) => result.warning)
+    .filter((warning): warning is string => Boolean(warning));
+
+  return {
+    generatedAt: Date.now(),
+    source: "gh",
+    paths,
+    pullRequests: pullRequests.sort((left, right) => {
+      const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
+      const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
+      return rightTime - leftTime || left.repo.localeCompare(right.repo) || right.number - left.number;
+    }),
+    warnings,
   };
 }
 
@@ -2234,7 +3689,7 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     });
   }
 
-  for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed")) {
+  for (const ask of fleet.recentCompleted.filter((item) => item.status === "failed" && item.attention !== "silent")) {
     const noteworthy = ask.attention === "badge";
     const noteworthyTitle = ask.statusLabel === "Stopped" ? "Ask stopped" : "Ask interrupted";
     items.push({
@@ -2879,86 +4334,6 @@ async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   };
 }
 
-const PROFILE_SWITCHABLE_HARNESSES = new Set(["claude", "codex", "pi"]);
-
-async function buildAgentManagementState(agentId: string, currentDirectory: string) {
-  const agent = queryAgentById(agentId) ?? queryAgents(300).find((candidate) => candidate.id === agentId) ?? null;
-  const [{ getLocalAgentConfig }, setupResult] = await Promise.all([
-    import("@openscout/runtime/local-agents"),
-    loadResolvedRelayAgents({ currentDirectory }).catch(() => null),
-  ]);
-  const config = await getLocalAgentConfig(agentId).catch(() => null);
-  const setupAgents = [
-    ...(setupResult?.agents ?? []),
-    ...(setupResult?.discoveredAgents ?? []),
-  ];
-  const resolved = setupAgents.find((candidate) => candidate.agentId === agentId)
-    ?? setupAgents.find((candidate) =>
-      Boolean(agent?.projectRoot && candidate.projectRoot === agent.projectRoot)
-      || Boolean(agent?.cwd && candidate.runtime.cwd === agent.cwd)
-    )
-    ?? null;
-  const project = (setupResult?.projectInventory ?? []).find((candidate) => candidate.agentId === agentId)
-    ?? (setupResult?.projectInventory ?? []).find((candidate) =>
-      Boolean((resolved?.projectRoot ?? agent?.projectRoot) && candidate.projectRoot === (resolved?.projectRoot ?? agent?.projectRoot))
-    )
-    ?? null;
-  const currentHarness = config?.runtime.harness ?? resolved?.runtime.harness ?? agent?.harness ?? null;
-  const profileMap = new Map<string, { harness: string; source: string; detail: string; active: boolean; switchable: boolean }>();
-
-  for (const profile of project?.harnesses ?? []) {
-    profileMap.set(profile.harness, {
-      harness: profile.harness,
-      source: profile.source,
-      detail: profile.detail,
-      active: profile.harness === currentHarness,
-      switchable: PROFILE_SWITCHABLE_HARNESSES.has(profile.harness),
-    });
-  }
-  for (const harness of Object.keys(resolved?.harnessProfiles ?? {})) {
-    if (!profileMap.has(harness)) {
-      profileMap.set(harness, {
-        harness,
-        source: "manifest",
-        detail: "Resolved harness profile",
-        active: harness === currentHarness,
-        switchable: PROFILE_SWITCHABLE_HARNESSES.has(harness),
-      });
-    }
-  }
-  if (currentHarness && !profileMap.has(currentHarness)) {
-    profileMap.set(currentHarness, {
-      harness: currentHarness,
-      source: "current",
-      detail: "Current runtime harness",
-      active: true,
-      switchable: PROFILE_SWITCHABLE_HARNESSES.has(currentHarness),
-    });
-  }
-
-  const profiles = Array.from(profileMap.values()).sort((left, right) =>
-    Number(right.active) - Number(left.active)
-    || left.harness.localeCompare(right.harness)
-  );
-  const projectRoot = resolved?.projectRoot ?? project?.projectRoot ?? agent?.projectRoot ?? agent?.cwd ?? config?.runtime.cwd ?? null;
-
-  return {
-    agentId,
-    editable: Boolean(config?.editable),
-    currentHarness,
-    profiles,
-    canSwitchHarness: Boolean(config?.editable && profiles.filter((profile) => profile.switchable).length > 1),
-    projectConfigPath: resolved?.projectConfigPath ?? project?.projectConfigPath ?? null,
-    projectRoot,
-    runtimeCwd: config?.runtime.cwd ?? resolved?.runtime.cwd ?? agent?.cwd ?? null,
-    canRepair: Boolean(projectRoot),
-    canRetire: Boolean(agent && !agent.retiredFromFleet),
-    staleLocalRegistration: Boolean(agent?.staleLocalRegistration),
-    retiredFromFleet: Boolean(agent?.retiredFromFleet),
-    replacedByAgentId: agent?.replacedByAgentId ?? null,
-  };
-}
-
 async function readLocalHarnessTopologySnapshot() {
   try {
     const { HarnessTopologyObserver } = await import("@openscout/runtime/harness-topology");
@@ -2976,6 +4351,19 @@ export async function createOpenScoutWebServer(
 ): Promise<OpenScoutWebServer> {
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
+
+  // Approval-gated LAN pairing: a phone tapping an idle Mac registers a request
+  // here; the Mac approves it before pair mode starts and the payload is served.
+  const pendingPairRequests = createPendingPairRequestStore();
+  // Always-on discovery beacon so idle Macs still appear in the iOS "On your
+  // network" list. Stands down while pair mode runs (the controller advertises).
+  const lanPairBeacon = startScoutPairLanBeacon(async () => {
+    try {
+      return (await loadPairingState(currentDirectory, false)).isRunning;
+    } catch {
+      return false;
+    }
+  });
   const routes = resolveOpenScoutWebRoutes(process.env);
   ensureOpenScoutVoxOrigins();
   startGlobalHeuristicsWatcher();
@@ -3012,10 +4400,115 @@ export async function createOpenScoutWebServer(
       console.warn(`[scoutbot] runner failed to start: ${message}`);
     }
   }
-  const repoDiffCache = new Map<string, ScoutRepoDiffSnapshot>();
-  const repoDiffRehydrateInFlight = new Map<string, Promise<void>>();
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
+  const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
+  const repoDiffInFlight = new Map<string, Promise<ScoutRepoDiffSnapshot>>();
+  const runCachedRepoDiff = (
+    key: string,
+    runRepoDiff: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>,
+    snapshotOptions: RepoDiffSnapshotOptions,
+  ): Promise<ScoutRepoDiffSnapshot> => {
+    const active = repoDiffInFlight.get(key);
+    if (active) return active;
+    const request = runRepoDiff(snapshotOptions)
+      .then((snapshot) => {
+        repoDiffCache.delete(key);
+        repoDiffCache.set(key, { snapshot, storedAt: Date.now() });
+        trimRepoDiffCache(repoDiffCache);
+        return snapshot;
+      })
+      .finally(() => {
+        repoDiffInFlight.delete(key);
+      });
+    repoDiffInFlight.set(key, request);
+    return request;
+  };
+  const serveRepoDiffSnapshot = async (
+    c: Context,
+    input: {
+      worktreePath: string;
+      layers: readonly RepoDiffLayerKind[];
+      baseRef?: string;
+      compareRef?: string;
+      tier: RepoDiffTier;
+      cacheMode: RepoDiffCacheMode;
+      rehydrate: boolean;
+      stateKey?: string;
+      paths?: readonly string[];
+      scope?: RepoDiffScopeMetadata;
+    },
+  ) => {
+    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
+    const cacheKey = repoDiffCacheKey({
+      worktreePath: input.worktreePath,
+      layers: input.layers,
+      baseRef: input.baseRef,
+      compareRef: input.compareRef,
+      tier: input.tier,
+      stateKey: input.stateKey,
+      paths: input.paths,
+    });
+    const snapshotOptions: RepoDiffSnapshotOptions = {
+      worktreePath: input.worktreePath,
+      layers: input.layers.length > 0 ? [...input.layers] : undefined,
+      baseRef: input.baseRef,
+      compareRef: input.compareRef,
+      paths: input.paths && input.paths.length > 0 ? [...input.paths] : undefined,
+      limits: input.tier === "summary" ? REPO_DIFF_SUMMARY_LIMITS : REPO_DIFF_VIEWER_LIMITS,
+    };
+
+    if (!options.repoDiffSnapshot && shouldUseGitRepoDiffFallback(input)) {
+      const snapshot = buildGitRepoDiffSnapshot({
+        worktreePath: input.worktreePath,
+        layers: input.layers,
+        baseRef: input.baseRef,
+        compareRef: input.compareRef,
+        tier: input.tier,
+        paths: input.paths,
+      });
+      c.header("x-openscout-repo-diff-cache", "git");
+      return c.json(input.scope ? withRepoDiffScope(snapshot, input.scope) : snapshot);
+    }
+
+    if (input.cacheMode !== "reload") {
+      const cached = repoDiffCache.get(cacheKey);
+      if (cached) {
+        c.header("x-openscout-repo-diff-cache", "hit");
+        c.header("x-openscout-repo-diff-cached-at", String(cached.storedAt));
+        if (input.rehydrate) {
+          c.header("x-openscout-repo-diff-rehydrate", "queued");
+          void runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions).catch(() => undefined);
+        }
+        return c.json(input.scope ? withRepoDiffScope(cached.snapshot, input.scope) : cached.snapshot);
+      }
+      if (input.cacheMode === "only") {
+        c.header("x-openscout-repo-diff-cache", "miss");
+        const warming = repoDiffInFlight.has(cacheKey);
+        return c.json({
+          status: warming ? "warming" : "missing",
+          worktreePath: input.worktreePath,
+          tier: input.tier,
+          layers: input.layers,
+          paths: input.paths ?? [],
+        }, warming ? 202 : 404);
+      }
+    }
+
+    try {
+      // A diff is a local read — run the native producer in-process. The broker
+      // (fleet coordination) is intentionally NOT in this path; agent/session
+      // annotations (SCO-065 §15) can enrich later without coupling here.
+      const snapshot = await runCachedRepoDiff(cacheKey, runRepoDiff, snapshotOptions);
+      c.header("x-openscout-repo-diff-cache", "miss");
+      return c.json(input.scope ? withRepoDiffScope(snapshot, input.scope) : snapshot);
+    } catch (error) {
+      return c.json(
+        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
+        502,
+      );
+    }
+  };
   const loadFleetHomeBrief = async (force = false): Promise<FleetHomeBrief> => {
     const now = Date.now();
     if (!force && fleetHomeBrief && fleetHomeBrief.expiresAt > now) {
@@ -3518,23 +5011,104 @@ export async function createOpenScoutWebServer(
   app.get("/api/pairing-state/refresh", async (c) =>
     c.json(await loadPairingState(currentDirectory, true)),
   );
-  app.get(`/${SCOUT_PAIRING_DEEP_LINK_PATH}`, async (c) => {
-    const state = await loadPairingState(currentDirectory, true);
-    const route = c.req.query("route")?.trim().toLowerCase();
+  const pickPairingLocation = (
+    state: ScoutPairingState,
+    route: string | null,
+  ): string | null => {
     const links = pairingDeepLinks(state.pairing?.qrValue);
-    const location = route === "lan"
+    return route === "lan"
       ? links.lan ?? links.default
       : route === "ts" || route === "tsn" || route === "tailnet"
         ? links.tailnet ?? links.default
         : links.default;
+  };
+  app.get(`/${SCOUT_PAIRING_DEEP_LINK_PATH}`, async (c) => {
     c.header("cache-control", "no-store");
-    if (!location) {
-      return c.text(
-        `${SCOUT_PAIRING_DEEP_LINK_SCHEME}://${SCOUT_PAIRING_DEEP_LINK_PATH} pairing is not available.`,
-        404,
-      );
+    const route = c.req.query("route")?.trim().toLowerCase() ?? null;
+    const token = c.req.query("token")?.trim() || null;
+    const wantsJson = (c.req.header("accept") ?? "").includes("application/json");
+
+    const state = await loadPairingState(currentDirectory, true);
+    const location = pickPairingLocation(state, route);
+
+    // Live payload available (pair mode running) — hand it straight over. This
+    // is the existing fast path: manual start, QR, or an approved request whose
+    // pair mode has come up. Once delivered, the request is done.
+    if (location) {
+      if (token) pendingPairRequests.fulfill(token);
+      return c.redirect(location, 302);
     }
-    return c.redirect(location, 302);
+
+    // No live payload. Initial pairing is trust-on-first-use, so we don't start
+    // pair mode for just anyone on the LAN — we register a request the Mac must
+    // approve. The device polls with its token until approval brings the
+    // payload up (302) or the request is denied/expires.
+    if (token) {
+      const req = pendingPairRequests.get(token);
+      if (!req) {
+        return wantsJson
+          ? c.json({ status: "expired", token }, 410)
+          : c.text("Pairing request expired.", 410);
+      }
+      if (req.status === "denied") {
+        return wantsJson
+          ? c.json({ status: "denied", token }, 403)
+          : c.text("Pairing request was denied.", 403);
+      }
+      // pending, or approved but the relay payload isn't up yet — keep polling.
+      // Touch so an actively-polling device doesn't age out mid-approval.
+      pendingPairRequests.touch(token);
+      return c.json({ status: req.status, token, pollAfterMs: 1200 }, 202);
+    }
+
+    // First contact from an unpaired device — register an approval request.
+    const xff = c.req.header("x-forwarded-for");
+    const requesterIp = (xff ? xff.split(",")[0]?.trim() : null)
+      || c.req.header("x-real-ip")?.trim()
+      || null;
+    const req = pendingPairRequests.create({
+      requesterIp,
+      requesterLabel: c.req.header("x-scout-device-name")?.trim() || null,
+      route,
+    });
+    return wantsJson
+      ? c.json({ status: "pending", token: req.token, pollAfterMs: 1200 }, 202)
+      : c.text(
+          `${SCOUT_PAIRING_DEEP_LINK_SCHEME}://${SCOUT_PAIRING_DEEP_LINK_PATH} pairing requires approval on the Mac.`,
+          202,
+        );
+  });
+  app.get("/api/pairing/requests", (c) =>
+    c.json({ requests: pendingPairRequests.list() }),
+  );
+  app.post("/api/pairing/requests/:token/decide", async (c) => {
+    const token = c.req.param("token");
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: string };
+    const decision =
+      body.decision === "approve" ? "approve"
+      : body.decision === "deny" ? "deny"
+      : null;
+    if (!decision) {
+      return c.json({ error: "decision must be 'approve' or 'deny'" }, 400);
+    }
+    const req = pendingPairRequests.decide(token, decision);
+    if (!req) {
+      return c.json({ error: "unknown or expired pairing request" }, 404);
+    }
+    if (decision === "approve") {
+      // Bring pair mode up so the payload is ready for the device's next poll.
+      // The runtime spins up asynchronously; the device keeps polling /pair.
+      try {
+        await controlScoutWebPairingService("start", currentDirectory);
+      } catch (error) {
+        console.error(
+          "[openscout-web pairing] failed to start pair mode on approval:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    shellStateCache.invalidate();
+    return c.json({ request: req });
   });
   app.get("/api/operator-attention", async (c) =>
     c.json(await buildOperatorAttentionState(currentDirectory)),
@@ -3628,15 +5202,100 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) =>
-    c.json(await readWebAgentsWithBrokerCards(queryAgents())),
-  );
+  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/terminal-sessions", (c) => {
+    const backend = parseTerminalSessionBackend(c.req.query("backend"));
+    if (c.req.query("backend") && !backend) {
+      return c.json({ error: "backend must be tmux or zellij" }, 400);
+    }
+    const limit = parseTerminalSessionLimit(c.req.query("limit"));
+    const sessions = queryTerminalSessions({
+      ...(c.req.query("harness") ? { harness: c.req.query("harness") } : {}),
+      ...(c.req.query("sourceSessionId") ? { sourceSessionId: c.req.query("sourceSessionId") } : {}),
+      ...(backend ? { backend } : {}),
+      limit,
+    });
+    const includeDiscovered = parseTerminalSessionDiscoveryFlag(c.req.query("includeDiscovered"));
+    const discovered = includeDiscovered
+      ? queryDiscoveredTerminalSessions({
+          ...(backend ? { backend } : {}),
+          limit: Math.max(0, limit - sessions.length),
+          excludeSurfaces: sessions.flatMap((session) =>
+            session.surfaces.map((surface) => terminalSurfaceKey(surface.backend, surface.sessionName))
+          ),
+        })
+      : [];
+    const visibleSessions = [...sessions, ...discovered];
+    return c.json({
+      ok: true,
+      count: visibleSessions.length,
+      sessions: visibleSessions,
+    });
+  });
+  app.get("/api/terminal-sessions/peek", async (c) => {
+    const backend = parseTerminalSessionBackend(c.req.query("backend"));
+    const sessionName = firstMetadataString(c.req.query("sessionName"));
+    const capturedAt = Date.now();
+    const lines = parseTmuxPeekLineCount(c.req.query("lines"));
+    const columns = parseTmuxPeekColumnCount(c.req.query("cols") ?? c.req.query("columns"));
+
+    if (!backend) {
+      return c.json({ error: "backend must be tmux or zellij" }, 400);
+    }
+    if (!sessionName) {
+      return c.json({ error: "sessionName is required" }, 400);
+    }
+    if (backend !== "tmux") {
+      return c.json({
+        available: false,
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        reason: `${backend} previews are not available yet.`,
+      });
+    }
+
+    const capture = await (options.captureTmuxPane ?? defaultCaptureTmuxPane)({
+      agentId: "terminal",
+      sessionId: sessionName,
+      paneTarget: sessionName,
+      cwd: null,
+      lines,
+      columns,
+    });
+    if (!capture) {
+      return c.json({
+        available: false,
+        agentId: "terminal",
+        sessionId: sessionName,
+        capturedAt,
+        body: "",
+        lineCount: lines,
+        columnCount: columns,
+        truncated: false,
+        reason: "The tmux pane is not available right now.",
+      });
+    }
+
+    const normalized = normalizeTmuxPeekBody(capture.body, lines, columns);
+    return c.json({
+      available: true,
+      agentId: "terminal",
+      sessionId: sessionName,
+      capturedAt,
+      body: normalized.body,
+      lineCount: capture.lineCount ?? normalized.lineCount,
+      columnCount: normalized.columnCount,
+      truncated: capture.truncated ?? normalized.truncated,
+      reason: null,
+    });
+  });
   app.get("/api/agents/:id", async (c) => {
-    const id = c.req.param("id");
-    const agent = queryAgentById(id)
-      ?? (await readWebAgentsWithBrokerCards(queryAgents()))
-        .find((candidate) => matchesAgentRouteParam(candidate, id))
-      ?? null;
+    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
   });
   // Flexible session initiation. A single payload expresses every modality —
@@ -3778,75 +5437,6 @@ export async function createOpenScoutWebServer(
     const payload = await loadAgentObservePayload(c.req.param("id"));
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
   });
-  app.get("/api/agents/:agentId/management", async (c) => {
-    const agentId = c.req.param("agentId");
-    return c.json(await buildAgentManagementState(agentId, currentDirectory));
-  });
-  app.post("/api/agents/:agentId/harness", async (c) => {
-    const agentId = c.req.param("agentId");
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
-    const harness = optionalString(body.harness)?.trim();
-    if (!harness || !PROFILE_SWITCHABLE_HARNESSES.has(harness)) {
-      return c.json({ error: "unsupported harness" }, 400);
-    }
-
-    const { restartLocalAgent, updateLocalAgentCard } = await import("@openscout/runtime/local-agents");
-    const config = await updateLocalAgentCard(agentId, {
-      harness,
-      ...(hasOwn(body, "model") ? { model: optionalString(body.model)?.trim() || null } : {}),
-    });
-    if (!config) {
-      return c.json({ error: "agent config not found" }, 404);
-    }
-    let restarted = false;
-    if (body.restart !== false) {
-      restarted = Boolean(await restartLocalAgent(agentId));
-    }
-    await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
-    shellStateCache.invalidate();
-    return c.json({
-      ok: true,
-      config,
-      restarted,
-      management: await buildAgentManagementState(agentId, currentDirectory),
-    });
-  });
-  app.post("/api/agents/:agentId/repair", async (c) => {
-    const agentId = c.req.param("agentId");
-    const state = await buildAgentManagementState(agentId, currentDirectory);
-    const repairRoot = state.projectRoot ?? state.runtimeCwd ?? currentDirectory;
-    const setup = await loadResolvedRelayAgents({ currentDirectory: repairRoot });
-    const resolved = [...setup.agents, ...setup.discoveredAgents].find((candidate) => candidate.agentId === agentId)
-      ?? null;
-    const binding = await registerScoutLocalAgentBinding({ agentId }).catch(() => null);
-    shellStateCache.invalidate();
-    return c.json({
-      ok: true,
-      agentId,
-      projectRoot: resolved?.projectRoot ?? repairRoot,
-      projectConfigPath: resolved?.projectConfigPath ?? state.projectConfigPath,
-      registrationKind: resolved?.registrationKind ?? null,
-      brokerRegistered: Boolean(binding?.brokerRegistered),
-      management: await buildAgentManagementState(agentId, repairRoot),
-    });
-  });
-  app.post("/api/agents/:agentId/retire", async (c) => {
-    const agentId = c.req.param("agentId");
-    const { retireLocalAgent } = await import("@openscout/runtime/local-agents");
-    const broker = await loadScoutBrokerContext().catch(() => null);
-    const localRetired = await retireLocalAgent(agentId).catch(() => null);
-    const brokerRetired = await retireScoutLocalAgentBinding({ agentId, broker }).catch(() => false);
-    if (!localRetired && !brokerRetired) {
-      return c.json({ error: "agent not found or not retireable" }, 404);
-    }
-    shellStateCache.invalidate();
-    return c.json({
-      ok: true,
-      localRetired: Boolean(localRetired),
-      brokerRetired,
-      management: await buildAgentManagementState(agentId, currentDirectory),
-    });
-  });
   app.get("/api/agents/:agentId/config", async (c) => {
     const agentId = c.req.param("agentId");
     const { getLocalAgentConfig } = await import("@openscout/runtime/local-agents");
@@ -3915,6 +5505,7 @@ export async function createOpenScoutWebServer(
         harness: agent.harness,
         cwd,
         transport: agent.transport,
+        terminalSurface: agent.terminalSurface,
         activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
         model: agent.model,
         startedAt: agent.createdAt ?? agent.updatedAt,
@@ -4027,6 +5618,7 @@ export async function createOpenScoutWebServer(
       queryBrokerDiagnostics({
         limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
         windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
+        cursor: c.req.query("cursor") ?? null,
       }),
     ),
   );
@@ -4409,8 +6001,15 @@ export async function createOpenScoutWebServer(
         observe: payload,
       });
     }
-
     return c.json({ error: "not found" }, 404);
+  });
+  app.get("/api/session-ref/:id/touched", async (c) => {
+    const refId = c.req.param("id");
+    const payload = await loadSessionRefObservePayload(refId);
+    if (!payload) {
+      return c.json({ error: "not found" }, 404);
+    }
+    return c.json(sessionTouchedResponse(payload, refId));
   });
   app.get("/api/session/:id", (c) => {
     const session = querySessionById(c.req.param("id"));
@@ -4671,6 +6270,65 @@ export async function createOpenScoutWebServer(
     return c.json({ ok: true });
   });
 
+  app.post("/api/terminal-relay/session/destroy", async (c) => {
+    const body = await c.req.json<TerminalRelayDestroyRequest>().catch((): Partial<TerminalRelayDestroyRequest> => ({}));
+    const sessionId = body.sessionId?.trim();
+    if (!sessionId) return c.json({ error: "missing sessionId" }, 400);
+    if (!options.destroyTerminalRelaySession) {
+      return c.json({ error: "terminal relay is unavailable" }, 503);
+    }
+    try {
+      const destroyed = await options.destroyTerminalRelaySession(sessionId);
+      return c.json({ ok: true, destroyed });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to destroy terminal session";
+      return c.json({ error: message }, 503);
+    }
+  });
+
+  app.post("/api/terminal-sessions/control", async (c) => {
+    const body = await c.req.json<TerminalSurfaceControlRequest>().catch((): Partial<TerminalSurfaceControlRequest> => ({}));
+    const backend = parseTerminalSessionBackend(body.backend);
+    const sessionName = body.sessionName?.trim();
+    const action = parseTerminalSurfaceControlAction(body.action);
+
+    if (!backend) return c.json({ error: "backend must be tmux or zellij" }, 400);
+    if (!sessionName) return c.json({ error: "sessionName is required" }, 400);
+    if (!action) return c.json({ error: "action must be interrupt, quit, stop-job, restart-resume, detach, force-quit, or force-quit-bridge" }, 400);
+
+    let delivered = false;
+    let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
+    if (backend === "tmux" && action === "restart-resume") {
+      resumeResult = restartClaudeWithResumeInTmuxSurface(sessionName);
+      delivered = resumeResult.ok;
+    } else if (backend === "tmux" && action !== "force-quit-bridge") {
+      delivered = controlTmuxSurface(sessionName, action);
+    } else if (action !== "force-quit-bridge") {
+      return c.json({ error: `${backend} surface control is not available yet` }, 400);
+    }
+
+    let destroyed = 0;
+    if (action === "detach" || action === "force-quit" || action === "force-quit-bridge" || action === "restart-resume") {
+      if (options.destroyTerminalRelaySurface) {
+        destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
+      }
+      if (backend === "tmux" && action !== "restart-resume") {
+        controlTmuxSurface(sessionName, "detach");
+      }
+    }
+
+    return c.json({
+      ok: true,
+      action,
+      backend,
+      sessionName,
+      delivered,
+      destroyed,
+      resumeSessionId: resumeResult?.sessionId ?? null,
+      resumeTranscriptPath: resumeResult?.transcriptPath ?? null,
+    });
+  });
+
   app.post(routes.vantageOpenPath, async (c) => {
     const body = await c.req.json().catch(() => ({})) as {
       agentId?: unknown;
@@ -4724,15 +6382,24 @@ export async function createOpenScoutWebServer(
     }
 
     shellStateCache.invalidate();
+    const runtimeDir = relayAgentRuntimeDirectory(agentId);
+    const catalog = readSessionCatalogSync(runtimeDir);
+    const sessionId = catalog.activeSessionId;
+    const harnessEntry = findHarnessEntry(config.runtime.harness);
+    const resumeCommand = sessionId && harnessEntry
+      ? buildHarnessResumeCommand(harnessEntry, sessionId, config.runtime.cwd)
+      : null;
+
     return c.json({
       ok: true,
       agentId,
-      catalog: buildAgentSessionCatalogPayload({
+      catalog: {
+        ...catalog,
         agentId,
         harness: config.runtime.harness,
-        cwd: config.runtime.cwd,
-        transport: config.runtime.transport,
-      }),
+        resumeCommand,
+        resumeCwd: config.runtime.cwd,
+      },
     });
   });
 
@@ -4896,6 +6563,7 @@ export async function createOpenScoutWebServer(
       conversationId?: string;
       targetAgentId?: unknown;
       targetLabel?: unknown;
+      metadata?: unknown;
       execution?: {
         harness?: unknown;
         model?: unknown;
@@ -4931,6 +6599,8 @@ export async function createOpenScoutWebServer(
       optionalString(requestBody.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
+    const requestMetadata = recordInput(requestBody.metadata);
+    const source = metadataStringValue(requestMetadata, "source") ?? "scout-web";
 
     const result = await askScoutQuestion({
       senderId: routed.senderId,
@@ -4939,8 +6609,12 @@ export async function createOpenScoutWebServer(
       body: message,
       ...(executionHarness ? { executionHarness } : {}),
       ...(executionModel ? { executionModel } : {}),
+      source,
+      ...(requestMetadata ? {
+        messageMetadata: requestMetadata,
+        invocationMetadata: requestMetadata,
+      } : {}),
       currentDirectory,
-      source: "scout-web",
     });
 
     if (!result.usedBroker) {
@@ -5057,10 +6731,7 @@ export async function createOpenScoutWebServer(
   }
 
   app.get("/api/events", async (c) => {
-    const brokerHost = process.env.OPENSCOUT_BROKER_HOST ?? "127.0.0.1";
-    const brokerPort = process.env.OPENSCOUT_BROKER_PORT ?? "65535";
-    const brokerUrl =
-      process.env.OPENSCOUT_BROKER_URL ?? `http://${brokerHost}:${brokerPort}`;
+    const brokerUrl = resolveScoutBrokerUrl();
     try {
       return await relayEventStream(`${brokerUrl}/v1/events/stream`, {
         signal: c.req.raw.signal,
@@ -5103,81 +6774,178 @@ export async function createOpenScoutWebServer(
     }
   });
 
-  app.get("/api/repo-diff/worktree", async (c) => {
-    const path = c.req.query("path");
-    if (!path || !path.trim()) {
-      return c.json({ error: "repo-diff requires a worktree path" }, 400);
+  app.get("/api/repo-prs", async (c) => {
+    const paths = normalizeRepoPullRequestPaths(c.req.queries("path") ?? [], options.currentDirectory);
+    const limitPerRepo = parseOptionalPositiveInt(c.req.query("limit"), REPO_PRS_DEFAULT_LIMIT)
+      ?? REPO_PRS_DEFAULT_LIMIT;
+    if (paths.length === 0) {
+      return c.json({
+        generatedAt: Date.now(),
+        source: "gh",
+        paths: [],
+        pullRequests: [],
+        warnings: ["No git repositories available for open PR lookup."],
+      } satisfies RepoPullRequestSnapshot);
     }
-    const worktreePath = path.trim();
+    const loadPullRequests = options.repoPullRequests ?? loadRepoPullRequests;
+    try {
+      return c.json(await loadPullRequests({ paths, limitPerRepo }));
+    } catch (error) {
+      return c.json({
+        generatedAt: Date.now(),
+        source: "gh",
+        paths,
+        pullRequests: [],
+        warnings: [error instanceof Error ? error.message : "open PR lookup failed"],
+      } satisfies RepoPullRequestSnapshot);
+    }
+  });
+
+  app.post("/api/scout-services/restart-link", async (c) => {
+    let target = parseScoutServicesRestartTarget(c.req.query("target"));
+    if (!target) {
+      try {
+        const body = await c.req.json<{ target?: string }>();
+        target = parseScoutServicesRestartTarget(body.target);
+      } catch {
+        // Body is optional; query-string target is enough.
+      }
+    }
+
+    if (!target) {
+      return c.json({ error: "unsupported Scout Services restart target" }, 400);
+    }
+
+    return c.json(createSignedScoutServicesRestartUrl(target));
+  });
+
+  app.get("/api/repo-diff/session", async (c) => {
+    const refId = c.req.query("sessionId")?.trim()
+      || c.req.query("refId")?.trim()
+      || c.req.query("ref")?.trim()
+      || null;
+    const agentId = c.req.query("agentId")?.trim() || null;
+    if (!refId && !agentId) {
+      return c.json({ error: "repo-diff session scope requires sessionId/refId or agentId" }, 400);
+    }
+    const payload = await loadRevealObservePayload({ agentId, sessionId: refId });
+    if (!payload) {
+      return c.json({ error: "observed session not found" }, 404);
+    }
+    const worktreePath = observedWorktreePath(payload);
+    if (!worktreePath) {
+      return c.json({ error: "observed session has no worktree path" }, 422);
+    }
     const layers = (c.req.queries("layer") ?? []).filter(
       (value): value is RepoDiffLayerKind =>
         value === "unstaged" || value === "staged" || value === "branch",
     );
     const baseRef = c.req.query("baseRef");
     const compareRef = c.req.query("compareRef");
-    const paths = normalizeRepoDiffFileFilters(worktreePath, c.req.queries("file") ?? []);
-    const tier = c.req.query("tier");
-    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"));
-    const cacheKey = repoDiffCacheKey({
+    const tier = parseRepoDiffTier(c.req.query("tier"));
+    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
+    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
+    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
+    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
+    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
+    const include = sessionDiffInclude(c.req.query("include"));
+    const paths = normalizeRepoDiffPathFilters(worktreePath, sessionDiffTouchedPaths(payload, include));
+    const changedFiles = payload.data.files.filter((file) => file.state !== "read").length;
+    const scope: RepoDiffScopeMetadata = {
+      kind: "session",
+      label: include === "all" ? "Session-touched diff" : "Session changed-files diff",
       worktreePath,
-      layers: layers.length > 0 ? layers : undefined,
-      baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
-      compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
-      paths,
-      tier,
-    });
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const loadSnapshot = async () => {
-      const snapshot = await runRepoDiff({
-        worktreePath,
-        layers: layers.length > 0 ? layers : undefined,
-        baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
-        compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
-        paths,
-        limits: repoDiffLimitsForTier(tier),
-      });
-      const scopedSnapshot = withRepoDiffScope(snapshot, paths);
-      repoDiffCache.set(cacheKey, scopedSnapshot);
-      return scopedSnapshot;
+      refId,
+      agentId: payload.agentId,
+      sessionId: payload.sessionId,
+      filteredPaths: paths,
+      touchedFiles: payload.data.files.length,
+      changedFiles,
+      include,
+      caveat: "path-filtered-not-hunk-provenance",
     };
-    try {
-      const cached = repoDiffCache.get(cacheKey);
-      if (cacheMode !== "reload" && cached) {
-        const headers: Record<string, string> = {
-          "x-openscout-repo-diff-cache": "hit",
-        };
-        if (c.req.query("rehydrate") === "1" || c.req.query("rehydrate") === "true") {
-          headers["x-openscout-repo-diff-rehydrate"] = "queued";
-          if (!repoDiffRehydrateInFlight.has(cacheKey)) {
-            const rehydrate: Promise<void> = loadSnapshot()
-              .then(() => undefined, () => undefined)
-              .finally(() => repoDiffRehydrateInFlight.delete(cacheKey));
-            repoDiffRehydrateInFlight.set(cacheKey, rehydrate);
-          }
-        }
-        return jsonResponse(cached, 200, headers);
-      }
-      if (cacheMode === "only") {
-        return jsonResponse({
-          status: "missing",
-          worktreePath,
-        }, 404, {
-          "x-openscout-repo-diff-cache": "miss",
-        });
-      }
-      // A diff is a local read — run the native producer in-process. The broker
-      // (fleet coordination) is intentionally NOT in this path; agent/session
-      // annotations (SCO-065 §15) can enrich later without coupling here.
-      const snapshot = await loadSnapshot();
-      return jsonResponse(snapshot, 200, {
-        "x-openscout-repo-diff-cache": "miss",
-      });
-    } catch (error) {
-      return c.json(
-        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
-        502,
-      );
+    if (paths.length === 0) {
+      c.header("x-openscout-repo-diff-cache", "skip");
+      return c.json(emptyRepoDiffSnapshot({ worktreePath, layers: resolvedLayers, scope }));
     }
+    const resolvedRefs = resolveRepoDiffBranchRefs({
+      worktreePath,
+      layers: resolvedLayers,
+      baseRef: trimmedBaseRef,
+      compareRef: trimmedCompareRef,
+    });
+    const stateKey = repoDiffStateKey({
+      worktreePath,
+      layers: resolvedLayers,
+      baseRef: resolvedRefs.baseRef,
+      compareRef: resolvedRefs.compareRef,
+      paths,
+    });
+    return serveRepoDiffSnapshot(c, {
+      worktreePath,
+      layers: resolvedLayers,
+      baseRef: resolvedRefs.baseRef,
+      compareRef: resolvedRefs.compareRef,
+      tier,
+      cacheMode,
+      rehydrate,
+      stateKey,
+      paths,
+      scope,
+    });
+  });
+
+  app.get("/api/repo-diff/worktree", async (c) => {
+    const path = c.req.query("path");
+    if (!path || !path.trim()) {
+      return c.json({ error: "repo-diff requires a worktree path" }, 400);
+    }
+    const layers = (c.req.queries("layer") ?? []).filter(
+      (value): value is RepoDiffLayerKind =>
+        value === "unstaged" || value === "staged" || value === "branch",
+    );
+    const baseRef = c.req.query("baseRef");
+    const compareRef = c.req.query("compareRef");
+    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
+    const tier = parseRepoDiffTier(c.req.query("tier"));
+    const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
+    const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
+    const resolvedLayers = layers.length > 0 ? layers : DEFAULT_REPO_DIFF_LAYERS;
+    const trimmedPath = path.trim();
+    const trimmedBaseRef = baseRef && baseRef.trim() ? baseRef.trim() : undefined;
+    const trimmedCompareRef = compareRef && compareRef.trim() ? compareRef.trim() : undefined;
+    const paths = repoDiffPathFiltersFromQuery(c, trimmedPath);
+    const scope: RepoDiffScopeMetadata = {
+      kind: "worktree",
+      label: paths.length > 0 ? "Filtered worktree diff" : "Worktree diff",
+      worktreePath: trimmedPath,
+      filteredPaths: paths,
+    };
+    const resolvedRefs = resolveRepoDiffBranchRefs({
+      worktreePath: trimmedPath,
+      layers: resolvedLayers,
+      baseRef: trimmedBaseRef,
+      compareRef: trimmedCompareRef,
+    });
+    const stateKey = repoDiffStateKey({
+      worktreePath: trimmedPath,
+      layers: resolvedLayers,
+      baseRef: resolvedRefs.baseRef,
+      compareRef: resolvedRefs.compareRef,
+      paths,
+    });
+    return serveRepoDiffSnapshot(c, {
+      worktreePath: trimmedPath,
+      layers: resolvedLayers,
+      baseRef: resolvedRefs.baseRef,
+      compareRef: resolvedRefs.compareRef,
+      tier,
+      cacheMode,
+      rehydrate,
+      stateKey,
+      paths,
+      scope,
+    });
   });
 
   app.get("/api/tail/recent", async (c) => {
@@ -5289,6 +7057,8 @@ export async function createOpenScoutWebServer(
     });
 
   const stop = async () => {
+    lanPairBeacon?.stop();
+    pendingPairRequests.dispose();
     if (!scoutbotRunner) return;
     const runner = scoutbotRunner;
     scoutbotRunner = null;

@@ -56,6 +56,7 @@ const OPS_FLAG_KEYS = [
   "ops.runtime",
   "ops.plans",
   "ops.terminal",
+  "ops.lanes",
 ] as const;
 
 const SURFACE_FLAG_KEYS = [
@@ -117,6 +118,14 @@ export const scoutFlags = createFlagRegistry({
   "ops.terminal": {
     label: "Ops · Terminal",
     description: "Observe / takeover terminal sessions.",
+    defaultEnabled: true,
+    tier: "power",
+    owner: "scout-web",
+    tags: ["ops"],
+  },
+  "ops.lanes": {
+    label: "Ops · Agent Lanes",
+    description: "One column per local agent — follow live harness work in power-user mode.",
     defaultEnabled: true,
     tier: "power",
     owner: "scout-web",
@@ -297,7 +306,7 @@ function scoutFlagBundlePersistenceRequest(params: URLSearchParams): ScoutFlagBu
   return urlBundle ? { action: "set", bundle: urlBundle } : null;
 }
 
-function readStoredScoutFlagBundle(): ScoutFlagBundle | null {
+export function readStoredScoutFlagBundle(): ScoutFlagBundle | null {
   if (typeof window === "undefined") return null;
   try {
     return scoutFlagBundleFromValue(window.localStorage.getItem(SCOUT_FLAG_BUNDLE_STORAGE_KEY));
@@ -306,7 +315,7 @@ function readStoredScoutFlagBundle(): ScoutFlagBundle | null {
   }
 }
 
-function writeStoredScoutFlagBundle(request: ScoutFlagBundlePersistenceRequest): void {
+export function writeStoredScoutFlagBundle(request: ScoutFlagBundlePersistenceRequest): void {
   if (typeof window === "undefined") return;
   try {
     if (request.action === "clear") {
@@ -317,6 +326,15 @@ function writeStoredScoutFlagBundle(request: ScoutFlagBundlePersistenceRequest):
   } catch {
     // Storage can be unavailable in private/locked-down browser contexts.
   }
+}
+
+/** Resolve the active bundle from storage, bootstrap, or the lean default. */
+export function resolveActiveScoutFlagBundle(): ScoutFlagBundle {
+  return (
+    readStoredScoutFlagBundle()
+    ?? scoutFlagBundleFromValue(readScoutBootstrapFlagBundle())
+    ?? SCOUT_DEFAULT_BUNDLE
+  );
 }
 
 function scoutStoredBundleLayer(): FeatureFlagLayerInput<ScoutAudienceTier> {

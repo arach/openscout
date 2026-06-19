@@ -114,6 +114,18 @@ export const SCOUT_MCP_UI_META_KEY = "openscout/ui";
 type SearchableAgentState = (typeof AGENT_STATE_VALUES)[number];
 type SearchRegistrationKind = (typeof REGISTRATION_KIND_VALUES)[number];
 
+function normalizeSearchableAgentState(
+  state: AgentState | SearchableAgentState | null | undefined,
+  fallback: SearchableAgentState,
+): SearchableAgentState {
+  if (!state || state === "registered") {
+    return fallback;
+  }
+  return AGENT_STATE_VALUES.includes(state as SearchableAgentState)
+    ? state as SearchableAgentState
+    : fallback;
+}
+
 type ScoutMcpToolIconMeta = {
   kind: "semantic";
   name: "agent";
@@ -2257,15 +2269,16 @@ function preferredWhoEntry(
   entry: ScoutWhoEntry | undefined,
   fallback: SearchableAgentState,
 ): { state: SearchableAgentState; registrationKind: SearchRegistrationKind } {
+  const state = normalizeSearchableAgentState(entry?.state, fallback);
   if (!entry) {
     return {
-      state: fallback,
+      state,
       registrationKind: fallback === "discovered" ? "discovered" : "configured",
     };
   }
 
   return {
-    state: entry.state,
+    state,
     registrationKind: entry.registrationKind,
   };
 }
@@ -2556,9 +2569,10 @@ async function loadScoutAgentDirectory(
     );
     const preferredEndpoint = choosePreferredEndpoint(endpoints);
     const whoEntry = whoByAgentId.get(agent.id);
-    const state = (whoEntry?.state ??
-      preferredEndpoint?.state ??
-      "offline") as SearchableAgentState;
+    const state = normalizeSearchableAgentState(
+      whoEntry?.state ?? preferredEndpoint?.state,
+      "offline",
+    );
 
     upsert({
       agentId: agent.id,

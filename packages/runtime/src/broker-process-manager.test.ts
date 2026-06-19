@@ -46,29 +46,40 @@ function writeExecutable(path: string): string {
   return path;
 }
 
-/** Write a fake `scoutd` whose body is the given shell script and return its path. */
-function writeFakeScoutd(script: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "openscout-fake-scoutd-"));
-  const path = join(dir, "scoutd");
+function writeExecutableScript(path: string, script: string): string {
+  mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, script, "utf8");
   chmodSync(path, 0o755);
   return path;
 }
 
-function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
-  const previous = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(patch)) {
-    previous.set(key, process.env[key]);
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
+let envQueue: Promise<unknown> = Promise.resolve();
 
-  try {
-    return fn();
-  } finally {
+async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
+  const run = async (): Promise<T> => {
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries(patch)) {
+      previous.set(key, process.env[key]);
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+
+    try {
+      return await fn();
+    } finally {
+      restore(previous);
+    }
+  };
+
+  const next = envQueue.then(run, run);
+  envQueue = next.catch(() => undefined);
+  return await next;
+}
+
+function restore(previous: Map<string, string | undefined>): void {
     for (const [key, value] of previous) {
       if (value === undefined) {
         delete process.env[key];
@@ -76,7 +87,6 @@ function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
         process.env[key] = value;
       }
     }
-  }
 }
 
 describe("broker service scoutd adapter", () => {
@@ -99,7 +109,7 @@ describe("broker service scoutd adapter", () => {
     expect(resolveBundledRuntimeDirFromModuleDir(moduleDir)).toBe(packageRoot);
   });
 
-  test("resolves packaged scoutd from the bundled package bin directory", () => {
+  test("resolves packaged scoutd from the bundled package bin directory", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-packaged-scoutd-"));
     const packageRoot = join(root, "scout");
     const scoutd = writeExecutable(join(packageRoot, "bin", "scoutd"));
@@ -110,7 +120,7 @@ describe("broker service scoutd adapter", () => {
       runtimePackageDir: packageRoot,
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
       PATH: join(root, "path"),
     }, () => resolveScoutdCommand(packagedConfig));
@@ -118,11 +128,33 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "package" });
   });
 
-  test("resolves scoutd from an explicit environment override", () => {
+  test("resolves packaged scoutd from the monorepo CLI package before workspace builds", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-monorepo-scoutd-"));
+    mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
+    writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
+    writeFileSync(join(root, "crates", "scoutd", "Cargo.toml"), "[package]\nname = \"scoutd\"\n");
+    const scoutd = writeExecutable(join(root, "packages", "cli", "bin", "scoutd"));
+    writeExecutable(join(root, "target", "debug", "scoutd"));
+    writeExecutable(join(root, "path", "scoutd"));
+    const workspaceConfig: BrokerServiceConfig = {
+      ...config,
+      runtimePackageDir: join(root, "packages", "runtime"),
+    };
+
+    const resolved = await withEnv({
+      OPENSCOUT_SCOUTD_BIN: undefined,
+      OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: undefined,
+      PATH: join(root, "path"),
+    }, () => resolveScoutdCommand(workspaceConfig));
+
+    expect(resolved).toEqual({ path: scoutd, source: "package" });
+  });
+
+  test("resolves scoutd from an explicit environment override", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-env-"));
     const scoutd = writeExecutable(join(root, "custom-scoutd"));
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: scoutd,
       PATH: "",
     }, () => resolveScoutdCommand(config));
@@ -130,24 +162,47 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "env" });
   });
 
-  test("resolves a workspace-built scoutd binary before PATH", () => {
+  test("does not resolve workspace-built scoutd without an explicit opt-in", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-workspace-"));
     mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
     writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
     writeFileSync(join(root, "crates", "scoutd", "Cargo.toml"), "[package]\nname = \"scoutd\"\n");
-    const scoutd = writeExecutable(join(root, "target", "debug", "scoutd"));
-    writeExecutable(join(root, "bin", "scoutd"));
+    writeExecutable(join(root, "target", "debug", "scoutd"));
+    const scoutd = writeExecutable(join(root, "bin", "scoutd"));
     const workspaceConfig: BrokerServiceConfig = {
       ...config,
       runtimePackageDir: join(root, "packages", "runtime"),
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
+      OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: undefined,
       PATH: join(root, "bin"),
     }, () => resolveScoutdCommand(workspaceConfig));
 
-    expect(resolved).toEqual({ path: scoutd, source: "workspace" });
+    expect(resolved).toEqual({ path: scoutd, source: "path" });
+  });
+
+  test("resolves a workspace-built scoutd binary after opt-in", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-workspace-opt-in-"));
+    mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
+    writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
+    writeFileSync(join(root, "crates", "scoutd", "Cargo.toml"), "[package]\nname = \"scoutd\"\n");
+    const debugScoutd = writeExecutable(join(root, "target", "debug", "scoutd"));
+    const releaseScoutd = writeExecutable(join(root, "target", "release", "scoutd"));
+    const workspaceConfig: BrokerServiceConfig = {
+      ...config,
+      runtimePackageDir: join(root, "packages", "runtime"),
+    };
+
+    const resolved = await withEnv({
+      OPENSCOUT_SCOUTD_BIN: undefined,
+      OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: "1",
+      PATH: "",
+    }, () => resolveScoutdCommand(workspaceConfig));
+
+    expect(debugScoutd).toContain("target/debug/scoutd");
+    expect(resolved).toEqual({ path: releaseScoutd, source: "workspace" });
   });
 
   test("prefers informative runtime log lines over package script banners", () => {
@@ -213,11 +268,21 @@ describe("runScoutdServiceCommand shell-out", () => {
         },
       },
     };
-    const scoutd = writeFakeScoutd(`#!/bin/sh\ncat <<'JSON'\n${JSON.stringify(status)}\nJSON\n`);
-
-    const result = await withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
-      runScoutdServiceCommand("status", config),
-    );
+    const scoutd = writeExecutable(join(mkdtempSync(join(tmpdir(), "openscout-scoutd-json-")), "scoutd"));
+    const result = await withEnv({
+      OPENSCOUT_SCOUTD_BIN: scoutd,
+    }, () => runScoutdServiceCommand("status", config, 45_000, async (
+      scoutdPath,
+      command,
+      env,
+      timeoutMs,
+    ) => {
+      expect(scoutdPath).toBe(scoutd);
+      expect(command).toBe("status");
+      expect(env.OPENSCOUT_SCOUTD_BIN).toBe(scoutd);
+      expect(timeoutMs).toBe(45_000);
+      return JSON.stringify(status);
+    }));
 
     expect(result.label).toBe("dev.openscout");
     expect(result.mode).toBe("dev");
@@ -239,29 +304,37 @@ describe("runScoutdServiceCommand shell-out", () => {
   });
 
   test("rejects with a meaningful error on malformed JSON", async () => {
-    const scoutd = writeFakeScoutd("#!/bin/sh\nprintf 'not json at all'\n");
-
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("status", config)),
+      withEnv({
+        OPENSCOUT_SCOUTD_BIN: writeExecutable(
+          join(mkdtempSync(join(tmpdir(), "openscout-scoutd-malformed-")), "scoutd"),
+        ),
+      }, () => runScoutdServiceCommand("status", config, 45_000, async () => "not json at all")),
     ).rejects.toThrow(/returned non-JSON stdout/);
   });
 
-  test("rejects with stderr detail on non-zero exit", async () => {
-    const scoutd = writeFakeScoutd("#!/bin/sh\necho 'boom: launchd refused' 1>&2\nexit 3\n");
-
+  test("propagates scoutd runner failures", async () => {
+    const scoutd = writeExecutable(join(mkdtempSync(join(tmpdir(), "openscout-scoutd-fail-")), "scoutd"));
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("start", config)),
-    ).rejects.toThrow(/scoutd start failed: boom: launchd refused/);
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
+        runScoutdServiceCommand("start", config, 45_000, async () => {
+          throw new Error("scoutd start failed: service failed");
+        })),
+    ).rejects.toThrow(/scoutd start failed: service failed/);
   });
 
-  test("rejects on timeout without hanging", async () => {
-    const scoutd = writeFakeScoutd("#!/bin/sh\nsleep 5\necho '{}'\n");
-
+  test("rejects a runaway child without hanging", async () => {
+    const scoutd = writeExecutableScript(
+      join(mkdtempSync(join(tmpdir(), "openscout-scoutd-hangs-")), "scoutd-hangs"),
+      "#!/bin/sh\n/bin/sleep 5\n",
+    );
     const started = Date.now();
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("start", config, 200)),
-    ).rejects.toThrow(/scoutd start timed out after 200ms/);
-    // Must reject promptly, not after the fake's 5s sleep.
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
+        runScoutdServiceCommand("start", config, 100),
+      ),
+    ).rejects.toThrow(/scoutd start timed out after 100ms/);
+    // Must reject promptly, not let a runaway child pin the caller.
     expect(Date.now() - started).toBeLessThan(2000);
   });
 });

@@ -7,7 +7,7 @@ export function shouldRestartBrokerForCliMtime(currentMtimeMs: number, persisted
 }
 
 export function shouldEnsureBrokerUptodateForCommand(command: string | null): boolean {
-  return command !== "mcp";
+  return command !== "mcp" && command !== "statusline";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

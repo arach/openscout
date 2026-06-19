@@ -41,11 +41,13 @@ export function actorColor(name: string): string {
 /** State dot color from agent endpoint state. */
 export function stateColor(state: string | null): string {
   switch (normalizeAgentState(state)) {
-    case "working":
+    case "in_turn":
       return "var(--green)";
-    case "ready":
+    case "in_flight":
       return "var(--accent)";
-    case "not_ready":
+    case "callable":
+      return "color-mix(in srgb, var(--accent) 65%, var(--dim))";
+    case "blocked":
       return "var(--dim)";
   }
 }

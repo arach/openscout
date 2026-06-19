@@ -127,4 +127,39 @@ describe("getRepoDiffSnapshot", () => {
     expect(first.render.renderKey).toBe(same.render.renderKey);
     expect(first.render.renderKey).not.toBe(changed.render.renderKey);
   });
+
+  test("resolves branch layer refs to merge-base and head commits", async () => {
+    const worktree = "/tmp/openscout-diff-demo";
+    let captured: unknown = null;
+    const snapshot = await getRepoDiffSnapshot({
+      worktreePath: worktree,
+      layers: ["branch"],
+      git: async (_cwd, args) => {
+        const command = args.join(" ");
+        if (command === "rev-parse --verify HEAD^{commit}") return "head-sha\n";
+        if (command === "rev-parse --verify origin/main^{commit}") return "trunk-sha\n";
+        if (command === "merge-base trunk-sha head-sha") return "base-sha\n";
+        return "";
+      },
+      nativeDiff: async (request) => {
+        captured = request;
+        return {
+          ...nativeResponse(worktree),
+          layers: [{
+            ...nativeResponse(worktree).layers[0]!,
+            kind: "branch",
+            baseLabel: "base-sha",
+            compareLabel: "head-sha",
+          }],
+        };
+      },
+    });
+
+    expect(captured).toMatchObject({
+      layers: ["branch"],
+      baseRef: "base-sha",
+      compareRef: "head-sha",
+    });
+    expect(snapshot.layers[0]?.kind).toBe("branch");
+  });
 });

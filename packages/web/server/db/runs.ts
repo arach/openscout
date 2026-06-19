@@ -407,6 +407,9 @@ export function queryFlights(opts?: {
     inv.collaboration_record_id,
     f.state,
     f.summary,
+    json_extract(f.metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
+    json_extract(f.metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
+    json_extract(f.metadata_json, '$.dispatchOutcome.checkedAt') AS dispatch_outcome_checked_at,
     ${flightStartedAtExpression} AS started_at,
     ${flightCompletedAtExpression} AS completed_at
   FROM flights f
@@ -431,22 +434,36 @@ export function queryFlights(opts?: {
     collaboration_record_id: string | null;
     state: string;
     summary: string | null;
+    dispatch_outcome_status: string | null;
+    dispatch_outcome_reason: string | null;
+    dispatch_outcome_checked_at: number | string | null;
     started_at: number | null;
     completed_at: number | null;
   }>;
 
-  return rows.map((r) => ({
-    id: r.id,
-    invocationId: r.invocation_id,
-    agentId: r.target_agent_id,
-    agentName: r.agent_name,
-    conversationId: r.conversation_id,
-    collaborationRecordId: r.collaboration_record_id,
-    state: r.state,
-    summary: r.summary,
-    startedAt: r.started_at,
-    completedAt: r.completed_at,
-  }));
+  return rows.map((r) => {
+    const dispatchOutcome = r.dispatch_outcome_status
+      ? {
+          status: r.dispatch_outcome_status,
+          reason: r.dispatch_outcome_reason,
+          checkedAt: coerceNumber(r.dispatch_outcome_checked_at),
+        }
+      : null;
+
+    return {
+      id: r.id,
+      invocationId: r.invocation_id,
+      agentId: r.target_agent_id,
+      agentName: r.agent_name,
+      conversationId: r.conversation_id,
+      collaborationRecordId: r.collaboration_record_id,
+      state: r.state,
+      summary: r.summary,
+      startedAt: r.started_at,
+      completedAt: r.completed_at,
+      ...(dispatchOutcome ? { dispatchOutcome } : {}),
+    };
+  });
 }
 
 export function queryFlightRecordById(id: string): FlightRecord | null {

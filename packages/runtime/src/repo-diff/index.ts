@@ -8,6 +8,9 @@
 // Ownership mirrors repo-watch: Rust observes the machine, TypeScript
 // interprets Scout. Raw patch text is never persisted here.
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
 import {
   normalizeHints,
   normalizePath,
@@ -149,6 +152,8 @@ export type RepoDiffNativeExec = (
   request: RepoDiffNativeRequest,
 ) => Promise<RepoDiffResponse>;
 
+export type RepoDiffGitExec = (cwd: string, args: string[]) => Promise<string>;
+
 export type RepoDiffSnapshotOptions = {
   worktreePath: string;
   layers?: RepoDiffLayerKind[];
@@ -160,6 +165,7 @@ export type RepoDiffSnapshotOptions = {
   preferredTheme?: string;
   preferredLayout?: "split" | "stacked";
   nativeDiff?: RepoDiffNativeExec;
+  git?: RepoDiffGitExec;
   now?: () => number;
 };
 
@@ -167,6 +173,16 @@ const DEFAULT_NATIVE_TIMEOUT_MS = 15_000;
 const RENDER_OPTIONS_VERSION = 1;
 const DEFAULT_PREFERRED_THEME = "pierre-dark";
 const DEFAULT_PREFERRED_LAYOUT: "split" | "stacked" = "split";
+const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
+const execFileAsync = promisify(execFile);
+const TRUNK_REFS = [
+  "origin/main",
+  "main",
+  "origin/master",
+  "master",
+  "origin/trunk",
+  "trunk",
+];
 
 async function defaultNativeRepoDiff(request: RepoDiffNativeRequest): Promise<RepoDiffResponse> {
   const command = resolveRepoServiceCommand("diff");
@@ -197,14 +213,21 @@ export async function getRepoDiffSnapshot(
 ): Promise<ScoutRepoDiffSnapshot> {
   const nativeDiff = options.nativeDiff ?? defaultNativeRepoDiff;
   const worktreePath = normalizePath(options.worktreePath);
+  const layers = options.layers && options.layers.length > 0
+    ? options.layers
+    : DEFAULT_REPO_DIFF_LAYERS;
+  const resolvedRefs = await resolveBranchLayerRefs(worktreePath, {
+    ...options,
+    layers,
+  });
 
   const request: RepoDiffNativeRequest = {
     schema: "openscout.repo.diff.request/v1",
     worktreePath,
   };
-  if (options.layers && options.layers.length > 0) request.layers = options.layers;
-  if (options.baseRef != null) request.baseRef = options.baseRef;
-  if (options.compareRef != null) request.compareRef = options.compareRef;
+  request.layers = layers;
+  if (resolvedRefs.baseRef != null) request.baseRef = resolvedRefs.baseRef;
+  if (resolvedRefs.compareRef != null) request.compareRef = resolvedRefs.compareRef;
   if (options.paths && options.paths.length > 0) request.paths = options.paths;
   if (options.limits) request.limits = options.limits;
 
@@ -214,6 +237,91 @@ export async function getRepoDiffSnapshot(
   const render = buildRenderHints(response, worktreePath, options);
 
   return { ...response, scout, render };
+}
+
+async function defaultGit(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+    encoding: "utf8",
+    timeout: 2_000,
+    maxBuffer: 512 * 1024,
+  });
+  return stdout;
+}
+
+async function safeGit(git: RepoDiffGitExec, cwd: string, args: string[]): Promise<string | null> {
+  try {
+    const output = await git(cwd, args);
+    return output.trim() ? output.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveCommit(
+  git: RepoDiffGitExec,
+  cwd: string,
+  ref: string,
+): Promise<string | null> {
+  return safeGit(git, cwd, ["rev-parse", "--verify", `${ref}^{commit}`]);
+}
+
+async function preferredBranchBaseRef(
+  git: RepoDiffGitExec,
+  cwd: string,
+): Promise<string | null> {
+  const upstream = await safeGit(git, cwd, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ]);
+  const candidates = [
+    ...TRUNK_REFS,
+    upstream,
+  ].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    if (candidate === "HEAD") continue;
+    const oid = await resolveCommit(git, cwd, candidate);
+    if (oid) return candidate;
+  }
+  return null;
+}
+
+async function resolveBranchLayerRefs(
+  worktreePath: string,
+  options: RepoDiffSnapshotOptions,
+): Promise<{ baseRef?: string; compareRef?: string }> {
+  if (!options.layers?.includes("branch")) {
+    return {
+      baseRef: options.baseRef ?? undefined,
+      compareRef: options.compareRef ?? undefined,
+    };
+  }
+
+  const git = options.git ?? defaultGit;
+  const compareRef = options.compareRef?.trim() || "HEAD";
+  const compareOid = await resolveCommit(git, worktreePath, compareRef);
+  if (!compareOid) {
+    return {
+      baseRef: options.baseRef ?? undefined,
+      compareRef: options.compareRef ?? undefined,
+    };
+  }
+
+  const baseCandidate = options.baseRef?.trim()
+    || await preferredBranchBaseRef(git, worktreePath);
+  if (!baseCandidate) {
+    return { compareRef: compareOid };
+  }
+  const baseOid = await resolveCommit(git, worktreePath, baseCandidate);
+  if (!baseOid) {
+    return { baseRef: baseCandidate, compareRef: compareOid };
+  }
+  const mergeBase = await safeGit(git, worktreePath, ["merge-base", baseOid, compareOid]);
+  return {
+    baseRef: mergeBase ?? baseOid,
+    compareRef: compareOid,
+  };
 }
 
 function buildScoutContext(

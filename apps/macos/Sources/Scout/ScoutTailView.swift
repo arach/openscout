@@ -5,8 +5,11 @@ import SwiftUI
 
 struct ScoutTailContent: View {
     @ObservedObject var tail: ScoutTailStore
+    let agents: [ScoutAgent]
     /// Open the full session for a tail event in the slide-out web viewer.
     let onOpenSession: (ScoutTailEvent) -> Void
+    /// Open the native observe surface for a session-matched agent.
+    let onOpenAgent: (ScoutAgent) -> Void
 
     @State private var selectedEventId: String?
 
@@ -16,6 +19,17 @@ struct ScoutTailContent: View {
 
     private var latestEvent: ScoutTailEvent? {
         visibleEvents.last ?? tail.events.last
+    }
+
+    private var agentsBySessionId: [String: ScoutAgent] {
+        var result: [String: ScoutAgent] = [:]
+        for agent in agents {
+            guard let key = scoutTailCopyable(agent.harnessSessionId) else { continue }
+            if result[key] == nil || agent.state == .working {
+                result[key] = agent
+            }
+        }
+        return result
     }
 
     var body: some View {
@@ -42,36 +56,14 @@ struct ScoutTailContent: View {
     }
 
     private var titleCluster: some View {
-        HStack(spacing: HudSpacing.sm) {
+        HStack(spacing: HudSpacing.xs) {
             Text("Tail")
                 .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
 
             ScoutTailLivePill(isLive: tail.isFollowing)
 
-            HStack(spacing: HudSpacing.xxs) {
-                Text("\(tail.discovery?.totals.transcripts ?? tail.sessionCount)")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(ScoutPalette.ink)
-                    .monospacedDigit()
-                Text("logs")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(ScoutPalette.dim)
-            }
-
-            HStack(spacing: HudSpacing.xxs) {
-                Text("\(tail.discovery?.totals.total ?? 0)")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                    .foregroundStyle(ScoutPalette.muted)
-                    .monospacedDigit()
-                Text("procs")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(ScoutPalette.dim)
-            }
-
-            Text(tail.liveRateLabel)
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(ScoutPalette.muted)
+            headerMetrics
 
             if tail.isLoading {
                 ProgressView()
@@ -80,6 +72,26 @@ struct ScoutTailContent: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var headerMetrics: some View {
+        HStack(spacing: HudSpacing.xs) {
+            ScoutTailHeaderMetric(
+                value: "\(tail.discovery?.totals.transcripts ?? tail.sessionCount)",
+                label: "logs",
+                tint: ScoutPalette.accent
+            )
+            ScoutTailHeaderMetric(
+                value: "\(tail.discovery?.totals.total ?? 0)",
+                label: "procs",
+                tint: ScoutPalette.statusInfo
+            )
+            ScoutTailHeaderMetric(
+                value: tail.liveRateLabel,
+                label: "rate",
+                tint: tail.linesPerSecond > 0 ? ScoutPalette.statusOk : ScoutPalette.muted
+            )
+        }
     }
 
     private var filterStrip: some View {
@@ -123,10 +135,16 @@ struct ScoutTailContent: View {
     /// carries its kind tone; the selected one fills with it.
     private var kindFilterBar: some View {
         HStack(spacing: HudSpacing.xs) {
-            kindChip(nil)
-            ForEach(ScoutTailEventKind.allCases) { kind in
-                kindChip(kind)
+            ScrollView(.horizontal) {
+                HStack(spacing: HudSpacing.xs) {
+                    kindChip(nil)
+                    ForEach(ScoutTailEventKind.allCases) { kind in
+                        kindChip(kind)
+                    }
+                }
+                .padding(.vertical, HudSpacing.xs)
             }
+            .scrollIndicators(.hidden)
 
             Spacer(minLength: 0)
 
@@ -177,7 +195,7 @@ struct ScoutTailContent: View {
             .frame(height: 24)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                    .fill(selected ? HudSurface.tint(tint, opacity: 0.14) : ScoutDesign.surface)
+                    .fill(selected ? HudSurface.tint(tint, opacity: 0.16) : ScoutSurface.control)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -187,6 +205,7 @@ struct ScoutTailContent: View {
         }
         .buttonStyle(.plain)
         .help("Filter: \(label)")
+        .scoutPointerCursor()
     }
 
     private var commandStrip: some View {
@@ -298,22 +317,35 @@ struct ScoutTailContent: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ScoutTailHeaderRow()
-                        ForEach(visibleEvents) { event in
-                            ScoutTailRow(
-                                event: event,
-                                isSelected: selectedEventId == event.id,
-                                onOpenSession: { onOpenSession(event) }
-                            ) {
-                                selectedEventId = selectedEventId == event.id ? nil : event.id
-                            }
-                            .id(event.id)
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        Section {
+                            ForEach(visibleEvents.indices, id: \.self) { index in
+                                let event = visibleEvents[index]
+                                ScoutTailRow(
+                                    event: event,
+                                    activeAgent: activeAgent(for: event),
+                                    isAlternating: !index.isMultiple(of: 2),
+                                    isSelected: selectedEventId == event.id,
+                                    onOpenSession: { onOpenSession(event) },
+                                    onOpenAgent: { agent in onOpenAgent(agent) }
+                                ) {
+                                    selectedEventId = selectedEventId == event.id ? nil : event.id
+                                }
+                                .id(event.id)
 
-                            if selectedEventId == event.id {
-                                ScoutTailDetail(event: event, onOpenSession: { onOpenSession(event) })
+                                if selectedEventId == event.id {
+                                    ScoutTailDetail(
+                                        event: event,
+                                        activeAgent: activeAgent(for: event),
+                                        onOpenSession: { onOpenSession(event) },
+                                        onOpenAgent: { agent in onOpenAgent(agent) }
+                                    )
                                     .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
                             }
+                        } header: {
+                            ScoutTailHeaderRow()
+                                .zIndex(1)
                         }
                     }
                     .padding(.bottom, HudSpacing.xxl)
@@ -333,6 +365,10 @@ struct ScoutTailContent: View {
                 }
             }
         }
+    }
+
+    private func activeAgent(for event: ScoutTailEvent) -> ScoutAgent? {
+        scoutTailCopyable(event.sessionId).flatMap { agentsBySessionId[$0] }
     }
 }
 
@@ -358,7 +394,16 @@ struct ScoutTailInspector: View {
 
     private var coverage: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            ScoutTailInspectorTitle("Coverage")
+            HStack(alignment: .center, spacing: HudSpacing.sm) {
+                ScoutTailInspectorTitle("Coverage")
+                Spacer(minLength: 0)
+                HudBadge(
+                    tail.isFollowing ? "Live" : "Paused",
+                    tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted,
+                    dot: tail.isFollowing
+                )
+            }
+
             LazyVGrid(
                 columns: [
                     GridItem(.flexible(), spacing: HudSpacing.md),
@@ -367,20 +412,54 @@ struct ScoutTailInspector: View {
                 alignment: .leading,
                 spacing: HudSpacing.md
             ) {
-                metric("Logs", tail.discovery?.totals.transcripts ?? tail.sessionCount)
-                metric("Processes", tail.discovery?.totals.total ?? 0)
-                metric("Sessions", tail.sessionCount)
-                metric("Buffered", tail.events.count)
+                metric(
+                    "Logs",
+                    tail.discovery?.totals.transcripts ?? tail.sessionCount,
+                    detail: "transcripts",
+                    tint: ScoutPalette.accent
+                )
+                metric(
+                    "Processes",
+                    tail.discovery?.totals.total ?? 0,
+                    detail: "inventory",
+                    tint: ScoutPalette.statusInfo
+                )
+                metric(
+                    "Sessions",
+                    tail.sessionCount,
+                    detail: "unique ids",
+                    tint: ScoutPalette.statusOk
+                )
+                metric(
+                    "Buffered",
+                    tail.events.count,
+                    detail: "\(visibleCount) visible",
+                    tint: ScoutPalette.muted
+                )
             }
 
-            HStack(spacing: HudSpacing.sm) {
-                HudStatusDot(color: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted)
-                Text(tail.isFollowing ? "following live transcript tails" : "tail follow is paused")
-                    .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                    .foregroundStyle(ScoutPalette.muted)
-                    .lineLimit(2)
-            }
+            coveragePulse
         }
+    }
+
+    private var visibleCount: Int {
+        tail.filteredEvents.count
+    }
+
+    private var coveragePulse: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+            HudStatusDot(color: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted)
+            Text(tail.isFollowing ? "\(tail.lastBatchCount) new · \(tail.liveRateLabel)" : "manual refresh · \(tail.liveRateLabel)")
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(tail.lastBatchCount > 0 ? ScoutPalette.accent : ScoutPalette.muted)
+                .monospacedDigit()
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, HudSpacing.md)
+        .frame(height: 30)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.control))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard))
     }
 
     private var trackedSurface: some View {
@@ -427,15 +506,25 @@ struct ScoutTailInspector: View {
     }
 
 
-    private func metric(_ label: String, _ value: Int) -> some View {
+    private func metric(_ label: String, _ value: Int, detail: String, tint: Color) -> some View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
-            Text(label.uppercased())
-                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                .foregroundStyle(ScoutPalette.dim)
+            HStack(spacing: HudSpacing.xs) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: HudDotSize.tiny, height: HudDotSize.tiny)
+                Text(label.uppercased())
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+            }
             Text("\(value)")
                 .font(HudFont.mono(HudTextSize.lg, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .monospacedDigit()
+            Text(detail)
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
         }
         .padding(.horizontal, HudSpacing.md)
         .padding(.vertical, HudSpacing.sm)
@@ -498,10 +587,12 @@ private struct ScoutTailHeaderRow: View {
                 .frame(width: ScoutTailColumns.source, alignment: .leading)
             Text("ORIGIN")
                 .frame(width: ScoutTailColumns.origin, alignment: .leading)
-            Text("PROJECT")
+            Text("PROJECT / SESSION")
                 .frame(width: ScoutTailColumns.context, alignment: .leading)
             Text("PID")
                 .frame(width: ScoutTailColumns.pid, alignment: .leading)
+            Text("AGENT")
+                .frame(width: ScoutTailColumns.agent, alignment: .leading)
             Text("KIND")
                 .frame(width: ScoutTailColumns.kind, alignment: .leading)
             Text("SUMMARY")
@@ -520,87 +611,153 @@ private struct ScoutTailHeaderRow: View {
 
 private struct ScoutTailRow: View {
     let event: ScoutTailEvent
+    let activeAgent: ScoutAgent?
+    let isAlternating: Bool
     let isSelected: Bool
     let onOpenSession: () -> Void
+    let onOpenAgent: (ScoutAgent) -> Void
     let action: () -> Void
 
     @State private var isHovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
-                Text(event.clockLabel)
-                    .font(HudFont.mono(HudTextSize.sm))
-                    .monospacedDigit()
-                    .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.dim)
-                    .frame(width: ScoutTailColumns.time, alignment: .leading)
+        HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
+            Text(event.clockLabel)
+                .font(HudFont.mono(HudTextSize.sm))
+                .monospacedDigit()
+                .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.dim)
+                .frame(width: ScoutTailColumns.time, alignment: .leading)
 
-                ScoutTailChip(event.sourceLabel, tint: sourceColor(event.sourceLabel))
-                    .frame(width: ScoutTailColumns.source, alignment: .leading)
+            ScoutTailChip(event.sourceLabel, tint: sourceColor(event.sourceLabel))
+                .frame(width: ScoutTailColumns.source, alignment: .leading)
 
-                ScoutTailChip(event.originLabel, tint: originColor(event.harness))
-                    .frame(width: ScoutTailColumns.origin, alignment: .leading)
+            ScoutTailChip(event.originLabel, tint: originColor(event.harness))
+                .frame(width: ScoutTailColumns.origin, alignment: .leading)
 
-                HStack(spacing: HudSpacing.xs) {
-                    Text(event.projectLabel)
-                        .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
-                        .foregroundStyle(ScoutPalette.muted)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Text("·")
-                        .font(HudFont.mono(HudTextSize.sm))
-                        .foregroundStyle(ScoutPalette.dim)
-                    Text(event.sessionShortLabel)
-                        .font(HudFont.mono(HudTextSize.sm))
-                        .foregroundStyle(ScoutPalette.dim)
-                        .lineLimit(1)
-                }
+            projectSessionCell
                 .frame(width: ScoutTailColumns.context, alignment: .leading)
 
-                Text(event.pidLabel)
-                    .font(HudFont.mono(HudTextSize.sm))
-                    .foregroundStyle(ScoutPalette.dim)
-                    .lineLimit(1)
-                    .frame(width: ScoutTailColumns.pid, alignment: .leading)
+            pidCell
+                .frame(width: ScoutTailColumns.pid, alignment: .leading)
 
-                ScoutTailChip(event.kind.label, tint: event.kind.tint)
-                    .frame(width: ScoutTailColumns.kind, alignment: .leading)
+            agentCell
+                .frame(width: ScoutTailColumns.agent, alignment: .leading)
 
-                Text(event.summary)
-                    .font(HudFont.mono(HudTextSize.sm))
-                    .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.78))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.horizontal, ScoutTailMetrics.pageGutter)
-            .frame(minHeight: ScoutTailMetrics.rowHeight)
-            .background(rowBackground)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(isSelected ? ScoutPalette.accent : Color.clear)
-                    .frame(width: 2)
-            }
-            .overlay(alignment: .bottom) {
-                HudDivider(color: ScoutDesign.hairline)
-            }
-            .contentShape(Rectangle())
+            ScoutTailChip(event.kind.label, tint: event.kind.tint)
+                .frame(width: ScoutTailColumns.kind, alignment: .leading)
+
+            Text(event.summary)
+                .font(HudFont.mono(HudTextSize.sm))
+                .foregroundStyle(isSelected ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.78))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .buttonStyle(.plain).scoutPointerCursor()
+        .padding(.horizontal, ScoutTailMetrics.pageGutter)
+        .frame(minHeight: ScoutTailMetrics.rowHeight)
+        .background(rowBackground)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(isSelected ? ScoutPalette.accent : event.kind.tint.opacity(isHovering ? 0.55 : 0.26))
+                .frame(width: isSelected ? 2 : 1)
+        }
+        .overlay(alignment: .bottom) {
+            HudDivider(color: ScoutDesign.hairline)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .scoutPointerCursor()
         .onHover { isHovering = $0 }
         .contextMenu {
+            Button("Reveal project in Finder") { scoutTailRevealPath(event.cwd) }
+                .disabled(scoutTailCopyable(event.cwd) == nil)
+            Button("Copy project path") { scoutTailCopy(event.cwd) }
+                .disabled(scoutTailCopyable(event.cwd) == nil)
+            Divider()
             Button("Open session") { onOpenSession() }
                 .disabled(event.sessionId.isEmpty)
+            Button("Copy session ID") { scoutTailCopy(event.sessionId) }
+                .disabled(scoutTailCopyable(event.sessionId) == nil)
+            if let activeAgent {
+                Divider()
+                Button("Open agent observe") { onOpenAgent(activeAgent) }
+                Button("Copy agent ID") { scoutTailCopy(activeAgent.id) }
+            }
             Divider()
+            Button("Copy PID") { scoutTailCopy("\(event.pid)") }
+                .disabled(event.pid <= 0)
             Button("Copy event ID") {
-                copy(event.id)
+                scoutTailCopy(event.id)
             }
             Button("Copy summary") {
-                copy(event.summary)
+                scoutTailCopy(event.summary)
             }
-            Button("Copy session ID") {
-                copy(event.sessionId)
-            }
+        }
+    }
+
+    private var projectSessionCell: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            ScoutTailHoverAction(
+                title: event.projectLabel,
+                copyValue: event.cwd,
+                copyHelp: "Copy project path",
+                actionHelp: "Reveal project in Finder",
+                tint: ScoutPalette.muted,
+                activeTint: ScoutPalette.accent,
+                truncationMode: .middle,
+                action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("·")
+                .font(HudFont.mono(HudTextSize.sm))
+                .foregroundStyle(ScoutPalette.dim)
+
+            ScoutTailHoverAction(
+                title: event.sessionShortLabel,
+                copyValue: event.sessionId,
+                copyHelp: "Copy session ID",
+                actionHelp: "Open session",
+                tint: ScoutPalette.dim,
+                activeTint: ScoutPalette.accent,
+                truncationMode: .tail,
+                action: scoutTailCopyable(event.sessionId) == nil ? nil : onOpenSession
+            )
+            .frame(width: 72, alignment: .leading)
+        }
+    }
+
+    private var pidCell: some View {
+        ScoutTailHoverAction(
+            title: event.pidLabel,
+            copyValue: event.pid > 0 ? "\(event.pid)" : nil,
+            copyHelp: "Copy PID",
+            actionHelp: "Copy PID",
+            tint: ScoutPalette.dim,
+            activeTint: ScoutPalette.accent,
+            truncationMode: .tail,
+            action: event.pid > 0 ? { scoutTailCopy("\(event.pid)") } : nil
+        )
+    }
+
+    @ViewBuilder
+    private var agentCell: some View {
+        if let activeAgent {
+            ScoutTailHoverAction(
+                title: activeAgent.displayName,
+                copyValue: activeAgent.id,
+                copyHelp: "Copy agent ID",
+                actionHelp: "Open agent observe",
+                tint: ScoutPalette.muted,
+                activeTint: ScoutPalette.statusInfo,
+                truncationMode: .tail,
+                action: { onOpenAgent(activeAgent) }
+            )
+        } else {
+            Text("—")
+                .font(HudFont.mono(HudTextSize.sm))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
         }
     }
 
@@ -611,12 +768,10 @@ private struct ScoutTailRow: View {
         if isHovering {
             return ScoutSurface.hover
         }
+        if isAlternating {
+            return ScoutSurface.inset.opacity(0.44)
+        }
         return Color.clear
-    }
-
-    private func copy(_ value: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func sourceColor(_ value: String) -> Color {
@@ -638,7 +793,9 @@ private struct ScoutTailRow: View {
 
 private struct ScoutTailDetail: View {
     let event: ScoutTailEvent
+    let activeAgent: ScoutAgent?
     let onOpenSession: () -> Void
+    let onOpenAgent: (ScoutAgent) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
@@ -661,12 +818,39 @@ private struct ScoutTailDetail: View {
                 alignment: .leading,
                 spacing: HudSpacing.sm
             ) {
-                detail("Event", event.id)
-                detail("Session", event.sessionId)
-                detail("Project", event.projectLabel)
-                detail("CWD", event.cwd)
-                detail("Origin", event.originLabel)
-                detail("PID", event.parentPid.map { "\(event.pid) <- \($0)" } ?? "\(event.pid)")
+                detail("Event", event.id, copyValue: event.id)
+                detail(
+                    "Session",
+                    event.sessionId,
+                    copyValue: event.sessionId,
+                    actionHelp: "Open session",
+                    action: scoutTailCopyable(event.sessionId) == nil ? nil : onOpenSession
+                )
+                if let activeAgent {
+                    detail(
+                        "Agent",
+                        activeAgent.displayName,
+                        copyValue: activeAgent.id,
+                        actionHelp: "Open agent observe",
+                        action: { onOpenAgent(activeAgent) }
+                    )
+                }
+                detail(
+                    "Project",
+                    event.projectLabel,
+                    copyValue: event.cwd,
+                    actionHelp: "Reveal project in Finder",
+                    action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
+                )
+                detail(
+                    "CWD",
+                    event.cwd,
+                    copyValue: event.cwd,
+                    actionHelp: "Reveal in Finder",
+                    action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
+                )
+                detail("Origin", event.originLabel, copyValue: event.originLabel)
+                detail("PID", event.parentPid.map { "\(event.pid) <- \($0)" } ?? "\(event.pid)", copyValue: event.pid > 0 ? "\(event.pid)" : nil)
                 detail("Age", event.ageLabel)
             }
         }
@@ -700,16 +884,22 @@ private struct ScoutTailDetail: View {
     }
 
     @ViewBuilder
-    private func detail(_ label: String, _ value: String) -> some View {
+    private func detail(
+        _ label: String,
+        _ value: String,
+        copyValue: String? = nil,
+        actionHelp: String? = nil,
+        action: (() -> Void)? = nil
+    ) -> some View {
         Text(label.uppercased())
             .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
             .foregroundStyle(ScoutPalette.dim)
-        Text(value)
-            .font(HudFont.mono(HudTextSize.xs))
-            .foregroundStyle(ScoutPalette.muted)
-            .lineLimit(2)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
+        ScoutTailDetailValue(
+            value: value,
+            copyValue: copyValue,
+            actionHelp: actionHelp,
+            action: action
+        )
     }
 }
 
@@ -723,10 +913,101 @@ private enum ScoutTailMetrics {
 private enum ScoutTailColumns {
     static let time: CGFloat = 68
     static let source: CGFloat = 76
-    static let origin: CGFloat = 66
-    static let context: CGFloat = 210
-    static let pid: CGFloat = 48
+    static let origin: CGFloat = 62
+    static let context: CGFloat = 220
+    static let pid: CGFloat = 70
+    static let agent: CGFloat = 96
     static let kind: CGFloat = 54
+}
+
+private struct ScoutTailHoverAction: View {
+    let title: String
+    let copyValue: String?
+    let copyHelp: String
+    let actionHelp: String
+    let tint: Color
+    let activeTint: Color
+    let truncationMode: Text.TruncationMode
+    var lineLimit: Int = 1
+    let action: (() -> Void)?
+
+    @State private var isHovering = false
+
+    private var cleanCopyValue: String? {
+        scoutTailCopyable(copyValue)
+    }
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            actionLabel
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                scoutTailCopy(cleanCopyValue)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
+                    .foregroundStyle(activeTint)
+                    .frame(width: 16, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(cleanCopyValue == nil)
+            .opacity(isHovering && cleanCopyValue != nil ? 1 : 0)
+            .help(copyHelp)
+            .scoutPointerCursor()
+        }
+        .onHover { isHovering = $0 }
+        .animation(.easeOut(duration: 0.10), value: isHovering)
+    }
+
+    @ViewBuilder
+    private var actionLabel: some View {
+        if let action {
+            Button(action: action) {
+                labelText
+            }
+            .buttonStyle(.plain)
+            .help(actionHelp)
+            .scoutPointerCursor()
+        } else {
+            labelText
+        }
+    }
+
+    private var labelText: some View {
+        Text(title)
+            .font(HudFont.mono(HudTextSize.sm, weight: .semibold))
+            .foregroundStyle(isHovering && action != nil ? activeTint : tint)
+            .lineLimit(lineLimit)
+            .truncationMode(truncationMode)
+            .contentShape(Rectangle())
+    }
+}
+
+private struct ScoutTailDetailValue: View {
+    let value: String
+    let copyValue: String?
+    let actionHelp: String?
+    let action: (() -> Void)?
+
+    var body: some View {
+        ScoutTailHoverAction(
+            title: displayValue,
+            copyValue: copyValue ?? value,
+            copyHelp: "Copy value",
+            actionHelp: actionHelp ?? "Open",
+            tint: ScoutPalette.muted,
+            activeTint: ScoutPalette.accent,
+            truncationMode: .middle,
+            lineLimit: 2,
+            action: action
+        )
+    }
+
+    private var displayValue: String {
+        scoutTailCopyable(value) ?? "—"
+    }
 }
 
 private struct ScoutTailChip: View {
@@ -748,6 +1029,34 @@ private struct ScoutTailChip: View {
             .frame(height: 18)
             .background(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).fill(HudSurface.tint(tint, opacity: 0.08)))
             .overlay(RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous).stroke(HudSurface.tintBorder(tint), lineWidth: HudStrokeWidth.standard))
+    }
+}
+
+private struct ScoutTailHeaderMetric: View {
+    let value: String
+    let label: String
+    let tint: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.xxs) {
+            Text(value)
+                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .monospacedDigit()
+                .lineLimit(1)
+
+            Text(label)
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, HudSpacing.sm)
+        .frame(height: 22)
+        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.control))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(tint.opacity(0.26), lineWidth: HudStrokeWidth.standard)
+        )
     }
 }
 
@@ -923,4 +1232,25 @@ private struct ScoutTailIconButton: View {
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.10), value: isHovering)
     }
+}
+
+private func scoutTailCopyable(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty,
+          trimmed != "—" else {
+        return nil
+    }
+    return trimmed
+}
+
+private func scoutTailCopy(_ value: String?) {
+    guard let clean = scoutTailCopyable(value) else { return }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(clean, forType: .string)
+}
+
+private func scoutTailRevealPath(_ path: String) {
+    guard let clean = scoutTailCopyable(path) else { return }
+    let expanded = (clean as NSString).expandingTildeInPath
+    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: expanded)])
 }

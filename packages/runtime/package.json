@@ -73,6 +73,11 @@
       "bun": "./src/support-paths.ts",
       "default": "./dist/support-paths.js"
     },
+    "./claude-statusline": {
+      "types": "./src/claude-statusline.ts",
+      "bun": "./src/claude-statusline.ts",
+      "default": "./dist/claude-statusline.js"
+    },
     "./tool-resolution": {
       "types": "./src/tool-resolution.ts",
       "bun": "./src/tool-resolution.ts",
@@ -117,6 +122,11 @@
       "types": "./src/local-config.ts",
       "bun": "./src/local-config.ts",
       "default": "./dist/local-config.js"
+    },
+    "./open-scout-network": {
+      "types": "./src/open-scout-network.ts",
+      "bun": "./src/open-scout-network.ts",
+      "default": "./dist/open-scout-network.js"
     },
     "./local-edge": {
       "types": "./src/local-edge.ts",

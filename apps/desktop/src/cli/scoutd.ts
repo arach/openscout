@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
 
 import {
+  openScoutNetworkServiceEnvironment,
   resolveBrokerServiceConfig,
   resolveScoutdCommand,
   type BrokerServiceConfig,
-} from "@openscout/runtime/broker-process-manager";
+} from "@openscout/runtime";
 
 import { extractBuildIdentityFromScoutdPayload } from "./uptodate.ts";
 
@@ -104,6 +105,7 @@ function buildNativeScoutdEnvironment(
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
     OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
+    ...openScoutNetworkServiceEnvironment(env),
   };
   if (config.coreAgents.length > 0) {
     nextEnv.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");

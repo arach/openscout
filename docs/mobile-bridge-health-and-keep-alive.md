@@ -43,7 +43,9 @@ Relevant files:
 - [packages/protocol/src/invocations.ts](/Users/arach/dev/openscout/packages/protocol/src/invocations.ts)
 - [apps/desktop/src/core/broker/service.ts](/Users/arach/dev/openscout/apps/desktop/src/core/broker/service.ts)
 - [packages/runtime/src/broker.ts](/Users/arach/dev/openscout/packages/runtime/src/broker.ts)
-- [packages/runtime/src/broker-daemon.ts](/Users/arach/dev/openscout/packages/runtime/src/broker-daemon.ts)
+- [packages/runtime/src/broker-daemon.ts](/Users/arach/dev/openscout/packages/runtime/src/broker-daemon.ts) (composition root)
+- [packages/runtime/src/broker-http-router.ts](/Users/arach/dev/openscout/packages/runtime/src/broker-http-router.ts) (HTTP routes)
+- [packages/runtime/src/broker-delivery-acceptance-service.ts](/Users/arach/dev/openscout/packages/runtime/src/broker-delivery-acceptance-service.ts) (`/v1/deliver`)
 
 ### Existing Tailscale hooks
 

@@ -12,4 +12,4 @@ export type HeartrateBucket = { ts: number; count: number; value: number };
 export type WorkAttention = "silent" | "badge" | "interrupt";
 
 /** High-level rollup of an agent's runtime state for list/detail surfaces. */
-export type AgentSummaryState = "offline" | "available" | "working";
+export type AgentSummaryState = "offline" | "available" | "in_flight" | "working";

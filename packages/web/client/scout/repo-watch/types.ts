@@ -90,6 +90,8 @@ export interface RepoWatchStatusSummary {
 }
 
 export interface RepoWatchDiffSummary {
+  /** `git diff --shortstat <merge-base>..HEAD` for committed branch delta. */
+  branchShortstat: string | null;
   /** `git diff --shortstat` — null on the fast path unless includeDiff=1. */
   unstagedShortstat: string | null;
   /** `git diff --cached --shortstat` — null on the fast path. */

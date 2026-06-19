@@ -381,6 +381,7 @@ function normalizeOpsMode(mode: string): OpsMode | undefined {
     case "agents":
     case "tail":
     case "atop":
+    case "lanes":
       return mode;
     default:
       return undefined;

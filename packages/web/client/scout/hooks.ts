@@ -43,13 +43,6 @@ export function useScoutCommands(): CommandOption[] {
     }));
   }, [applyScoutbotUiAction]);
 
-  const interruptAgent = useCallback(async (agentId: string) => {
-    await api(`/api/agents/${encodeURIComponent(agentId)}/interrupt`, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-  }, []);
-
   return useMemo<CommandOption[]>(() => {
     const commands: CommandOption[] = [
       {
@@ -126,6 +119,10 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Runtime",
         action: () => navigate({ view: "ops", mode: "atop" }),
       }, {
+        id: "nav:ops-lanes",
+        label: "Open Agent Lanes",
+        action: () => navigate({ view: "ops", mode: "lanes" }),
+      }, {
         id: "nav:workflow-topology",
         label: "Open Workflow Topology",
         action: () => navigate({ view: "agents" }),
@@ -170,40 +167,21 @@ export function useScoutCommands(): CommandOption[] {
       commands.push({
         id: `scout:open:${agent.id}`,
         label: `Open ${agent.name}`,
+        action: () => navigate({ view: "agents", agentId: agent.id }),
+      });
+      commands.push({
+        id: `scout:message:${agent.id}`,
+        label: `Message ${agent.name}`,
         action: () =>
           navigate({
             view: "conversation",
             conversationId: conversationForAgent(agent.id),
           }),
-      });
-      commands.push({
-        id: `scout:send:${agent.id}`,
-        label: `Tell ${agent.name}`,
-        action: () =>
-          navigate({
-            view: "conversation",
-            conversationId: conversationForAgent(agent.id),
-          }),
-      });
-      commands.push({
-        id: `scout:ask:${agent.id}`,
-        label: `Ask ${agent.name}`,
-        action: () =>
-          navigate({
-            view: "conversation",
-            conversationId: conversationForAgent(agent.id),
-            composeMode: "ask",
-          }),
-      });
-      commands.push({
-        id: `scout:interrupt:${agent.id}`,
-        label: `Interrupt ${agent.name}`,
-        action: () => void interruptAgent(agent.id),
       });
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, interruptAgent, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {

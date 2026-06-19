@@ -61,6 +61,7 @@ export type RepoWatchBranchSummary = {
 };
 
 export type RepoWatchDiffSummary = {
+  branchShortstat: string | null;
   unstagedShortstat: string | null;
   stagedShortstat: string | null;
 };
@@ -785,6 +786,50 @@ async function safeGit(git: GitExec, cwd: string, args: string[]): Promise<strin
   }
 }
 
+const TRUNK_REFS = [
+  "origin/main",
+  "main",
+  "origin/master",
+  "master",
+  "origin/trunk",
+  "trunk",
+];
+
+async function gitRefExists(git: GitExec, cwd: string, ref: string): Promise<boolean> {
+  const output = await safeGit(git, cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+  return Boolean(output?.trim());
+}
+
+async function preferredBranchBaseRef(
+  git: GitExec,
+  cwd: string,
+  branch: RepoWatchBranchSummary,
+): Promise<string | null> {
+  if (branch.isMain || branch.detached) return null;
+  const candidates = [
+    ...TRUNK_REFS,
+    branch.upstream,
+  ].filter((value): value is string => Boolean(value));
+  for (const candidate of candidates) {
+    if (candidate === "HEAD" || candidate === branch.name) continue;
+    if (await gitRefExists(git, cwd, candidate)) return candidate;
+  }
+  return null;
+}
+
+async function branchDiffShortstat(
+  git: GitExec,
+  cwd: string,
+  branch: RepoWatchBranchSummary,
+): Promise<string | null> {
+  const baseRef = await preferredBranchBaseRef(git, cwd, branch);
+  if (!baseRef) return null;
+  const mergeBase = await safeGit(git, cwd, ["merge-base", baseRef, "HEAD"]);
+  const base = mergeBase?.trim();
+  if (!base) return null;
+  return safeGit(git, cwd, ["diff", "--shortstat", `${base}..HEAD`]);
+}
+
 export function refsForHints(hints: NormalizedHint[]): {
   agents: RepoWatchAgentRef[];
   sessions: RepoWatchSessionRef[];
@@ -850,12 +895,13 @@ async function scanWorktree(
     detached: parsed.branch.name == null && worktree.branch == null,
     isMain: (parsed.branch.name ?? worktree.branch) === "main" || (parsed.branch.name ?? worktree.branch) === "master",
   };
-  const [unstagedDiff, stagedDiff] = options.includeDiff
+  const [branchDiff, unstagedDiff, stagedDiff] = options.includeDiff
     ? await Promise.all([
+      branchDiffShortstat(git, worktree.path, branch),
       safeGit(git, worktree.path, ["diff", "--shortstat"]),
       safeGit(git, worktree.path, ["diff", "--cached", "--shortstat"]),
     ])
-    : [null, null];
+    : [null, null, null];
   const lastCommitRaw = options.includeLastCommit
     ? await safeGit(git, worktree.path, ["log", "-1", "--format=%ct"])
     : null;
@@ -878,6 +924,7 @@ async function scanWorktree(
     branch,
     status: parsed.status,
     diff: {
+      branchShortstat: branchDiff?.trim() || null,
       unstagedShortstat: unstagedDiff?.trim() || null,
       stagedShortstat: stagedDiff?.trim() || null,
     },
@@ -1055,6 +1102,7 @@ function worktreeFromNative(
     branch,
     status: worktree.status,
     diff: {
+      branchShortstat: worktree.diff.branchShortstat?.trim() || null,
       unstagedShortstat: worktree.diff.unstagedShortstat?.trim() || null,
       stagedShortstat: worktree.diff.stagedShortstat?.trim() || null,
     },

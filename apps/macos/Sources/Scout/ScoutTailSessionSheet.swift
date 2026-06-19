@@ -438,7 +438,7 @@ private struct ScoutTailSessionEscapeMonitor: View {
 
 // MARK: - Preview
 
-#if DEBUG
+#if DEBUG && canImport(PreviewsMacros)
 #Preview("Tail session sheet · bottom") {
     ScoutTailSessionSheet(
         sessionRef: "dbec9314-15de-4c1a-b8ac-085f297eaafd",

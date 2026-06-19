@@ -159,6 +159,9 @@ export default function ScoutManifestPage() {
               <ActionLink href="/.well-known/scout.json" primary>
                 <FileJson size={16} /> Raw JSON
               </ActionLink>
+              <ActionLink href="/.well-known/agent.md">
+                <Terminal size={16} /> Agent discovery
+              </ActionLink>
               <ActionLink href="/install.md">
                 <Terminal size={16} /> Install guide
               </ActionLink>

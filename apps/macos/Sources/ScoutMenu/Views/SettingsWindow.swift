@@ -58,30 +58,30 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 // MARK: - Root
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
-    case diagnostics, about, advanced
+    case network, diagnostics, about
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .network:     return "Network"
         case .diagnostics: return "Diagnostics"
         case .about:       return "About"
-        case .advanced:    return "Advanced"
         }
     }
 
     var symbol: String {
         switch self {
+        case .network:     return "network"
         case .diagnostics: return "stethoscope"
         case .about:       return "info.circle"
-        case .advanced:    return "slider.horizontal.3"
         }
     }
 }
 
-private struct SettingsRootView: View {
+struct SettingsRootView: View {
     @ObservedObject var controller: OpenScoutAppController
-    @State private var selected: SettingsTab = .diagnostics
+    @State private var selected: SettingsTab = .network
 
     var body: some View {
         ZStack {
@@ -103,9 +103,9 @@ private struct SettingsRootView: View {
                     ScrollView(.vertical, showsIndicators: false) {
                         Group {
                             switch selected {
+                            case .network:     NetworkTab(controller: controller)
                             case .diagnostics: DiagnosticsTab(controller: controller)
                             case .about:       AboutTab(controller: controller)
-                            case .advanced:    AdvancedTab()
                             }
                         }
                         .padding(16)
@@ -700,28 +700,173 @@ private struct AboutTab: View {
     }
 }
 
-// MARK: - Advanced
+// MARK: - Network
 
-private struct AdvancedTab: View {
+private struct NetworkTab: View {
+    @ObservedObject var controller: OpenScoutAppController
+
     var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 22, weight: .light))
-                .foregroundStyle(ShellPalette.muted)
+        VStack(alignment: .leading, spacing: 12) {
+            SettingsCard {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+                        .frame(width: 14, height: 14)
 
-            Text("MORE CONTROLS COMING")
-                .font(MenuType.mono(11, weight: .semibold))
-                .tracking(0.8)
-                .foregroundStyle(ShellPalette.dim)
+                    Image(systemName: "network")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(ShellPalette.ink)
 
-            Text("Advanced options will land here once they're ready. You haven't broken anything.")
-                .font(MenuType.body(11))
-                .foregroundStyle(ShellPalette.muted)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
+                    Text("OPENSCOUT NETWORK")
+                        .font(MenuType.mono(11, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(ShellPalette.ink)
+
+                    Text(controller.openScoutNetwork.statusLabel)
+                        .font(MenuType.mono(12, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+
+                    Spacer()
+                }
+
+                Text(controller.openScoutNetwork.statusDetail)
+                    .font(MenuType.body(11.5))
+                    .foregroundStyle(ShellPalette.copy)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                SettingsToggleRow(
+                    title: "Publish this Mac",
+                    detail: "Make this Mac discoverable through OpenScout Network for paired devices and mesh-aware Scout peers.",
+                    isOn: Binding(
+                        get: { controller.openScoutNetwork.discoveryEnabled },
+                        set: { controller.setOpenScoutNetworkDiscoveryEnabled($0) }
+                    ),
+                    disabled: controller.openScoutNetworkActionPending
+                )
+
+                SettingsToggleRow(
+                    title: "Keep mobile relay available",
+                    detail: "Keep the OSN pairing bridge running so paired iPhone and iPad clients can reconnect without scanning again.",
+                    isOn: Binding(
+                        get: { controller.openScoutNetwork.keepPairingRelayRunning },
+                        set: { controller.setOpenScoutNetworkKeepPairingRelayRunning($0) }
+                    ),
+                    disabled: !controller.openScoutNetwork.discoveryEnabled
+                        || controller.openScoutNetworkActionPending
+                        || controller.pairingActionPending
+                )
+
+                VStack(spacing: 5) {
+                    KVRow(entry: KVEntry(key: "Account", value: controller.openScoutNetwork.sessionAvailable ? "Signed in" : "Not signed in"))
+                    KVRow(entry: KVEntry(key: "Discovery", value: controller.openScoutNetwork.rendezvousURL))
+                    KVRow(entry: KVEntry(key: "Relay", value: controller.openScoutNetwork.pairingRelayURL))
+                }
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+
+                    if !controller.openScoutNetwork.sessionAvailable {
+                        Button("Sign in") {
+                            controller.signInOpenScoutNetwork()
+                        }
+                        .buttonStyle(PrimaryPillStyle())
+                    }
+
+                    Button("Restart relay") {
+                        controller.restartPairing()
+                    }
+                    .buttonStyle(SecondaryPillStyle())
+                    .disabled(controller.pairingActionPending || !controller.openScoutNetwork.discoveryEnabled)
+                }
+            }
+
+            SettingsCard {
+                HStack(spacing: 10) {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ShellPalette.muted)
+
+                    Text("SETTINGS FILE")
+                        .font(MenuType.mono(10, weight: .bold))
+                        .tracking(0.8)
+                        .foregroundStyle(ShellPalette.muted)
+
+                    Spacer()
+                }
+
+                KVRow(entry: KVEntry(
+                    key: "Path",
+                    value: controller.openScoutNetwork.settingsPath,
+                    path: controller.openScoutNetwork.settingsPath
+                ))
+            }
         }
-        .padding(36)
-        .frame(maxWidth: .infinity)
+    }
+
+    private var statusColor: Color {
+        if controller.openScoutNetworkActionPending || controller.pairingActionPending {
+            return ShellPalette.warning
+        }
+        if !controller.openScoutNetwork.discoveryEnabled {
+            return ShellPalette.muted
+        }
+        return controller.openScoutNetwork.sessionAvailable ? ShellPalette.success : ShellPalette.warning
+    }
+}
+
+private struct SettingsCard<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.line, lineWidth: 1)
+        )
+    }
+}
+
+private struct SettingsToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+    var disabled = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(MenuType.mono(11, weight: .semibold))
+                    .foregroundStyle(disabled ? ShellPalette.muted : ShellPalette.ink)
+
+                Text(detail)
+                    .font(MenuType.body(11))
+                    .foregroundStyle(ShellPalette.dim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(disabled)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(ShellPalette.surfaceFill)

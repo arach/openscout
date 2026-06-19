@@ -15,6 +15,8 @@ import type {
   RepoWatchAgentRef,
   RepoWatchAttentionLevel,
   RepoWatchBranchSummary,
+  RepoWatchProject,
+  RepoWatchSessionRef,
   RepoWatchWorktree,
 } from "./types.ts";
 
@@ -91,10 +93,21 @@ export function attentionRank(level: RepoWatchAttentionLevel): number {
 
 /* ── Agent presence — derived, since the wire format sends neither ──────── */
 
-/** Live = the broker reports the agent as actively working. Other states
- *  (idle / waiting / offline / null) render unlifted. */
+const LIVE_AGENT_STATES = new Set([
+  "active",
+  "working",
+  "running",
+  "in_turn",
+  "in_flight",
+  "queued",
+  "waking",
+  "dispatching",
+]);
+
+/** Live = the broker reports the agent as actively working or queued into work.
+ *  Idle / waiting / offline / null render unlifted. */
 export function agentLive(agent: RepoWatchAgentRef): boolean {
-  return (agent.state ?? "").toLowerCase() === "active";
+  return LIVE_AGENT_STATES.has((agent.state ?? "").trim().toLowerCase());
 }
 
 /** A display handle — the wire format has no handle, so build one from the
@@ -104,6 +117,14 @@ export function agentHandle(agent: RepoWatchAgentRef): string {
     return "@" + agent.name.trim().toLowerCase().replace(/\s+/g, "-");
   }
   return agent.id;
+}
+
+/** Compact label for attached harness sessions. These are not first-class
+ *  Scout agents, so keep the source/harness visible when we show them. */
+export function sessionHandle(session: RepoWatchSessionRef): string {
+  const source = (session.harness ?? session.source ?? "session").trim() || "session";
+  const shortId = session.id.length > 12 ? `${session.id.slice(0, 12)}…` : session.id;
+  return `${source}:${shortId}`;
 }
 
 /** Live-first, de-duplicated agent list. The wire format repeats a name across
@@ -129,6 +150,36 @@ export function uniqueAgents(wt: RepoWatchWorktree): RepoWatchAgentRef[] {
 export function pathLeaf(p: string): string {
   const parts = p.replace(/\/+$/, "").split("/");
   return parts[parts.length - 1] || p;
+}
+
+/** Distinguishing worktree label within a grouped repo row — strips a shared
+ *  project prefix when the path leaf repeats it (e.g. `openscout-fix` → `fix`). */
+export function worktreeDisplayLeaf(
+  wt: RepoWatchWorktree,
+  project: RepoWatchProject,
+): string {
+  const leaf = pathLeaf(wt.path);
+  if (leaf === project.name) return leaf;
+  if (leaf.startsWith(project.name + "-")) return leaf.slice(project.name.length + 1);
+  return leaf;
+}
+
+/** Sort key for the table's name column — project name across groups, leaf
+ *  within a group. `sign` is 1 for ascending, −1 for descending. */
+export function compareWorktreeNames(
+  a: { wt: RepoWatchWorktree; project: RepoWatchProject },
+  b: { wt: RepoWatchWorktree; project: RepoWatchProject },
+  sign: number,
+): number {
+  const an =
+    a.project.id === b.project.id
+      ? worktreeDisplayLeaf(a.wt, a.project)
+      : a.project.name;
+  const bn =
+    b.project.id === b.project.id
+      ? worktreeDisplayLeaf(b.wt, b.project)
+      : b.project.name;
+  return an.localeCompare(bn) * sign;
 }
 
 /** Abbreviated path for display (…/dev/openscout/foo). */
@@ -224,7 +275,8 @@ export interface Churn {
   add: number;
   del: number;
   total: number;
-  /** Whether there's any working-tree churn at all (`total > 0`). */
+  files: number;
+  /** Whether there's any churn at all (`total > 0`). */
   has: boolean;
 }
 
@@ -235,7 +287,27 @@ export function churnOf(wt: RepoWatchWorktree): Churn {
   const unstaged = parseShortstat(wt.diff.unstagedShortstat);
   const add = (staged?.ins ?? 0) + (unstaged?.ins ?? 0);
   const del = (staged?.del ?? 0) + (unstaged?.del ?? 0);
-  return { add, del, total: add + del, has: add > 0 || del > 0 };
+  const files = (staged?.files ?? 0) + (unstaged?.files ?? 0);
+  return { add, del, files, total: add + del, has: add > 0 || del > 0 };
+}
+
+/** Committed branch churn from the branch merge-base to HEAD. */
+export function branchChurnOf(wt: RepoWatchWorktree): Churn {
+  const branch = parseShortstat(wt.diff.branchShortstat);
+  const add = branch?.ins ?? 0;
+  const del = branch?.del ?? 0;
+  const files = branch?.files ?? 0;
+  return { add, del, files, total: add + del, has: add > 0 || del > 0 };
+}
+
+/** Reviewable churn: committed branch delta plus staged/unstaged work. */
+export function reviewChurnOf(wt: RepoWatchWorktree): Churn {
+  const branch = branchChurnOf(wt);
+  const worktree = churnOf(wt);
+  const add = branch.add + worktree.add;
+  const del = branch.del + worktree.del;
+  const files = branch.files + worktree.files;
+  return { add, del, files, total: add + del, has: add > 0 || del > 0 };
 }
 
 /* ── Branch identity — split a ref into a dimmed path prefix + meaningful leaf,

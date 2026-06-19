@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.image = menuBarImage(symbolName: controller.menuBarSymbolName)
+            configureStatusButton(button, symbolName: controller.menuBarSymbolName, tooltip: controller.menuBarTooltip)
             button.toolTip = controller.menuBarTooltip
             button.target = self
             button.action = #selector(statusItemClicked(_:))
@@ -46,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         contextMenu = buildContextMenu()
+
+        // Surface incoming pairing requests as a floating Allow/Deny popup the
+        // moment they arrive — reliable and proactive, no popover or
+        // notification-permission dance.
+        PairingApprovalWindowController.shared.start()
 
         HotkeyManager.shared.register(
             id: 2,
@@ -64,8 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                     return
                 }
 
-                button.image = self?.menuBarImage(symbolName: symbolName)
-                button.toolTip = tooltip
+                self?.configureStatusButton(button, symbolName: symbolName, tooltip: tooltip)
             }
             .store(in: &cancellables)
 
@@ -173,13 +177,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         return menu
     }
 
-    private func menuBarImage(symbolName: String) -> NSImage? {
-        let image = NSImage(
-            systemSymbolName: symbolName,
-            accessibilityDescription: "OpenScout"
-        )
-        image?.isTemplate = true
+    private func configureStatusButton(_ button: NSStatusBarButton, symbolName: String, tooltip: String) {
+        statusItem.length = 24
+        button.title = ""
+        button.image = menuBarImage(fallbackSymbolName: symbolName)
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.toolTip = tooltip
+    }
+
+    private func menuBarImage(fallbackSymbolName _: String) -> NSImage? {
+        let image = scoutStatusGlyphImage()
+        image.isTemplate = true
+        image.accessibilityDescription = "Scout"
         return image
+    }
+
+    private func scoutStatusGlyphImage() -> NSImage {
+        let size = NSSize(width: 20, height: 20)
+        return NSImage(size: size, flipped: false) { rect in
+            func point(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+                NSPoint(
+                    x: rect.minX + (x / size.width) * rect.width,
+                    y: rect.minY + (y / size.height) * rect.height
+                )
+            }
+
+            func stroke(_ points: [NSPoint], closed: Bool, lineWidth: CGFloat, color: NSColor) {
+                guard let first = points.first else {
+                    return
+                }
+
+                let path = NSBezierPath()
+                path.lineCapStyle = .round
+                path.lineJoinStyle = .round
+                path.lineWidth = lineWidth
+                path.move(to: first)
+                points.dropFirst().forEach { path.line(to: $0) }
+                if closed {
+                    path.close()
+                }
+                color.setStroke()
+                path.stroke()
+            }
+
+            let outer = [
+                point(10.0, 15.7),
+                point(14.8, 12.9),
+                point(14.8, 7.1),
+                point(10.0, 4.3),
+                point(5.2, 7.1),
+                point(5.2, 12.9),
+            ]
+            let inner = [
+                point(10.0, 12.0),
+                point(12.4, 10.6),
+                point(12.4, 8.4),
+                point(10.0, 7.0),
+                point(7.6, 8.4),
+                point(7.6, 10.6),
+            ]
+
+            let ink = NSColor.black
+            stroke(outer, closed: true, lineWidth: 1.9, color: ink)
+            stroke(inner, closed: true, lineWidth: 1.32, color: ink)
+
+            return true
+        }
     }
 
     @objc
@@ -199,10 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func signInOpenScoutNetwork() {
-        guard let url = URL(string: "https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
+        controller.signInOpenScoutNetwork()
     }
 
     @objc

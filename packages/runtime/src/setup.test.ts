@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readManagedInstalls } from "./managed-installs.js";
-import { initializeOpenScoutSetup, installScoutSkillToHarnesses, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
+import { resolveClaudeStatuslineDelegatePath } from "./claude-statusline.js";
+import {
+  initializeOpenScoutSetup,
+  installClaudeStatuslineTool,
+  installScoutSkillToHarnesses,
+  readOpenScoutSettings,
+  resolveOpenScoutSetupContextRoot,
+  writeOpenScoutSettings,
+} from "./setup.js";
 import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
@@ -50,6 +58,37 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("persists OpenScout Network discovery settings", async () => {
+    const home = join(tmpdir(), `openscout-osn-settings-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+
+    const defaults = await readOpenScoutSettings();
+    expect(defaults.network.openScoutNetwork.discoveryEnabled).toBe(false);
+    expect(defaults.network.openScoutNetwork.pairingRelayUrl).toBe("wss://mesh.oscout.net/v1/relay");
+
+    const settings = await writeOpenScoutSettings({
+      network: {
+        openScoutNetwork: {
+          discoveryEnabled: true,
+          rendezvousUrl: "https://mesh.example.test/",
+          keepPairingRelayRunning: false,
+        },
+      },
+    });
+
+    expect(settings.network.openScoutNetwork).toEqual({
+      discoveryEnabled: true,
+      rendezvousUrl: "https://mesh.example.test",
+      pairingRelayUrl: "wss://mesh.oscout.net/v1/relay",
+      keepPairingRelayRunning: false,
+    });
+  });
+
   test("records installed harness skills in the managed install ledger", async () => {
     const home = join(tmpdir(), `openscout-managed-installs-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
@@ -65,6 +104,50 @@ describe("setup inventory", () => {
     expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "pi"]);
     expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
     expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
+  });
+
+  test("installs Claude statusline capture and preserves an existing delegate", async () => {
+    const home = join(tmpdir(), `openscout-claude-statusline-install-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const settingsPath = join(home, ".claude", "settings.json");
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({
+      statusLine: {
+        type: "command",
+        command: "~/.claude/custom-statusline.sh",
+        padding: 2,
+        refreshInterval: 30,
+      },
+    }, null, 2), "utf8");
+
+    const report = await installClaudeStatuslineTool();
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      statusLine: Record<string, unknown>;
+    };
+    const delegate = JSON.parse(readFileSync(resolveClaudeStatuslineDelegatePath(), "utf8")) as {
+      command: string;
+      statusLine: Record<string, unknown>;
+    };
+    const wrapper = readFileSync(report.wrapperPath, "utf8");
+    const installs = await readManagedInstalls();
+    const statuslineInstall = installs.find((entry) => entry.name === "claude-statusline");
+
+    expect(report.status).toBe("installed");
+    expect(settings.statusLine.command).toBe(`'${report.wrapperPath}'`);
+    expect(settings.statusLine.padding).toBe(2);
+    expect(settings.statusLine.refreshInterval).toBe(30);
+    expect(delegate.command).toBe("~/.claude/custom-statusline.sh");
+    expect(delegate.statusLine.padding).toBe(2);
+    expect(wrapper).toContain("statusline claude");
+    expect(statuslineInstall).toEqual(expect.objectContaining({
+      kind: "statusline",
+      owner: "openscout",
+      status: "active",
+      harness: "claude",
+    }));
   });
 
   test("resolves the configured setup context root from persisted settings when no env override is present", async () => {
@@ -125,6 +208,49 @@ describe("setup inventory", () => {
 
     process.env.OPENSCOUT_SETUP_CWD = overrideRoot;
     expect(resolveOpenScoutSetupContextRoot()).toBe(overrideRoot);
+  });
+
+  test("keeps new Claude project profiles on tmux even with a legacy stream-json default", async () => {
+    const home = join(tmpdir(), `openscout-setup-claude-transport-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const sourceRoot = join(home, "dev");
+    const projectRoot = join(sourceRoot, "legacy-default");
+
+    testDirectories.add(home);
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+    writeFileSync(join(projectRoot, "CLAUDE.md"), "# Legacy default\n", "utf8");
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
+    process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
+    process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
+
+    await writeOpenScoutSettings({
+      agents: {
+        defaultHarness: "claude",
+        defaultTransport: "claude_stream_json",
+      },
+      discovery: {
+        workspaceRoots: [sourceRoot],
+        includeCurrentRepo: true,
+      },
+    }, {
+      currentDirectory: projectRoot,
+    });
+
+    const setup = await initializeOpenScoutSetup({ currentDirectory: projectRoot });
+    const manifest = JSON.parse(readFileSync(join(projectRoot, ".openscout", "project.json"), "utf8")) as {
+      agent?: {
+        runtime?: {
+          profiles?: {
+            claude?: { transport?: string };
+          };
+        };
+      };
+    };
+
+    expect(setup.createdProjectConfig).toBe(true);
+    expect(manifest.agent?.runtime?.profiles?.claude?.transport).toBe("tmux");
   });
 
   test("walks source roots recursively and records harness evidence per project", async () => {

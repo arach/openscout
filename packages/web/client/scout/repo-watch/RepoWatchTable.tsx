@@ -6,7 +6,7 @@
  * column sorting, and clean-tray fold from the original Fleet Table, re-skinned
  * in the design's vocabulary:
  *
- *   · a serif (Spectral) STAT STRIP — repos · worktrees · dirty · live · attn · agents
+ *   · a serif (Spectral) STAT STRIP — repos · changed · working · open PRs
  *   · repos grouped, with an indented WORKTREE TREE (connector guides) under
  *     any multi-worktree repo; single-worktree repos stay one clean line
  *   · a readable split CHURN bar (+adds mint / −dels coral) beside the numerals
@@ -30,16 +30,20 @@ import type {
 import {
   attentionRank,
   shortPath,
-  pathLeaf,
   agentLive,
   agentHandle,
+  sessionHandle,
   uniqueAgents,
   churnOf,
+  branchChurnOf,
+  reviewChurnOf,
   wtState,
   fmt,
+  compareWorktreeNames,
   type WtState,
 } from "./ui.ts";
 import { BranchLabel } from "./parts.tsx";
+import { summarizeScanDiagnostics } from "./scan-diagnostics.ts";
 
 /* ── Row model — one flattened row per worktree, carrying its parent repo ─── */
 interface Row {
@@ -49,12 +53,13 @@ interface Row {
   add: number;
   del: number;
   churn: number;
+  files: number;
   live: number;
   agentsUnique: RepoWatchAgentRef[];
 }
 
 /* ── Sort state ─────────────────────────────────────────────────────────── */
-type SortKey = "attention" | "name" | "churn" | "files" | "drift" | "agents";
+type SortKey = "attention" | "name" | "churn" | "files" | "drift" | "attached";
 type SortDir = "asc" | "desc";
 
 const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
@@ -65,7 +70,7 @@ const SORT_DEFAULT_DIR: Record<SortKey, SortDir> = {
   churn: "desc",
   files: "desc",
   drift: "desc",
-  agents: "desc",
+  attached: "desc",
 };
 
 /* The view opens sorted by attention so the worst worktrees surface first. */
@@ -84,7 +89,9 @@ function hasActivity(wt: RepoWatchWorktree): boolean {
 }
 
 function buildRow(wt: RepoWatchWorktree, project: RepoWatchProject): Row {
-  const { add, del, total } = churnOf(wt);
+  const worktreeChurn = churnOf(wt);
+  const branchChurn = branchChurnOf(wt);
+  const { add, del, total } = reviewChurnOf(wt);
   const agentsUnique = uniqueAgents(wt);
   return {
     wt,
@@ -93,9 +100,37 @@ function buildRow(wt: RepoWatchWorktree, project: RepoWatchProject): Row {
     add,
     del,
     churn: total,
+    files: branchChurn.files + Math.max(worktreeChurn.files, wt.status.changedFiles),
     live: agentsUnique.filter(agentLive).length,
     agentsUnique,
   };
+}
+
+function isBlocked(wt: RepoWatchWorktree): boolean {
+  return wt.status.conflicts > 0 || wt.error != null;
+}
+
+function blockedStatTitle(projects: RepoWatchProject[]): string {
+  const rows = projects.flatMap((project) =>
+    project.worktrees
+      .filter(isBlocked)
+      .map((wt) => {
+        const branch = wt.branch.name ?? wt.name;
+        if (wt.status.conflicts > 0) {
+          return `${project.name}/${branch}: ${fmt(wt.status.conflicts)} conflict${wt.status.conflicts === 1 ? "" : "s"}`;
+        }
+        return `${project.name}/${branch}: scan error`;
+      }),
+  );
+  const head = "Worktrees blocked by conflicts or scan errors.";
+  if (rows.length === 0) return head;
+  const visible = rows.slice(0, 8);
+  const hidden = rows.length - visible.length;
+  return [
+    head,
+    ...visible,
+    hidden > 0 ? `+${hidden} more` : null,
+  ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
 export default function RepoWatchTable({
@@ -106,6 +141,8 @@ export default function RepoWatchTable({
   scanDepth,
   scanMorePending,
   onScanMore,
+  openPullRequestCount,
+  openPullRequestTitle,
 }: {
   snapshot: RepoWatchSnapshot;
   selectedId: string | null;
@@ -115,6 +152,8 @@ export default function RepoWatchTable({
   scanDepth: "standard" | "expanded";
   scanMorePending: boolean;
   onScanMore: () => void;
+  openPullRequestCount?: number | null;
+  openPullRequestTitle?: string | null;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY);
   const [sortDir, setSortDir] = useState<SortDir>(SORT_DEFAULT_DIR[DEFAULT_SORT_KEY]);
@@ -122,18 +161,18 @@ export default function RepoWatchTable({
 
   // Flatten + partition the snapshot. Active worktrees feed the table; clean &
   // idle ones fold into a tray. Stat-strip counts are derived in the same pass.
-  const { liveRows, cleanRows, stats } = useMemo(() => {
+  const { liveRows, cleanRows, stats, blockedTitle } = useMemo(() => {
     const liveRows: Row[] = [];
     const cleanRows: Row[] = [];
     let live = 0;
-    let attn = 0;
+    let blocked = 0;
+    let changedFiles = 0;
     for (const project of snapshot.projects) {
       for (const wt of project.worktrees) {
         const row = buildRow(wt, project);
+        changedFiles += row.files;
         if (row.live > 0) live++;
-        // "Needs attention" = the backend's critical or attention levels (dirty
-        // main, diverged, conflicts, or a scan that errored) — not just conflicts.
-        if (attentionRank(wt.attention) <= 1) attn++;
+        if (isBlocked(wt)) blocked++;
         (hasActivity(wt) ? liveRows : cleanRows).push(row);
       }
     }
@@ -141,12 +180,17 @@ export default function RepoWatchTable({
     const stats = {
       repos: t.projects,
       worktrees: t.worktrees,
-      dirty: t.dirtyWorktrees,
+      dirtyWorktrees: t.dirtyWorktrees,
+      changedFiles,
       live,
-      attn,
-      agents: t.attachedAgents,
+      blocked,
     };
-    return { liveRows, cleanRows, stats };
+    return {
+      liveRows,
+      cleanRows,
+      stats,
+      blockedTitle: blockedStatTitle(snapshot.projects),
+    };
   }, [snapshot.projects, snapshot.totals]);
 
   // Sort, keeping each repo's worktrees adjacent, then group by project so a
@@ -191,11 +235,30 @@ export default function RepoWatchTable({
         </div>
         <div className="stats">
           <Stat v={stats.repos} k="REPOS" />
-          <Stat v={stats.worktrees} k="WORKTREES" />
-          <Stat v={stats.dirty} k="DIRTY" />
-          <Stat v={stats.live} k="LIVE" tone="mint" />
-          {stats.attn > 0 ? <Stat v={stats.attn} k="NEEDS ATTN" tone="coral" /> : null}
-          <Stat v={stats.agents} k="AGENTS" />
+          {stats.worktrees > stats.repos ? (
+            <Stat
+              v={stats.worktrees}
+              k="WORKTREES"
+              title={`${fmt(stats.worktrees)} worktrees across ${fmt(stats.repos)} repos.`}
+            />
+          ) : null}
+          <Stat
+            v={stats.changedFiles}
+            k="CHANGED"
+            title={`${fmt(stats.changedFiles)} changed files across ${fmt(stats.dirtyWorktrees)} dirty worktree${stats.dirtyWorktrees === 1 ? "" : "s"}.`}
+          />
+          {stats.live > 0 ? <Stat v={stats.live} k="WORKING" tone="mint" /> : null}
+          {(openPullRequestCount ?? 0) > 0 ? (
+            <Stat
+              v={openPullRequestCount ?? 0}
+              k="OPEN PRS"
+              tone="amber"
+              title={openPullRequestTitle ?? undefined}
+            />
+          ) : null}
+          {stats.blocked > 0 ? (
+            <Stat v={stats.blocked} k="BLOCKED" tone="coral" title={blockedTitle} />
+          ) : null}
         </div>
       </div>
 
@@ -206,7 +269,7 @@ export default function RepoWatchTable({
           <SortTh label="CHURN" k="churn" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="r" />
           <SortTh label="FILES" k="files" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="c" />
           <SortTh label="DRIFT" k="drift" sortKey={sortKey} dir={sortDir} onSort={toggleSort} align="c" />
-          <SortTh label="AGENTS" k="agents" sortKey={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortTh label="ATTACHED" k="attached" sortKey={sortKey} dir={sortDir} onSort={toggleSort} />
         </div>
 
         {empty ? (
@@ -277,6 +340,8 @@ function ScanCoverage({
   onScanMore: () => void;
 }) {
   const coverage = scanCoverage(snapshot);
+  const diagnostics = summarizeScanDiagnostics(snapshot.warnings);
+  const rawDiagnosticCount = diagnostics.reduce((total, diagnostic) => total + diagnostic.rawCount, 0);
   return (
     <div className="scan-coverage">
       <div className="scan-coverage-row">
@@ -290,12 +355,22 @@ function ScanCoverage({
           <span className="scan-chip">{scanDepth === "expanded" ? "expanded" : "standard"}</span>
         )}
       </div>
-      {snapshot.warnings.length > 0 ? (
+      {diagnostics.length > 0 ? (
         <details className="scan-details">
-          <summary>{fmt(snapshot.warnings.length)} diagnostic{snapshot.warnings.length === 1 ? "" : "s"}</summary>
+          <summary>
+            {fmt(diagnostics.length)} diagnostic group{diagnostics.length === 1 ? "" : "s"}
+            {rawDiagnosticCount !== diagnostics.length ? ` (${fmt(rawDiagnosticCount)} raw)` : ""}
+          </summary>
           <ul>
-            {snapshot.warnings.map((warning, index) => (
-              <li key={`${index}:${warning}`}>{warning}</li>
+            {diagnostics.map((diagnostic, index) => (
+              <li key={`${index}:${diagnostic.message}`}>
+                <span>{diagnostic.message}</span>
+                {diagnostic.examples.length > 0 ? (
+                  <span className="scan-detail-examples">
+                    {diagnostic.examples.join(" · ")}
+                  </span>
+                ) : null}
+              </li>
             ))}
           </ul>
         </details>
@@ -407,7 +482,7 @@ function RepoGroup({
         <div />
         <div />
         <div className="rg-agg" style={{ textAlign: "left" }}>
-          {liveTot ? `${liveTot} live` : ""}
+          {liveTot ? `${liveTot} working` : ""}
         </div>
       </div>
       {group.map((row, i) => (
@@ -447,8 +522,12 @@ function WorktreeRow({
 }) {
   const { wt, project } = row;
   const b = wt.branch;
-  // A row only has something to diff when it has staged/unstaged churn.
-  const canDiff = !!onViewDiff && wt.status.changedFiles > 0;
+  const branchChurn = branchChurnOf(wt);
+  const canDiff = !!onViewDiff && (
+    row.files > 0 ||
+    branchChurn.has ||
+    wt.branch.ahead > 0
+  );
 
   return (
     <>
@@ -491,9 +570,9 @@ function WorktreeRow({
 
         {/* files */}
         <div className="files">
-          {wt.status.changedFiles > 0 ? (
+          {row.files > 0 ? (
             <span>
-              {wt.status.changedFiles}
+              {row.files}
               {wt.status.conflicts > 0 ? (
                 <span className="conf"> ⚠{wt.status.conflicts}</span>
               ) : null}
@@ -506,14 +585,14 @@ function WorktreeRow({
         {/* drift */}
         <Drift ahead={b.ahead} behind={b.behind} />
 
-        {/* agents + per-row diff affordance */}
+        {/* attached handles/sessions + per-row diff affordance */}
         <div className="agents-cell">
           <Agents row={row} />
           {canDiff ? (
             <button
               type="button"
               className="wt-diff"
-              title={`View diff · ${wt.status.changedFiles} changed file${wt.status.changedFiles === 1 ? "" : "s"}`}
+              title={`View diff · ${row.files} changed file${row.files === 1 ? "" : "s"}`}
               aria-label="View diff"
               onClick={(e) => {
                 // Don't let the row's onSelect fire — opening the diff is a
@@ -532,9 +611,19 @@ function WorktreeRow({
 }
 
 /* ── Small pieces ─────────────────────────────────────────────────────────── */
-function Stat({ v, k, tone }: { v: number; k: string; tone?: "amber" | "mint" | "coral" }) {
+function Stat({
+  v,
+  k,
+  tone,
+  title,
+}: {
+  v: number;
+  k: string;
+  tone?: "amber" | "mint" | "coral";
+  title?: string;
+}) {
   return (
-    <div className="stat">
+    <div className="stat" title={title} aria-label={title ? `${fmt(v)} ${k}. ${title}` : undefined}>
       <span className={"v" + (tone ? " " + tone : "")}>{fmt(v)}</span>
       <span className="k">{k}</span>
     </div>
@@ -613,20 +702,28 @@ const MAX_HANDLES = 2;
 
 function Agents({ row }: { row: Row }) {
   const agents = row.agentsUnique;
+  const sessions = row.wt.sessions;
+  const title = [
+    ...agents.map((a) => `${agentHandle(a)} (${a.state ?? "—"})`),
+    ...sessions.map((session) => `session ${sessionHandle(session)}`),
+  ].join("\n");
   if (agents.length === 0) {
     return (
-      <div className="agents">
-        <span className="dash">—</span>
+      <div className="agents" title={title}>
+        {sessions.length > 0 ? (
+          <span className="ahandle">
+            {sessions.length} session{sessions.length === 1 ? "" : "s"}
+          </span>
+        ) : (
+          <span className="dash">—</span>
+        )}
       </div>
     );
   }
   const shown = agents.slice(0, MAX_HANDLES);
   const overflow = agents.length - shown.length;
   return (
-    <div
-      className="agents"
-      title={agents.map((a) => `${agentHandle(a)} (${a.state ?? "—"})`).join("\n")}
-    >
+    <div className="agents" title={title}>
       {row.live > 0 ? (
         <span className="alive">
           <span className="d" />
@@ -675,11 +772,11 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
       case "churn":
         return r.churn;
       case "files":
-        return r.wt.status.changedFiles;
+        return r.files;
       case "drift":
         return r.wt.branch.ahead + r.wt.branch.behind;
-      case "agents":
-        return r.live * 1_000_000 + r.agentsUnique.length;
+      case "attached":
+        return r.live * 1_000_000 + r.agentsUnique.length * 1_000 + r.wt.sessions.length;
       case "name":
       default:
         return 0;
@@ -694,16 +791,12 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
   }
 
   const cmp = (a: Row, b: Row): number => {
-    if (key === "name") {
-      const an = a.project.id === b.project.id ? leafName(a.wt, a.project) : a.project.name;
-      const bn = a.project.id === b.project.id ? leafName(b.wt, b.project) : b.project.name;
-      return an.localeCompare(bn) * sign;
-    }
+    if (key === "name") return compareWorktreeNames(a, b, sign);
     const d = (score(a) - score(b)) * sign;
     if (d !== 0) return d;
     const ar = attentionRank(a.wt.attention) - attentionRank(b.wt.attention);
     if (ar !== 0) return ar;
-    return a.wt.name.localeCompare(b.wt.name);
+    return a.wt.path.localeCompare(b.wt.path);
   };
 
   const projectScore = (g: Row[]): number =>
@@ -719,12 +812,4 @@ function sortRows(rows: Row[], key: SortKey, dir: SortDir): Row[] {
   const out: Row[] = [];
   for (const g of ordered) out.push(...[...g].sort(cmp));
   return out;
-}
-
-/* For a grouped repo, the row leads with the worktree's distinguishing leaf. */
-function leafName(wt: RepoWatchWorktree, project: RepoWatchProject): string {
-  const leaf = pathLeaf(wt.path);
-  if (leaf === project.name) return leaf;
-  if (leaf.startsWith(project.name + "-")) return leaf.slice(project.name.length + 1);
-  return leaf;
 }

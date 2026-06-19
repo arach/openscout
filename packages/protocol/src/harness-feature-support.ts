@@ -34,19 +34,34 @@ export interface HarnessFeatureSupportMap {
     shutdown?: HarnessFeatureSupport;
     concurrentTurns?: HarnessFeatureSupport;
     traceObserve?: HarnessFeatureSupport;
+    fork?: HarnessFeatureSupport;
+    nativeThreadClone?: HarnessFeatureSupport;
+    steer?: HarnessFeatureSupport;
+    followUps?: HarnessFeatureSupport;
   };
   interaction?: {
     questions?: HarnessFeatureSupport;
     approvals?: HarnessFeatureSupport;
     serverRequests?: HarnessFeatureSupport;
+    toolSuspensions?: HarnessFeatureSupport;
+    planApproval?: HarnessFeatureSupport;
   };
   tools?: {
     command?: HarnessFeatureSupport;
     fileChange?: HarnessFeatureSupport;
     subagent?: HarnessFeatureSupport;
+    taskProjection?: HarnessFeatureSupport;
     mcpStdio?: HarnessFeatureSupport;
     mcpSse?: HarnessFeatureSupport;
     mcpStreamableHttp?: HarnessFeatureSupport;
+  };
+  events?: {
+    rawStream?: HarnessFeatureSupport;
+    normalizedStream?: HarnessFeatureSupport;
+    displayState?: HarnessFeatureSupport;
+    subagentEvents?: HarnessFeatureSupport;
+    taskEvents?: HarnessFeatureSupport;
+    usageEvents?: HarnessFeatureSupport;
   };
   limits?: {
     maxTurns?: HarnessFeatureSupport;

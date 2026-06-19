@@ -152,6 +152,12 @@ export type AppSettingsState = {
     bindingCount: number;
     pendingDeliveries: number;
   };
+  openScoutNetwork: {
+    discoveryEnabled: boolean;
+    rendezvousUrl: string;
+    pairingRelayUrl: string;
+    keepPairingRelayRunning: boolean;
+  };
   discoveredAgents: SetupAgentSummary[];
   projectInventory: SetupProjectSummary[];
   runtimeCatalog: SetupRuntimeSummary[];
@@ -201,6 +207,12 @@ export type UpdateAppSettingsInput = {
     userName: string;
     defaultConversationId: string;
     ownerNodeId: string;
+  };
+  openScoutNetwork?: {
+    discoveryEnabled?: boolean;
+    rendezvousUrl?: string;
+    pairingRelayUrl?: string;
+    keepPairingRelayRunning?: boolean;
   };
 };
 
@@ -547,6 +559,12 @@ function buildScoutDesktopAppSettingsState(
     defaultCapabilities: [...base.record.agents.defaultCapabilities],
     sessionPrefix: base.record.agents.sessionPrefix,
     telegram: base.telegram,
+    openScoutNetwork: {
+      discoveryEnabled: base.record.network.openScoutNetwork.discoveryEnabled,
+      rendezvousUrl: base.record.network.openScoutNetwork.rendezvousUrl,
+      pairingRelayUrl: base.record.network.openScoutNetwork.pairingRelayUrl,
+      keepPairingRelayRunning: base.record.network.openScoutNetwork.keepPairingRelayRunning,
+    },
     discoveredAgents: discoveredAgents.map((agent) => ({
       id: agent.id,
       title: agent.title,
@@ -898,6 +916,26 @@ export async function updateScoutDesktopAppSettings(
         ownerNodeId: input.telegram.ownerNodeId,
       },
     },
+    ...(input.openScoutNetwork
+      ? {
+          network: {
+            openScoutNetwork: {
+              ...(typeof input.openScoutNetwork.discoveryEnabled === "boolean"
+                ? { discoveryEnabled: input.openScoutNetwork.discoveryEnabled }
+                : {}),
+              ...(input.openScoutNetwork.rendezvousUrl !== undefined
+                ? { rendezvousUrl: input.openScoutNetwork.rendezvousUrl }
+                : {}),
+              ...(input.openScoutNetwork.pairingRelayUrl !== undefined
+                ? { pairingRelayUrl: input.openScoutNetwork.pairingRelayUrl }
+                : {}),
+              ...(typeof input.openScoutNetwork.keepPairingRelayRunning === "boolean"
+                ? { keepPairingRelayRunning: input.openScoutNetwork.keepPairingRelayRunning }
+                : {}),
+            },
+          },
+        }
+      : {}),
   }, {
     currentDirectory: settingsDirectory,
   });

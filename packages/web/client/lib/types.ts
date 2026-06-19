@@ -24,6 +24,7 @@ export type Agent = {
   role: string | null;
   model: string | null;
   harnessSessionId: string | null;
+  terminalSurface: TerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
   conversationId: string;
   authorityNodeId?: string | null;
@@ -40,6 +41,13 @@ export type Agent = {
   providerUrl?: string | null;
   protocol?: string | null;
   skills?: string[];
+};
+
+export type TerminalSurfaceDescriptor = {
+  backend: "tmux" | "zellij";
+  sessionName: string;
+  paneId: string | null;
+  socketDir: string | null;
 };
 
 export type ObservedHarnessTopology = {
@@ -334,7 +342,7 @@ export type FleetAsk = {
   statusLabel: string;
   acknowledgedAt: number | null;
   attention: "silent" | "badge" | "interrupt";
-  agentState: "offline" | "available" | "working";
+  agentState: "offline" | "available" | "in_flight" | "working";
   harness: string | null;
   transport: string | null;
   summary: string | null;
@@ -564,6 +572,11 @@ export type Flight = {
   summary: string | null;
   startedAt: number | null;
   completedAt: number | null;
+  dispatchOutcome?: {
+    status: string;
+    reason: string | null;
+    checkedAt: number | null;
+  } | null;
 };
 
 export type WorkInvocation = {
@@ -653,6 +666,8 @@ export type ConversationEntry = SessionEntry;
 export type ObserveEvent = {
   id: string;
   t: number;
+  /** Wall-clock epoch ms when known (preferred for horizon filtering and lane age labels). */
+  at?: number;
   kind: "think" | "tool" | "ask" | "message" | "note" | "system" | "boot";
   text: string;
   tool?: string;
@@ -761,6 +776,7 @@ export type SessionCatalogEntry = {
   provider?: string | null;
   source?: string;
   historyPath?: string;
+  surfaceSessionId?: string | null;
   canObserve?: boolean;
   canTakeover?: boolean;
 };
@@ -1212,10 +1228,16 @@ export type Route =
       sessionId?: string;
       targetAgentId?: string;
     }
-  | { view: "terminal"; agentId?: string; mode?: "observe" | "takeover" };
+  | {
+      view: "terminal";
+      agentId?: string;
+      mode?: "observe" | "takeover";
+      terminalSessionId?: string;
+      terminalSurfaceKey?: string;
+    };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop";
+export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 
 export type FollowTarget = {
@@ -1287,10 +1309,20 @@ export type TailDiscoveredTranscript = {
   size: number;
 };
 
+export type TailDiscoveryIssueKind = "transcript_path_collision";
+
+export type TailDiscoveryIssue = {
+  kind: TailDiscoveryIssueKind;
+  sessionKey: string;
+  message: string;
+  transcriptPaths: string[];
+};
+
 export type TailDiscoverySnapshot = {
   generatedAt: number;
   processes: TailDiscoveredProcess[];
   transcripts?: TailDiscoveredTranscript[];
+  issues?: TailDiscoveryIssue[];
   totals: {
     total: number;
     scoutManaged: number;

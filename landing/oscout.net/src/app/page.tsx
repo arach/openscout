@@ -20,14 +20,14 @@ import {
 } from "@/lib/site-links";
 
 export const metadata: Metadata = {
-  title: "OpenScout",
+  title: "Scout",
   description:
-    "OpenScout is a local-first control plane for coordinating AI agents across local machines, harnesses, and surfaces.",
+    "Scout is a local-first control plane for coordinating AI agents across local machines, harnesses, and surfaces.",
   alternates: {
     canonical: siteBaseUrl,
   },
   openGraph: {
-    title: "OpenScout",
+    title: "Scout",
     description:
       "A local-first control plane for AI agents: broker, runtime, protocol, Mac, iOS, and web surfaces.",
     url: siteBaseUrl,
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
         url: "/og.png",
         width: 1200,
         height: 630,
-        alt: "OpenScout",
+        alt: "Scout",
       },
     ],
   },
@@ -139,14 +139,14 @@ export default function HomePage() {
     <main className="min-h-screen bg-[var(--site-page-bg)] text-[var(--site-ink)]">
       <header className="fixed inset-x-0 top-0 z-30 border-b border-white/10 bg-black/45 text-white backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-5">
-          <Link href="/" className="flex items-center gap-3" aria-label="OpenScout home">
+          <Link href="/" className="flex items-center gap-3" aria-label="Scout home">
             <img
               src="/openscout-icon.png"
               alt=""
-              className="h-7 w-7 rounded-[6px]"
+              className="h-7 w-7 rounded-[6px] bg-black ring-1 ring-white/25 shadow-[0_0_16px_rgba(255,255,255,0.10)]"
             />
             <span className="font-sans text-sm font-semibold tracking-[0.02em]">
-              OpenScout
+              Scout
             </span>
           </Link>
           <nav className="flex items-center gap-1.5" aria-label="Primary">
@@ -187,7 +187,7 @@ export default function HomePage() {
       <section className="relative isolate flex min-h-[86svh] items-end overflow-hidden bg-black pt-28 text-white">
         <img
           src="/relay/home-command-center.png"
-          alt="OpenScout web dashboard showing active agents, work in flight, and fleet activity."
+          alt="Scout web dashboard showing active agents, work in flight, and fleet activity."
           className="absolute inset-0 -z-20 h-full w-full object-cover object-[52%_32%] opacity-82"
         />
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(0,0,0,0.88)_0%,rgba(0,0,0,0.68)_38%,rgba(0,0,0,0.22)_100%)]" />
@@ -199,7 +199,7 @@ export default function HomePage() {
               Local-first agent control plane
             </p>
             <h1 className="max-w-[11ch] font-sans text-[clamp(4.2rem,12vw,8.5rem)] font-black leading-[0.84] tracking-normal">
-              OpenScout
+              Scout
             </h1>
             <p className="mt-7 max-w-2xl font-sans text-[clamp(1.05rem,2vw,1.5rem)] leading-[1.35] text-white/82">
               A broker, runtime, and set of surfaces for coordinating AI agents
@@ -328,7 +328,7 @@ export default function HomePage() {
 
       <footer className="bg-[var(--site-page-bg)]">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 font-sans text-sm text-[var(--site-muted)] sm:flex-row sm:items-center sm:justify-between">
-          <span>OpenScout / oscout.net</span>
+          <span>Scout / oscout.net</span>
           <div className="flex flex-wrap gap-4">
             <a
               href={githubNativeAuthStartUrl}

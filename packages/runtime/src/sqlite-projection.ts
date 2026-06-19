@@ -34,11 +34,13 @@ const REPLAY_TIER: Record<string, number> = {
   "actor.upsert": 1,
   "agent.upsert": 1,
   "agent.endpoint.upsert": 2,
+  "agent.endpoint.delete": 2,
   "conversation.upsert": 2,
   "binding.upsert": 3,
   "message.record": 4,
   "conversation.read_cursor.upsert": 5,
   "invocation.record": 4,
+  "invocation.dispatch_job.record": 4,
   "flight.record": 4,
   "collaboration.record": 4,
   "unblock_request.record": 4,
@@ -99,6 +101,9 @@ function insertStubsForOrphanedFkTargets(
         break;
       case "agent.endpoint.upsert":
         addRef(referencedNodes, entry.endpoint.nodeId);
+        break;
+      case "agent.endpoint.delete":
+      case "invocation.dispatch_job.record":
         break;
       case "conversation.upsert":
         providedConversations.add(entry.conversation.id);
@@ -209,6 +214,9 @@ function applyJournalEntryToStore(
     case "agent.endpoint.upsert":
       store.upsertEndpoint(entry.endpoint);
       return [];
+    case "agent.endpoint.delete":
+      store.deleteEndpoint(entry.endpointId);
+      return [];
     case "conversation.upsert":
       store.upsertConversation(entry.conversation);
       return [];
@@ -222,6 +230,8 @@ function applyJournalEntryToStore(
       return [];
     case "invocation.record":
       store.recordInvocation(entry.invocation);
+      return [];
+    case "invocation.dispatch_job.record":
       return [];
     case "flight.record":
       return store.recordFlight(entry.flight);

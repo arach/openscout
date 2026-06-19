@@ -11,6 +11,11 @@ import type {
 } from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
+  openScoutNetworkDiscoveryEnabled,
+  openScoutNetworkServiceEnvironment,
+} from "./open-scout-network.js";
+import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
+import {
   expandHomePath,
   isExecutablePath,
   resolveBunExecutable as resolveResolvedBunExecutable,
@@ -113,15 +118,19 @@ export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
 export const DEFAULT_BROKER_PORT = 65535;
 export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
 
-export function resolveAdvertiseScope(): BrokerAdvertiseScope {
-  const raw = (process.env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
+export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): BrokerAdvertiseScope {
+  const raw = (env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
   if (raw === "mesh") return "mesh";
   if (raw === "local") return "local";
+  if (openScoutNetworkDiscoveryEnabled(env)) return "mesh";
   return DEFAULT_ADVERTISE_SCOPE;
 }
 
-export function resolveBrokerHost(scope: BrokerAdvertiseScope = resolveAdvertiseScope()): string {
-  const explicit = process.env.OPENSCOUT_BROKER_HOST;
+export function resolveBrokerHost(
+  scope: BrokerAdvertiseScope = resolveAdvertiseScope(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicit = env.OPENSCOUT_BROKER_HOST;
   if (typeof explicit === "string" && explicit.trim().length > 0) {
     return explicit;
   }
@@ -143,6 +152,25 @@ function localBrokerControlHost(host: string): string {
 
 export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
   return `http://${host}:${port}`;
+}
+
+function resolveBrokerUrl(
+  host: string,
+  port: number,
+  scope: BrokerAdvertiseScope,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicit = env.OPENSCOUT_BROKER_URL?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (scope === "mesh") {
+    const tailnetHost = readTailscaleSelfWebHostsSync(env)[0];
+    if (tailnetHost) {
+      return buildDefaultBrokerUrl(tailnetHost, port);
+    }
+  }
+  return buildDefaultBrokerUrl(host, port);
 }
 
 export function buildLocalBrokerControlUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
@@ -324,7 +352,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const advertiseScope = resolveAdvertiseScope();
   const brokerHost = resolveBrokerHost(advertiseScope);
   const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
-  const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(brokerHost, brokerPort);
+  const brokerUrl = resolveBrokerUrl(brokerHost, brokerPort, advertiseScope);
   const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
     ?? buildDefaultBrokerSocketPath(runtimeDirectory);
   const launchAgentPath = join(homedir(), "Library", "LaunchAgents", `${label}.plist`);
@@ -395,16 +423,26 @@ function findWorkspaceRootFromRuntimeDir(runtimePackageDir: string): string | nu
   }
 }
 
+function workspaceScoutdAllowed(): boolean {
+  const raw = process.env.OPENSCOUT_ALLOW_WORKSPACE_SCOUTD?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBrokerServiceConfig()): ScoutdCommand | null {
   const explicit = resolveEnvExecutable(process.env.OPENSCOUT_SCOUTD_BIN);
   if (explicit) {
     return { path: explicit, source: "env" };
   }
 
+  const workspaceRoot = findWorkspaceRootFromRuntimeDir(config.runtimePackageDir);
   const packageCandidates = [
     join(config.runtimePackageDir, "bin", "scoutd"),
     join(config.runtimePackageDir, "native", "scoutd"),
     join(config.runtimePackageDir, "scoutd"),
+    workspaceRoot ? join(workspaceRoot, "packages", "cli", "bin", "scoutd") : null,
+    workspaceRoot ? join(workspaceRoot, "packages", "runtime", "bin", "scoutd") : null,
+    join(config.runtimeDirectory, "scoutd"),
+    join(dirname(config.runtimePackageDir), "scout", "bin", "scoutd"),
   ];
   for (const candidate of packageCandidates) {
     const resolved = executableCandidate(candidate);
@@ -413,11 +451,15 @@ export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBroker
     }
   }
 
-  const workspaceRoot = findWorkspaceRootFromRuntimeDir(config.runtimePackageDir);
-  if (workspaceRoot) {
+  const fromPath = resolveExecutableName("scoutd");
+  if (fromPath) {
+    return { path: fromPath, source: "path" };
+  }
+
+  if (workspaceRoot && workspaceScoutdAllowed()) {
     for (const candidate of [
-      join(workspaceRoot, "target", "debug", "scoutd"),
       join(workspaceRoot, "target", "release", "scoutd"),
+      join(workspaceRoot, "target", "debug", "scoutd"),
     ]) {
       const resolved = executableCandidate(candidate);
       if (resolved) {
@@ -426,8 +468,7 @@ export function resolveScoutdCommand(config: BrokerServiceConfig = resolveBroker
     }
   }
 
-  const fromPath = resolveExecutableName("scoutd");
-  return fromPath ? { path: fromPath, source: "path" } : null;
+  return null;
 }
 
 function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: string): NodeJS.ProcessEnv {
@@ -446,6 +487,7 @@ function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: strin
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
     OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
+    ...openScoutNetworkServiceEnvironment(process.env),
   };
   if (config.coreAgents.length > 0) {
     env.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");
@@ -630,10 +672,18 @@ function spawnScoutdJson(
   });
 }
 
+type ScoutdJsonRunner = (
+  scoutdPath: string,
+  command: BrokerServiceCommand,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+) => Promise<string>;
+
 export async function runScoutdServiceCommand(
   command: BrokerServiceCommand,
   config: BrokerServiceConfig,
   timeoutMs: number = SCOUTD_DEFAULT_TIMEOUT_MS,
+  runScoutdJson: ScoutdJsonRunner = spawnScoutdJson,
 ): Promise<BrokerServiceStatus> {
   const scoutd = resolveScoutdCommand(config);
   if (!scoutd) {
@@ -642,7 +692,7 @@ export async function runScoutdServiceCommand(
     );
   }
 
-  const stdout = await spawnScoutdJson(
+  const stdout = await runScoutdJson(
     scoutd.path,
     command,
     nativeServiceEnvironment(config, scoutd.path),

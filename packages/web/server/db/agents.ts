@@ -10,13 +10,19 @@
 import { db } from "./internal/db.ts";
 import { conversationIdForAgent } from "./internal/conversation-ids.ts";
 import { metadataString } from "./internal/parse.ts";
-import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
+import {
+  compact,
+  resolveHarnessLogPath,
+  resolveHarnessSessionIdForAgent,
+} from "./internal/paths.ts";
+import { resolveTerminalSurface } from "../core/terminal-surfaces.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
   activeAgentMetadataPredicate,
-  queryExecutingAgentIds,
+  queryAgentFlightPhases,
   sqlTimestampMsExpression,
   summarizeAgentState,
+  type AgentFlightPhase,
 } from "./internal/sql-helpers.ts";
 import type { WebAgent } from "./types/web.ts";
 
@@ -52,7 +58,7 @@ type AgentQueryRow = {
 };
 
 export function queryAgents(limit = 500): WebAgent[] {
-  const executingAgentIds = queryExecutingAgentIds();
+  const flightPhases = queryAgentFlightPhases();
   const actorCreatedAtExpression = sqlTimestampMsExpression("ac.created_at");
   const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const rows = db()
@@ -98,11 +104,11 @@ export function queryAgents(limit = 500): WebAgent[] {
     )
     .all(limit) as AgentQueryRow[];
 
-  return mapAgentRows(rows, executingAgentIds);
+  return mapAgentRows(rows, flightPhases);
 }
 
 export function queryAgentById(agentId: string): WebAgent | null {
-  const executingAgentIds = queryExecutingAgentIds();
+  const flightPhases = queryAgentFlightPhases();
   const actorCreatedAtExpression = sqlTimestampMsExpression("ac.created_at");
   const endpointUpdatedAtExpression = sqlTimestampMsExpression("ep.updated_at");
   const row = db()
@@ -148,10 +154,13 @@ export function queryAgentById(agentId: string): WebAgent | null {
     )
     .get(agentId) as AgentQueryRow | null;
 
-  return row ? mapAgentRows([row], executingAgentIds)[0] ?? null : null;
+  return row ? mapAgentRows([row], flightPhases)[0] ?? null : null;
 }
 
-function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): WebAgent[] {
+function mapAgentRows(
+  rows: AgentQueryRow[],
+  flightPhases: Map<string, AgentFlightPhase>,
+): WebAgent[] {
   return rows.map((r) => {
     let capabilities: string[] = [];
     try { capabilities = r.capabilities_json ? JSON.parse(r.capabilities_json) : []; } catch {}
@@ -162,6 +171,8 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
     let endpointMeta: Record<string, unknown> = {};
     try { endpointMeta = r.endpoint_metadata_json ? JSON.parse(r.endpoint_metadata_json) : {}; } catch {}
 
+    const state = summarizeAgentState(r.state, flightPhases.get(r.id) ?? null);
+
     return {
       id: r.id,
       definitionId: r.definition_id,
@@ -169,7 +180,7 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       handle: r.handle,
       agentClass: r.agent_class,
       harness: r.harness,
-      state: summarizeAgentState(r.state, executingAgentIds.has(r.id), r.wake_policy),
+      state,
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
       updatedAt: r.updated_at,
@@ -185,7 +196,12 @@ function mapAgentRows(rows: AgentQueryRow[], executingAgentIds: Set<string>): We
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
       model: (meta.model as string) ?? metadataString(endpointMeta, "model"),
-      harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
+      harnessSessionId: resolveHarnessSessionIdForAgent(r.transport, r.session_id, endpointMeta, state),
+      terminalSurface: resolveTerminalSurface({
+        transport: r.transport,
+        endpointSessionId: r.session_id,
+        metadata: endpointMeta,
+      }),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
       conversationId: conversationIdForAgent(r.id),
       authorityNodeId: r.authority_node_id,

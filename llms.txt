@@ -23,11 +23,13 @@ finalized; package manifests currently use `UNLICENSED`.
 ## Start Here
 
 - [`README.md`](./README.md) — repo overview and bootstrap
+- [`https://openscout.app/.well-known/scout.json`](https://openscout.app/.well-known/scout.json) — product manifest (remote)
+- [`https://openscout.app/.well-known/agent.md`](https://openscout.app/.well-known/agent.md) — agent discovery entry (remote)
 - [`docs/README.md`](./docs/README.md) — docs map and reading order
 - [`install.md`](./install.md) — install/bootstrap guide with success criteria and support footprint
 - [`docs/quickstart.md`](./docs/quickstart.md) — first healthy local run
 - [`docs/current-posture.md`](./docs/current-posture.md) — maturity, trust, mesh, install footprint, and license boundaries
-- [`docs/architecture.md`](./docs/architecture.md) — broker/runtime/protocol model
+- [`docs/architecture.md`](./docs/architecture.md) — broker/runtime/protocol model (includes broker module map)
 - [`docs/integrations.md`](./docs/integrations.md) — companion host package map
 - [`docs/runtime-sessions.md`](./docs/runtime-sessions.md) — agent/session/endpoint semantics for harness lifecycle
 - [`docs/scout-comms.md`](./docs/scout-comms.md) — client-facing comms workflows, records, routing rules, and contact-line grammar

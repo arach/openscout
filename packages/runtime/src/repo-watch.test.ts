@@ -197,6 +197,7 @@ describe("repo-watch", () => {
                 files: [{ path: "README.md", status: "unstaged" }],
               },
               diff: {
+                branchShortstat: null,
                 unstagedShortstat: null,
                 stagedShortstat: null,
               },
@@ -435,12 +436,16 @@ describe("repo-watch", () => {
         }
         if (args.join(" ") === "diff --shortstat") return " 1 file changed, 2 insertions(+)\n";
         if (args.join(" ") === "diff --cached --shortstat") return "";
+        if (args.join(" ") === "rev-parse --verify --quiet origin/main^{commit}") return "base-ref\n";
+        if (args.join(" ") === "merge-base origin/main HEAD") return "base-sha\n";
+        if (args.join(" ") === "diff --shortstat base-sha..HEAD") return " 3 files changed, 10 insertions(+), 4 deletions(-)\n";
         if (args.join(" ") === "log -1 --format=%ct") return "1780460000\n";
         return "";
       },
     });
 
     const worktree = snapshot.projects[0]!.worktrees[0]!;
+    expect(worktree.diff.branchShortstat).toBe("3 files changed, 10 insertions(+), 4 deletions(-)");
     expect(worktree.diff.unstagedShortstat).toBe("1 file changed, 2 insertions(+)");
     expect(worktree.diff.stagedShortstat).toBeNull();
     expect(worktree.lastCommitAt).toBe(1_780_460_000_000);

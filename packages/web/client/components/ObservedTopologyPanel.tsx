@@ -68,10 +68,34 @@ function timeAgo(ts: number | null): string | null {
 }
 
 function sourceLabel(source: string): string {
-  if (source.includes("workflow")) return "Claude Workflows";
+  if (source.includes("workflow")) return "Claude workflows";
   if (source.includes("codex")) return "Codex";
   if (source.includes("claude")) return "Claude Code";
   return source.replace(/[-_]/g, " ");
+}
+
+function workflowStatsLine(workflow: WorkflowSummaryModel): string {
+  const parts: string[] = [];
+  if (workflow.workerCount > 0) {
+    parts.push(`${workflow.workerCount} worker${workflow.workerCount === 1 ? "" : "s"}`);
+  }
+  if (workflow.eventCount > 0) {
+    parts.push(`${workflow.eventCount} event${workflow.eventCount === 1 ? "" : "s"}`);
+  } else if (workflow.taskCount > 0) {
+    parts.push(`${workflow.completedTaskCount}/${workflow.taskCount} tasks`);
+  }
+  return parts.join(" · ");
+}
+
+function workflowTooltip(workflow: WorkflowSummaryModel): string {
+  const lines = [workflow.label];
+  if (workflow.description) lines.push(workflow.description);
+  const stats = workflowStatsLine(workflow);
+  if (stats) lines.push(stats);
+  if (workflow.parentSessionId) {
+    lines.push(`Parent session ${workflow.parentSessionId}`);
+  }
+  return lines.join("\n");
 }
 
 function displayAgentName(agent: ObservedHarnessAgent): string {
@@ -262,18 +286,27 @@ export function ObservedTopologyPanel({
     );
   }, [sources]);
 
+  const isRail = size === "rail";
+  const runningWorkflowCount = sources.reduce(
+    (count, source) => count + buildWorkflowSummaries(source.topology, source.observedAt)
+      .filter((workflow) => workflow.status === "running").length,
+    0,
+  );
+
   if (sources.length === 0) {
     if (!showEmpty && !failed) return null;
     return (
       <section className={`s-observed-topology s-observed-topology--${size}`}>
-        <header className="s-observed-topology-head">
-          <div>
-            <div className="s-observed-topology-kicker">Harness observed</div>
-            <h3>{title}</h3>
-          </div>
-        </header>
+        {!isRail && (
+          <header className="s-observed-topology-head">
+            <div>
+              <div className="s-observed-topology-kicker">Harness observed</div>
+              <h3>{title}</h3>
+            </div>
+          </header>
+        )}
         <div className="s-observed-topology-empty">
-          {failed ? "Topology is unavailable right now." : "No Codex or Claude Code internal agent family observed yet."}
+          {failed ? "Topology is unavailable right now." : "No internal agent family observed yet."}
         </div>
       </section>
     );
@@ -281,20 +314,29 @@ export function ObservedTopologyPanel({
 
   return (
     <section className={`s-observed-topology s-observed-topology--${size}`}>
-      <header className="s-observed-topology-head">
-        <div>
-          <div className="s-observed-topology-kicker">Harness observed</div>
-          <h3>{title}</h3>
+      {!isRail ? (
+        <header className="s-observed-topology-head">
+          <div>
+            <div className="s-observed-topology-kicker">Harness observed</div>
+            <h3>{title}</h3>
+          </div>
+          <div className="s-observed-topology-counts">
+            {totals.workflows > 0 && <span>{totals.workflows} workflows</span>}
+            <span>{totals.subagents} workers</span>
+            <span>{totals.tasks} tasks</span>
+            {totals.activeTasks > 0
+              ? <span>{totals.activeTasks} active</span>
+              : <span>{totals.spawned} spawn links</span>}
+          </div>
+        </header>
+      ) : totals.workflows > 0 && (
+        <div className="s-observed-topology-rail-summary">
+          {runningWorkflowCount > 0
+            ? `${runningWorkflowCount} running`
+            : "No active workflows"}
+          {totals.workflows > 0 && ` · ${totals.workflows} total`}
         </div>
-        <div className="s-observed-topology-counts">
-          {totals.workflows > 0 && <span>{totals.workflows} workflows</span>}
-          <span>{totals.subagents} workers</span>
-          <span>{totals.tasks} tasks</span>
-          {totals.activeTasks > 0
-            ? <span>{totals.activeTasks} active</span>
-            : <span>{totals.spawned} spawn links</span>}
-        </div>
-      </header>
+      )}
 
       <div className="s-observed-topology-sources">
         {sources.map((source) => (
@@ -303,6 +345,7 @@ export function ObservedTopologyPanel({
             source={source}
             maxAgents={maxAgents}
             maxTasks={maxTasks}
+            size={size}
           />
         ))}
       </div>
@@ -310,15 +353,35 @@ export function ObservedTopologyPanel({
   );
 }
 
+function WorkflowRailRow({ workflow }: { workflow: WorkflowSummaryModel }) {
+  const stats = workflowStatsLine(workflow);
+  return (
+    <div
+      className={`s-observed-topology-rail-row s-observed-topology-rail-row--${workflow.status}`}
+      title={workflowTooltip(workflow)}
+    >
+      <span
+        className={`s-observed-topology-rail-dot s-observed-topology-rail-dot--${workflow.status}`}
+        aria-label={workflow.status}
+      />
+      <span className="s-observed-topology-rail-name">{workflow.label}</span>
+      {stats && <span className="s-observed-topology-rail-stats">{stats}</span>}
+    </div>
+  );
+}
+
 function TopologySource({
   source,
   maxAgents,
   maxTasks,
+  size = "full",
 }: {
   source: TopologySourceModel;
   maxAgents: number;
   maxTasks: number;
+  size?: TopologyPanelSize;
 }) {
+  const isRail = size === "rail";
   const { topology } = source;
   const agentById = new Map(topology.agents.map((agent) => [agent.id, agent]));
   const workflows = buildWorkflowSummaries(topology, source.observedAt);
@@ -337,54 +400,69 @@ function TopologySource({
 
   return (
     <div className="s-observed-topology-source">
-      <div className="s-observed-topology-source-head">
-        <span>{sourceLabel(source.source)}</span>
-        <span>{timeAgo(source.observedAt) ?? "observed"}</span>
-      </div>
+      {!isRail && (
+        <div className="s-observed-topology-source-head">
+          <span>{sourceLabel(source.source)}</span>
+          <span>{timeAgo(source.observedAt) ?? "observed"}</span>
+        </div>
+      )}
 
       {workflows.length > 0 ? (
-        <div className="s-observed-topology-workflow-list">
-          {visibleWorkflows.map((workflow) => (
-            <div key={workflow.id} className="s-observed-topology-workflow">
-              <div className="s-observed-topology-workflow-main">
-                <span className={`s-observed-topology-workflow-state s-observed-topology-workflow-state--${workflow.status}`}>
-                  {workflow.status}
-                </span>
-                <span className="s-observed-topology-workflow-name" title={workflow.label}>
-                  {workflow.label}
-                </span>
-                <span className="s-observed-topology-workflow-age">
-                  {timeAgo(workflow.latestAt) ?? "observed"}
-                </span>
+        isRail ? (
+          <div className="s-observed-topology-rail-list">
+            {visibleWorkflows.map((workflow) => (
+              <WorkflowRailRow key={workflow.id} workflow={workflow} />
+            ))}
+            {hiddenWorkflowCount > 0 && (
+              <div className="s-observed-topology-rail-more">
+                +{hiddenWorkflowCount} more workflow{hiddenWorkflowCount === 1 ? "" : "s"}
               </div>
-              <div className="s-observed-topology-workflow-meta">
-                <span>{workflow.workerCount} workers</span>
-                {workflow.taskCount > 0 && (
-                  <span>{workflow.completedTaskCount}/{workflow.taskCount} tasks</span>
+            )}
+          </div>
+        ) : (
+          <div className="s-observed-topology-workflow-list">
+            {visibleWorkflows.map((workflow) => (
+              <div key={workflow.id} className="s-observed-topology-workflow">
+                <div className="s-observed-topology-workflow-main">
+                  <span className={`s-observed-topology-workflow-state s-observed-topology-workflow-state--${workflow.status}`}>
+                    {workflow.status}
+                  </span>
+                  <span className="s-observed-topology-workflow-name" title={workflowTooltip(workflow)}>
+                    {workflow.label}
+                  </span>
+                  <span className="s-observed-topology-workflow-age">
+                    {timeAgo(workflow.latestAt) ?? "observed"}
+                  </span>
+                </div>
+                <div className="s-observed-topology-workflow-meta">
+                  <span>{workflow.workerCount} workers</span>
+                  {workflow.taskCount > 0 && (
+                    <span>{workflow.completedTaskCount}/{workflow.taskCount} tasks</span>
+                  )}
+                  {workflow.eventCount > 0 && <span>{workflow.eventCount} events</span>}
+                  {workflow.parentSessionId && <span>parent {shortId(workflow.parentSessionId)}</span>}
+                </div>
+                {workflow.description && (
+                  <div className="s-observed-topology-workflow-description">
+                    {workflow.description}
+                  </div>
                 )}
-                {workflow.eventCount > 0 && <span>{workflow.eventCount} events</span>}
-                {workflow.parentSessionId && <span>parent {shortId(workflow.parentSessionId)}</span>}
+                {workflow.taskPreview.length > 0 && (
+                  <div className="s-observed-topology-workflow-tasks">
+                    {workflow.taskPreview.map((task) => (
+                      <span key={task.id}>{task.title ?? task.id.replace(/^.*:/, "")}</span>
+                    ))}
+                  </div>
+                )}
               </div>
-              {workflow.description && (
-                <div className="s-observed-topology-workflow-description">
-                  {workflow.description}
-                </div>
-              )}
-              {workflow.taskPreview.length > 0 && (
-                <div className="s-observed-topology-workflow-tasks">
-                  {workflow.taskPreview.map((task) => (
-                    <span key={task.id}>{task.title ?? task.id.replace(/^.*:/, "")}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          {hiddenWorkflowCount > 0 && (
-            <div className="s-observed-topology-more">
-              {hiddenWorkflowCount} more workflow{hiddenWorkflowCount === 1 ? "" : "s"} in project rows
-            </div>
-          )}
-        </div>
+            ))}
+            {hiddenWorkflowCount > 0 && (
+              <div className="s-observed-topology-more">
+                {hiddenWorkflowCount} more workflow{hiddenWorkflowCount === 1 ? "" : "s"}
+              </div>
+            )}
+          </div>
+        )
       ) : (
         <div className="s-observed-topology-agent-list">
           {visibleAgents.map((agent) => {

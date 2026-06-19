@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 10;
+export const CONTROL_PLANE_SCHEMA_VERSION = 11;
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
@@ -55,6 +55,29 @@ CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_session
 CREATE INDEX IF NOT EXISTS idx_runtime_session_aliases_expires
   ON runtime_session_aliases (expires_at)
   WHERE expires_at IS NOT NULL;
+`;
+
+// Scout-owned registry of harness sessions and the disposable terminal surfaces
+// they have been materialized through. The source session id is the stable
+// identity; surfaces (tmux/zellij/future) are interchangeable. No foreign keys:
+// a harness session can be known/resumable without any broker agent endpoint.
+export const CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA = `
+CREATE TABLE IF NOT EXISTS terminal_session_registry (
+  id TEXT PRIMARY KEY,
+  harness TEXT NOT NULL,
+  source_session_id TEXT NOT NULL,
+  cwd TEXT NOT NULL,
+  resume_command TEXT NOT NULL,
+  surfaces_json TEXT NOT NULL DEFAULT '[]',
+  metadata_json TEXT,
+  created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s','now') AS INTEGER) * 1000),
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_terminal_session_registry_source
+  ON terminal_session_registry (source_session_id);
+CREATE INDEX IF NOT EXISTS idx_terminal_session_registry_updated
+  ON terminal_session_registry (updated_at DESC);
 `;
 
 export const CONTROL_PLANE_SQLITE_SCHEMA = `

@@ -59,6 +59,34 @@ mock.module("@openscout/runtime/tail", () => ({
       transcripts: 0,
     },
   },
+  readTailEventsForSession: async (sessionRef: string) => {
+    const normalizedRef = sessionRef.trim().replace(/\.jsonl$/u, "");
+    const transcript = tailDiscoveryResult?.transcripts.find((entry) => {
+      const sessionId = entry.sessionId?.trim().replace(/\.jsonl$/u, "");
+      return sessionId === normalizedRef || entry.transcriptPath.includes(normalizedRef);
+    });
+    if (!transcript || !["grok", "opencode", "cursor"].includes(transcript.source)) {
+      return null;
+    }
+    return {
+      transcript,
+      events: [
+        {
+          id: "grok:test:0",
+          ts: Date.now(),
+          source: transcript.source,
+          sessionId: transcript.sessionId ?? normalizedRef,
+          pid: 1,
+          parentPid: null,
+          project: transcript.project,
+          cwd: transcript.cwd,
+          harness: transcript.harness,
+          kind: "tool",
+          summary: "Read started",
+        },
+      ],
+    };
+  },
 }));
 
 mock.module("../../pairing.ts", () => ({
@@ -526,7 +554,7 @@ describe("loadAgentObservePayload", () => {
     expect(payload).not.toBeNull();
     expect(payload?.source).toBe("history");
     expect(payload?.historyPath).toBe(historyPath);
-    expect(payload?.sessionId).toBe("relay-talkie-claude");
+    expect(payload?.sessionId).toBe("claude-upstream-session");
     expect(payload?.data.events.some((event) => event.text.includes("hello from discovered Claude history"))).toBe(true);
   });
 
@@ -586,5 +614,41 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.historyPath).toBe(historyPath);
     expect(payload?.sessionId).toBe("tail-session");
     expect(payload?.data.events.some((event) => event.text.includes("hello from tail discovery"))).toBe(true);
+  });
+
+  test("maps a native Grok session ref to tail observe data", async () => {
+    const transcriptPath = "/Users/art/.grok/sessions/openscout/019edd6b/events.jsonl";
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "grok",
+          transcriptPath,
+          sessionId: "019edd6b-fc26-7a53-a4a0-dd36c5378515",
+          cwd: "/Users/art/dev/openscout",
+          project: "openscout",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadSessionRefObservePayload("019edd6b-fc26-7a53-a4a0-dd36c5378515");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.kind).toBe("tail");
+    expect(payload?.source).toBe("tail");
+    expect(payload?.historyPath).toBe(transcriptPath);
+    expect(payload?.sessionId).toBe("019edd6b-fc26-7a53-a4a0-dd36c5378515");
+    expect(payload?.data.events.some((event) => event.text.includes("Read started"))).toBe(true);
   });
 });

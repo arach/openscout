@@ -224,6 +224,7 @@ struct ChangedFile {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiffSummary {
+    branch_shortstat: Option<String>,
     unstaged_shortstat: Option<String>,
     staged_shortstat: Option<String>,
 }
@@ -509,11 +510,13 @@ fn scan_worktree(
 
     let diff = if limits.include_diff {
         DiffSummary {
+            branch_shortstat: branch_diff_shortstat(&worktree.path, &branch),
             unstaged_shortstat: git_trimmed(&worktree.path, &["diff", "--shortstat"]),
             staged_shortstat: git_trimmed(&worktree.path, &["diff", "--cached", "--shortstat"]),
         }
     } else {
         DiffSummary {
+            branch_shortstat: None,
             unstaged_shortstat: None,
             staged_shortstat: None,
         }
@@ -738,6 +741,50 @@ fn git_trimmed(cwd: &Path, args: &[&str]) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+const TRUNK_REFS: &[&str] = &[
+    "origin/main",
+    "main",
+    "origin/master",
+    "master",
+    "origin/trunk",
+    "trunk",
+];
+
+fn git_ref_exists(cwd: &Path, ref_name: &str) -> bool {
+    let commit_ref = format!("{ref_name}^{{commit}}");
+    git_string(cwd, &["rev-parse", "--verify", "--quiet", &commit_ref]).is_ok()
+}
+
+fn preferred_branch_base_ref(cwd: &Path, branch: &BranchSummary) -> Option<String> {
+    if branch.is_main || branch.detached {
+        return None;
+    }
+    let mut candidates: Vec<String> = Vec::new();
+    candidates.extend(TRUNK_REFS.iter().map(|value| value.to_string()));
+    if let Some(upstream) = branch.upstream.as_deref() {
+        if !upstream.is_empty() {
+            candidates.push(upstream.to_string());
+        }
+    }
+
+    for candidate in candidates {
+        if Some(candidate.as_str()) == branch.name.as_deref() || candidate == "HEAD" {
+            continue;
+        }
+        if git_ref_exists(cwd, &candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn branch_diff_shortstat(cwd: &Path, branch: &BranchSummary) -> Option<String> {
+    let base_ref = preferred_branch_base_ref(cwd, branch)?;
+    let merge_base = git_trimmed(cwd, &["merge-base", &base_ref, "HEAD"])?;
+    let range = format!("{merge_base}..HEAD");
+    git_trimmed(cwd, &["diff", "--shortstat", &range])
+}
+
 fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
     let bytes = git_capture(cwd, args, GIT_TIMEOUT)?;
     String::from_utf8(bytes).map_err(|error| error.to_string())
@@ -745,6 +792,10 @@ fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {
 
 /// Run a bounded `git` subprocess and capture stdout bytes. Kills the child if
 /// it outlives `timeout`. Shared by the scan and diff commands.
+///
+/// Stdout/stderr are drained on helper threads while the parent polls for exit.
+/// Without concurrent reads, large `git diff` output can fill the pipe buffer
+/// (~64 KiB), block the child, and look like a timeout even when Git is fast.
 pub(crate) fn git_capture(cwd: &Path, args: &[&str], timeout: Duration) -> Result<Vec<u8>, String> {
     let mut child = Command::new("git")
         .args(args)
@@ -754,27 +805,53 @@ pub(crate) fn git_capture(cwd: &Path, args: &[&str], timeout: Duration) -> Resul
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
+
+    let mut stdout_pipe = child
+        .stdout
+        .take()
+        .ok_or_else(|| "failed to capture git stdout".to_string())?;
+    let mut stderr_pipe = child
+        .stderr
+        .take()
+        .ok_or_else(|| "failed to capture git stderr".to_string())?;
+
+    let stdout_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stdout_pipe.read_to_end(&mut buf);
+        buf
+    });
+    let stderr_handle = thread::spawn(move || {
+        let mut buf = Vec::new();
+        let _ = stderr_pipe.read_to_end(&mut buf);
+        buf
+    });
+
     let started = Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(_status)) => {
-                let output = child
-                    .wait_with_output()
-                    .map_err(|error| error.to_string())?;
-                if output.status.success() {
-                    return Ok(output.stdout);
+            Ok(Some(status)) => {
+                let stdout = stdout_handle
+                    .join()
+                    .map_err(|_| "git stdout reader panicked".to_string())?;
+                let stderr = stderr_handle
+                    .join()
+                    .map_err(|_| "git stderr reader panicked".to_string())?;
+                if status.success() {
+                    return Ok(stdout);
                 }
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                return Err(if stderr.is_empty() {
+                let stderr_text = String::from_utf8_lossy(&stderr).trim().to_string();
+                return Err(if stderr_text.is_empty() {
                     format!("git {} failed", args.join(" "))
                 } else {
-                    stderr
+                    stderr_text
                 });
             }
             Ok(None) => {
                 if started.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
                     return Err(format!("git {} timed out", args.join(" ")));
                 }
                 thread::sleep(POLL_INTERVAL);

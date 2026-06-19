@@ -34,13 +34,14 @@ export type MeshViewMode = "map" | "tree";
 
 export type MeshDensity = "compact" | "comfortable" | "spacious";
 
-export type MeshStateFilter = "all" | "working" | "ready";
-export type AgentStateToken = "working" | "ready" | "not_ready";
+export type MeshStateFilter = "all" | "in_turn" | "callable";
+export type AgentStateToken = "in_turn" | "in_flight" | "callable" | "blocked";
 
 const ALL_AGENT_STATES: ReadonlySet<AgentStateToken> = new Set([
-  "working",
-  "ready",
-  "not_ready",
+  "in_turn",
+  "in_flight",
+  "callable",
+  "blocked",
 ]);
 
 type MeshViewState = {

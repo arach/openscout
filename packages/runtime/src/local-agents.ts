@@ -260,7 +260,6 @@ export function brokerSnapshotMessages(value: unknown): BrokerSnapshotMessage[] 
 const DEFAULT_LOCAL_AGENT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
 const DEFAULT_LOCAL_AGENT_HARNESS: AgentHarness = "claude";
 const DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_RETAIN = 24;
 
 function resolveRelayHub(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
@@ -512,6 +511,8 @@ function buildLocalAgentProjectContextPrompt(context: LocalAgentSystemPromptTemp
     "Project context:",
     `  - Codebase root: ${context.projectPath}`,
     `  - Projects root: ${context.projectsRoot}`,
+    "  - Read AGENTS.md at the codebase root when present (also agents.md or .well-known/agents.md)",
+    "  - OpenScout product discovery: fetch https://openscout.app/.well-known/scout.json then /.well-known/agent.md",
     "  - Use the Scout CLI for broker reads and writes; do not call broker HTTP endpoints directly",
     `  - Scout skill: ${context.scoutSkill}`,
   ].join("\n");
@@ -2074,7 +2075,9 @@ export async function pruneOneTimeLocalAgentCards(
 ): Promise<PruneOneTimeLocalAgentCardsResult> {
   const now = input.now ?? Date.now();
   const maxAgeMs = Math.max(0, input.maxAgeMs ?? DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_TTL_MS);
-  const maxCount = Math.max(0, input.maxCount ?? DEFAULT_ONE_TIME_LOCAL_AGENT_CARD_RETAIN);
+  const maxCount = typeof input.maxCount === "number" && Number.isFinite(input.maxCount)
+    ? Math.max(0, Math.floor(input.maxCount))
+    : null;
   const excluded = new Set(input.excludeAgentIds ?? []);
   const overrides = await readRelayAgentOverrides();
   const candidates = Object.entries(overrides)
@@ -2097,8 +2100,10 @@ export async function pruneOneTimeLocalAgentCards(
   }
 
   const retained = candidates.filter((candidate) => !retireIds.has(candidate.agentId));
-  for (const candidate of retained.slice(maxCount)) {
-    retireIds.add(candidate.agentId);
+  if (maxCount !== null) {
+    for (const candidate of retained.slice(maxCount)) {
+      retireIds.add(candidate.agentId);
+    }
   }
 
   const retired = await retireLocalAgentOverrides({ ...overrides }, retireIds);
@@ -2113,38 +2118,29 @@ export async function retireConsumedOneTimeLocalAgentCards(input: {
   conversationId: string;
   actorId: string;
   participantIds: string[];
+  targetAgentId?: string;
 }): Promise<ScoutLocalAgentStatus[]> {
-  const conversationId = input.conversationId.trim();
-  const actorId = input.actorId.trim();
-  if (!conversationId || !actorId) {
-    return [];
-  }
-
-  const participants = new Set(input.participantIds.map((entry) => entry.trim()).filter(Boolean));
-  if (participants.size === 0) {
+  const targetAgentId = input.targetAgentId?.trim();
+  if (!targetAgentId || !input.participantIds.includes(targetAgentId)) {
     return [];
   }
 
   const overrides = await readRelayAgentOverrides();
-  const retireIds = new Set<string>();
-  for (const [agentId, override] of Object.entries(overrides)) {
-    if (!participants.has(agentId)) {
-      continue;
-    }
-    const lifecycle = normalizeLocalAgentCardLifecycle(override.card);
-    if (lifecycle?.kind !== "one_time") {
-      continue;
-    }
-    if (lifecycle.createdById && lifecycle.createdById === actorId) {
-      continue;
-    }
-    if (agentId === actorId) {
-      continue;
-    }
-    retireIds.add(agentId);
+  const override = overrides[targetAgentId];
+  if (!override || BUILT_IN_AGENT_DEFINITION_IDS.has(targetAgentId)) {
+    return [];
   }
 
-  return retireLocalAgentOverrides({ ...overrides }, retireIds);
+  const lifecycle = normalizeLocalAgentCardLifecycle(override.card);
+  if (lifecycle?.kind !== "one_time") {
+    return [];
+  }
+
+  if (lifecycle.inboxConversationId && lifecycle.inboxConversationId !== input.conversationId) {
+    return [];
+  }
+
+  return retireLocalAgentOverrides({ ...overrides }, new Set([targetAgentId]));
 }
 
 export async function retireLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {
@@ -2376,7 +2372,6 @@ function buildCodexEndpointSessionOptions(endpoint: AgentEndpoint): {
     ? undefined
     : endpointMetadataString(endpoint, "threadId")
       ?? endpointMetadataString(endpoint, "externalSessionId")
-      ?? endpoint.sessionId
       ?? undefined;
 
   return {
@@ -3586,7 +3581,8 @@ export async function restartLocalAgent(
         ...buildCodexAgentSessionOptions(agentId, normalizedRecord),
         sessionId: sessionName,
       }, {
-        resetThread: true,
+        // Resume stored thread on bring-up; resetThread mints a new Codex rollout per agent.
+        resetThread: false,
       });
     }
   } else if (normalizedRecord.transport === "claude_stream_json") {
@@ -4288,6 +4284,25 @@ function buildLocalAgentBinding(
     || normalizedRecord.transport === "codex_app_server"
     ? readPersistedExternalSessionId([actorId, agentId, definitionId], normalizedRecord.transport)
     : null;
+  const isTmuxTransport = normalizedRecord.transport === "tmux";
+  const isClaudeStreamJsonTransport = normalizedRecord.transport === "claude_stream_json";
+  const runtimeMode = isTmuxTransport
+    ? "interactive_terminal"
+    : isClaudeStreamJsonTransport
+      ? "stream_json_worker"
+      : "direct_session";
+  const transportLabel = isTmuxTransport
+    ? "tmux terminal"
+    : isClaudeStreamJsonTransport
+      ? "Claude stream-json worker"
+      : normalizedRecord.transport;
+  const terminalSurface = isTmuxTransport
+    ? {
+      backend: "tmux",
+      sessionName: normalizedRecord.tmuxSession,
+      paneId: normalizedRecord.tmuxSession,
+    }
+    : null;
 
   return {
     actor: {
@@ -4301,7 +4316,12 @@ function buildLocalAgentBinding(
         ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
-        tmuxSession: normalizedRecord.tmuxSession,
+        ...(isTmuxTransport ? { tmuxSession: normalizedRecord.tmuxSession } : {}),
+        runtimeInstanceId: normalizedRecord.tmuxSession,
+        runtimeMode,
+        transport: normalizedRecord.transport,
+        transportLabel,
+        interactiveTerminal: isTmuxTransport,
         definitionId,
         instanceId: instance.id,
         selector: instance.selector,
@@ -4336,7 +4356,12 @@ function buildLocalAgentBinding(
         ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         project: normalizedRecord.project,
         projectRoot,
-        tmuxSession: normalizedRecord.tmuxSession,
+        ...(isTmuxTransport ? { tmuxSession: normalizedRecord.tmuxSession } : {}),
+        runtimeInstanceId: normalizedRecord.tmuxSession,
+        runtimeMode,
+        transport: normalizedRecord.transport,
+        transportLabel,
+        interactiveTerminal: isTmuxTransport,
         summary: `${displayName} relay agent for ${normalizedRecord.project}.`,
         role: "Relay agent",
         definitionId,
@@ -4377,9 +4402,13 @@ function buildLocalAgentBinding(
         source,
         ...(normalizedRecord.registrationSource ? { registrationSource: normalizedRecord.registrationSource } : {}),
         agentName: definitionId,
-        tmuxSession: normalizedRecord.tmuxSession,
+        ...(isTmuxTransport ? { tmuxSession: normalizedRecord.tmuxSession } : {}),
         runtimeInstanceId: normalizedRecord.tmuxSession,
+        runtimeMode,
         transport: normalizedRecord.transport,
+        transportLabel,
+        interactiveTerminal: isTmuxTransport,
+        terminalSurface,
         project: normalizedRecord.project,
         projectRoot,
         startedAt: String(normalizedRecord.startedAt),

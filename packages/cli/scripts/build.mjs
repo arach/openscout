@@ -28,8 +28,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(scriptDirectory, "..");
 const repoRoot = getOpenScoutRepoRoot();
 const entryFile = resolve(packageDirectory, "src/main.ts");
+const statuslineEntryFile = resolve(packageDirectory, "src/statusline.ts");
 const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
+const statuslineOutput = resolve(outputDirectory, "statusline.mjs");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
 const terminalRelayOutput = resolve(outputDirectory, "openscout-terminal-relay.mjs");
@@ -60,6 +62,16 @@ const result = spawnSync(
 
 if ((result.status ?? 1) !== 0) {
   process.exit(result.status ?? 1);
+}
+
+const statuslineResult = spawnSync(
+  "bun",
+  ["build", statuslineEntryFile, "--target=bun", "--format=esm", "--outfile", statuslineOutput],
+  { cwd: packageDirectory, stdio: "inherit" },
+);
+
+if ((statuslineResult.status ?? 1) !== 0) {
+  process.exit(statuslineResult.status ?? 1);
 }
 
 if (!bundleScoutTerminalRelayNode(repoRoot, terminalRelayOutput)) {
@@ -246,15 +258,20 @@ if (existsSync(bunOutput) && bunOutput !== outputFile) {
   renameSync(bunOutput, outputFile);
 }
 
-const built = readFileSync(outputFile, "utf8");
-const normalized = built
-  .replace(/^#![^\n]*\n/, "")
-  .replace(/^\/\/ @bun\n/, "");
+function normalizeBunExecutable(path) {
+  const built = readFileSync(path, "utf8");
+  const normalized = built
+    .replace(/^#![^\n]*\n/, "")
+    .replace(/^\/\/ @bun\n/, "");
 
-writeFileSync(outputFile, `#!/usr/bin/env bun\n${normalized}`);
-chmodSync(outputFile, 0o755);
+  writeFileSync(path, `#!/usr/bin/env bun\n${normalized}`);
+  chmodSync(path, 0o755);
+}
 
-for (const built of [outputFile, pairingRuntimeControllerOutput, terminalRelayOutput]) {
+normalizeBunExecutable(outputFile);
+normalizeBunExecutable(statuslineOutput);
+
+for (const built of [outputFile, statuslineOutput, pairingRuntimeControllerOutput, terminalRelayOutput]) {
   if (!verifyBundleStaticChecks(built)) {
     process.exit(1);
   }

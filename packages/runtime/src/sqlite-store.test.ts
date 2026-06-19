@@ -1585,3 +1585,109 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 });
+
+describe("terminal session registry", () => {
+  const tmuxSurface = {
+    backend: "tmux" as const,
+    sessionName: "scout-tmux-7e55c009",
+    paneId: null,
+    attachCommand: ["tmux", "attach", "-t", "scout-tmux-7e55c009"],
+    observeCommand: null,
+    relay: { backend: "tmux" as const, sessionName: "scout-tmux-7e55c009", tmuxSession: "scout-tmux-7e55c009" },
+    state: "exited" as const,
+  };
+  const zellijSurface = {
+    backend: "zellij" as const,
+    sessionName: "scout-zj-final-7e55c009",
+    paneId: "terminal_0",
+    attachCommand: ["env", "ZELLIJ_SOCKET_DIR=/home/u/.openscout/zellij-sockets", "zellij", "attach", "scout-zj-final-7e55c009"],
+    observeCommand: ["env", "ZELLIJ_SOCKET_DIR=/home/u/.openscout/zellij-sockets", "zellij", "watch", "scout-zj-final-7e55c009"],
+    relay: { backend: "zellij" as const, sessionName: "scout-zj-final-7e55c009", zellijSession: "scout-zj-final-7e55c009", zellijPaneId: "terminal_0" },
+    state: "live" as const,
+    socketDir: "/home/u/.openscout/zellij-sockets",
+  };
+
+  test("persists a harness session with its surfaces and round-trips them", () => {
+    const store = createStore();
+    try {
+      const record = store.upsertTerminalSession({
+        harness: "claude",
+        sourceSessionId: "7e55c009-f579-439c-a817-988318789330",
+        cwd: "/home/u/project",
+        resumeCommand: "claude --resume 7e55c009-f579-439c-a817-988318789330",
+        surfaces: [tmuxSurface, zellijSurface],
+      });
+
+      expect(record.id).toMatch(/^ts\./);
+      expect(record.harness).toBe("claude");
+      expect(record.surfaces).toHaveLength(2);
+      // No harness transcript imported — surfaces are relay descriptors only.
+      expect(record.surfaces.map((s) => s.backend).sort()).toEqual(["tmux", "zellij"]);
+      const zellij = record.surfaces.find((s) => s.backend === "zellij");
+      expect(zellij?.socketDir).toBe("/home/u/.openscout/zellij-sockets");
+      expect(zellij?.observeCommand?.join(" ")).toContain("ZELLIJ_SOCKET_DIR=");
+
+      const byId = store.getTerminalSession(record.id);
+      expect(byId?.surfaces).toHaveLength(2);
+
+      const listed = store.listTerminalSessions();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.sourceSessionId).toBe("7e55c009-f579-439c-a817-988318789330");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("re-intaking the same harness session updates one record (stable identity across backends)", () => {
+    const store = createStore();
+    try {
+      const first = store.upsertTerminalSession({
+        harness: "claude",
+        sourceSessionId: "abc-123",
+        cwd: "/home/u/project",
+        resumeCommand: "claude --resume abc-123",
+        surfaces: [tmuxSurface],
+      });
+      const second = store.upsertTerminalSession({
+        harness: "claude",
+        sourceSessionId: "abc-123",
+        cwd: "/home/u/project",
+        resumeCommand: "claude --resume abc-123",
+        surfaces: [tmuxSurface, zellijSurface],
+      });
+
+      expect(second.id).toBe(first.id);
+      expect(second.createdAt).toBe(first.createdAt);
+      expect(store.listTerminalSessions()).toHaveLength(1);
+      expect(store.getTerminalSession(first.id)?.surfaces).toHaveLength(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("filters by harness and backend", () => {
+    const store = createStore();
+    try {
+      store.upsertTerminalSession({
+        harness: "claude",
+        sourceSessionId: "claude-1",
+        cwd: "/p",
+        resumeCommand: "claude --resume claude-1",
+        surfaces: [zellijSurface],
+      });
+      store.upsertTerminalSession({
+        harness: "codex",
+        sourceSessionId: "codex-1",
+        cwd: "/p",
+        resumeCommand: "codex resume -C /p codex-1",
+        surfaces: [tmuxSurface],
+      });
+
+      expect(store.listTerminalSessions({ harness: "codex" }).map((r) => r.sourceSessionId)).toEqual(["codex-1"]);
+      expect(store.listTerminalSessions({ backend: "zellij" }).map((r) => r.sourceSessionId)).toEqual(["claude-1"]);
+      expect(store.listTerminalSessions()).toHaveLength(2);
+    } finally {
+      store.close();
+    }
+  });
+});

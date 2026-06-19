@@ -130,6 +130,20 @@ const web = await createOpenScoutWebServer({
     }
     await relay.queueCommand(request);
   },
+  destroyTerminalRelaySession: async (sessionId) => {
+    const relay = await ensureTerminalRelay();
+    if (!relay) {
+      throw new Error("Terminal relay is unavailable");
+    }
+    return relay.destroySession(sessionId);
+  },
+  destroyTerminalRelaySurface: async (backend, sessionName) => {
+    const relay = await ensureTerminalRelay();
+    if (!relay) {
+      throw new Error("Terminal relay is unavailable");
+    }
+    return relay.destroySurface(backend, sessionName);
+  },
   terminalRelayHealthcheck: async () => {
     const relay = await ensureTerminalRelay();
     return relay ? relay.healthcheck() : false;

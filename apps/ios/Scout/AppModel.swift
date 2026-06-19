@@ -107,6 +107,9 @@ final class AppModel {
     var isRefreshingLanPairTargets = false
     var lanPairError: String?
     var lanPairingTargetId: String?
+    /// True while a LAN pairing is parked waiting for the Mac to approve the
+    /// request (trust-on-first-use means a human has to allow the device).
+    var lanPairAwaitingApproval = false
 
     struct OpenScoutNetworkPairTarget: Identifiable, Equatable {
         let candidate: OpenScoutNetworkPairingCandidate
@@ -678,15 +681,21 @@ final class AppModel {
         )
     }
 
-    /// Pair with a Mac discovered on the LAN: fetch its live `/pair` payload over
-    /// the local network (which carries the relay room), then run the standard
-    /// handshake. Reuses `pairFromLink` — an `http://host/pair` link resolves the
-    /// 302 → `scout://pair?…` payload through the existing web-link path.
+    /// Pair with a Mac discovered on the LAN. Fetches the Mac's `/pair` endpoint
+    /// over the local network; if pair mode is already live the endpoint hands
+    /// back the payload immediately (302). Otherwise — the common case for an
+    /// idle Mac — the endpoint registers an approval request and the Mac must
+    /// allow it (initial pairing is trust-on-first-use, so a human gates it).
+    /// We park on "Waiting for approval…" and poll until the Mac approves (the
+    /// payload comes up) or declines, then run the standard handshake.
     @discardableResult
     func pairWithLanTarget(_ target: LanPairTarget) async -> Bool {
         lanPairingTargetId = target.id
         lanPairError = nil
-        defer { lanPairingTargetId = nil }
+        defer {
+            lanPairingTargetId = nil
+            lanPairAwaitingApproval = false
+        }
 
         // Try the default web port first so the common case is a clean
         // connecting → connected with no transient failure flicker; fall back to
@@ -700,13 +709,158 @@ final class AppModel {
                 path: Self.scoutWebPairPath,
                 queryItems: [URLQueryItem(name: "route", value: "lan")]
             ) else { continue }
-            if await pairFromLink(url.absoluteString) {
-                lanPairError = nil
-                return true
+
+            switch await resolveLanPairing(baseURL: url, target: target) {
+            case .payload(let payload):
+                // Reached the Mac and have a live payload — finish the handshake.
+                // Don't fall through to other candidates regardless of outcome.
+                if await completePair(source: "LAN", inputLength: nil, { payload }) {
+                    lanPairError = nil
+                    return true
+                }
+                return false
+            case .denied:
+                lanPairError = "\(target.displayName) declined the pairing request"
+                return false
+            case .failed(let message):
+                lanPairError = message
+                return false
+            case .unreachable:
+                continue // this origin didn't answer — try the next candidate
             }
         }
         lanPairError = "Couldn’t reach \(target.displayName) on your network"
         return false
+    }
+
+    private enum LanPairResolution {
+        case payload(QRPayload)
+        case denied
+        case unreachable
+        case failed(String)
+    }
+
+    /// One `/pair` request: either resolves to a payload now, or — when the Mac
+    /// needs to approve — parks and polls until it does.
+    private func resolveLanPairing(baseURL: URL, target: LanPairTarget) async -> LanPairResolution {
+        switch await fetchLanPair(url: baseURL, token: nil) {
+        case .redirect(let payload):
+            return .payload(payload)
+        case .pending(let token):
+            return await pollLanPairing(baseURL: baseURL, token: token, target: target)
+        case .denied:
+            return .denied
+        case .expired:
+            return .failed("Pairing request expired before \(target.displayName) responded")
+        case .unreachable:
+            return .unreachable
+        case .failed(let message):
+            return .failed(message)
+        }
+    }
+
+    private func pollLanPairing(baseURL: URL, token: String, target: LanPairTarget) async -> LanPairResolution {
+        lanPairAwaitingApproval = true
+        defer { lanPairAwaitingApproval = false }
+        connectionLog.log(
+            "Waiting for \(target.displayName) to approve pairing…",
+            event: .pairing,
+            level: .info,
+            route: .lan
+        )
+        // Generous: a human has to walk to the Mac and approve. The server
+        // touch-extends the request on each poll, so a long wait is safe.
+        let deadline = Date().addingTimeInterval(300)
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(1300))
+            if Task.isCancelled { return .failed("Pairing cancelled") }
+            switch await fetchLanPair(url: baseURL, token: token) {
+            case .redirect(let payload):
+                return .payload(payload)
+            case .pending:
+                continue
+            case .denied:
+                return .denied
+            case .expired:
+                return .failed("Pairing request expired — try pairing again")
+            case .unreachable:
+                return .failed("Lost connection to \(target.displayName)")
+            case .failed(let message):
+                return .failed(message)
+            }
+        }
+        return .failed("Timed out waiting for approval on \(target.displayName)")
+    }
+
+    private enum LanPairFetch {
+        case redirect(QRPayload)
+        case pending(String) // polling token
+        case denied
+        case expired
+        case unreachable
+        case failed(String)
+    }
+
+    /// Single GET to `/pair` (optionally carrying a poll token). Recognises both
+    /// the legacy 302→payload response and the approval-gated JSON protocol
+    /// (`202 {status,token}` / `403 denied` / `410 expired`).
+    private func fetchLanPair(url baseURL: URL, token: String?) async -> LanPairFetch {
+        guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return .failed("Invalid pairing URL")
+        }
+        if let token {
+            var items = components.queryItems ?? []
+            items.append(URLQueryItem(name: "token", value: token))
+            components.queryItems = items
+        }
+        guard let url = components.url else { return .failed("Invalid pairing URL") }
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 8)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(deviceName, forHTTPHeaderField: "X-Scout-Device-Name")
+
+        let delegate = PairingWebRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            return .unreachable
+        }
+
+        // Live payload — the Mac handed us a `scout://pair?…` redirect.
+        if let redirectURL = delegate.redirectURL ?? httpLocationRedirect(from: response, relativeTo: url),
+           let payload = try? QRPayload.parse(fromLink: redirectURL.absoluteString) {
+            return .redirect(payload)
+        }
+
+        guard let http = response as? HTTPURLResponse else { return .failed("No response from Mac") }
+
+        // Approval-gated JSON protocol.
+        if let parsed = try? JSONDecoder().decode(LanPairStatusResponse.self, from: data) {
+            switch parsed.status {
+            case "pending", "approved":
+                if let resolved = parsed.token ?? token { return .pending(resolved) }
+                return .failed("Pairing response missing token")
+            case "denied":
+                return .denied
+            case "expired":
+                return .expired
+            default:
+                break
+            }
+        }
+
+        switch http.statusCode {
+        case 403: return .denied
+        case 410: return .expired
+        case 404: return .unreachable // pairing not available here — try next candidate
+        default: return .failed("Pairing unavailable on \(baseURL.host ?? "Mac") (\(http.statusCode))")
+        }
     }
 
     func refreshOpenScoutNetworkPairTargets() async {
@@ -1623,6 +1777,14 @@ private final class PairingWebRedirectDelegate: NSObject, URLSessionTaskDelegate
         }
         return nil
     }
+}
+
+/// `/pair` approval-gated response body (`202`/`403`/`410`). The payload itself
+/// arrives as a `scout://pair?…` redirect, not in this JSON.
+private struct LanPairStatusResponse: Decodable {
+    let status: String
+    let token: String?
+    let pollAfterMs: Int?
 }
 
 private struct TailnetMeshStatusResponse: Decodable {

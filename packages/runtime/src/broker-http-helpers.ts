@@ -1,0 +1,182 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+import { A2A_JSON_RPC_CONTENT_TYPE } from "@openscout/protocol";
+
+import { ThreadWatchProtocolError } from "./thread-events.js";
+
+const DEFAULT_JSON_BODY_LIMIT_BYTES = 1024 * 1024;
+
+export class BrokerHttpRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BrokerHttpRequestError";
+  }
+}
+
+export function readRequestBody<T>(
+  request: IncomingMessage,
+  options: { maxBytes?: number; requireJsonContentType?: boolean } = {},
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const maxBytes = options.maxBytes ?? DEFAULT_JSON_BODY_LIMIT_BYTES;
+    const contentType = request.headers?.["content-type"];
+    const normalizedContentType = Array.isArray(contentType) ? contentType[0] : contentType;
+    if (
+      options.requireJsonContentType !== false
+      && normalizedContentType
+      && !/\b(json|.+\+json)\b/i.test(normalizedContentType)
+    ) {
+      reject(new BrokerHttpRequestError(415, "unsupported_media_type", "expected a JSON request body"));
+      request.resume();
+      return;
+    }
+
+    let receivedBytes = 0;
+    let rejected = false;
+    request.on("data", (chunk) => {
+      if (rejected) {
+        return;
+      }
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      receivedBytes += buffer.byteLength;
+      if (receivedBytes > maxBytes) {
+        rejected = true;
+        reject(new BrokerHttpRequestError(413, "request_entity_too_large", "request body is too large"));
+        request.destroy();
+        return;
+      }
+      chunks.push(buffer);
+    });
+    request.on("end", () => {
+      if (rejected) {
+        return;
+      }
+      try {
+        const raw = Buffer.concat(chunks).toString("utf8");
+        resolve((raw ? JSON.parse(raw) : {}) as T);
+      } catch (error) {
+        reject(error);
+      }
+    });
+    request.on("error", reject);
+  });
+}
+
+export function requestAbortSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {
+  const controller = new AbortController();
+  const abort = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(new Error("Broker request aborted by caller"));
+    }
+  };
+  request.on("aborted", abort);
+  request.on("error", abort);
+  response.on("close", () => {
+    if (!response.writableEnded) {
+      abort();
+    }
+  });
+  return controller.signal;
+}
+
+export function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new Error("Broker request aborted");
+  }
+}
+
+export function json(response: ServerResponse, status: number, payload: unknown): void {
+  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
+export function a2aJson(
+  response: ServerResponse,
+  status: number,
+  payload: unknown,
+  headers: Record<string, string> = {},
+): void {
+  response.writeHead(status, {
+    "cache-control": "no-cache",
+    ...headers,
+    "content-type": `${A2A_JSON_RPC_CONTENT_TYPE}; charset=utf-8`,
+  });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
+export function jsonWithHeaders(
+  response: ServerResponse,
+  status: number,
+  payload: unknown,
+  headers: Record<string, string>,
+): void {
+  response.writeHead(status, {
+    ...headers,
+    "content-type": "application/json; charset=utf-8",
+  });
+  response.end(JSON.stringify(payload, null, 2));
+}
+
+export function notFound(response: ServerResponse): void {
+  json(response, 404, { error: "not_found" });
+}
+
+export function badRequest(response: ServerResponse, error: unknown): void {
+  if (error instanceof BrokerHttpRequestError) {
+    json(response, error.status, {
+      error: error.code,
+      detail: error.message,
+    });
+    return;
+  }
+  json(response, 400, {
+    error: "bad_request",
+    detail: error instanceof Error ? error.message : String(error),
+  });
+}
+
+export function parseBooleanQueryParam(value: string | null | undefined): boolean | undefined {
+  if (value === "1" || value === "true") {
+    return true;
+  }
+  if (value === "0" || value === "false") {
+    return false;
+  }
+  return undefined;
+}
+
+export function conflict(response: ServerResponse, detail: string): void {
+  json(response, 409, {
+    error: "conflict",
+    detail,
+  });
+}
+
+export function threadWatchError(response: ServerResponse, error: unknown): void {
+  if (error instanceof ThreadWatchProtocolError) {
+    json(response, error.status, error.body);
+    return;
+  }
+  badRequest(response, error);
+}
+
+export function parseLimit(url: URL): number {
+  const limit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
+  if (!Number.isFinite(limit) || limit <= 0) return 100;
+  return Math.min(limit, 500);
+}
+
+export function parseSince(url: URL): number | null {
+  const since = Number.parseInt(url.searchParams.get("since") ?? "", 10);
+  if (!Number.isFinite(since) || since <= 0) {
+    return null;
+  }
+  return since;
+}

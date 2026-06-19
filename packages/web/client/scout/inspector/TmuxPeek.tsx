@@ -1,7 +1,9 @@
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 import { api } from "../../lib/api.ts";
 import { formatAbsoluteTimestamp } from "../../lib/time.ts";
-import type { TmuxPeekPayload } from "../../lib/types.ts";
+import type { TerminalSurfaceDescriptor, TmuxPeekPayload } from "../../lib/types.ts";
+import "../slots/ctx-panel.css";
 
 const TMUX_PEEK_LINES = 44;
 const TMUX_PEEK_COLUMNS = 132;
@@ -28,31 +30,63 @@ type TmuxPeekFrame = {
   steady: boolean;
 };
 
+function buildPeekUrl(input: {
+  agentId?: string | null;
+  surface?: Pick<TerminalSurfaceDescriptor, "backend" | "sessionName"> | null;
+  lines: number;
+  columns: number;
+}): string | null {
+  const params = new URLSearchParams({
+    lines: String(input.lines),
+    cols: String(input.columns),
+  });
+  if (input.agentId) {
+    return `/api/agents/${encodeURIComponent(input.agentId)}/tmux-peek?${params.toString()}`;
+  }
+  if (input.surface) {
+    params.set("backend", input.surface.backend);
+    params.set("sessionName", input.surface.sessionName);
+    return `/api/terminal-sessions/peek?${params.toString()}`;
+  }
+  return null;
+}
+
 export function TmuxPeekPanel({
   agentId,
+  surface,
   enabled = true,
   lines = TMUX_PEEK_LINES,
   columns = TMUX_PEEK_COLUMNS,
+  pollMs = TMUX_PEEK_POLL_MS,
+  idlePollMs = TMUX_PEEK_IDLE_POLL_MS,
   className,
 }: {
-  agentId: string | null | undefined;
+  agentId?: string | null | undefined;
+  surface?: Pick<TerminalSurfaceDescriptor, "backend" | "sessionName"> | null;
   enabled?: boolean;
   lines?: number;
   columns?: number;
+  pollMs?: number;
+  idlePollMs?: number;
   className?: string;
 }) {
   const [frame, setFrame] = useState<TmuxPeekFrame | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const peekUrl = buildPeekUrl({ agentId, surface, lines, columns });
 
   useEffect(() => {
     setFrame(null);
     setError(null);
-    if (!enabled || !agentId) {
+    setLoading(false);
+  }, [peekUrl]);
+
+  useEffect(() => {
+    if (!enabled || !peekUrl) {
       setLoading(false);
       return;
     }
-
     let cancelled = false;
     let timeoutId: number | undefined;
     let firstLoad = true;
@@ -67,20 +101,14 @@ export function TmuxPeekPanel({
     const load = async () => {
       if (cancelled) return;
       if (document.visibilityState !== "visible") {
-        schedule(TMUX_PEEK_IDLE_POLL_MS);
+        schedule(idlePollMs);
         return;
       }
 
       if (firstLoad) setLoading(true);
-      let nextDelay = TMUX_PEEK_POLL_MS;
+      let nextDelay = pollMs;
       try {
-        const params = new URLSearchParams({
-          lines: String(lines),
-          cols: String(columns),
-        });
-        const next = await api<TmuxPeekPayload>(
-          `/api/agents/${encodeURIComponent(agentId)}/tmux-peek?${params.toString()}`,
-        );
+        const next = await api<TmuxPeekPayload>(peekUrl);
         if (cancelled) return;
         setError(null);
         setFrame((previous) => {
@@ -94,11 +122,11 @@ export function TmuxPeekPanel({
             steady: false,
           };
         });
-        nextDelay = next.available ? TMUX_PEEK_POLL_MS : TMUX_PEEK_IDLE_POLL_MS;
+        nextDelay = next.available ? pollMs : idlePollMs;
       } catch (loadError) {
         if (cancelled) return;
         setError(loadError instanceof Error ? loadError.message : String(loadError));
-        nextDelay = TMUX_PEEK_IDLE_POLL_MS;
+        nextDelay = idlePollMs;
       } finally {
         if (!cancelled) {
           if (firstLoad) setLoading(false);
@@ -122,9 +150,9 @@ export function TmuxPeekPanel({
       window.clearTimeout(timeoutId);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [agentId, columns, enabled, lines]);
+  }, [enabled, idlePollMs, peekUrl, pollMs, refreshNonce]);
 
-  if (!enabled || !agentId) return null;
+  if (!enabled || !peekUrl) return null;
 
   const peek = frame?.payload ?? null;
   const body = peek?.body ?? "";
@@ -143,20 +171,20 @@ export function TmuxPeekPanel({
   const status = error
     ? error
     : loading && !frame
-      ? "Sampling tmux..."
+      ? "Loading terminal peek..."
       : peek?.available === false
         ? peek.reason ?? "No tmux pane is available."
         : hasScreen
           ? null
           : peek?.available
             ? "Pane is empty."
-            : "Sampling tmux...";
+            : "Loading terminal peek...";
   const frameStatusLabel = frame
     ? frame.changedAt && !frame.steady
       ? "Changed"
       : frame.steady
         ? "At rest"
-        : "Sampled"
+        : "Peeked"
     : null;
   const frameStatusAt = frame?.changedAt ?? frame?.observedAt ?? null;
   const frameStatusTitle = frame
@@ -164,7 +192,7 @@ export function TmuxPeekPanel({
       ? frame.steady
         ? `No terminal content change since ${formatAbsoluteTimestamp(frame.changedAt)}`
         : `Terminal content changed ${formatAbsoluteTimestamp(frame.changedAt)}`
-      : `First terminal sample observed ${formatAbsoluteTimestamp(frame.observedAt)}`
+      : `First terminal peek observed ${formatAbsoluteTimestamp(frame.observedAt)}`
     : undefined;
 
   return (
@@ -173,7 +201,7 @@ export function TmuxPeekPanel({
       style={gridStyle}
     >
       <div className="ctx-panel-tmux-peek-head">
-        <span>Terminal sample</span>
+        <span>Terminal peek</span>
         <span className="ctx-panel-tmux-peek-grid">
           {columnCount}x{lineCount}
         </span>
@@ -191,6 +219,17 @@ export function TmuxPeekPanel({
             {frameStatusLabel}
           </time>
         )}
+        <button
+          type="button"
+          className="ctx-panel-tmux-peek-refresh"
+          onClick={() => setRefreshNonce((value) => value + 1)}
+          disabled={loading}
+          title="Refresh terminal peek"
+          aria-label="Refresh terminal peek"
+        >
+          <RefreshCw size={12} strokeWidth={1.8} />
+          <span>{loading ? "Refreshing" : "Refresh"}</span>
+        </button>
       </div>
       {hasScreen ? (
         <pre className="ctx-panel-tmux-peek-screen">

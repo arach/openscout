@@ -1,0 +1,637 @@
+/* Scout — Conversation Presentations. Tokens only (`--s-*`).
+   One DOM, four treatments via [data-treatment] + the live Working turn. */
+
+.surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 660px;
+  background: var(--s-bg);
+  font-family: var(--s-font-sans);
+}
+
+/* ── Presentation switcher (the "settings" control) ─────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.controlsLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  flex: none;
+}
+
+/* One grouped segmented track, active segment a solid accent block — same
+   control language as Comms filters. This is the toggle the native setting maps
+   to. */
+.switcher {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--s-ink) 5%, transparent);
+  border: 1px solid var(--s-hairline);
+  flex: none;
+}
+
+.seg {
+  padding: 4px 13px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.seg:hover {
+  color: var(--s-ink);
+}
+
+.seg.active {
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+
+.controlNote {
+  margin-left: auto;
+  max-width: 46ch;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--s-dim);
+}
+
+/* ── Collapse heuristic caption ─────────────────────────────────────── */
+
+.heuristic {
+  padding: 8px 18px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--s-dim);
+  border-bottom: 1px solid var(--s-hairline);
+  background: color-mix(in srgb, var(--s-ink) 2.5%, transparent);
+}
+
+.heuristic b {
+  color: var(--s-muted);
+  font-weight: 600;
+}
+
+/* ── Stream ─────────────────────────────────────────────────────────── */
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.turn {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.rail {
+  width: 28px;
+  flex: none;
+  display: flex;
+  justify-content: center;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.avatarAgent {
+  color: var(--s-bg);
+  background: var(--s-accent);
+}
+
+.avatarMe {
+  color: var(--s-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline-strong);
+}
+
+.content {
+  min-width: 0;
+  flex: 1;
+  max-width: 70ch;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.author {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+}
+
+.handle {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.time {
+  margin-left: auto;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  flex: none;
+}
+
+.bodyWrap {
+  position: relative;
+}
+
+.body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: color-mix(in srgb, var(--s-ink) 90%, transparent);
+}
+
+.body p {
+  margin: 0 0 8px;
+}
+.body p:last-child {
+  margin-bottom: 0;
+}
+
+.body ol,
+.body ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+.body li {
+  margin-bottom: 4px;
+}
+.body li:last-child {
+  margin-bottom: 0;
+}
+
+.body strong {
+  color: var(--s-ink);
+  font-weight: 600;
+}
+
+.body code {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+/* Folded = aged + long. Clamp + fade, never on the latest/recent turns. */
+.turn[data-folded="true"] .body {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.turn[data-folded="true"] .bodyWrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30px;
+  background: linear-gradient(transparent, var(--s-bg));
+  pointer-events: none;
+}
+
+/* Recency fold control — quiet, framed as "fold", not "Show more". */
+.fold {
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  cursor: pointer;
+}
+
+.fold:hover {
+  color: var(--s-accent);
+}
+
+.fold svg {
+  color: inherit;
+}
+
+/* Reply-context backlink (the resolved [ask:…] tag). */
+.replyCtx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-bottom: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+}
+
+.replyCtx svg {
+  flex: none;
+  color: var(--s-dim);
+}
+
+.replyLabel {
+  flex: none;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  font-size: 9px;
+}
+
+.replyTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--s-muted);
+}
+
+/* ── Treatment: Transcript (sender-led, grouped) ────────────────────── */
+
+/* Grouped same-agent turns drop the head + avatar and bind tighter. */
+.stream[data-treatment="transcript"] .turn[data-grouped="true"],
+.stream[data-treatment="document"] .turn[data-grouped="true"] {
+  margin-top: -10px;
+}
+
+/* ── Treatment: Split (alternating sides) ───────────────────────────── */
+
+.stream[data-treatment="split"] .content {
+  max-width: 58ch;
+}
+
+.stream[data-treatment="split"] .body {
+  padding: 9px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--s-hairline);
+  background: var(--s-surface);
+}
+
+.stream[data-treatment="split"] .replyCtx {
+  margin-left: 2px;
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] {
+  flex-direction: row-reverse;
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] .content {
+  margin-left: auto;
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] .head {
+  flex-direction: row-reverse;
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] .time {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] .body {
+  background: var(--s-accent-soft);
+  border-color: color-mix(in srgb, var(--s-accent) 22%, transparent);
+}
+
+.stream[data-treatment="split"] .turn[data-me="true"] .fold {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+/* The fade behind a folded Split turn must match the panel, not the page. */
+.stream[data-treatment="split"] .turn[data-folded="true"] .body {
+  -webkit-line-clamp: 5;
+}
+.stream[data-treatment="split"] .turn[data-folded="true"] .bodyWrap::after {
+  display: none;
+}
+
+/* ── Treatment: Document (reading-first) ────────────────────────────── */
+
+.stream[data-treatment="document"] {
+  gap: 30px;
+  padding: 28px 30px;
+}
+
+.stream[data-treatment="document"] .content {
+  max-width: 64ch;
+}
+
+.stream[data-treatment="document"] .handle {
+  display: none;
+}
+
+.stream[data-treatment="document"] .body {
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+/* ── Treatment: Ledger (dense ops log) ──────────────────────────────── */
+
+.stream[data-treatment="ledger"] {
+  gap: 0;
+  padding: 4px 0;
+}
+
+.stream[data-treatment="ledger"] .turn {
+  padding: 7px 18px;
+  gap: 10px;
+  align-items: baseline;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.stream[data-treatment="ledger"] .turn:hover {
+  background: color-mix(in srgb, var(--s-accent) 4%, transparent);
+}
+
+.stream[data-treatment="ledger"] .rail {
+  width: 16px;
+}
+
+.stream[data-treatment="ledger"] .avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 8px;
+}
+
+.stream[data-treatment="ledger"] .content {
+  max-width: none;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.stream[data-treatment="ledger"] .head {
+  margin: 0;
+  flex: none;
+  width: 13ch;
+  gap: 6px;
+}
+
+.stream[data-treatment="ledger"] .handle {
+  display: none;
+}
+
+.stream[data-treatment="ledger"] .time {
+  font-size: 9.5px;
+}
+
+.stream[data-treatment="ledger"] .replyCtx {
+  display: none;
+}
+
+.stream[data-treatment="ledger"] .bodyWrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.stream[data-treatment="ledger"] .body {
+  font-size: 12px;
+}
+
+.stream[data-treatment="ledger"] .turn[data-folded="true"] .body {
+  -webkit-line-clamp: 1;
+}
+
+.stream[data-treatment="ledger"] .turn[data-folded="true"] .bodyWrap::after {
+  display: none;
+}
+
+.stream[data-treatment="ledger"] .fold {
+  flex: none;
+  margin-top: 0;
+  align-self: baseline;
+}
+
+/* ── Live Working turn (the dead-air fix) ───────────────────────────── */
+
+.working .flight {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-accent);
+}
+
+.flightDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-accent);
+  animation: pulse 1.3s ease-in-out infinite;
+}
+
+.workingAvatar {
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-accent) 70%, transparent);
+  animation: ring 1.8s ease-out infinite;
+}
+
+.activityLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--s-muted);
+  min-width: 0;
+}
+
+.kind {
+  flex: none;
+  font-family: var(--s-font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+.activityText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+}
+
+.caret {
+  flex: none;
+  width: 6px;
+  height: 13px;
+  border-radius: 1px;
+  background: var(--s-accent);
+  animation: blink 1s step-end infinite;
+}
+
+.meter {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 16px;
+  margin-top: 9px;
+}
+
+.meter span {
+  width: 3px;
+  height: 4px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--s-accent) 65%, transparent);
+  animation: bar 1s ease-in-out infinite;
+}
+
+/* In Ledger the working turn keeps its richer form, but reads on the grid. */
+.stream[data-treatment="ledger"] .working {
+  border-top: 1px solid var(--s-hairline-strong);
+  align-items: flex-start;
+  padding-top: 10px;
+}
+
+.stream[data-treatment="ledger"] .working .content {
+  display: block;
+}
+
+.stream[data-treatment="ledger"] .working .head {
+  width: auto;
+  margin-bottom: 4px;
+}
+
+/* In Split the working turn stays agent-side (left) — no panel, it's chrome. */
+.stream[data-treatment="split"] .working .activityLine {
+  padding: 0;
+}
+
+@keyframes bar {
+  0%,
+  100% {
+    height: 4px;
+  }
+  50% {
+    height: 15px;
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--s-accent) 55%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter span,
+  .caret,
+  .flightDot,
+  .workingAvatar {
+    animation: none;
+  }
+  .meter span {
+    height: 10px;
+  }
+}
+
+/* ── Composer ───────────────────────────────────────────────────────── */
+
+.composer {
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.composerBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 14px;
+  border-radius: 11px;
+  border: 1px solid color-mix(in srgb, var(--s-accent) 30%, var(--s-hairline-strong));
+  background: var(--s-surface);
+}
+
+.composerField {
+  flex: 1;
+  font-size: 13px;
+  color: var(--s-dim);
+}
+
+.send {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: 1px solid var(--s-accent);
+  cursor: pointer;
+}

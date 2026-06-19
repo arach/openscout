@@ -275,6 +275,56 @@ describe("web db query flights", () => {
     }
   });
 
+  test("surfaces queued dispatch outcome metadata on flights", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.recordInvocation({
+        id: "inv-dispatch-outcome",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "Queue until online",
+        conversationId: "conv-1",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 1_000,
+      });
+      store.recordFlight({
+        id: "flight-dispatch-outcome",
+        invocationId: "inv-dispatch-outcome",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "queued",
+        summary: "Message stored for Agent One. Will deliver when online.",
+        startedAt: now,
+        metadata: {
+          dispatchOutcome: {
+            status: "queued_until_online",
+            reason: "no_runnable_endpoint",
+            checkedAt: now,
+          },
+        },
+      });
+
+      expect(queryFlights({ conversationId: "conv-1", activeOnly: true }))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            id: "flight-dispatch-outcome",
+            dispatchOutcome: {
+              status: "queued_until_online",
+              reason: "no_runnable_endpoint",
+              checkedAt: now,
+            },
+          }),
+        ]));
+    } finally {
+      store.close();
+    }
+  });
+
   test("resolves follow context from a flight id", () => {
     const store = createSeededStore();
 
@@ -1300,7 +1350,13 @@ describe("web db query agents", () => {
       const agent = queryAgents(10).find((entry) => entry.id === "agent-1");
 
       expect(agent?.transport).toBe("tmux");
-      expect(agent?.harnessSessionId).toBe("relay-agent-1-claude");
+      expect(agent?.harnessSessionId).toBeNull();
+      expect(agent?.terminalSurface).toEqual({
+        backend: "tmux",
+        sessionName: "relay-agent-1-claude",
+        paneId: null,
+        socketDir: null,
+      });
     } finally {
       store.close();
     }
@@ -1339,7 +1395,7 @@ describe("web db query agents", () => {
     }
   });
 
-  test("does not mark queued backlog as working when nothing is executing", () => {
+  test("marks queued backlog as in flight rather than in turn", () => {
     const store = createSeededStore();
 
     try {
@@ -1403,8 +1459,8 @@ describe("web db query agents", () => {
       const listEntry = queryAgents(10).find((entry) => entry.id === "agent-2");
       const detail = queryMobileAgentDetail("agent-2");
 
-      expect(listEntry?.state).toBe("available");
-      expect(detail?.state).toBe("available");
+      expect(listEntry?.state).toBe("in_flight");
+      expect(detail?.state).toBe("in_flight");
       expect(detail?.activeFlights.map((flight) => flight.state)).toEqual(["queued"]);
     } finally {
       store.close();
@@ -2450,6 +2506,112 @@ describe("web db query fleet", () => {
         acknowledgedAt: now - 7_000,
         summary: "I have it and am working on it.",
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("projects queued-until-online asks as not delivered instead of active work", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+
+    try {
+      store.upsertActor({
+        id: "agent-offline",
+        kind: "agent",
+        displayName: "Offline Agent",
+      });
+      store.upsertAgent({
+        id: "agent-offline",
+        kind: "agent",
+        definitionId: "agent-offline",
+        displayName: "Offline Agent",
+        agentClass: "general",
+        capabilities: ["chat"],
+        wakePolicy: "on_demand",
+        homeNodeId: "node-1",
+        authorityNodeId: "node-1",
+        advertiseScope: "local",
+      });
+      store.upsertConversation({
+        id: "conv-offline",
+        kind: "direct",
+        title: "Offline Agent",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["agent-offline", "operator"],
+      });
+      store.recordInvocation({
+        id: "inv-offline",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-offline",
+        action: "consult",
+        task: "Hold this until the agent is reachable",
+        conversationId: "conv-offline",
+        ensureAwake: true,
+        stream: false,
+        createdAt: now - 2_000,
+      });
+      store.recordFlight({
+        id: "flight-offline",
+        invocationId: "inv-offline",
+        requesterId: "operator",
+        targetAgentId: "agent-offline",
+        state: "queued",
+        summary: "Message stored for Offline Agent. Will deliver when online.",
+        startedAt: now - 1_000,
+        metadata: {
+          dispatchOutcome: {
+            status: "queued_until_online",
+            reason: "no_runnable_endpoint",
+            checkedAt: now - 1_000,
+          },
+        },
+      });
+      const stale = now - 3 * 24 * 60 * 60 * 1000;
+      store.recordInvocation({
+        id: "inv-offline-stale",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-offline",
+        action: "consult",
+        task: "Old held message",
+        conversationId: "conv-offline",
+        ensureAwake: true,
+        stream: false,
+        createdAt: stale,
+      });
+      store.recordFlight({
+        id: "flight-offline-stale",
+        invocationId: "inv-offline-stale",
+        requesterId: "operator",
+        targetAgentId: "agent-offline",
+        state: "queued",
+        summary: "Message stored for Offline Agent. Will deliver when online.",
+        startedAt: stale,
+        metadata: {
+          dispatchOutcome: {
+            status: "queued_until_online",
+            reason: "no_runnable_endpoint",
+            checkedAt: stale,
+          },
+        },
+      });
+
+      const fleet = queryFleet({ limit: 10, activityLimit: 20 });
+      const activeAsks = fleet.activeAsks;
+      const recent = fleet.recentCompleted.find((candidate) => candidate.invocationId === "inv-offline");
+
+      expect(recent).toMatchObject({
+        invocationId: "inv-offline",
+        status: "failed",
+        statusLabel: "Not delivered",
+        summary: "No runnable endpoint was available.",
+      });
+      expect(activeAsks.some((candidate) => candidate.invocationId === "inv-offline")).toBe(false);
+      expect(activeAsks.some((candidate) => candidate.invocationId === "inv-offline-stale")).toBe(false);
     } finally {
       store.close();
     }

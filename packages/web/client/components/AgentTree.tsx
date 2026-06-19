@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import type { Agent } from "../lib/types.ts";
-import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../lib/agent-state.ts";
+import { agentStateCssToken, agentStateLabel, isAgentBusy, normalizeAgentState, type AgentDisplayState } from "../lib/agent-state.ts";
 import { stateColor } from "../lib/colors.ts";
 import { timeAgo } from "../lib/time.ts";
 import { useScout } from "../scout/Provider.tsx";
 import { useAgentHoverCard } from "./useAgentHoverCard.tsx";
 
-type AgentState = "working" | "ready" | "not_ready";
+type AgentState = AgentDisplayState;
 
 type BranchGroup = {
   branch: string;
@@ -61,7 +61,7 @@ function groupAgentsForTree(agents: Agent[]): ProjectGroup[] {
     const project = pickLabel(projectKey);
     const branches: BranchGroup[] = [];
     let projectLatest = 0;
-    const counts: Record<AgentState, number> = { working: 0, ready: 0, not_ready: 0 };
+    const counts: Record<AgentState, number> = { in_turn: 0, in_flight: 0, callable: 0, blocked: 0 };
     const projectAgents: Agent[] = [];
     for (const [branch, list] of branchMap) {
       const sorted = [...list].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
@@ -157,22 +157,22 @@ export function AgentTree({
               <span className="mesh-tree-project-name">{group.project}</span>
               <span className="mesh-tree-project-count">{group.agents.length}</span>
               <span className="mesh-tree-counts">
-                {group.counts.working > 0 && (
-                  <span className="mesh-tree-count mesh-tree-count--active">
+                {(group.counts.in_turn + group.counts.in_flight) > 0 && (
+                  <span className="mesh-tree-count mesh-tree-count--working">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.working}
+                    {group.counts.in_turn + group.counts.in_flight}
                   </span>
                 )}
-                {group.counts.ready > 0 && (
+                {group.counts.callable > 0 && (
                   <span className="mesh-tree-count mesh-tree-count--available">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.ready}
+                    {group.counts.callable}
                   </span>
                 )}
-                {group.counts.not_ready > 0 && (
-                  <span className="mesh-tree-count mesh-tree-count--unavailable">
+                {group.counts.blocked > 0 && (
+                  <span className="mesh-tree-count mesh-tree-count--offline">
                     <span className="mesh-tree-count-dot" />
-                    {group.counts.not_ready}
+                    {group.counts.blocked}
                   </span>
                 )}
               </span>

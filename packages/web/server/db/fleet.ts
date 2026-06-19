@@ -18,7 +18,7 @@ import { db } from "./internal/db.ts";
 import { normalizeTimestampMs } from "./internal/parse.ts";
 import { compact } from "./internal/paths.ts";
 import {
-  isExecutingFlightState,
+  agentFlightPhaseFromFlightState,
   isStaleActiveFlight,
   sqlJoinClauses,
   sqlPlaceholders,
@@ -75,6 +75,8 @@ type FleetAskRow = {
   failure_stage: string | null;
   failure_severity: string | null;
   recovered_after_failure_at: number | string | null;
+  dispatch_outcome_status: string | null;
+  dispatch_outcome_reason: string | null;
   status_kind: string | null;
   status_title: string | null;
   status_summary: string | null;
@@ -255,6 +257,8 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
        json_extract(f.metadata_json, '$.failureStage') AS failure_stage,
        json_extract(f.metadata_json, '$.failureSeverity') AS failure_severity,
+       json_extract(f.metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
+       json_extract(f.metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
        (
          SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
          FROM flights recovery_f
@@ -330,12 +334,21 @@ function isRecoverableDeliveryFailure(row: FleetAskRow): boolean {
   return text.includes("no conversation found with session id");
 }
 
+function deliveryBlockedSummary(reason: string | null): string {
+  if (reason === "no_runnable_endpoint") {
+    return "No runnable endpoint was available.";
+  }
+  return "The agent could not receive this request.";
+}
+
 function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFleetAsk {
   const hasFlight = typeof row.flight_id === "string" && row.flight_id.length > 0;
   const replied = row.status_kind === "ask_replied";
   const failed = row.flight_state === "failed" || row.status_kind === "ask_failed";
   const noteworthyFailure = failed && row.failure_severity === "noteworthy";
   const stoppedFailure = noteworthyFailure && row.failure_stage === "codex_app_server_proactive_shutdown";
+  const queuedFlight = row.flight_state === "queued";
+  const queuedUntilOnline = queuedFlight && row.dispatch_outcome_status === "queued_until_online";
   const staleActiveFlight = hasFlight
     && row.flight_state !== null
     && !TERMINAL_FLIGHT_STATES.has(row.flight_state)
@@ -366,6 +379,8 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
   let status: WebFleetAskStatus;
   if (!hasFlight) {
     status = "queued";
+  } else if (queuedFlight && !staleActiveFlight) {
+    status = queuedUntilOnline ? "failed" : "queued";
   } else if (isActiveFlight) {
     status = "working";
   } else if (awaitingOperator) {
@@ -387,6 +402,8 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
     status,
     statusLabel: status === "working" && replied
       ? "Acknowledged"
+      : status === "failed" && queuedUntilOnline
+        ? "Not delivered"
       : status === "failed" && noteworthyFailure
         ? stoppedFailure
           ? "Stopped"
@@ -397,15 +414,19 @@ function projectFleetAsk(row: FleetAskRow, requesterIdSet: Set<string>): WebFlee
       : null,
     attention: status === "needs_attention"
       ? "badge"
+      : status === "failed" && queuedUntilOnline
+        ? "badge"
       : status === "failed" && !failedDismissed && !recoveredDeliveryFailure
         ? noteworthyFailure
           ? "badge"
           : "interrupt"
         : "silent",
-    agentState: summarizeAgentState(row.endpoint_state, isExecutingFlightState(row.flight_state)),
+    agentState: summarizeAgentState(row.endpoint_state, agentFlightPhaseFromFlightState(row.flight_state)),
     harness: row.harness,
     transport: row.transport,
-    summary: row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,
+    summary: queuedUntilOnline
+      ? deliveryBlockedSummary(row.dispatch_outcome_reason)
+      : row.status_summary ?? row.status_title ?? row.flight_summary ?? row.work_summary ?? row.work_title ?? null,
     startedAt: normalizeTimestampMs(row.started_at ?? row.created_at),
     completedAt: normalizeTimestampMs(row.completed_at),
     updatedAt,

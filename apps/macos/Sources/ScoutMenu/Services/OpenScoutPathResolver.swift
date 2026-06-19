@@ -165,6 +165,15 @@ struct OpenScoutPathResolver {
         return expandPath(value)
     }
 
+    func environmentFlag(_ key: String) -> Bool {
+        guard let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !value.isEmpty else {
+            return false
+        }
+
+        return ["1", "true", "yes", "on"].contains(value)
+    }
+
     func expandPath(_ value: String) -> URL {
         if value == "~" {
             return fileManager.homeDirectoryForCurrentUser

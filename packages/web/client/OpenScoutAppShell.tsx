@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { ChevronDown, ChevronRight, Pin, PinOff, Sparkles, Terminal as TerminalIcon } from "lucide-react";
-import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatformLayout } from "@hudsonkit";
-import { CommandDock, Frame, NavigationBar, SidePanel, StatusBar } from "@hudsonkit/chrome";
-import { FeatureFlagsProvider, FeatureFlagPanel, useOptionalFlag } from "hudsonkit/flags";
+import { ChevronDown, ChevronRight, Pin, PinOff, Search, Sparkles, Terminal as TerminalIcon, X } from "lucide-react";
+import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatform, usePlatformLayout } from "@hudsonkit";
+import { CommandDock, Frame, SidePanel, StatusBar } from "@hudsonkit/chrome";
+import { FeatureFlagsProvider, useOptionalFlag } from "hudsonkit/flags";
+import { ScoutFeatureFlagPanel } from "./components/ScoutFeatureFlagPanel.tsx";
+import { DevFlagToggle } from "./components/DevFlagToggle.tsx";
+import { isScoutDevToolsAvailable } from "./lib/use-scout-dev-flags.ts";
 import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {
@@ -19,7 +22,9 @@ import {
   scoutFlags,
 } from "./lib/scout-flags.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { useScout } from "./scout/Provider.tsx";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
+import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
 import { ScoutbotBroadcastChip } from "./components/ScoutbotBroadcastChip.tsx";
 import { usePaneNav } from "./lib/keyboard-nav.ts";
 
@@ -35,11 +40,110 @@ const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
 const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
 const CENTER_CONTENT_MIN_WIDTH = 560;
 
+interface ScoutNavigationBarProps {
+  title: string;
+  center?: React.ReactNode;
+  actions?: React.ReactNode;
+  search?: {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+  };
+}
+
 // Cap at 45% of viewport, floored at 500 so small screens still get usable inspector.
 function computeSidePanelMaxWidth(viewportWidth: number) {
   return Math.min(
     SIDE_PANEL_MAX_WIDTH_HARD_CAP,
     Math.max(SIDE_PANEL_MAX_WIDTH_FLOOR, Math.floor(viewportWidth * SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO)),
+  );
+}
+
+function ScoutChromeMark({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="10,4.3 14.8,7.1 14.8,12.9 10,15.7 5.2,12.9 5.2,7.1" strokeWidth="1.9" />
+      <polygon points="10,7 12.4,8.4 12.4,10.6 10,12 7.6,10.6 7.6,8.4" strokeWidth="1.32" opacity="0.74" />
+    </svg>
+  );
+}
+
+function ScoutNavigationBar({ title, center, actions, search }: ScoutNavigationBarProps) {
+  const { dragRegionProps, onInteractiveMouseDown } = usePlatform();
+  const { navTotalHeight } = usePlatformLayout();
+  const isFiltered = Boolean(search?.value);
+
+  return (
+    <div
+      data-frame-panel="navigation"
+      className="fixed top-0 left-0 right-0 z-50 pointer-events-auto"
+      {...dragRegionProps}
+    >
+      <div
+        className="bg-background/95 border-b shadow-[var(--hud-shadow-nav)] flex items-end px-4"
+        style={{ height: navTotalHeight, borderColor: "var(--hud-chrome-border, oklch(var(--border) / 0.8))" }}
+      >
+        <div
+          className="absolute left-4 bottom-0 h-12 z-10 flex items-center gap-2.5 select-none"
+          onMouseDown={onInteractiveMouseDown}
+        >
+          <div
+            aria-label={title}
+            className="flex items-center gap-2 rounded-sm px-0.5 -mx-0.5 leading-none text-foreground/90"
+          >
+            <ScoutChromeMark className="h-[19px] w-[19px] text-[#f8f3e8] opacity-90 drop-shadow-[0_0_5px_rgba(255,247,234,0.16)]" />
+            <span className="font-mono text-[11px] font-medium tracking-[0.06em] leading-none">
+              {title}
+            </span>
+          </div>
+        </div>
+
+        {center && (
+          <div className="flex-1 flex justify-center h-12 items-center" onMouseDown={onInteractiveMouseDown}>
+            {center}
+          </div>
+        )}
+
+        <div className="absolute right-4 bottom-0 h-12 z-10 flex items-center gap-3" onMouseDown={onInteractiveMouseDown}>
+          {actions}
+
+          {search && (
+            <div className="hidden sm:block relative w-[220px] max-w-[34vw] bg-card border border-input rounded px-2.5 shadow-[inset_0_1px_0_oklch(var(--foreground)/0.02)] hover:border-ring/60 focus-within:border-ring focus-within:bg-card transition-colors duration-200">
+              <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={search.value}
+                onChange={(event) => search.onChange(event.target.value)}
+                placeholder={search.placeholder ?? "Search"}
+                className={`
+                  w-full h-7 pl-5 pr-6 bg-transparent text-[11px] font-mono font-normal tracking-[0.02em]
+                  placeholder:text-muted-foreground/80 placeholder:font-light text-foreground
+                  focus:outline-none transition-all duration-200
+                  ${isFiltered ? "text-accent" : ""}
+                `}
+              />
+              {isFiltered && (
+                <button
+                  type="button"
+                  onClick={() => search.onChange("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none rounded-sm"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -94,13 +198,22 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
   );
 }
 
-function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState }) {
+function OpenScoutStatusBarRight({
+  statusBar,
+  onOpenFlagPanel,
+}: {
+  statusBar: ScoutStatusBarState;
+  onOpenFlagPanel: () => void;
+}) {
   return (
-    <div
-      className="max-w-[38vw] truncate font-mono text-[10px] leading-none text-muted-foreground"
-      title={statusBar.build.title}
-    >
-      {statusBar.build.label}
+    <div className="flex max-w-[42vw] items-center gap-3">
+      <DevFlagToggle onOpenPanel={onOpenFlagPanel} />
+      <div
+        className="truncate font-mono text-[10px] leading-none text-muted-foreground"
+        title={statusBar.build.title}
+      >
+        {statusBar.build.label}
+      </div>
     </div>
   );
 }
@@ -109,6 +222,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
+  const { route } = useScout();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -249,6 +363,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       {
         id: "shell:feature-flags",
         label: "Feature Flags",
+        shortcut: isScoutDevToolsAvailable() ? "Cmd+Shift+F" : undefined,
         action: () => setShowFlagPanel(true),
       },
     ];
@@ -296,10 +411,21 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         setActiveTab("assistant");
         setShowTerminal((visible) => !(visible && resolvedTab === "assistant"));
       }
+      if (
+        isScoutDevToolsAvailable()
+        && (e.metaKey || e.ctrlKey)
+        && e.shiftKey
+        && !e.altKey
+        && e.code === "KeyF"
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowFlagPanel(true);
+      }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, takeoverActive]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, takeoverActive]);
 
   useEffect(() => {
     const handler = () => {
@@ -413,8 +539,15 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     return () => window.removeEventListener("keydown", handler);
   }, [takeoverActive, takeoverDismissible, takeoverOnDismiss]);
 
+  // The agents directory has nothing "in context" until an agent is engaged, so
+  // the Context inspector loads minimized there and opens itself when you tap an
+  // agent into context. This only overrides the rendered collapse — the stored
+  // `rightCollapsed` preference is untouched, so engaged views keep their state.
+  const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
+  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext;
+
   const leftPushInset = leftCollapsed ? 0 : leftWidth;
-  const rightPushInset = rightCollapsed || rightOverlay ? 0 : rightWidth;
+  const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
   const pushedContentWidth = viewportWidth - leftPushInset - rightPushInset;
   const shouldAutoOverlayPanels =
     layoutMode === "panel" &&
@@ -468,8 +601,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           onZoom={handleZoom}
           hud={
             <>
-              <NavigationBar
-                title={app.name.toUpperCase()}
+              <ScoutNavigationBar
+                title={app.name}
                 search={appSearch ?? undefined}
                 center={appNavCenter}
                 actions={appNavActions}
@@ -498,8 +631,13 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
                 side="right"
                 title={app.rightPanel?.title ?? "Inspector"}
                 icon={app.rightPanel?.icon}
-                isCollapsed={rightCollapsed}
-                onToggleCollapse={() => setRightCollapsed(!rightCollapsed)}
+                isCollapsed={effectiveRightCollapsed}
+                onToggleCollapse={() => {
+                  // Nothing to inspect on the agents directory, so the expand
+                  // affordance is inert there — don't flip the stored preference.
+                  if (inspectorHasNothingInContext) return;
+                  setRightCollapsed(!rightCollapsed);
+                }}
                 width={rightWidth}
                 onResizeStart={handleResizeStart("right")}
                 style={rightPanelOverlaysContent ? panelOverlayStyle("right") : undefined}
@@ -527,7 +665,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <StatusBar
                 status={statusBar.status}
                 left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
-                right={<OpenScoutStatusBarRight statusBar={statusBar} />}
+                right={<OpenScoutStatusBarRight statusBar={statusBar} onOpenFlagPanel={() => setShowFlagPanel(true)} />}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
               />
@@ -603,11 +741,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         open={keyboardHelp.open}
         onClose={() => keyboardHelp.setOpen(false)}
       />
-      <FeatureFlagPanel
+      <ScoutFeatureFlagPanel
         isOpen={showFlagPanel}
         onClose={() => setShowFlagPanel(false)}
         audienceOptions={SCOUT_AUDIENCE_ORDER}
       />
+      <PairingRequestPrompt />
     </>
   );
 }

@@ -1,9 +1,6 @@
 import type { CSSProperties } from "react";
 import { stateColor } from "../lib/colors.ts";
-import {
-  normalizeAgentState,
-  type AgentDisplayState,
-} from "../lib/agent-state.ts";
+import { normalizeAgentState, type AgentDisplayState, isAgentBusy } from "../lib/agent-state.ts";
 import { spriteFor } from "../lib/agent-identity.ts";
 import { SpriteSvg } from "./SpriteAvatar.tsx";
 
@@ -125,11 +122,7 @@ export function PresenceDot({ state, className, style }: PresenceDotProps) {
     typeof state === "string" ? state : state ?? null,
   );
   const colorInput =
-    normalized === "working"
-      ? "working"
-      : normalized === "ready"
-        ? "available"
-        : null;
+    normalizeAgentState(typeof state === "string" ? state : state ?? null) !== "blocked" ? (isAgentBusy(typeof state === "string" ? state : state ?? null) ? "working" : "available") : null;
   return (
     <span
       className={className}

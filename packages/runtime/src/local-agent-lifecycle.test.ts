@@ -7,6 +7,7 @@ import {
   getLocalAgentConfig,
   inferLocalAgentBinding,
   listLocalAgents,
+  loadRegisteredLocalAgentBindings,
   pruneOneTimeLocalAgentCards,
   retireLocalAgent,
   retireConsumedOneTimeLocalAgentCards,
@@ -599,6 +600,17 @@ describe("local agent lifecycle", () => {
       harness: "claude",
       transport: "claude_stream_json",
     });
+
+    const [binding] = await loadRegisteredLocalAgentBindings("test-node", { ensureOnline: false });
+    expect(binding?.endpoint.transport).toBe("claude_stream_json");
+    expect(binding?.endpoint.metadata).toMatchObject({
+      runtimeMode: "stream_json_worker",
+      transportLabel: "Claude stream-json worker",
+      interactiveTerminal: false,
+      terminalSurface: null,
+    });
+    expect(binding?.endpoint.metadata?.tmuxSession).toBeUndefined();
+    expect(binding?.endpoint.metadata?.runtimeInstanceId).toBe("batch-runner-claude");
   });
 
   test("forks a new same-project Claude agent with tmux even when sibling used stream-json", async () => {
@@ -957,7 +969,54 @@ describe("local agent lifecycle", () => {
     ]);
   });
 
-  test("retires a one-time card after its direct conversation is used by the peer", async () => {
+  test("keeps unexpired ephemeral cards when cleanup has no explicit count limit", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides(Object.fromEntries(
+      Array.from({ length: 30 }, (_, index) => {
+        const id = `review-${String(index).padStart(2, "0")}.test-node`;
+        return [id, {
+          agentId: id,
+          definitionId: `review-${String(index).padStart(2, "0")}`,
+          displayName: `Review ${String(index).padStart(2, "0")}`,
+          projectName: "OpenScout",
+          projectRoot,
+          source: "manual",
+          card: {
+            kind: "one_time",
+            createdAt: 1_000 + index,
+            createdById: "operator",
+            expiresAt: 100_000,
+            maxUses: 1,
+          },
+          runtime: {
+            cwd: projectRoot,
+            harness: "codex",
+            transport: "codex_app_server",
+            sessionId: `review-${index}-codex`,
+            wakePolicy: "on_demand",
+          },
+        }];
+      }),
+    ));
+
+    const result = await pruneOneTimeLocalAgentCards({
+      now: 10_000,
+      maxAgeMs: 100_000,
+      createdById: "operator",
+      projectRoot,
+    });
+
+    expect(result.retired).toEqual([]);
+    expect(result.remaining).toBe(30);
+    expect(Object.keys(await readRelayAgentOverrides())).toHaveLength(30);
+  });
+
+  test("keeps ephemeral cards after peer coordination messages", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");
     const projectRoot = join(workspaceRoot, "openscout");
@@ -1024,13 +1083,66 @@ describe("local agent lifecycle", () => {
       }),
     ).toEqual([]);
 
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "review-reply.test-node",
+      "target.test-node",
+    ]);
+
+    const retired = await retireConsumedOneTimeLocalAgentCards({
+      conversationId: "dm.operator.review-reply.test-node",
+      actorId: "review-reply.test-node",
+      participantIds: ["operator", "review-reply.test-node"],
+      targetAgentId: "review-reply.test-node",
+    });
+
+    expect(retired.map((agent) => agent.agentId)).toEqual(["review-reply.test-node"]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "target.test-node",
+    ]);
+  });
+
+  test("does not consume a one-time card from an unrelated conversation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-reply.test-node": {
+        agentId: "review-reply.test-node",
+        definitionId: "review-reply",
+        displayName: "Review Reply",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          inboxConversationId: "dm.operator.review-reply.test-node",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-reply-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
     const retired = await retireConsumedOneTimeLocalAgentCards({
       conversationId: "dm.review-reply.test-node.target.test-node",
       actorId: "target.test-node",
       participantIds: ["review-reply.test-node", "target.test-node"],
+      targetAgentId: "review-reply.test-node",
     });
 
-    expect(retired.map((agent) => agent.definitionId)).toEqual(["review-reply"]);
-    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual(["target.test-node"]);
+    expect(retired).toEqual([]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "review-reply.test-node",
+    ]);
   });
 });
