@@ -90,18 +90,22 @@ function formatResetChip(resetAt: number, now: Date): { label: string; imminent:
 }
 
 function formatResetRelative(resetAt: number, now: Date): string {
-  const diffSec = Math.max(0, Math.floor((resetAt - now.getTime()) / 1000));
+  const rawDiffSec = Math.floor((resetAt - now.getTime()) / 1000);
+  const stale = rawDiffSec < 0;
+  const diffSec = Math.abs(rawDiffSec);
+  let label: string;
   if (diffSec >= 86400) {
     const d = Math.floor(diffSec / 86400);
     const h = Math.floor((diffSec % 86400) / 3600);
-    return h > 0 ? `${d}d ${h}h` : `${d}d`;
-  }
-  if (diffSec >= 3600) {
+    label = h > 0 ? `${d}d ${h}h` : `${d}d`;
+  } else if (diffSec >= 3600) {
     const h = Math.floor(diffSec / 3600);
     const m = Math.floor((diffSec % 3600) / 60);
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    label = m > 0 ? `${h}h ${m}m` : `${h}h`;
+  } else {
+    label = `${Math.max(1, Math.floor(diffSec / 60))}m`;
   }
-  return `${Math.max(1, Math.floor(diffSec / 60))}m`;
+  return stale ? `stale ${label}` : label;
 }
 
 function quotaWindows(g: Extract<ServiceGauge, { kind: "quota" }>): ServiceQuotaWindowGauge[] {

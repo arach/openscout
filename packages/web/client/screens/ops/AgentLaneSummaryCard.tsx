@@ -20,7 +20,7 @@ const FILE_STATE_LABEL: Record<string, string> = {
 // more, the last slot becomes a "+N more" tally so the block never grows past
 // FILE_CAP rows — keeping every lane's summary the same height so the traces
 // below all start on the same line.
-const FILE_CAP = 4;
+const FILE_CAP = 5;
 
 const COLLAPSE_STORAGE_KEY = "openscout:agent-lane-summary-collapsed";
 
@@ -67,8 +67,7 @@ export function AgentLaneSummaryCard({
   const model = facts?.model ?? preview?.model ?? null;
   const effort = facts?.effort ?? null;
   const branch = facts?.branch ?? preview?.branch ?? null;
-  const harness = preview?.harness ?? agent.harness ?? null;
-  const hasContext = Boolean(model || effort || branch || harness);
+  const hasConfig = Boolean(model || effort || branch);
 
   const statChips = preview
     ? [
@@ -140,8 +139,24 @@ export function AgentLaneSummaryCard({
         />
         <div className="s-agent-lane-summary-identity">
           <div className="s-agent-lane-summary-title">{primaryLabel}</div>
-          <div className="s-agent-lane-summary-sub">
-            {contextLabel} · {lastActiveAt ? timeAgo(lastActiveAt) : "idle"}
+          <div className="s-agent-lane-summary-meta">
+            {hasConfig ? (
+              <>
+                {model && <span className="s-agent-lane-meta-model">{model}</span>}
+                {effort && <span className="s-agent-lane-meta-effort">{effort}</span>}
+                {branch && (
+                  <span className="s-agent-lane-meta-branch">
+                    <span className="s-agent-lane-meta-glyph" aria-hidden="true">⎇</span>
+                    {branch}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span className="s-agent-lane-meta-fallback">{contextLabel}</span>
+            )}
+            {lastActiveAt && (
+              <span className="s-agent-lane-meta-time">{timeAgo(lastActiveAt)}</span>
+            )}
           </div>
         </div>
         <span className="s-agent-lane-summary-status">
@@ -175,36 +190,21 @@ export function AgentLaneSummaryCard({
         <div className="s-agent-lane-summary-body">
           <div className="s-agent-lane-summary-panel">
             <div className={`s-agent-lane-summary-current${focusEntering ? " s-agent-lane-summary-current--enter" : ""}`}>
-              {preview?.headlineFrom && (
-                <span
-                  className={`s-agent-lane-current-dir s-agent-lane-current-dir--${preview.headlineFrom}`}
-                  aria-label={preview.headlineFrom === "user" ? "from you" : "to you"}
-                >
-                  {preview.headlineFrom === "user" ? "←" : "→"}
-                </span>
-              )}
-              {preview?.headline ?? "Waiting for trace activity…"}
-            </div>
-
-            <div className="s-agent-lane-summary-meta">
-              {hasContext ? (
-                <>
-                  {model && <span className="s-agent-lane-meta-model">{model}</span>}
-                  {effort && <span className="s-agent-lane-meta-effort">{effort}</span>}
-                  {branch && (
-                    <span className="s-agent-lane-meta-branch">
-                      <span className="s-agent-lane-meta-glyph" aria-hidden="true">⎇</span>
-                      {branch}
-                    </span>
-                  )}
-                  {harness && <span className="s-agent-lane-meta-harness">{harness}</span>}
-                </>
-              ) : (
-                <span className="s-agent-lane-meta-empty">—</span>
+              <span className="s-agent-lane-current-line">
+                {preview?.headlineFrom && (
+                  <span
+                    className={`s-agent-lane-current-dir s-agent-lane-current-dir--${preview.headlineFrom}`}
+                    aria-label={preview.headlineFrom === "user" ? "from you" : "to you"}
+                  >
+                    {preview.headlineFrom === "user" ? "←" : "→"}
+                  </span>
+                )}
+                {preview?.headline ?? "Waiting for trace activity…"}
+              </span>
+              {preview?.detail && (
+                <span className="s-agent-lane-current-pop" role="tooltip">{preview.detail}</span>
               )}
             </div>
-
-            <div className="s-agent-lane-summary-detail">{preview?.detail ?? ""}</div>
 
             <div className="s-agent-lane-summary-stats">
               {statChips.length > 0 ? (

@@ -136,18 +136,22 @@ function sampleHistory(points: BudgetHistoryPoint[] | undefined, limit = 30): Bu
 }
 
 function formatResetRelative(resetAt: number): string {
-  const diffSec = Math.max(0, Math.floor((resetAt - Date.now()) / 1000));
+  const rawDiffSec = Math.floor((resetAt - Date.now()) / 1000);
+  const stale = rawDiffSec < 0;
+  const diffSec = Math.abs(rawDiffSec);
+  let label: string;
   if (diffSec >= 86400) {
     const days = Math.floor(diffSec / 86400);
     const hours = Math.floor((diffSec % 86400) / 3600);
-    return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
-  }
-  if (diffSec >= 3600) {
+    label = hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  } else if (diffSec >= 3600) {
     const hours = Math.floor(diffSec / 3600);
     const minutes = Math.floor((diffSec % 3600) / 60);
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+    label = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  } else {
+    label = `${Math.max(1, Math.floor(diffSec / 60))}m`;
   }
-  return `${Math.max(1, Math.floor(diffSec / 60))}m`;
+  return stale ? `stale ${label}` : label;
 }
 
 function timeAgo(ts: number | null): string {

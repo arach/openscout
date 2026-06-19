@@ -12,6 +12,7 @@ import {
 
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalHome = process.env.HOME;
+const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalPath = process.env.PATH;
 const tempPaths = new Set<string>();
 
@@ -28,6 +29,11 @@ afterEach(() => {
     delete process.env.HOME;
   } else {
     process.env.HOME = originalHome;
+  }
+  if (originalSupportDirectory === undefined) {
+    delete process.env.OPENSCOUT_SUPPORT_DIRECTORY;
+  } else {
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = originalSupportDirectory;
   }
   if (originalPath === undefined) {
     delete process.env.PATH;
@@ -79,6 +85,7 @@ describe("service budgets", () => {
     const home = join(root, "home");
     process.env.OPENSCOUT_CONTROL_HOME = controlHome;
     process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
     process.env.PATH = "";
     mkdirSync(controlHome, { recursive: true });
 
@@ -141,11 +148,75 @@ describe("service budgets", () => {
     rawDb.close();
   });
 
+  test("uses stale Claude statusline quota history when the latest tick only has context", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-claude-statusline-stale-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const statuslineDir = join(home, "Library", "Application Support", "OpenScout", "runtime", "statusline");
+    mkdirSync(statuslineDir, { recursive: true });
+    const now = Date.now();
+    const latest = {
+      session_id: "claude-statusline-session",
+      cwd: "/repo",
+      model: { id: "claude-opus-4-8", display_name: "Opus 4.8" },
+      context_window: {
+        total_input_tokens: 78_572,
+        total_output_tokens: 1_413,
+        used_percentage: 8,
+        remaining_percentage: 92,
+      },
+      openscoutCapturedAt: now,
+    };
+    writeFileSync(join(statuslineDir, "claude-latest.json"), JSON.stringify(latest), "utf8");
+    writeFileSync(join(statuslineDir, "claude-history.jsonl"), JSON.stringify({
+      ...latest,
+      rate_limits: {
+        five_hour: {
+          used_percentage: 28,
+          resets_at: Math.floor((now - 90_000) / 1000),
+        },
+        seven_day: {
+          used_percentage: 47,
+          resets_at: Math.floor((now - 60_000) / 1000),
+        },
+      },
+      openscoutCapturedAt: now - 120_000,
+    }) + "\n", "utf8");
+
+    const response = await loadServiceBudgets(true);
+    const claude = response.gauges.find((gauge) => gauge.id === "claude");
+
+    expect(claude).toEqual(expect.objectContaining({
+      id: "claude",
+      label: "claude",
+      kind: "quota",
+      usedLabel: "47%",
+      capLabel: "100%",
+      unitLabel: "7d",
+    }));
+    expect(claude && claude.kind === "quota" ? claude.windows : []).toEqual([
+      expect.objectContaining({ label: "5h", usedLabel: "28%" }),
+      expect.objectContaining({ label: "7d", usedLabel: "47%" }),
+    ]);
+    rawDb.close();
+  });
+
   test("uses persisted Anthropic quota windows for the Claude gauge", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-service-budgets-"));
     tempPaths.add(controlHome);
     process.env.OPENSCOUT_CONTROL_HOME = controlHome;
     process.env.HOME = join(controlHome, "home");
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(controlHome, "home", "Library", "Application Support", "OpenScout");
     process.env.PATH = "";
     mkdirSync(controlHome, { recursive: true });
 
@@ -246,6 +317,7 @@ describe("service budgets", () => {
     const home = join(root, "home");
     process.env.OPENSCOUT_CONTROL_HOME = controlHome;
     process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
     process.env.PATH = "";
     mkdirSync(controlHome, { recursive: true });
 
@@ -305,6 +377,7 @@ describe("service budgets", () => {
     const bin = join(root, "bin");
     process.env.OPENSCOUT_CONTROL_HOME = controlHome;
     process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
     process.env.PATH = bin;
     mkdirSync(controlHome, { recursive: true });
     mkdirSync(bin, { recursive: true });

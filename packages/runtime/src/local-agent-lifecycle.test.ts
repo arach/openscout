@@ -1083,16 +1083,66 @@ describe("local agent lifecycle", () => {
       }),
     ).toEqual([]);
 
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "review-reply.test-node",
+      "target.test-node",
+    ]);
+
+    const retired = await retireConsumedOneTimeLocalAgentCards({
+      conversationId: "dm.operator.review-reply.test-node",
+      actorId: "review-reply.test-node",
+      participantIds: ["operator", "review-reply.test-node"],
+      targetAgentId: "review-reply.test-node",
+    });
+
+    expect(retired.map((agent) => agent.agentId)).toEqual(["review-reply.test-node"]);
+    expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
+      "target.test-node",
+    ]);
+  });
+
+  test("does not consume a one-time card from an unrelated conversation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "openscout");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    await writeRelayAgentOverrides({
+      "review-reply.test-node": {
+        agentId: "review-reply.test-node",
+        definitionId: "review-reply",
+        displayName: "Review Reply",
+        projectName: "OpenScout",
+        projectRoot,
+        source: "manual",
+        card: {
+          kind: "one_time",
+          createdAt: 1_000,
+          createdById: "operator",
+          inboxConversationId: "dm.operator.review-reply.test-node",
+          maxUses: 1,
+        },
+        runtime: {
+          cwd: projectRoot,
+          harness: "codex",
+          transport: "codex_app_server",
+          sessionId: "review-reply-codex",
+          wakePolicy: "on_demand",
+        },
+      },
+    });
+
     const retired = await retireConsumedOneTimeLocalAgentCards({
       conversationId: "dm.review-reply.test-node.target.test-node",
       actorId: "target.test-node",
       participantIds: ["review-reply.test-node", "target.test-node"],
+      targetAgentId: "review-reply.test-node",
     });
 
     expect(retired).toEqual([]);
     expect(Object.keys(await readRelayAgentOverrides()).sort()).toEqual([
       "review-reply.test-node",
-      "target.test-node",
     ]);
   });
 });

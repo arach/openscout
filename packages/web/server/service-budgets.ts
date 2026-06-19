@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
+import { resolveClaudeStatuslineDirectory } from "@openscout/runtime/claude-statusline";
 import { db, resolveDbPath } from "./db/internal/db.ts";
 
 const execFileAsync = promisify(execFile);
@@ -375,6 +376,14 @@ function loadClaudeStatuslineGauge(): ServiceGauge | null {
       maxCurrentAgeMs: WEEK_MS,
     }, snapshots);
     if (direct) return direct;
+
+    const stale = quotaGaugeFromSnapshots({
+      id: "claude",
+      label: "claude",
+      maxCurrentAgeMs: WEEK_MS,
+      allowExpiredWindows: true,
+    }, snapshots);
+    if (stale) return stale;
   }
 
   const latest = readClaudeStatuslineLatest();
@@ -382,7 +391,7 @@ function loadClaudeStatuslineGauge(): ServiceGauge | null {
 }
 
 function claudeStatuslineDir(): string {
-  return join(homeDir(), "Library", "Application Support", "OpenScout", "runtime", "statusline");
+  return resolveClaudeStatuslineDirectory();
 }
 
 function readClaudeStatuslineLatest(): ClaudeStatuslineSnapshot | null {
@@ -596,6 +605,7 @@ function quotaGaugeFromSnapshots(input: {
   id: string;
   label: string;
   maxCurrentAgeMs?: number;
+  allowExpiredWindows?: boolean;
 }, snapshots: ServiceQuotaSnapshot[]): ServiceGauge | null {
   const latestByWindow = new Map<string, ServiceQuotaSnapshot>();
   const historyByWindow = quotaHistoryByWindow(snapshots);
@@ -605,7 +615,8 @@ function quotaGaugeFromSnapshots(input: {
     : now - input.maxCurrentAgeMs;
 
   for (const row of snapshots) {
-    if (row.capturedAt < minCurrentCapturedAt || quotaSnapshotIsExpired(row, now)) continue;
+    if (row.capturedAt < minCurrentCapturedAt) continue;
+    if (!input.allowExpiredWindows && quotaSnapshotIsExpired(row, now)) continue;
     const key = quotaSnapshotWindowKey(row);
     if (!latestByWindow.has(key)) {
       latestByWindow.set(key, row);

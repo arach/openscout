@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { readManagedInstalls } from "./managed-installs.js";
-import { initializeOpenScoutSetup, installScoutSkillToHarnesses, resolveOpenScoutSetupContextRoot, writeOpenScoutSettings } from "./setup.js";
+import { resolveClaudeStatuslineDelegatePath } from "./claude-statusline.js";
+import {
+  initializeOpenScoutSetup,
+  installClaudeStatuslineTool,
+  installScoutSkillToHarnesses,
+  resolveOpenScoutSetupContextRoot,
+  writeOpenScoutSettings,
+} from "./setup.js";
 import { encodeClaudeProjectsSlug } from "./user-project-hints.js";
 
 const originalHome = process.env.HOME;
@@ -65,6 +72,50 @@ describe("setup inventory", () => {
     expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "pi"]);
     expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
     expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
+  });
+
+  test("installs Claude statusline capture and preserves an existing delegate", async () => {
+    const home = join(tmpdir(), `openscout-claude-statusline-install-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const settingsPath = join(home, ".claude", "settings.json");
+
+    testDirectories.add(home);
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    mkdirSync(join(home, ".claude"), { recursive: true });
+    writeFileSync(settingsPath, JSON.stringify({
+      statusLine: {
+        type: "command",
+        command: "~/.claude/custom-statusline.sh",
+        padding: 2,
+        refreshInterval: 30,
+      },
+    }, null, 2), "utf8");
+
+    const report = await installClaudeStatuslineTool();
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      statusLine: Record<string, unknown>;
+    };
+    const delegate = JSON.parse(readFileSync(resolveClaudeStatuslineDelegatePath(), "utf8")) as {
+      command: string;
+      statusLine: Record<string, unknown>;
+    };
+    const wrapper = readFileSync(report.wrapperPath, "utf8");
+    const installs = await readManagedInstalls();
+    const statuslineInstall = installs.find((entry) => entry.name === "claude-statusline");
+
+    expect(report.status).toBe("installed");
+    expect(settings.statusLine.command).toBe(`'${report.wrapperPath}'`);
+    expect(settings.statusLine.padding).toBe(2);
+    expect(settings.statusLine.refreshInterval).toBe(30);
+    expect(delegate.command).toBe("~/.claude/custom-statusline.sh");
+    expect(delegate.statusLine.padding).toBe(2);
+    expect(wrapper).toContain("statusline claude");
+    expect(statuslineInstall).toEqual(expect.objectContaining({
+      kind: "statusline",
+      owner: "openscout",
+      status: "active",
+      harness: "claude",
+    }));
   });
 
   test("resolves the configured setup context root from persisted settings when no env override is present", async () => {

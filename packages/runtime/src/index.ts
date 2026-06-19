@@ -25,6 +25,7 @@ export * from "./coding-agent-host.js";
 export * from "./openscout-discovery.js";
 export * from "./setup.js";
 export * from "./managed-installs.js";
+export * from "./claude-statusline.js";
 export * from "./onboarding.js";
 export * from "./support-paths.js";
 export * from "./scout-agent-cards.js";

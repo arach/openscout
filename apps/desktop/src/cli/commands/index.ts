@@ -31,6 +31,7 @@ export type ScoutCommandName =
   | "server"
   | "setup"
   | "speak"
+  | "statusline"
   | "tail"
   | "tui"
   | "up"
@@ -98,6 +99,8 @@ export async function loadScoutCommandHandler(name: ScoutCommandName): Promise<S
       return (await import("./setup.ts")).runSetupCommand;
     case "speak":
       return (await import("./speak.ts")).runSpeakCommand;
+    case "statusline":
+      return (await import("./statusline.ts")).runStatuslineCommand;
     case "tail":
       return (await import("./tail.ts")).runTailCommand;
     case "tui":

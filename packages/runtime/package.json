@@ -73,6 +73,11 @@
       "bun": "./src/support-paths.ts",
       "default": "./dist/support-paths.js"
     },
+    "./claude-statusline": {
+      "types": "./src/claude-statusline.ts",
+      "bun": "./src/claude-statusline.ts",
+      "default": "./dist/claude-statusline.js"
+    },
     "./tool-resolution": {
       "types": "./src/tool-resolution.ts",
       "bun": "./src/tool-resolution.ts",

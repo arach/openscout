@@ -1353,6 +1353,7 @@ export function SessionObserve({
   traceLimit,
   traceWindowMs,
   traceWindowLabel,
+  nowMs,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -1365,6 +1366,8 @@ export function SessionObserve({
   traceWindowMs?: number;
   /** Lane mode: human label for the selected horizon (e.g. "30m"). */
   traceWindowLabel?: string;
+  /** Lane mode: shared wall clock for horizon filters (kept in sync with lane roster). */
+  nowMs?: number;
 }) {
   const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
@@ -1372,13 +1375,14 @@ export function SessionObserve({
   const liveSession = observeData.live === true;
   const sessionStartMs = observeData.metadata?.session?.sessionStart;
 
-  const [now, setNow] = useState(Date.now);
+  const [internalNow, setInternalNow] = useState(Date.now);
+  const now = typeof nowMs === "number" ? nowMs : internalNow;
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
   useEffect(() => {
-    if (!laneMode) return;
-    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    if (!laneMode || typeof nowMs === "number") return;
+    const timer = setInterval(() => setInternalNow(Date.now()), 10_000);
     return () => clearInterval(timer);
-  }, [laneMode]);
+  }, [laneMode, nowMs]);
 
   useEffect(() => {
     if (!agentId || laneMode) return;
@@ -1630,8 +1634,8 @@ export function SessionObserve({
         ) : null}
         {useHorizonTrace && laneTraceStats ? (
           <div className="s-observe-lane-trace-meta">
-            <div className="s-observe-lane-trace-meta-main">
-              <span className="s-observe-lane-trace-meta-label">Trace</span>
+            <span className="s-observe-lane-trace-meta-label">Trace</span>
+            <span className="s-observe-lane-trace-meta-stats">
               <span className="s-observe-lane-trace-meta-window">
                 last {traceWindowLabel ?? fmtTraceSpanMs(traceWindowMs ?? 0)}
               </span>
@@ -1645,12 +1649,15 @@ export function SessionObserve({
                   <span>{fmtTraceSpanMs(laneTraceStats.spanMs)} span</span>
                 </>
               ) : null}
-            </div>
-            {laneTraceStats.truncatedBefore ? (
-              <span className="s-observe-lane-trace-meta-note s-observe-lane-trace-meta-note--warn">
-                Earlier activity in this window may not be loaded
-              </span>
-            ) : null}
+              {laneTraceStats.truncatedBefore ? (
+                <span
+                  className="s-observe-lane-trace-meta-tag"
+                  title="Earlier activity in this window may not be loaded"
+                >
+                  partial
+                </span>
+              ) : null}
+            </span>
           </div>
         ) : null}
         <ReplayStream

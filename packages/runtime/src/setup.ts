@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { access, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, hostname, userInfo } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,12 @@ import {
 } from "@openscout/protocol";
 
 import { ensureHarnessCatalogOverrideFile } from "./harness-catalog.js";
+import {
+  isOpenScoutClaudeStatuslineCommand,
+  resolveClaudeStatuslineDelegatePath,
+  resolveClaudeStatuslineWrapperPath,
+  writeClaudeStatuslineDelegate,
+} from "./claude-statusline.js";
 import { upsertManagedInstall } from "./managed-installs.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
 import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./user-project-hints.js";
@@ -605,6 +611,10 @@ function normalizeSessionPrefix(value: string | undefined): string {
 
 function normalizeOptionalString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function normalizeStringList(value: unknown): string[] {
@@ -1942,6 +1952,166 @@ export async function installScoutSkillToHarnesses(): Promise<ScoutSkillInstallR
   }
 
   return { source, entries };
+}
+
+export type ClaudeStatuslineInstallReport = {
+  status: "installed" | "error";
+  settingsPath: string;
+  wrapperPath: string;
+  delegatePath: string;
+  command: string;
+  previousCommand?: string;
+  error?: string;
+};
+
+function resolveClaudeSettingsPath(): string {
+  return join(currentHomeDirectory(), ".claude", "settings.json");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function resolveScoutStatuslineInvocation(): string {
+  const explicit = normalizeOptionalString(process.env.OPENSCOUT_SCOUT_COMMAND);
+  if (explicit) return explicit;
+
+  try {
+    const found = execFileSync("sh", ["-lc", "command -v scout"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (found) return shellQuote(found);
+  } catch {
+    // Fall through to a dev checkout invocation when possible.
+  }
+
+  const argvEntry = normalizeOptionalString(process.argv[1]);
+  if (argvEntry && basename(argvEntry).startsWith("scout")) {
+    return `${shellQuote(process.execPath)} ${shellQuote(argvEntry)}`;
+  }
+
+  return "scout";
+}
+
+export async function installClaudeStatuslineTool(): Promise<ClaudeStatuslineInstallReport> {
+  const settingsPath = resolveClaudeSettingsPath();
+  const wrapperPath = resolveClaudeStatuslineWrapperPath();
+  const delegatePath = resolveClaudeStatuslineDelegatePath();
+  const command = shellQuote(wrapperPath);
+
+  try {
+    const scoutInvocation = resolveScoutStatuslineInvocation();
+    await mkdir(dirname(wrapperPath), { recursive: true });
+    await writeFile(
+      wrapperPath,
+      [
+        "#!/bin/sh",
+        "set -eu",
+        `exec ${scoutInvocation} statusline claude "$@"`,
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    await chmod(wrapperPath, 0o755);
+
+    const rawSettings = await readJsonFile<unknown>(settingsPath);
+    const settings = isPlainRecord(rawSettings) ? rawSettings : {};
+    const existingStatusLine = isPlainRecord(settings.statusLine) ? settings.statusLine : null;
+    const previousCommand = normalizeOptionalString(existingStatusLine?.command);
+    const previousIsScout = previousCommand
+      ? isOpenScoutClaudeStatuslineCommand(previousCommand, wrapperPath)
+      : false;
+
+    if (previousCommand && !previousIsScout) {
+      await writeClaudeStatuslineDelegate({
+        command: previousCommand,
+        source: "claude-settings.statusLine",
+        installedAt: Date.now(),
+        ...(existingStatusLine ? { statusLine: existingStatusLine } : {}),
+      });
+    }
+
+    const nextStatusLine = {
+      ...(existingStatusLine ?? {}),
+      type: "command",
+      command,
+      padding: typeof existingStatusLine?.padding === "number" ? existingStatusLine.padding : 0,
+    };
+
+    await writeJsonFile(settingsPath, {
+      ...settings,
+      statusLine: nextStatusLine,
+    });
+
+    await upsertManagedInstall({
+      kind: "statusline",
+      owner: "openscout",
+      name: "claude-statusline",
+      title: "Claude Code statusline quota capture",
+      status: "active",
+      harness: "claude",
+      provider: "anthropic",
+      targetPath: wrapperPath,
+      version: "1",
+      uninstall: {
+        strategy: "manual",
+        command: `Remove statusLine.command ${command} from ${settingsPath}`,
+        notes: "If a previous statusline was captured, restore it from the delegate metadata.",
+      },
+      metadata: {
+        settingsPath,
+        delegatePath,
+        command,
+        scoutInvocation,
+        ...(previousCommand && !previousIsScout ? { previousCommand } : {}),
+      },
+    });
+
+    return {
+      status: "installed",
+      settingsPath,
+      wrapperPath,
+      delegatePath,
+      command,
+      ...(previousCommand && !previousIsScout ? { previousCommand } : {}),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    try {
+      await upsertManagedInstall({
+        kind: "statusline",
+        owner: "openscout",
+        name: "claude-statusline",
+        title: "Claude Code statusline quota capture",
+        status: "error",
+        harness: "claude",
+        provider: "anthropic",
+        targetPath: wrapperPath,
+        version: "1",
+        uninstall: {
+          strategy: "manual",
+          notes: "Setup could not finish installing this statusline integration.",
+        },
+        metadata: {
+          settingsPath,
+          delegatePath,
+          command,
+          error: message,
+        },
+      });
+    } catch {
+      // Preserve the original setup error in the returned report.
+    }
+    return {
+      status: "error",
+      settingsPath,
+      wrapperPath,
+      delegatePath,
+      command,
+      error: message,
+    };
+  }
 }
 
 export async function readRelayAgentOverrides(): Promise<Record<string, RelayAgentOverride>> {

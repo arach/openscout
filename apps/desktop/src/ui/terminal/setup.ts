@@ -324,6 +324,7 @@ export function renderScoutSetupReport(report: ScoutSetupReport): string {
     `Harness catalog: ${report.setup.harnessCatalogPath}`,
     `Agent registry: ${report.setup.relayAgentsPath}`,
     `Managed installs: ${report.setup.managedInstallsPath}`,
+    `Claude statusline: ${report.claudeStatusline.status} (${report.claudeStatusline.wrapperPath})`,
     `Current project config: ${report.setup.currentProjectConfigPath ?? "not created"}`,
     `Created project config: ${report.setup.createdProjectConfig ? "yes" : "no"}`,
     "",

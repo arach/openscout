@@ -56,12 +56,14 @@ function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
 function AgentLaneColumn({
   lane,
   isNew,
+  nowMs,
   traceWindowMs,
   traceWindowLabel,
   onInspect,
 }: {
   lane: AgentLane;
   isNew?: boolean;
+  nowMs: number;
   traceWindowMs: number;
   traceWindowLabel: string;
   onInspect: (lane: AgentLane) => void;
@@ -82,6 +84,7 @@ function AgentLaneColumn({
               sessionId={agent.harnessSessionId}
               showRail={false}
               variant="lane"
+              nowMs={nowMs}
               traceWindowMs={traceWindowMs}
               traceWindowLabel={traceWindowLabel}
             />
@@ -241,6 +244,7 @@ export function AgentLanesView({
               key={lane.id}
               lane={lane}
               isNew={newLaneIds.has(lane.id)}
+              nowMs={now}
               traceWindowMs={traceWindowMs}
               traceWindowLabel={horizonLabel}
               onInspect={(target) => setInspectedLaneId(target.id)}

@@ -34,52 +34,62 @@
   overflow-x: hidden;
 }
 
+/* Lane trace header: one calm row — an uppercase eyebrow on the left, the
+   window/counts as quiet mono stats on the right. Truncation is a subtle
+   "partial" tag (full explanation on hover), not an amber sentence. */
 .s-observe-lane-trace-meta {
   flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
   padding: var(--space-sm) var(--space-lg);
   border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
-  background: color-mix(in srgb, var(--bg) 70%, transparent);
-}
-
-.s-observe-lane-trace-meta-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-  font-family: var(--font-sans);
-  font-size: var(--text-2xs);
-  color: var(--dim);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 .s-observe-lane-trace-meta-label {
+  flex: none;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--dim) 88%, var(--ink) 12%);
+  color: var(--dim);
+}
+
+.s-observe-lane-trace-meta-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-xs);
+  color: var(--dim);
 }
 
 .s-observe-lane-trace-meta-window {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--dim) 72%, var(--accent) 28%);
-}
-
-.s-observe-lane-trace-meta-sep {
-  opacity: 0.55;
-}
-
-.s-observe-lane-trace-meta-note {
-  font-family: var(--font-sans);
-  font-size: var(--text-2xs);
-  line-height: 1.35;
   color: var(--muted);
 }
 
-.s-observe-lane-trace-meta-note--warn {
-  color: color-mix(in srgb, var(--amber, #c9a227) 72%, var(--muted) 28%);
+.s-observe-lane-trace-meta-sep {
+  opacity: 0.5;
+}
+
+.s-observe-lane-trace-meta-tag {
+  flex: none;
+  margin-left: var(--space-2xs);
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--dim);
+  text-transform: lowercase;
+  letter-spacing: var(--tracking-xs);
+  cursor: default;
 }
 
 .s-observe--lane .s-observe-stream {

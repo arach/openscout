@@ -2063,11 +2063,29 @@ export async function retireConsumedOneTimeLocalAgentCards(input: {
   conversationId: string;
   actorId: string;
   participantIds: string[];
+  targetAgentId?: string;
 }): Promise<ScoutLocalAgentStatus[]> {
-  void input;
-  // Ephemeral cards rotate by age or explicit cleanup. A peer message is normal
-  // coordination and must not retire the profile/session that is doing work.
-  return [];
+  const targetAgentId = input.targetAgentId?.trim();
+  if (!targetAgentId || !input.participantIds.includes(targetAgentId)) {
+    return [];
+  }
+
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[targetAgentId];
+  if (!override || BUILT_IN_AGENT_DEFINITION_IDS.has(targetAgentId)) {
+    return [];
+  }
+
+  const lifecycle = normalizeLocalAgentCardLifecycle(override.card);
+  if (lifecycle?.kind !== "one_time") {
+    return [];
+  }
+
+  if (lifecycle.inboxConversationId && lifecycle.inboxConversationId !== input.conversationId) {
+    return [];
+  }
+
+  return retireLocalAgentOverrides({ ...overrides }, new Set([targetAgentId]));
 }
 
 export async function retireLocalAgent(agentId: string): Promise<ScoutLocalAgentStatus | null> {

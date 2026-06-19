@@ -376,7 +376,7 @@ describe("isAgentLaneWorking", () => {
     expect(lanes[0]?.agent.harness).toBe("codex");
   });
 
-  test("includes native grok lanes with recent phase activity", () => {
+  test("excludes native grok lanes with only streaming phase noise", () => {
     const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "grok",
@@ -392,6 +392,31 @@ describe("isAgentLaneWorking", () => {
         stubTailEvent("sess-grok", NOW - 10_000, "system", {
           source: "grok",
           summary: "phase · streaming_reasoning",
+        }),
+      ],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(0);
+  });
+
+  test("includes native grok lanes with recent tool activity", () => {
+    const { lanes } = buildAgentLanes({
+      transcripts: [{
+        source: "grok",
+        transcriptPath: "/Users/art/.grok/sessions/%2FUsers%2Fart%2Fdev%2Fopenscout/sess-grok/events.jsonl",
+        sessionId: "sess-grok",
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 20_000,
+        size: 1200,
+      }],
+      tailEvents: [
+        stubTailEvent("sess-grok", NOW - 10_000, "tool", {
+          source: "grok",
+          summary: "Grep · pattern",
         }),
       ],
       now: NOW,
@@ -426,9 +451,9 @@ describe("isAgentLaneWorking", () => {
         source: "codex",
       }],
       tailEvents: [
-        stubTailEvent("sess-grok", NOW - 10_000, "system", {
+        stubTailEvent("sess-grok", NOW - 10_000, "tool", {
           source: "grok",
-          summary: "phase · streaming_reasoning",
+          summary: "Grep · pattern",
         }),
       ],
       now: NOW,

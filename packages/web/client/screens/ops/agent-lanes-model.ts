@@ -7,6 +7,7 @@ import {
 } from "../../lib/lane-observe.ts";
 import {
   filterTailEventsForDisplay,
+  isTailNoiseEvent,
   observeKindFromTailEvent,
   observeTextFromTailEvent,
   observeToolFieldsFromTailEvent,
@@ -824,7 +825,10 @@ export function buildLaneFacts(
   return facts;
 }
 
-function isSubstantiveTailEvent(event: TailEvent): boolean {
+/** Work signal for lane admission — aligned with tail "work" display, not lifecycle noise. */
+function isLaneAdmissionTailEvent(event: TailEvent): boolean {
+  if (isTailNoiseEvent(event)) return false;
+
   if (event.kind === "tool"
     || event.kind === "tool-result"
     || event.kind === "assistant"
@@ -833,12 +837,11 @@ function isSubstantiveTailEvent(event: TailEvent): boolean {
   }
 
   if (event.kind !== "system") return false;
+
   if (event.source === "grok") {
-    return /^(turn |loop |phase · |first token|permission )/u.test(event.summary);
+    return /^turn /u.test(event.summary);
   }
-  if (event.source === "cursor") {
-    return event.summary.startsWith("process sample");
-  }
+
   if (event.source === "codex") {
     const summary = event.summary.trim().toLowerCase();
     if (summary === "task started"
@@ -857,18 +860,23 @@ function isSubstantiveTailEvent(event: TailEvent): boolean {
       }
     }
   }
+
   return false;
 }
 
-function hasRecentSubstantiveTailEvents(
+function hasRecentLaneAdmissionTailEvents(
   events: TailEvent[],
   now: number,
   windowMs: number,
 ): boolean {
   return events.some((event) => {
     if (now - event.ts > windowMs) return false;
-    return isSubstantiveTailEvent(event);
+    return isLaneAdmissionTailEvent(event);
   });
+}
+
+function hasDisplayableLaneTrace(observe: ObserveData | null | undefined): boolean {
+  return observe?.events.some(isSubstantiveObserveEvent) ?? false;
 }
 
 function normalizeTailSessionRef(value: string | null | undefined): string | null {
@@ -989,7 +997,7 @@ function sessionSubstantiveLastActiveAt(
     : (sessionId?.trim() ? eventsBySession.get(sessionId.trim()) ?? [] : []);
   let latest = 0;
   for (const event of events) {
-    if (!isSubstantiveTailEvent(event)) continue;
+    if (!isLaneAdmissionTailEvent(event)) continue;
     latest = Math.max(latest, event.ts);
   }
   return latest;
@@ -1000,7 +1008,7 @@ function hasNativeLaneWorkingSignal(
   now: number,
   windowMs: number,
 ): boolean {
-  return hasRecentSubstantiveTailEvents(events, now, windowMs);
+  return hasRecentLaneAdmissionTailEvents(events, now, windowMs);
 }
 
 /** True when the lane represents an agent actively doing work within the horizon. */
@@ -1391,6 +1399,9 @@ export function buildAgentLanes(input: {
     if (workingOnly && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
       continue;
     }
+    if (!hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
+      continue;
+    }
     for (const ref of tailSessionRefsForTranscript(transcript)) {
       representedTranscriptSessionRefs.add(ref);
     }
@@ -1432,6 +1443,9 @@ export function buildAgentLanes(input: {
       current,
     };
     if (workingOnly && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt)) {
+      continue;
+    }
+    if (!hasDisplayableLaneTrace(observe) && !isAgentLaneLive(observe)) {
       continue;
     }
     lanes.push(lane);
