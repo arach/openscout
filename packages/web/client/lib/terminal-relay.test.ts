@@ -1,6 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import type { Agent } from "./types.ts";
-import {
+
+const React = await import("../../node_modules/react/index.js");
+
+mock.module("react", () => React);
+
+const {
   agentTmuxTerminalSessionKey,
   relayAgentForHarness,
   resolveAgentTerminalSurface,
@@ -8,7 +13,7 @@ import {
   resolveTerminalRelaySessionKey,
   shouldBootstrapTakeover,
   terminalRelayUrlForAgent,
-} from "./terminal-relay.ts";
+} = await import("./terminal-relay.ts");
 
 function agent(overrides: Partial<Agent> = {}): Agent {
   return {
