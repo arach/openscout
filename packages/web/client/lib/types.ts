@@ -1235,7 +1235,7 @@ export type Route =
     };
 
 export type AgentTab = "profile" | "observe" | "message";
-export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop";
+export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 
 export type FollowTarget = {

@@ -9,6 +9,7 @@ export {
   getTailDiscovery,
   readRecentLiveEvents,
   readRecentTranscriptEvents,
+  readTailEventsForSession,
   snapshotRecentEvents,
   subscribeTail,
 } from "./service.js";

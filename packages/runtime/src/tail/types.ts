@@ -87,4 +87,5 @@ export interface TranscriptSource {
     scope?: TailDiscoveryScope,
   ): Promise<DiscoveredTranscript[]> | DiscoveredTranscript[];
   parseLine(line: string, ctx: TailContext): TailEvent | null;
+  parseFile?(text: string, ctx: TailContext): TailEvent | TailEvent[] | null;
 }

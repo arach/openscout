@@ -7,7 +7,81 @@
 }
 
 .s-observed-topology--rail {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.s-observed-topology-rail-summary {
+  margin-bottom: var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
+  line-height: var(--leading-tight);
+}
+
+.s-observed-topology-rail-list {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.s-observed-topology-rail-row {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-2xs) 0;
   border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.s-observed-topology-rail-row--completed {
+  opacity: 0.72;
+}
+
+.s-observed-topology-rail-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  flex-shrink: 0;
+}
+
+.s-observed-topology-rail-dot--running {
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.s-observed-topology-rail-dot--completed {
+  background: var(--green);
+}
+
+.s-observed-topology-rail-dot--failed {
+  background: var(--danger);
+}
+
+.s-observed-topology-rail-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.s-observed-topology-rail-stats {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.s-observed-topology-rail-more {
+  padding-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
 }
 
 .s-observed-topology-head {
@@ -307,9 +381,12 @@
   padding: var(--space-sm) var(--space-md);
 }
 
-.s-observed-topology--compact .s-observed-topology-source,
-.s-observed-topology--rail .s-observed-topology-source {
+.s-observed-topology--compact .s-observed-topology-source {
   padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+.s-observed-topology--rail .s-observed-topology-source {
+  padding: 0;
 }
 
 .s-observed-topology--rail .s-observed-topology-counts {

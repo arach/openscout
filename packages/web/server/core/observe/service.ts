@@ -16,7 +16,7 @@ import {
   getLocalAgentEndpointSessionSnapshot,
   getLocalAgentSessionSnapshot,
 } from "@openscout/runtime/local-agents";
-import { getTailDiscovery } from "@openscout/runtime/tail";
+import { getTailDiscovery, readTailEventsForSession } from "@openscout/runtime/tail";
 import type { AgentEndpoint } from "@openscout/protocol";
 
 import type { WebAgent } from "../../db-queries.ts";
@@ -28,6 +28,7 @@ import {
   selectPreferredAgentEndpoint,
 } from "../agent-endpoints.ts";
 import { loadScoutBrokerContext } from "../broker/service.ts";
+import { buildObserveDataFromTail } from "./tail-observe.ts";
 
 export type ObserveEventKind =
   | "think"
@@ -206,6 +207,17 @@ export type SessionRefObservePayload =
       agentId: null;
       source: "history";
       fidelity: "timestamped" | "synthetic";
+      historyPath: string;
+      sessionId: string;
+      updatedAt: number;
+      data: ObserveData;
+    }
+  | {
+      kind: "tail";
+      refId: string;
+      agentId: null;
+      source: "tail";
+      fidelity: "synthetic";
       historyPath: string;
       sessionId: string;
       updatedAt: number;
@@ -1523,23 +1535,43 @@ export async function loadSessionRefObservePayload(
         adapterType: historyEntry.adapterType,
       })
     : null;
-  if (!historyEntry || !historySnapshot) {
+  if (historyEntry && historySnapshot) {
+    return {
+      kind: "history",
+      refId: normalizedRef,
+      agentId: null,
+      source: "history",
+      fidelity: historySnapshot.timedEvents.length > 0 ? "timestamped" : "synthetic",
+      historyPath: historySnapshot.historyPath,
+      sessionId: normalizedRef,
+      updatedAt: Date.now(),
+      data: buildObserveDataFromSnapshot(
+        historySnapshot.snapshot,
+        historySnapshot.timedEvents,
+        false,
+      ),
+    };
+  }
+
+  let nativeTail = await readTailEventsForSession(normalizedRef).catch(() => null);
+  if (!nativeTail) {
+    nativeTail = await readTailEventsForSession(normalizedRef, { forceDiscovery: true }).catch(() => null);
+  }
+  if (!nativeTail) {
     return null;
   }
 
+  const sessionId = nativeTail.transcript.sessionId?.trim() || normalizedRef;
+  const current = Date.now() - nativeTail.transcript.mtimeMs <= 5 * 60_000;
   return {
-    kind: "history",
+    kind: "tail",
     refId: normalizedRef,
     agentId: null,
-    source: "history",
-    fidelity: historySnapshot.timedEvents.length > 0 ? "timestamped" : "synthetic",
-    historyPath: historySnapshot.historyPath,
-    sessionId: normalizedRef,
+    source: "tail",
+    fidelity: "synthetic",
+    historyPath: nativeTail.transcript.transcriptPath,
+    sessionId,
     updatedAt: Date.now(),
-    data: buildObserveDataFromSnapshot(
-      historySnapshot.snapshot,
-      historySnapshot.timedEvents,
-      false,
-    ),
+    data: buildObserveDataFromTail(nativeTail.transcript, nativeTail.events, current),
   };
 }

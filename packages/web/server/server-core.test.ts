@@ -25,6 +25,17 @@ describe("installScoutApiMiddleware", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  test("allows same-origin API requests through the unspecified bind address", async () => {
+    const app = createApp();
+    const response = await app.request("http://0.0.0.0:5180/api/ping", {
+      headers: {
+        origin: "http://0.0.0.0:5180",
+      },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
   test("rejects cross-origin API requests", async () => {
     const app = createApp();
     const response = await app.request("http://localhost/api/ping", {

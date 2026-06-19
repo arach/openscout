@@ -1,4 +1,13 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ExternalLink } from "lucide-react";
 
 import type {
@@ -10,7 +19,9 @@ import type {
   ObserveUsageMeta,
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
+import { collapseObserveDisplayRows } from "../../lib/observe-display.ts";
 import { api } from "../../lib/api.ts";
+import { timeAgo } from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -92,6 +103,34 @@ function fmtClock(sec: number): string {
     return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/** Compact elapsed label for lane trace rows (avoids clock-like H:MM:SS). */
+function fmtElapsed(sec: number): string {
+  if (!Number.isFinite(sec) || sec <= 0) {
+    return "0s";
+  }
+  const totalSeconds = Math.floor(sec);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  if (totalSeconds < 3_600) {
+    return `${Math.floor(totalSeconds / 60)}m`;
+  }
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+}
+
+function fmtLaneRowTime(
+  eventT: number,
+  sessionStartMs: number | undefined,
+  nowMs: number,
+): string {
+  if (typeof sessionStartMs === "number" && Number.isFinite(sessionStartMs)) {
+    return timeAgo(sessionStartMs + eventT * 1000, nowMs);
+  }
+  return fmtElapsed(eventT);
 }
 
 function isCursorAtLiveEdge(cursor: number, duration: number): boolean {
@@ -308,9 +347,23 @@ function DiffPreview({ preview }: { preview: string }) {
   );
 }
 
+function observeToolGlyphKey(tool: string | undefined): string {
+  const key = (tool ?? "").toLowerCase();
+  return key === "shell" ? "bash" : key;
+}
+
+function toolArgLabel(event: SessionEvent): string | undefined {
+  const arg = event.arg?.trim();
+  if (!arg || arg === "started" || arg === "completed") return undefined;
+  return arg;
+}
+
 function ToolBlock({ event }: { event: SessionEvent }) {
-  const glyph = TOOL_GLYPH[event.tool ?? ""] ?? "▸";
-  const hasBody = !!(event.result || event.diff || event.stream);
+  const glyph = TOOL_GLYPH[observeToolGlyphKey(event.tool)] ?? "▸";
+  const command = toolArgLabel(event);
+  const outcome = event.result?.outcome?.trim();
+  const showOutcome = Boolean(outcome && outcome !== "success");
+  const hasBody = !!(showOutcome || event.diff || event.stream);
 
   return (
     <div className="s-observe-tool s-observe-block">
@@ -319,12 +372,24 @@ function ToolBlock({ event }: { event: SessionEvent }) {
       >
         <span className="s-observe-tool-glyph">{glyph}</span>
         <span className="s-observe-tool-cmd">
-          <span className="s-observe-tool-cmd-name">{event.tool}</span>{" "}
-          {event.arg}
+          <span className="s-observe-tool-cmd-name">{event.tool}</span>
+          {command ? (
+            <>
+              {" "}
+              <span className="s-observe-tool-cmd-arg">{command}</span>
+            </>
+          ) : event.arg ? (
+            <> {event.arg}</>
+          ) : null}
+          {outcome === "success" && (
+            <span className="s-observe-tool-outcome s-observe-tool-outcome--success">
+              ok
+            </span>
+          )}
         </span>
       </div>
 
-      {event.result && (
+      {showOutcome && event.result && (
         <div className="s-observe-tool-result">
           {Object.entries(event.result)
             .map(([k, v]) => `${k}: ${v}`)
@@ -395,23 +460,54 @@ function MessageLine({ event }: { event: SessionEvent }) {
   );
 }
 
-function NoteLine({ event }: { event: SessionEvent }) {
+function laneSystemDetailVisible(detail: string | undefined, laneMode: boolean): boolean {
+  if (!detail?.trim()) return false;
+  if (!laneMode) return true;
+  return !/^[a-z0-9._-]+ · [a-z0-9._-]+$/i.test(detail.trim());
+}
+
+const LANE_NOTE_LABELS: Record<string, string> = {
+  turn_ended: "Turn complete",
+  turn_started: "Turn started",
+};
+
+function formatLaneNoteLabel(text: string): string {
+  const trimmed = text.trim();
+  const bracket = trimmed.match(/^\[(.+)\]$/);
+  const raw = bracket?.[1] ?? trimmed;
+  return LANE_NOTE_LABELS[raw] ?? raw.replace(/_/g, " ");
+}
+
+function NoteLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+  if (laneMode) {
+    return (
+      <div className="s-observe-note s-observe-block s-observe-block--inline s-observe-note--lane">
+        <span className="s-observe-note-text">{formatLaneNoteLabel(event.text)}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="s-observe-note s-observe-block s-observe-block--inline">
-      <span className="s-observe-note-icon">✓</span>
+      <span className="s-observe-note-icon" aria-hidden="true">✓</span>
       <span className="s-observe-note-text">{event.text}</span>
       <CopyButton text={event.text ?? ""} label="Copy note" />
     </div>
   );
 }
 
-function SystemLine({ event }: { event: SessionEvent }) {
-  const copyText = event.detail ? `${event.text}\n${event.detail}` : event.text ?? "";
+function SystemLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+  const showDetail = laneSystemDetailVisible(event.detail, laneMode);
+  const copyText = showDetail && event.detail
+    ? `${event.text}\n${event.detail}`
+    : event.text ?? "";
   return (
-    <div className="s-observe-system s-observe-block">
-      <span className="s-observe-system-arrow">▸ </span>
-      {event.text}
-      {event.detail && (
+    <div className={`s-observe-system s-observe-block${laneMode ? " s-observe-system--lane" : ""}`}>
+      <div className="s-observe-system-line">
+        {!laneMode && <span className="s-observe-system-arrow" aria-hidden="true">▸ </span>}
+        <span className="s-observe-system-text">{event.text}</span>
+      </div>
+      {showDetail && event.detail && (
         <div className="s-observe-system-detail">{event.detail}</div>
       )}
       <CopyButton text={copyText} label="Copy system event" />
@@ -422,10 +518,12 @@ function SystemLine({ event }: { event: SessionEvent }) {
 function FollowToggle({
   isFollowing,
   isLive,
+  liveLabel,
   onToggle,
 }: {
   isFollowing: boolean;
   isLive: boolean;
+  liveLabel?: string;
   onToggle: () => void;
 }) {
   return (
@@ -444,7 +542,7 @@ function FollowToggle({
           <path d="M2 1.5l7 3.5-7 3.5V1.5z" />
         </svg>
       )}
-      <span>{isFollowing ? (isLive ? "Live" : "Latest") : "Follow"}</span>
+      <span>{isFollowing ? (isLive ? (liveLabel ?? "Live") : "Latest") : "Follow"}</span>
     </button>
   );
 }
@@ -454,18 +552,53 @@ function FollowToggle({
 function StreamRow({
   event,
   prevT,
+  laneMode = false,
+  entering = false,
+  nudging = false,
+  nudgeDelayMs = 0,
+  repeatCount = 1,
+  sessionStartMs,
+  nowMs = Date.now(),
 }: {
   event: SessionEvent;
   prevT: number;
+  laneMode?: boolean;
+  entering?: boolean;
+  nudging?: boolean;
+  nudgeDelayMs?: number;
+  repeatCount?: number;
+  sessionStartMs?: number;
+  nowMs?: number;
 }) {
   const gap = event.t - prevT;
   const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
+  const rowTime = laneMode
+    ? fmtLaneRowTime(event.t, sessionStartMs, nowMs)
+    : fmtClock(event.t);
+
+  const rowClass = [
+    "s-observe-row",
+    entering ? "s-observe-row--enter" : "",
+    nudging ? "s-observe-row--nudge" : "",
+  ].filter(Boolean).join(" ");
 
   return (
-    <div className="s-observe-row">
+    <div
+      className={rowClass}
+      style={nudging && nudgeDelayMs > 0
+        ? ({ "--row-nudge-delay": `${nudgeDelayMs}ms` } as CSSProperties)
+        : undefined}
+    >
       {gap > 15 && <div className="s-observe-row-gap">+{gap}s</div>}
 
-      <div className="s-observe-row-time">{fmtClock(event.t)}</div>
+      <div className="s-observe-row-time">
+        {rowTime}
+        {repeatCount > 1 && (
+          <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
+            ×{repeatCount}
+          </span>
+        )}
+      </div>
 
       <span className="s-observe-row-bead" style={{ background: accent }} />
 
@@ -473,9 +606,9 @@ function StreamRow({
       {event.kind === "tool" && <ToolBlock event={event} />}
       {event.kind === "ask" && <AskLine event={event} />}
       {event.kind === "message" && <MessageLine event={event} />}
-      {event.kind === "note" && <NoteLine event={event} />}
+      {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
       {(event.kind === "system" || event.kind === "boot") && (
-        <SystemLine event={event} />
+        <SystemLine event={event} laneMode={laneMode} />
       )}
     </div>
   );
@@ -483,15 +616,86 @@ function StreamRow({
 
 /* ── Replay stream ── */
 
+function scrollTraceToEnd(endEl: HTMLElement | null, behavior: ScrollBehavior): void {
+  if (!endEl) return;
+
+  const scrollParent = endEl.closest(".s-observe-main") as HTMLElement | null;
+  if (scrollParent) {
+    const top = scrollParent.scrollHeight - scrollParent.clientHeight;
+    scrollParent.scrollTo({ top, left: scrollParent.scrollLeft, behavior });
+    return;
+  }
+
+  endEl.scrollIntoView({ behavior, block: "end", inline: "nearest" });
+}
+
 function ReplayStream({
   events,
   followEnd,
+  laneMode = false,
+  sessionStartMs,
+  nowMs = Date.now(),
 }: {
   events: SessionEvent[];
   followEnd: boolean;
+  laneMode?: boolean;
+  sessionStartMs?: number;
+  nowMs?: number;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const laneEventsPrimedRef = useRef(false);
+  const [enteringEventIds, setEnteringEventIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [nudgingEventIds, setNudgingEventIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [streamScrollNudge, setStreamScrollNudge] = useState(false);
+
+  const displayRows = useMemo(
+    () => (laneMode
+      ? collapseObserveDisplayRows(events)
+      : events.map((event) => ({ event, repeatCount: 1 }))),
+    [events, laneMode],
+  );
+
+  useEffect(() => {
+    if (!laneMode) {
+      laneEventsPrimedRef.current = true;
+      return;
+    }
+
+    const seen = seenEventIdsRef.current;
+    if (!laneEventsPrimedRef.current) {
+      for (const row of displayRows) seen.add(row.event.id);
+      laneEventsPrimedRef.current = true;
+      return;
+    }
+
+    const fresh: string[] = [];
+    for (const row of displayRows) {
+      if (seen.has(row.event.id)) continue;
+      seen.add(row.event.id);
+      fresh.push(row.event.id);
+    }
+    if (fresh.length === 0) return;
+
+    const freshSet = new Set(fresh);
+    setEnteringEventIds(freshSet);
+    if (followEnd) {
+      setNudgingEventIds(new Set(
+        displayRows
+          .filter((row) => !freshSet.has(row.event.id))
+          .map((row) => row.event.id),
+      ));
+      setStreamScrollNudge(true);
+    }
+
+    const timer = window.setTimeout(() => {
+      setEnteringEventIds(new Set());
+      setNudgingEventIds(new Set());
+      setStreamScrollNudge(false);
+    }, 520);
+    return () => window.clearTimeout(timer);
+  }, [displayRows, followEnd, laneMode]);
 
   useLayoutEffect(() => {
     if (!followEnd) {
@@ -500,14 +704,35 @@ function ReplayStream({
     }
     const justEnabled = !prevFollowEndRef.current;
     prevFollowEndRef.current = true;
-    endRef.current?.scrollIntoView({ behavior: justEnabled ? "instant" : "smooth" });
-  }, [events.length, followEnd]);
+    scrollTraceToEnd(
+      endRef.current,
+      justEnabled ? "instant" : "smooth",
+    );
+  }, [displayRows.length, followEnd]);
+
+  const laneNudgeStrideMs = 28;
+  const laneNudgeCapMs = 154;
 
   return (
-    <div className="s-observe-stream">
+    <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
       <div className="s-observe-spine" />
-      {events.map((e, i) => (
-        <StreamRow key={e.id} event={e} prevT={i > 0 ? events[i - 1].t : 0} />
+      {displayRows.map((row, index) => (
+        <StreamRow
+          key={`${row.event.id}:${row.repeatCount}:${index}`}
+          event={row.event}
+          prevT={index > 0 ? displayRows[index - 1]!.event.t : 0}
+          laneMode={laneMode}
+          entering={laneMode && enteringEventIds.has(row.event.id)}
+          nudging={laneMode && nudgingEventIds.has(row.event.id)}
+          repeatCount={row.repeatCount}
+          nudgeDelayMs={
+            laneMode && nudgingEventIds.has(row.event.id)
+              ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
+              : 0
+          }
+          sessionStartMs={sessionStartMs}
+          nowMs={nowMs}
+        />
       ))}
       <div ref={endRef} />
     </div>
@@ -963,26 +1188,41 @@ export function SessionObserve({
   data,
   agentId,
   sessionId,
+
   showRail = true,
+  variant = "default",
+  traceLimit,
 }: {
   data?: SessionObserveData;
   agentId?: string;
   sessionId?: string | null;
   showRail?: boolean;
+  variant?: "default" | "lane";
+  /** Lane mode: cap how many recent events render in the stream. */
+  traceLimit?: number;
 }) {
+  const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
   const { events, files } = observeData;
   const liveSession = observeData.live === true;
+  const sessionStartMs = observeData.metadata?.session?.sessionStart;
 
+  const [now, setNow] = useState(Date.now);
   const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
   useEffect(() => {
-    if (!agentId) return;
+    if (!laneMode) return;
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(timer);
+  }, [laneMode]);
+
+  useEffect(() => {
+    if (!agentId || laneMode) return;
     let cancelled = false;
     api<SessionCatalogWithResume>(`/api/agents/${encodeURIComponent(agentId)}/session-catalog`)
       .then((result) => { if (!cancelled) setCatalog(result); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [agentId]);
+  }, [agentId, laneMode]);
 
   const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
   const [cursor, setCursor] = useState(duration);
@@ -1018,7 +1258,13 @@ export function SessionObserve({
     return () => clearInterval(id);
   }, [playing, duration, speed]);
 
-  const visible = events.filter((e) => e.t <= cursor);
+  const visible = (() => {
+    const filtered = events.filter((event) => event.t <= cursor);
+    if (laneMode && traceLimit && traceLimit > 0) {
+      return filtered.slice(-traceLimit);
+    }
+    return filtered;
+  })();
   const isAtTail = isCursorAtLiveEdge(cursor, duration);
   const isFollowing = isAtTail && autoFollow;
   const isLive = liveSession && isFollowing;
@@ -1172,10 +1418,16 @@ export function SessionObserve({
   const hasSessionMetadata = hasObserveRows(sessionMeta);
 
   return (
-    <div className={`s-observe${showRail ? "" : " s-observe--content-only"}`}>
+    <div
+      className={[
+        "s-observe",
+        (!showRail || laneMode) && "s-observe--content-only",
+        laneMode && "s-observe--lane",
+      ].filter(Boolean).join(" ")}
+    >
       {/* Main timeline */}
       <main className="s-observe-main">
-        {sourcePath && (
+        {sourcePath && !laneMode && (
           <SourceFileLink
             path={sourcePath}
             basePath={sessionMeta?.cwd ?? null}
@@ -1184,13 +1436,23 @@ export function SessionObserve({
           />
         )}
         <div className="s-observe-live-sticky">
-          <FollowToggle isFollowing={isFollowing} isLive={isLive} onToggle={handleFollowToggle} />
+          <FollowToggle
+            isFollowing={isFollowing}
+            isLive={isLive}
+            onToggle={handleFollowToggle}
+          />
         </div>
-        <ReplayStream events={visible} followEnd={isFollowing} />
+        <ReplayStream
+          events={visible}
+          followEnd={isFollowing}
+          laneMode={laneMode}
+          sessionStartMs={sessionStartMs}
+          nowMs={now}
+        />
       </main>
 
       {/* Right rail */}
-      {showRail && (
+      {showRail && !laneMode && (
         <aside className="s-observe-rail">
           {catalog && catalog.sessions.length > 0 && (
           <div>
@@ -1220,8 +1482,8 @@ export function SessionObserve({
           <div className="s-observe-rail-label">Agent family</div>
           <ObservedTopologyPanel
             topology={metadata?.topology ?? null}
-            title="Internal agents"
             size="rail"
+            maxAgents={4}
           />
         </div>
 
@@ -1304,6 +1566,7 @@ export function SessionObserve({
       )}
 
       {/* Scrubber footer */}
+      {!laneMode && (
       <footer className="s-observe-scrubber">
         <button
           className="s-observe-play-btn"
@@ -1340,6 +1603,7 @@ export function SessionObserve({
           ))}
         </div>
       </footer>
+      )}
     </div>
   );
 }
