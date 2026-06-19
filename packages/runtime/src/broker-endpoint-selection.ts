@@ -1,7 +1,6 @@
 import type {
   AgentDefinition,
   AgentEndpoint,
-  AgentState,
   ScoutCandidateEndpointState,
 } from "@openscout/protocol";
 
@@ -43,7 +42,17 @@ export function endpointLifecycleAt(endpoint: AgentEndpoint): number {
   return Math.max(endpointStartedAt(endpoint), endpointTerminalAt(endpoint));
 }
 
-type EndpointStateLike = AgentState | undefined;
+export type EndpointStateLike =
+  | AgentEndpoint["state"]
+  | "working"
+  | "registered"
+  | "attaching"
+  | "waking"
+  | "unreachable"
+  | "failed"
+  | "superseded"
+  | "stopped"
+  | undefined;
 
 export function isEndpointOnlineState(state: EndpointStateLike): boolean {
   return state === "active" || state === "idle" || state === "waiting" || state === "working";
@@ -250,8 +259,10 @@ function homeEndpointStateRank(state: EndpointStateLike): number {
 }
 
 function compareHomeEndpointPreference(left: AgentEndpoint, right: AgentEndpoint): number {
-  if (left.preferred !== right.preferred) {
-    return left.preferred ? -1 : 1;
+  const leftPreferred = left.metadata?.preferred === true;
+  const rightPreferred = right.metadata?.preferred === true;
+  if (leftPreferred !== rightPreferred) {
+    return leftPreferred ? -1 : 1;
   }
   const stateDelta = homeEndpointStateRank(left.state) - homeEndpointStateRank(right.state);
   if (stateDelta !== 0) {

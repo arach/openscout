@@ -57,10 +57,15 @@ function endpoint(input: Partial<AgentEndpoint> = {}): AgentEndpoint {
 describe("broker endpoint selection", () => {
   test("classifies endpoint candidate states and availability scores", () => {
     expect(endpointCandidateState("active")).toBe("online");
+    expect(endpointCandidateState("working")).toBe("online");
     expect(endpointCandidateState("idle")).toBe("online");
     expect(endpointCandidateState("waiting")).toBe("online");
     expect(endpointCandidateState("offline")).toBe("offline");
+    expect(endpointCandidateState("failed")).toBe("offline");
     expect(endpointCandidateState(undefined)).toBe("unknown");
+    expect(endpointAvailabilityScore({ state: "working" })).toBeGreaterThan(
+      endpointAvailabilityScore(endpoint({ state: "idle" })),
+    );
     expect(endpointAvailabilityScore(endpoint({ state: "active" }))).toBeGreaterThan(
       endpointAvailabilityScore(endpoint({ state: "idle" })),
     );
@@ -109,7 +114,7 @@ describe("broker endpoint selection", () => {
       },
       endpoints: {
         active: endpoint({ id: "active", state: "active", metadata: { lastStartedAt: 5_000 } }),
-        idle: endpoint({ id: "idle", state: "idle", metadata: { lastStartedAt: 10_000 } }),
+        idle: endpoint({ id: "idle", state: "idle", metadata: { preferred: true, lastStartedAt: 10_000 } }),
         stale: endpoint({
           id: "stale",
           agentId: "agent-1",
@@ -120,7 +125,7 @@ describe("broker endpoint selection", () => {
       },
     });
 
-    expect(homeEndpointForAgent(snapshot, "agent-1")?.id).toBe("active");
+    expect(homeEndpointForAgent(snapshot, "agent-1")?.id).toBe("idle");
     expect(latestEndpointForAgent(snapshot, "agent-1")?.id).toBe("stale");
     expect(isInactiveLocalAgent(snapshot.agents.stale)).toBe(true);
     expect(isStaleLocalEndpoint(snapshot, snapshot.endpoints["stale-agent-endpoint"])).toBe(true);
