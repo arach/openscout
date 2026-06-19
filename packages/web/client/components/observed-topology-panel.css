@@ -13,16 +13,18 @@
 }
 
 .s-observed-topology-rail-summary {
-  margin-bottom: var(--space-sm);
+  margin-bottom: var(--space-md);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--dim);
+  font-size: var(--text-2xs);
+  font-variant: small-caps;
+  letter-spacing: var(--tracking-sm);
+  color: color-mix(in srgb, var(--dim) 84%, transparent);
   line-height: var(--leading-tight);
 }
 
 .s-observed-topology-rail-list {
   display: grid;
-  gap: var(--space-2xs);
+  gap: var(--space-3xs);
 }
 
 .s-observed-topology-rail-row {
@@ -31,7 +33,7 @@
   align-items: center;
   gap: var(--space-sm);
   min-width: 0;
-  padding: var(--space-2xs) 0;
+  padding: var(--space-xs) 0;
   border-radius: var(--radius-sm);
   cursor: default;
 }
@@ -393,8 +395,24 @@
   display: none;
 }
 
+.s-observed-topology--rail .s-observed-topology-agent-list {
+  gap: var(--space-sm);
+}
+
 .s-observed-topology--rail .s-observed-topology-agent-main {
-  grid-template-columns: 62px minmax(0, 1fr);
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+
+.s-observed-topology--rail .s-observed-topology-agent-role {
+  max-width: 54px;
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  background: transparent;
+}
+
+.s-observed-topology--rail .s-observed-topology-agent-name {
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .s-observed-topology--rail .s-observed-topology-workflow-main {

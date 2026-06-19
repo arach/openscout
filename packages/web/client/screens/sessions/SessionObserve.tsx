@@ -84,6 +84,8 @@ type ObserveDetailTone = "default" | "accent" | "good" | "warn";
 type ObserveDetailRow = {
   label: string;
   value: string;
+  /** Optional shortened render (e.g. a path basename); copy + tooltip keep `value`. */
+  display?: string;
   title?: string;
   tone?: ObserveDetailTone;
   wrap?: boolean;
@@ -822,13 +824,20 @@ function StatCard({
   value: string;
   detail?: string;
 }) {
+  // Zero / unavailable stats recede so the cards with real signal lead the eye.
+  const isQuiet = value === "0" || value === "—" || value === "";
   return (
-    <div className="s-observe-stat">
-      <div className="s-observe-stat-label">{label}</div>
+    <div className={`s-observe-stat${isQuiet ? " s-observe-stat--quiet" : ""}`}>
       <div className="s-observe-stat-value">{value}</div>
+      <div className="s-observe-stat-label">{label}</div>
       {detail && <div className="s-observe-stat-detail">{detail}</div>}
     </div>
   );
+}
+
+/** Unified, calm empty-state line for rail sections with no captured data. */
+function RailEmpty({ children = "Not captured for this session" }: { children?: ReactNode }) {
+  return <div className="s-observe-empty">{children}</div>;
 }
 
 function LocalPathLink({
@@ -919,6 +928,7 @@ function DetailRows({
     <div className="s-observe-detail-list">
       {rows.map((row) => {
         const valueClassName = `s-observe-detail-value s-observe-detail-value--${row.tone ?? "default"}${row.wrap ? " s-observe-detail-value--wrap" : ""}`;
+        const shown = row.display ?? row.value;
         return (
           <div key={row.label} className="s-observe-detail-row">
             <div className="s-observe-detail-label">{row.label}</div>
@@ -931,14 +941,14 @@ function DetailRows({
                   sessionId={sessionId}
                   className={`${valueClassName} s-observe-detail-link`}
                 >
-                  {row.value}
+                  {shown}
                 </LocalPathLink>
               ) : (
                 <div
                   className={valueClassName}
-                  title={row.title}
+                  title={row.title ?? (shown !== row.value ? row.value : undefined)}
                 >
-                  {row.value}
+                  {shown}
                 </div>
               )}
               <CopyButton
@@ -1367,8 +1377,8 @@ export function SessionObserve({
       ? {
           label: "Workspace",
           value: sessionMeta.cwd,
+          display: basename(sessionMeta.cwd),
           title: sessionMeta.cwd,
-          wrap: true,
           actionPath: sessionMeta.cwd,
         }
       : null,
@@ -1387,7 +1397,6 @@ export function SessionObserve({
           label: "External session",
           value: sessionMeta.externalSessionId,
           title: sessionMeta.externalSessionId,
-          wrap: true,
         }
       : null,
     sessionMeta?.threadId
@@ -1395,15 +1404,14 @@ export function SessionObserve({
           label: "Thread",
           value: sessionMeta.threadId,
           title: sessionMeta.threadId,
-          wrap: true,
         }
       : null,
     sessionMeta?.threadPath
       ? {
           label: "Thread path",
           value: sessionMeta.threadPath,
+          display: basename(sessionMeta.threadPath),
           title: sessionMeta.threadPath,
-          wrap: true,
           actionPath: sessionMeta.threadPath,
           actionBasePath: sessionMeta.cwd ?? null,
         }
@@ -1490,16 +1498,14 @@ export function SessionObserve({
             <>
               <ContextMeter data={contextUsage} cursor={cursor / duration} />
               <div className="s-observe-ctx-detail">
-                Sparkline shows derived session load across the observed trace.
+                Derived session load across the observed trace.
               </div>
             </>
           ) : windowRows.length === 0 ? (
-            <div className="s-observe-ctx-detail">
-              Unavailable for this session
-            </div>
+            <RailEmpty />
           ) : (
             <div className="s-observe-ctx-detail">
-              Exact window metadata is available, but no derived load trace was captured.
+              No derived load trace captured.
             </div>
           )}
         </div>
@@ -1545,8 +1551,8 @@ export function SessionObserve({
           )}
           {usageRows.length > 0 ? (
             <DetailRows rows={usageRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
-          ) : !hasUsageMetadata ? (
-            <div className="s-observe-ctx-detail">Unavailable for this session</div>
+          ) : !hasUsageMetadata && usageStatCards.length === 0 ? (
+            <RailEmpty />
           ) : null}
         </div>
 
@@ -1555,7 +1561,7 @@ export function SessionObserve({
           {metadataRows.length > 0 ? (
             <DetailRows rows={metadataRows} agentId={agentId ?? null} sessionId={sessionId ?? null} />
           ) : !hasSessionMetadata ? (
-            <div className="s-observe-ctx-detail">Unavailable for this session</div>
+            <RailEmpty />
           ) : null}
         </div>
         </aside>

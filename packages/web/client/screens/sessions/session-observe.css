@@ -968,20 +968,46 @@
 }
 
 .s-observe-rail-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  letter-spacing: var(--tracking-lg);
-  text-transform: uppercase;
-  color: var(--dim);
+  font-variant: small-caps;
+  font-weight: 500;
+  letter-spacing: var(--tracking-sm);
+  text-transform: none;
+  color: color-mix(in srgb, var(--muted) 62%, var(--dim));
   margin-bottom: var(--space-md);
 }
 
 .s-observe-ctx-detail {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--dim);
-  margin-top: var(--space-xs);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--dim) 86%, transparent);
+  margin-top: var(--space-sm);
   line-height: var(--leading-normal);
+}
+
+/* ── Unified empty state ── */
+
+.s-observe-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: color-mix(in srgb, var(--dim) 78%, transparent);
+}
+
+.s-observe-empty::before {
+  content: "";
+  flex-shrink: 0;
+  width: 12px;
+  height: 1px;
+  background: color-mix(in srgb, var(--dim) 45%, transparent);
 }
 
 .s-observe-detail-list {
@@ -1013,8 +1039,8 @@
 
 .s-observe-detail-value-wrap {
   display: flex;
-  align-items: start;
-  gap: var(--space-xs);
+  align-items: center;
+  gap: var(--space-sm);
   min-width: 0;
   justify-content: end;
 }
@@ -1041,9 +1067,11 @@
 
 .s-observe-detail-label {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  letter-spacing: var(--tracking-md);
-  text-transform: uppercase;
+  font-size: var(--text-2xs);
+  font-variant: small-caps;
+  letter-spacing: var(--tracking-sm);
+  text-transform: none;
+  line-height: var(--leading-snug);
   color: var(--dim);
 }
 
@@ -1187,7 +1215,7 @@
 .s-observe-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-md);
+  gap: var(--space-sm);
 }
 
 .s-observe-stats--usage {
@@ -1195,36 +1223,52 @@
 }
 
 .s-observe-stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
   padding: var(--space-md) var(--space-lg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
+  border-radius: var(--radius-lg);
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 6%, transparent), transparent 36%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, transparent), color-mix(in srgb, var(--surface) 98%, var(--bg)));
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 5%, transparent), transparent 42%),
+    color-mix(in srgb, var(--surface) 92%, var(--bg));
   box-shadow:
     inset 0 1px 0 color-mix(in srgb, white 4%, transparent),
-    0 8px 18px -18px color-mix(in srgb, black 70%, transparent);
+    0 6px 16px -20px color-mix(in srgb, black 70%, transparent);
 }
 
-.s-observe-stat-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  letter-spacing: var(--tracking-lg);
-  text-transform: uppercase;
-  color: var(--dim);
-  margin-bottom: var(--space-2xs);
+/* Quiet (zero / unavailable) cards recede to a flat, near-borderless wash so
+ * the stats with real signal carry the hierarchy. */
+.s-observe-stat--quiet {
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+  border-color: color-mix(in srgb, var(--border) 48%, transparent);
+  box-shadow: none;
 }
 
 .s-observe-stat-value {
   font-family: var(--font-accent-title);
   font-size: var(--text-4xl);
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
   line-height: var(--leading-none);
   color: var(--ink);
 }
 
+.s-observe-stat--quiet .s-observe-stat-value {
+  color: color-mix(in srgb, var(--dim) 70%, transparent);
+}
+
+.s-observe-stat-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant: small-caps;
+  letter-spacing: var(--tracking-sm);
+  text-transform: none;
+  color: var(--dim);
+}
+
 .s-observe-stat-detail {
-  margin-top: var(--space-xs);
+  margin-top: var(--space-2xs);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: var(--leading-snug);
