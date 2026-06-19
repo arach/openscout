@@ -42,19 +42,20 @@ function basename(path: string): string {
 }
 
 function previewHeadline(event: ObserveEvent): string {
+  const text = event.text?.trim();
   switch (event.kind) {
     case "tool":
       return [event.tool, event.arg].filter(Boolean).join(" ").trim() || "Running tool";
     case "think":
-      return "Thinking";
+      return text?.slice(0, 72) || "Thinking";
     case "ask":
-      return `Ask → ${event.to ?? "operator"}`;
+      return text?.slice(0, 72) || `Ask → ${event.to ?? "operator"}`;
     case "message":
-      return `Message → ${event.to ?? "operator"}`;
+      return text?.slice(0, 72) || `Message → ${event.to ?? "operator"}`;
     case "note":
-      return "Note";
+      return text?.slice(0, 72) || "Turn update";
     default:
-      return event.kind;
+      return text?.slice(0, 72) || event.kind;
   }
 }
 

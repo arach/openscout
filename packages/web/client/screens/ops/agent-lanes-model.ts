@@ -1,6 +1,8 @@
 import type { ObserveCacheEntry } from "../../lib/observe.ts";
 import {
   filterTailEventsForDisplay,
+  observeKindFromTailEvent,
+  observeTextFromTailEvent,
   observeToolFieldsFromTailEvent,
   tailObserveEventDetail,
 } from "../../lib/tail-display.ts";
@@ -113,22 +115,6 @@ export function nativeSessionId(transcript: TailDiscoveredTranscript): string {
   return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
 }
 
-function tailEventKindToObserveKind(kind: TailEvent["kind"]): ObserveEvent["kind"] {
-  switch (kind) {
-    case "assistant":
-      return "message";
-    case "tool":
-    case "tool-result":
-      return "tool";
-    case "user":
-      return "ask";
-    case "system":
-      return "system";
-    default:
-      return "note";
-  }
-}
-
 /** Build lane observe data from the tail firehose (wall-clock timestamps). */
 export function observeDataFromTail(
   transcript: TailDiscoveredTranscript,
@@ -146,8 +132,8 @@ export function observeDataFromTail(
     return {
       id: event.id,
       t: Math.max(0, Math.round((event.ts - sessionStart) / 1000)),
-      kind: tailEventKindToObserveKind(event.kind),
-      text: event.summary,
+      kind: observeKindFromTailEvent(event),
+      text: observeTextFromTailEvent(event, toolFields),
       tool: toolFields.tool,
       arg: toolFields.arg,
       result: toolFields.result,
@@ -374,6 +360,24 @@ function isSubstantiveTailEvent(event: TailEvent): boolean {
   if (event.source === "cursor") {
     return event.summary.startsWith("process sample");
   }
+  if (event.source === "codex") {
+    const summary = event.summary.trim().toLowerCase();
+    if (summary === "task started"
+      || summary === "task complete"
+      || summary.startsWith("turn aborted")) {
+      return true;
+    }
+    const raw = event.raw;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      const payload = (raw as Record<string, unknown>).payload;
+      if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+        const payloadType = (payload as Record<string, unknown>).type;
+        if (payloadType === "reasoning" && summary !== "[reasoning]") {
+          return true;
+        }
+      }
+    }
+  }
   return false;
 }
 
@@ -388,14 +392,65 @@ function hasRecentSubstantiveTailEvents(
   });
 }
 
+function normalizeTailSessionRef(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  const leaf = trimmed.split("/").pop() ?? trimmed;
+  return leaf.endsWith(".jsonl") ? leaf.slice(0, -".jsonl".length) : leaf;
+}
+
+function tailSessionRefsForTranscript(
+  transcript: TailDiscoveredTranscript,
+): string[] {
+  const refs = new Set<string>();
+  for (const candidate of [
+    transcript.sessionId,
+    transcript.transcriptPath,
+    normalizeTailSessionRef(transcript.sessionId),
+    normalizeTailSessionRef(transcript.transcriptPath),
+  ]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) refs.add(trimmed);
+  }
+  return [...refs];
+}
+
+function tailEventsForTranscript(
+  transcript: TailDiscoveredTranscript,
+  eventsBySession: Map<string, TailEvent[]>,
+): TailEvent[] {
+  const refs = tailSessionRefsForTranscript(transcript);
+  const seen = new Set<string>();
+  const events: TailEvent[] = [];
+  for (const ref of refs) {
+    for (const event of eventsBySession.get(ref) ?? []) {
+      if (seen.has(event.id)) continue;
+      seen.add(event.id);
+      events.push(event);
+    }
+  }
+  return events;
+}
+
+function scoutAgentForTranscript(
+  transcript: TailDiscoveredTranscript,
+  scoutBySession: Map<string, Agent>,
+): Agent | undefined {
+  for (const ref of tailSessionRefsForTranscript(transcript)) {
+    const agent = scoutBySession.get(ref);
+    if (agent) return agent;
+  }
+  return undefined;
+}
+
 function sessionSubstantiveLastActiveAt(
   sessionId: string | null | undefined,
   eventsBySession: Map<string, TailEvent[]>,
+  transcript?: TailDiscoveredTranscript,
 ): number {
-  const normalized = sessionId?.trim();
-  if (!normalized) return 0;
-
-  const events = eventsBySession.get(normalized) ?? [];
+  const events = transcript
+    ? tailEventsForTranscript(transcript, eventsBySession)
+    : (sessionId?.trim() ? eventsBySession.get(sessionId.trim()) ?? [] : []);
   let latest = 0;
   for (const event of events) {
     if (!isSubstantiveTailEvent(event)) continue;
@@ -524,23 +579,23 @@ export function buildAgentLanes(input: {
   const scoutBySession = new Map<string, Agent>();
   for (const agent of scoutAgents) {
     const sessionId = agent.harnessSessionId?.trim();
-    if (!sessionId || scoutBySession.has(sessionId)) continue;
-    scoutBySession.set(sessionId, agent);
+    if (!sessionId) continue;
+    for (const ref of [sessionId, normalizeTailSessionRef(sessionId)].filter((value): value is string => Boolean(value))) {
+      if (!scoutBySession.has(ref)) scoutBySession.set(ref, agent);
+    }
   }
 
   // Tail-first: transcripts + live events drive lane roster.
   for (const transcript of transcripts) {
-    const attribution = resolveTranscriptAttribution(transcript, processes);
-    if (attribution === "scout-managed" || attribution === "hudson-managed") continue;
     const sessionId = transcript.sessionId?.trim();
-    const events = sessionId ? eventsBySession.get(sessionId) ?? [] : [];
-    const lastActiveAt = sessionSubstantiveLastActiveAt(sessionId, eventsBySession);
+    const events = tailEventsForTranscript(transcript, eventsBySession);
+    const lastActiveAt = sessionSubstantiveLastActiveAt(sessionId, eventsBySession, transcript);
     const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
     if (!current || !hasNativeLaneWorkingSignal(events, now, windowMs)) {
       continue;
     }
 
-    const scoutAgent = sessionId ? scoutBySession.get(sessionId) : undefined;
+    const scoutAgent = scoutAgentForTranscript(transcript, scoutBySession);
     const observe = observeDataFromTail(transcript, events, current);
     const sessionSubstantiveAt = lastActiveAt;
 
@@ -558,7 +613,7 @@ export function buildAgentLanes(input: {
       }
       lanes.push(lane);
       seenIds.add(scoutAgent.id);
-      if (sessionId) claimedSessionIds.add(sessionId);
+      for (const ref of tailSessionRefsForTranscript(transcript)) claimedSessionIds.add(ref);
       continue;
     }
 
@@ -575,7 +630,7 @@ export function buildAgentLanes(input: {
       current,
     });
     seenIds.add(laneId);
-    if (sessionId) claimedSessionIds.add(sessionId);
+    for (const ref of tailSessionRefsForTranscript(transcript)) claimedSessionIds.add(ref);
   }
 
   // Broker-only lanes: in-flight scout agents without a tail transcript match.

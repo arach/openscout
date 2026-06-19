@@ -41,6 +41,7 @@ type ReposView = "table" | "drift";
 const VIEW_KEY = "openscout.repos.view";
 const VIEWS: readonly ReposView[] = ["table", "drift"];
 type RepoWatchScanDepth = "standard" | "expanded";
+const DIFF_WARMUP_LIMIT = 12;
 
 function repoWatchUrl(depth: RepoWatchScanDepth, force: boolean): string {
   const params = new URLSearchParams({
@@ -173,6 +174,12 @@ function findById(
   return { worktree: null, project: null };
 }
 
+function shortstatFiles(shortstat: string | null): number {
+  if (!shortstat) return 0;
+  const match = /(\d+)\s+files?\s+changed/.exec(shortstat);
+  return match ? Number(match[1]) : 0;
+}
+
 function prefetchWorktreePaths(
   snapshot: RepoWatchSnapshot,
   selectedId: string | null,
@@ -188,15 +195,25 @@ function prefetchWorktreePaths(
       const liveAgents = wt.agents.filter(
         (a) => (a.state ?? "").toLowerCase() === "active",
       ).length;
-      if (dirty === 0 && liveAgents === 0) continue;
+      const branchFiles = shortstatFiles(wt.diff.branchShortstat);
+      const workingFiles = Math.max(
+        wt.status.changedFiles,
+        shortstatFiles(wt.diff.stagedShortstat) + shortstatFiles(wt.diff.unstagedShortstat),
+      );
+      const drift = wt.branch.ahead + wt.branch.behind;
+      const attached = liveAgents + wt.sessions.length;
+      if (dirty === 0 && attached === 0 && branchFiles === 0 && drift === 0) continue;
       scored.push({
         path: wt.path,
         score:
           (wt.id === selectedId ? 10_000_000 : 0) +
           (4 - attentionRank(wt.attention)) * 100_000 +
           liveAgents * 10_000 +
+          wt.sessions.length * 5_000 +
+          drift * 1_000 +
+          branchFiles * 250 +
           dirty * 100 +
-          wt.status.changedFiles,
+          workingFiles,
       });
     }
   }
@@ -384,7 +401,11 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
 
   useEffect(() => {
     if (!snapshot || snapshot.projects.length === 0) return;
-    prefetchRepoDiffSnapshots(prefetchWorktreePaths(snapshot, selectedId));
+    prefetchRepoDiffSnapshots(
+      prefetchWorktreePaths(snapshot, selectedId),
+      undefined,
+      { limit: DIFF_WARMUP_LIMIT },
+    );
   }, [snapshot, selectedId]);
 
   const selection = useMemo(

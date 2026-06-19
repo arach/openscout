@@ -1,4 +1,4 @@
-import type { TailAttribution, TailEvent } from "./types.ts";
+import type { ObserveEvent, TailAttribution, TailEvent } from "./types.ts";
 
 /** Consumer-side tail presentation policy — the firehose stays complete upstream. */
 export type TailDisplayMode = "work" | "all";
@@ -11,17 +11,51 @@ const GROK_STREAMING_PHASES = new Set([
   "permission_prompt",
 ]);
 
-export function isTailNoiseEvent(event: TailEvent): boolean {
-  if (event.source !== "grok") return false;
+function codexPayloadType(event: TailEvent): string | null {
+  const raw = event.raw;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const payload = (raw as Record<string, unknown>).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const type = (payload as Record<string, unknown>).type;
+  return typeof type === "string" ? type : null;
+}
 
-  const summary = event.summary.trim().toLowerCase();
-  if (summary === "first token" || summary.startsWith("loop ")) {
-    return true;
+function isCodexChunkToolResult(summary: string): boolean {
+  const trimmed = summary.trim();
+  return trimmed.startsWith("-> Chunk ID:")
+    || /^->\s+Wall time:/u.test(trimmed);
+}
+
+export function isTailNoiseEvent(event: TailEvent): boolean {
+  if (event.source === "grok") {
+    const summary = event.summary.trim().toLowerCase();
+    if (summary === "first token" || summary.startsWith("loop ")) {
+      return true;
+    }
+
+    if (!summary.startsWith("phase ·")) return false;
+    const phase = summary.slice("phase ·".length).trim();
+    return GROK_STREAMING_PHASES.has(phase);
   }
 
-  if (!summary.startsWith("phase ·")) return false;
-  const phase = summary.slice("phase ·".length).trim();
-  return GROK_STREAMING_PHASES.has(phase);
+  if (event.source !== "codex") return false;
+
+  if (event.kind === "tool-result") {
+    const summary = event.summary.trim();
+    if (isCodexChunkToolResult(summary)) return true;
+    if (/_end ·/u.test(summary)) return true;
+    if (summary.startsWith("->")) return true;
+  }
+
+  if (event.kind !== "system") return false;
+
+  const summary = event.summary.trim().toLowerCase();
+  if (summary === "user_message" || summary === "agent_message") return true;
+  if (summary === "[reasoning]") return true;
+  if (summary.startsWith("turn context")) return true;
+  if (summary.startsWith("tokens ·")) return true;
+  if (summary.startsWith("session ")) return true;
+  return false;
 }
 
 export function tailDisplayModeLabel(mode: TailDisplayMode): string {
@@ -84,12 +118,117 @@ export function observeToolName(tool: string | undefined): string {
 }
 
 export function observeToolIsRead(tool: string | undefined): boolean {
-  return observeToolName(tool) === "read";
+  const name = observeToolName(tool);
+  return name === "read" || name === "read_file";
 }
 
 export function observeToolIsEdit(tool: string | undefined): boolean {
   const name = observeToolName(tool);
-  return name === "edit" || name === "write";
+  return name === "edit"
+    || name === "write"
+    || name === "patch"
+    || name === "apply_patch";
+}
+
+const CODEX_FRIENDLY_TOOL_NAMES: Record<string, string> = {
+  exec_command: "Shell",
+  apply_patch: "Edit",
+  patch_apply: "Edit",
+  read_file: "Read",
+  write_stdin: "Shell",
+  web_search: "Search",
+};
+
+function parseCodexToolArguments(rawArg: string | undefined): Record<string, unknown> | null {
+  if (!rawArg?.trim()) return null;
+  try {
+    const parsed = JSON.parse(rawArg) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function codexCommandFromArguments(args: Record<string, unknown> | null): string | undefined {
+  if (!args) return undefined;
+  if (typeof args.cmd === "string" && args.cmd.trim()) return args.cmd.trim();
+  if (typeof args.command === "string" && args.command.trim()) return args.command.trim();
+  if (Array.isArray(args.command)) {
+    return args.command.filter((part) => typeof part === "string").join(" ").trim() || undefined;
+  }
+  return undefined;
+}
+
+function codexCommandFromRawArg(rawArg: string | undefined): string | undefined {
+  const fromJson = codexCommandFromArguments(parseCodexToolArguments(rawArg));
+  if (fromJson) return fromJson;
+  if (!rawArg?.trim()) return undefined;
+
+  const cmdMatch = rawArg.match(/"cmd"\s*:\s*"((?:\\.|[^"\\])*)"/u);
+  if (cmdMatch?.[1]) {
+    return cmdMatch[1]
+      .replace(/\\n/gu, "\n")
+      .replace(/\\t/gu, "\t")
+      .replace(/\\"/gu, "\"")
+      .replace(/\\\\/gu, "\\")
+      .trim();
+  }
+  return undefined;
+}
+
+function codexFriendlyToolName(name: string): string {
+  return CODEX_FRIENDLY_TOOL_NAMES[name] ?? name;
+}
+
+export function observeKindFromTailEvent(event: TailEvent): ObserveEvent["kind"] {
+  if (event.source === "codex") {
+    if (event.kind === "system") {
+      const summary = event.summary.trim().toLowerCase();
+      if (summary === "task started" || summary === "task complete" || summary.startsWith("turn aborted")) {
+        return "note";
+      }
+      if (codexPayloadType(event) === "reasoning" && summary !== "[reasoning]") {
+        return "think";
+      }
+    }
+  }
+
+  switch (event.kind) {
+    case "assistant":
+      return "message";
+    case "tool":
+    case "tool-result":
+      return "tool";
+    case "user":
+      return "ask";
+    case "system":
+      return "system";
+    default:
+      return "note";
+  }
+}
+
+export function observeTextFromTailEvent(
+  event: TailEvent,
+  toolFields: TailObserveToolFields,
+): string {
+  if (event.kind === "tool" || event.kind === "tool-result") {
+    if (toolFields.tool && toolFields.arg) {
+      return `${toolFields.tool} · ${toolFields.arg}`;
+    }
+    if (toolFields.tool) return toolFields.tool;
+  }
+
+  if (event.source === "codex" && event.kind === "system") {
+    const summary = event.summary.trim().toLowerCase();
+    if (summary === "task started") return "Turn started";
+    if (summary === "task complete") return "Turn complete";
+    if (summary.startsWith("turn aborted")) return event.summary.trim();
+  }
+
+  return event.summary;
 }
 
 /** Map a tail tool line into observe tool/arg/result fields for lane and mission traces. */
@@ -118,7 +257,40 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
     }
   }
 
-  const fnCall = summary.match(CODEX_TOOL_CALL);
+  if (event.source === "codex") {
+    const lifecycle = summary.match(/^([A-Za-z_][\w.-]*)_(?:start|end) · (.+)$/);
+    if (lifecycle?.[1] && lifecycle[2]) {
+      const tool = codexFriendlyToolName(lifecycle[1]);
+      const arg = lifecycle[2].trim();
+      const fields: TailObserveToolFields = {
+        tool,
+        arg: event.kind === "tool-result" ? "completed" : arg,
+      };
+      if (event.kind === "tool-result") {
+        fields.result = { outcome: /error|failed/u.test(arg) ? "error" : "success" };
+      }
+      return fields;
+    }
+
+    const fnCall = summary.match(CODEX_TOOL_CALL)
+      ?? summary.match(/^([A-Za-z_][\w.-]*)\((.*)$/s);
+    if (fnCall?.[1]) {
+      const rawName = fnCall[1];
+      const rawArg = fnCall[2]?.trim();
+      const command = codexCommandFromRawArg(rawArg);
+      const tool = codexFriendlyToolName(rawName);
+      if (command) {
+        return { tool, arg: command };
+      }
+      if (rawName === "apply_patch" || rawName === "patch_apply") {
+        return { tool, arg: "patch" };
+      }
+      return { tool, arg: rawArg || undefined };
+    }
+  }
+
+  const fnCall = summary.match(CODEX_TOOL_CALL)
+    ?? summary.match(/^([A-Za-z_][\w.-]*)\((.*)$/s);
   if (fnCall?.[1]) {
     return { tool: fnCall[1], arg: fnCall[2]?.trim() || undefined };
   }

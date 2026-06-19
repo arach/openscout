@@ -50,6 +50,16 @@ const PLAN_STEP_LABELS: Record<PlanDocumentStepStatus, string> = {
   unknown: "step",
 };
 
+const OPS_MODE_LABELS: Record<OpsMode, string> = {
+  mission: "Control",
+  plan: "Plans",
+  issues: "Alerts",
+  tail: "Tail",
+  atop: "Runtime",
+  agents: "Agents",
+  lanes: "Lanes",
+};
+
 const PLAN_STEP_MARKERS: Record<PlanDocumentStepStatus, string> = {
   blocked: "!",
   completed: "x",

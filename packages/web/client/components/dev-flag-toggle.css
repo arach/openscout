@@ -1,0 +1,70 @@
+.scout-dev-flag {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.scout-dev-flag-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-sm));
+  z-index: 91;
+  width: 13rem;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface) 78%, transparent),
+      color-mix(in srgb, var(--bg) 90%, transparent)
+    );
+  box-shadow: 0 18px 48px -20px color-mix(in srgb, var(--bg) 70%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+.scout-dev-flag-menu-head {
+  padding: var(--space-md) var(--space-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.scout-dev-flag-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-sm);
+  border: 0;
+  background: transparent;
+  padding: var(--space-md) var(--space-lg);
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.scout-dev-flag-menu-item:hover {
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+}
+
+.scout-dev-flag-menu-item--muted {
+  color: var(--dim);
+}
+
+.scout-dev-flag-menu-item--muted:hover {
+  color: var(--muted);
+}
+
+.scout-dev-flag-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  cursor: default;
+  background: transparent;
+}

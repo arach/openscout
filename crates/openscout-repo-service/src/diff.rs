@@ -432,7 +432,19 @@ fn build_layer(
         files.truncate(limits.max_files);
     }
 
-    let patch_oid = fnv1a_128_hex(&command, patch_text.as_deref().unwrap_or("").as_bytes());
+    let patch_oid = if let Some(text) = patch_text.as_deref() {
+        fnv1a_128_hex(&command, text.as_bytes())
+    } else {
+        let mut identity = Vec::new();
+        identity.extend_from_slice(&raw_bytes);
+        identity.push(0);
+        identity.extend_from_slice(&numstat_bytes);
+        identity.push(0);
+        if let Some(shortstat) = shortstat.as_deref() {
+            identity.extend_from_slice(shortstat.as_bytes());
+        }
+        fnv1a_128_hex(&command, &identity)
+    };
 
     Some(RepoDiffLayer {
         kind,

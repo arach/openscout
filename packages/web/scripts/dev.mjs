@@ -709,6 +709,11 @@ if (edgeEnabled) {
   env.OPENSCOUT_WEB_VITE_HMR_PROTOCOL = edgeHmrScheme === "https" ? "wss" : "ws";
   env.OPENSCOUT_WEB_VITE_HMR_CLIENT_PORT = portLabel(edgeHmrClientPort);
 }
+if (!process.env.OPENSCOUT_WEB_FLAG_BUNDLE?.trim()
+  && !process.env.OPENSCOUT_WEB_EXPERIENCE?.trim()
+  && !process.env.OPENSCOUT_WEB_AB_VARIANT?.trim()) {
+  env.OPENSCOUT_WEB_FLAG_BUNDLE = "max-pro";
+}
 if (edgePublicOrigin && !process.env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim()) {
   env.OPENSCOUT_WEB_PUBLIC_ORIGIN = edgePublicOrigin;
 }

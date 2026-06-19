@@ -11,6 +11,11 @@ import {
 } from "react";
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
+import {
+  collapseTailDisplayRows,
+  isTailNoiseEvent,
+  type TailDisplayMode,
+} from "../../lib/tail-display.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -25,6 +30,7 @@ const BUFFER_LIMIT = 5_000;
 const DEFAULT_RECENT_LIMIT = 500;
 const RATE_WINDOW_MS = 5_000;
 const DISCOVERY_REFRESH_MS = 30_000;
+const DISPLAY_MODE_STORAGE_KEY = "openscout:tail-display-mode";
 
 const KIND_GLYPH: Record<TailEventKind, string> = {
   user: ">",
@@ -104,8 +110,18 @@ function shortSession(sessionId: string): string {
   return head.slice(0, 8);
 }
 
-function tailRowKey(event: TailEvent, index: number): string {
-  return `${event.id}:${event.ts}:${index}`;
+function tailRowKey(event: TailEvent, index: number, repeatCount = 1): string {
+  return `${event.id}:${event.ts}:${repeatCount}:${index}`;
+}
+
+function readStoredDisplayMode(): TailDisplayMode {
+  try {
+    const stored = sessionStorage.getItem(DISPLAY_MODE_STORAGE_KEY);
+    if (stored === "work" || stored === "all") return stored;
+  } catch {
+    // ignore storage failures
+  }
+  return "work";
 }
 
 const ERROR_TEXT_RE = /\b(error|failed|failure|exception|panic|timeout|timed out|refused|crash|fatal|non[- ]?zero|exit(?:ed)? with code [1-9])\b/i;
@@ -330,6 +346,7 @@ export function TailView({
   const [pendingCount, setPendingCount] = useState(0);
   const [rate, setRate] = useState(0);
   const [selected, setSelected] = useState<TailEvent | null>(null);
+  const [displayMode, setDisplayMode] = useState<TailDisplayMode>(readStoredDisplayMode);
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
@@ -352,6 +369,14 @@ export function TailView({
     setFilter(initialFilter ?? "");
     setFilterOpen(Boolean(initialFilter) && !embedded);
   }, [embedded, initialFilter]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(DISPLAY_MODE_STORAGE_KEY, displayMode);
+    } catch {
+      // ignore storage failures
+    }
+  }, [displayMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -429,6 +454,15 @@ export function TailView({
     });
   }, [classifiedEvents, filter, filterScope, issueFilter, issueMode]);
 
+  const displayRows = useMemo(() => {
+    const narrowed = filtered.filter(({ event }) =>
+      displayMode === "all" || !isTailNoiseEvent(event),
+    );
+    return collapseTailDisplayRows(
+      narrowed.map((row) => ({ event: row.event, meta: row.severity })),
+    );
+  }, [displayMode, filtered]);
+
   // Auto-scroll-to-bottom unless paused.
   useLayoutEffect(() => {
     const body = bodyRef.current;
@@ -438,7 +472,7 @@ export function TailView({
       return;
     }
     body.scrollTop = body.scrollHeight;
-  }, [filtered, paused]);
+  }, [displayRows, paused]);
 
   // Detect manual scroll-up to engage pause.
   const handleScroll = useCallback(() => {
@@ -530,6 +564,33 @@ export function TailView({
             <strong>{rate.toFixed(1)}</strong> lines/s
           </span>
         </span>
+        {!issueMode && (
+          <span className="s-tail-status-cluster s-tail-status-cluster--display">
+            <span className="s-tail-status-label">show</span>
+            <span className="s-tail-issue-filter" role="group" aria-label="Tail display mode">
+              <button
+                type="button"
+                className={`s-tail-issue-filter-btn${
+                  displayMode === "work" ? " s-tail-issue-filter-btn--active" : ""
+                }`}
+                onClick={() => setDisplayMode("work")}
+                aria-pressed={displayMode === "work"}
+              >
+                Work
+              </button>
+              <button
+                type="button"
+                className={`s-tail-issue-filter-btn${
+                  displayMode === "all" ? " s-tail-issue-filter-btn--active" : ""
+                }`}
+                onClick={() => setDisplayMode("all")}
+                aria-pressed={displayMode === "all"}
+              >
+                All <strong>{filtered.length}</strong>
+              </button>
+            </span>
+          </span>
+        )}
         {issueMode && (
           <span className="s-tail-status-cluster s-tail-status-cluster--issues">
             <span className="s-tail-status-label">alerts</span>
@@ -613,7 +674,7 @@ export function TailView({
       )}
 
       <div className="s-tail-body" ref={bodyRef} onScroll={handleScroll}>
-        {filtered.length === 0 ? (
+        {displayRows.length === 0 ? (
           <div className="s-tail-empty">
             <span className="s-tail-empty-title">
               {issueMode ? "No alert events" : "Waiting for events"}<span className="s-tail-empty-cursor" aria-hidden="true" />
@@ -641,10 +702,11 @@ export function TailView({
             )}
           </div>
         ) : (
-          filtered.map(({ event, severity }, index) => (
+          displayRows.map(({ event, repeatCount, meta: severity }, index) => (
             <TailRow
-              key={tailRowKey(event, index)}
+              key={tailRowKey(event, index, repeatCount)}
               event={event}
+              repeatCount={repeatCount}
               issueSeverity={severity}
               selected={selected === event}
               onSelect={setSelected}
@@ -674,7 +736,7 @@ export function TailView({
 
       {embedded ? (
         <div className="s-tail-keys s-tail-keys--embedded">
-          <span>{filtered.length} / {events.length} lines buffered</span>
+          <span>{displayRows.length} / {events.length} lines buffered</span>
           {paused && pendingCount > 0 && <span>{pendingCount} new</span>}
         </div>
       ) : (
@@ -684,7 +746,7 @@ export function TailView({
           <span><kbd>G</kbd> jump live</span>
           <span><kbd>esc</kbd> close filter</span>
           <span className="s-tail-keys-spacer" />
-          <span>{filtered.length} / {events.length} lines buffered</span>
+          <span>{displayRows.length} shown · {events.length} buffered</span>
         </div>
       )}
 
@@ -702,6 +764,7 @@ export function TailView({
 
 function TailRow({
   event,
+  repeatCount = 1,
   issueSeverity,
   selected,
   onSelect,
@@ -709,6 +772,7 @@ function TailRow({
   onSessionClick,
 }: {
   event: TailEvent;
+  repeatCount?: number;
   issueSeverity?: IssueSeverity | null;
   selected: boolean;
   onSelect: (event: TailEvent) => void;
@@ -764,7 +828,14 @@ function TailRow({
         </span>
       </span>
       <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
-      <span className="s-tail-summary">{event.summary}</span>
+      <span className="s-tail-summary">
+        {event.summary}
+        {repeatCount > 1 ? (
+          <span className="s-tail-repeat" title={`${repeatCount} identical events collapsed`}>
+            {" "}×{repeatCount}
+          </span>
+        ) : null}
+      </span>
     </div>
   );
 }

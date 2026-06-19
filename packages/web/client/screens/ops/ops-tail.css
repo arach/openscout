@@ -40,6 +40,7 @@
   flex: 0 0 auto;
 }
 
+.s-tail-status-cluster--display,
 .s-tail-status-cluster--issues {
   gap: var(--space-sm);
   padding-left: var(--space-md);
@@ -486,6 +487,12 @@
 .s-tail-summary {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.s-tail-repeat {
+  color: var(--dim);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-sm);
 }
 
 .s-tail-divider {
