@@ -46,26 +46,38 @@ function writeExecutable(path: string, contents = "#!/bin/sh\nexit 0\n"): string
   return path;
 }
 
-function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
-  const previous = new Map<string, string | undefined>();
-  for (const [key, value] of Object.entries(patch)) {
-    previous.set(key, process.env[key]);
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
+let envQueue: Promise<unknown> = Promise.resolve();
 
-  try {
-    return fn();
-  } finally {
-    for (const [key, value] of previous) {
+async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
+  const run = async (): Promise<T> => {
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries(patch)) {
+      previous.set(key, process.env[key]);
       if (value === undefined) {
         delete process.env[key];
       } else {
         process.env[key] = value;
       }
+    }
+
+    try {
+      return await fn();
+    } finally {
+      restore(previous);
+    }
+  };
+
+  const next = envQueue.then(run, run);
+  envQueue = next.catch(() => undefined);
+  return await next;
+}
+
+function restore(previous: Map<string, string | undefined>): void {
+  for (const [key, value] of previous) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
     }
   }
 }
@@ -90,7 +102,7 @@ describe("broker service scoutd adapter", () => {
     expect(resolveBundledRuntimeDirFromModuleDir(moduleDir)).toBe(packageRoot);
   });
 
-  test("resolves packaged scoutd from the bundled package bin directory", () => {
+  test("resolves packaged scoutd from the bundled package bin directory", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-packaged-scoutd-"));
     const packageRoot = join(root, "scout");
     const scoutd = writeExecutable(join(packageRoot, "bin", "scoutd"));
@@ -101,7 +113,7 @@ describe("broker service scoutd adapter", () => {
       runtimePackageDir: packageRoot,
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
       PATH: join(root, "path"),
     }, () => resolveScoutdCommand(packagedConfig));
@@ -109,7 +121,7 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "package" });
   });
 
-  test("resolves packaged scoutd from the monorepo CLI package before workspace builds", () => {
+  test("resolves packaged scoutd from the monorepo CLI package before workspace builds", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-monorepo-scoutd-"));
     mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
     writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
@@ -122,7 +134,7 @@ describe("broker service scoutd adapter", () => {
       runtimePackageDir: join(root, "packages", "runtime"),
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
       OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: undefined,
       PATH: join(root, "path"),
@@ -131,11 +143,11 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "package" });
   });
 
-  test("resolves scoutd from an explicit environment override", () => {
+  test("resolves scoutd from an explicit environment override", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-env-"));
     const scoutd = writeExecutable(join(root, "custom-scoutd"));
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: scoutd,
       PATH: "",
     }, () => resolveScoutdCommand(config));
@@ -143,7 +155,7 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "env" });
   });
 
-  test("does not resolve workspace-built scoutd without an explicit opt-in", () => {
+  test("does not resolve workspace-built scoutd without an explicit opt-in", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-workspace-"));
     mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
     writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
@@ -155,7 +167,7 @@ describe("broker service scoutd adapter", () => {
       runtimePackageDir: join(root, "packages", "runtime"),
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
       OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: undefined,
       PATH: join(root, "bin"),
@@ -164,7 +176,7 @@ describe("broker service scoutd adapter", () => {
     expect(resolved).toEqual({ path: scoutd, source: "path" });
   });
 
-  test("resolves a workspace-built scoutd binary after opt-in", () => {
+  test("resolves a workspace-built scoutd binary after opt-in", async () => {
     const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-workspace-opt-in-"));
     mkdirSync(join(root, "crates", "scoutd"), { recursive: true });
     writeFileSync(join(root, "Cargo.toml"), "[workspace]\n");
@@ -176,7 +188,7 @@ describe("broker service scoutd adapter", () => {
       runtimePackageDir: join(root, "packages", "runtime"),
     };
 
-    const resolved = withEnv({
+    const resolved = await withEnv({
       OPENSCOUT_SCOUTD_BIN: undefined,
       OPENSCOUT_ALLOW_WORKSPACE_SCOUTD: "1",
       PATH: "",

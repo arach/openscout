@@ -672,10 +672,18 @@ function spawnScoutdJson(
   });
 }
 
+type ScoutdJsonRunner = (
+  scoutdPath: string,
+  command: BrokerServiceCommand,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+) => Promise<string>;
+
 export async function runScoutdServiceCommand(
   command: BrokerServiceCommand,
   config: BrokerServiceConfig,
   timeoutMs: number = SCOUTD_DEFAULT_TIMEOUT_MS,
+  runScoutdJson: ScoutdJsonRunner = spawnScoutdJson,
 ): Promise<BrokerServiceStatus> {
   const scoutd = resolveScoutdCommand(config);
   if (!scoutd) {
@@ -684,7 +692,7 @@ export async function runScoutdServiceCommand(
     );
   }
 
-  const stdout = await spawnScoutdJson(
+  const stdout = await runScoutdJson(
     scoutd.path,
     command,
     nativeServiceEnvironment(config, scoutd.path),

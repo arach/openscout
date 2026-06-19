@@ -1,0 +1,255 @@
+import type {
+  AgentDefinition,
+  AgentEndpoint,
+  FlightRecord,
+  InvocationRequest,
+} from "@openscout/protocol";
+
+import type { RuntimeSnapshot } from "./scout-dispatcher.js";
+import {
+  endpointStartedAt,
+  endpointTerminalAt,
+  isRetiredLocalAgent,
+  latestEndpointForAgent,
+} from "./broker-endpoint-selection.js";
+
+export {
+  ENDPOINT_SESSION_ALIAS_METADATA_KEYS,
+  compareLocalEndpointPreference,
+  endpointAvailabilityScore,
+  endpointCandidateState,
+  endpointLifecycleAt,
+  endpointMatchesTargetSession,
+  endpointSessionAliasValues,
+  endpointStartedAt,
+  endpointTerminalAt,
+  homeEndpointForAgent,
+  isEndpointOnlineState,
+  isInactiveLocalAgent,
+  isRetiredLocalAgent,
+  isStaleLocalEndpoint,
+  latestEndpointForAgent,
+  localEndpointPreferenceRank,
+} from "./broker-endpoint-selection.js";
+
+function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function isWorkingFlightState(state: FlightRecord["state"]): boolean {
+  return state === "queued" || state === "waking" || state === "running" || state === "waiting";
+}
+
+export function isTerminalFlightState(state: FlightRecord["state"]): boolean {
+  return state === "completed" || state === "failed" || state === "cancelled";
+}
+
+export function flightTimestamp(flight: FlightRecord): number {
+  return flight.completedAt ?? flight.startedAt ?? 0;
+}
+
+export function endpointLastInvocationId(endpoint: AgentEndpoint): string | null {
+  const value = endpoint.metadata?.lastInvocationId;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+export function staleLocalEndpointReason(endpoint: AgentEndpoint | null): string | null {
+  if (!endpoint || endpoint.metadata?.staleLocalRegistration !== true) {
+    return null;
+  }
+
+  const replacementAgentId = endpoint.metadata.replacedByAgentId;
+  const replacement = typeof replacementAgentId === "string" && replacementAgentId.trim().length > 0
+    ? `; replacement agent is ${replacementAgentId.trim()}`
+    : "";
+  return `endpoint ${endpoint.id} is a superseded local registration replaced by current setup${replacement}`;
+}
+
+export function staleLocalAgentReason(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+): string | null {
+  const endpoints = Object.values(snapshot.endpoints).filter((endpoint) => endpoint.agentId === agent.id);
+  const staleEndpointReasons = endpoints
+    .map((endpoint) => staleLocalEndpointReason(endpoint))
+    .filter((reason): reason is string => Boolean(reason));
+  if (endpoints.length > 0 && staleEndpointReasons.length === endpoints.length) {
+    return staleLocalEndpointReason(latestEndpointForAgent(snapshot, agent.id)) ?? staleEndpointReasons[0] ?? null;
+  }
+
+  if (agent.metadata?.staleLocalRegistration !== true) {
+    return null;
+  }
+
+  const endpointReason = staleLocalEndpointReason(latestEndpointForAgent(snapshot, agent.id));
+  if (endpointReason) {
+    return endpointReason;
+  }
+
+  const replacementAgentId = metadataStringValue(agent.metadata, "replacedByAgentId");
+  const replacement = replacementAgentId
+    ? `; replacement agent is ${replacementAgentId}`
+    : "";
+  return `agent ${agent.id} is a superseded local registration replaced by current setup${replacement}`;
+}
+
+export function flightDispatchEndpointId(flight: FlightRecord): string | null {
+  const dispatchAck = flight.metadata?.dispatchAck;
+  if (!dispatchAck || typeof dispatchAck !== "object" || Array.isArray(dispatchAck)) {
+    return null;
+  }
+
+  const endpointId = (dispatchAck as Record<string, unknown>).endpointId;
+  return typeof endpointId === "string" && endpointId.trim().length > 0
+    ? endpointId.trim()
+    : null;
+}
+
+export function endpointForFlight(snapshot: RuntimeSnapshot, flight: FlightRecord): AgentEndpoint | null {
+  const dispatchedEndpointId = flightDispatchEndpointId(flight);
+  if (dispatchedEndpointId) {
+    const endpoint = snapshot.endpoints[dispatchedEndpointId];
+    if (endpoint?.agentId === flight.targetAgentId) {
+      return endpoint;
+    }
+    return null;
+  }
+
+  return latestEndpointForAgent(snapshot, flight.targetAgentId);
+}
+
+export function flightDispatchEndpointUnavailableReason(
+  snapshot: RuntimeSnapshot,
+  flight: FlightRecord,
+): string | null {
+  const dispatchedEndpointId = flightDispatchEndpointId(flight);
+  if (!dispatchedEndpointId) {
+    return null;
+  }
+
+  const endpoint = snapshot.endpoints[dispatchedEndpointId];
+  if (!endpoint) {
+    return `dispatched endpoint ${dispatchedEndpointId} is no longer registered`;
+  }
+  if (endpoint.agentId !== flight.targetAgentId) {
+    return `dispatched endpoint ${dispatchedEndpointId} no longer belongs to target agent ${flight.targetAgentId}`;
+  }
+  return null;
+}
+
+export function isReconciledStaleFlightActivityItem(item: {
+  kind: string;
+  summary?: string | null;
+}): boolean {
+  return item.kind === "flight_updated"
+    && typeof item.summary === "string"
+    && item.summary.startsWith("Stale running flight reconciled:");
+}
+
+export function invocationTargetSessionId(invocation: InvocationRequest): string | undefined {
+  return invocation.execution?.targetSessionId?.trim()
+    || metadataStringValue(invocation.metadata, "targetSessionId")
+    || undefined;
+}
+
+export function dispatchAckStrategyForEndpoint(input: {
+  invocation: InvocationRequest;
+  endpoint: AgentEndpoint;
+  previousEndpoint?: AgentEndpoint;
+  now?: number;
+}): string {
+  if (input.invocation.execution?.session === "existing") {
+    return "steer";
+  }
+  if (input.previousEndpoint?.id === input.endpoint.id) {
+    return "attach";
+  }
+  const lastResumedAt = Number(input.endpoint.metadata?.lastResumedAt);
+  const now = input.now ?? Date.now();
+  if (Number.isFinite(lastResumedAt) && now - lastResumedAt < 10_000) {
+    return "wake";
+  }
+  if (input.invocation.ensureAwake) {
+    return "spawn";
+  }
+  return "queued";
+}
+
+export function staleWorkingFlightReason(
+  snapshot: RuntimeSnapshot,
+  flight: FlightRecord,
+  options: {
+    isInvocationActive: (invocationId: string) => boolean;
+  },
+): string | null {
+  if (!isWorkingFlightState(flight.state)) {
+    return null;
+  }
+  if (options.isInvocationActive(flight.invocationId)) {
+    return null;
+  }
+
+  const startedAt = flightTimestamp(flight);
+  const newerTerminalFlight = Object.values(snapshot.flights)
+    .filter((candidate) => (
+      candidate.targetAgentId === flight.targetAgentId
+      && candidate.id !== flight.id
+      && !isWorkingFlightState(candidate.state)
+      && flightTimestamp(candidate) > startedAt
+    ))
+    .sort((left, right) => flightTimestamp(right) - flightTimestamp(left))[0] ?? null;
+  if (newerTerminalFlight) {
+    return `superseded by newer ${newerTerminalFlight.state} flight ${newerTerminalFlight.id}`;
+  }
+
+  const agent = snapshot.agents[flight.targetAgentId];
+  if (isRetiredLocalAgent(agent)) {
+    return `target agent ${flight.targetAgentId} was retired from the fleet`;
+  }
+  if (agent?.metadata?.staleLocalRegistration === true) {
+    return staleLocalEndpointReason(latestEndpointForAgent(snapshot, flight.targetAgentId))
+      ?? `target agent ${flight.targetAgentId} is a superseded local registration replaced by current setup`;
+  }
+
+  const dispatchEndpointReason = flightDispatchEndpointUnavailableReason(snapshot, flight);
+  if (dispatchEndpointReason) {
+    return dispatchEndpointReason;
+  }
+
+  const endpoint = endpointForFlight(snapshot, flight);
+  if (!endpoint) {
+    return null;
+  }
+
+  const staleEndpointReason = staleLocalEndpointReason(endpoint);
+  if (staleEndpointReason) {
+    return staleEndpointReason;
+  }
+
+  const terminalAt = endpointTerminalAt(endpoint);
+  if (endpoint.state !== "active" && terminalAt > startedAt) {
+    return `endpoint ${endpoint.id} moved to ${endpoint.state} at ${terminalAt}`;
+  }
+
+  const startedEndpointAt = endpointStartedAt(endpoint);
+  const endpointInvocationId = endpointLastInvocationId(endpoint);
+  if (
+    endpoint.state === "active"
+    && endpointInvocationId === flight.invocationId
+    && !options.isInvocationActive(flight.invocationId)
+    && startedEndpointAt >= startedAt
+  ) {
+    return `endpoint ${endpoint.id} was replayed active for invocation ${flight.invocationId} without a live broker task`;
+  }
+  if (
+    endpoint.state === "active"
+    && startedEndpointAt > startedAt
+    && endpointInvocationId !== null
+    && endpointInvocationId !== flight.invocationId
+  ) {
+    return `endpoint ${endpoint.id} started newer work at ${startedEndpointAt}`;
+  }
+
+  return null;
+}
