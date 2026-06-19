@@ -2,6 +2,7 @@ import "./ops-screen.css";
 
 import { useScout } from "../../scout/Provider.tsx";
 import { PageStatusBar } from "../../components/PageStatusBar.tsx";
+import { AgentLanesView } from "./AgentLanesView.tsx";
 import { MissionControlView } from "./MissionControlView.tsx";
 import { OpsAgentsView } from "./OpsAgentsView.tsx";
 import { PlanView } from "./PlanView.tsx";
@@ -42,6 +43,7 @@ export function OpsScreen({
         {mode === "issues" && <TailView navigate={navigate} initialFilter={tailQuery} variant="issues" />}
         {mode === "tail" && <TailView navigate={navigate} initialFilter={tailQuery} />}
         {mode === "atop" && <AtopView />}
+        {mode === "lanes" && <AgentLanesView navigate={navigate} agents={agents} />}
       </div>
       <PageStatusBar />
     </div>

@@ -44,6 +44,7 @@ function parseOpsMode(value: string | undefined): OpsMode | undefined {
     case "agents":
     case "tail":
     case "atop":
+    case "lanes":
       return value;
     default:
       return undefined;

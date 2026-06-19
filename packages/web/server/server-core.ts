@@ -22,6 +22,7 @@ function isTrustedLoopbackHostname(hostname: string): boolean {
   const normalized = normalizeHostname(hostname);
   return normalized === "localhost"
     || normalized.endsWith(".localhost")
+    || normalized === "0.0.0.0"
     || normalized === "::1"
     || LOOPBACK_IPV4_HOST_PATTERN.test(normalized);
 }
