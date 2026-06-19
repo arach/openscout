@@ -1,7 +1,6 @@
 import { api } from "./api.ts";
-import { routePath } from "./router.ts";
 import { surfaceKey, type RegisteredTerminalTarget } from "./terminal-sessions.ts";
-import type { Agent, Route, TerminalSurfaceDescriptor } from "./types.ts";
+import type { Agent, TerminalSurfaceDescriptor } from "./types.ts";
 
 export const SCOUT_TERMINAL_INITIAL_COLS = 132;
 export const SCOUT_TERMINAL_INITIAL_ROWS = 44;
@@ -128,7 +127,13 @@ export function resolveTerminalRelayBinding(params: {
   };
 }
 
-export type TerminalRoute = Extract<Route, { view: "terminal" }>;
+export type TerminalRoute = {
+  view: "terminal";
+  agentId?: string;
+  mode?: "observe" | "takeover";
+  terminalSessionId?: string;
+  terminalSurfaceKey?: string;
+};
 
 export function buildTerminalRouteBase(params: {
   agentId?: string;
@@ -147,12 +152,41 @@ export function buildTerminalRouteBase(params: {
   return { view: "terminal" };
 }
 
-export function withTerminalMode(route: TerminalRoute, mode?: "observe" | "takeover"): Route {
+export function withTerminalMode(route: TerminalRoute, mode?: "observe" | "takeover"): TerminalRoute {
   return mode ? { ...route, mode } : route;
 }
 
-export function absoluteRouteUrl(route: Route): string {
-  const path = routePath(route);
+function terminalSearchSuffix(params: URLSearchParams): string {
+  const search = params.toString();
+  return search ? `?${search}` : "";
+}
+
+function terminalRoutePath(route: TerminalRoute): string {
+  if (route.agentId) {
+    const params = new URLSearchParams();
+    if (route.mode) params.set("mode", route.mode);
+    return `/terminal/${encodeURIComponent(route.agentId)}${terminalSearchSuffix(params)}`;
+  }
+
+  const params = new URLSearchParams();
+  if (route.mode) params.set("mode", route.mode);
+  if (route.terminalSurfaceKey) {
+    const separator = route.terminalSurfaceKey.indexOf(":");
+    if (separator > 0 && separator < route.terminalSurfaceKey.length - 1) {
+      const backend = route.terminalSurfaceKey.slice(0, separator);
+      const sessionName = route.terminalSurfaceKey.slice(separator + 1);
+      if (backend === "tmux" || backend === "zellij") {
+        return `/terminal/${encodeURIComponent(backend)}/${encodeURIComponent(sessionName)}${terminalSearchSuffix(params)}`;
+      }
+    }
+  }
+  if (route.terminalSessionId) params.set("session", route.terminalSessionId);
+  if (route.terminalSurfaceKey) params.set("surface", route.terminalSurfaceKey);
+  return `/terminal${terminalSearchSuffix(params)}`;
+}
+
+export function absoluteRouteUrl(route: TerminalRoute): string {
+  const path = terminalRoutePath(route);
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.href).toString();
 }

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -2380,7 +2381,11 @@ class CodexAppServerSession {
     }
     this.pendingRequests.clear();
 
-    void appendFile(this.stderrLogPath, `[openscout] ${error.message}\n`).catch(() => undefined);
+    try {
+      appendFileSync(this.stderrLogPath, `[openscout] ${error.message}\n`);
+    } catch {
+      // Best-effort diagnostic logging must not hide the original process failure.
+    }
     void this.persistState();
   }
 

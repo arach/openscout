@@ -1036,7 +1036,11 @@ fn doctor_report(config: &Config, options: DoctorOptions) -> DoctorReport {
     }
 }
 
-fn doctor_repairs(config: &Config, status: &ServiceStatus, options: DoctorOptions) -> Vec<DoctorRepair> {
+fn doctor_repairs(
+    config: &Config,
+    status: &ServiceStatus,
+    options: DoctorOptions,
+) -> Vec<DoctorRepair> {
     if !options.fix {
         return Vec::new();
     }

@@ -4789,7 +4789,7 @@ async function resolveLocalEndpointForInvocation(invocation: InvocationRequest):
   }
 
   const binding = await ensureLocalAgentBindingOnline(invocation.targetAgentId, nodeId, {
-    includeDiscovered: true,
+    includeDiscovered: false,
     harness: requestedHarness,
   });
   if (!binding) {

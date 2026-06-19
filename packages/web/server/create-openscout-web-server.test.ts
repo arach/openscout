@@ -1828,7 +1828,7 @@ describe("createOpenScoutWebServer", () => {
     expect(tailnet.headers.get("location")).toBe(`scout://pair?payload=${encodeURIComponent(JSON.stringify(tailnetPayload))}`);
   });
 
-  test("returns a clear error when remote pairing has no active payload", async () => {
+  test("registers an approval request when remote pairing has no active payload", async () => {
     pairingStateResult = makePairingState({ pairing: null });
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -1838,9 +1838,16 @@ describe("createOpenScoutWebServer", () => {
 
     const response = await server.app.request("http://localhost/pair");
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(202);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    await expect(response.text()).resolves.toContain("scout://pair pairing is not available");
+    await expect(response.text()).resolves.toContain("scout://pair pairing requires approval");
+
+    const requestsResponse = await server.app.request("http://localhost/api/pairing/requests");
+    expect(requestsResponse.status).toBe(200);
+    const body = await requestsResponse.json() as { requests: Array<{ status: string }> };
+    expect(body.requests).toEqual([
+      expect.objectContaining({ status: "pending" }),
+    ]);
   });
 
   test("serves site-level feature flag bundle config for the client", async () => {

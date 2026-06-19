@@ -258,6 +258,11 @@ function encodeClaudeProjectsSlug(absolutePath: string): string {
   return `-${normalized.replace(/^\//u, "").replace(/\//gu, "-")}`;
 }
 
+function claudeProjectsRoot(): string {
+  const configured = expandHome(process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT)?.trim();
+  return configured ? resolve(configured) : join(homedir(), ".claude", "projects");
+}
+
 function resolveClaudeHistoryPath(
   cwd: string | null | undefined,
   sessionId: string | null | undefined,
@@ -266,12 +271,7 @@ function resolveClaudeHistoryPath(
   if (!normalizedCwd) {
     return null;
   }
-  const projectDir = join(
-    homedir(),
-    ".claude",
-    "projects",
-    encodeClaudeProjectsSlug(normalizedCwd),
-  );
+  const projectDir = join(claudeProjectsRoot(), encodeClaudeProjectsSlug(normalizedCwd));
   const normalizedSessionId = sessionId?.trim().replace(/\.jsonl$/u, "") || "";
   if (normalizedSessionId) {
     const exactPath = join(projectDir, `${normalizedSessionId}.jsonl`);
@@ -322,8 +322,7 @@ function addSessionRefLookupEntry(
 
 function buildClaudeSessionRefLookup(): Map<string, SessionRefLookupEntry> {
   const entries = new Map<string, SessionRefLookupEntry>();
-  const projectsRoot = process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT?.trim()
-    || join(homedir(), ".claude", "projects");
+  const projectsRoot = claudeProjectsRoot();
   if (!existsSync(projectsRoot)) {
     return entries;
   }

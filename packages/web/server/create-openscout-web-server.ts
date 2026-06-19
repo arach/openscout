@@ -77,6 +77,7 @@ import {
   configuredOperatorActorIds,
   parseDirectConversationId,
 } from "./db/internal/conversation-ids.ts";
+import { compact as compactPath } from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
@@ -2164,28 +2165,58 @@ function activeEndpointForAgent(
 }
 
 type WebAgentRecord = ReturnType<typeof queryAgents>[number];
-type BrokerSnapshotRecord = Record<string, unknown>;
 
-function recordCollection(value: unknown): Record<string, Record<string, unknown>> {
-  if (!isRecord(value)) return {};
-  const entries: Array<[string, Record<string, unknown>]> = [];
-  for (const [key, entry] of Object.entries(value)) {
-    if (isRecord(entry)) entries.push([key, entry]);
+const ACTIVE_BROKER_FLIGHT_STATES = new Set(["queued", "waking", "running", "waiting"]);
+
+function metadataStringValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null {
+  return firstMetadataString(metadata?.[key]);
+}
+
+function metadataBooleanValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): boolean {
+  return metadata?.[key] === true;
+}
+
+function metadataStringArrayValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): string[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
   }
-  return Object.fromEntries(entries);
+  return value.map((entry) => String(entry).trim()).filter(Boolean);
 }
 
-function recordMetadata(value: Record<string, unknown> | null | undefined): Record<string, unknown> {
-  return isRecord(value?.metadata) ? value.metadata : {};
+function metadataRecordValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): Record<string, unknown> | null {
+  const value = metadata?.[key];
+  return recordInput(value);
 }
 
-function recordArray(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isRecord) : [];
+function metadataRecordArrayValue(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+): Record<string, unknown>[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.map(recordInput).filter((entry): entry is Record<string, unknown> => Boolean(entry));
 }
 
-function brokerSnapshotFromContext(context: unknown): BrokerSnapshotRecord | null {
-  if (!isRecord(context) || !isRecord(context.snapshot)) return null;
-  return context.snapshot;
+function isBrokerAgentVisibleInWeb(agent: ScoutBrokerContext["snapshot"]["agents"][string]): boolean {
+  const metadata = recordInput(agent.metadata);
+  return metadataBooleanValue(metadata, "brokerRegistered")
+    && !metadataBooleanValue(metadata, "staleLocalRegistration")
+    && !metadataBooleanValue(metadata, "retiredFromFleet");
 }
 
 function latestBrokerAgentTimestamp(
@@ -2241,70 +2272,151 @@ function summarizeBrokerAgentState(
   return "available";
 }
 
-function brokerAgentProtocol(agentMetadata: Record<string, unknown>): string | null {
-  const interfaces = recordArray(agentMetadata.supportedInterfaces);
-  const protocol = interfaces
-    .map((entry) => stringField(entry, "protocol") ?? stringField(entry, "name"))
-    .find((entry) => entry?.toLowerCase().includes("a2a"));
-  return protocol ? "A2A" : null;
+function brokerNodeName(
+  broker: ScoutBrokerContext,
+  nodeId: string | null | undefined,
+): string | null {
+  if (!nodeId) {
+    return null;
+  }
+  return broker.snapshot.nodes?.[nodeId]?.name ?? null;
 }
 
-function brokerAgentSkills(agentMetadata: Record<string, unknown>): string[] {
-  const card = isRecord(agentMetadata.a2aAgentCard)
-    ? agentMetadata.a2aAgentCard
-    : isRecord(agentMetadata.agentCard)
-    ? agentMetadata.agentCard
-    : {};
-  return recordArray(card.skills)
-    .map((skill) => stringField(skill, "name") ?? stringField(skill, "id"))
-    .filter((skill): skill is string => Boolean(skill));
-}
-
-function brokerAgentCapabilities(
-  agent: Record<string, unknown>,
-  protocol: string | null,
-): string[] {
-  const capabilities = stringList(agent.capabilities, []);
-  if (capabilities.length > 0) return capabilities;
-  return protocol === "A2A" ? ["chat", "invoke"] : [];
-}
-
-function brokerAgentProvider(agentMetadata: Record<string, unknown>): {
-  providerName: string | null;
-  providerUrl: string | null;
-} {
-  const card = isRecord(agentMetadata.a2aAgentCard)
-    ? agentMetadata.a2aAgentCard
-    : isRecord(agentMetadata.agentCard)
-    ? agentMetadata.agentCard
-    : {};
-  const provider = isRecord(card.provider) ? card.provider : {};
+function brokerActorDisplay(
+  broker: ScoutBrokerContext,
+  actorId: string | null | undefined,
+): { name: string | null; handle: string | null } {
+  const actor = actorId ? broker.snapshot.actors?.[actorId] : null;
   return {
-    providerName: stringField(provider, "organization") ?? stringField(provider, "name") ?? null,
-    providerUrl: stringField(provider, "url") ?? null,
+    name: actor?.displayName ?? null,
+    handle: actor?.handle ?? null,
   };
 }
 
-function brokerAgentToWebAgent(
-  snapshot: BrokerSnapshotRecord,
-  agent: Record<string, unknown>,
-): WebAgentRecord | null {
-  const agentId = stringField(agent, "id");
-  if (!agentId) return null;
-  const actors = recordCollection(snapshot.actors);
-  const nodes = recordCollection(snapshot.nodes);
-  const endpoint = brokerEndpointForAgent(snapshot, agentId);
-  const agentMetadata = recordMetadata(agent);
-  const endpointMetadata = recordMetadata(endpoint);
-  const ownerId = stringField(agent, "ownerId") ?? null;
-  const owner = ownerId ? actors[ownerId] : undefined;
-  const authorityNodeId = stringField(agent, "authorityNodeId") ?? stringField(endpoint, "nodeId") ?? null;
-  const homeNodeId = stringField(agent, "homeNodeId") ?? authorityNodeId;
-  const authorityNode = authorityNodeId ? nodes[authorityNodeId] : undefined;
-  const homeNode = homeNodeId ? nodes[homeNodeId] : undefined;
-  const handle = stringField(agent, "handle") ?? stringField(agent, "selector") ?? null;
-  const protocol = brokerAgentProtocol(agentMetadata);
-  const provider = brokerAgentProvider(agentMetadata);
+function projectNameFromRoot(path: string | null): string | null {
+  const normalized = path?.trim();
+  return normalized ? basename(normalized) : null;
+}
+
+function brokerAgentIdentityMatches(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  value: string,
+): boolean {
+  return [
+    agent.id,
+    agent.definitionId,
+    agent.handle,
+    agent.selector,
+    agent.defaultSelector,
+  ].some((candidate) => candidate === value);
+}
+
+function brokerAgentCapabilitiesForWeb(
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+  metadata: Record<string, unknown> | null,
+): string[] {
+  const explicit = Array.isArray(agent.capabilities)
+    ? agent.capabilities.map((capability) => String(capability).trim()).filter(Boolean)
+    : [];
+  if (explicit.length > 0) {
+    return explicit;
+  }
+  const metadataCapabilities = metadataStringArrayValue(metadata, "capabilities");
+  return metadataCapabilities.length > 0 ? metadataCapabilities : ["chat", "invoke"];
+}
+
+function brokerAgentCardMetadata(
+  metadata: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  return metadataRecordValue(metadata, "a2aAgentCard")
+    ?? metadataRecordValue(metadata, "agentCard");
+}
+
+function brokerAgentProvider(
+  metadata: Record<string, unknown> | null,
+  card: Record<string, unknown> | null,
+): { name: string | null; url: string | null } {
+  const provider = metadataRecordValue(card, "provider")
+    ?? metadataRecordValue(metadata, "provider");
+  return {
+    name: firstMetadataString(
+      metadataStringValue(provider, "organization"),
+      metadataStringValue(provider, "name"),
+      metadataStringValue(metadata, "providerName"),
+    ),
+    url: firstMetadataString(
+      metadataStringValue(provider, "url"),
+      metadataStringValue(metadata, "providerUrl"),
+    ),
+  };
+}
+
+function brokerAgentProtocol(
+  metadata: Record<string, unknown> | null,
+  endpointMetadata: Record<string, unknown>,
+): string | null {
+  const supportedInterfaces = metadataRecordArrayValue(metadata, "supportedInterfaces")
+    .concat(metadataRecordArrayValue(endpointMetadata, "supportedInterfaces"));
+  const protocol = firstMetadataString(
+    ...supportedInterfaces.map((entry) => metadataStringValue(entry, "protocol")),
+    metadataStringValue(metadata, "protocol"),
+    metadataStringValue(endpointMetadata, "protocol"),
+  );
+  if (protocol?.toLowerCase() === "a2a" || metadataStringValue(metadata, "a2aExecutionUrl")) {
+    return "A2A";
+  }
+  return protocol;
+}
+
+function brokerAgentSkillNames(
+  metadata: Record<string, unknown> | null,
+  card: Record<string, unknown> | null,
+): string[] {
+  const skills = metadataRecordArrayValue(card, "skills")
+    .concat(metadataRecordArrayValue(metadata, "skills"));
+  return Array.from(new Set(
+    skills
+      .map((skill) => firstMetadataString(
+        metadataStringValue(skill, "name"),
+        metadataStringValue(skill, "id"),
+      ))
+      .filter((skill): skill is string => Boolean(skill)),
+  ));
+}
+
+function brokerAgentCardToWebAgent(
+  broker: ScoutBrokerContext,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+): WebAgent | null {
+  if (!isBrokerAgentVisibleInWeb(agent)) {
+    return null;
+  }
+
+  const endpoint = activeEndpointForAgent(broker.snapshot, agent.id);
+  const agentMetadata = recordInput(agent.metadata);
+  const endpointMetadata = agentEndpointMetadata(endpoint);
+  const cardMetadata = brokerAgentCardMetadata(agentMetadata);
+  const provider = brokerAgentProvider(agentMetadata, cardMetadata);
+  const protocol = brokerAgentProtocol(agentMetadata, endpointMetadata);
+  const skills = brokerAgentSkillNames(agentMetadata, cardMetadata);
+  const projectRoot = firstMetadataString(
+    endpoint?.projectRoot,
+    metadataStringValue(endpointMetadata, "projectRoot"),
+    metadataStringValue(agentMetadata, "projectRoot"),
+  );
+  const cwd = firstMetadataString(
+    endpoint?.cwd,
+    metadataStringValue(endpointMetadata, "currentDirectory"),
+    metadataStringValue(endpointMetadata, "cwd"),
+    metadataStringValue(agentMetadata, "currentDirectory"),
+    metadataStringValue(agentMetadata, "cwd"),
+    projectRoot,
+  );
+  const owner = brokerActorDisplay(broker, agent.ownerId);
+  const createdAt = metadataTimestampMs(agentMetadata?.createdAt)
+    ?? metadataTimestampMs(agentMetadata?.registeredAt)
+    ?? null;
+  const updatedAt = latestBrokerAgentTimestamp(agent, endpoint) ?? createdAt;
 
   return {
     id: agent.id,
@@ -2356,23 +2468,37 @@ function brokerAgentToWebAgent(
     providerName: provider.name,
     providerUrl: provider.url,
     protocol,
-    skills: brokerAgentSkills(agentMetadata),
+    skills,
   };
 }
 
 async function readWebAgentsWithBrokerCards(existingAgents: WebAgentRecord[]): Promise<WebAgentRecord[]> {
   const broker = await loadScoutBrokerContext().catch(() => null);
-  const snapshot = brokerSnapshotFromContext(broker);
-  if (!snapshot) return existingAgents;
+  if (!broker) return existingAgents;
 
   const byId = new Map(existingAgents.map((agent) => [agent.id, agent]));
-  for (const agent of Object.values(recordCollection(snapshot.agents))) {
-    const agentId = stringField(agent, "id");
-    if (!agentId || byId.has(agentId)) continue;
-    const projected = brokerAgentToWebAgent(snapshot, agent);
-    if (projected) byId.set(projected.id, projected);
+  for (const agent of brokerCardAgentsForWeb(broker)) {
+    if (byId.has(agent.id)) continue;
+    byId.set(agent.id, agent);
   }
   return [...byId.values()];
+}
+
+function matchesAgentRouteParam(agent: WebAgentRecord, value: string): boolean {
+  return agent.id === value
+    || agent.handle === value
+    || agent.selector === value
+    || agent.defaultSelector === value;
+}
+
+function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
+  return Object.values(broker.snapshot.agents ?? {})
+    .map((agent) => brokerAgentCardToWebAgent(broker, agent))
+    .filter((agent): agent is WebAgent => Boolean(agent))
+    .sort((left, right) =>
+      (right.updatedAt ?? 0) - (left.updatedAt ?? 0)
+      || left.name.localeCompare(right.name),
+    );
 }
 
 async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
@@ -2393,59 +2519,14 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   if (agent) {
     return withResolvedHarnessSessionIdentity(agent);
   }
-  return seen.size > 0 ? [...seen] : undefined;
-}
-
-function repoDiffLimitsForTier(tier: string | undefined): RepoDiffSnapshotOptions["limits"] {
-  if (tier === "summary") {
-    return {
-      ...REPO_DIFF_VIEWER_LIMITS,
-      includeRawPatch: false,
-      includeParsedHunks: false,
-    };
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  if (!broker) {
+    return null;
   }
-  return REPO_DIFF_VIEWER_LIMITS;
-}
-
-function repoDiffCacheKey(input: {
-  worktreePath: string;
-  layers?: RepoDiffLayerKind[];
-  baseRef?: string;
-  compareRef?: string;
-  paths?: string[];
-  tier?: string;
-}): string {
-  return JSON.stringify({
-    worktreePath: resolve(input.worktreePath),
-    layers: input.layers ?? [],
-    baseRef: input.baseRef ?? null,
-    compareRef: input.compareRef ?? null,
-    paths: input.paths ?? [],
-    tier: input.tier ?? null,
-  });
-}
-
-function withRepoDiffScope(
-  snapshot: ScoutRepoDiffSnapshot,
-  paths: string[] | undefined,
-): ScoutRepoDiffSnapshot & { scope?: { kind: "worktree"; filteredPaths: string[] } } {
-  return paths && paths.length > 0
-    ? { ...snapshot, scope: { kind: "worktree", filteredPaths: paths } }
-    : snapshot;
-}
-
-function jsonResponse(
-  body: unknown,
-  status = 200,
-  headers: Record<string, string> = {},
-): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      ...headers,
-    },
-  });
+  const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
+    (candidate) => brokerAgentIdentityMatches(candidate, agentId),
+  );
+  return brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
 }
 
 function isRelayHarnessSessionId(value: string | null | undefined): boolean {
@@ -2901,7 +2982,7 @@ function buildAgentSessionCatalogPayload(input: {
           // resume command needed); other transports need a resume command.
           // Both paths are takeoverable.
           canTakeover: Boolean(terminalSurface) || Boolean(resumeCommand),
-        },
+        }),
         ...catalog.sessions,
       ]
     : catalogSessions.map(enrichSession);
@@ -4390,8 +4471,6 @@ export async function createOpenScoutWebServer(
       console.warn(`[scoutbot] runner failed to start: ${message}`);
     }
   }
-  const repoDiffCache = new Map<string, ScoutRepoDiffSnapshot>();
-  const repoDiffRehydrateInFlight = new Map<string, Promise<void>>();
   let fleetHomeBrief: FleetHomeBrief | null = null;
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
   const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
@@ -6951,7 +7030,6 @@ export async function createOpenScoutWebServer(
     );
     const baseRef = c.req.query("baseRef");
     const compareRef = c.req.query("compareRef");
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
     const tier = parseRepoDiffTier(c.req.query("tier"));
     const cacheMode = parseRepoDiffCacheMode(c.req.query("cache"), c.req.query("force"));
     const rehydrate = wantsRepoDiffRehydrate(c.req.query("rehydrate"));
@@ -6989,60 +7067,8 @@ export async function createOpenScoutWebServer(
       rehydrate,
       stateKey,
       paths,
-      tier,
+      scope,
     });
-    const runRepoDiff = options.repoDiffSnapshot ?? getRepoDiffSnapshot;
-    const loadSnapshot = async () => {
-      const snapshot = await runRepoDiff({
-        worktreePath,
-        layers: layers.length > 0 ? layers : undefined,
-        baseRef: baseRef && baseRef.trim() ? baseRef : undefined,
-        compareRef: compareRef && compareRef.trim() ? compareRef : undefined,
-        paths,
-        limits: repoDiffLimitsForTier(tier),
-      });
-      const scopedSnapshot = withRepoDiffScope(snapshot, paths);
-      repoDiffCache.set(cacheKey, scopedSnapshot);
-      return scopedSnapshot;
-    };
-    try {
-      const cached = repoDiffCache.get(cacheKey);
-      if (cacheMode !== "reload" && cached) {
-        const headers: Record<string, string> = {
-          "x-openscout-repo-diff-cache": "hit",
-        };
-        if (c.req.query("rehydrate") === "1" || c.req.query("rehydrate") === "true") {
-          headers["x-openscout-repo-diff-rehydrate"] = "queued";
-          if (!repoDiffRehydrateInFlight.has(cacheKey)) {
-            const rehydrate: Promise<void> = loadSnapshot()
-              .then(() => undefined, () => undefined)
-              .finally(() => repoDiffRehydrateInFlight.delete(cacheKey));
-            repoDiffRehydrateInFlight.set(cacheKey, rehydrate);
-          }
-        }
-        return jsonResponse(cached, 200, headers);
-      }
-      if (cacheMode === "only") {
-        return jsonResponse({
-          status: "missing",
-          worktreePath,
-        }, 404, {
-          "x-openscout-repo-diff-cache": "miss",
-        });
-      }
-      // A diff is a local read — run the native producer in-process. The broker
-      // (fleet coordination) is intentionally NOT in this path; agent/session
-      // annotations (SCO-065 §15) can enrich later without coupling here.
-      const snapshot = await loadSnapshot();
-      return jsonResponse(snapshot, 200, {
-        "x-openscout-repo-diff-cache": "miss",
-      });
-    } catch (error) {
-      return c.json(
-        { error: `repo-diff failed: ${error instanceof Error ? error.message : String(error)}` },
-        502,
-      );
-    }
   });
 
   app.get("/api/tail/recent", async (c) => {

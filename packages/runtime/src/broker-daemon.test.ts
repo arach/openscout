@@ -1953,7 +1953,13 @@ describe("broker daemon comms layer", () => {
     const secondHarness = await startBroker({ controlHome });
     const snapshot = await getJson<{
       invocation: { id: string; targetAgentId: string } | null;
-      flight: { invocationId: string; targetAgentId: string; state: string } | null;
+      flight: {
+        id: string;
+        invocationId: string;
+        targetAgentId: string;
+        state: string;
+        metadata?: { dispatchOutcome?: { status?: string; reason?: string } };
+      } | null;
     }>(secondHarness.baseUrl, "/v1/invocations/inv-restart-1");
 
     expect(snapshot.invocation).toEqual(expect.objectContaining({
@@ -1963,8 +1969,14 @@ describe("broker daemon comms layer", () => {
     expect(snapshot.flight).toEqual(expect.objectContaining({
       invocationId: "inv-restart-1",
       targetAgentId: "ghost",
-      state: "waking",
     }));
+    expect(["waking", "queued"]).toContain(snapshot.flight?.state);
+    if (snapshot.flight?.state === "queued") {
+      expect(snapshot.flight.metadata?.dispatchOutcome).toEqual(expect.objectContaining({
+        status: "queued_until_online",
+        reason: "no_runnable_endpoint",
+      }));
+    }
 
     const lifecycle = await getJson<{
       invocationId: string;
@@ -1976,7 +1988,7 @@ describe("broker daemon comms layer", () => {
     expect(lifecycle).toEqual(expect.objectContaining({
       invocationId: "inv-restart-1",
       targetAgentId: "ghost",
-      state: "dispatching",
+      state: snapshot.flight?.state === "queued" ? "queued" : "dispatching",
     }));
     expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
