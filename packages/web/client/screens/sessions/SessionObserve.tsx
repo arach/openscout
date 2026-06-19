@@ -21,10 +21,17 @@ import type {
 } from "../../lib/types.ts";
 import { collapseObserveDisplayRows } from "../../lib/observe-display.ts";
 import {
+  countObserveEventsBeforeHorizon,
   filterObserveEventsForHorizon,
+  fmtLaneAgeLabel,
+  fmtLaneAgeTitle,
+  fmtLaneWallGapLabel,
+  fmtTraceSpanMs,
   laneSnippetText,
   laneTextNeedsExpand,
   laneToolArgSnippet,
+  laneTraceWindowStats,
+  observeEventWallMs,
 } from "../../lib/lane-observe.ts";
 import { api } from "../../lib/api.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -130,15 +137,30 @@ function fmtElapsed(sec: number): string {
   return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
 }
 
+function laneEventWallMs(
+  event: Pick<ObserveEvent, "t" | "at">,
+  sessionStartMs: number | undefined,
+): number | null {
+  return observeEventWallMs(event as ObserveEvent, sessionStartMs);
+}
+
 function fmtLaneRowTime(
-  eventT: number,
+  event: Pick<ObserveEvent, "t" | "at">,
   sessionStartMs: number | undefined,
   nowMs: number,
-): string {
-  if (typeof sessionStartMs === "number" && Number.isFinite(sessionStartMs)) {
-    return timeAgo(sessionStartMs + eventT * 1000, nowMs);
+  preferWallAge = false,
+): { label: string; title?: string } {
+  const wallMs = laneEventWallMs(event, sessionStartMs);
+
+  if (wallMs !== null) {
+    return preferWallAge
+      ? { label: fmtLaneAgeLabel(wallMs, nowMs), title: fmtLaneAgeTitle(wallMs) }
+      : { label: timeAgo(wallMs, nowMs), title: fmtLaneAgeTitle(wallMs) };
   }
-  return fmtElapsed(eventT);
+  if (preferWallAge) {
+    return { label: "" };
+  }
+  return { label: fmtElapsed(event.t) };
 }
 
 function isCursorAtLiveEdge(cursor: number, duration: number): boolean {
@@ -662,6 +684,7 @@ function FollowToggle({
 function StreamRow({
   event,
   prevT,
+  prevWallMs,
   laneMode = false,
   entering = false,
   nudging = false,
@@ -669,9 +692,11 @@ function StreamRow({
   repeatCount = 1,
   sessionStartMs,
   nowMs = Date.now(),
+  preferWallAge = false,
 }: {
   event: SessionEvent;
   prevT: number;
+  prevWallMs?: number | null;
   laneMode?: boolean;
   entering?: boolean;
   nudging?: boolean;
@@ -679,12 +704,19 @@ function StreamRow({
   repeatCount?: number;
   sessionStartMs?: number;
   nowMs?: number;
+  preferWallAge?: boolean;
 }) {
   const gap = event.t - prevT;
   const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
   const rowTime = laneMode
-    ? fmtLaneRowTime(event.t, sessionStartMs, nowMs)
-    : fmtClock(event.t);
+    ? fmtLaneRowTime(event, sessionStartMs, nowMs, preferWallAge)
+    : { label: fmtClock(event.t) };
+  const eventWallMs = laneEventWallMs(event, sessionStartMs);
+  const wallGapLabel = preferWallAge && typeof prevWallMs === "number" && eventWallMs !== null
+    ? fmtLaneWallGapLabel(eventWallMs - prevWallMs)
+    : null;
+  const sessionGapLabel = !preferWallAge && gap > 15 ? `+${gap}s` : null;
+  const gapLabel = wallGapLabel ?? sessionGapLabel;
 
   const rowClass = [
     "s-observe-row",
@@ -699,10 +731,10 @@ function StreamRow({
         ? ({ "--row-nudge-delay": `${nudgeDelayMs}ms` } as CSSProperties)
         : undefined}
     >
-      {gap > 15 && <div className="s-observe-row-gap">+{gap}s</div>}
+      {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
 
-      <div className="s-observe-row-time">
-        {rowTime}
+      <div className="s-observe-row-time" title={rowTime.title}>
+        {rowTime.label}
         {repeatCount > 1 && (
           <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
             ×{repeatCount}
@@ -745,12 +777,14 @@ function ReplayStream({
   laneMode = false,
   sessionStartMs,
   nowMs = Date.now(),
+  preferWallAge = false,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
   laneMode?: boolean;
   sessionStartMs?: number;
   nowMs?: number;
+  preferWallAge?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -826,24 +860,32 @@ function ReplayStream({
   return (
     <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
       <div className="s-observe-spine" />
-      {displayRows.map((row, index) => (
-        <StreamRow
-          key={`${row.event.id}:${row.repeatCount}:${index}`}
-          event={row.event}
-          prevT={index > 0 ? displayRows[index - 1]!.event.t : 0}
-          laneMode={laneMode}
-          entering={laneMode && enteringEventIds.has(row.event.id)}
-          nudging={laneMode && nudgingEventIds.has(row.event.id)}
-          repeatCount={row.repeatCount}
-          nudgeDelayMs={
-            laneMode && nudgingEventIds.has(row.event.id)
-              ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
-              : 0
-          }
-          sessionStartMs={sessionStartMs}
-          nowMs={nowMs}
-        />
-      ))}
+      {displayRows.map((row, index) => {
+        const prevEvent = index > 0 ? displayRows[index - 1]!.event : null;
+        const prevWallMs = prevEvent
+          ? laneEventWallMs(prevEvent, sessionStartMs)
+          : null;
+        return (
+          <StreamRow
+            key={`${row.event.id}:${row.repeatCount}:${index}`}
+            event={row.event}
+            prevT={prevEvent?.t ?? 0}
+            prevWallMs={prevWallMs}
+            laneMode={laneMode}
+            entering={laneMode && enteringEventIds.has(row.event.id)}
+            nudging={laneMode && nudgingEventIds.has(row.event.id)}
+            repeatCount={row.repeatCount}
+            nudgeDelayMs={
+              laneMode && nudgingEventIds.has(row.event.id)
+                ? Math.min((displayRows.length - 1 - index) * laneNudgeStrideMs, laneNudgeCapMs)
+                : 0
+            }
+            sessionStartMs={sessionStartMs}
+            nowMs={nowMs}
+            preferWallAge={preferWallAge}
+          />
+        );
+      })}
       <div ref={endRef} />
     </div>
   );
@@ -1310,6 +1352,7 @@ export function SessionObserve({
   variant = "default",
   traceLimit,
   traceWindowMs,
+  traceWindowLabel,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -1320,6 +1363,8 @@ export function SessionObserve({
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
   traceWindowMs?: number;
+  /** Lane mode: human label for the selected horizon (e.g. "30m"). */
+  traceWindowLabel?: string;
 }) {
   const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
@@ -1378,9 +1423,10 @@ export function SessionObserve({
     return () => clearInterval(id);
   }, [playing, duration, speed]);
 
+  const useHorizonTrace = laneMode && Boolean(traceWindowMs && traceWindowMs > 0);
   const visible = (() => {
     let filtered = events.filter((event) => event.t <= cursor);
-    if (laneMode && traceWindowMs && traceWindowMs > 0) {
+    if (useHorizonTrace && traceWindowMs) {
       filtered = filterObserveEventsForHorizon(
         filtered,
         sessionStartMs,
@@ -1392,6 +1438,22 @@ export function SessionObserve({
     }
     return filtered;
   })();
+  const laneTraceStats = useMemo(() => {
+    if (!useHorizonTrace || !traceWindowMs) return null;
+    const hiddenBeforeCount = countObserveEventsBeforeHorizon(
+      events,
+      sessionStartMs,
+      now,
+      traceWindowMs,
+    );
+    return laneTraceWindowStats(
+      visible,
+      sessionStartMs,
+      now,
+      traceWindowMs,
+      hiddenBeforeCount,
+    );
+  }, [events, now, sessionStartMs, traceWindowMs, useHorizonTrace, visible]);
   const isAtTail = isCursorAtLiveEdge(cursor, duration);
   const isFollowing = isAtTail && autoFollow;
   const isLive = liveSession && isFollowing;
@@ -1557,19 +1619,47 @@ export function SessionObserve({
             sessionId={sessionId ?? null}
           />
         )}
-        <div className="s-observe-live-sticky">
-          <FollowToggle
-            isFollowing={isFollowing}
-            isLive={isLive}
-            onToggle={handleFollowToggle}
-          />
-        </div>
+        {!useHorizonTrace ? (
+          <div className="s-observe-live-sticky">
+            <FollowToggle
+              isFollowing={isFollowing}
+              isLive={isLive}
+              onToggle={handleFollowToggle}
+            />
+          </div>
+        ) : null}
+        {useHorizonTrace && laneTraceStats ? (
+          <div className="s-observe-lane-trace-meta">
+            <div className="s-observe-lane-trace-meta-main">
+              <span className="s-observe-lane-trace-meta-label">Trace</span>
+              <span className="s-observe-lane-trace-meta-window">
+                last {traceWindowLabel ?? fmtTraceSpanMs(traceWindowMs ?? 0)}
+              </span>
+              <span className="s-observe-lane-trace-meta-sep" aria-hidden="true">·</span>
+              <span>
+                {laneTraceStats.eventCount} event{laneTraceStats.eventCount === 1 ? "" : "s"}
+              </span>
+              {laneTraceStats.spanMs > 0 ? (
+                <>
+                  <span className="s-observe-lane-trace-meta-sep" aria-hidden="true">·</span>
+                  <span>{fmtTraceSpanMs(laneTraceStats.spanMs)} span</span>
+                </>
+              ) : null}
+            </div>
+            {laneTraceStats.truncatedBefore ? (
+              <span className="s-observe-lane-trace-meta-note s-observe-lane-trace-meta-note--warn">
+                Earlier activity in this window may not be loaded
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         <ReplayStream
           events={visible}
           followEnd={isFollowing}
           laneMode={laneMode}
           sessionStartMs={sessionStartMs}
           nowMs={now}
+          preferWallAge={useHorizonTrace}
         />
       </main>
 

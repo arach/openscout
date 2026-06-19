@@ -640,6 +640,8 @@ export type ConversationEntry = SessionEntry;
 export type ObserveEvent = {
   id: string;
   t: number;
+  /** Wall-clock epoch ms when known (preferred for horizon filtering and lane age labels). */
+  at?: number;
   kind: "think" | "tool" | "ask" | "message" | "note" | "system" | "boot";
   text: string;
   tool?: string;

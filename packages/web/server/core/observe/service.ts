@@ -42,6 +42,7 @@ export type ObserveEventKind =
 export interface ObserveEvent {
   id: string;
   t: number;
+  at?: number;
   kind: ObserveEventKind;
   text: string;
   tool?: string;
@@ -1292,7 +1293,10 @@ export function buildObserveDataFromSnapshot(
   const builtEntries = eventDrafts
     .map((draft, index) => ({
       draft,
-      event: draft.build(seconds[index] ?? 0),
+      event: {
+        ...draft.build(seconds[index] ?? 0),
+        at: draft.timestampMs,
+      },
     }))
     .filter(({ event }) => event.text.length > 0 || event.kind === "tool" || event.kind === "boot");
   const events = builtEntries.map((entry) => entry.event);

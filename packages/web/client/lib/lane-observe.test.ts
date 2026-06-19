@@ -4,9 +4,13 @@ import {
   filterObserveDataForHorizon,
   filterObserveEventsForHorizon,
   filesFromObserveEvents,
+  fmtLaneAgeLabel,
+  fmtLaneWallGapLabel,
+  fmtTraceSpanMs,
   laneSnippetText,
   laneTextNeedsExpand,
   laneToolArgSnippet,
+  laneTraceWindowStats,
 } from "./lane-observe.ts";
 
 describe("laneSnippetText", () => {
@@ -79,9 +83,9 @@ describe("filterObserveEventsForHorizon", () => {
 
   test("keeps only events inside the selected wall-clock window", () => {
     const events = [
-      { id: "old", t: 600, kind: "tool" as const, text: "old tool", tool: "Shell" },
-      { id: "mid", t: 2400, kind: "tool" as const, text: "mid tool", tool: "Shell" },
-      { id: "new", t: 3540, kind: "message" as const, text: "recent reply" },
+      { id: "old", t: 600, at: NOW - 50 * 60_000, kind: "tool" as const, text: "old tool", tool: "Shell" },
+      { id: "mid", t: 2400, at: NOW - 20 * 60_000, kind: "tool" as const, text: "mid tool", tool: "Shell" },
+      { id: "new", t: 3540, at: NOW - 5 * 60_000, kind: "message" as const, text: "recent reply" },
     ];
 
     const filtered = filterObserveEventsForHorizon(
@@ -92,6 +96,17 @@ describe("filterObserveEventsForHorizon", () => {
     );
 
     expect(filtered.map((event) => event.id)).toEqual(["mid", "new"]);
+  });
+
+  test("drops events without a resolvable wall time when filtering", () => {
+    const filtered = filterObserveEventsForHorizon(
+      [{ id: "orphan", t: 7200, kind: "tool", text: "merge_pull_request", tool: "merge_pull_request" }],
+      undefined,
+      NOW,
+      30 * 60_000,
+    );
+
+    expect(filtered).toHaveLength(0);
   });
 });
 
@@ -115,6 +130,48 @@ describe("filterObserveDataForHorizon", () => {
 
     expect(filtered?.events.map((event) => event.id)).toEqual(["new"]);
     expect(filtered?.files.map((file) => file.path)).toEqual(["new.ts"]);
+  });
+});
+
+describe("fmtLaneAgeLabel", () => {
+  const NOW = 1_700_000_000_000;
+
+  test("reads as wall-clock age, not session elapsed", () => {
+    expect(fmtLaneAgeLabel(NOW - 12 * 60_000, NOW)).toBe("12m ago");
+    expect(fmtLaneAgeLabel(NOW - 3_000, NOW)).toBe("now");
+  });
+});
+
+describe("fmtLaneWallGapLabel", () => {
+  test("shows meaningful wall-clock gaps only", () => {
+    expect(fmtLaneWallGapLabel(45_000)).toBeNull();
+    expect(fmtLaneWallGapLabel(18 * 60_000)).toBe("+18m gap");
+    expect(fmtLaneWallGapLabel(2 * 60 * 60_000 + 15 * 60_000)).toBe("+2h 15m gap");
+  });
+});
+
+describe("laneTraceWindowStats", () => {
+  const NOW = 1_700_000_000_000;
+  const windowMs = 30 * 60_000;
+
+  test("summarizes visible span inside the horizon", () => {
+    const stats = laneTraceWindowStats([
+      { id: "a", t: 0, at: NOW - 29 * 60_000, kind: "tool", text: "a", tool: "Shell" },
+      { id: "b", t: 1, at: NOW - 5 * 60_000, kind: "tool", text: "b", tool: "Shell" },
+    ], NOW - 29 * 60_000, NOW, windowMs);
+
+    expect(stats.eventCount).toBe(2);
+    expect(stats.spanMs).toBe(24 * 60_000);
+    expect(fmtTraceSpanMs(stats.spanMs)).toBe("24m");
+    expect(stats.truncatedBefore).toBe(false);
+  });
+
+  test("flags when the oldest loaded event starts after the horizon cutoff", () => {
+    const stats = laneTraceWindowStats([
+      { id: "recent", t: 0, at: NOW - 10 * 60_000, kind: "tool", text: "recent", tool: "Shell" },
+    ], NOW - 10 * 60_000, NOW, windowMs);
+
+    expect(stats.truncatedBefore).toBe(true);
   });
 });
 

@@ -269,13 +269,49 @@
 }
 
 .s-agent-lane-summary-head {
+  /* No z-index here on purpose: head must NOT form a stacking context, so the
+     collapse button (z-index 2) can rise above the full-card click overlay
+     (z-index 1) while the rest of the head stays clickable-through to open the
+     detail sheet. */
   position: relative;
-  z-index: 0;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-md) var(--space-lg);
   transition: background 160ms ease;
+}
+
+.s-agent-lane-summary-collapse {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: var(--space-2xs);
+  padding: 0;
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+
+.s-agent-lane-summary-collapse:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.s-agent-lane-summary-collapse svg {
+  transition: transform 160ms ease;
+}
+
+.s-agent-lane-summary--collapsed .s-agent-lane-summary-collapse svg {
+  transform: rotate(-90deg);
 }
 
 .s-agent-lane-summary-identity {
@@ -381,17 +417,91 @@
   background: color-mix(in srgb, var(--green) 2%, var(--bg) 42%);
 }
 
+/* Context row: one line, fields kept distinct by weight/colour rather than a
+   flat dot-run. model is the bright anchor, effort a dim tag, branch carries a
+   git glyph, harness trails muted. */
 .s-agent-lane-summary-meta {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: var(--space-md);
+  min-height: 1rem;
+  overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-xs);
+  white-space: nowrap;
   color: var(--dim);
-  padding-bottom: var(--space-2xs);
-  border-bottom: 1px solid color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
-.s-agent-lane-summary-focus {
+.s-agent-lane-meta-model {
+  flex: none;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.s-agent-lane-meta-effort {
+  flex: none;
+  color: var(--dim);
+  text-transform: lowercase;
+}
+
+.s-agent-lane-meta-branch {
+  flex: 0 1 auto;
   min-width: 0;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-agent-lane-meta-glyph {
+  margin-right: var(--space-3xs);
+  color: var(--dim);
+}
+
+.s-agent-lane-meta-harness {
+  flex: none;
+  color: var(--muted);
+}
+
+.s-agent-lane-meta-empty {
+  color: var(--dim);
+}
+
+/* ── Uniform summary regions ──
+   Each region reserves a fixed amount of vertical space (via line-clamp +
+   min-height) so every lane's summary is the same height. That alignment is
+   the whole point: the trace below then starts on the same line across every
+   column. */
+
+.s-agent-lane-summary-current {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 1.25rem;
+}
+
+/* Direction of the headline message: ← a prompt from the user, → a reply to
+   them. The inbound (from-user) arrow reads a touch stronger — it's the human
+   voice in the lane. */
+.s-agent-lane-current-dir {
+  margin-right: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.s-agent-lane-current-dir--user {
+  color: var(--muted);
 }
 
 @keyframes s-agent-lane-summary-enter {
@@ -405,36 +515,28 @@
   }
 }
 
-.s-agent-lane-summary-focus--enter {
+.s-agent-lane-summary-current--enter {
   animation: s-agent-lane-summary-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .s-agent-lane-summary-focus--enter {
+  .s-agent-lane-summary-current--enter {
     animation: none;
   }
 }
 
-.s-agent-lane-summary-headline {
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  word-break: break-word;
-}
-
 .s-agent-lane-summary-detail {
-  margin: var(--space-xs) 0 0;
+  margin: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--muted);
-  white-space: pre-wrap;
   word-break: break-word;
-  max-height: 4.5rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 2.25rem;
 }
 
 .s-agent-lane-summary-foot {
@@ -454,14 +556,37 @@
 
 .s-agent-lane-summary-stats {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-xs);
+  min-height: 1.25rem;
+  overflow: hidden;
+}
+
+.s-agent-lane-stat--ghost {
+  background: transparent;
+  padding-left: 0;
+  color: var(--dim);
 }
 
 .s-agent-lane-summary-files {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  min-height: 4.75rem;
+}
+
+.s-agent-lane-summary-file-more,
+.s-agent-lane-summary-file-reads,
+.s-agent-lane-summary-file-ghost {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xs);
+  color: var(--dim);
+}
+
+/* Listed files are now changes only, so let the filename read as the signal. */
+.s-agent-lane-summary-file .s-agent-lane-preview-file-path {
+  color: var(--ink);
 }
 
 .s-agent-lane-summary-file {

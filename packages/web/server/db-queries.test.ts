@@ -1350,7 +1350,13 @@ describe("web db query agents", () => {
       const agent = queryAgents(10).find((entry) => entry.id === "agent-1");
 
       expect(agent?.transport).toBe("tmux");
-      expect(agent?.harnessSessionId).toBe("relay-agent-1-claude");
+      expect(agent?.harnessSessionId).toBeNull();
+      expect(agent?.terminalSurface).toEqual({
+        backend: "tmux",
+        sessionName: "relay-agent-1-claude",
+        paneId: null,
+        socketDir: null,
+      });
     } finally {
       store.close();
     }

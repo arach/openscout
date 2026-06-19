@@ -77,7 +77,11 @@ import {
   conversationIdForAgent,
   parseDirectConversationId,
 } from "./db/internal/conversation-ids.ts";
-import { compact as compactPath } from "./db/internal/paths.ts";
+import {
+  compact as compactPath,
+  isTransportSessionRef,
+  resolveHarnessSessionId,
+} from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
   appendScoutUnblockRequestEvent,
@@ -2442,17 +2446,21 @@ function brokerAgentCardToWebAgent(
     branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
     role: null,
     model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
-    harnessSessionId: endpoint?.sessionId
-      ?? metadataStringValue(endpointMetadata, "externalSessionId")
-      ?? metadataStringValue(endpointMetadata, "threadId")
-      ?? metadataStringValue(endpointMetadata, "a2aContextId")
-      ?? metadataStringValue(endpointMetadata, "a2aTaskId")
-      ?? metadataStringValue(agentMetadata, "externalSessionId")
-      ?? null,
+    harnessSessionId: resolveHarnessSessionId(
+      endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
+      endpoint?.sessionId ?? null,
+      {
+        ...agentMetadata,
+        ...endpointMetadata,
+      },
+    ),
     terminalSurface: resolveTerminalSurface({
       transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
       endpointSessionId: endpoint?.sessionId ?? null,
-      metadata: endpointMetadata,
+      metadata: {
+        ...agentMetadata,
+        ...endpointMetadata,
+      },
     }),
     harnessLogPath: null,
     conversationId: conversationIdForAgent(agent.id),
@@ -2490,9 +2498,9 @@ async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
     return agents;
   }
   const existingIds = new Set(agents.map((agent) => agent.id));
-  const brokerAgents = brokerCardAgentsForWeb(broker).filter(
-    (agent) => !existingIds.has(agent.id),
-  );
+  const brokerAgents = brokerCardAgentsForWeb(broker)
+    .filter((agent) => !existingIds.has(agent.id))
+    .map(withResolvedHarnessSessionIdentity);
   return [...agents, ...brokerAgents];
 }
 
@@ -2508,13 +2516,8 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
     (candidate) => brokerAgentIdentityMatches(candidate, agentId),
   );
-  return brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
-}
-
-function isRelayHarnessSessionId(value: string | null | undefined): boolean {
-  const trimmed = value?.trim();
-  if (!trimmed) return true;
-  return /^relay[-:]/i.test(trimmed);
+  const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
+  return brokerWebAgent ? withResolvedHarnessSessionIdentity(brokerWebAgent) : null;
 }
 
 function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
@@ -2527,10 +2530,10 @@ function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
     return agent;
   }
   const sessionId = agent.harnessSessionId?.trim() ?? "";
-  if (!isRelayHarnessSessionId(sessionId) && sessionId === transcript.sessionId) {
+  if (sessionId === transcript.sessionId) {
     return agent;
   }
-  if (!isRelayHarnessSessionId(sessionId) && sessionId) {
+  if (sessionId && !isTransportSessionRef(sessionId)) {
     return agent;
   }
   return {

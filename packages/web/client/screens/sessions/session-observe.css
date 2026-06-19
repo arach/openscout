@@ -28,10 +28,58 @@
 }
 
 .s-observe--lane .s-observe-main {
-  --lane-time-col: 42px;
-  --lane-spine-x: 44px;
+  --lane-time-col: 54px;
+  --lane-spine-x: 56px;
   padding: var(--space-sm) var(--space-lg) var(--space-lg);
   overflow-x: hidden;
+}
+
+.s-observe-lane-trace-meta {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.s-observe-lane-trace-meta-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
+.s-observe-lane-trace-meta-label {
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--dim) 88%, var(--ink) 12%);
+}
+
+.s-observe-lane-trace-meta-window {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--dim) 72%, var(--accent) 28%);
+}
+
+.s-observe-lane-trace-meta-sep {
+  opacity: 0.55;
+}
+
+.s-observe-lane-trace-meta-note {
+  font-family: var(--font-sans);
+  font-size: var(--text-2xs);
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.s-observe-lane-trace-meta-note--warn {
+  color: color-mix(in srgb, var(--amber, #c9a227) 72%, var(--muted) 28%);
 }
 
 .s-observe--lane .s-observe-stream {
@@ -324,6 +372,46 @@
   line-height: 1.4;
 }
 
+/* Ask in lane mode. The base style is a full bordered hero card with XL
+   accent-title type — far too large for a 480px column. Render it as a flat,
+   column-scaled attention band: a faint warm tint marks it as a human prompt,
+   text sits at lane body size, and there is no rounded box to break the flat
+   spine trace. */
+.s-observe--lane .s-observe-ask--lane {
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--amber) 6%, transparent);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.s-observe--lane .s-observe-ask--lane .s-observe-ask-label {
+  margin-bottom: var(--space-3xs);
+  color: color-mix(in srgb, var(--dim) 58%, var(--amber) 42%);
+}
+
+.s-observe--lane .s-observe-ask--lane .s-observe-ask-text {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.s-observe--lane .s-observe-ask--lane .s-observe-ask-answer {
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
+  gap: var(--space-sm);
+}
+
+.s-observe--lane .s-observe-ask--lane .s-observe-ask-answer-meta {
+  font-size: var(--text-2xs);
+}
+
+.s-observe--lane .s-observe-ask--lane .s-observe-ask-answer-text {
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
 .s-observe--lane .s-observe-lane-expandable {
   display: flex;
   flex-direction: column;
@@ -386,23 +474,33 @@
 .s-observe--lane .s-observe-tool {
   border: 0;
   border-radius: 0;
+  /* A quiet left gutter rule turns each command into a tidy terminal block
+     with a real vertical guide, rather than a floating tinted box. */
+  border-left: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
   background: color-mix(in srgb, var(--surface) 62%, transparent);
-  transition: background 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .s-observe--lane .s-observe-tool:hover {
+  border-color: color-mix(in srgb, var(--ink) 14%, transparent);
   background: color-mix(in srgb, var(--surface) 78%, transparent);
 }
 
 .s-observe--lane .s-observe-tool-header {
   padding: var(--space-2xs) var(--space-sm);
   gap: var(--space-sm);
+  /* Top-align so the prompt glyph sits on the command's first line instead of
+     floating to the vertical center of a wrapped two-line command. */
+  align-items: flex-start;
   background: color-mix(in srgb, var(--bg) 35%, transparent);
 }
 
 .s-observe--lane .s-observe-tool-glyph {
   font-size: var(--text-sm);
   width: 12px;
+  flex: none;
+  text-align: center;
+  line-height: 1.55;
   color: var(--dim);
 }
 

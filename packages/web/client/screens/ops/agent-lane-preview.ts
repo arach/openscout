@@ -4,6 +4,9 @@ import type { Agent, ObserveData, ObserveEvent, ObserveFile } from "../../lib/ty
 
 export type AgentLanePreviewModel = {
   headline: string;
+  /** Who the headline message is with: "user" = a prompt from the user (←),
+   *  "agent" = a reply to the user (→), null = non-conversation fallback. */
+  headlineFrom: "user" | "agent" | null;
   detail: string | null;
   model: string | null;
   branch: string | null;
@@ -40,8 +43,16 @@ function isSubstantiveEvent(event: ObserveEvent): boolean {
 function basename(path: string | null | undefined): string {
   const trimmed = path?.trim();
   if (!trimmed) return "file";
-  const parts = trimmed.split("/").filter(Boolean);
+  // Split on both separators so Windows-style / escaped paths
+  // (e.g. "openscout\\nbun") still resolve to the final segment.
+  const parts = trimmed.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? trimmed;
+}
+
+/** True when text carries an actual word — not just arrows/punctuation/blank.
+ *  Guards the summary from headlines like a bare "→" and unnamed files. */
+export function hasMeaningfulText(value: string | null | undefined): boolean {
+  return !!value && /[\p{L}\p{N}]/u.test(value);
 }
 
 function isInActiveTurn(events: ObserveEvent[]): boolean {
@@ -63,27 +74,30 @@ export function previewFocusEvent(
   const substantive = events.filter(isSubstantiveEvent);
   if (substantive.length === 0) return undefined;
 
+  // The headline is the conversation, not the work. Prefer the last user-level
+  // message — either a prompt from the user (kind "ask") or a reply to the user
+  // (kind "message"). Tool churn and thinking are deliberately not the headline.
+  const lastConversation = [...substantive]
+    .reverse()
+    .find(
+      (event) =>
+        (event.kind === "message" || event.kind === "ask") && hasMeaningfulText(event.text),
+    );
+  if (lastConversation) return lastConversation;
+
+  // Nothing has been said yet → fall back to live activity so the card isn't blank.
   if (isLive && isInActiveTurn(events)) {
-    const latestThink = [...substantive].reverse().find((event) => event.kind === "think");
+    const latestThink = [...substantive]
+      .reverse()
+      .find((event) => event.kind === "think" && hasMeaningfulText(event.text));
     if (latestThink) return latestThink;
   }
-
-  const latestT = substantive.reduce((max, event) => Math.max(max, event.t), 0);
-  if (isLive) {
-    const latestRecentTool = [...substantive]
-      .reverse()
-      .find((event) => event.kind === "tool" && latestT - event.t <= 30);
-    if (latestRecentTool) return latestRecentTool;
-  }
-
-  const latestHumanReadable = [...substantive]
-    .reverse()
-    .find((event) => event.kind === "message" || event.kind === "ask" || event.kind === "note");
-  return latestHumanReadable ?? substantive[substantive.length - 1];
+  const latestTool = [...substantive].reverse().find((event) => event.kind === "tool");
+  return latestTool ?? substantive[substantive.length - 1];
 }
 
 function previewHeadline(event: ObserveEvent): string {
-  const text = event.text?.trim();
+  const text = hasMeaningfulText(event.text) ? event.text!.trim() : undefined;
   switch (event.kind) {
     case "tool":
       return [
@@ -104,7 +118,7 @@ function previewHeadline(event: ObserveEvent): string {
 }
 
 function previewDetail(event: ObserveEvent): string | null {
-  const text = event.text?.trim();
+  const text = hasMeaningfulText(event.text) ? event.text!.trim() : null;
   if (text) return text.slice(0, 220);
 
   if (event.kind === "tool" && event.diff?.preview) {
@@ -122,7 +136,7 @@ function previewDetail(event: ObserveEvent): string | null {
       .join(" · ");
   }
 
-  return event.detail?.trim() ?? null;
+  return hasMeaningfulText(event.detail) ? event.detail!.trim() : null;
 }
 
 export function buildAgentLanePreview(
@@ -155,6 +169,7 @@ export function buildAgentLanePreview(
 
   return {
     headline: previewHeadline(latest),
+    headlineFrom: latest.kind === "ask" ? "user" : latest.kind === "message" ? "agent" : null,
     detail: previewDetail(latest),
     model: session?.model ?? agent.model ?? null,
     branch: session?.gitBranch ?? agent.branch ?? null,

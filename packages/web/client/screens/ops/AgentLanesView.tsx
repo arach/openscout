@@ -57,11 +57,13 @@ function AgentLaneColumn({
   lane,
   isNew,
   traceWindowMs,
+  traceWindowLabel,
   onInspect,
 }: {
   lane: AgentLane;
   isNew?: boolean;
   traceWindowMs: number;
+  traceWindowLabel: string;
   onInspect: (lane: AgentLane) => void;
 }) {
   const { agent, observe, source } = lane;
@@ -72,9 +74,6 @@ function AgentLaneColumn({
     <article className={`s-agent-lane${isLive ? " s-agent-lane--live" : ""}${isNew ? " s-agent-lane--new" : ""}`}>
       <AgentLaneSummaryCard lane={lane} isLive={isLive} onOpen={() => onInspect(lane)} />
       <section className="s-agent-lane-trace" aria-label={`${lanePrimaryLabel(agent, source)} trace`}>
-        <div className="s-agent-lane-trace-head">
-          <span className="s-agent-lane-trace-label">Trace</span>
-        </div>
         <div className="s-agent-lane-body">
           {hasTrace ? (
             <SessionObserve
@@ -84,6 +83,7 @@ function AgentLaneColumn({
               showRail={false}
               variant="lane"
               traceWindowMs={traceWindowMs}
+              traceWindowLabel={traceWindowLabel}
             />
           ) : (
             <div className="s-agent-lane-empty">Waiting for trace activity…</div>
@@ -218,7 +218,7 @@ export function AgentLanesView({
           <div className="s-agent-lanes-issues-head">
             <span className="s-agent-lanes-issues-badge">Roster issues</span>
             <span className="s-agent-lanes-issues-meta">
-              {issues.length} data-quality warning{issues.length === 1 ? "" : "s"} — lanes still follow canonical tail data
+              {issues.length} fleet/transcript warning{issues.length === 1 ? "" : "s"} — lanes follow tail, not agent registry
             </span>
           </div>
           <ul className="s-agent-lanes-issues-list">
@@ -242,6 +242,7 @@ export function AgentLanesView({
               lane={lane}
               isNew={newLaneIds.has(lane.id)}
               traceWindowMs={traceWindowMs}
+              traceWindowLabel={horizonLabel}
               onInspect={(target) => setInspectedLaneId(target.id)}
             />
           ))}

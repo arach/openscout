@@ -6,6 +6,7 @@ import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
 import { GrokSource } from "./grok-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
+import { sessionRegistryKey } from "./registry.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -67,21 +68,6 @@ let shallowDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 let deepDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 let discoveryInFlight: Promise<DiscoverySnapshot> | null = null;
 let lastDiscovery: DiscoverySnapshot | null = null;
-
-function watcherKey(source: string, path: string): string {
-  return `${source}:${path}`;
-}
-
-function transcriptKey(transcript: DiscoveredTranscript): string {
-  return watcherKey(transcript.source, transcript.transcriptPath);
-}
-
-/** One tail registry row per harness session; path-only transcripts stay path-keyed. */
-function sessionRegistryKey(transcript: DiscoveredTranscript): string {
-  const sessionId = transcript.sessionId?.trim();
-  if (sessionId) return `${transcript.source}:${sessionId}`;
-  return transcriptKey(transcript);
-}
 
 const ATTRIBUTION_RANK: Record<DiscoveredProcess["harness"], number> = {
   "scout-managed": 3,
@@ -341,7 +327,11 @@ async function refreshDiscovery(
       seenSessionKeys.add(sessionKey);
 
       const prior = knownTranscripts.get(sessionKey);
-      if (prior && prior.transcriptPath !== transcriptPath) {
+      if (
+        transcript.source !== "cursor"
+        && prior
+        && prior.transcriptPath !== transcriptPath
+      ) {
         const issueKey = `${sessionKey}\u0000${prior.transcriptPath}\u0000${transcriptPath}`;
         if (!discoveryIssueKeys.has(issueKey)) {
           discoveryIssueKeys.add(issueKey);

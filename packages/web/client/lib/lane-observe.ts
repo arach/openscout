@@ -1,10 +1,100 @@
+import { fullTimestamp, timeAgo } from "./time.ts";
 import { observeToolIsEdit, observeToolIsRead } from "./tail-display.ts";
 import type { ObserveEvent, ObserveFile, ObserveData } from "./types.ts";
+
+export type LaneTraceWindowStats = {
+  eventCount: number;
+  spanMs: number;
+  oldestAt: number | null;
+  newestAt: number | null;
+  /** Oldest loaded event starts after the horizon cutoff — earlier window may be missing. */
+  truncatedBefore: boolean;
+  /** Events in source data that fell before the horizon cutoff. */
+  hiddenBeforeCount: number;
+};
+
+const LANE_WALL_GAP_MIN_MS = 2 * 60_000;
+const LANE_TRUNCATION_SLACK_MS = 90_000;
+
+/** Lane trace age label — always reads as wall-clock age, never session elapsed. */
+export function fmtLaneAgeLabel(wallMs: number, nowMs = Date.now()): string {
+  const ago = timeAgo(wallMs, nowMs);
+  return ago === "now" ? "now" : `${ago} ago`;
+}
+
+export function fmtLaneAgeTitle(wallMs: number): string {
+  return fullTimestamp(wallMs);
+}
+
+/** Compact duration for trace span summaries (e.g. "18m", "2h 5m"). */
+export function fmtTraceSpanMs(spanMs: number): string {
+  if (!Number.isFinite(spanMs) || spanMs <= 0) return "0s";
+  if (spanMs < 60_000) {
+    return `${Math.max(1, Math.round(spanMs / 1000))}s`;
+  }
+  if (spanMs < 3_600_000) {
+    return `${Math.max(1, Math.round(spanMs / 60_000))}m`;
+  }
+  const hours = Math.floor(spanMs / 3_600_000);
+  const minutes = Math.round((spanMs % 3_600_000) / 60_000);
+  return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+}
+
+/** Wall-clock gap label between lane events (null when gap is too small to show). */
+export function fmtLaneWallGapLabel(gapMs: number): string | null {
+  if (!Number.isFinite(gapMs) || gapMs < LANE_WALL_GAP_MIN_MS) return null;
+  const totalSeconds = Math.floor(gapMs / 1000);
+  if (totalSeconds < 3_600) {
+    return `+${Math.floor(totalSeconds / 60)}m gap`;
+  }
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  return minutes > 0 ? `+${hours}h ${minutes}m gap` : `+${hours}h gap`;
+}
+
+export function laneTraceWindowStats(
+  events: ObserveEvent[],
+  sessionStartMs: number | undefined,
+  nowMs: number,
+  windowMs: number,
+  hiddenBeforeCount = 0,
+): LaneTraceWindowStats {
+  const cutoff = nowMs - windowMs;
+
+  const wallTimes = events
+    .map((event) => observeEventWallMs(event, sessionStartMs))
+    .filter((value): value is number => value !== null);
+
+  if (wallTimes.length === 0) {
+    return {
+      eventCount: 0,
+      spanMs: 0,
+      oldestAt: null,
+      newestAt: null,
+      truncatedBefore: false,
+      hiddenBeforeCount,
+    };
+  }
+
+  const oldestAt = Math.min(...wallTimes);
+  const newestAt = Math.max(...wallTimes);
+  return {
+    eventCount: events.length,
+    spanMs: Math.max(0, newestAt - oldestAt),
+    oldestAt,
+    newestAt,
+    truncatedBefore: oldestAt > cutoff + LANE_TRUNCATION_SLACK_MS,
+    hiddenBeforeCount,
+  };
+}
 
 export function observeEventWallMs(
   event: ObserveEvent,
   sessionStartMs: number | undefined,
 ): number | null {
+  if (typeof event.at === "number" && Number.isFinite(event.at)) {
+    return event.at;
+  }
   if (!Number.isFinite(event.t) || event.t < 0) return null;
   if (typeof sessionStartMs !== "number" || !Number.isFinite(sessionStartMs)) return null;
   return sessionStartMs + event.t * 1000;
@@ -19,9 +109,23 @@ export function filterObserveEventsForHorizon(
   const cutoff = now - windowMs;
   return events.filter((event) => {
     const wallMs = observeEventWallMs(event, sessionStartMs);
-    if (wallMs === null) return true;
+    if (wallMs === null) return false;
     return wallMs >= cutoff;
   });
+}
+
+export function countObserveEventsBeforeHorizon(
+  events: ObserveEvent[],
+  sessionStartMs: number | undefined,
+  nowMs: number,
+  windowMs: number,
+): number {
+  const cutoff = nowMs - windowMs;
+  return events.reduce((count, event) => {
+    const wallMs = observeEventWallMs(event, sessionStartMs);
+    if (wallMs === null || wallMs >= cutoff) return count;
+    return count + 1;
+  }, 0);
 }
 
 export function filterObserveDataForHorizon(

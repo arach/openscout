@@ -36,40 +36,64 @@ export function relayHarnessLogPath(agentId: string): string {
   return join(relayAgentLogsDirectory(agentId), "stdout.log");
 }
 
+/** Runtime/tmux refs — not provider harness conversation ids. */
+export function isTransportSessionRef(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) return false;
+  return /^relay[-:]/i.test(trimmed);
+}
+
+function providerHarnessSessionId(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed || isTransportSessionRef(trimmed)) return null;
+  return trimmed;
+}
+
 export function resolveHarnessSessionId(
   transport: string | null,
   endpointSessionId: string | null,
   metadata: Record<string, unknown> | undefined,
 ): string | null {
-  if (transport === "tmux") {
-    return metadataString(metadata, "tmuxSession") ?? endpointSessionId;
+  if (transport === "tmux" || transport === "zellij") {
+    return null;
   }
 
   if (transport === "pairing_bridge") {
     const attachedTransport = metadataString(metadata, "attachedTransport");
     if (attachedTransport === "codex_app_server") {
-      return metadataString(metadata, "threadId")
-        ?? metadataString(metadata, "externalSessionId")
-        ?? endpointSessionId;
+      return providerHarnessSessionId(
+        metadataString(metadata, "threadId")
+        ?? metadataString(metadata, "externalSessionId"),
+      );
     }
-    return metadataString(metadata, "externalSessionId") ?? endpointSessionId;
+    return providerHarnessSessionId(metadataString(metadata, "externalSessionId"));
   }
 
   if (transport === "codex_app_server") {
-    return metadataString(metadata, "threadId") ?? endpointSessionId;
+    return providerHarnessSessionId(
+      metadataString(metadata, "threadId")
+      ?? metadataString(metadata, "externalSessionId"),
+    );
   }
 
   if (transport === "claude_stream_json") {
-    const runtimeInstanceId = metadataString(metadata, "runtimeInstanceId")
-      ?? metadataString(metadata, "runtimeSessionId");
-    const externalSessionId = metadataString(metadata, "externalSessionId");
+    const externalSessionId = providerHarnessSessionId(metadataString(metadata, "externalSessionId"));
     if (externalSessionId) {
       return externalSessionId;
     }
-    return endpointSessionId && endpointSessionId !== runtimeInstanceId ? endpointSessionId : null;
+    const runtimeInstanceId = metadataString(metadata, "runtimeInstanceId")
+      ?? metadataString(metadata, "runtimeSessionId");
+    const endpoint = endpointSessionId?.trim() ?? null;
+    if (!endpoint || endpoint === runtimeInstanceId) {
+      return null;
+    }
+    return providerHarnessSessionId(endpoint);
   }
 
-  return null;
+  return providerHarnessSessionId(
+    metadataString(metadata, "externalSessionId")
+    ?? metadataString(metadata, "threadId"),
+  );
 }
 
 export function resolveHarnessLogPath(

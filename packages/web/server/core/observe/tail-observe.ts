@@ -143,6 +143,7 @@ export function buildObserveDataFromTail(
     return {
       id: event.id,
       t: Math.max(0, Math.round((event.ts - sessionStart) / 1000)),
+      at: event.ts,
       kind: tailEventKindToObserveKind(event.kind),
       text: event.summary,
       tool: toolFields.tool,
