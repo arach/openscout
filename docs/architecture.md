@@ -97,6 +97,41 @@ scout who                                # → read agent registry
 scout watch                              # → SSE stream of all events
 ```
 
+#### Broker module map
+
+The broker implementation lives in `packages/runtime/src/`. `broker-daemon.ts` is the
+process composition root: it wires dependencies, starts TCP/Unix/WebSocket listeners,
+and runs background loops. Business workflows live in `broker-*` service modules;
+HTTP route dispatch lives in `broker-http-router.ts`.
+
+```text
+broker-daemon.ts          composition root (~1.3k lines)
+  ├─ broker-process-manager.ts / broker-server-lifecycle.ts
+  ├─ broker-durable-store.ts + broker-durable-record-store.ts
+  ├─ broker-core-service.ts (read facade + deliver/invoke delegates)
+  ├─ broker-http-router.ts (HTTP route table)
+  └─ broker-* services (write paths, mesh, streams, sessions)
+```
+
+| Layer | Modules | Responsibility |
+| --- | --- | --- |
+| **Process** | `broker-daemon.ts`, `broker-process-manager.ts`, `broker-server-lifecycle.ts` | env/config, singleton probe, listen/shutdown |
+| **Persistence** | `broker-journal.ts`, `broker-durable-store.ts`, `broker-durable-record-store.ts`, `broker-delivery-store.ts`, `broker-work-item-store.ts`, `broker-read-cursor-store.ts` | journal append, write queue, entity helpers, deliveries, work items, read cursors |
+| **Read model** | `broker-core-service.ts`, `broker-core-message-read-model.ts`, `broker-home-service.ts`, `broker-capability-matrix-service.ts`, `broker-api.ts` | snapshots, feeds, capability matrix, in-process client |
+| **Routing & dispatch** | `broker-delivery-routing.ts`, `broker-unavailable-target-service.ts`, `broker-delivery-acceptance-service.ts`, `broker-invocation-dispatch-service.ts`, `broker-local-endpoint-resolver.ts`, `broker-local-invocation-service.ts`, `broker-local-invocation-helpers.ts`, `broker-flight-lifecycle-service.ts` | target resolution, `/v1/deliver`, invocation accept/dispatch, endpoint selection, local execution, flight lifecycle |
+| **Conversations & messages** | `broker-conversation-service.ts`, `broker-conversation-helpers.ts`, `broker-message-service.ts`, `broker-command-service.ts` | actors/conversations, message posting, control commands |
+| **Mesh** | `broker-mesh-bundle-service.ts`, `broker-mesh-forwarding-service.ts`, `broker-mesh-discovery-service.ts`, `broker-mesh-http-service.ts` | peer bundles, authority forwarding, discovery, receiver routes |
+| **HTTP & streams** | `broker-http-router.ts`, `broker-http-helpers.ts`, `broker-http-entity-write-routes.ts`, `broker-delivery-http-service.ts`, `broker-durable-action-http-service.ts`, `broker-managed-session-http-service.ts`, `broker-a2a-service.ts`, `broker-control-stream-service.ts`, `broker-trpc-router.ts` | route table, inbox/delivery HTTP, durable actions, managed sessions, A2A JSON-RPC, SSE, WebSocket firehose |
+| **Sessions & sync** | `broker-managed-session-service.ts`, `broker-managed-session-helpers.ts`, `broker-local-agent-sync-service.ts` | pairing/local-session attach, registry sync |
+| **Operator surfaces** | `broker-web-control-service.ts`, `broker-operator-attention-service.ts`, `broker-repo-tail-service.ts` | web child supervision, operator attention/mobile alerts, repo watch/tail reads |
+
+Shared runtime primitives (`broker.ts` in-memory registry, `scout-dispatcher.ts` label
+resolution, `local-agents.ts` harness transports) sit beside this map and are called
+from the services above.
+
+For the June 2026 refactor context, behavioral findings, and remaining cleanup items,
+see [`eng/broker-daemon-architecture-review-2026-06-18.md`](./eng/broker-daemon-architecture-review-2026-06-18.md).
+
 ### Runtime
 
 Manages agent sessions across harnesses — starting them, stopping them, health-checking them. Handles system prompt generation, tmux session management, and transport adapters for each harness type.

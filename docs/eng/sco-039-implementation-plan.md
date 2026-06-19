@@ -42,10 +42,11 @@ single lifecycle contract.
 - `packages/runtime/src/schema.ts` and `packages/runtime/src/sqlite-store.ts`
   persist durable ledger records and enforce idempotency, leases, attempts, and
   first-write-wins checkpoints/signals.
-- `packages/runtime/src/broker-daemon.ts` still records invocations, flights,
-  and delivery updates directly through `recordInvocationDurably`,
-  `recordFlightDurably`, `acceptBrokerDelivery`, `executeLocalInvocation`, and
-  `updateDeliveryStatusDurably`.
+- Broker write paths are split across service modules (see
+  `docs/architecture.md` Broker module map): `broker-invocation-dispatch-service.ts`,
+  `broker-flight-lifecycle-service.ts`, `broker-delivery-acceptance-service.ts`,
+  `broker-local-invocation-service.ts`, and `broker-delivery-store.ts` for delivery
+  status updates.
 - `packages/runtime/src/peer-delivery.ts` already treats peer reachability as a
   delivery lifecycle with attempts, retry windows, leases, and terminal
   failures.
@@ -357,7 +358,7 @@ Initial write areas:
 - `packages/protocol/src/durable-actions.ts`
 - `packages/protocol/src/index.ts`
 - `packages/runtime/src/sqlite-store.ts`
-- `packages/runtime/src/broker-daemon.ts`
+- `packages/runtime/src/broker-daemon.ts`, `broker-invocation-dispatch-service.ts`, `broker-flight-lifecycle-service.ts`, `broker-delivery-acceptance-service.ts`
 - `packages/runtime/src/peer-delivery.ts`
 - focused tests in `packages/protocol/src/*test.ts` and
   `packages/runtime/src/*test.ts`

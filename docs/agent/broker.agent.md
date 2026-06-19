@@ -4,11 +4,15 @@ Source: `packages/runtime/**`, `packages/protocol/**`, `docs/data-ownership.md`.
 
 Status: canonical writer semantics for local broker. Complements `scout-comms.agent.md` (workflows).
 
-Verified: 2026-06-10
+Verified: 2026-06-19
 
 ## Role
 
 The broker is the local daemon that **owns, persists, routes, and streams** Scout coordination state. One broker per machine (authority node). Surfaces and agents are readers/writers through HTTP/SSE/MCP/CLI — not parallel sources of truth.
+
+`broker-daemon.ts` is the process composition root (~1.3k lines). Write workflows live in
+`broker-*` service modules; HTTP routing lives in `broker-http-router.ts`. Full module map:
+[`docs/architecture.md`](../architecture.md) (Broker → module map).
 
 ## Model
 
@@ -142,6 +146,28 @@ Mesh ≠ exactly-once, consensus, or transcript replication.
 ## Types
 
 Primary: `@openscout/protocol` — `MessageRecord`, `FlightRecord`, `ScoutDispatchRecord`, `ScoutRouteTarget`, thread event envelopes.
+
+## Code map
+
+| Concern | Module(s) |
+|---|---|
+| composition root | `broker-daemon.ts` |
+| HTTP routes | `broker-http-router.ts`, `broker-http-entity-write-routes.ts` |
+| read facade | `broker-core-service.ts`, `broker-api.ts` |
+| durable writes | `broker-durable-store.ts`, `broker-durable-record-store.ts` |
+| `/v1/deliver` | `broker-delivery-acceptance-service.ts`, `broker-delivery-routing.ts` |
+| invocations | `broker-invocation-dispatch-service.ts` |
+| endpoint pick + local exec | `broker-local-endpoint-resolver.ts`, `broker-local-invocation-service.ts`, `broker-local-invocation-helpers.ts` |
+| flights | `broker-flight-lifecycle-service.ts` |
+| conversations/messages | `broker-conversation-service.ts`, `broker-message-service.ts` |
+| mesh | `broker-mesh-*-service.ts` |
+| managed sessions | `broker-managed-session-service.ts` |
+| label resolution | `scout-dispatcher.ts` |
+| in-memory registry | `broker.ts` |
+| harness transports | `local-agents.ts`, `local-agent-transports.ts` |
+
+Refactor context and open behavioral cleanup:
+[`docs/eng/broker-daemon-architecture-review-2026-06-18.md`](../eng/broker-daemon-architecture-review-2026-06-18.md).
 
 ## Verification
 

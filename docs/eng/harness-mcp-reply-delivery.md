@@ -92,9 +92,9 @@ the incoming conversation id as a first-class reply route.
 ### Broker reply writes
 
 The broker already records replies and notify audiences. In
-`/Users/arach/dev/openscout/packages/runtime/src/broker-daemon.ts`,
-`executeLocalInvocation` posts the target agent's final output back into the
-invocation conversation with:
+`packages/runtime/src/broker-local-invocation-service.ts`, local invocation
+completion posts the target agent's final output back into the invocation
+conversation with:
 
 - `actorId` set to the responding agent
 - `replyToMessageId` set to the original invocation message
