@@ -1,4 +1,6 @@
-export interface OpenScoutAuthEnv {
+import { parseAppleClientIds, verifyAppleIdentityToken, type AppleAuthEnv } from "./apple-auth.js";
+
+export interface OpenScoutAuthEnv extends AppleAuthEnv {
   OPENSCOUT_GITHUB_CLIENT_ID?: string;
   OPENSCOUT_GITHUB_CLIENT_SECRET?: string;
   OPENSCOUT_GITHUB_REDIRECT_URI?: string;
@@ -6,13 +8,17 @@ export interface OpenScoutAuthEnv {
   OPENSCOUT_SESSION_TTL_SECONDS?: string;
 }
 
+export type OpenScoutSessionProvider = "github" | "apple";
+
 export interface OpenScoutSession {
-  provider: "github";
+  provider: OpenScoutSessionProvider;
   providerUserId: string;
   login: string;
   email: string;
   expiresAt: number;
 }
+
+const SESSION_PROVIDERS: readonly OpenScoutSessionProvider[] = ["github", "apple"];
 
 interface GitHubUser {
   id: number;
@@ -72,6 +78,10 @@ export async function handleOpenScoutAuthRequest(
     return finishGitHubOAuth(request, env, fetcher);
   }
 
+  if (method === "POST" && url.pathname === "/v1/auth/apple/native") {
+    return finishAppleNativeAuth(request, env, fetcher);
+  }
+
   if (method === "GET" && url.pathname === "/v1/auth/session") {
     const session = await readOpenScoutSessionFromRequest(request, env);
     return json(200, session ? { authenticated: true, session: publicSession(session) } : { authenticated: false });
@@ -92,7 +102,7 @@ export async function readOpenScoutSessionFromRequest(
   if (!token) return undefined;
 
   const session = await verifySignedToken<OpenScoutSession>(token, env.OPENSCOUT_SESSION_SECRET);
-  if (!session || session.provider !== "github" || session.expiresAt <= Date.now()) {
+  if (!session || !SESSION_PROVIDERS.includes(session.provider) || session.expiresAt <= Date.now()) {
     return undefined;
   }
   if (!isNonEmptyString(session.providerUserId) || !isNonEmptyString(session.login) || !isNonEmptyString(session.email)) {
@@ -219,6 +229,72 @@ async function finishGitHubOAuth(request: Request, env: OpenScoutAuthEnv, fetche
     clearCookie(OPENSCOUT_OAUTH_STATE_COOKIE, request.url),
     cookie(OPENSCOUT_SESSION_COOKIE, sessionToken, request.url, { maxAge: ttlSeconds }),
   ]);
+}
+
+interface AppleNativeRequestBody {
+  identityToken?: unknown;
+  nonce?: unknown;
+  fullName?: unknown;
+}
+
+async function finishAppleNativeAuth(request: Request, env: OpenScoutAuthEnv, fetcher: Fetcher): Promise<Response> {
+  if (!env.OPENSCOUT_SESSION_SECRET?.trim()) {
+    logAuthEvent(request, "apple_native_denied", { reason: "missing_session_secret" });
+    return json(500, { error: "session_secret_not_configured" });
+  }
+  const audiences = parseAppleClientIds(env);
+  if (audiences.length === 0) {
+    logAuthEvent(request, "apple_native_denied", { reason: "missing_client_ids" });
+    return json(500, { error: "apple_auth_not_configured", detail: "missing OPENSCOUT_APPLE_CLIENT_IDS" });
+  }
+
+  let body: AppleNativeRequestBody;
+  try {
+    body = await request.json() as AppleNativeRequestBody;
+  } catch {
+    return json(400, { error: "invalid_json_body" });
+  }
+  const identityToken = isNonEmptyString(body.identityToken) ? body.identityToken.trim() : undefined;
+  if (!identityToken) {
+    logAuthEvent(request, "apple_native_denied", { reason: "missing_identity_token" });
+    return json(400, { error: "missing_identity_token" });
+  }
+  const expectedNonce = isNonEmptyString(body.nonce) ? body.nonce.trim() : undefined;
+
+  const verified = await verifyAppleIdentityToken(identityToken, { audiences, expectedNonce, fetcher });
+  if (!verified.ok) {
+    logAuthEvent(request, "apple_native_denied", { reason: verified.reason, detail: verified.detail });
+    const status = verified.reason === "apple_audience_not_configured" ? 500 : 401;
+    return json(status, { error: verified.reason, detail: verified.detail });
+  }
+
+  const email = verified.identity.email;
+  if (!email) {
+    // osn_users requires an email; Apple normally includes one (real or relay).
+    logAuthEvent(request, "apple_native_denied", { reason: "apple_email_unavailable" });
+    return json(422, { error: "apple_email_unavailable" });
+  }
+
+  const now = Date.now();
+  const ttlSeconds = readPositiveInteger(env.OPENSCOUT_SESSION_TTL_SECONDS, DEFAULT_SESSION_TTL_SECONDS);
+  const session: OpenScoutSession = {
+    provider: "apple",
+    providerUserId: verified.identity.sub,
+    login: deriveAppleLogin(body.fullName, email, verified.identity.sub),
+    email,
+    expiresAt: now + ttlSeconds * 1000,
+  };
+  const sessionToken = await signToken(session, env.OPENSCOUT_SESSION_SECRET);
+  logAuthEvent(request, "apple_native_finished", { providerUserId: session.providerUserId, login: session.login });
+
+  return json(200, { session: sessionToken, expires_at: session.expiresAt });
+}
+
+function deriveAppleLogin(fullName: unknown, email: string, sub: string): string {
+  if (isNonEmptyString(fullName)) return fullName.trim();
+  const localPart = email.split("@")[0]?.trim();
+  if (isNonEmptyString(localPart)) return localPart;
+  return `apple-${sub.slice(0, 8)}`;
 }
 
 async function exchangeGitHubCode(
