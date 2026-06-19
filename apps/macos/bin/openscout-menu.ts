@@ -31,7 +31,7 @@ const infoPlistTemplate = resolve(appDir, "Info.plist");
 const entitlementsPath = resolve(appDir, "ScoutMenu.entitlements");
 const iconSource = resolve(repoRoot, "apps", "desktop", "public", "scout-icon.png");
 const packageJsonPath = resolve(repoRoot, "package.json");
-const bundleIdentifier = "app.openscout.mac.menu";
+const bundleIdentifier = "app.openscout.scout.menu";
 const hudsonConfigPath = resolve(appDir, "hudson-package.json");
 
 type Command =

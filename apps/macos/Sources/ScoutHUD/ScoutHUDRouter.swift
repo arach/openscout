@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 public enum ScoutHUDRouter {
-    public static let commandNotificationName = Notification.Name("com.openscout.hud.command")
+    public static let commandNotificationName = Notification.Name("app.openscout.scout.hud")
 
     public static func handle(url: URL) -> Bool {
         guard url.scheme?.lowercased() == "scout",

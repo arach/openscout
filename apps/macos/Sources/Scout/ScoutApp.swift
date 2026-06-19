@@ -25,7 +25,7 @@ private enum ScoutLaunchOptions {
 
 @MainActor
 enum ScoutExternalCommand {
-    static let openChannelNotificationName = Notification.Name("com.openscout.app.open-channel")
+    static let openChannelNotificationName = Notification.Name("app.openscout.scout.open-channel")
     private static var pendingChannelId: String?
 
     static func openChannel(_ cId: String) {
@@ -244,7 +244,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func launchMenuHelperIfNeeded() {
-        let helperBundleIdentifier = "app.openscout.mac.menu"
+        let helperBundleIdentifier = "app.openscout.scout.menu"
         let helperAlreadyRunning = NSWorkspace.shared.runningApplications.contains {
             $0.bundleIdentifier == helperBundleIdentifier
         }

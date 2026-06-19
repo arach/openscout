@@ -12,7 +12,7 @@ import Security
 /// The private key never leaves the device; only the OpenSSH public key line is
 /// sent to the Mac to be appended to `authorized_keys`.
 enum TerminalIdentity {
-    private static let keychainService = "com.openscout.scout.terminal"
+    private static let keychainService = "app.openscout.scout.terminal"
     private static let keychainAccount = "ssh.p256.v1"
 
     /// Load the persisted identity, generating + storing one on first use.

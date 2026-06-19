@@ -244,7 +244,7 @@ struct ScoutSettingsView: View {
         settingsBlock(title: "Scout") {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
-                aboutRow("Bundle", Bundle.main.bundleIdentifier ?? "com.openscout.scout")
+                aboutRow("Bundle", Bundle.main.bundleIdentifier ?? "app.openscout.scout")
                 aboutRow("Theme", appearance.themePreset.label)
                 aboutRow("Accent", appearance.accentPalette.label)
             }

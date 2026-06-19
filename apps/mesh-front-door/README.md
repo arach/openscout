@@ -10,6 +10,7 @@ messages, conversations, flights, collaboration records, or replay state.
 - `GET /health`
 - `GET /v1/auth/github/start`
 - `GET /v1/auth/github/callback`
+- `POST /v1/auth/apple/native` (verifies a Sign in with Apple identity token, returns an OSN session)
 - `GET /v1/auth/session`
 - `POST /v1/auth/logout`
 - `GET /v1/meshes`
@@ -124,6 +125,24 @@ https://mesh.oscout.net/v1/auth/github/start?return_to=/v1/auth/native/complete
 
 GitHub still returns to the single HTTPS callback above; the Worker then returns
 the OpenScout session to the app with `scout://osn-auth`.
+
+### Sign in with Apple (native)
+
+The iOS app can also sign in with Apple. It runs the native
+`AuthenticationServices` flow and `POST`s the resulting identity token:
+
+```text
+POST /v1/auth/apple/native
+{ "identityToken": "<apple JWT>", "nonce": "<request nonce>", "fullName": "Optional Name" }
+```
+
+The Worker verifies the token against Apple's published keys
+(`https://appleid.apple.com/auth/keys`), checking the RS256 signature plus
+`iss`/`aud`/`exp`/`nonce`, then returns `{ session, expires_at }` — the same
+signed OSN session the GitHub flow produces (here with `provider: "apple"`).
+No Apple `.p8` key or token exchange is needed for the native flow; the only
+config is `OPENSCOUT_APPLE_CLIENT_IDS` (accepted token audiences — the app
+bundle id, comma-separated to add a web Services ID later).
 
 ## Local Commands
 

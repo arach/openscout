@@ -104,7 +104,7 @@ export class MeshDirectoryDurableObject {
       ?? actorKey;
     const auth = {
       key: actorKey,
-      kind: (request.headers.get("x-openscout-auth-kind") ?? "dev") as "github_user" | "access_user" | "access_service" | "shared_token" | "dev",
+      kind: (request.headers.get("x-openscout-auth-kind") ?? "dev") as "github_user" | "apple_user" | "access_user" | "access_service" | "shared_token" | "dev",
       label: request.headers.get("x-openscout-auth-label") ?? "unknown",
     };
     return handleRendezvousRequest(this.store, request, auth, this.env, { storageOwnerKey: directoryKey });

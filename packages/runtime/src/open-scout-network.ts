@@ -84,7 +84,7 @@ export function readOpenScoutNetworkSessionTokenFromKeychain(): string | undefin
     const output = execFileSync("security", [
       "find-generic-password",
       "-s",
-      "com.openscout.osn",
+      "net.oscout.session",
       "-a",
       "session",
       "-w",

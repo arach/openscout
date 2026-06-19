@@ -44,7 +44,7 @@ describe("mobile push registrations", () => {
     const first = syncMobilePushRegistration({
       deviceId: "device-1",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "authorized",
       pushToken: "AA BB CC 11",
@@ -61,7 +61,7 @@ describe("mobile push registrations", () => {
     const second = syncMobilePushRegistration({
       deviceId: "device-1",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "authorized",
       pushToken: "ddeeff22",
@@ -83,7 +83,7 @@ describe("mobile push registrations", () => {
     syncMobilePushRegistration({
       deviceId: "device-1",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "authorized",
       pushToken: "deadbeef",
@@ -93,7 +93,7 @@ describe("mobile push registrations", () => {
     const result = syncMobilePushRegistration({
       deviceId: "device-1",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "denied",
       pushToken: null,
@@ -110,7 +110,7 @@ describe("mobile push registrations", () => {
     syncMobilePushRegistration({
       deviceId: "device-1",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "authorized",
       pushToken: "cafebabe",
@@ -119,7 +119,7 @@ describe("mobile push registrations", () => {
     const result = syncMobilePushRegistration({
       deviceId: "device-2",
       platform: "ios",
-      appBundleId: "com.openscout.scout",
+      appBundleId: "app.openscout.scout",
       apnsEnvironment: "development",
       authorizationStatus: "authorized",
       pushToken: "cafebabe",

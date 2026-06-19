@@ -8,7 +8,7 @@ Status: native macOS shells after the target restructure (40b5f862..568b6898). C
 
 ## Role
 
-One SwiftPM package, two executables. **Scout** is the product: main window (comms/agents/tail/repos) plus the HUD overlay panel it hosts. **OpenScoutMenu** (bundle `ScoutMenu.app`, id `com.openscout.menu`) is a thin supervision helper: menu-bar service lights, broker/pairing/web restart, Tailscale, signed `scout://services` links, and wake/forward into Scout. All product data flows through one shared layer, `ScoutAppCore`.
+One SwiftPM package, two executables. **Scout** is the product: main window (comms/agents/tail/repos) plus the HUD overlay panel it hosts. **OpenScoutMenu** (bundle `ScoutMenu.app`, id `app.openscout.scout.menu`) is a thin supervision helper: menu-bar service lights, broker/pairing/web restart, Tailscale, signed `scout://services` links, and wake/forward into Scout. All product data flows through one shared layer, `ScoutAppCore`.
 
 ## Targets
 
@@ -17,8 +17,8 @@ One SwiftPM package, two executables. **Scout** is the product: main window (com
 | `ScoutAppCore` | lib | ScoutNativeCore | endpoints (`ScoutWeb`/`ScoutBroker`), comms/tail/activity models + clients, `ScoutTailStore`, `ScoutAgentsStore`, `ScoutActivityStore`, `ScoutComposeService`, `ScoutRunnerService`, `ScoutHTTP`, `ScoutServiceURLRelay` |
 | `ScoutSharedUI` | lib | HudsonVoice, ScoutNativeCore | markup parser, message/code-block atoms, suggestions, `ScoutVoiceService` (wraps `HudDictation`) |
 | `ScoutHUD` | lib | ScoutAppCore, ScoutSharedUI | `HUDController`, `OverlayPanelShell`, `HotkeyManager`, `ScoutHUDRouter`, `HUDStateFile`, HUD tab views + dock |
-| `Scout` | exe (`com.openscout.scout`) | all above + HudsonShell, HudsonUI | main window (`ScoutRootView`), `ScoutCommsStore`, `ScoutRepoStore`, HUD hosting, scout:// handler |
-| `OpenScoutMenu` | exe (`com.openscout.menu`) | ScoutAppCore, ScoutHUD, ScoutSharedUI (declared; HUD used only for `HotkeyManager`/`ScoutHUDRouter`) | `BrokerService`, `PairingService`, `TailscaleService`, `CommandRunner`, `OpenScoutToolchain`, `HUDURLRouter`, `ScoutAppBridge` |
+| `Scout` | exe (`app.openscout.scout`) | all above + HudsonShell, HudsonUI | main window (`ScoutRootView`), `ScoutCommsStore`, `ScoutRepoStore`, HUD hosting, scout:// handler |
+| `OpenScoutMenu` | exe (`app.openscout.scout.menu`) | ScoutAppCore, ScoutHUD, ScoutSharedUI (declared; HUD used only for `HotkeyManager`/`ScoutHUDRouter`) | `BrokerService`, `PairingService`, `TailscaleService`, `CommandRunner`, `OpenScoutToolchain`, `HUDURLRouter`, `ScoutAppBridge` |
 
 External: `packages/scout-native-core` (`ScoutNativeCore` + `ScoutCapabilities`); Hudson resolved via `OPENSCOUT_HUDSON_SOURCE` = `path` (default, `../../../hudson`) or `git`.
 
@@ -52,8 +52,8 @@ Both bundles register `scout` (Info.plist + ScoutInfo.plist); routing is bidirec
 | Channel | Direction | Semantics |
 |---|---|---|
 | `scout://hud/{show,hide,toggle,tab/<name>,size/<name>}` | OS → either bundle | Scout handles directly (`ScoutHUDRouter`); helper forwards via notification |
-| `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `com.openscout.services.url` notification |
-| `com.openscout.hud.command` (distributed notif) | helper → Scout | `command` + `value`; Scout also accepts `channel`/`open-channel` |
+| `scout://services/restart/{broker,relay,web,all}` | OS → either bundle | helper executes after HMAC verify; Scout forwards via `app.openscout.scout.service-url` notification |
+| `app.openscout.scout.hud` (distributed notif) | helper → Scout | `command` + `value`; Scout also accepts `channel`/`open-channel` |
 | launch args `--hud --hud-command <c> --hud-value <v>` / `--channel <cId>` | helper → cold Scout | `ScoutAppBridge` uses these when Scout isn't running |
 | `/tmp/openscout-hud-state.json` | Scout → external | `HUDStateFile` mirror: visible/tab/size/windowId/ts (the query side of the HUD API) |
 | `/tmp/openscout-hud-window.txt` | Scout → external | window id for `screencapture -l` |

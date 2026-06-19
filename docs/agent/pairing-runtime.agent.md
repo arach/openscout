@@ -63,7 +63,7 @@ PairingService / CLI
           → file server @ port+2
           → relay client → relay URL
       → write runtime.json
-      → [dns-sd Bonjour _scout-pair._tcp] (darwin + managed relay only)
+      → [dns-sd Bonjour _oscout-pair._tcp] (darwin + managed relay only)
 ```
 
 Default ports when `config.port` unset: bridge `7888`, relay `7889`, file server `7890`.
@@ -166,7 +166,7 @@ Remote control path: relay → Noise transport → bridge router/tRPC → bridge
 | QR | Expires; invalid after `expiresAt` |
 | Identity files | mode `0600` |
 
-Bonjour (darwin, managed relay): service `_scout-pair._tcp`, TXT `v`, `pk`, `fp`, `scheme`, optional `fallbackRelays`.
+Bonjour (darwin, managed relay): service `_oscout-pair._tcp`, TXT `v`, `pk`, `fp`, `scheme`, optional `fallbackRelays`.
 
 ## Surfaces
 
