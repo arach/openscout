@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 struct MainView: View {
@@ -12,6 +13,7 @@ struct MainView: View {
     static let qrWithErrorHeight: CGFloat = 556
     static let actionLogPanelHeight: CGFloat = 168
     static let runtimeWarningHeight: CGFloat = 36
+    static let pairingApprovalCardHeight: CGFloat = 128
 
     var body: some View {
         ZStack {
@@ -28,6 +30,11 @@ struct MainView: View {
                 VStack(spacing: 10) {
                     if let lastError = controller.lastError, !lastError.isEmpty {
                         errorBanner(lastError)
+                    }
+
+                    if let request = controller.pendingPairingRequests.first {
+                        pairingApprovalCard(request)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                     }
 
                     Spacer(minLength: 0)
@@ -69,6 +76,7 @@ struct MainView: View {
         // re-anchor against a status item that's mid-redraw and snap the
         // popover to a default screen position. Keep the size change atomic.
         .animation(.easeInOut(duration: 0.18), value: showQR)
+        .animation(.easeInOut(duration: 0.18), value: controller.pendingPairingRequests.count)
         .preferredColorScheme(.dark)
     }
 
@@ -86,13 +94,17 @@ struct MainView: View {
         case (false, false): base = Self.baseHeight
         }
         if !controller.actionLog.isEmpty {
-            return base + warningHeight + Self.actionLogPanelHeight + 10
+            return base + warningHeight + pairingApprovalHeight + Self.actionLogPanelHeight + 10
         }
-        return base + warningHeight
+        return base + warningHeight + pairingApprovalHeight
     }
 
     private var warningHeight: CGFloat {
         controller.broker.hasRestartWarning ? Self.runtimeWarningHeight : 0
+    }
+
+    private var pairingApprovalHeight: CGFloat {
+        controller.pendingPairingRequests.isEmpty ? 0 : Self.pairingApprovalCardHeight + 10
     }
 
     private var topBar: some View {
@@ -612,6 +624,87 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 200)
         }
+    }
+
+    private func pairingApprovalCard(_ request: ScoutPairingRequest) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: "lock.shield")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(ShellPalette.accent)
+                Text("PAIRING REQUEST")
+                    .font(MenuType.mono(9, weight: .semibold))
+                    .tracking(1.0)
+                    .foregroundStyle(ShellPalette.accent)
+                Spacer()
+                if controller.pendingPairingRequests.count > 1 {
+                    Text("+\(controller.pendingPairingRequests.count - 1) more")
+                        .font(MenuType.mono(9, weight: .bold))
+                        .foregroundStyle(ShellPalette.muted)
+                }
+            }
+
+            Text("\(request.displayName) wants to pair")
+                .font(MenuType.bodyMedium(12))
+                .foregroundStyle(ShellPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Text("On your network\(request.requesterIp.map { " · \($0)" } ?? ""). Allowing trusts this device.")
+                .font(MenuType.body(10))
+                .foregroundStyle(ShellPalette.muted)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button {
+                    controller.denyPairingRequest(request.token)
+                } label: {
+                    Text("Deny")
+                        .font(MenuType.mono(10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.copy)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(ShellPalette.line, lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.pairingApprovalPending)
+
+                Button {
+                    controller.approvePairingRequest(request.token)
+                } label: {
+                    Text(controller.pairingApprovalPending ? "Allowing…" : "Allow")
+                        .font(MenuType.mono(10, weight: .semibold))
+                        .foregroundStyle(ShellPalette.ink)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .fill(ShellPalette.accent.opacity(0.18))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .stroke(ShellPalette.accent.opacity(0.55), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.pairingApprovalPending)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(ShellPalette.accentSoft)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .stroke(ShellPalette.accent.opacity(0.4), lineWidth: 1)
+        )
     }
 
     private func errorBanner(_ message: String) -> some View {

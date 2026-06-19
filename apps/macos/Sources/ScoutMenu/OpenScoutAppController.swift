@@ -97,6 +97,12 @@ final class OpenScoutAppController: ObservableObject {
     @Published private(set) var webActionPending = false
     @Published private(set) var webServerStartedByApp = false
     @Published private(set) var actionLog: [ActionLogEntry] = []
+    /// Incoming LAN pairing requests awaiting approval on this Mac. Surfaced as a
+    /// floating popup (PairingApprovalWindowController) the moment one arrives.
+    @Published private(set) var pendingPairingRequests: [ScoutPairingRequest] = []
+    @Published private(set) var pairingApprovalPending = false
+    private var pairingRequestsTimer: Timer?
+    private static let pairingRequestsInterval: TimeInterval = 4
 
     private let brokerService = BrokerService()
     private let pairingService = PairingService()
@@ -120,11 +126,26 @@ final class OpenScoutAppController: ObservableObject {
 
         requestRefresh(reason: .startup)
         scheduleRefreshTimer()
+        schedulePairingRequestsTimer()
     }
 
     func stop() {
         refreshTimer?.invalidate()
         refreshTimer = nil
+        pairingRequestsTimer?.invalidate()
+        pairingRequestsTimer = nil
+    }
+
+    /// A dedicated, always-on (popover-independent) poll for incoming pairing
+    /// requests — separate from the broker/tailscale status loop so a request
+    /// pops within a few seconds even when the popover is closed.
+    private func schedulePairingRequestsTimer() {
+        pairingRequestsTimer?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: Self.pairingRequestsInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in await self?.refreshPairingRequests() }
+        }
+        timer.tolerance = 1
+        pairingRequestsTimer = timer
     }
 
     func refresh() {
@@ -199,6 +220,40 @@ final class OpenScoutAppController: ObservableObject {
 
     func restartPairing() {
         runPairingAction(.restart, narrate: true)
+    }
+
+    func approvePairingRequest(_ token: String) {
+        decidePairingRequest(token, approve: true)
+    }
+
+    func denyPairingRequest(_ token: String) {
+        decidePairingRequest(token, approve: false)
+    }
+
+    /// Fetch pending requests; keep the last set on a transient error (pending
+    /// requests live in the web server's memory, so a brief blip shouldn't drop
+    /// an active prompt). The popup window observes `pendingPairingRequests`.
+    private func refreshPairingRequests() async {
+        guard let requests = try? await ScoutPairingRequests.fetchPending() else { return }
+        pendingPairingRequests = requests
+    }
+
+    private func decidePairingRequest(_ token: String, approve: Bool) {
+        guard !pairingApprovalPending else { return }
+        pairingApprovalPending = true
+        lastError = nil
+        // Drop it immediately so the popup dismisses without waiting on the poll.
+        pendingPairingRequests.removeAll { $0.token == token }
+
+        Task {
+            defer { pairingApprovalPending = false }
+            do {
+                try await ScoutPairingRequests.decide(token: token, approve: approve)
+            } catch {
+                lastError = error.localizedDescription
+            }
+            requestRefresh(reason: .manual)
+        }
     }
 
     func openTailscale() {
@@ -480,6 +535,7 @@ final class OpenScoutAppController: ObservableObject {
         pairing = await pairingService.loadState()
         tailscale = await tailscaleService.loadState()
         webReachable = await isWebSurfaceReachable()
+        await refreshPairingRequests()
         updateMenuBarPresentation()
     }
 

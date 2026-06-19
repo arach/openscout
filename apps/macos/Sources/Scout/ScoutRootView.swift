@@ -90,6 +90,8 @@ struct ScoutRootView: View {
     @StateObject private var feeds = ScoutFeeds()
     private var tail: ScoutTailStore { feeds.tail }
     @StateObject private var repos = ScoutRepoStore()
+    /// Incoming LAN pairing requests awaiting approval on this Mac.
+    @StateObject private var pairingApprovals = ScoutPairingApprovalStore()
     @ObservedObject private var voice = ScoutVoiceService.shared
     @State private var section: ScoutSection = .comms
     @AppStorage("scout.navigationSidebar.compact") private var railCompact = false
@@ -253,6 +255,7 @@ struct ScoutRootView: View {
         .background(ScoutWindowConfigurator(opacity: appearance.windowOpacity, themeMode: appearance.themeMode))
         .onAppear {
             store.start()
+            pairingApprovals.start()
             if let cId = ScoutExternalCommand.takePendingChannelId() {
                 openChannelFromExternalCommand(cId)
             }
@@ -267,6 +270,7 @@ struct ScoutRootView: View {
             store.stop()
             tail.stop()
             repos.stop()
+            pairingApprovals.stop()
             cancelPendingFlightMonitors()
         }
         .onChange(of: store.selectedCId) { oldCId, newCId in
@@ -326,6 +330,12 @@ struct ScoutRootView: View {
             }
         }
         .animation(.easeOut(duration: 0.12), value: showCheatsheet)
+        .overlay(alignment: .bottomTrailing) {
+            // Incoming LAN pairing approval — a phone tapped this Mac and needs a
+            // human to allow it (trust-on-first-use). Bottom-trailing so it
+            // doesn't block the rail or content.
+            ScoutPairingApprovalPrompt(store: pairingApprovals)
+        }
         .overlay {
             // SCO-065 — repo-diff sheet, presented at the app root so it sticks
             // across section changes (open in Repos, wander to Comms/Tail, it

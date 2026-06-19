@@ -47,6 +47,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         contextMenu = buildContextMenu()
 
+        // Surface incoming pairing requests as a floating Allow/Deny popup the
+        // moment they arrive — reliable and proactive, no popover or
+        // notification-permission dance.
+        PairingApprovalWindowController.shared.start()
+
         HotkeyManager.shared.register(
             id: 2,
             keyCode: CarbonKeyCode.c,
