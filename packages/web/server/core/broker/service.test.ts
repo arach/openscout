@@ -637,6 +637,96 @@ describe("sendScoutConversationMessage", () => {
         },
       });
   }, 15000);
+
+  test("resolves stale workspace-qualified mentions to the current same-node card", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const currentAgentId = "linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local";
+    const currentSelector = "@linea-card-g-ybkonq.codex-linea-iterative-improvements.node:air-local";
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {
+            [currentAgentId]: {
+              id: currentAgentId,
+              kind: "agent",
+              handle: "linea-card-g-ybkonq",
+              selector: currentSelector,
+              defaultSelector: "@linea-card-g-ybkonq",
+              displayName: "Linea Card G Ybkonq",
+              metadata: {
+                definitionId: "linea-card-g-ybkonq",
+                nodeQualifier: "air-local",
+                workspaceQualifier: "codex-linea-iterative-improvements",
+                selector: currentSelector,
+                defaultSelector: "@linea-card-g-ybkonq",
+              },
+            },
+          },
+          endpoints: {},
+          conversations: {
+            [`dm.operator.${currentAgentId}`]: {
+              id: `dm.operator.${currentAgentId}`,
+              kind: "direct",
+              title: "Operator <> Linea Card G Ybkonq",
+              visibility: "private",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", currentAgentId],
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const body = "@linea-card-g-ybkonq.main.node:air-local hi";
+    const result = await sendScoutConversationMessage({
+      conversationId: `dm.operator.${currentAgentId}`,
+      senderId: "operator",
+      body,
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(result).toEqual({
+      usedBroker: true,
+      invokedTargets: [currentAgentId],
+      unresolvedTargets: [],
+    });
+    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+      .toMatchObject({
+        conversationId: `dm.operator.${currentAgentId}`,
+        actorId: "operator",
+        body,
+        mentions: [{ actorId: currentAgentId, label: "@linea-card-g-ybkonq.main.node:air-local" }],
+        audience: { notify: [currentAgentId], reason: "mention" },
+      });
+  }, 15000);
 });
 
 describe("loadScoutMessages", () => {

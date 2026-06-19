@@ -211,6 +211,78 @@ describe("resolveAgentLabel", () => {
     }
   });
 
+  test("routes stale workspace selectors when the same definition and node uniquely identify the current card", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local",
+        definitionId: "linea-card-g-ybkonq",
+        nodeQualifier: "air-local",
+        workspaceQualifier: "codex-linea-iterative-improvements",
+        selector: "@linea-card-g-ybkonq.codex-linea-iterative-improvements.node:air-local",
+      }),
+    ]);
+
+    const qualified = resolveAgentLabel(
+      snapshot,
+      "@linea-card-g-ybkonq.main.node:air-local",
+      { helpers },
+    );
+    expect(qualified.kind).toBe("resolved");
+    if (qualified.kind === "resolved") {
+      expect(qualified.agent.id).toBe("linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local");
+    }
+
+    const positional = resolveAgentLabel(
+      snapshot,
+      "linea-card-g-ybkonq.main.air-local",
+      { helpers },
+    );
+    expect(positional.kind).toBe("resolved");
+    if (positional.kind === "resolved") {
+      expect(positional.agent.id).toBe("linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local");
+    }
+  });
+
+  test("does not drop stale workspace selectors without a node constraint", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local",
+        definitionId: "linea-card-g-ybkonq",
+        nodeQualifier: "air-local",
+        workspaceQualifier: "codex-linea-iterative-improvements",
+      }),
+    ]);
+
+    const result = resolveAgentLabel(snapshot, "@linea-card-g-ybkonq.main", { helpers });
+    expect(result.kind).toBe("unknown");
+  });
+
+  test("keeps stale workspace selectors ambiguous when same-node siblings remain", () => {
+    const snapshot = makeSnapshot([
+      makeAgent({
+        id: "linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local",
+        definitionId: "linea-card-g-ybkonq",
+        nodeQualifier: "air-local",
+        workspaceQualifier: "codex-linea-iterative-improvements",
+      }),
+      makeAgent({
+        id: "linea-card-g-ybkonq.macos-polish.air-local",
+        definitionId: "linea-card-g-ybkonq",
+        nodeQualifier: "air-local",
+        workspaceQualifier: "macos-polish",
+      }),
+    ]);
+
+    const result = resolveAgentLabel(snapshot, "@linea-card-g-ybkonq.main.node:air-local", { helpers });
+    expect(result.kind).toBe("ambiguous");
+    if (result.kind === "ambiguous") {
+      expect(result.candidates.map((agent) => agent.id).sort()).toEqual([
+        "linea-card-g-ybkonq.codex-linea-iterative-improvements.air-local",
+        "linea-card-g-ybkonq.macos-polish.air-local",
+      ]);
+    }
+  });
+
   test("returns ambiguous when multiple agents share the same label", () => {
     const snapshot = makeSnapshot([
       makeAgent({ id: "scoutie.main.mini", definitionId: "scoutie", nodeQualifier: "mini", workspaceQualifier: "main" }),

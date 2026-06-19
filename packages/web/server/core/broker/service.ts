@@ -16,6 +16,7 @@ import {
   type ControlEvent,
   type CollaborationEvent,
   type CollaborationRecord,
+  constructAgentIdentity,
   directChannelNaturalKey,
   type ConversationReadCursor,
   diagnoseAgentIdentity,
@@ -961,6 +962,20 @@ async function findPreferredProjectLocalBrokerTarget(
   };
 }
 
+function stripStaleWorkspaceSelector(selector: AgentSelector): AgentSelector | null {
+  if (!selector.workspaceQualifier || !selector.nodeQualifier) {
+    return null;
+  }
+
+  return constructAgentIdentity({
+    definitionId: selector.definitionId,
+    profile: selector.profile,
+    harness: selector.harness,
+    model: selector.model,
+    nodeQualifier: selector.nodeQualifier,
+  });
+}
+
 async function resolveMentionTargets(
   snapshot: ScoutBrokerSnapshot,
   text: string,
@@ -1012,7 +1027,13 @@ async function resolveMentionTargets(
       continue;
     }
 
-    const diagnosis = diagnoseAgentIdentity(selector, candidates);
+    let diagnosis = diagnoseAgentIdentity(selector, candidates);
+    if (diagnosis.kind === "unknown") {
+      const relaxedSelector = stripStaleWorkspaceSelector(selector);
+      if (relaxedSelector) {
+        diagnosis = diagnoseAgentIdentity(relaxedSelector, candidates);
+      }
+    }
     if (diagnosis.kind === "resolved") {
       resolved.set(diagnosis.match.agentId, {
         agentId: diagnosis.match.agentId,

@@ -192,6 +192,37 @@ function stripHarnessQualifier(identity: AgentIdentity): AgentIdentity | null {
   });
 }
 
+function stripWorkspaceQualifier(identity: AgentIdentity): AgentIdentity | null {
+  if (!identity.workspaceQualifier || !identity.nodeQualifier) {
+    return null;
+  }
+
+  return constructAgentIdentity({
+    definitionId: identity.definitionId,
+    profile: identity.profile,
+    harness: identity.harness,
+    model: identity.model,
+    nodeQualifier: identity.nodeQualifier,
+  });
+}
+
+function relaxedIdentityCandidates(identity: AgentIdentity): AgentIdentity[] {
+  const candidates = [
+    stripHarnessQualifier(identity),
+    stripWorkspaceQualifier(identity),
+    stripWorkspaceQualifier(stripHarnessQualifier(identity) ?? identity),
+  ].filter((candidate): candidate is AgentIdentity => Boolean(candidate));
+
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.label)) {
+      return false;
+    }
+    seen.add(candidate.label);
+    return true;
+  });
+}
+
 function resolutionFromDiagnosis(
   diagnosis: AgentIdentityDiagnosis<BrokerAgentCandidate>,
   label: string,
@@ -229,20 +260,19 @@ export function resolveAgentLabel(
 
   const candidates = buildAgentLabelCandidates(snapshot, options.helpers);
   const diagnosis = diagnoseAgentIdentity(identity, candidates);
-  const harnessAgnosticIdentity = stripHarnessQualifier(identity);
 
   if (diagnosis.kind === "resolved") {
     return { kind: "resolved", agent: diagnosis.match.agent };
   }
 
   if (diagnosis.kind === "unknown") {
-    if (harnessAgnosticIdentity) {
-      const agnosticResolution = resolutionFromDiagnosis(
-        diagnoseAgentIdentity(harnessAgnosticIdentity, candidates),
+    for (const relaxedIdentity of relaxedIdentityCandidates(identity)) {
+      const relaxedResolution = resolutionFromDiagnosis(
+        diagnoseAgentIdentity(relaxedIdentity, candidates),
         identity.label,
       );
-      if (agnosticResolution) {
-        return agnosticResolution;
+      if (relaxedResolution) {
+        return relaxedResolution;
       }
     }
     return { kind: "unknown", label: identity.label };
