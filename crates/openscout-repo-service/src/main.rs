@@ -224,6 +224,7 @@ struct ChangedFile {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DiffSummary {
+    branch_shortstat: Option<String>,
     unstaged_shortstat: Option<String>,
     staged_shortstat: Option<String>,
 }
@@ -509,11 +510,13 @@ fn scan_worktree(
 
     let diff = if limits.include_diff {
         DiffSummary {
+            branch_shortstat: branch_diff_shortstat(&worktree.path, &branch),
             unstaged_shortstat: git_trimmed(&worktree.path, &["diff", "--shortstat"]),
             staged_shortstat: git_trimmed(&worktree.path, &["diff", "--cached", "--shortstat"]),
         }
     } else {
         DiffSummary {
+            branch_shortstat: None,
             unstaged_shortstat: None,
             staged_shortstat: None,
         }
@@ -736,6 +739,50 @@ fn git_trimmed(cwd: &Path, args: &[&str]) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+const TRUNK_REFS: &[&str] = &[
+    "origin/main",
+    "main",
+    "origin/master",
+    "master",
+    "origin/trunk",
+    "trunk",
+];
+
+fn git_ref_exists(cwd: &Path, ref_name: &str) -> bool {
+    let commit_ref = format!("{ref_name}^{{commit}}");
+    git_string(cwd, &["rev-parse", "--verify", "--quiet", &commit_ref]).is_ok()
+}
+
+fn preferred_branch_base_ref(cwd: &Path, branch: &BranchSummary) -> Option<String> {
+    if branch.is_main || branch.detached {
+        return None;
+    }
+    let mut candidates: Vec<String> = Vec::new();
+    candidates.extend(TRUNK_REFS.iter().map(|value| value.to_string()));
+    if let Some(upstream) = branch.upstream.as_deref() {
+        if !upstream.is_empty() {
+            candidates.push(upstream.to_string());
+        }
+    }
+
+    for candidate in candidates {
+        if Some(candidate.as_str()) == branch.name.as_deref() || candidate == "HEAD" {
+            continue;
+        }
+        if git_ref_exists(cwd, &candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn branch_diff_shortstat(cwd: &Path, branch: &BranchSummary) -> Option<String> {
+    let base_ref = preferred_branch_base_ref(cwd, branch)?;
+    let merge_base = git_trimmed(cwd, &["merge-base", &base_ref, "HEAD"])?;
+    let range = format!("{merge_base}..HEAD");
+    git_trimmed(cwd, &["diff", "--shortstat", &range])
 }
 
 fn git_string(cwd: &Path, args: &[&str]) -> Result<String, String> {

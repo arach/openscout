@@ -101,11 +101,12 @@ function scopeSummary(snapshot: ScoutRepoDiffSnapshot): string {
 
 export function buildRepoDiffCommentBody(input: {
   comment: string;
+  includedContext?: string[];
   snapshot: ScoutRepoDiffSnapshot;
   activeLayer: RepoDiffLayerKind | null;
   selectedFile: RepoDiffFile | null;
 }): string {
-  const { comment, snapshot, activeLayer, selectedFile } = input;
+  const { comment, includedContext = [], snapshot, activeLayer, selectedFile } = input;
   const active = activeLayer
     ? snapshot.layers.find((layer) => layer.kind === activeLayer) ?? null
     : null;
@@ -123,6 +124,16 @@ export function buildRepoDiffCommentBody(input: {
     `- Scope: ${scopeSummary(snapshot)}`,
     `- Active layer: ${activeLayer ?? "none"}`,
   ];
+
+  if (includedContext.length > 0) {
+    lines.splice(
+      3,
+      0,
+      "Included diff context:",
+      ...includedContext.map((context) => context.trim()).filter(Boolean),
+      "",
+    );
+  }
 
   if (selectedFile) {
     lines.push(`- Selected file: ${selectedFileSummary(selectedFile)}`);

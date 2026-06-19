@@ -4,7 +4,10 @@ import React, { useState, useCallback, useEffect, useMemo, useRef } from "react"
 import { ChevronDown, ChevronRight, Pin, PinOff, Search, Sparkles, Terminal as TerminalIcon, X } from "lucide-react";
 import { Assistant, type HudsonApp, type CommandOption, usePersistentState, usePlatform, usePlatformLayout } from "@hudsonkit";
 import { CommandDock, Frame, SidePanel, StatusBar } from "@hudsonkit/chrome";
-import { FeatureFlagsProvider, FeatureFlagPanel, useOptionalFlag } from "hudsonkit/flags";
+import { FeatureFlagsProvider, useOptionalFlag } from "hudsonkit/flags";
+import { ScoutFeatureFlagPanel } from "./components/ScoutFeatureFlagPanel.tsx";
+import { DevFlagToggle } from "./components/DevFlagToggle.tsx";
+import { isScoutDevToolsAvailable } from "./lib/use-scout-dev-flags.ts";
 import { CommandPalette, TerminalDrawer } from "@hudsonkit/overlays";
 
 import {
@@ -194,13 +197,22 @@ function OpenScoutStatusBarLeft({ statusBar }: { statusBar: ScoutStatusBarState 
   );
 }
 
-function OpenScoutStatusBarRight({ statusBar }: { statusBar: ScoutStatusBarState }) {
+function OpenScoutStatusBarRight({
+  statusBar,
+  onOpenFlagPanel,
+}: {
+  statusBar: ScoutStatusBarState;
+  onOpenFlagPanel: () => void;
+}) {
   return (
-    <div
-      className="max-w-[38vw] truncate font-mono text-[10px] leading-none text-muted-foreground"
-      title={statusBar.build.title}
-    >
-      {statusBar.build.label}
+    <div className="flex max-w-[42vw] items-center gap-3">
+      <DevFlagToggle onOpenPanel={onOpenFlagPanel} />
+      <div
+        className="truncate font-mono text-[10px] leading-none text-muted-foreground"
+        title={statusBar.build.title}
+      >
+        {statusBar.build.label}
+      </div>
     </div>
   );
 }
@@ -350,6 +362,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       {
         id: "shell:feature-flags",
         label: "Feature Flags",
+        shortcut: isScoutDevToolsAvailable() ? "Cmd+Shift+F" : undefined,
         action: () => setShowFlagPanel(true),
       },
     ];
@@ -397,10 +410,21 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         setActiveTab("assistant");
         setShowTerminal((visible) => !(visible && resolvedTab === "assistant"));
       }
+      if (
+        isScoutDevToolsAvailable()
+        && (e.metaKey || e.ctrlKey)
+        && e.shiftKey
+        && !e.altKey
+        && e.code === "KeyF"
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowFlagPanel(true);
+      }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, takeoverActive]);
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, takeoverActive]);
 
   useEffect(() => {
     const handler = () => {
@@ -640,7 +664,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <StatusBar
                 status={statusBar.status}
                 left={<OpenScoutStatusBarLeft statusBar={statusBar} />}
-                right={<OpenScoutStatusBarRight statusBar={statusBar} />}
+                right={<OpenScoutStatusBarRight statusBar={statusBar} onOpenFlagPanel={() => setShowFlagPanel(true)} />}
                 onToggleTerminal={() => setShowTerminal((visible) => !visible)}
                 isTerminalOpen={showTerminal}
               />
@@ -716,7 +740,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         open={keyboardHelp.open}
         onClose={() => keyboardHelp.setOpen(false)}
       />
-      <FeatureFlagPanel
+      <ScoutFeatureFlagPanel
         isOpen={showFlagPanel}
         onClose={() => setShowFlagPanel(false)}
         audienceOptions={SCOUT_AUDIENCE_ORDER}

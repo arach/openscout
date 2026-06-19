@@ -306,6 +306,7 @@ const OPS_MODE_LABELS: Record<OpsMode, string> = {
   tail: "Tail",
   atop: "Runtime",
   agents: "Agents",
+  lanes: "Lanes",
 };
 
 export { ChannelInspectorPanel as ChatChannelsRight };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api } from "./api.ts";
-import { normalizeAgentState } from "./agent-state.ts";
+import { isAgentBusy } from "./agent-state.ts";
 import type { Agent, AgentObservePayload, ObserveEvent } from "./types.ts";
 
 const ACTIVE_POLL_INTERVAL_MS = 2500;

@@ -303,6 +303,43 @@ describe("isAgentLaneWorking", () => {
     expect(lanes[0]?.agent.harness).toBe("codex");
   });
 
+  test("includes native codex lanes with recent task lifecycle activity", () => {
+    const lanes = buildAgentLanes({
+      transcripts: [{
+        source: "codex",
+        transcriptPath: "/tmp/rollout.jsonl",
+        sessionId: "019ede3a-7fef-7750-a51c-0f2428f8dcee",
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 20_000,
+        size: 1200,
+      }],
+      processes: [{
+        pid: 42,
+        ppid: 1,
+        command: "codex app-server",
+        etime: "01:00",
+        cwd: "/Users/art/dev/openscout",
+        harness: "scout-managed",
+        parentChain: [],
+        source: "codex",
+      }],
+      tailEvents: [
+        stubTailEvent("019ede3a-7fef-7750-a51c-0f2428f8dcee", NOW - 12_000, "system", {
+          source: "codex",
+          summary: "task started",
+        }),
+      ],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("native");
+    expect(lanes[0]?.agent.harness).toBe("codex");
+  });
+
   test("includes native grok lanes with recent phase activity", () => {
     const lanes = buildAgentLanes({
       transcripts: [{
@@ -366,7 +403,7 @@ describe("isAgentLaneWorking", () => {
     expect(lanes[0]?.agent.harness).toBe("grok");
   });
 
-  test("excludes scout-managed transcripts from native lanes", () => {
+  test("includes scout-managed codex lanes when no scout agent owns the session", () => {
     const lanes = buildAgentLanes({
       transcripts: [{
         source: "codex",
@@ -393,7 +430,9 @@ describe("isAgentLaneWorking", () => {
       horizon: "5m",
     });
 
-    expect(lanes).toHaveLength(0);
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("native");
+    expect(lanes[0]?.agent.harness).toBe("codex");
     expect(resolveTranscriptAttribution({
       source: "codex",
       transcriptPath: "/tmp/rollout.jsonl",
@@ -545,8 +584,8 @@ describe("isAgentLaneWorking", () => {
     ], true);
 
     expect(data.events.map((event) => event.text)).toEqual([
-      "Read started",
-      "Shell completed · success",
+      "Read · started",
+      "Shell · completed",
     ]);
     expect(data.events[0]?.tool).toBe("Read");
     expect(data.events[1]?.tool).toBe("Shell");

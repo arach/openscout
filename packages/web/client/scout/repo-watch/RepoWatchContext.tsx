@@ -4,14 +4,14 @@
  * The right-hand drill-down that fills when a worktree is selected in the Fleet
  * Table. Ported from the Claude Design handoff's `ContextPanel`, but bound
  * strictly to the real `/api/repo-watch` snapshot contract — the design's
- * fabricated bits (commit history, per-file +/− churn, agent OWNER/REVIEW
- * roles) are NOT present in our wire format and are not invented here. Instead:
+ * fabricated bits (commit history, per-file +/− churn, attached-session roles)
+ * are NOT present in our wire format and are not invented here. Instead:
  *
  *   · RECENT COMMITS → a single "LAST COMMIT" line (ago + short head sha)
  *   · per-file churn → a status badge + path (we have status, not +/−)
- *   · AGENTS ON TREE roles → the agent handle + a live/idle state word
- *   · CHURN → parsed from `diff.unstagedShortstat` (+ staged) into the same
- *     split bar + numerals the table uses; "working tree clean" otherwise
+ *   · ATTACHED SESSIONS → inferred handles plus raw harness session ids
+ *   · CHURN → parsed from branch/staged/unstaged shortstats into the same split
+ *     bar + numerals the table uses; "working tree clean" otherwise
  *
  * Palette + fonts inherit from the `.rw-scope` ancestor (see ReposScreen), so
  * the panel tracks the table's warm / cool / mono tone for free. Styles live in
@@ -30,12 +30,15 @@ import {
   agoFromMillis,
   agentHandle,
   agentLive,
+  sessionHandle,
   fileStatusTone,
   fileStatusBadge,
   toneFg,
   toneBg,
   uniqueAgents,
+  branchChurnOf,
   churnOf,
+  reviewChurnOf,
   wtState,
   fmt,
 } from "./ui.ts";
@@ -92,9 +95,13 @@ function repoAskBody(
     `- Drift: ahead ${worktree.branch.ahead}, behind ${worktree.branch.behind}`,
     `- Status: ${statusSummary(worktree)}`,
   );
-  const churn = churnOf(worktree);
-  if (churn.has) {
-    lines.push(`- Churn: +${churn.add} -${churn.del}`);
+  const branchChurn = branchChurnOf(worktree);
+  const worktreeChurn = churnOf(worktree);
+  if (branchChurn.has) {
+    lines.push(`- Branch churn: +${branchChurn.add} -${branchChurn.del}`);
+  }
+  if (worktreeChurn.has) {
+    lines.push(`- Working-tree churn: +${worktreeChurn.add} -${worktreeChurn.del}`);
   }
   if (worktree.attentionReasons.length > 0) {
     lines.push(`- Attention reasons: ${worktree.attentionReasons.join("; ")}`);
@@ -187,8 +194,10 @@ export default function RepoWatchContext({
   const b = wt.branch;
   const tag = stateTag(wt);
 
-  // Churn — parsed from real shortstats; sum staged + unstaged.
-  const { add, del, has: hasChurn } = churnOf(wt);
+  // Churn — parsed from real shortstats; branch + staged + unstaged.
+  const branchChurn = branchChurnOf(wt);
+  const worktreeChurn = churnOf(wt);
+  const { add, del, has: hasChurn } = reviewChurnOf(wt);
   const churnTot = add + del || 1;
 
   // Breakdown chips (only those that carry a count).
@@ -282,20 +291,31 @@ export default function RepoWatchContext({
         <div className="ctx-sec">
           <div className="ctx-sec-h">
             <span>CHURN</span>
-            <span className="n">working tree</span>
+            <span className="n">{branchChurn.has ? "reviewable" : "working tree"}</span>
           </div>
           {hasChurn ? (
-            <div className="ctx-churn">
-              <span className="nums">
-                <span className="add">+{fmt(add)}</span>
-                <span className="sl">/</span>
-                <span className="del">−{fmt(del)}</span>
+            <>
+              <div className="ctx-churn">
+                <span className="nums">
+                  <span className="add">+{fmt(add)}</span>
+                  <span className="sl">/</span>
+                  <span className="del">−{fmt(del)}</span>
+                </span>
+                <span className="cbar" title={`+${fmt(add)} −${fmt(del)}`}>
+                  <span className="g" style={{ width: (add / churnTot) * 100 + "%" }} />
+                  <span className="r" style={{ width: (del / churnTot) * 100 + "%" }} />
+                </span>
+              </div>
+              <span className="ctx-churn-clean">
+                {branchChurn.has
+                  ? `branch +${fmt(branchChurn.add)} −${fmt(branchChurn.del)}`
+                  : null}
+                {branchChurn.has && worktreeChurn.has ? " · " : null}
+                {worktreeChurn.has
+                  ? `working tree +${fmt(worktreeChurn.add)} −${fmt(worktreeChurn.del)}`
+                  : null}
               </span>
-              <span className="cbar" title={`+${fmt(add)} −${fmt(del)}`}>
-                <span className="g" style={{ width: (add / churnTot) * 100 + "%" }} />
-                <span className="r" style={{ width: (del / churnTot) * 100 + "%" }} />
-              </span>
-            </div>
+            </>
           ) : (
             // No +/− shortstat doesn't mean clean: untracked-only, rename/mode,
             // or binary changes leave a dirty tree with zero line churn.
@@ -351,25 +371,37 @@ export default function RepoWatchContext({
           </div>
         </div>
 
-        {/* ── agents on tree ── */}
+        {/* ── attached sessions ── */}
         <div className="ctx-sec">
           <div className="ctx-sec-h">
-            <span>AGENTS ON TREE</span>
+            <span>ATTACHED SESSIONS</span>
             <span className="n">
-              {agents.length}
+              {agents.length} handle{agents.length === 1 ? "" : "s"}
               {wt.sessions.length > 0 ? ` · ${wt.sessions.length} session${wt.sessions.length === 1 ? "" : "s"}` : ""}
             </span>
           </div>
-          {agents.length > 0 ? (
-            agents.map((a) => (
-              <div className="ctx-agent" key={agentHandle(a)}>
-                <span className={"d " + (agentLive(a) ? "on" : "off")} />
-                <span className="h">{agentHandle(a)}</span>
-                <span className="role">{stateWord(a)}</span>
-              </div>
-            ))
+          {agents.length > 0 || wt.sessions.length > 0 ? (
+            <>
+              {agents.map((a) => (
+                <div className="ctx-agent" key={agentHandle(a)}>
+                  <span className={"d " + (agentLive(a) ? "on" : "off")} />
+                  <span className="h">{agentHandle(a)}</span>
+                  <span className="role">{stateWord(a)}</span>
+                </div>
+              ))}
+              {wt.sessions.slice(0, 8).map((session) => (
+                <div className="ctx-agent" key={session.id}>
+                  <span className="d off" />
+                  <span className="h">{sessionHandle(session)}</span>
+                  <span className="role">SESSION</span>
+                </div>
+              ))}
+              {wt.sessions.length > 8 ? (
+                <div className="ctx-none">+{wt.sessions.length - 8} more sessions</div>
+              ) : null}
+            </>
           ) : (
-            <div className="ctx-none">no agents attached</div>
+            <div className="ctx-none">no attached sessions</div>
           )}
         </div>
       </div>

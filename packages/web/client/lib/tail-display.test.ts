@@ -4,6 +4,8 @@ import {
   collapseTailDisplayRows,
   filterTailEventsForDisplay,
   isTailNoiseEvent,
+  observeKindFromTailEvent,
+  observeTextFromTailEvent,
   observeToolFieldsFromTailEvent,
   observeToolIsEdit,
   observeToolIsRead,
@@ -38,6 +40,30 @@ describe("isTailNoiseEvent", () => {
   test("keeps substantive grok tool lines", () => {
     expect(isTailNoiseEvent(event({ summary: "Read started", kind: "tool" }))).toBe(false);
     expect(isTailNoiseEvent(event({ summary: "permission allow · Read" }))).toBe(false);
+  });
+
+  test("flags codex lifecycle and chunk noise", () => {
+    expect(isTailNoiseEvent(event({
+      source: "codex",
+      summary: "turn context · gpt-5.5 · xhigh",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "codex",
+      summary: "tokens · 30991816",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "codex",
+      summary: "agent_message",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "codex",
+      summary: "-> Chunk ID: 66c6a0 Wall time: 0.0000 seconds Process exited with code 0",
+      kind: "tool-result",
+    }))).toBe(true);
+    expect(isTailNoiseEvent(event({
+      source: "codex",
+      summary: "task started",
+    }))).toBe(false);
   });
 });
 
@@ -87,6 +113,30 @@ describe("observeToolFieldsFromTailEvent", () => {
     });
     expect(observeToolFieldsFromTailEvent(event({
       source: "codex",
+      summary: "exec_command({\"cmd\":\"git status --short\",\"workdir\":\"/repo\"})",
+      kind: "tool",
+    }))).toEqual({
+      tool: "Shell",
+      arg: "git status --short",
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "codex",
+      summary: "exec_command({\"cmd\":\"npm --prefix packages/web run build:client\",\"workdir\":\"/Users/art/dev/openscout\",\"yield_time_ms\":1000,\"",
+      kind: "tool",
+    }))).toEqual({
+      tool: "Shell",
+      arg: "npm --prefix packages/web run build:client",
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "codex",
+      summary: "apply_patch({\"patch\":\"*** Begin Patch\"})",
+      kind: "tool",
+    }))).toEqual({
+      tool: "Edit",
+      arg: "patch",
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "codex",
       summary: "grep foo",
       kind: "tool",
     }))).toEqual({ tool: "grep" });
@@ -120,6 +170,48 @@ describe("tailObserveEventDetail", () => {
 
   test("omits detail for tool lifecycle rows", () => {
     expect(tailObserveEventDetail(event({ summary: "Read started", kind: "tool" }))).toBeUndefined();
+  });
+});
+
+describe("observeKindFromTailEvent", () => {
+  test("maps codex lifecycle and reasoning into lane-friendly kinds", () => {
+    expect(observeKindFromTailEvent(event({
+      source: "codex",
+      summary: "task started",
+    }))).toBe("note");
+    expect(observeKindFromTailEvent(event({
+      source: "codex",
+      summary: "task complete",
+    }))).toBe("note");
+    expect(observeKindFromTailEvent(event({
+      source: "codex",
+      summary: "Need to inspect the broker path before changing lanes.",
+      raw: { payload: { type: "reasoning" } },
+    }))).toBe("think");
+    expect(observeKindFromTailEvent(event({
+      source: "codex",
+      summary: "done",
+      kind: "assistant",
+    }))).toBe("message");
+  });
+});
+
+describe("observeTextFromTailEvent", () => {
+  test("renders codex shell tools and turn milestones as readable activity", () => {
+    const fields = observeToolFieldsFromTailEvent(event({
+      source: "codex",
+      summary: "exec_command({\"cmd\":\"git status --short\"})",
+      kind: "tool",
+    }));
+    expect(observeTextFromTailEvent(event({
+      source: "codex",
+      summary: "exec_command({\"cmd\":\"git status --short\"})",
+      kind: "tool",
+    }), fields)).toBe("Shell · git status --short");
+    expect(observeTextFromTailEvent(event({
+      source: "codex",
+      summary: "task complete",
+    }), {})).toBe("Turn complete");
   });
 });
 

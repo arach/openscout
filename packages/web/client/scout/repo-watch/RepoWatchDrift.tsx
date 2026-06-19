@@ -25,7 +25,7 @@ import {
   agentLive,
   agentHandle,
   uniqueAgents,
-  churnOf,
+  reviewChurnOf,
   wtState,
   fmt,
 } from "./ui.ts";
@@ -251,7 +251,7 @@ function DriftTrack({
 }
 
 function Churn({ wt, hasError }: { wt: RepoWatchWorktree; hasError: boolean }) {
-  const { add, del, has } = churnOf(wt);
+  const { add, del, has } = reviewChurnOf(wt);
   if (hasError || !has) {
     return (
       <div className="bd-churn">
