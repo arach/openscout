@@ -1,0 +1,199 @@
+import type {
+  RepoWatchPathHint,
+  RepoWatchSnapshot,
+  RepoWatchSnapshotOptions,
+} from "./repo-watch/index.js";
+import type {
+  DiscoverySnapshot,
+  TailEvent,
+} from "./tail/index.js";
+
+export type BrokerRepoWatchReadOptions = {
+  force?: boolean;
+  includeTail?: boolean;
+  includeDiff?: boolean;
+  includeLastCommit?: boolean;
+  useNativeRepoService?: boolean;
+  maxRoots?: number;
+  maxWorktrees?: number;
+  maxFilesPerWorktree?: number;
+  scanBudgetMs?: number;
+  cacheTtlMs?: number;
+};
+
+export type TailRecentPayload = {
+  generatedAt: number;
+  limit: number;
+  cursor: string | null;
+  events: TailEvent[];
+};
+
+export type BrokerRepoTailServiceOptions<TBrokerSnapshot> = {
+  readBrokerSnapshot: () => Promise<TBrokerSnapshot>;
+  getRepoWatchSnapshot: (options?: RepoWatchSnapshotOptions) => Promise<RepoWatchSnapshot>;
+  repoWatchHintsFromBrokerSnapshot: (snapshot: TBrokerSnapshot) => RepoWatchPathHint[];
+  repoWatchHintsFromTailDiscovery: (discovery: DiscoverySnapshot | null | undefined) => RepoWatchPathHint[];
+  getTailDiscovery: (force?: boolean) => Promise<DiscoverySnapshot>;
+  readRecentLiveEvents: (limit: number) => Promise<TailEvent[]>;
+  readRecentTranscriptEvents: (
+    limit: number,
+    options?: { perTranscriptLineLimit?: number },
+  ) => Promise<TailEvent[]>;
+  repoWatchServeCacheTtlMs: number;
+  repoWatchRehydrateAfterMs: number;
+  warn?: (message: string) => void;
+  now?: () => number;
+};
+
+export function parseTailLimit(url: URL): number {
+  const limit = Number.parseInt(url.searchParams.get("limit") ?? "500", 10);
+  if (!Number.isFinite(limit) || limit <= 0) return 500;
+  return Math.min(limit, 1_000);
+}
+
+export function parsePositiveIntParam(url: URL, key: string, cap: number): number | undefined {
+  const value = Number.parseInt(url.searchParams.get(key) ?? "", 10);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return Math.min(value, cap);
+}
+
+function booleanQuery(url: URL, key: string): boolean {
+  return url.searchParams.get(key) === "1" || url.searchParams.get(key) === "true";
+}
+
+export class BrokerRepoTailService<TBrokerSnapshot> {
+  private repoWatchWarmInFlight: Promise<unknown> | null = null;
+
+  constructor(private readonly options: BrokerRepoTailServiceOptions<TBrokerSnapshot>) {}
+
+  async readRepoWatchSnapshot(
+    options: BrokerRepoWatchReadOptions = {},
+  ): Promise<RepoWatchSnapshot> {
+    const snapshot = await this.options.readBrokerSnapshot();
+    const tailHints = options.includeTail
+      ? this.options.repoWatchHintsFromTailDiscovery(await this.options.getTailDiscovery(false))
+      : [];
+    return this.options.getRepoWatchSnapshot({
+      force: options.force,
+      includeDiff: options.includeDiff,
+      includeLastCommit: options.includeLastCommit,
+      useNativeRepoService: options.useNativeRepoService,
+      maxRoots: options.maxRoots,
+      maxWorktrees: options.maxWorktrees,
+      maxFilesPerWorktree: options.maxFilesPerWorktree,
+      scanBudgetMs: options.scanBudgetMs,
+      cacheTtlMs: options.cacheTtlMs,
+      hints: [
+        ...this.options.repoWatchHintsFromBrokerSnapshot(snapshot),
+        ...tailHints,
+      ],
+    });
+  }
+
+  warmRepoWatchSnapshot(
+    reason: string,
+    options: BrokerRepoWatchReadOptions = {},
+  ): Promise<unknown> {
+    if (this.repoWatchWarmInFlight) return this.repoWatchWarmInFlight;
+    this.repoWatchWarmInFlight = this.readRepoWatchSnapshot({
+      includeTail: false,
+      includeDiff: true,
+      includeLastCommit: true,
+      ...options,
+      force: true,
+    })
+      .catch((error) => {
+        this.options.warn?.(
+          `[openscout-runtime] repo-watch ${reason} warm failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      })
+      .finally(() => {
+        this.repoWatchWarmInFlight = null;
+      });
+    return this.repoWatchWarmInFlight;
+  }
+
+  async readRepoWatchSnapshotForUrl(url: URL): Promise<RepoWatchSnapshot> {
+    const force = booleanQuery(url, "force");
+    const includeTail = booleanQuery(url, "includeTail");
+    const includeDiff = booleanQuery(url, "includeDiff");
+    const includeLastCommit = booleanQuery(url, "includeLastCommit");
+    const nativeParam = url.searchParams.get("native");
+    const useNativeRepoService = nativeParam == null
+      ? undefined
+      : nativeParam === "1" || nativeParam === "true";
+    const maxRoots = parsePositiveIntParam(url, "maxRoots", 128);
+    const maxWorktrees = parsePositiveIntParam(url, "maxWorktrees", 32);
+    const maxFilesPerWorktree = parsePositiveIntParam(url, "maxFilesPerWorktree", 100);
+    const scanBudgetMs = parsePositiveIntParam(url, "scanBudgetMs", 30_000);
+    const cacheTtlMs = force ? undefined : this.options.repoWatchServeCacheTtlMs;
+    const snapshot = await this.readRepoWatchSnapshot({
+      force,
+      includeDiff,
+      includeLastCommit,
+      useNativeRepoService,
+      maxRoots,
+      maxWorktrees,
+      maxFilesPerWorktree,
+      scanBudgetMs,
+      includeTail,
+      cacheTtlMs,
+    });
+
+    if (
+      !force
+      && Number.isFinite(this.options.repoWatchRehydrateAfterMs)
+      && this.options.repoWatchRehydrateAfterMs > 0
+      && this.now() - snapshot.generatedAt > this.options.repoWatchRehydrateAfterMs
+    ) {
+      void this.warmRepoWatchSnapshot("http-rehydrate", {
+        includeTail,
+        includeDiff,
+        includeLastCommit,
+        useNativeRepoService,
+        maxRoots,
+        maxWorktrees,
+        maxFilesPerWorktree,
+        scanBudgetMs,
+      });
+    }
+
+    return snapshot;
+  }
+
+  async readTailRecentPayload(url: URL): Promise<TailRecentPayload> {
+    const limit = parseTailLimit(url);
+    const bufferedEvents = await this.options.readRecentLiveEvents(limit);
+    const eventsById = new Map<string, TailEvent>();
+
+    if (url.searchParams.get("transcripts") === "true" || url.searchParams.get("transcripts") === "1") {
+      const transcriptEvents = await this.options.readRecentTranscriptEvents(limit, {
+        perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+      });
+      for (const event of transcriptEvents) {
+        eventsById.set(event.id, event);
+      }
+    }
+    for (const event of bufferedEvents) {
+      eventsById.set(event.id, event);
+    }
+
+    const events = [...eventsById.values()]
+      .sort((left, right) => {
+        if (left.ts === right.ts) return left.id.localeCompare(right.id);
+        return left.ts - right.ts;
+      })
+      .slice(-limit);
+
+    return {
+      generatedAt: this.now(),
+      limit,
+      cursor: events.at(-1)?.id ?? null,
+      events,
+    };
+  }
+
+  private now(): number {
+    return (this.options.now ?? Date.now)();
+  }
+}

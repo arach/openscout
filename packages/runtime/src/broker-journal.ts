@@ -30,17 +30,20 @@ import {
   createRuntimeRegistrySnapshot,
   type RuntimeRegistrySnapshot,
 } from "./registry.js";
+import type { BrokerInvocationDispatchJob } from "./broker-dispatch-job.js";
 
 export type BrokerJournalEntry =
   | { kind: "node.upsert"; node: NodeDefinition }
   | { kind: "actor.upsert"; actor: ActorIdentity }
   | { kind: "agent.upsert"; agent: AgentDefinition }
   | { kind: "agent.endpoint.upsert"; endpoint: AgentEndpoint }
+  | { kind: "agent.endpoint.delete"; endpointId: string }
   | { kind: "conversation.upsert"; conversation: ConversationDefinition }
   | { kind: "binding.upsert"; binding: ConversationBinding }
   | { kind: "message.record"; message: MessageRecord }
   | { kind: "conversation.read_cursor.upsert"; cursor: ConversationReadCursor }
   | { kind: "invocation.record"; invocation: InvocationRequest }
+  | { kind: "invocation.dispatch_job.record"; job: BrokerInvocationDispatchJob }
   | { kind: "flight.record"; flight: FlightRecord }
   | { kind: "collaboration.record"; record: CollaborationRecord }
   | { kind: "collaboration.event.record"; event: CollaborationEvent }
@@ -70,6 +73,7 @@ type JournalSnapshotState = {
   deliveries: Map<string, DeliveryIntent>;
   deliveryAttempts: Map<string, DeliveryAttempt[]>;
   durableActions: Map<string, DurableAction>;
+  invocationDispatchJobs: Map<string, BrokerInvocationDispatchJob>;
   scoutDispatches: ScoutDispatchRecord[];
 };
 
@@ -199,6 +203,7 @@ export class FileBackedBrokerJournal {
     deliveries: new Map<string, DeliveryIntent>(),
     deliveryAttempts: new Map<string, DeliveryAttempt[]>(),
     durableActions: new Map<string, DurableAction>(),
+    invocationDispatchJobs: new Map<string, BrokerInvocationDispatchJob>(),
     scoutDispatches: [],
   };
 
@@ -380,6 +385,30 @@ export class FileBackedBrokerJournal {
     return null;
   }
 
+  getInvocationDispatchJob(jobId: string): BrokerInvocationDispatchJob | null {
+    return this.state.invocationDispatchJobs.get(jobId) ?? null;
+  }
+
+  getInvocationDispatchJobForInvocation(invocationId: string): BrokerInvocationDispatchJob | null {
+    for (const job of this.state.invocationDispatchJobs.values()) {
+      if (job.invocationId === invocationId) {
+        return job;
+      }
+    }
+    return null;
+  }
+
+  listInvocationDispatchJobs(options: {
+    limit?: number;
+    state?: BrokerInvocationDispatchJob["state"];
+  } = {}): BrokerInvocationDispatchJob[] {
+    const limit = options.limit ?? 1000;
+    return [...this.state.invocationDispatchJobs.values()]
+      .filter((job) => !options.state || job.state === options.state)
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .slice(0, limit);
+  }
+
   private async rewriteEntries(entries: BrokerJournalEntry[]): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
     const payload = entries.length > 0
@@ -453,6 +482,9 @@ export class FileBackedBrokerJournal {
       case "agent.endpoint.upsert":
         snapshot.endpoints[entry.endpoint.id] = entry.endpoint;
         return;
+      case "agent.endpoint.delete":
+        delete snapshot.endpoints[entry.endpointId];
+        return;
       case "conversation.upsert":
         snapshot.conversations[entry.conversation.id] = entry.conversation;
         return;
@@ -488,6 +520,9 @@ export class FileBackedBrokerJournal {
       case "agent.endpoint.upsert":
         this.state.snapshot.endpoints[entry.endpoint.id] = entry.endpoint;
         return;
+      case "agent.endpoint.delete":
+        delete this.state.snapshot.endpoints[entry.endpointId];
+        return;
       case "conversation.upsert":
         this.state.snapshot.conversations[entry.conversation.id] = entry.conversation;
         return;
@@ -502,6 +537,9 @@ export class FileBackedBrokerJournal {
         return;
       case "invocation.record":
         this.state.snapshot.invocations[entry.invocation.id] = entry.invocation;
+        return;
+      case "invocation.dispatch_job.record":
+        this.state.invocationDispatchJobs.set(entry.job.id, entry.job);
         return;
       case "flight.record":
         this.state.snapshot.flights[entry.flight.id] = entry.flight;

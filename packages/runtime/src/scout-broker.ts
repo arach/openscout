@@ -53,6 +53,7 @@ import {
   resolveBrokerServiceConfig,
   resolveBrokerSocketPathForBaseUrl,
 } from "./broker-process-manager.js";
+import { endpointAvailabilityScore } from "./broker-endpoint-selection.js";
 
 export type ScoutBrokerActorRecord = {
   id: string;
@@ -564,16 +565,20 @@ function relayRouteKind(
     : "channel";
 }
 
+function preferredBrokerEndpointForAgent(
+  snapshot: ScoutBrokerSnapshot,
+  agentId: string,
+): ScoutBrokerEndpointRecord | undefined {
+  return Object.values(snapshot.endpoints ?? {})
+    .filter((endpoint) => endpoint.agentId === agentId)
+    .sort((left, right) => endpointAvailabilityScore(right) - endpointAvailabilityScore(left))[0];
+}
+
 function buildMentionCandidate(
   snapshot: ScoutBrokerSnapshot,
   agent: ScoutBrokerAgentRecord,
 ): AgentSelectorCandidate {
-  const endpoints = Object.values(snapshot.endpoints ?? {}).filter(
-    (endpoint) => endpoint.agentId === agent.id,
-  );
-  const preferred = endpoints.find((endpoint) => endpoint.state === "active")
-    ?? endpoints.find((endpoint) => endpoint.state === "idle" || endpoint.state === "waiting")
-    ?? endpoints[0];
+  const preferred = preferredBrokerEndpointForAgent(snapshot, agent.id);
   const harness = preferred?.harness
     ?? metadataString(agent.metadata, "harness")
     ?? metadataString(agent.metadata, "defaultHarness");
@@ -649,14 +654,7 @@ function agentProjectRoot(
   snapshot: ScoutBrokerSnapshot,
   agentId: string,
 ): string | null {
-  const endpoints = Object.values(snapshot.endpoints ?? {})
-    .filter((endpoint) => endpoint.agentId === agentId);
-  const preferred =
-    endpoints.find((endpoint) => endpoint.state === "active")
-    ?? endpoints.find(
-      (endpoint) => endpoint.state === "idle" || endpoint.state === "waiting",
-    )
-    ?? endpoints[0];
+  const preferred = preferredBrokerEndpointForAgent(snapshot, agentId);
   return preferred?.projectRoot
     ?? preferred?.cwd
     ?? metadataString(snapshot.agents[agentId]?.metadata, "projectRoot")
@@ -667,14 +665,7 @@ function agentPreferredState(
   snapshot: ScoutBrokerSnapshot,
   agentId: string,
 ): AgentState | "discovered" {
-  const endpoints = Object.values(snapshot.endpoints ?? {})
-    .filter((endpoint) => endpoint.agentId === agentId);
-  const preferred =
-    endpoints.find((endpoint) => endpoint.state === "active")
-    ?? endpoints.find(
-      (endpoint) => endpoint.state === "idle" || endpoint.state === "waiting",
-    )
-    ?? endpoints[0];
+  const preferred = preferredBrokerEndpointForAgent(snapshot, agentId);
   return preferred?.state ?? "offline";
 }
 
