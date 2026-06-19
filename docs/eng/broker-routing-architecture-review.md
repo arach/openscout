@@ -5,6 +5,29 @@
 > `codex/macos-origin-main-build-fixes`. Scope: `/v1/invocations` and MCP `ask` → resolution →
 > flight planning → endpoint selection → wake/attach → transport dispatch → queue/fail → completion.
 
+## Status (2026-06-19)
+
+The dispatch path has been **extracted from the monolith** into focused modules. The behavioral
+findings below still apply; only file placement changed.
+
+| Stage | Current module(s) |
+| --- | --- |
+| HTTP routes | `broker-http-router.ts` |
+| `/v1/deliver` | `broker-delivery-acceptance-service.ts` |
+| `/v1/invocations` | `broker-invocation-dispatch-service.ts` (via `broker-core-service.ts` delegate) |
+| target resolution | `broker-delivery-routing.ts` → `scout-dispatcher.ts` |
+| unavailable diagnostics | `broker-unavailable-target-service.ts` |
+| endpoint selection | `broker-local-endpoint-resolver.ts`, `broker-local-invocation-helpers.ts` |
+| local execution | `broker-local-invocation-service.ts` → `local-agents.ts` |
+| flight lifecycle | `broker-flight-lifecycle-service.ts` |
+| home/UI endpoint summary | `broker-home-service.ts` |
+
+Structural map: [`docs/architecture.md`](../architecture.md). Monolith refactor notes:
+[`broker-daemon-architecture-review-2026-06-18.md`](./broker-daemon-architecture-review-2026-06-18.md).
+
+Line references in sections 1–4 point at the **pre-refactor** `broker-daemon.ts` layout unless
+noted otherwise.
+
 ## 0. TL;DR
 
 The dispatch core is sound and converges well at the *resolution* and *accept* layers, but it
@@ -35,8 +58,8 @@ machine and a "preferred endpoint" flag that **do not exist in code** (the model
 
 | Entry | Handler | Notes |
 | --- | --- | --- |
-| `POST /v1/invocations` | `handleInvocationRequest` (`broker-daemon.ts:5670`) | Caller supplies a pre-built `InvocationRequest` (ids minted client-side). **No pre-accept gate.** |
-| `POST /v1/deliver` (MCP `ask`, `messages_send wake:true`) | `acceptBrokerDelivery` (`broker-daemon.ts:8560`) | Broker mints `inv`/`msg` ids; **runs a pre-accept availability gate** at `:8904`. |
+| `POST /v1/invocations` | `BrokerInvocationDispatchService.handleInvocationRequest` (`broker-invocation-dispatch-service.ts`; routed from `broker-http-router.ts`) | Caller supplies a pre-built `InvocationRequest` (ids minted client-side). **No pre-accept gate.** |
+| `POST /v1/deliver` (MCP `ask`, `messages_send wake:true`) | `BrokerDeliveryAcceptanceService.accept` (`broker-delivery-acceptance-service.ts`; routed from `broker-http-router.ts`) | Broker mints `inv`/`msg` ids; **runs a pre-accept availability gate** via `broker-unavailable-target-service.ts`. |
 
 Both converge on two shared internal stages:
 
@@ -63,11 +86,12 @@ Both converge on two shared internal stages:
 | --- | --- | --- | --- |
 | `preferredEndpoint` | `broker.ts:135` | **transport rank** (`claude_channel`=0 …) | message delivery routing |
 | `preferredEndpointForAgent` | `scout-dispatcher.ts:123` | **state string** (active→idle/waiting→first) | dispatch-candidate summaries |
-| `homeEndpointForAgent` | `broker-daemon.ts:2317` | **state string** (active0/idle1/waiting2/def4/offline5) | **UI / Home feed / return address** |
-| `activeLocalEndpointForAgent` | `broker-daemon.ts:4581` | **live process probe** (`isLocalAgentEndpointAlive`) | **actual dispatch** |
-| `latestEndpointForAgent` | `broker-daemon.ts:2200` | **newest timestamp** | stale/superseded diagnostics |
+| `homeEndpointForAgent` | `broker-local-invocation-helpers.ts` (used by `broker-home-service.ts`) | **state string** (active0/idle1/waiting2/def4/offline5) | **UI / Home feed / return address** |
+| `activeLocalEndpointForAgent` | `broker-local-endpoint-resolver.ts` | **live process probe** (`isLocalAgentEndpointAlive`) | **actual dispatch** |
+| `latestEndpointForAgent` | `broker-local-invocation-helpers.ts` | **newest timestamp** | stale/superseded diagnostics |
 
-The per-invocation pick happens in `resolveLocalEndpointForInvocation` (`:4666`, called at `:4778`).
+The per-invocation pick happens in `BrokerLocalEndpointResolver.resolveLocalEndpointForInvocation`,
+called from `broker-local-invocation-service.ts`.
 
 ### 1.4 Wake / attach
 
@@ -87,7 +111,7 @@ inline (`execFileSync("tmux", ["new-session", …])`, `local-agents.ts:3482`).
 
 ### 1.5 Transport dispatch
 
-`invokeLocalAgentEndpoint` (`local-agents.ts:4553`, called from `broker-daemon.ts:4896`) switches on
+`invokeLocalAgentEndpoint` (`local-agents.ts`, called from `broker-local-invocation-service.ts`) switches on
 `endpoint.transport`: `codex_app_server`/`claude_stream_json`/`pi_rpc` delegate to their modules;
 `tmux` is the inline fallthrough (`sendLocalAgentPrompt` `:2826` → `sendTmuxPrompt` `:2882`,
 `load-buffer`+`paste-buffer`+`send-keys`, with a verify/retry loop that throws `DispatchStalledError`).
@@ -215,9 +239,10 @@ logical field, three sources.
 
 ## 4. Cleanup / Refactor Plan (sequenced, with risks)
 
-> Precondition: broker-daemon.ts is 9.3k lines with thin seams on these paths. Add **characterization
-> tests** around `executeLocalInvocation` + `resolveLocalEndpointForInvocation` before Phase 1.
-> `broker-daemon.test.ts` already exists (and is modified on this branch) — extend it.
+> Precondition (2026-06-19): dispatch paths now live in `broker-local-invocation-service.ts` and
+> `broker-local-endpoint-resolver.ts`. Add **characterization tests** around local invocation +
+> endpoint resolution before Phase 1. `broker-local-invocation-service.test.ts`,
+> `broker-local-endpoint-resolver.test.ts`, and `broker-endpoint-selection.test.ts` exist — extend them.
 
 ### Phase 0 — Close the divergences (cheap, high-clarity, low blast radius)
 - **P0.1 Single dispatchability predicate.** Introduce `endpointDispatchability(endpoint)` =
@@ -269,9 +294,9 @@ semantics, so the doc edit is part of the change, not a follow-up.
 
 ---
 
-## Appendix — Verification anchors
-- UI-vs-runnable: read `broker-daemon.ts:2829-2906` (state-string only); compare `:4581-4602` (liveness).
-- Asymmetric gate: `describeUnavailableDeliveryTarget` sole call site `:8904`; absent from `:5670`.
-- Five selectors: `broker.ts:135`, `scout-dispatcher.ts:123`, `broker-daemon.ts:2317`, `:4581`, `:2200`.
-- Queue/fail strings: `broker-daemon.ts:4828` (`no_runnable_endpoint`), `:4845` (`no supported local executor`).
+## Appendix — Verification anchors (current modules)
+- UI-vs-runnable: `broker-home-service.ts` + `homeEndpointForAgent` in `broker-local-invocation-helpers.ts` (state-string) vs `broker-local-endpoint-resolver.ts` `activeLocalEndpointForAgent` (liveness).
+- Asymmetric gate: `broker-unavailable-target-service.ts` called from `broker-delivery-acceptance-service.ts`; not mirrored in `broker-invocation-dispatch-service.ts`.
+- Five selectors: `broker.ts:135`, `scout-dispatcher.ts:123`, `broker-local-invocation-helpers.ts` (`homeEndpointForAgent`, `latestEndpointForAgent`), `broker-local-endpoint-resolver.ts` (`activeLocalEndpointForAgent`).
+- Queue/fail strings: `broker-local-invocation-service.ts` (`no_runnable_endpoint`, `no supported local executor`).
 - Transport sprawl: `grep -n 'transport === "codex_app_server"' local-agents.ts` → ~16 sites.

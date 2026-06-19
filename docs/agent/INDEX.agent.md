@@ -1,6 +1,6 @@
 # Semantic Spec Index
 
-Verified: 2026-06-10
+Verified: 2026-06-19
 
 Dense agent-oriented subsystem specs. Read the relevant file before extending that area.
 
