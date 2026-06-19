@@ -28,7 +28,7 @@ enum ScoutAppCommand: String {
 }
 
 extension Notification.Name {
-    static let scoutAppCommand = Notification.Name("com.openscout.appCommand")
+    static let scoutAppCommand = Notification.Name("app.openscout.scout.command")
 }
 
 struct ScoutCommands: Commands {

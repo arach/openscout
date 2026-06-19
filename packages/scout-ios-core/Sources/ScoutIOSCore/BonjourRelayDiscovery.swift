@@ -3,10 +3,10 @@ import Dispatch
 import os
 
 public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
-    public static let serviceType = "_scout-pair._tcp."
+    public static let serviceType = "_oscout-pair._tcp."
 
     private static let logger = Logger(
-        subsystem: "com.openscout.scoutioscore",
+        subsystem: "app.openscout.scout.ioscore",
         category: "BonjourRelayDiscovery"
     )
 

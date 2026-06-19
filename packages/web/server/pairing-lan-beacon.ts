@@ -1,13 +1,13 @@
 // Always-on LAN discovery beacon.
 //
-// A Scout Mac only advertises `_scout-pair._tcp` while pair mode is actively
+// A Scout Mac only advertises `_oscout-pair._tcp` while pair mode is actively
 // running (the pairing runtime controller owns that advert, carrying the live
 // relay port + fallbacks). That means a Mac sitting idle is invisible to the
 // iOS "On your network" list, so the only way to pair is to first start pair
 // mode by hand on the Mac.
 //
 // This beacon closes that gap: whenever the web server is up and an identity
-// exists, it advertises the same `_scout-pair._tcp` service carrying the Mac's
+// exists, it advertises the same `_oscout-pair._tcp` service carrying the Mac's
 // public key, so every Scout Mac shows up for discovery. Tapping it hits the
 // `/pair` endpoint, which now registers an approval-gated request rather than
 // 404ing. To avoid two advertisers fighting over the same service instance, the
@@ -59,7 +59,7 @@ export function startScoutPairLanBeacon(
       [
         "-R",
         `OpenScout ${fingerprint}`,
-        "_scout-pair._tcp",
+        "_oscout-pair._tcp",
         "local",
         String(relayPort),
         "v=1",

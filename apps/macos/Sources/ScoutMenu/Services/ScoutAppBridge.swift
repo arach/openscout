@@ -4,7 +4,7 @@ import ScoutHUD
 
 @MainActor
 enum ScoutAppBridge {
-    private static let scoutBundleIdentifier = "com.openscout.scout"
+    private static let scoutBundleIdentifier = "app.openscout.scout"
 
     static func openScout(channelId: String? = nil) {
         if runningScoutApp == nil {

@@ -277,7 +277,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -306,7 +306,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: "not-a-real-token",
@@ -323,7 +323,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -335,7 +335,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("mallory", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-other",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -352,7 +352,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -374,7 +374,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-a",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -385,7 +385,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("bob", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-b",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("b2"),
@@ -417,7 +417,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "alice-phone",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -449,7 +449,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-a",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -504,7 +504,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),
@@ -517,7 +517,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-2",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("b2"),
@@ -558,7 +558,7 @@ describe("OpenScout Push Relay (session-scoped)", () => {
       await jsonRequestAs("alice", "https://push.oscout.net/v1/push/devices/register", {
         deviceId: "phone-1",
         platform: "ios",
-        appBundleId: "com.openscout.scout",
+        appBundleId: "app.openscout.scout",
         apnsEnvironment: "production",
         authorizationStatus: "authorized",
         pushToken: hexToken("a1"),

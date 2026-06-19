@@ -8,7 +8,7 @@ iOS app.
 - Active source root: `apps/ios/Scout`
 - Active Xcode target and scheme: `Scout`
 - Product and display name: `Scout`
-- Bundle identifier: `com.openscout.scout`
+- Bundle identifier: `app.openscout.scout`
 - Pairing URL scheme: `scout://`
 - Legacy iOS app target: removed
 

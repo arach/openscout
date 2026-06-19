@@ -31,7 +31,7 @@ public enum OpenScoutNetworkSessionError: LocalizedError {
 }
 
 public enum OpenScoutNetworkSessionStore {
-    private static let service = "com.openscout.osn"
+    private static let service = "net.oscout.session"
     private static let account = "session"
 
     public static func saveSession(from callbackURL: URL, now: Date = Date()) throws {

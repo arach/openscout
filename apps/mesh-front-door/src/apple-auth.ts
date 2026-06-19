@@ -10,7 +10,7 @@
 
 export interface AppleAuthEnv {
   // Comma-separated list of accepted audiences (token `aud`). For the native
-  // flow this is the app bundle id, e.g. "com.openscout.scout". A web Services
+  // flow this is the app bundle id, e.g. "app.openscout.scout". A web Services
   // ID can be added later as an additional value.
   OPENSCOUT_APPLE_CLIENT_IDS?: string;
 }

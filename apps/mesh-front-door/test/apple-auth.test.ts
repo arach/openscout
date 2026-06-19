@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { __resetAppleJwksCacheForTests, verifyAppleIdentityToken } from "../src/apple-auth.js";
 
 const KID = "test-apple-key";
-const AUDIENCE = "com.openscout.scout";
+const AUDIENCE = "app.openscout.scout";
 const NOW = 1_750_000_000_000; // fixed reference time for deterministic exp checks
 
 let keyPair: CryptoKeyPair;

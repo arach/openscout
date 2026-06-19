@@ -89,7 +89,7 @@ final class AppModel {
     var tailnetPairDiscoveryOrigin: String?
     var tailnetPairingTargetId: String?
 
-    /// A Scout Mac found on the local network (Bonjour `_scout-pair._tcp`). The
+    /// A Scout Mac found on the local network (Bonjour `_oscout-pair._tcp`). The
     /// nicest first-run path: same Wi-Fi, one tap, no QR. Carries the Mac's
     /// stable identity + relay host; the live pairing payload (room) is fetched
     /// from its `/pair` endpoint at pair time.
@@ -759,7 +759,7 @@ final class AppModel {
 
     // MARK: - LAN pairing (same Wi-Fi, one tap)
 
-    /// Browse the local network for Scout Macs advertising `_scout-pair._tcp`.
+    /// Browse the local network for Scout Macs advertising `_oscout-pair._tcp`.
     /// Cheap and idempotent; the Connect screen runs it on appear and offers a
     /// manual rescan. Finding nothing is not an error (the QR path stays).
     func refreshLanPairTargets() async {

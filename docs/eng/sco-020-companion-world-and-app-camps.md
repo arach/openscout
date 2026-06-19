@@ -242,7 +242,7 @@ The smallest viable implementation is:
       "label": "Scout",
       "kind": "tent",
       "anchor": { "x": 220, "y": 160 },
-      "appBundleId": "com.openscout.desktop"
+      "appBundleId": "app.openscout.desktop"
     },
     {
       "id": "talkie-radio",

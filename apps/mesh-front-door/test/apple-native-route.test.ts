@@ -5,12 +5,12 @@ import { __resetAppleJwksCacheForTests } from "../src/apple-auth.js";
 import { resolveMeshFrontDoorAuth } from "../src/rendezvous.js";
 
 const KID = "test-apple-key";
-const BUNDLE_ID = "com.openscout.scout";
+const BUNDLE_ID = "app.openscout.scout";
 
 const env = {
   OPENSCOUT_SESSION_SECRET: "test-secret",
   OPENSCOUT_SESSION_TTL_SECONDS: "3600",
-  OPENSCOUT_APPLE_CLIENT_IDS: `${BUNDLE_ID}, com.openscout.scout.web`,
+  OPENSCOUT_APPLE_CLIENT_IDS: `${BUNDLE_ID}, app.openscout.scout.web`,
 };
 
 let keyPair: CryptoKeyPair;
