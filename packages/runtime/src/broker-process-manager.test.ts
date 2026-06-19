@@ -39,11 +39,26 @@ const config: BrokerServiceConfig = {
   coreAgents: [],
 };
 
-function writeExecutable(path: string): string {
+function writeExecutableScript(path: string, script: string): string {
   mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(path, `#!/bin/sh\n${script}`, "utf8");
   chmodSync(path, 0o755);
   return path;
+}
+
+function writeExecutable(path: string): string {
+  return writeExecutableScript(path, "exit 0\n");
+}
+
+function writeScoutdStdoutStub(path: string): string {
+  return writeExecutableScript(path, "printf '%s\\n' \"$OPENSCOUT_TEST_SCOUTD_STDOUT\"\n");
+}
+
+function writeScoutdRunawayStub(path: string): string {
+  return writeExecutableScript(
+    path,
+    "while :; do printf '%s\\n' 'runaway scoutd output block runaway scoutd output block'; done\n",
+  );
 }
 
 function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T): T {
@@ -210,6 +225,8 @@ describe("broker service scoutd adapter", () => {
 
 describe("runScoutdServiceCommand shell-out", () => {
   test("parses scoutd JSON into the normalized status shape", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-status-stub-"));
+    const scoutd = writeScoutdStdoutStub(join(root, "scoutd"));
     const status = {
       label: "dev.openscout",
       mode: "dev",
@@ -250,8 +267,8 @@ describe("runScoutdServiceCommand shell-out", () => {
       },
     };
     const result = await withEnv({
-      OPENSCOUT_SCOUTD_BIN: "/usr/bin/printenv",
-      status: JSON.stringify(status),
+      OPENSCOUT_SCOUTD_BIN: scoutd,
+      OPENSCOUT_TEST_SCOUTD_STDOUT: JSON.stringify(status),
     }, () =>
       runScoutdServiceCommand("status", config),
     );
@@ -276,10 +293,13 @@ describe("runScoutdServiceCommand shell-out", () => {
   });
 
   test("rejects with a meaningful error on malformed JSON", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-malformed-stub-"));
+    const scoutd = writeScoutdStdoutStub(join(root, "scoutd"));
+
     await expect(
       withEnv({
-        OPENSCOUT_SCOUTD_BIN: "/usr/bin/printenv",
-        status: "not json at all",
+        OPENSCOUT_SCOUTD_BIN: scoutd,
+        OPENSCOUT_TEST_SCOUTD_STDOUT: "not json at all",
       }, () => runScoutdServiceCommand("status", config)),
     ).rejects.toThrow(/returned non-JSON stdout/);
   });
@@ -291,9 +311,11 @@ describe("runScoutdServiceCommand shell-out", () => {
   });
 
   test("rejects a runaway child without hanging", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-scoutd-runaway-stub-"));
+    const scoutd = writeScoutdRunawayStub(join(root, "scoutd"));
     const started = Date.now();
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: "/usr/bin/yes" }, () =>
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
         runScoutdServiceCommand("start", config, 2_000),
       ),
     ).rejects.toThrow(/scoutd start (exceeded output limit|timed out after 2000ms)/);
