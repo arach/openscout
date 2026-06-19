@@ -35,6 +35,7 @@
     "test:unit": "bun run --cwd packages/protocol test && bun run --cwd packages/agent-sessions test && bun test ./packages/runtime/src --path-ignore-patterns='**/*live.test.ts' --path-ignore-patterns='**/scenario-suite.test.ts' && bun run --cwd apps/mesh-front-door test && bun run --cwd apps/desktop test && bun run --cwd packages/web test && bun run --cwd packages/session-trace test && bun run --cwd packages/session-trace-react test",
     "test:happy": "cd apps/desktop && bun run test:happy && cd ../../packages/cli && bun run test:happy",
     "test:scenarios": "npm --prefix packages/runtime run test:scenarios",
+    "test:traffic:synthetic": "npm --prefix packages/runtime run test:traffic:synthetic",
     "test:e2e": "bun run check && bun run test:scenarios && bun run test:e2e:agents",
     "test:e2e:agents": "bun run --cwd packages/runtime test:e2e:local-agent-pass",
     "test:live:agents": "bun run --cwd packages/runtime test:live:local-agent-pass",

@@ -2,7 +2,7 @@ import { test } from "bun:test";
 import { createServer } from "node:net";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import {
   SessionRegistry,
@@ -136,6 +136,8 @@ function defaultTransportForHarness(harness: AgentHarness | undefined): AgentEnd
       return "codex_app_server";
     case "claude":
       return "claude_stream_json";
+    case "pi":
+      return "pi_rpc";
     default:
       return undefined;
   }
@@ -195,12 +197,18 @@ export class RuntimeScenarioHarness {
       cwd: runtimeDir,
       env: {
         ...process.env,
+        HOME: controlHome,
         OPENSCOUT_CONTROL_HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: join(controlHome, "support"),
+        OPENSCOUT_RELAY_HUB: join(controlHome, "relay"),
         OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
         OPENSCOUT_BROKER_PORT: String(port),
         OPENSCOUT_BROKER_URL: baseUrl,
         OPENSCOUT_NODE_ID: derivedNodeId,
         OPENSCOUT_MESH_DISCOVERY_INTERVAL_MS: "0",
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_SKIP_USER_PROJECT_HINTS: "1",
         OPENSCOUT_PARENT_PID: "0",
         ...input.env,
       },
@@ -465,6 +473,29 @@ export class RuntimeScenarioHarness {
     writeFileSync(join(pairingRoot, "config.json"), JSON.stringify({ port }), "utf8");
     writeFileSync(join(pairingRoot, "runtime.json"), JSON.stringify({ status: "paired" }), "utf8");
     return home;
+  }
+
+  createTempProject(input: {
+    name: string;
+    files?: Record<string, string>;
+  }): string {
+    const safeName = input.name.toLowerCase().replace(/[^a-z0-9-]+/g, "-") || "project";
+    const root = mkdtempSync(join(tmpdir(), `openscout-scenario-${safeName}-`));
+    this.tempRoots.add(root);
+
+    for (const [relativePath, content] of Object.entries(input.files ?? {})) {
+      if (
+        relativePath.startsWith("/")
+        || relativePath.split(/[\\/]+/).some((segment) => segment === "..")
+      ) {
+        throw new Error(`unsafe scenario project path: ${relativePath}`);
+      }
+      const filePath = join(root, relativePath);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, content, "utf8");
+    }
+
+    return root;
   }
 
   async post<T>(brokerOrBaseUrl: ScenarioBroker | string, path: string, body: unknown): Promise<T> {

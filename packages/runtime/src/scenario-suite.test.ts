@@ -244,6 +244,7 @@ describe("runtime scenario suite", () => {
           conversationId: delivery.conversation.id,
           actorId: task.targetAgentId,
           body: task.response,
+          createdAt: startedAt + 200 + index,
           metadata: {
             routine: "docs-og-review",
             artifact: task.artifact,
@@ -860,7 +861,8 @@ describe("runtime scenario suite", () => {
 
       const response = await scenario.post<{
         ok: boolean;
-        mesh?: { forwarded?: boolean; authorityNodeId?: string };
+        forwarded?: boolean;
+        authorityNodeId?: string;
       }>(remote, "/v1/messages", {
         id: "msg-remote-authority-1",
         conversationId: conversation.id,
@@ -873,7 +875,7 @@ describe("runtime scenario suite", () => {
         createdAt: Date.now(),
       });
       expect(response.ok).toBe(true);
-      expect(response.mesh).toEqual(expect.objectContaining({
+      expect(response).toEqual(expect.objectContaining({
         forwarded: true,
         authorityNodeId: authority.nodeId,
       }));
@@ -967,5 +969,433 @@ describe("runtime scenario suite", () => {
         }),
       }));
     },
+  );
+
+  runtimeScenario(
+    "generates synthetic broker traffic across Claude, Codex, and Grok-style actors",
+    async (scenario) => {
+      const pairing = await scenario.startPairingBridgeServer({ sessions: [] });
+      const home = scenario.configurePairingHome(pairing.port);
+      const supportDirectory = `${home}/Library/Application Support/OpenScout`;
+      const broker = await scenario.startBroker({
+        env: {
+          HOME: home,
+          OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+          OPENSCOUT_RELAY_HUB: `${home}/.openscout/relay`,
+          OPENSCOUT_CORE_AGENTS: "",
+          OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+          OPENSCOUT_SKIP_USER_PROJECT_HINTS: "1",
+          OPENSCOUT_NODE_QUALIFIER: "traffic-node",
+        },
+      });
+
+      await scenario.seedOperator(broker);
+
+      const docsProject = scenario.createTempProject({
+        name: "traffic-docs",
+        files: {
+          "README.md": "# Traffic Docs\n\nInitial broker traffic fixture.\n",
+          "tasks.md": "- Keep broker traffic deterministic.\n",
+        },
+      });
+      const apiProject = scenario.createTempProject({
+        name: "traffic-api",
+        files: {
+          "README.md": "# Traffic API\n\nTiny project for Codex routing.\n",
+          "docs/plan.md": "1. Create a note.\n2. Read the note.\n3. Append three tasks.\n",
+        },
+      });
+      const grokProject = scenario.createTempProject({
+        name: "traffic-grok",
+        files: {
+          "research.md": "# Grok Research\n\nUse synthetic replies only.\n",
+        },
+      });
+      const queuedProject = scenario.createTempProject({
+        name: "traffic-queued",
+        files: {
+          "queue.md": "# Queue Fixture\n\nThis project intentionally has no runnable endpoint.\n",
+        },
+      });
+
+      await scenario.registerAgent(broker, {
+        id: "traffic.docs.claude",
+        definitionId: "traffic-docs",
+        displayName: "Traffic Docs Claude",
+        handle: "traffic-docs",
+        selector: "@traffic-docs",
+        harness: "claude",
+        transport: "claude_stream_json",
+        endpointId: "endpoint.traffic.docs.claude",
+        sessionId: "session-traffic-docs-claude",
+        projectRoot: docsProject,
+        cwd: docsProject,
+        branch: "scenario/docs",
+      });
+      await scenario.registerAgent(broker, {
+        id: "traffic.api.codex",
+        definitionId: "traffic-api",
+        displayName: "Traffic API Codex",
+        handle: "traffic-api",
+        selector: "@traffic-api",
+        harness: "codex",
+        transport: "codex_app_server",
+        endpointId: "endpoint.traffic.api.codex",
+        sessionId: "session-traffic-api-codex",
+        projectRoot: apiProject,
+        cwd: apiProject,
+        branch: "scenario/api",
+        endpointMetadata: {
+          threadId: "thread-traffic-api-codex",
+          externalSessionId: "thread-traffic-api-codex",
+        },
+      });
+      await scenario.registerAgent(broker, {
+        id: "traffic.research.grok",
+        definitionId: "traffic-research",
+        displayName: "Traffic Research Grok",
+        handle: "traffic-research",
+        selector: "@traffic-research",
+        harness: "pi",
+        transport: "pi_rpc",
+        endpointId: "endpoint.traffic.research.grok",
+        sessionId: "session-traffic-grok",
+        projectRoot: grokProject,
+        cwd: grokProject,
+        metadata: {
+          provider: "grok",
+          model: "grok-4.3-mini",
+        },
+        endpointMetadata: {
+          provider: "grok",
+          model: "grok-4.3-mini",
+        },
+      });
+      await scenario.registerAgent(broker, {
+        id: "traffic.queued.codex",
+        definitionId: "traffic-queued",
+        displayName: "Traffic Queued Codex",
+        handle: "traffic-queued",
+        selector: "@traffic-queued",
+        metadata: {
+          projectRoot: queuedProject,
+          harness: "codex",
+        },
+      });
+      await scenario.registerAgent(broker, {
+        id: "traffic.manual.claude",
+        definitionId: "traffic-manual",
+        displayName: "Traffic Manual Claude",
+        handle: "traffic-manual",
+        selector: "@traffic-manual",
+        harness: "claude",
+        transport: "claude_stream_json",
+        endpointId: "endpoint.traffic.manual.claude",
+        endpointState: "offline",
+        wakePolicy: "manual",
+        projectRoot: docsProject,
+        cwd: docsProject,
+      });
+
+      const attached = await scenario.post<{
+        ok: boolean;
+        agentId: string;
+        selector: string;
+        endpointId: string;
+        sessionId: string;
+      }>(broker, "/v1/local-sessions/attach", {
+        externalSessionId: "019e0000-0000-7000-8000-000000000001",
+        transport: "codex_app_server",
+        cwd: apiProject,
+        alias: "@traffic-live-codex",
+        displayName: "Traffic Live Codex",
+      });
+
+      expect(attached.ok).toBe(true);
+      expect(attached.selector).toBe("@traffic-live-codex");
+      expect(attached.sessionId).toBe("pairing-019e0000");
+
+      const channelTell = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
+        id: "traffic-channel-tell",
+        caller: {
+          actorId: "operator",
+          nodeId: broker.nodeId,
+        },
+        target: {
+          kind: "channel",
+          channel: "traffic-lab",
+        },
+        body: "Traffic lab opened: Claude checks docs, Codex edits tasks, Grok summarizes risks.",
+        intent: "tell",
+        labels: ["traffic", "channel"],
+        createdAt: Date.now(),
+      });
+      expect(channelTell.kind).toBe("delivery");
+      expect(channelTell.routeKind).toBe("channel");
+
+      const group = await scenario.registerConversation(broker, {
+        id: "group.traffic.matrix",
+        kind: "group_direct",
+        title: "Synthetic Traffic Matrix",
+        participantIds: [
+          "traffic.docs.claude",
+          "traffic.api.codex",
+          "traffic.research.grok",
+          attached.agentId,
+        ],
+        metadata: {
+          scenario: "synthetic-broker-traffic",
+        },
+      });
+
+      const groupMessages = [
+        {
+          id: "traffic-msg-1",
+          actorId: "traffic.docs.claude",
+          body: "I read README.md and found the setup note current.",
+        },
+        {
+          id: "traffic-msg-2",
+          actorId: "traffic.api.codex",
+          body: "I created docs/plan.md and listed three deterministic follow-ups.",
+        },
+        {
+          id: "traffic-msg-3",
+          actorId: "traffic.research.grok",
+          body: "Grok-style risk pass: keep failures synthetic and avoid live provider spend.",
+        },
+        {
+          id: "traffic-msg-4",
+          actorId: attached.agentId,
+          body: "Live Codex card is ready for exact-session steering.",
+        },
+      ];
+
+      for (const message of groupMessages) {
+        await scenario.postMessage(broker, {
+          ...message,
+          conversationId: group.id,
+          metadata: {
+            scenario: "synthetic-broker-traffic",
+          },
+        });
+      }
+
+      const directDeliveries = (await scenario.listDeliveries(broker))
+        .filter((delivery) => groupMessages.some((message) => message.id === delivery.messageId));
+      expect(directDeliveries).toHaveLength(12);
+      for (const message of groupMessages) {
+        const targets = directDeliveries
+          .filter((delivery) => delivery.messageId === message.id)
+          .map((delivery) => delivery.targetId)
+          .sort();
+        expect(targets).toEqual(
+          group.participantIds.filter((actorId) => actorId !== message.actorId).sort(),
+        );
+      }
+
+      const steeredBody = "Continue the exact Codex session: read docs/plan.md and append three more markdown tasks.";
+      const steered = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
+        id: "traffic-steer-codex-session",
+        caller: {
+          actorId: "operator",
+          nodeId: broker.nodeId,
+        },
+        target: {
+          kind: "session_id",
+          sessionId: "019e0000-0000-7000-8000-000000000001",
+        },
+        body: steeredBody,
+        intent: "consult",
+        labels: ["traffic", "steer"],
+        messageMetadata: {
+          scenario: "synthetic-broker-traffic",
+        },
+        invocationMetadata: {
+          scenario: "synthetic-broker-traffic",
+        },
+        createdAt: Date.now(),
+      });
+
+      if (steered.kind !== "delivery" || !steered.flight) {
+        throw new Error("expected steered Codex delivery with a flight");
+      }
+      expect(steered.targetAgentId).toBe(attached.agentId);
+      expect(steered.targetSessionId).toBe("019e0000-0000-7000-8000-000000000001");
+
+      const steeredResult = await scenario.waitFor(
+        () => scenario.get<{
+          invocation: {
+            execution?: { session?: string; targetSessionId?: string };
+          } | null;
+          flight: {
+            state: string;
+            output?: string;
+          } | null;
+        }>(broker, `/v1/invocations/${encodeURIComponent(steered.flight!.invocationId)}`),
+        (snapshot) => snapshot.flight?.state === "completed",
+        8_000,
+      );
+      expect(steeredResult.invocation?.execution).toMatchObject({
+        session: "existing",
+        targetSessionId: "019e0000-0000-7000-8000-000000000001",
+      });
+      expect(steeredResult.flight?.output).toBe(`Echo: ${steeredBody}`);
+
+      const queued = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
+        id: "traffic-queue-codex",
+        caller: {
+          actorId: "operator",
+          nodeId: broker.nodeId,
+        },
+        target: {
+          kind: "agent_id",
+          agentId: "traffic.queued.codex",
+        },
+        body: "Queue this safe Codex task until the project endpoint exists.",
+        intent: "consult",
+        labels: ["traffic", "queue"],
+        createdAt: Date.now(),
+      });
+      if (queued.kind !== "delivery" || !queued.flight) {
+        throw new Error("expected queued delivery with a flight");
+      }
+
+      const queuedFlight = await scenario.waitFor(
+        () => scenario.get<{
+          flight: {
+            state: string;
+            metadata?: {
+              dispatchOutcome?: {
+                status?: string;
+                reason?: string;
+              };
+            };
+          } | null;
+        }>(broker, `/v1/invocations/${encodeURIComponent(queued.flight!.invocationId)}`),
+        (snapshot) => snapshot.flight?.state === "queued",
+        8_000,
+      );
+      expect(queuedFlight.flight?.metadata?.dispatchOutcome).toEqual(expect.objectContaining({
+        status: "queued_until_online",
+        reason: "no_runnable_endpoint",
+      }));
+
+      const oneTimeCard = await scenario.post<ScoutDeliverResponse>(broker, "/v1/deliver", {
+        id: "traffic-project-card",
+        caller: {
+          actorId: "operator",
+          nodeId: broker.nodeId,
+        },
+        target: {
+          kind: "project_path",
+          projectPath: apiProject,
+        },
+        body: "Create a one-time Codex card for this project and store the work until the card wakes.",
+        intent: "consult",
+        execution: {
+          harness: "codex",
+          session: "new",
+          permissionProfile: "workspace_write",
+        },
+        projectAgent: {
+          persistence: "one_time",
+        },
+        labels: ["traffic", "card"],
+        createdAt: Date.now(),
+      });
+      if (oneTimeCard.kind !== "delivery" || !oneTimeCard.flight) {
+        throw new Error("expected one-time project card delivery");
+      }
+      expect(oneTimeCard.targetAgentId).toContain("-card-");
+      expect(oneTimeCard.targetAgentId).toContain(".traffic-node");
+      expect(["queued", "waking"]).toContain(oneTimeCard.flight.state);
+
+      const manualResponse = await scenario.request(broker, "/v1/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "traffic-manual-offline",
+          caller: {
+            actorId: "operator",
+            nodeId: broker.nodeId,
+          },
+          target: {
+            kind: "agent_label",
+            label: "@traffic-manual",
+          },
+          body: "This should ask the operator to wake the manual offline target.",
+          intent: "consult",
+          labels: ["traffic", "error"],
+          createdAt: Date.now(),
+        }),
+      });
+      expect(manualResponse.status).toBe(409);
+      const manual = manualResponse.body as ScoutDeliverResponse;
+      expect(manual.kind).toBe("question");
+      expect(manual.accepted).toBe(false);
+      expect(manual.remediation?.kind).toBe("wake_target");
+
+      const unknownResponse = await scenario.request(broker, "/v1/deliver", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "traffic-unknown-route",
+          caller: {
+            actorId: "operator",
+            nodeId: broker.nodeId,
+          },
+          target: {
+            kind: "agent_label",
+            label: "@traffic-missing",
+          },
+          body: "This route is intentionally missing.",
+          intent: "consult",
+          labels: ["traffic", "error"],
+          createdAt: Date.now(),
+        }),
+      });
+      expect(unknownResponse.status).toBe(422);
+      const unknown = unknownResponse.body as ScoutDeliverResponse;
+      expect(unknown.kind).toBe("rejected");
+      expect(unknown.accepted).toBe(false);
+      expect(unknown.reason).toBe("unknown_target");
+      expect(unknown.remediation?.kind).toBe("register_target");
+
+      const snapshot = await scenario.snapshot<{
+        agents: Record<string, { displayName: string; metadata?: Record<string, unknown> }>;
+        messages: Record<string, MessageRecord>;
+        invocations: Record<string, {
+          targetAgentId: string;
+          execution?: { session?: string; targetSessionId?: string };
+          metadata?: Record<string, unknown>;
+        }>;
+        flights: Record<string, { targetAgentId: string; state: string; metadata?: Record<string, unknown> }>;
+      }>(broker);
+
+      expect(snapshot.agents[attached.agentId]).toEqual(expect.objectContaining({
+        displayName: "Traffic Live Codex",
+      }));
+      expect(Object.values(snapshot.agents).some((agent) => agent.displayName.includes("Codex"))).toBe(true);
+      expect(Object.values(snapshot.messages).filter((message) => message.metadata?.scenario === "synthetic-broker-traffic").length)
+        .toBeGreaterThanOrEqual(5);
+      expect(Object.values(snapshot.invocations)).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          targetAgentId: attached.agentId,
+          execution: expect.objectContaining({
+            session: "existing",
+            targetSessionId: "019e0000-0000-7000-8000-000000000001",
+          }),
+        }),
+        expect.objectContaining({
+          targetAgentId: "traffic.queued.codex",
+        }),
+      ]));
+      expect(Object.values(snapshot.flights)).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          targetAgentId: "traffic.queued.codex",
+          state: "queued",
+        }),
+      ]));
+    },
+    30_000,
   );
 });
