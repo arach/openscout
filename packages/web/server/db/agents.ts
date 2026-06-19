@@ -10,7 +10,11 @@
 import { db } from "./internal/db.ts";
 import { conversationIdForAgent } from "./internal/conversation-ids.ts";
 import { metadataString } from "./internal/parse.ts";
-import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
+import {
+  compact,
+  resolveHarnessLogPath,
+  resolveHarnessSessionIdForAgent,
+} from "./internal/paths.ts";
 import { resolveTerminalSurface } from "../core/terminal-surfaces.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
@@ -167,6 +171,8 @@ function mapAgentRows(
     let endpointMeta: Record<string, unknown> = {};
     try { endpointMeta = r.endpoint_metadata_json ? JSON.parse(r.endpoint_metadata_json) : {}; } catch {}
 
+    const state = summarizeAgentState(r.state, flightPhases.get(r.id) ?? null);
+
     return {
       id: r.id,
       definitionId: r.definition_id,
@@ -174,7 +180,7 @@ function mapAgentRows(
       handle: r.handle,
       agentClass: r.agent_class,
       harness: r.harness,
-      state: summarizeAgentState(r.state, flightPhases.get(r.id) ?? null),
+      state,
       projectRoot: compact(r.project_root),
       cwd: compact(r.cwd),
       updatedAt: r.updated_at,
@@ -190,7 +196,7 @@ function mapAgentRows(
       branch: (meta.branch as string) ?? null,
       role: (meta.role as string) ?? null,
       model: (meta.model as string) ?? metadataString(endpointMeta, "model"),
-      harnessSessionId: resolveHarnessSessionId(r.transport, r.session_id, endpointMeta),
+      harnessSessionId: resolveHarnessSessionIdForAgent(r.transport, r.session_id, endpointMeta, state),
       terminalSurface: resolveTerminalSurface({
         transport: r.transport,
         endpointSessionId: r.session_id,

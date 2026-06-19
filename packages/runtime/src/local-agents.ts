@@ -3474,7 +3474,8 @@ export async function restartLocalAgent(
         ...buildCodexAgentSessionOptions(agentId, normalizedRecord),
         sessionId: sessionName,
       }, {
-        resetThread: true,
+        // Resume stored thread on bring-up; resetThread mints a new Codex rollout per agent.
+        resetThread: false,
       });
     }
   } else if (normalizedRecord.transport === "claude_stream_json") {

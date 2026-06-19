@@ -81,6 +81,7 @@ import {
   compact as compactPath,
   isTransportSessionRef,
   resolveHarnessSessionId,
+  resolveHarnessSessionIdForAgent,
 } from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
@@ -2446,13 +2447,14 @@ function brokerAgentCardToWebAgent(
     branch: metadataStringValue(agentMetadata, "branch") ?? metadataStringValue(endpointMetadata, "branch"),
     role: null,
     model: metadataStringValue(endpointMetadata, "model") ?? metadataStringValue(agentMetadata, "model"),
-    harnessSessionId: resolveHarnessSessionId(
+    harnessSessionId: resolveHarnessSessionIdForAgent(
       endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
       endpoint?.sessionId ?? null,
       {
         ...agentMetadata,
         ...endpointMetadata,
       },
+      summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
     ),
     terminalSurface: resolveTerminalSurface({
       transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),

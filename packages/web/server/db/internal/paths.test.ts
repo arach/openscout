@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { isTransportSessionRef, resolveHarnessSessionId } from "./paths.ts";
+import {
+  isTransportSessionRef,
+  resolveHarnessSessionId,
+  resolveHarnessSessionIdForAgent,
+} from "./paths.ts";
 
 describe("resolveHarnessSessionId", () => {
   test("keeps tmux attach refs on terminalSurface only", () => {
@@ -20,6 +24,21 @@ describe("resolveHarnessSessionId", () => {
     expect(resolveHarnessSessionId("codex_app_server", "relay-runtime-codex", {
       runtimeInstanceId: "relay-runtime-codex",
     })).toBeNull();
+  });
+
+  test("hides idle codex thread ids from web harnessSessionId projection", () => {
+    expect(resolveHarnessSessionIdForAgent(
+      "codex_app_server",
+      "relay-runtime-codex",
+      { threadId: "019ee108-57a8-7c12-bc51-297676a9ae8d" },
+      "available",
+    )).toBeNull();
+    expect(resolveHarnessSessionIdForAgent(
+      "codex_app_server",
+      "relay-runtime-codex",
+      { threadId: "019ee108-57a8-7c12-bc51-297676a9ae8d" },
+      "in_flight",
+    )).toBe("019ee108-57a8-7c12-bc51-297676a9ae8d");
   });
 
   test("prefers externalSessionId for claude stream workers", () => {

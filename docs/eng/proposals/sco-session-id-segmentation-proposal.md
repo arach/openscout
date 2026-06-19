@@ -58,8 +58,14 @@ Stage-set for v0 pilots:
 | Roster warnings | `harness_session_unbound` only for `in_flight` provider transports; cursor collisions suppressed |
 | Broker | Restart broker after tail/runtime changes (tail discovery runs in broker, not web) |
 
+**Codex multiplication guard (2026-06-19):**
+
+- `scout restart` no longer calls `resetThread: true` for codex relays — resumes stored threads instead of minting one rollout per agent
+- Web projection hides `harnessSessionId` for `available` codex agents; only `in_flight`/`working` rows bind
+
 **Forward (operational, not code):**
 
+- Avoid blanket `scout restart` when debugging lanes — it previously spawned a new Codex thread per configured relay
 - Retire stale configured cards: `scout card retire <id>` (no bulk CLI yet)
 - Prune one-time cards: `scout card cleanup --all`
 - Refresh tail: `curl 'http://127.0.0.1:65535/v1/tail/discover?force=1'`

@@ -49,6 +49,22 @@ function providerHarnessSessionId(value: string | null | undefined): string | nu
   return trimmed;
 }
 
+/** Idle codex relays keep a persisted thread but lanes bind only on active work. */
+export function resolveHarnessSessionIdForAgent(
+  transport: string | null,
+  endpointSessionId: string | null,
+  metadata: Record<string, unknown> | undefined,
+  agentState: string | null | undefined,
+): string | null {
+  const resolved = resolveHarnessSessionId(transport, endpointSessionId, metadata);
+  if (!resolved) return null;
+  const state = agentState?.trim();
+  if (transport === "codex_app_server" && state === "available") {
+    return null;
+  }
+  return resolved;
+}
+
 export function resolveHarnessSessionId(
   transport: string | null,
   endpointSessionId: string | null,
