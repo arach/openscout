@@ -13,7 +13,7 @@ import {
   clearRepoWatchSelection,
   publishRepoWatchSelection,
 } from "../../scout/repo-watch/selection-bridge.ts";
-import { attentionRank, type Tone } from "../../scout/repo-watch/ui.ts";
+import { agoFromMillis, attentionRank, type Tone } from "../../scout/repo-watch/ui.ts";
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { RepoDiffViewerLazy } from "../../scout/repo-diff/RepoDiffViewerLazy.tsx";
 import { prefetchRepoDiffSnapshots } from "../../scout/repo-diff/cache.ts";
@@ -180,6 +180,91 @@ function shortstatFiles(shortstat: string | null): number {
   return match ? Number(match[1]) : 0;
 }
 
+type RepoPullRequestItem = {
+  id: string;
+  repo: string;
+  path: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: string | null;
+  updatedAt: string | null;
+};
+
+type RepoPullRequestSnapshot = {
+  generatedAt: number;
+  source: "gh";
+  paths: string[];
+  pullRequests: RepoPullRequestItem[];
+  warnings: string[];
+};
+
+function repoPrPaths(snapshot: RepoWatchSnapshot): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const project of snapshot.projects) {
+    const path = project.worktrees[0]?.path ?? project.root;
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
+}
+
+function repoPrUrl(paths: readonly string[]): string {
+  const params = new URLSearchParams({ limit: "8" });
+  for (const path of paths.slice(0, 12)) params.append("path", path);
+  return `/api/repo-prs?${params.toString()}`;
+}
+
+async function fetchRepoPullRequests(paths: readonly string[]): Promise<RepoPullRequestSnapshot> {
+  return api<RepoPullRequestSnapshot>(repoPrUrl(paths));
+}
+
+function prUpdatedAgo(updatedAt: string | null, generatedAt: number): string {
+  if (!updatedAt) return "updated";
+  const time = Date.parse(updatedAt);
+  return Number.isFinite(time) ? agoFromMillis(time, generatedAt) : "updated";
+}
+
+function openPullRequestStatTitle(snapshot: RepoPullRequestSnapshot | null): string | null {
+  const pullRequests = snapshot?.pullRequests ?? [];
+  if (pullRequests.length === 0) return null;
+  const visible = pullRequests.slice(0, 8).map((pr) =>
+    `${pr.repo}#${pr.number}: ${pr.title}`,
+  );
+  const hidden = pullRequests.length - visible.length;
+  return [
+    "Open pull requests from gh.",
+    ...visible,
+    hidden > 0 ? `+${hidden} more` : null,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+function pullRequestMatchesProject(
+  pr: RepoPullRequestItem,
+  project: RepoWatchProject | null,
+): boolean {
+  if (!project) return false;
+  if (pr.path === project.root || project.worktrees.some((wt) => wt.path === pr.path)) {
+    return true;
+  }
+  const repoLeaf = pr.repo.split("/").pop()?.toLowerCase();
+  return repoLeaf === project.name.toLowerCase();
+}
+
+function pullRequestMatchesBranch(
+  pr: RepoPullRequestItem,
+  worktree: RepoWatchWorktree | null,
+): boolean {
+  const branch = worktree?.branch.name?.trim();
+  return Boolean(branch && pr.headRefName === branch);
+}
+
 function prefetchWorktreePaths(
   snapshot: RepoWatchSnapshot,
   selectedId: string | null,
@@ -271,6 +356,104 @@ function RepoWatchEmptyNextSteps({ error }: { error?: string | null }) {
   );
 }
 
+function ReposOpenPullRequests({
+  snapshot,
+  loading,
+  error,
+  selectedProject,
+  selectedWorktree,
+}: {
+  snapshot: RepoPullRequestSnapshot | null;
+  loading: boolean;
+  error: string | null;
+  selectedProject: RepoWatchProject | null;
+  selectedWorktree: RepoWatchWorktree | null;
+}) {
+  const pullRequests = snapshot?.pullRequests ?? [];
+  const selectedBranch = selectedWorktree?.branch.name ?? null;
+  const selectedProjectPullRequests = pullRequests.filter((pr) =>
+    pullRequestMatchesProject(pr, selectedProject),
+  );
+  const branchPullRequests = selectedProjectPullRequests.filter((pr) =>
+    pullRequestMatchesBranch(pr, selectedWorktree),
+  );
+  const projectPullRequests = selectedProjectPullRequests.filter((pr) =>
+    !pullRequestMatchesBranch(pr, selectedWorktree),
+  );
+  const otherPullRequests = pullRequests.filter((pr) =>
+    !pullRequestMatchesProject(pr, selectedProject),
+  );
+  const groups = [
+    branchPullRequests.length > 0 ? {
+      key: "branch",
+      label: selectedBranch ? `Selected branch · ${selectedBranch}` : "Selected branch",
+      items: branchPullRequests,
+    } : null,
+    projectPullRequests.length > 0 ? {
+      key: "project",
+      label: selectedProject ? `${selectedProject.name} PRs` : "Selected project",
+      items: projectPullRequests,
+    } : null,
+    otherPullRequests.length > 0 ? {
+      key: "other",
+      label: selectedProjectPullRequests.length > 0 ? "Other open PRs" : "Open PRs",
+      items: otherPullRequests,
+    } : null,
+  ].filter((group): group is { key: string; label: string; items: RepoPullRequestItem[] } =>
+    Boolean(group),
+  );
+  if (!loading && !error && pullRequests.length === 0) return null;
+  return (
+    <section className="rw-open-prs" aria-label="Open pull requests">
+      <div className="rw-open-prs-head">
+        <div>
+          <div className="rw-open-prs-eyebrow">Open PRs</div>
+          <div className="rw-open-prs-title">
+            {loading && pullRequests.length === 0 ? "Checking GitHub" : `${pullRequests.length} open`}
+          </div>
+        </div>
+        {snapshot ? <span className="rw-open-prs-meta">gh</span> : null}
+      </div>
+      {pullRequests.length > 0 ? (
+        <div className="rw-open-prs-list">
+          {groups.map((group) => (
+            <div key={group.key} className="rw-open-pr-group">
+              {groups.length > 1 ? (
+                <div className="rw-open-pr-group-label">{group.label}</div>
+              ) : null}
+              {group.items.map((pr) => (
+                <a
+                  key={pr.id}
+                  className="rw-open-pr"
+                  href={pr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <span className="rw-open-pr-main">
+                    <span className="rw-open-pr-number">#{pr.number}</span>
+                    <span className="rw-open-pr-title" title={pr.title}>{pr.title}</span>
+                  </span>
+                  <span className="rw-open-pr-detail">
+                    <span>{pr.repo}</span>
+                    <span>{pr.headRefName || "head"} → {pr.baseRefName || "base"}</span>
+                    {pr.isDraft ? <span>draft</span> : <span>open</span>}
+                    {pr.author ? <span>@{pr.author}</span> : null}
+                    <span>{prUpdatedAgo(pr.updatedAt, snapshot?.generatedAt ?? Date.now())}</span>
+                  </span>
+                </a>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rw-open-prs-empty">
+          {error ?? "No open pull requests returned."}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) {
   const [snapshot, setSnapshot] = useState<RepoWatchSnapshot | null>(null);
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -292,6 +475,9 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
   const [scanMorePending, setScanMorePending] = useState(false);
   const [serviceRestartPending, setServiceRestartPending] = useState(false);
   const [serviceRestartError, setServiceRestartError] = useState<string | null>(null);
+  const [pullRequests, setPullRequests] = useState<RepoPullRequestSnapshot | null>(null);
+  const [pullRequestsLoading, setPullRequestsLoading] = useState(false);
+  const [pullRequestsError, setPullRequestsError] = useState<string | null>(null);
   // SCO-065: the worktree path whose diff is open in the slide-in viewer.
   const [diffPath, setDiffPath] = useState<string | null>(null);
 
@@ -408,9 +594,48 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
     );
   }, [snapshot, selectedId]);
 
+  const pullRequestPaths = useMemo(
+    () => snapshot ? repoPrPaths(snapshot) : [],
+    [snapshot],
+  );
+  const pullRequestPathKey = pullRequestPaths.join("\0");
+
+  useEffect(() => {
+    if (pullRequestPaths.length === 0) {
+      setPullRequests(null);
+      setPullRequestsError(null);
+      setPullRequestsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPullRequestsLoading(true);
+    setPullRequestsError(null);
+    fetchRepoPullRequests(pullRequestPaths)
+      .then((data) => {
+        if (cancelled) return;
+        setPullRequests(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPullRequestsError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setPullRequestsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pullRequestPathKey]);
+
   const selection = useMemo(
     () => findById(snapshot, selectedId),
     [snapshot, selectedId],
+  );
+  const openPullRequestTitle = useMemo(
+    () => openPullRequestStatTitle(pullRequests),
+    [pullRequests],
   );
 
   // The worktree CONTEXT panel lives in the app's global right Inspector rail
@@ -548,7 +773,7 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
     <ReposOpsShell navigate={navigate}>
     <div className="repo-watch-scope">
       <div className={"rw-scope tone-" + tone}>
-        <div className="mx-auto max-w-[1560px] px-6 py-6">
+        <div className="rw-page-shell">
           {/* Shared toolbar: view toggle (left) + tone toggle (right). */}
           <div className="rw-toolbar">
             <div className="rw-tone" role="group" aria-label="View">
@@ -606,15 +831,26 @@ export function ReposScreen({ navigate }: { navigate: (route: Route) => void }) 
                 onSelect={setSelectedId}
               />
             ) : (
-              <RepoWatchTable
-                snapshot={snapshot}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onViewDiff={setDiffPath}
-                scanDepth={scanDepth}
-                scanMorePending={scanMorePending}
-                onScanMore={scanMore}
-              />
+              <>
+                <RepoWatchTable
+                  snapshot={snapshot}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                  onViewDiff={setDiffPath}
+                  scanDepth={scanDepth}
+                  scanMorePending={scanMorePending}
+                  onScanMore={scanMore}
+                  openPullRequestCount={pullRequests?.pullRequests.length ?? null}
+                  openPullRequestTitle={openPullRequestTitle}
+                />
+                <ReposOpenPullRequests
+                  snapshot={pullRequests}
+                  loading={pullRequestsLoading}
+                  error={pullRequestsError}
+                  selectedProject={selection.project}
+                  selectedWorktree={selection.worktree}
+                />
+              </>
             )}
           </div>
         </div>

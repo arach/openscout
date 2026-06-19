@@ -1,9 +1,10 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { promisify } from "node:util";
 
 import { Hono, type Context } from "hono";
 import type {
@@ -334,6 +335,8 @@ import {
 } from "../shared/runtime-config.js";
 export type { ScoutWebAssetMode } from "./server-core.ts";
 
+const execFileAsync = promisify(execFile);
+
 export type TerminalRunRequest = {
   command: string;
   cwd?: string | null;
@@ -392,6 +395,7 @@ export type CreateOpenScoutWebServerOptions = {
   };
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
+  repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
 };
 
 const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
@@ -408,6 +412,8 @@ const REPO_DIFF_SUMMARY_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> =
 const REPO_DIFF_CACHE_MAX_ENTRIES = 64;
 const REPO_DIFF_GIT_MAX_BUFFER = 16 * 1024 * 1024;
 const DEFAULT_REPO_DIFF_LAYERS: RepoDiffLayerKind[] = ["branch", "unstaged", "staged"];
+const REPO_PRS_MAX_PATHS = 16;
+const REPO_PRS_DEFAULT_LIMIT = 12;
 
 type RepoDiffCacheMode = "reload" | "prefer" | "only";
 type RepoDiffTier = "patch" | "summary";
@@ -415,6 +421,47 @@ type RepoDiffCacheEntry = {
   snapshot: ScoutRepoDiffSnapshot;
   storedAt: number;
 };
+
+type RepoPullRequestLoadOptions = {
+  paths: string[];
+  limitPerRepo: number;
+};
+
+type GhPullRequest = {
+  number?: number;
+  title?: string;
+  url?: string;
+  state?: string;
+  isDraft?: boolean;
+  headRefName?: string;
+  baseRefName?: string;
+  updatedAt?: string;
+  author?: { login?: string | null } | null;
+};
+
+type RepoPullRequestItem = {
+  id: string;
+  repo: string;
+  path: string;
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: string | null;
+  updatedAt: string | null;
+};
+
+type RepoPullRequestSnapshot = {
+  generatedAt: number;
+  source: "gh";
+  paths: string[];
+  pullRequests: RepoPullRequestItem[];
+  warnings: string[];
+};
+
 type RepoDiffScopeMetadata =
   | {
       kind: "worktree";
@@ -3136,6 +3183,137 @@ function loadOpenScoutBuildInfo(currentDirectory: string): OpenScoutBuildInfo {
     commit,
     dirty: dirtyStatus === null ? null : dirtyStatus.length > 0,
     mode: process.env.NODE_ENV === "production" ? "production" : "dev",
+  };
+}
+
+function repoPullRequestRoot(rawPath: string): string | null {
+  const trimmed = rawPath.trim();
+  if (!trimmed) return null;
+  const candidate = resolve(trimmed);
+  try {
+    if (!statSync(candidate).isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  return runGitValue(candidate, ["rev-parse", "--show-toplevel"]) ?? candidate;
+}
+
+function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): string[] {
+  const sourcePaths = rawPaths.length > 0 ? rawPaths : [fallbackPath];
+  const seen = new Set<string>();
+  const roots: string[] = [];
+  for (const rawPath of sourcePaths) {
+    const root = repoPullRequestRoot(rawPath);
+    if (!root) continue;
+    const key = realpathSync(root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    roots.push(root);
+    if (roots.length >= REPO_PRS_MAX_PATHS) break;
+  }
+  return roots;
+}
+
+function repoNameFromGitRemote(remote: string | null, fallbackPath: string): string {
+  if (remote) {
+    const ssh = /^git@[^:]+:([^/]+\/.+?)(?:\.git)?$/.exec(remote);
+    if (ssh) return ssh[1];
+    try {
+      const url = new URL(remote);
+      const path = url.pathname.replace(/^\/+/, "").replace(/\.git$/, "");
+      if (path.includes("/")) return path;
+    } catch {
+      const local = remote.replace(/\.git$/, "");
+      if (local.includes("/")) return local.split("/").slice(-2).join("/");
+    }
+  }
+  return basename(fallbackPath);
+}
+
+function parseGhPullRequests(stdout: string, repo: string, path: string): RepoPullRequestItem[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const items: RepoPullRequestItem[] = [];
+  for (const raw of parsed as GhPullRequest[]) {
+    if (
+      typeof raw.number !== "number" ||
+      typeof raw.title !== "string" ||
+      typeof raw.url !== "string"
+    ) {
+      continue;
+    }
+    items.push({
+      id: `${repo}#${raw.number}`,
+      repo,
+      path,
+      number: raw.number,
+      title: raw.title,
+      url: raw.url,
+      state: typeof raw.state === "string" ? raw.state : "OPEN",
+      isDraft: Boolean(raw.isDraft),
+      headRefName: typeof raw.headRefName === "string" ? raw.headRefName : "",
+      baseRefName: typeof raw.baseRefName === "string" ? raw.baseRefName : "",
+      author: typeof raw.author?.login === "string" ? raw.author.login : null,
+      updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : null,
+    });
+  }
+  return items;
+}
+
+async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promise<RepoPullRequestSnapshot> {
+  const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
+  const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
+  const results = await Promise.all(paths.map(async (path) => {
+    const remote = runGitValue(path, ["remote", "get-url", "origin"]);
+    const repo = repoNameFromGitRemote(remote, path);
+    try {
+      const result = await execFileAsync("gh", [
+        "pr",
+        "list",
+        "--state",
+        "open",
+        "--limit",
+        String(limit),
+        "--json",
+        "number,title,url,state,isDraft,headRefName,baseRefName,author,updatedAt",
+      ], {
+        cwd: path,
+        encoding: "utf8",
+        timeout: 2_500,
+        maxBuffer: 512 * 1024,
+      });
+      return {
+        pullRequests: parseGhPullRequests(result.stdout, repo, path),
+        warning: null,
+      };
+    } catch {
+      return {
+        pullRequests: [],
+        warning: `${repo}: open PRs unavailable`,
+      };
+    }
+  }));
+
+  const pullRequests = results.flatMap((result) => result.pullRequests);
+  const warnings = results
+    .map((result) => result.warning)
+    .filter((warning): warning is string => Boolean(warning));
+
+  return {
+    generatedAt: Date.now(),
+    source: "gh",
+    paths,
+    pullRequests: pullRequests.sort((left, right) => {
+      const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0;
+      const rightTime = right.updatedAt ? Date.parse(right.updatedAt) : 0;
+      return rightTime - leftTime || left.repo.localeCompare(right.repo) || right.number - left.number;
+    }),
+    warnings,
   };
 }
 
@@ -6527,6 +6705,33 @@ export async function createOpenScoutWebServer(
       return c.json(await res.json());
     } catch {
       return c.json({ error: "broker repo-watch unavailable" }, 502);
+    }
+  });
+
+  app.get("/api/repo-prs", async (c) => {
+    const paths = normalizeRepoPullRequestPaths(c.req.queries("path") ?? [], options.currentDirectory);
+    const limitPerRepo = parseOptionalPositiveInt(c.req.query("limit"), REPO_PRS_DEFAULT_LIMIT)
+      ?? REPO_PRS_DEFAULT_LIMIT;
+    if (paths.length === 0) {
+      return c.json({
+        generatedAt: Date.now(),
+        source: "gh",
+        paths: [],
+        pullRequests: [],
+        warnings: ["No git repositories available for open PR lookup."],
+      } satisfies RepoPullRequestSnapshot);
+    }
+    const loadPullRequests = options.repoPullRequests ?? loadRepoPullRequests;
+    try {
+      return c.json(await loadPullRequests({ paths, limitPerRepo }));
+    } catch (error) {
+      return c.json({
+        generatedAt: Date.now(),
+        source: "gh",
+        paths,
+        pullRequests: [],
+        warnings: [error instanceof Error ? error.message : "open PR lookup failed"],
+      } satisfies RepoPullRequestSnapshot);
     }
   });
 
