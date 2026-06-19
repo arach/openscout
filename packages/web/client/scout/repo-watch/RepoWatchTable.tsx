@@ -6,7 +6,7 @@
  * column sorting, and clean-tray fold from the original Fleet Table, re-skinned
  * in the design's vocabulary:
  *
- *   · a serif (Spectral) STAT STRIP — repos · changed · working · needs review
+ *   · a serif (Spectral) STAT STRIP — repos · changed · working · open PRs
  *   · repos grouped, with an indented WORKTREE TREE (connector guides) under
  *     any multi-worktree repo; single-worktree repos stay one clean line
  *   · a readable split CHURN bar (+adds mint / −dels coral) beside the numerals
@@ -106,21 +106,23 @@ function buildRow(wt: RepoWatchWorktree, project: RepoWatchProject): Row {
   };
 }
 
-function needsReview(wt: RepoWatchWorktree): boolean {
-  return attentionRank(wt.attention) <= 1;
+function isBlocked(wt: RepoWatchWorktree): boolean {
+  return wt.status.conflicts > 0 || wt.error != null;
 }
 
-function reviewStatTitle(projects: RepoWatchProject[]): string {
+function blockedStatTitle(projects: RepoWatchProject[]): string {
   const rows = projects.flatMap((project) =>
     project.worktrees
-      .filter(needsReview)
+      .filter(isBlocked)
       .map((wt) => {
         const branch = wt.branch.name ?? wt.name;
-        const reason = wt.attentionReasons.join(", ") || wt.attention;
-        return `${project.name}/${branch}: ${reason}`;
+        if (wt.status.conflicts > 0) {
+          return `${project.name}/${branch}: ${fmt(wt.status.conflicts)} conflict${wt.status.conflicts === 1 ? "" : "s"}`;
+        }
+        return `${project.name}/${branch}: scan error`;
       }),
   );
-  const head = "Needs review means dirty main/master, diverged branches, conflicts, or scan errors.";
+  const head = "Worktrees blocked by conflicts or scan errors.";
   if (rows.length === 0) return head;
   const visible = rows.slice(0, 8);
   const hidden = rows.length - visible.length;
@@ -139,6 +141,8 @@ export default function RepoWatchTable({
   scanDepth,
   scanMorePending,
   onScanMore,
+  openPullRequestCount,
+  openPullRequestTitle,
 }: {
   snapshot: RepoWatchSnapshot;
   selectedId: string | null;
@@ -148,6 +152,8 @@ export default function RepoWatchTable({
   scanDepth: "standard" | "expanded";
   scanMorePending: boolean;
   onScanMore: () => void;
+  openPullRequestCount?: number | null;
+  openPullRequestTitle?: string | null;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>(DEFAULT_SORT_KEY);
   const [sortDir, setSortDir] = useState<SortDir>(SORT_DEFAULT_DIR[DEFAULT_SORT_KEY]);
@@ -155,20 +161,18 @@ export default function RepoWatchTable({
 
   // Flatten + partition the snapshot. Active worktrees feed the table; clean &
   // idle ones fold into a tray. Stat-strip counts are derived in the same pass.
-  const { liveRows, cleanRows, stats, reviewTitle } = useMemo(() => {
+  const { liveRows, cleanRows, stats, blockedTitle } = useMemo(() => {
     const liveRows: Row[] = [];
     const cleanRows: Row[] = [];
     let live = 0;
-    let attn = 0;
+    let blocked = 0;
     let changedFiles = 0;
     for (const project of snapshot.projects) {
       for (const wt of project.worktrees) {
         const row = buildRow(wt, project);
         changedFiles += row.files;
         if (row.live > 0) live++;
-        // "Needs attention" = the backend's critical or attention levels (dirty
-        // main, diverged, conflicts, or a scan that errored) — not just conflicts.
-        if (needsReview(wt)) attn++;
+        if (isBlocked(wt)) blocked++;
         (hasActivity(wt) ? liveRows : cleanRows).push(row);
       }
     }
@@ -179,9 +183,14 @@ export default function RepoWatchTable({
       dirtyWorktrees: t.dirtyWorktrees,
       changedFiles,
       live,
-      attn,
+      blocked,
     };
-    return { liveRows, cleanRows, stats, reviewTitle: reviewStatTitle(snapshot.projects) };
+    return {
+      liveRows,
+      cleanRows,
+      stats,
+      blockedTitle: blockedStatTitle(snapshot.projects),
+    };
   }, [snapshot.projects, snapshot.totals]);
 
   // Sort, keeping each repo's worktrees adjacent, then group by project so a
@@ -239,7 +248,17 @@ export default function RepoWatchTable({
             title={`${fmt(stats.changedFiles)} changed files across ${fmt(stats.dirtyWorktrees)} dirty worktree${stats.dirtyWorktrees === 1 ? "" : "s"}.`}
           />
           {stats.live > 0 ? <Stat v={stats.live} k="WORKING" tone="mint" /> : null}
-          {stats.attn > 0 ? <Stat v={stats.attn} k="NEEDS REVIEW" tone="coral" title={reviewTitle} /> : null}
+          {(openPullRequestCount ?? 0) > 0 ? (
+            <Stat
+              v={openPullRequestCount ?? 0}
+              k="OPEN PRS"
+              tone="amber"
+              title={openPullRequestTitle ?? undefined}
+            />
+          ) : null}
+          {stats.blocked > 0 ? (
+            <Stat v={stats.blocked} k="BLOCKED" tone="coral" title={blockedTitle} />
+          ) : null}
         </div>
       </div>
 
