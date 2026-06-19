@@ -2919,6 +2919,7 @@ function buildAgentSessionCatalogPayload(input: {
   const resumeCommand = sessionId && harnessEntry && input.transport !== "tmux"
     ? buildHarnessResumeCommand(harnessEntry, sessionId, input.cwd)
     : null;
+  const canResumeIntoTerminal = input.transport === "codex_exec";
   const historyPath = firstMetadataString(
     endpointMetadata.threadPath,
     endpointMetadata.resumeSessionPath,
@@ -2948,9 +2949,9 @@ function buildAgentSessionCatalogPayload(input: {
           source,
           canObserve: Boolean(sessionHistoryPath) || Boolean(terminalSurface),
           // Terminal surfaces are taken over by grabbing the live pane (no
-          // resume command needed); other transports need a resume command.
-          // Both paths are takeoverable.
-          canTakeover: Boolean(terminalSurface) || Boolean(resumeCommand),
+          // resume command needed). For broker protocol endpoints, a resume
+          // command can still be useful copy, but it is not a live takeover.
+          canTakeover: Boolean(terminalSurface) || Boolean(resumeCommand && canResumeIntoTerminal),
         },
         ...catalog.sessions,
       ]

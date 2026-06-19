@@ -62,6 +62,16 @@ describe("queryAgentFlightPhases", () => {
   });
 
   test("queryAgentFlightPhases parses against the control-plane flights table", () => {
-    expect(() => queryAgentFlightPhases()).not.toThrow();
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE flights (
+        id TEXT PRIMARY KEY,
+        target_agent_id TEXT NOT NULL,
+        state TEXT NOT NULL
+      );
+    `);
+
+    expect(() => queryAgentFlightPhases(db)).not.toThrow();
+    db.close();
   });
 });

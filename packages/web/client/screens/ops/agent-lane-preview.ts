@@ -74,25 +74,37 @@ export function previewFocusEvent(
   const substantive = events.filter(isSubstantiveEvent);
   if (substantive.length === 0) return undefined;
 
-  // The headline is the conversation, not the work. Prefer the last user-level
-  // message — either a prompt from the user (kind "ask") or a reply to the user
-  // (kind "message"). Tool churn and thinking are deliberately not the headline.
+  const activeTurn = isLive && isInActiveTurn(events);
+
+  // During an active turn, the lane should show the agent's current thinking
+  // before falling back to older conversation text.
+  if (activeTurn) {
+    const latestThink = [...substantive]
+      .reverse()
+      .find((event) => event.kind === "think" && hasMeaningfulText(event.text));
+    if (latestThink) return latestThink;
+  }
+
+  // The headline is usually the conversation, not the work. Prefer the last
+  // user-level message — either a prompt from the user (kind "ask") or a reply
+  // to the user (kind "message").
   const lastConversation = [...substantive]
     .reverse()
     .find(
       (event) =>
         (event.kind === "message" || event.kind === "ask") && hasMeaningfulText(event.text),
     );
+  const latestTool = [...substantive].reverse().find((event) => event.kind === "tool");
+
+  // If the session is still live, a newer tool after the last conversation is a
+  // better signal than stale chat text from before the work began.
+  if (isLive && latestTool && (!lastConversation || latestTool.t > lastConversation.t)) {
+    return latestTool;
+  }
+
   if (lastConversation) return lastConversation;
 
   // Nothing has been said yet → fall back to live activity so the card isn't blank.
-  if (isLive && isInActiveTurn(events)) {
-    const latestThink = [...substantive]
-      .reverse()
-      .find((event) => event.kind === "think" && hasMeaningfulText(event.text));
-    if (latestThink) return latestThink;
-  }
-  const latestTool = [...substantive].reverse().find((event) => event.kind === "tool");
   return latestTool ?? substantive[substantive.length - 1];
 }
 

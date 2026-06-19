@@ -95,9 +95,9 @@ export function agentFlightPhaseFromFlightState(state: string | null): AgentFlig
   return null;
 }
 
-export function queryAgentFlightPhases(): Map<string, AgentFlightPhase> {
+export function queryAgentFlightPhases(database = db()): Map<string, AgentFlightPhase> {
   const phases = new Map<string, AgentFlightPhase>();
-  const rows = db().prepare(
+  const rows = database.prepare(
     `SELECT target_agent_id, state FROM flights
      WHERE state IN (${sqlPlaceholders(ACTIVE_FLIGHT_STATES.length)})`,
   ).all(...ACTIVE_FLIGHT_STATES) as Array<{ target_agent_id: string; state: string }>;
