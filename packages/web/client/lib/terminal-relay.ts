@@ -1,5 +1,5 @@
 import { api } from "./api.ts";
-import { routePath } from "./router.ts";
+import { terminalRoutePath } from "./terminal-route.ts";
 import { surfaceKey, type RegisteredTerminalTarget } from "./terminal-sessions.ts";
 import type { Agent, Route, TerminalSurfaceDescriptor } from "./types.ts";
 
@@ -147,12 +147,12 @@ export function buildTerminalRouteBase(params: {
   return { view: "terminal" };
 }
 
-export function withTerminalMode(route: TerminalRoute, mode?: "observe" | "takeover"): Route {
+export function withTerminalMode(route: TerminalRoute, mode?: "observe" | "takeover"): TerminalRoute {
   return mode ? { ...route, mode } : route;
 }
 
-export function absoluteRouteUrl(route: Route): string {
-  const path = routePath(route);
+export function absoluteRouteUrl(route: TerminalRoute): string {
+  const path = terminalRoutePath(route);
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.href).toString();
 }
