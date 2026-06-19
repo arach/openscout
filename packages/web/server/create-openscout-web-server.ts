@@ -28,6 +28,8 @@ import {
   type ScoutPairingControlAction,
   type ScoutPairingState,
 } from "./pairing.ts";
+import { createPendingPairRequestStore } from "./pairing-pair-requests.ts";
+import { startScoutPairLanBeacon } from "./pairing-lan-beacon.ts";
 import {
   createCachedSnapshot,
   installScoutApiMiddleware,
@@ -2446,18 +2448,32 @@ function jsonResponse(
   });
 }
 
+function isRelayHarnessSessionId(value: string | null | undefined): boolean {
+  const trimmed = value?.trim();
+  if (!trimmed) return true;
+  return /^relay[-:]/i.test(trimmed);
+}
+
 function withResolvedHarnessSessionIdentity(agent: WebAgent): WebAgent {
-  if (!agent.terminalSurface || agent.harness !== "claude") {
+  if (agent.harness !== "claude") {
     return agent;
   }
   const cwd = agent.cwd ?? agent.projectRoot;
   const transcript = cwd ? mostRecentClaudeSessionForCwd(cwd) : null;
-  if (!transcript?.sessionId || transcript.sessionId === agent.harnessSessionId) {
+  if (!transcript?.sessionId) {
+    return agent;
+  }
+  const sessionId = agent.harnessSessionId?.trim() ?? "";
+  if (!isRelayHarnessSessionId(sessionId) && sessionId === transcript.sessionId) {
+    return agent;
+  }
+  if (!isRelayHarnessSessionId(sessionId) && sessionId) {
     return agent;
   }
   return {
     ...agent,
     harnessSessionId: transcript.sessionId,
+    harnessLogPath: agent.harnessLogPath ?? transcript.transcriptPath,
   };
 }
 
@@ -4325,6 +4341,19 @@ export async function createOpenScoutWebServer(
 ): Promise<OpenScoutWebServer> {
   const shellTtl = options.shellStateCacheTtlMs ?? 15_000;
   const currentDirectory = options.currentDirectory;
+
+  // Approval-gated LAN pairing: a phone tapping an idle Mac registers a request
+  // here; the Mac approves it before pair mode starts and the payload is served.
+  const pendingPairRequests = createPendingPairRequestStore();
+  // Always-on discovery beacon so idle Macs still appear in the iOS "On your
+  // network" list. Stands down while pair mode runs (the controller advertises).
+  const lanPairBeacon = startScoutPairLanBeacon(async () => {
+    try {
+      return (await loadPairingState(currentDirectory, false)).isRunning;
+    } catch {
+      return false;
+    }
+  });
   const routes = resolveOpenScoutWebRoutes(process.env);
   ensureOpenScoutVoxOrigins();
   startGlobalHeuristicsWatcher();
@@ -4974,23 +5003,104 @@ export async function createOpenScoutWebServer(
   app.get("/api/pairing-state/refresh", async (c) =>
     c.json(await loadPairingState(currentDirectory, true)),
   );
-  app.get(`/${SCOUT_PAIRING_DEEP_LINK_PATH}`, async (c) => {
-    const state = await loadPairingState(currentDirectory, true);
-    const route = c.req.query("route")?.trim().toLowerCase();
+  const pickPairingLocation = (
+    state: ScoutPairingState,
+    route: string | null,
+  ): string | null => {
     const links = pairingDeepLinks(state.pairing?.qrValue);
-    const location = route === "lan"
+    return route === "lan"
       ? links.lan ?? links.default
       : route === "ts" || route === "tsn" || route === "tailnet"
         ? links.tailnet ?? links.default
         : links.default;
+  };
+  app.get(`/${SCOUT_PAIRING_DEEP_LINK_PATH}`, async (c) => {
     c.header("cache-control", "no-store");
-    if (!location) {
-      return c.text(
-        `${SCOUT_PAIRING_DEEP_LINK_SCHEME}://${SCOUT_PAIRING_DEEP_LINK_PATH} pairing is not available.`,
-        404,
-      );
+    const route = c.req.query("route")?.trim().toLowerCase() ?? null;
+    const token = c.req.query("token")?.trim() || null;
+    const wantsJson = (c.req.header("accept") ?? "").includes("application/json");
+
+    const state = await loadPairingState(currentDirectory, true);
+    const location = pickPairingLocation(state, route);
+
+    // Live payload available (pair mode running) — hand it straight over. This
+    // is the existing fast path: manual start, QR, or an approved request whose
+    // pair mode has come up. Once delivered, the request is done.
+    if (location) {
+      if (token) pendingPairRequests.fulfill(token);
+      return c.redirect(location, 302);
     }
-    return c.redirect(location, 302);
+
+    // No live payload. Initial pairing is trust-on-first-use, so we don't start
+    // pair mode for just anyone on the LAN — we register a request the Mac must
+    // approve. The device polls with its token until approval brings the
+    // payload up (302) or the request is denied/expires.
+    if (token) {
+      const req = pendingPairRequests.get(token);
+      if (!req) {
+        return wantsJson
+          ? c.json({ status: "expired", token }, 410)
+          : c.text("Pairing request expired.", 410);
+      }
+      if (req.status === "denied") {
+        return wantsJson
+          ? c.json({ status: "denied", token }, 403)
+          : c.text("Pairing request was denied.", 403);
+      }
+      // pending, or approved but the relay payload isn't up yet — keep polling.
+      // Touch so an actively-polling device doesn't age out mid-approval.
+      pendingPairRequests.touch(token);
+      return c.json({ status: req.status, token, pollAfterMs: 1200 }, 202);
+    }
+
+    // First contact from an unpaired device — register an approval request.
+    const xff = c.req.header("x-forwarded-for");
+    const requesterIp = (xff ? xff.split(",")[0]?.trim() : null)
+      || c.req.header("x-real-ip")?.trim()
+      || null;
+    const req = pendingPairRequests.create({
+      requesterIp,
+      requesterLabel: c.req.header("x-scout-device-name")?.trim() || null,
+      route,
+    });
+    return wantsJson
+      ? c.json({ status: "pending", token: req.token, pollAfterMs: 1200 }, 202)
+      : c.text(
+          `${SCOUT_PAIRING_DEEP_LINK_SCHEME}://${SCOUT_PAIRING_DEEP_LINK_PATH} pairing requires approval on the Mac.`,
+          202,
+        );
+  });
+  app.get("/api/pairing/requests", (c) =>
+    c.json({ requests: pendingPairRequests.list() }),
+  );
+  app.post("/api/pairing/requests/:token/decide", async (c) => {
+    const token = c.req.param("token");
+    const body = (await c.req.json().catch(() => ({}))) as { decision?: string };
+    const decision =
+      body.decision === "approve" ? "approve"
+      : body.decision === "deny" ? "deny"
+      : null;
+    if (!decision) {
+      return c.json({ error: "decision must be 'approve' or 'deny'" }, 400);
+    }
+    const req = pendingPairRequests.decide(token, decision);
+    if (!req) {
+      return c.json({ error: "unknown or expired pairing request" }, 404);
+    }
+    if (decision === "approve") {
+      // Bring pair mode up so the payload is ready for the device's next poll.
+      // The runtime spins up asynchronously; the device keeps polling /pair.
+      try {
+        await controlScoutWebPairingService("start", currentDirectory);
+      } catch (error) {
+        console.error(
+          "[openscout-web pairing] failed to start pair mode on approval:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+    shellStateCache.invalidate();
+    return c.json({ request: req });
   });
   app.get("/api/operator-attention", async (c) =>
     c.json(await buildOperatorAttentionState(currentDirectory)),
@@ -7044,6 +7154,8 @@ export async function createOpenScoutWebServer(
     });
 
   const stop = async () => {
+    lanPairBeacon?.stop();
+    pendingPairRequests.dispose();
     if (!scoutbotRunner) return;
     const runner = scoutbotRunner;
     scoutbotRunner = null;

@@ -310,4 +310,3 @@ const OPS_MODE_LABELS: Record<OpsMode, string> = {
 };
 
 export { ChannelInspectorPanel as ChatChannelsRight };
-

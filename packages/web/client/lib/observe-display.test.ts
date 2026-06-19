@@ -13,6 +13,31 @@ function observe(overrides: Partial<ObserveEvent> & Pick<ObserveEvent, "id">): O
 }
 
 describe("collapseObserveDisplayRows", () => {
+  test("merges consecutive think runs into the latest reasoning snippet", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({ id: "a", t: 1, kind: "think", text: "First pass on the lane trace." }),
+      observe({ id: "b", t: 2, kind: "think", text: "Need to collapse reasoning before expanding tools." }),
+      observe({ id: "c", t: 3, kind: "tool", tool: "Read", arg: "README.md", text: "Read · README.md" }),
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.repeatCount).toBe(2);
+    expect(rows[0]?.event.text).toContain("Need to collapse reasoning");
+    expect(rows[0]?.event.text).toContain("(2 reasoning updates)");
+  });
+
+  test("collapses repeated identical shell commands", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({ id: "a", t: 1, kind: "tool", tool: "Shell", arg: "rg LaneFacts packages/web", text: "Shell · rg LaneFacts packages/web" }),
+      observe({ id: "b", t: 2, kind: "tool", tool: "Shell", arg: "rg LaneFacts packages/web", text: "Shell · rg LaneFacts packages/web" }),
+      observe({ id: "c", t: 3, kind: "message", text: "done" }),
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.repeatCount).toBe(2);
+    expect(rows[0]?.event.id).toBe("b");
+  });
+
   test("merges grok tool started/completed pairs", () => {
     const rows = collapseObserveDisplayRows([
       observe({ id: "a", t: 1, kind: "tool", tool: "Read", arg: "started", text: "Read started" }),

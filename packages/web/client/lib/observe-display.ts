@@ -5,7 +5,7 @@ export type ObserveDisplayRow = {
   repeatCount: number;
 };
 
-function normalized(value: string | undefined): string {
+function normalized(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
 
@@ -50,6 +50,14 @@ function permissionToolName(event: ObserveEvent): string | null {
   const resolved = text.match(PERMISSION_RESOLVED);
   if (resolved?.[2]) return resolved[2];
   return null;
+}
+
+function mergeThinkRun(latest: ObserveEvent, repeatCount: number): ObserveEvent {
+  const text = latest.text.trim();
+  return {
+    ...latest,
+    text: repeatCount > 1 ? `${text}\n\n(${repeatCount} reasoning updates)` : text,
+  };
 }
 
 function mergeToolLifecyclePair(started: ObserveEvent, completed: ObserveEvent): ObserveEvent {
@@ -123,6 +131,21 @@ export function collapseObserveDisplayRows(events: ObserveEvent[]): ObserveDispl
         out.push({ event: merged, repeatCount: 1 });
       }
       index += 1;
+      continue;
+    }
+
+    if (current.kind === "think") {
+      let latest = current;
+      let repeatCount = 1;
+      while (events[index + repeatCount]?.kind === "think") {
+        const candidate = events[index + repeatCount];
+        if (!candidate) break;
+        latest = candidate;
+        repeatCount += 1;
+      }
+      const merged = mergeThinkRun(latest, repeatCount);
+      out.push({ event: merged, repeatCount });
+      index += repeatCount - 1;
       continue;
     }
 

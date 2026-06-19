@@ -77,6 +77,78 @@
   color: var(--dim);
 }
 
+.s-agent-lanes-issues {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-2xl);
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);
+  background: color-mix(in srgb, var(--amber) 8%, var(--bg));
+}
+
+.s-agent-lanes-issues-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.s-agent-lanes-issues-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-2xs) var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+}
+
+.s-agent-lanes-issues-meta {
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.s-agent-lanes-issues-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.s-agent-lanes-issues-item {
+  display: grid;
+  grid-template-columns: minmax(9rem, 12rem) minmax(0, 1fr);
+  gap: var(--space-md);
+  align-items: baseline;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.s-agent-lanes-issues-kind {
+  color: var(--amber);
+  letter-spacing: var(--tracking-xs);
+  text-transform: uppercase;
+}
+
+.s-agent-lanes-issues-message {
+  color: var(--ink);
+}
+
+.s-agent-lanes-issues-detail {
+  grid-column: 2;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .s-agent-lanes-scroll {
   flex: 1;
   min-height: 0;

@@ -150,12 +150,52 @@
   color: var(--ink-1);
 }
 
-/* shared toolbar — view toggle (left) + tone toggle (right), above both views */
+/* shared toolbar — primary refresh plus quieter display options */
 .rw-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.rw-refresh-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 6px 11px;
+  border: 1px solid color-mix(in oklab, var(--amber) 44%, var(--line-2));
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--amber) 15%, var(--bg-2));
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.rw-refresh-main:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--amber) 62%, var(--line-2));
+  background: color-mix(in oklab, var(--amber) 22%, var(--bg-2));
+}
+
+.rw-refresh-main:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.rw-refresh-spin {
+  animation: rw-spin 0.9s linear infinite;
+}
+
+@keyframes rw-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* tone toggle — Warm · Cool · Mono (also used for the Table | Drift toggle) */
@@ -194,6 +234,67 @@
   color: var(--mint);
   letter-spacing: 0.04em;
   white-space: nowrap;
+}
+
+.rw-display-menu {
+  position: relative;
+  margin-left: auto;
+  font-family: var(--mono);
+}
+
+.rw-display-menu summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--ink) 3%, transparent);
+  color: var(--copy);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rw-display-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.rw-display-menu summary:hover {
+  color: var(--ink);
+  border-color: var(--line-2);
+}
+
+.rw-display-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 7px);
+  z-index: 20;
+  display: grid;
+  gap: 10px;
+  min-width: 238px;
+  padding: 11px;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42);
+}
+
+.rw-display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rw-display-label {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
 }
 
 .stats {

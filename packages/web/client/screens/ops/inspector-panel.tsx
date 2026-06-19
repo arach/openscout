@@ -1,9 +1,15 @@
 import { Check, Copy, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { openAgent } from "../../scout/slots/openAgent.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
-import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
+import {
+  agentStateCssToken,
+  agentStateLabel,
+  isAgentBusy,
+  isAgentOnline,
+  normalizeAgentState,
+} from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
@@ -67,6 +73,25 @@ const PLAN_STEP_MARKERS: Record<PlanDocumentStepStatus, string> = {
   pending: " ",
   unknown: "-",
 };
+
+function objectField(value: unknown, key: string): unknown {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)[key]
+    : undefined;
+}
+
+function stringField(value: unknown, key: string): string | null {
+  const field = objectField(value, key);
+  return typeof field === "string" && field.trim() ? field.trim() : null;
+}
+
+function runTask(run: AgentRun): string | null {
+  return stringField(run.input, "task") ?? stringField(run.input, "action");
+}
+
+function runOutputSummary(run: AgentRun): string | null {
+  return stringField(run.output, "summary") ?? stringField(run.output, "text");
+}
 
 function planBasename(value: string): string {
   const clean = value.replace(/\\/g, "/").replace(/\/+$/g, "");
@@ -874,4 +899,3 @@ function OpsAskButton({
 }
 
 export { OpsInspectorPanel as OpsRight };
-

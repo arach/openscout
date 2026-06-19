@@ -204,24 +204,40 @@
   margin-top: 1px;
 }
 
+/* Turn boundaries read as quiet section dividers — a dim label trailed by a
+   hairline rule. No accent bar (green is reserved for live state) and, crucially,
+   border-radius is reset so the base note pill's radius can't bend a stray border
+   into a parenthesis-shaped arc. */
 .s-observe--lane .s-observe-note--lane {
-  display: block;
-  margin: 0;
-  padding: 1px 0 1px var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-2xs) 0;
+  padding: 0;
   border: 0;
-  border-left: 2px solid color-mix(in srgb, var(--green) 42%, transparent);
+  border-radius: 0;
   background: transparent;
   line-height: 1.35;
   max-width: 100%;
 }
 
 .s-observe--lane .s-observe-note--lane .s-observe-note-text {
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
   font-weight: 500;
-  letter-spacing: -0.005em;
-  color: color-mix(in srgb, var(--muted) 68%, var(--green) 32%);
+  letter-spacing: var(--tracking-xs);
+  text-transform: lowercase;
+  color: var(--dim);
   word-break: break-word;
+}
+
+.s-observe--lane .s-observe-note--lane::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  min-width: var(--space-lg);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .s-observe--lane .s-observe-system--lane {
@@ -306,6 +322,58 @@
   font-size: var(--text-sm);
   font-style: italic;
   line-height: 1.4;
+}
+
+.s-observe--lane .s-observe-lane-expandable {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+
+.s-observe--lane .s-observe-lane-expand {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.03em;
+  color: color-mix(in srgb, var(--accent) 72%, var(--dim) 28%);
+  cursor: pointer;
+}
+
+.s-observe--lane .s-observe-lane-expand:hover {
+  color: var(--accent);
+}
+
+.s-observe--lane .s-observe-lane-expandable--open .s-observe-think-text,
+.s-observe--lane .s-observe-lane-expandable--open .s-observe-message-text,
+.s-observe--lane .s-observe-lane-expandable--open .s-observe-ask-text {
+  max-height: min(42vh, 360px);
+  overflow: auto;
+}
+
+.s-observe--lane .s-observe-tool--lane .s-observe-lane-expand {
+  margin-top: var(--space-2xs);
+}
+
+.s-observe--lane .s-observe-tool-diff-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2xs);
+  margin-left: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.s-observe--lane .s-observe-tool-stream--lane {
+  margin-top: var(--space-2xs);
+  max-height: min(36vh, 280px);
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .s-observe--lane .s-observe-message-text,

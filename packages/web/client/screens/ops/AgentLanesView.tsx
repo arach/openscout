@@ -2,6 +2,7 @@ import "./agent-lanes.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
+import { useObservePolling } from "../../lib/observe.ts";
 import type { Agent, Route } from "../../lib/types.ts";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
@@ -9,14 +10,18 @@ import { AgentLaneSummaryCard } from "./AgentLaneSummaryCard.tsx";
 import {
   AGENT_LANE_HORIZON_OPTIONS,
   agentLaneHorizonLabel,
+  agentLaneHorizonWindowMs,
+  agentLaneTailRecentLimit,
   buildAgentLanes,
   createStableLaneOrder,
   DEFAULT_AGENT_LANE_HORIZON,
   isAgentLaneLive,
   lanePrimaryLabel,
+  rosterIssuesFromTailDiscovery,
   sortLanesWithStableOrder,
   type AgentLane,
   type AgentLaneHorizonKey,
+  type AgentLaneRosterIssue,
 } from "./agent-lanes-model.ts";
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
@@ -33,13 +38,30 @@ function readStoredHorizon(): AgentLaneHorizonKey {
   return DEFAULT_AGENT_LANE_HORIZON;
 }
 
+function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
+  const agents = issue.agentNames?.length
+    ? issue.agentNames.join(", ")
+    : issue.agentIds?.join(", ");
+  const paths = issue.transcriptPaths?.join(" · ");
+  const detail = [agents, paths].filter(Boolean).join(" · ");
+  return (
+    <li className="s-agent-lanes-issues-item">
+      <span className="s-agent-lanes-issues-kind">{issue.kind.replaceAll("_", " ")}</span>
+      <span className="s-agent-lanes-issues-message">{issue.message}</span>
+      {detail ? <span className="s-agent-lanes-issues-detail">{detail}</span> : null}
+    </li>
+  );
+}
+
 function AgentLaneColumn({
   lane,
   isNew,
+  traceWindowMs,
   onInspect,
 }: {
   lane: AgentLane;
   isNew?: boolean;
+  traceWindowMs: number;
   onInspect: (lane: AgentLane) => void;
 }) {
   const { agent, observe, source } = lane;
@@ -61,7 +83,7 @@ function AgentLaneColumn({
               sessionId={agent.harnessSessionId}
               showRail={false}
               variant="lane"
-              traceLimit={22}
+              traceWindowMs={traceWindowMs}
             />
           ) : (
             <div className="s-agent-lane-empty">Waiting for trace activity…</div>
@@ -79,12 +101,13 @@ export function AgentLanesView({
   navigate: (route: Route) => void;
   agents: Agent[];
 }) {
-  const { discovery, events: tailEvents } = useTailFeed({
-    recentLimit: 500,
-    includeTranscriptReplay: true,
-  });
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
+  const tailRecentLimit = agentLaneTailRecentLimit(horizon);
+  const traceWindowMs = agentLaneHorizonWindowMs(horizon);
+  const { discovery, events: tailEvents } = useTailFeed({
+    recentLimit: tailRecentLimit,
+  });
   const returnRoute: Route = { view: "ops", mode: "lanes" };
   const horizonLabel = agentLaneHorizonLabel(horizon);
 
@@ -104,6 +127,18 @@ export function AgentLanesView({
   const laneOrderRef = useRef(createStableLaneOrder());
   const [newLaneIds, setNewLaneIds] = useState<Set<string>>(() => new Set());
   const [inspectedLaneId, setInspectedLaneId] = useState<string | null>(null);
+  const observeAgents = useMemo(
+    () => scoutAgents.filter((agent) => {
+      if (agent.harnessSessionId?.trim()) return true;
+      if (agent.state && /^(working|active|running|in_turn|in_flight|queued|waking|dispatching)$/i.test(agent.state.trim())) {
+        return true;
+      }
+      return agent.updatedAt ? now - agent.updatedAt <= agentLaneHorizonWindowMs(horizon) : false;
+    }),
+    [scoutAgents, now, horizon],
+  );
+  const observeCache = useObservePolling(observeAgents);
+  const tailLoading = discovery === null && tailEvents.length === 0;
 
   useEffect(() => {
     if (newLaneIds.size === 0) return;
@@ -111,19 +146,35 @@ export function AgentLanesView({
     return () => clearTimeout(timer);
   }, [newLaneIds]);
 
-  const { lanes, freshLaneIds } = useMemo(() => {
+  const { lanes, issues, freshLaneIds } = useMemo(() => {
     const built = buildAgentLanes({
       transcripts: discovery?.transcripts ?? [],
       tailEvents,
       processes: discovery?.processes ?? [],
       scoutAgents,
+      observeCache,
       now,
       workingOnly: true,
       horizon,
     });
-    const result = sortLanesWithStableOrder(built, laneOrderRef.current);
-    return { lanes: result.lanes, freshLaneIds: result.newLaneIds };
-  }, [discovery?.processes, discovery?.transcripts, tailEvents, scoutAgents, now, horizon]);
+    const result = sortLanesWithStableOrder(built.lanes, laneOrderRef.current);
+    const rosterIssues = [
+      ...rosterIssuesFromTailDiscovery(discovery),
+      ...built.issues,
+    ];
+    return {
+      lanes: result.lanes,
+      issues: rosterIssues,
+      freshLaneIds: result.newLaneIds,
+    };
+  }, [discovery, tailEvents, scoutAgents, observeCache, now, horizon]);
+
+  useEffect(() => {
+    if (issues.length === 0) return;
+    for (const issue of issues) {
+      console.warn(`[agent-lanes] ${issue.message}`, issue);
+    }
+  }, [issues]);
 
   useEffect(() => {
     if (freshLaneIds.length === 0) return;
@@ -145,7 +196,7 @@ export function AgentLanesView({
         <div className="s-agent-lanes-bar-main">
           <div className="s-agent-lanes-title">Agent Lanes</div>
           <div className="s-agent-lanes-meta">
-            {lanes.length} active · last {horizonLabel}
+            {lanes.length} active · trace {horizonLabel}
           </div>
         </div>
         <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
@@ -162,9 +213,26 @@ export function AgentLanesView({
           ))}
         </div>
       </div>
+      {issues.length > 0 ? (
+        <div className="s-agent-lanes-issues" role="status" aria-live="polite">
+          <div className="s-agent-lanes-issues-head">
+            <span className="s-agent-lanes-issues-badge">Roster issues</span>
+            <span className="s-agent-lanes-issues-meta">
+              {issues.length} data-quality warning{issues.length === 1 ? "" : "s"} — lanes still follow canonical tail data
+            </span>
+          </div>
+          <ul className="s-agent-lanes-issues-list">
+            {issues.map((issue) => (
+              <AgentLaneIssueRow key={issue.id} issue={issue} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {lanes.length === 0 ? (
         <div className="s-agent-lanes-empty">
-          No agents with recent work in the last {horizonLabel}. Lanes follow the tail stream — they appear when harness transcripts update or emit tool calls inside the selected window.
+          {tailLoading
+            ? "Loading tail stream…"
+            : `No agents with recent work in the last ${horizonLabel}. Lanes follow the tail stream — they appear when harness transcripts update or emit tool calls inside the selected window.`}
         </div>
       ) : (
         <div className="s-agent-lanes-scroll">
@@ -173,6 +241,7 @@ export function AgentLanesView({
               key={lane.id}
               lane={lane}
               isNew={newLaneIds.has(lane.id)}
+              traceWindowMs={traceWindowMs}
               onInspect={(target) => setInspectedLaneId(target.id)}
             />
           ))}

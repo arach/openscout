@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { Agent } from "../../lib/types.ts";
 import {
   agentLaneHorizonWindowMs,
+  buildLaneFacts,
   buildAgentLanes,
   createStableLaneOrder,
   hasDesignedAgentCard,
@@ -62,6 +63,7 @@ describe("isAgentLaneWorking", () => {
   test("excludes in-flight scout agents without substantive trace activity", () => {
     const agent: Agent = {
       id: "agent:alpha",
+      definitionId: "alpha",
       name: "alpha",
       handle: null,
       agentClass: "managed",
@@ -73,6 +75,9 @@ describe("isAgentLaneWorking", () => {
       createdAt: null,
       transport: null,
       selector: null,
+      defaultSelector: null,
+      nodeQualifier: null,
+      workspaceQualifier: null,
       wakePolicy: null,
       capabilities: [],
       project: null,
@@ -81,12 +86,16 @@ describe("isAgentLaneWorking", () => {
       model: null,
       harnessSessionId: "claude-hung-session",
       harnessLogPath: null,
+      terminalSurface: null,
       conversationId: "conv-1",
       homeNodeId: null,
       homeNodeName: null,
       ownerId: null,
       ownerName: null,
       ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
     };
 
     expect(isAgentLaneWorking(lane({
@@ -99,6 +108,7 @@ describe("isAgentLaneWorking", () => {
   test("includes in-flight scout agents with recent substantive observe activity", () => {
     const agent: Agent = {
       id: "agent:alpha",
+      definitionId: "alpha",
       name: "alpha",
       handle: null,
       agentClass: "managed",
@@ -110,6 +120,9 @@ describe("isAgentLaneWorking", () => {
       createdAt: null,
       transport: null,
       selector: null,
+      defaultSelector: null,
+      nodeQualifier: null,
+      workspaceQualifier: null,
       wakePolicy: null,
       capabilities: [],
       project: null,
@@ -118,12 +131,16 @@ describe("isAgentLaneWorking", () => {
       model: null,
       harnessSessionId: "sess-live",
       harnessLogPath: null,
+      terminalSurface: null,
       conversationId: "conv-1",
       homeNodeId: null,
       homeNodeName: null,
       ownerId: null,
       ownerName: null,
       ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
     };
 
     expect(isAgentLaneWorking(lane({
@@ -151,6 +168,7 @@ describe("isAgentLaneWorking", () => {
   test("excludes organic processes without substantive observe activity", () => {
     const agent: Agent = {
       id: "harness:codex:1234",
+      definitionId: "codex",
       name: "codex",
       handle: null,
       agentClass: "organic",
@@ -162,6 +180,9 @@ describe("isAgentLaneWorking", () => {
       createdAt: null,
       transport: null,
       selector: null,
+      defaultSelector: null,
+      nodeQualifier: null,
+      workspaceQualifier: null,
       wakePolicy: null,
       capabilities: [],
       project: "repo",
@@ -170,12 +191,16 @@ describe("isAgentLaneWorking", () => {
       model: null,
       harnessSessionId: null,
       harnessLogPath: null,
+      terminalSurface: null,
       conversationId: "harness:1234",
       homeNodeId: null,
       homeNodeName: null,
       ownerId: null,
       ownerName: null,
       ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
     };
 
     expect(isAgentLaneWorking(lane({ agent }), NOW)).toBe(false);
@@ -184,6 +209,7 @@ describe("isAgentLaneWorking", () => {
   test("includes lanes with recent tool activity in observe", () => {
     const agent: Agent = {
       id: "harness:codex:5678",
+      definitionId: "codex",
       name: "codex",
       handle: null,
       agentClass: "organic",
@@ -195,6 +221,9 @@ describe("isAgentLaneWorking", () => {
       createdAt: null,
       transport: null,
       selector: null,
+      defaultSelector: null,
+      nodeQualifier: null,
+      workspaceQualifier: null,
       wakePolicy: null,
       capabilities: [],
       project: "repo",
@@ -203,12 +232,16 @@ describe("isAgentLaneWorking", () => {
       model: null,
       harnessSessionId: "sess-1",
       harnessLogPath: "/tmp/sess.jsonl",
+      terminalSurface: null,
       conversationId: "sess-1",
       homeNodeId: null,
       homeNodeName: null,
       ownerId: null,
       ownerName: null,
       ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
     };
 
     expect(isAgentLaneWorking(lane({
@@ -262,7 +295,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("excludes transcript mtime-only lanes without substantive tail events", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "codex",
         transcriptPath: "/tmp/rollout.jsonl",
@@ -282,7 +315,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("includes native codex lanes with recent substantive tail events", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "codex",
         transcriptPath: "/tmp/rollout.jsonl",
@@ -304,7 +337,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("includes native codex lanes with recent task lifecycle activity", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "codex",
         transcriptPath: "/tmp/rollout.jsonl",
@@ -341,7 +374,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("includes native grok lanes with recent phase activity", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "grok",
         transcriptPath: "/Users/art/.grok/sessions/%2FUsers%2Fart%2Fdev%2Fopenscout/sess-grok/events.jsonl",
@@ -368,7 +401,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("does not let a scout-managed process from another source claim a native transcript", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "grok",
         transcriptPath: "/Users/art/.grok/sessions/%2FUsers%2Fart%2Fdev%2Fopenscout/sess-grok/events.jsonl",
@@ -404,7 +437,7 @@ describe("isAgentLaneWorking", () => {
   });
 
   test("includes scout-managed codex lanes when no scout agent owns the session", () => {
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       transcripts: [{
         source: "codex",
         transcriptPath: "/tmp/rollout.jsonl",
@@ -460,7 +493,7 @@ describe("isAgentLaneWorking", () => {
     agent.state = "callable";
     agent.updatedAt = NOW - 3 * 60 * 60_000;
 
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       scoutAgents: [agent],
       transcripts: [{
         source: "codex",
@@ -498,7 +531,7 @@ describe("isAgentLaneWorking", () => {
     agent.state = "callable";
     agent.updatedAt = NOW - 3 * 60 * 60_000;
 
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       scoutAgents: [agent],
       transcripts: [{
         source: "codex",
@@ -592,6 +625,35 @@ describe("isAgentLaneWorking", () => {
     expect(data.events[0]?.detail).toBeUndefined();
   });
 
+  test("keeps tail events inside the selected horizon instead of a fixed count cap", () => {
+    const transcript = {
+      source: "codex",
+      transcriptPath: "/tmp/rollout.jsonl",
+      sessionId: "sess-horizon",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const events = [
+      stubTailEvent("sess-horizon", NOW - 45 * 60_000, "tool", { summary: "stale" }),
+      stubTailEvent("sess-horizon", NOW - 20 * 60_000, "tool", { summary: "recent-a" }),
+      stubTailEvent("sess-horizon", NOW - 5 * 60_000, "assistant", { summary: "recent-b" }),
+    ];
+
+    const data = observeDataFromTail(transcript, events, true, {
+      now: NOW,
+      windowMs: 30 * 60_000,
+    });
+
+    expect(data.events.map((event) => event.text)).toEqual([
+      "recent-a",
+      "recent-b",
+    ]);
+    expect(data.metadata?.session?.sessionStart).toBe(NOW - 20 * 60_000);
+  });
+
   test("maps tail event timestamps into lane observe metadata", () => {
     const transcript = {
       source: "codex",
@@ -636,12 +698,118 @@ describe("isAgentLaneWorking", () => {
     expect(data.events[1]?.t).toBe(3);
   });
 
+  test("enriches codex tail observe metadata with session facts and usage", () => {
+    const transcript = {
+      source: "codex",
+      transcriptPath: "/tmp/rollout.jsonl",
+      sessionId: "sess-facts",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const events = [
+      stubTailEvent("sess-facts", NOW - 6_000, "system", {
+        summary: "session sess-facts · /repo",
+        raw: {
+          type: "session_meta",
+          payload: {
+            id: "sess-facts",
+            cwd: "/repo",
+            originator: "Codex Desktop",
+            cli_version: "0.140.0-alpha.19",
+            source: "vscode",
+            model_provider: "openai",
+          },
+        },
+      }),
+      stubTailEvent("sess-facts", NOW - 5_000, "system", {
+        summary: "task started",
+        raw: { type: "event_msg", payload: { type: "task_started" } },
+      }),
+      stubTailEvent("sess-facts", NOW - 4_000, "system", {
+        summary: "turn context · gpt-5.5 · xhigh",
+        raw: {
+          type: "turn_context",
+          payload: {
+            cwd: "/repo",
+            model: "gpt-5.5",
+            effort: "xhigh",
+            git_branch: "main",
+          },
+        },
+      }),
+      stubTailEvent("sess-facts", NOW - 3_000, "system", {
+        summary: "tokens · 42",
+        raw: {
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 20,
+                cached_input_tokens: 4,
+                output_tokens: 22,
+                reasoning_output_tokens: 8,
+                total_tokens: 42,
+              },
+              model_context_window: 1000,
+            },
+            rate_limits: { plan_type: "pro" },
+          },
+        },
+      }),
+      stubTailEvent("sess-facts", NOW - 2_000, "user", {
+        summary: "Implement Agent Lanes roll-ups",
+      }),
+      stubTailEvent("sess-facts", NOW - 1_000, "tool", {
+        summary: "apply_patch({\"patch\":\"*** Begin Patch\\n*** Update File: packages/web/client/screens/ops/agent-lanes-model.ts\\n@@\\n-old\\n+new\\n*** End Patch\"})",
+        raw: {
+          type: "response_item",
+          payload: {
+            type: "function_call",
+            name: "apply_patch",
+            arguments: "{\"patch\":\"*** Begin Patch\\n*** Update File: packages/web/client/screens/ops/agent-lanes-model.ts\\n@@\\n-old\\n+new\\n*** End Patch\"}",
+          },
+        },
+      }),
+    ];
+    const data = observeDataFromTail(transcript, events, true);
+    const agent = stubAgent("openscout-card");
+    const facts = buildLaneFacts(transcript, events, agent, [{
+      pid: 42,
+      ppid: 1,
+      command: "codex app-server",
+      etime: "01:00",
+      cwd: "/repo",
+      harness: "scout-managed",
+      parentChain: [],
+      source: "codex",
+    }], data);
+
+    expect(data.metadata?.session?.model).toBe("gpt-5.5");
+    expect(data.metadata?.session?.effort).toBe("xhigh");
+    expect(data.metadata?.session?.originator).toBe("Codex Desktop");
+    expect(data.metadata?.usage?.totalTokens).toBe(42);
+    expect(data.metadata?.usage?.cacheReadInputTokens).toBe(4);
+    expect(facts.model).toBe("gpt-5.5");
+    expect(facts.effort).toBe("xhigh");
+    expect(facts.branch).toBe("main");
+    expect(facts.attribution).toBe("scout-managed");
+    expect(facts.turn?.phase).toBe("started");
+    expect(facts.currentTask).toContain("Agent Lanes");
+    expect(facts.touchedFiles.map((file) => file.path)).toContain(
+      "packages/web/client/screens/ops/agent-lanes-model.ts",
+    );
+  });
+
   test("excludes stale observe history even when poll metadata is fresh", () => {
     const agent = stubAgent("dewey");
     agent.state = "callable";
     agent.updatedAt = NOW;
 
-    const lanes = buildAgentLanes({
+    const { lanes } = buildAgentLanes({
       scoutAgents: [agent],
       observeCache: {
         [agent.id]: {
@@ -717,6 +885,196 @@ describe("sortLanesWithStableOrder", () => {
   });
 });
 
+describe("buildAgentLanes roster", () => {
+  test("surfaces binding conflicts when multiple scout agents share one session", () => {
+    const mkAgent = (suffix: string) => {
+      const agent = stubAgent(`relay-card-${suffix}`);
+      agent.harness = "claude";
+      agent.harnessSessionId = "claude-sess-live";
+      return agent;
+    };
+
+    const { lanes, issues } = buildAgentLanes({
+      scoutAgents: [mkAgent("a"), mkAgent("b"), mkAgent("c")],
+      transcripts: [{
+        source: "claude",
+        transcriptPath: "/tmp/claude/live.jsonl",
+        sessionId: "claude-sess-live",
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 10_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent("claude-sess-live", NOW - 8_000, "assistant", { source: "claude" })],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(issues.some((issue) => issue.kind === "session_binding_conflict")).toBe(true);
+  });
+
+  test("surfaces unresolved relay placeholders in the fleet", () => {
+    const agent = stubAgent("relay-flight");
+    agent.harness = "claude";
+    agent.harnessSessionId = "relay-openscout-card-flight-claude";
+
+    const { issues } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(issues.some((issue) => issue.kind === "unresolved_relay_session")).toBe(true);
+  });
+
+  test("binds relay scout claude cards to the live transcript instead of spawning broker lanes", () => {
+    const mkAgent = (suffix: string) => {
+      const agent = stubAgent(`relay-card-${suffix}`);
+      agent.harness = "claude";
+      agent.project = "openscout";
+      agent.projectRoot = "/Users/art/dev/openscout";
+      agent.cwd = "/Users/art/dev/openscout";
+      // Server resolves relay-* placeholders to the live Claude session id.
+      agent.harnessSessionId = "claude-sess-live";
+      agent.harnessLogPath = "/tmp/claude/live.jsonl";
+      return agent;
+    };
+
+    const { lanes, issues } = buildAgentLanes({
+      scoutAgents: [mkAgent("a"), mkAgent("b"), mkAgent("c")],
+      transcripts: [{
+        source: "claude",
+        transcriptPath: "/tmp/claude/live.jsonl",
+        sessionId: "claude-sess-live",
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 10_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent("claude-sess-live", NOW - 8_000, "assistant", { source: "claude" })],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("scout");
+    expect(lanes[0]?.agent.id).toBe(mkAgent("a").id);
+    expect(issues.length).toBeGreaterThan(0);
+  });
+
+  test("does not add broker lanes for relay flights without a matching transcript", () => {
+    const agent = stubAgent("relay-flight");
+    agent.harness = "claude";
+    agent.harnessSessionId = "relay-openscout-card-flight-claude";
+    agent.state = "in_flight";
+    agent.updatedAt = NOW;
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [],
+      tailEvents: [],
+      observeCache: {
+        [agent.id]: {
+          source: "history",
+          fidelity: "timestamped",
+          historyPath: "/tmp/flight.jsonl",
+          sessionId: agent.harnessSessionId!,
+          updatedAt: NOW,
+          data: {
+            events: [{
+              id: "evt-flight",
+              t: 8,
+              kind: "tool",
+              text: "Read file",
+              tool: "Read",
+            }],
+            files: [],
+            live: true,
+            metadata: { session: { sessionStart: NOW - 8_000 } },
+          },
+        },
+      },
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(0);
+  });
+
+  test("prefers scout lane over native lane for the same claude session", () => {
+    const agent = stubAgent("openscout-claude-card");
+    agent.harness = "claude";
+    agent.harnessSessionId = "claude-sess-shared";
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [{
+        source: "claude",
+        transcriptPath: "/tmp/claude/shared.jsonl",
+        sessionId: "claude-sess-shared",
+        cwd: "/Users/art/dev/openscout",
+        project: "openscout",
+        harness: "unattributed",
+        mtimeMs: NOW - 10_000,
+        size: 1200,
+      }],
+      tailEvents: [stubTailEvent("claude-sess-shared", NOW - 8_000, "assistant", { source: "claude" })],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("scout");
+    expect(lanes[0]?.agent.id).toBe(agent.id);
+  });
+
+  test("still admits designed scout cards without a tail transcript", () => {
+    const agent = stubAgent("openscout-card");
+    agent.harness = "codex";
+    agent.harnessSessionId = "sess-designed-live";
+    agent.state = "callable";
+    agent.updatedAt = NOW;
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [],
+      tailEvents: [],
+      observeCache: {
+        [agent.id]: {
+          source: "history",
+          fidelity: "timestamped",
+          historyPath: "/tmp/card.jsonl",
+          sessionId: agent.harnessSessionId!,
+          updatedAt: NOW,
+          data: {
+            events: [{
+              id: "evt-designed",
+              t: 8,
+              kind: "tool",
+              text: "grep pattern",
+              tool: "grep",
+            }],
+            files: [],
+            live: true,
+            metadata: { session: { sessionStart: NOW - 8_000 } },
+          },
+        },
+      },
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("scout");
+    expect(lanes[0]?.agent.id).toBe(agent.id);
+  });
+});
+
 function stubTailEvent(
   sessionId: string,
   ts: number,
@@ -742,6 +1100,7 @@ function stubTailEvent(
 function stubAgent(name: string): Agent {
   return {
     id: `agent:${name}`,
+    definitionId: name,
     name,
     handle: null,
     agentClass: "managed",
@@ -753,6 +1112,9 @@ function stubAgent(name: string): Agent {
     createdAt: null,
     transport: null,
     selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
     wakePolicy: null,
     capabilities: [],
     project: null,
@@ -761,11 +1123,15 @@ function stubAgent(name: string): Agent {
     model: null,
     harnessSessionId: null,
     harnessLogPath: null,
+    terminalSurface: null,
     conversationId: `${name}-conv`,
     homeNodeId: null,
     homeNodeName: null,
     ownerId: null,
     ownerName: null,
     ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
   };
 }

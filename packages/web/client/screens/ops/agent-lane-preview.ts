@@ -1,3 +1,4 @@
+import { laneToolArgSnippet } from "../../lib/lane-observe.ts";
 import { observeToolIsEdit, observeToolIsRead } from "../../lib/tail-display.ts";
 import type { Agent, ObserveData, ObserveEvent, ObserveFile } from "../../lib/types.ts";
 
@@ -36,16 +37,59 @@ function isSubstantiveEvent(event: ObserveEvent): boolean {
   return false;
 }
 
-function basename(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
+function basename(path: string | null | undefined): string {
+  const trimmed = path?.trim();
+  if (!trimmed) return "file";
+  const parts = trimmed.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? trimmed;
+}
+
+function isInActiveTurn(events: ObserveEvent[]): boolean {
+  let lastStart = -1;
+  let lastComplete = -1;
+  for (const event of events) {
+    if (event.kind !== "note") continue;
+    const text = event.text.trim().toLowerCase();
+    if (text === "turn started") lastStart = event.t;
+    if (text === "turn complete") lastComplete = event.t;
+  }
+  return lastStart > lastComplete;
+}
+
+export function previewFocusEvent(
+  events: ObserveEvent[],
+  isLive: boolean,
+): ObserveEvent | undefined {
+  const substantive = events.filter(isSubstantiveEvent);
+  if (substantive.length === 0) return undefined;
+
+  if (isLive && isInActiveTurn(events)) {
+    const latestThink = [...substantive].reverse().find((event) => event.kind === "think");
+    if (latestThink) return latestThink;
+  }
+
+  const latestT = substantive.reduce((max, event) => Math.max(max, event.t), 0);
+  if (isLive) {
+    const latestRecentTool = [...substantive]
+      .reverse()
+      .find((event) => event.kind === "tool" && latestT - event.t <= 30);
+    if (latestRecentTool) return latestRecentTool;
+  }
+
+  const latestHumanReadable = [...substantive]
+    .reverse()
+    .find((event) => event.kind === "message" || event.kind === "ask" || event.kind === "note");
+  return latestHumanReadable ?? substantive[substantive.length - 1];
 }
 
 function previewHeadline(event: ObserveEvent): string {
   const text = event.text?.trim();
   switch (event.kind) {
     case "tool":
-      return [event.tool, event.arg].filter(Boolean).join(" ").trim() || "Running tool";
+      return [
+        event.tool,
+        event.arg ? laneToolArgSnippet(event.arg, 72) : null,
+      ].filter(Boolean).join(" · ").trim() || "Running tool";
     case "think":
       return text?.slice(0, 72) || "Thinking";
     case "ask":
@@ -84,11 +128,12 @@ function previewDetail(event: ObserveEvent): string | null {
 export function buildAgentLanePreview(
   observe: ObserveData | null | undefined,
   agent: Agent,
+  options?: { isLive?: boolean },
 ): AgentLanePreviewModel | null {
   if (!observe || observe.events.length === 0) return null;
 
-  const events = observe.events.filter(isSubstantiveEvent);
-  const latest = events.length > 0 ? events[events.length - 1] : observe.events[observe.events.length - 1];
+  const latest = previewFocusEvent(observe.events, options?.isLive ?? observe.live === true)
+    ?? observe.events[observe.events.length - 1];
   if (!latest) return null;
 
   const session = observe.metadata?.session;
@@ -125,6 +170,7 @@ export function buildAgentLanePreview(
   };
 }
 
-export function filePreviewLabel(file: ObserveFile): string {
-  return basename(file.path);
+export function filePreviewLabel(file: ObserveFile | string | null | undefined): string {
+  if (!file) return "file";
+  return basename(typeof file === "string" ? file : file.path);
 }

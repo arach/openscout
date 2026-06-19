@@ -4,6 +4,7 @@ import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
+import { tailAttributionLabel } from "../../lib/tail-display.ts";
 import type { PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { openAgent } from "../../scout/slots/openAgent.ts";
 import { filePreviewLabel } from "./agent-lane-preview.ts";
@@ -124,10 +125,14 @@ export function AgentLaneDetailSheet({
   const statusLabel = laneStatusLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
   const stats = useMemo(() => buildLaneSessionStats(lane), [lane]);
-  const touchedFiles = useMemo(() => buildLaneTouchedFiles(observe), [observe]);
+  const facts = lane.facts;
+  const touchedFiles = useMemo(
+    () => (facts?.touchedFiles.length ? facts.touchedFiles.slice(0, 10) : buildLaneTouchedFiles(observe)),
+    [facts, observe],
+  );
+  const usage = facts?.usage ?? stats.usage;
 
   const usageCards = useMemo(() => {
-    const usage = stats.usage;
     if (!usage) return [];
     return [
       { label: "Input", value: usage.inputTokens },
@@ -137,14 +142,14 @@ export function AgentLaneDetailSheet({
       { label: "Total", value: usage.totalTokens },
       { label: "Reasoning", value: usage.reasoningOutputTokens },
     ].filter((entry) => typeof entry.value === "number");
-  }, [stats.usage]);
+  }, [usage]);
 
   const openSession = useCallback(() => {
     if (source === "scout" || agent.agentClass !== "organic") {
       openAgent(navigate, agent, { returnTo: returnRoute, observe: true });
       return;
     }
-    navigate({ view: "ops", mode: "tail", tailQuery: agent.harness ?? agent.name });
+    navigate({ view: "ops", mode: "tail", tailQuery: agent.harnessSessionId ?? agent.harness ?? agent.name });
   }, [agent, navigate, returnRoute, source]);
 
   const openDocument = useCallback(
@@ -229,6 +234,64 @@ export function AgentLaneDetailSheet({
 
       <div className="s-slide-body s-lane-sheet-body">
         <section className="s-lane-sheet-section">
+          <h3 className="s-lane-sheet-h">Lane facts</h3>
+          <dl className="s-lane-sheet-meta">
+            <div className="s-lane-sheet-meta-row">
+              <dt>Model</dt>
+              <dd title={facts?.model ?? stats.model ?? undefined}>{facts?.model ?? stats.model ?? "—"}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Effort</dt>
+              <dd>{facts?.effort ?? "—"}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Origin</dt>
+              <dd title={facts?.originator}>{facts?.originator ?? "—"}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Attribution</dt>
+              <dd>{facts?.attribution ? tailAttributionLabel(facts.attribution) : "—"}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Turn</dt>
+              <dd>
+                {facts?.turn
+                  ? `${facts.turn.phase}${facts.turn.index ? ` · #${facts.turn.index}` : ""}`
+                  : "—"}
+              </dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Branch</dt>
+              <dd title={facts?.branch ?? stats.branch ?? undefined}>{facts?.branch ?? stats.branch ?? "—"}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Working dir</dt>
+              <dd title={stats.cwd ?? undefined}>{fmtPath(stats.cwd)}</dd>
+            </div>
+            <div className="s-lane-sheet-meta-row">
+              <dt>Session</dt>
+              <dd title={stats.sessionId ?? undefined}>{fmtPath(stats.sessionId, 36)}</dd>
+            </div>
+            {facts?.currentTask && (
+              <div className="s-lane-sheet-meta-row">
+                <dt>Task</dt>
+                <dd title={facts.currentTask}>{facts.currentTask}</dd>
+              </div>
+            )}
+          </dl>
+          {usageCards.length > 0 && (
+            <div className="s-lane-sheet-usage">
+              {usageCards.map((entry) => (
+                <div key={entry.label} className="s-lane-sheet-usage-card">
+                  <span className="s-lane-sheet-usage-value">{fmtCount(entry.value)}</span>
+                  <span className="s-lane-sheet-usage-label">{entry.label}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="s-lane-sheet-section">
           <h3 className="s-lane-sheet-h">Session stats</h3>
           <div className="s-lane-sheet-stats">
             <div className="s-lane-sheet-stat">
@@ -278,16 +341,6 @@ export function AgentLaneDetailSheet({
               <dd title={stats.sessionId ?? undefined}>{fmtPath(stats.sessionId, 36)}</dd>
             </div>
           </dl>
-          {usageCards.length > 0 && (
-            <div className="s-lane-sheet-usage">
-              {usageCards.map((entry) => (
-                <div key={entry.label} className="s-lane-sheet-usage-card">
-                  <span className="s-lane-sheet-usage-value">{fmtCount(entry.value)}</span>
-                  <span className="s-lane-sheet-usage-label">{entry.label}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </section>
 
         <section className="s-lane-sheet-section">
@@ -359,7 +412,7 @@ export function AgentLaneDetailSheet({
                     <span className={`s-lane-sheet-file-state s-lane-sheet-file-state--${file.state}`}>
                       {FILE_STATE_LABEL[file.state] ?? file.state}
                     </span>
-                    <span className="s-lane-sheet-file-path">{filePreviewLabel(file.path)}</span>
+                    <span className="s-lane-sheet-file-path">{filePreviewLabel(file)}</span>
                     <span className="s-lane-sheet-file-meta">×{file.touches}</span>
                   </div>
                 </article>

@@ -121,6 +121,24 @@ describe("tail transcript sources", () => {
     expect(event?.summary).toBe("hello from claude");
   });
 
+  test("drops Claude lines without a parseable timestamp during replay", () => {
+    const transcript = {
+      source: "claude" as const,
+      transcriptPath: "/tmp/claude/no-ts.jsonl",
+      sessionId: "claude-no-ts",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed" as const,
+      mtimeMs: Date.now(),
+      size: 100,
+    };
+    const event = ClaudeSource.parseLine(
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "ghost" }] } }),
+      makeContext("claude", transcript),
+    );
+    expect(event).toBeNull();
+  });
+
   test("does not turn Claude workflow journals into session transcripts", () => {
     const projectDir = join(process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT!, "-Users-arach-dev-openscout");
     const workflowDir = join(projectDir, "claude-session", "subagents", "workflows", "wf_fixture");

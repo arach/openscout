@@ -436,7 +436,6 @@ export function AgentsLibrary({
     </div>
   );
 }
-
 function ProjectsEmpty({
   kind,
   query,
@@ -928,4 +927,3 @@ function ProjectTreeSessionRow({
     </div>
   );
 }
-

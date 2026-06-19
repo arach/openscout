@@ -11,6 +11,7 @@ import type {
   DiscoveredTranscript,
   DiscoverySnapshot,
   TailDiscoveryScope,
+  TailDiscoveryIssue,
   TailEvent,
   TranscriptSource,
 } from "./types.js";
@@ -75,28 +76,11 @@ function transcriptKey(transcript: DiscoveredTranscript): string {
   return watcherKey(transcript.source, transcript.transcriptPath);
 }
 
-// Watchers are keyed by file path so each rotated transcript gets its own tail
-// reader. The public snapshot, however, should expose one entry per logical
-// session — otherwise a session that rotates files inflates the tile count in
-// downstream UIs like /ops/control. Pick the newest file as the representative.
-function dedupTranscriptsBySession(
-  transcripts: DiscoveredTranscript[],
-): DiscoveredTranscript[] {
-  const winnersBySession = new Map<string, DiscoveredTranscript>();
-  const pathOnly: DiscoveredTranscript[] = [];
-  for (const transcript of transcripts) {
-    const sessionId = transcript.sessionId?.trim();
-    if (!sessionId) {
-      pathOnly.push(transcript);
-      continue;
-    }
-    const key = `${transcript.source}:${sessionId}`;
-    const existing = winnersBySession.get(key);
-    if (!existing || transcript.mtimeMs > existing.mtimeMs) {
-      winnersBySession.set(key, transcript);
-    }
-  }
-  return [...winnersBySession.values(), ...pathOnly];
+/** One tail registry row per harness session; path-only transcripts stay path-keyed. */
+function sessionRegistryKey(transcript: DiscoveredTranscript): string {
+  const sessionId = transcript.sessionId?.trim();
+  if (sessionId) return `${transcript.source}:${sessionId}`;
+  return transcriptKey(transcript);
 }
 
 const ATTRIBUTION_RANK: Record<DiscoveredProcess["harness"], number> = {
@@ -326,7 +310,9 @@ async function refreshDiscovery(
 ): Promise<DiscoverySnapshot> {
   const allProcesses: DiscoveredProcess[] = [];
   const cachedProcesses = lastDiscovery?.processes ?? [];
-  const seenKeys = new Set<string>();
+  const seenSessionKeys = new Set<string>();
+  const discoveryIssues: TailDiscoveryIssue[] = [];
+  const discoveryIssueKeys = new Set<string>();
 
   for (const source of sources) {
     let processes: DiscoveredProcess[] = [];
@@ -351,11 +337,30 @@ async function refreshDiscovery(
     for (const transcript of transcripts) {
       const primary = processForTranscript(transcript, processes);
       const transcriptPath = transcript.transcriptPath;
-      const key = transcriptKey(transcript);
-      seenKeys.add(key);
-      knownTranscripts.set(key, transcript);
-      if (!watchers.has(key)) {
-        const watcher: Watcher = {
+      const sessionKey = sessionRegistryKey(transcript);
+      seenSessionKeys.add(sessionKey);
+
+      const prior = knownTranscripts.get(sessionKey);
+      if (prior && prior.transcriptPath !== transcriptPath) {
+        const issueKey = `${sessionKey}\u0000${prior.transcriptPath}\u0000${transcriptPath}`;
+        if (!discoveryIssueKeys.has(issueKey)) {
+          discoveryIssueKeys.add(issueKey);
+          const kept = transcript.mtimeMs >= prior.mtimeMs ? transcriptPath : prior.transcriptPath;
+          discoveryIssues.push({
+            kind: "transcript_path_collision",
+            sessionKey,
+            message: `Session ${sessionKey} maps to multiple transcript files; tail is watching ${kept}.`,
+            transcriptPaths: [prior.transcriptPath, transcriptPath],
+          });
+        }
+      }
+      if (!prior || transcript.mtimeMs >= prior.mtimeMs) {
+        knownTranscripts.set(sessionKey, transcript);
+      }
+
+      let watcher = watchers.get(sessionKey);
+      if (!watcher) {
+        watcher = {
           source,
           process: primary,
           transcript,
@@ -366,27 +371,32 @@ async function refreshDiscovery(
           emittedEventIds: new Set(),
         };
         await seedTail(watcher);
-        watchers.set(key, watcher);
-      } else {
-        // Refresh attribution in case a better-ranked process now owns this transcript.
-        const existing = watchers.get(key)!;
-        existing.process = primary;
-        existing.transcript = transcript;
+        watchers.set(sessionKey, watcher);
+        continue;
       }
+
+      if (watcher.transcriptPath !== transcriptPath) {
+        watcher.transcriptPath = transcriptPath;
+        watcher.lineCounter = 0;
+        watcher.carry = "";
+        watcher.emittedEventIds = new Set();
+        await seedTail(watcher);
+      }
+      watcher.process = primary;
+      watcher.transcript = transcript;
     }
   }
 
   if (options.pruneMissing) {
-    // Drop watchers whose transcript is no longer in the latest full-enough file inventory.
-    for (const [key] of watchers) {
-      if (!seenKeys.has(key)) {
-        watchers.delete(key);
-        knownTranscripts.delete(key);
+    for (const sessionKey of [...watchers.keys()]) {
+      if (!seenSessionKeys.has(sessionKey)) {
+        watchers.delete(sessionKey);
+        knownTranscripts.delete(sessionKey);
       }
     }
   }
 
-  const allTranscripts = dedupTranscriptsBySession([...knownTranscripts.values()])
+  const allTranscripts = [...knownTranscripts.values()]
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
 
   let scoutManaged = 0;
@@ -402,6 +412,7 @@ async function refreshDiscovery(
     generatedAt: Date.now(),
     processes: allProcesses,
     transcripts: allTranscripts,
+    issues: discoveryIssues.length > 0 ? discoveryIssues : undefined,
     totals: {
       total: allProcesses.length,
       scoutManaged,
@@ -545,26 +556,26 @@ export async function readRecentTranscriptEvents(
     perTranscriptLineLimit?: number;
   },
 ): Promise<TailEvent[]> {
-  const discovery = options?.discovery ?? await getTailDiscovery();
+  if (watchers.size === 0) {
+    await (options?.discovery ? Promise.resolve(options.discovery) : getTailDiscovery());
+  }
   const events: TailEvent[] = [];
-  const seenTranscripts = new Set<string>();
   const seenEvents = new Set<string>();
 
   const transcriptReadLimit = Math.min(RECENT_TRANSCRIPT_MAX_FILES, Math.max(12, limit));
-  for (const transcript of discovery.transcripts.slice(0, transcriptReadLimit)) {
-    const key = transcriptKey(transcript);
-    if (seenTranscripts.has(key)) continue;
-    seenTranscripts.add(key);
-    const source = sources.find((candidate) => candidate.name === transcript.source);
-    if (!source) continue;
-    const process = processForTranscript(transcript, discovery.processes);
+  const activeWatchers = [...watchers.values()]
+    .sort((left, right) => right.transcript.mtimeMs - left.transcript.mtimeMs)
+    .slice(0, transcriptReadLimit);
+
+  for (const watcher of activeWatchers) {
+    const { source, transcript, process, transcriptPath } = watcher;
     if (source.parseFile) {
-      const text = await readTranscriptText(transcript.transcriptPath);
+      const text = await readTranscriptText(transcriptPath);
       if (!text) continue;
       const parsed = parsedEventsToArray(source.parseFile(text, {
         process,
         transcript,
-        transcriptPath: transcript.transcriptPath,
+        transcriptPath,
         lineOffset: 0,
       }));
       for (const event of parsed) {
@@ -577,14 +588,14 @@ export async function readRecentTranscriptEvents(
       continue;
     }
     const lines = await readRecentTranscriptLines(
-      transcript.transcriptPath,
+      transcriptPath,
       options?.perTranscriptLineLimit,
     );
     lines.forEach((line, index) => {
       const event = source.parseLine(line, {
         process,
         transcript,
-        transcriptPath: transcript.transcriptPath,
+        transcriptPath,
         lineOffset: index,
       });
       if (event) {
