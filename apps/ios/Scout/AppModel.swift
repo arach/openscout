@@ -5,6 +5,7 @@ import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
 import ScoutIOSCore
+import AuthenticationServices
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -157,6 +158,7 @@ final class AppModel {
     private static let defaultScoutWebPort = 3200
     private static let openScoutNetworkFrontDoorBaseURL = defaultOpenScoutNetworkFrontDoorBaseURL
     private static let openScoutNetworkAuthStartPath = "/v1/auth/github/start"
+    private static let openScoutNetworkAppleNativePath = "/v1/auth/apple/native"
     private static let openScoutNetworkNativeReturnToPath = "/v1/auth/native/complete"
     private static let openScoutNetworkNodesPath = "/v1/nodes"
     private static let openScoutNetworkMeshId = "openscout"
@@ -164,6 +166,8 @@ final class AppModel {
 
     var openScoutNetworkAuthExpiresAt: Date?
     private var openScoutNetworkSessionToken: String?
+    private var pendingAppleSignInNonce: String?
+    var isCompletingAppleSignIn = false
 
     init() {
         let log = ConnectionLog()
@@ -585,6 +589,107 @@ final class AppModel {
         openScoutNetworkAuthExpiresAt = nil
         openScoutNetworkPairTargets = []
         connectionLog.log("OpenScout Network session cleared", event: .auth, route: .oscout)
+    }
+
+    // MARK: - Sign in with Apple
+
+    private struct AppleNativeAuthResponse: Decodable {
+        let session: String
+        let expiresAt: Double
+
+        enum CodingKeys: String, CodingKey {
+            case session
+            case expiresAt = "expires_at"
+        }
+    }
+
+    /// Configure the native Apple authorization request. The view calls this
+    /// from `SignInWithAppleButton(onRequest:)`. We stash the nonce so the
+    /// server can confirm the token was minted for this exact request.
+    func prepareAppleSignInRequest(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = Self.randomNonce()
+        pendingAppleSignInNonce = nonce
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = nonce
+    }
+
+    /// Handle the result from `SignInWithAppleButton(onCompletion:)`.
+    func handleAppleSignInCompletion(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case let .success(authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let tokenData = credential.identityToken,
+                  let identityToken = String(data: tokenData, encoding: .utf8)
+            else {
+                connectionLog.log("Apple sign-in returned no identity token", event: .auth, level: .error, route: .oscout)
+                return
+            }
+            let nonce = pendingAppleSignInNonce
+            pendingAppleSignInNonce = nil
+            let fullName = Self.formatPersonName(credential.fullName)
+            Task { await submitAppleIdentityToken(identityToken, nonce: nonce, fullName: fullName) }
+        case let .failure(error):
+            pendingAppleSignInNonce = nil
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                connectionLog.log("Apple sign-in canceled", event: .auth, route: .oscout)
+            } else {
+                connectionLog.log("Apple sign-in failed: \(error.localizedDescription)", event: .auth, level: .error, route: .oscout)
+            }
+        }
+    }
+
+    private func submitAppleIdentityToken(_ identityToken: String, nonce: String?, fullName: String?) async {
+        guard let url = Self.openScoutNetworkURL(path: Self.openScoutNetworkAppleNativePath) else {
+            connectionLog.log("Apple sign-in URL is invalid", event: .auth, level: .error, route: .oscout)
+            return
+        }
+        isCompletingAppleSignIn = true
+        defer { isCompletingAppleSignIn = false }
+        connectionLog.log("Submitting Apple identity to OpenScout Network…", event: .auth, route: .oscout)
+
+        var body: [String: String] = ["identityToken": identityToken]
+        if let nonce { body["nonce"] = nonce }
+        if let fullName, !fullName.isEmpty { body["fullName"] = fullName }
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 12)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                connectionLog.log("Apple sign-in: invalid response", event: .auth, level: .error, route: .oscout)
+                return
+            }
+            guard http.statusCode == 200 else {
+                let detail = String(data: data, encoding: .utf8)?.prefix(160) ?? ""
+                connectionLog.log("Apple sign-in rejected (HTTP \(http.statusCode)): \(detail)", event: .auth, level: .error, route: .oscout)
+                return
+            }
+            let decoded = try JSONDecoder().decode(AppleNativeAuthResponse.self, from: data)
+            applyOpenScoutNetworkSession(token: decoded.session, expiresAtMs: decoded.expiresAt, source: "apple")
+        } catch {
+            connectionLog.log("Apple sign-in request failed: \(error.localizedDescription)", event: .auth, level: .error, route: .oscout)
+        }
+    }
+
+    private static func formatPersonName(_ components: PersonNameComponents?) -> String? {
+        guard let components else { return nil }
+        let formatted = PersonNameComponentsFormatter()
+            .string(from: components)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return formatted.isEmpty ? nil : formatted
+    }
+
+    private static func randomNonce(length: Int = 32) -> String {
+        let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._")
+        var bytes = [UInt8](repeating: 0, count: length)
+        for index in bytes.indices {
+            bytes[index] = UInt8.random(in: 0...255)
+        }
+        return String(bytes.map { charset[Int($0) % charset.count] })
     }
 
     private func reconnectIfCurrentRouteWasDisabled(_ route: TransportKind, enabled: Bool) {
@@ -1255,19 +1360,27 @@ final class AppModel {
             return true
         }
 
+        applyOpenScoutNetworkSession(token: session, expiresAtMs: expiresAtMs, source: "github")
+        return true
+    }
+
+    /// Persist an OSN session (Keychain + routing prefs) and kick a pair-target
+    /// refresh. Shared by the GitHub `scout://osn-auth` deep link and the native
+    /// Sign in with Apple flow.
+    private func applyOpenScoutNetworkSession(token: String, expiresAtMs: Double, source: String) {
+        let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
         do {
-            try ScoutIdentity.saveOSNSessionToken(session)
+            try ScoutIdentity.saveOSNSessionToken(token)
             UserDefaults.standard.set(expiresAtMs, forKey: Self.openScoutNetworkAuthExpiresAtKey)
-            openScoutNetworkSessionToken = session
+            openScoutNetworkSessionToken = token
             openScoutNetworkAuthExpiresAt = expiresAt
             openScoutNetworkRoutingEnabled = true
             BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
-            connectionLog.log("OpenScout Network login saved", event: .auth, level: .success, route: .oscout)
+            connectionLog.log("OpenScout Network login saved (\(source))", event: .auth, level: .success, route: .oscout)
             Task { await refreshOpenScoutNetworkPairTargets() }
         } catch {
             connectionLog.log("OpenScout Network auth save failed: \(error.localizedDescription)", event: .auth, level: .error, route: .oscout)
         }
-        return true
     }
 
     /// Shared pairing tail: build the payload, run the XX handshake, and land in

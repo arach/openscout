@@ -12,7 +12,6 @@
 		109D78896721BD92A860051C /* AppSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DCACC27493279D3F73F7112 /* AppSettingsView.swift */; };
 		11202BD4A0AC58ECA7DD9896 /* ConversationSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAECB6E30580F94A5B1C2EB8 /* ConversationSurface.swift */; };
 		14F08F2F75CF5F96EA75BEE5 /* TailSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB98C7CE1E51DB391A2D819A /* TailSurface.swift */; };
-		A1B2C3D4E5F60718293A4B5C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* Assets.xcassets */; };
 		303328DF199EE1CE7C92FF06 /* StatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 249B0F2A9EE4C13ECCA19AF9 /* StatusBar.swift */; };
 		326E75ED261973A9CD055271 /* ResponsiveFrame.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96D794A6F847385880257434 /* ResponsiveFrame.swift */; };
 		3CDCD4A615702482C48F67AE /* HudsonUIKeyboard in Frameworks */ = {isa = PBXBuildFile; productRef = 584654D474049D1CBCF23765 /* HudsonUIKeyboard */; };
@@ -23,6 +22,7 @@
 		577ACC07D24970910FF7C90D /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE6AE0FA16BF46CEE025503 /* RootView.swift */; };
 		60257FA1FB01CD1D81E45FFA /* AgentsSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6644B5F9FD4D074EC7D5C75E /* AgentsSurface.swift */; };
 		64ECE2518093B8B754483519 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A9756949044BB4C30C7783 /* AppModel.swift */; };
+		85B694654037EF9C27946559 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 40896C5C3766C4916251E5A6 /* Assets.xcassets */; };
 		9975BCE56BF0137A6774D2EC /* MessageMarkupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */; };
 		9BDEC97D48105B41E523268A /* ConnectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A316466B11B7AC47D040624 /* ConnectionView.swift */; };
 		B4ABFE9168E650E489CB69B9 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74DFB2A1CDEC721D8EA6132A /* Theme.swift */; };
@@ -48,13 +48,13 @@
 		224426EC424CB028C59AC70A /* Glyphs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Glyphs.swift; sourceTree = "<group>"; };
 		249B0F2A9EE4C13ECCA19AF9 /* StatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBar.swift; sourceTree = "<group>"; };
 		3DCACC27493279D3F73F7112 /* AppSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettingsView.swift; sourceTree = "<group>"; };
+		40896C5C3766C4916251E5A6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		419862F7904F1963377872F4 /* CommsSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommsSurface.swift; sourceTree = "<group>"; };
 		44820B8B1196840637856BA7 /* SessionSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSettingsView.swift; sourceTree = "<group>"; };
 		6644B5F9FD4D074EC7D5C75E /* AgentsSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsSurface.swift; sourceTree = "<group>"; };
 		6D6169E474B4A7208F0E38C3 /* ConnectScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectScreen.swift; sourceTree = "<group>"; };
 		74DFB2A1CDEC721D8EA6132A /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		769BB6D71500EDFD3E91FF5F /* ScoutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoutApp.swift; sourceTree = "<group>"; };
-		B2C3D4E5F60718293A4B5C6D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		88C4785FEE41D029FF8D59A1 /* HomeSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeSurface.swift; sourceTree = "<group>"; };
 		968AD5AEE705455890FF8202 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		96D794A6F847385880257434 /* ResponsiveFrame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResponsiveFrame.swift; sourceTree = "<group>"; };
@@ -66,6 +66,7 @@
 		C2A9756949044BB4C30C7783 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		C2B8504A784962A834C94F75 /* NewSessionSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSessionSurface.swift; sourceTree = "<group>"; };
 		D0222C114A6B9444A9C07BA6 /* MessageMarkupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageMarkupView.swift; sourceTree = "<group>"; };
+		D609C76D7E2FB6B6AB57C25F /* Scout.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Scout.entitlements; sourceTree = "<group>"; };
 		DAECB6E30580F94A5B1C2EB8 /* ConversationSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSurface.swift; sourceTree = "<group>"; };
 		E204EEA7E7F90B8A9AE38FFF /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		E275231B2EFA1F4912EFE090 /* TerminalHostedKeyboard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalHostedKeyboard.swift; sourceTree = "<group>"; };
@@ -116,7 +117,7 @@
 				6644B5F9FD4D074EC7D5C75E /* AgentsSurface.swift */,
 				C2A9756949044BB4C30C7783 /* AppModel.swift */,
 				3DCACC27493279D3F73F7112 /* AppSettingsView.swift */,
-				B2C3D4E5F60718293A4B5C6D /* Assets.xcassets */,
+				40896C5C3766C4916251E5A6 /* Assets.xcassets */,
 				419862F7904F1963377872F4 /* CommsSurface.swift */,
 				9A316466B11B7AC47D040624 /* ConnectionView.swift */,
 				6D6169E474B4A7208F0E38C3 /* ConnectScreen.swift */,
@@ -129,6 +130,7 @@
 				968AD5AEE705455890FF8202 /* PairingView.swift */,
 				96D794A6F847385880257434 /* ResponsiveFrame.swift */,
 				BCE6AE0FA16BF46CEE025503 /* RootView.swift */,
+				D609C76D7E2FB6B6AB57C25F /* Scout.entitlements */,
 				769BB6D71500EDFD3E91FF5F /* ScoutApp.swift */,
 				44820B8B1196840637856BA7 /* SessionSettingsView.swift */,
 				249B0F2A9EE4C13ECCA19AF9 /* StatusBar.swift */,
@@ -160,8 +162,8 @@
 			buildConfigurationList = 274378A3B3749E660120AEAB /* Build configuration list for PBXNativeTarget "Scout" */;
 			buildPhases = (
 				20430C75B0C40ED5AE004B81 /* Sources */,
+				868092B194D9091B71F769F1 /* Resources */,
 				034AA96F85CFCFCA3158C709 /* Frameworks */,
-				C3D4E5F60718293A4B5C6D7 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -198,7 +200,6 @@
 				};
 			};
 			buildConfigurationList = 5B00B5C06AFC6A6CA624DCFE /* Build configuration list for PBXProject "Scout" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -214,6 +215,7 @@
 				26852F16FB6D0982448F4156 /* XCLocalSwiftPackageReference "../../../Termini" */,
 			);
 			preferredProjectObjectVersion = 77;
+			productRefGroup = 0337B0B581B1E855D618C75C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -223,11 +225,11 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C3D4E5F60718293A4B5C6D7 /* Resources */ = {
+		868092B194D9091B71F769F1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D4E5F60718293A4B5C /* Assets.xcassets in Resources */,
+				85B694654037EF9C27946559 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -327,6 +329,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Scout/Scout.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -417,6 +420,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Scout/Scout.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;

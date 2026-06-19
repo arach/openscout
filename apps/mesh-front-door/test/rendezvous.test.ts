@@ -182,14 +182,17 @@ function makePresence(input: Partial<OpenScoutMeshPresence> = {}): OpenScoutMesh
   };
 }
 
-function membershipDb(input: { providerUserId: string; meshId: string }) {
+function membershipDb(input: { providerUserId: string; meshId: string; provider?: string }) {
+  const expectedProvider = input.provider ?? "github";
   return {
     prepare() {
       return {
-        bind(providerUserId: unknown, meshId: unknown) {
+        bind(provider: unknown, providerUserId: unknown, meshId: unknown) {
           return {
             async first() {
-              return providerUserId === input.providerUserId && meshId === input.meshId
+              return provider === expectedProvider
+                && providerUserId === input.providerUserId
+                && meshId === input.meshId
                 ? { allowed: 1 }
                 : null;
             },

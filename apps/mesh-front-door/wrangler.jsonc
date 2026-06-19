@@ -40,6 +40,9 @@
   ],
   "vars": {
     "OPENSCOUT_ALLOWED_MESH_IDS": "openscout",
+    // Accepted audiences for Sign in with Apple identity tokens (comma-separated).
+    // Native iOS: the app bundle id. A web Services ID can be appended later.
+    "OPENSCOUT_APPLE_CLIENT_IDS": "com.openscout.scout",
     "OPENSCOUT_BOOTSTRAP_FIRST_GITHUB_USER": "0",
     "OPENSCOUT_BOOTSTRAP_MESH_ID": "openscout",
     "OPENSCOUT_BOOTSTRAP_MESH_NAME": "OpenScout",

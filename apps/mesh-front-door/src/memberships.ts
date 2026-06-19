@@ -38,49 +38,62 @@ export async function handleMeshMembershipRequest(
   const method = request.method.toUpperCase();
 
   if (method === "GET" && url.pathname === "/v1/meshes") {
-    const session = await readRequiredGitHubSession(request, auth, env);
+    const session = await readRequiredOsnSession(request, auth, env);
     if (!session.ok) return session.response;
 
     const db = env.OSN_DB;
     if (!db) return json(503, { error: "membership_store_unavailable" });
 
-    await upsertGitHubUser(db, session.session);
-    await maybeBootstrapFirstGitHubUser(db, session.session, env);
-    const meshes = await listMeshesForGitHubUser(db, session.session.providerUserId);
+    await upsertOsnUser(db, session.session);
+    await maybeBootstrapFirstUser(db, session.session, env);
+    const meshes = await listMeshesForUser(db, session.session.provider, session.session.providerUserId);
     return json(200, { meshes });
   }
 
   return undefined;
 }
 
-export async function githubUserCanAccessMesh(
+// OSN users (GitHub or Apple) are gated by mesh membership; other auth kinds
+// (Cloudflare Access, shared token, dev) are trusted upstream and bypass.
+export async function osnUserCanAccessMesh(
   auth: MeshFrontDoorAuth,
   meshId: string,
   env: MeshMembershipEnv,
 ): Promise<boolean> {
-  if (auth.kind !== "github_user") return true;
+  if (auth.kind !== "github_user" && auth.kind !== "apple_user") return true;
   const db = env.OSN_DB;
   if (!db) return false;
-  const providerUserId = auth.key.startsWith("github:") ? auth.key.slice("github:".length) : "";
-  if (!providerUserId) return false;
+  const identity = parseUserKey(auth.key);
+  if (!identity) return false;
   const row = await db.prepare(`
     SELECT 1 AS allowed
       FROM osn_mesh_memberships
-     WHERE provider = 'github'
+     WHERE provider = ?
        AND provider_user_id = ?
        AND mesh_id = ?
      LIMIT 1
-  `).bind(providerUserId, meshId).first<{ allowed: number }>();
+  `).bind(identity.provider, identity.providerUserId, meshId).first<{ allowed: number }>();
   return Boolean(row?.allowed);
 }
 
-async function readRequiredGitHubSession(
+// auth.key is `${provider}:${providerUserId}`. Apple subjects can contain dots
+// but never colons, so split on the first colon only.
+function parseUserKey(key: string): { provider: string; providerUserId: string } | undefined {
+  const separator = key.indexOf(":");
+  if (separator <= 0) return undefined;
+  const provider = key.slice(0, separator);
+  const providerUserId = key.slice(separator + 1);
+  if (!provider || !providerUserId) return undefined;
+  return { provider, providerUserId };
+}
+
+async function readRequiredOsnSession(
   request: Request,
   auth: MeshFrontDoorAuth,
   env: MeshMembershipEnv,
 ): Promise<{ ok: true; session: OpenScoutSession } | { ok: false; response: Response }> {
-  if (auth.kind !== "github_user") {
-    return { ok: false, response: json(403, { error: "github_session_required" }) };
+  if (auth.kind !== "github_user" && auth.kind !== "apple_user") {
+    return { ok: false, response: json(403, { error: "osn_session_required" }) };
   }
   const session = await readOpenScoutSessionFromRequest(request, env);
   if (!session) {
@@ -89,19 +102,19 @@ async function readRequiredGitHubSession(
   return { ok: true, session };
 }
 
-async function upsertGitHubUser(db: D1Database, session: OpenScoutSession): Promise<void> {
+async function upsertOsnUser(db: D1Database, session: OpenScoutSession): Promise<void> {
   const now = Date.now();
   await db.prepare(`
     INSERT INTO osn_users (provider, provider_user_id, login, email, created_at, updated_at)
-    VALUES ('github', ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(provider, provider_user_id) DO UPDATE SET
       login = excluded.login,
       email = excluded.email,
       updated_at = excluded.updated_at
-  `).bind(session.providerUserId, session.login, session.email, now, now).run();
+  `).bind(session.provider, session.providerUserId, session.login, session.email, now, now).run();
 }
 
-async function maybeBootstrapFirstGitHubUser(
+async function maybeBootstrapFirstUser(
   db: D1Database,
   session: OpenScoutSession,
   env: MeshMembershipEnv,
@@ -125,14 +138,14 @@ async function maybeBootstrapFirstGitHubUser(
   `).bind(meshId, meshName, now, now).run();
   await db.prepare(`
     INSERT INTO osn_mesh_memberships (provider, provider_user_id, mesh_id, role, created_at, updated_at)
-    VALUES ('github', ?, ?, 'owner', ?, ?)
+    VALUES (?, ?, ?, 'owner', ?, ?)
     ON CONFLICT(provider, provider_user_id, mesh_id) DO UPDATE SET
       role = excluded.role,
       updated_at = excluded.updated_at
-  `).bind(session.providerUserId, meshId, now, now).run();
+  `).bind(session.provider, session.providerUserId, meshId, now, now).run();
 }
 
-async function listMeshesForGitHubUser(db: D1Database, providerUserId: string): Promise<MeshRow[]> {
+async function listMeshesForUser(db: D1Database, provider: string, providerUserId: string): Promise<MeshRow[]> {
   const result = await db.prepare(`
     SELECT meshes.id,
            meshes.name,
@@ -140,10 +153,10 @@ async function listMeshesForGitHubUser(db: D1Database, providerUserId: string): 
            meshes.created_at
       FROM osn_mesh_memberships memberships
       JOIN osn_meshes meshes ON meshes.id = memberships.mesh_id
-     WHERE memberships.provider = 'github'
+     WHERE memberships.provider = ?
        AND memberships.provider_user_id = ?
      ORDER BY lower(meshes.name), meshes.id
-  `).bind(providerUserId).all<MeshRow>();
+  `).bind(provider, providerUserId).all<MeshRow>();
   return result.results ?? [];
 }
 

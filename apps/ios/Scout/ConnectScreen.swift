@@ -1,5 +1,6 @@
 import SwiftUI
 import HudsonUI
+import AuthenticationServices
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -140,10 +141,19 @@ struct ConnectScreen: View {
             openScoutNetworkHeader
             if !model.isOpenScoutNetworkSignedIn {
                 VStack(alignment: .leading, spacing: HudSpacing.sm) {
-                    Text("Sign in with GitHub to find Macs publishing through OpenScout Network.")
+                    Text("Sign in to find Macs publishing through OpenScout Network.")
                         .font(HudFont.ui(HudTextSize.sm))
                         .foregroundStyle(ScoutInk.dim)
                         .fixedSize(horizontal: false, vertical: true)
+                    SignInWithAppleButton(.signIn) { request in
+                        model.prepareAppleSignInRequest(request)
+                    } onCompletion: { result in
+                        model.handleAppleSignInCompletion(result)
+                    }
+                    .signInWithAppleButtonStyle(.white)
+                    .frame(height: 44)
+                    .frame(maxWidth: .infinity)
+                    .disabled(model.isCompletingAppleSignIn)
                     HudButton("Sign in with GitHub", icon: "person.crop.circle.badge.checkmark", style: .secondary) {
                         model.openOpenScoutNetworkLogin()
                     }

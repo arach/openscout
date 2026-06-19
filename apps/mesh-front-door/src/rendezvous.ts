@@ -5,7 +5,7 @@ import {
   type OpenScoutMeshRendezvousList,
 } from "@openscout/protocol";
 import { readOpenScoutSessionFromRequest, type OpenScoutAuthEnv } from "./auth.js";
-import { githubUserCanAccessMesh, type MeshMembershipEnv } from "./memberships.js";
+import { osnUserCanAccessMesh, type MeshMembershipEnv } from "./memberships.js";
 
 export interface MeshFrontDoorEnv extends OpenScoutAuthEnv, MeshMembershipEnv {
   OPENSCOUT_ALLOWED_MESH_IDS?: string;
@@ -19,7 +19,7 @@ export interface MeshFrontDoorEnv extends OpenScoutAuthEnv, MeshMembershipEnv {
 export interface MeshFrontDoorAuth {
   key: string;
   label: string;
-  kind: "github_user" | "access_user" | "access_service" | "shared_token" | "dev";
+  kind: "github_user" | "apple_user" | "access_user" | "access_service" | "shared_token" | "dev";
 }
 
 export interface MeshPresenceStore {
@@ -51,9 +51,9 @@ export async function resolveMeshFrontDoorAuth(request: Request, env: MeshFrontD
   const session = await readOpenScoutSessionFromRequest(request, env);
   if (session) {
     return {
-      key: `github:${session.providerUserId}`,
+      key: `${session.provider}:${session.providerUserId}`,
       label: session.email,
-      kind: "github_user",
+      kind: session.provider === "apple" ? "apple_user" : "github_user",
     };
   }
 
@@ -250,7 +250,7 @@ async function assertAuthorizedMeshMembership(
   meshId: string,
   env: MeshFrontDoorEnv,
 ): Promise<Response | undefined> {
-  if (await githubUserCanAccessMesh(auth, meshId, env)) {
+  if (await osnUserCanAccessMesh(auth, meshId, env)) {
     return undefined;
   }
   return json(403, { error: "mesh_access_denied" });

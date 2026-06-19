@@ -35,8 +35,8 @@ class FakeD1PreparedStatement {
       return { count: this.db.memberships.size } as T;
     }
     if (this.query.includes("SELECT 1 AS allowed")) {
-      const [providerUserId, meshId] = this.values as [string, string];
-      return (this.db.memberships.has(`github:${providerUserId}:${meshId}`)
+      const [provider, providerUserId, meshId] = this.values as [string, string, string];
+      return (this.db.memberships.has(`${provider}:${providerUserId}:${meshId}`)
         ? { allowed: 1 }
         : null) as T | null;
     }
@@ -45,11 +45,12 @@ class FakeD1PreparedStatement {
 
   async all<T = unknown>(): Promise<{ results?: T[] }> {
     if (this.query.includes("FROM osn_mesh_memberships memberships")) {
-      const [providerUserId] = this.values as [string];
+      const [provider, providerUserId] = this.values as [string, string];
+      const prefix = `${provider}:${providerUserId}:`;
       const results = Array.from(this.db.memberships)
-        .filter(([key]) => key.startsWith(`github:${providerUserId}:`))
+        .filter(([key]) => key.startsWith(prefix))
         .map(([key, membership]) => {
-          const meshId = key.slice(`github:${providerUserId}:`.length);
+          const meshId = key.slice(prefix.length);
           const mesh = this.db.meshes.get(meshId);
           return {
             id: meshId,
@@ -66,16 +67,16 @@ class FakeD1PreparedStatement {
 
   async run(): Promise<unknown> {
     if (this.query.includes("INSERT INTO osn_users")) {
-      const [providerUserId, login, email] = this.values as [string, string, string];
-      this.db.users.set(providerUserId, { login, email });
+      const [provider, providerUserId, login, email] = this.values as [string, string, string, string];
+      this.db.users.set(`${provider}:${providerUserId}`, { login, email });
     }
     if (this.query.includes("INSERT INTO osn_meshes")) {
       const [meshId, name, createdAt] = this.values as [string, string, number];
       this.db.meshes.set(meshId, { name, createdAt });
     }
     if (this.query.includes("INSERT INTO osn_mesh_memberships")) {
-      const [providerUserId, meshId, createdAt] = this.values as [string, string, number];
-      this.db.memberships.set(`github:${providerUserId}:${meshId}`, { role: "owner", createdAt });
+      const [provider, providerUserId, meshId, createdAt] = this.values as [string, string, string, number];
+      this.db.memberships.set(`${provider}:${providerUserId}:${meshId}`, { role: "owner", createdAt });
     }
     return {};
   }
