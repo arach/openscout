@@ -38,7 +38,9 @@ describe("pairing runtime OSN rendezvous", () => {
   });
 
   test("does not start a publisher unless rendezvous is configured", () => {
-    expect(startPairingRendezvousPublisher(() => makeSnapshot(), { env: {} })).toBeNull();
+    expect(startPairingRendezvousPublisher(() => makeSnapshot(), {
+      env: { OPENSCOUT_MESH_RENDEZVOUS_URL: "false" },
+    })).toBeNull();
   });
 });
 

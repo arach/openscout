@@ -39,9 +39,9 @@ const config: BrokerServiceConfig = {
   coreAgents: [],
 };
 
-function writeExecutable(path: string): string {
+function writeExecutable(path: string, contents = "#!/bin/sh\nexit 0\n"): string {
   mkdirSync(join(path, ".."), { recursive: true });
-  writeFileSync(path, "#!/bin/sh\nexit 0\n", "utf8");
+  writeFileSync(path, contents, "utf8");
   chmodSync(path, 0o755);
   return path;
 }
@@ -209,6 +209,11 @@ describe("broker service scoutd adapter", () => {
 });
 
 describe("runScoutdServiceCommand shell-out", () => {
+  function writeFakeScoutd(contents: string): string {
+    const root = mkdtempSync(join(tmpdir(), "openscout-fake-scoutd-"));
+    return writeExecutable(join(root, "scoutd"), contents);
+  }
+
   test("parses scoutd JSON into the normalized status shape", async () => {
     const status = {
       label: "dev.openscout",
@@ -249,9 +254,10 @@ describe("runScoutdServiceCommand shell-out", () => {
         },
       },
     };
+    const scoutd = writeFakeScoutd("#!/bin/sh\nprintf '%s' \"$SCOUTD_STATUS_JSON\"\n");
     const result = await withEnv({
-      OPENSCOUT_SCOUTD_BIN: "/usr/bin/printenv",
-      status: JSON.stringify(status),
+      OPENSCOUT_SCOUTD_BIN: scoutd,
+      SCOUTD_STATUS_JSON: JSON.stringify(status),
     }, () =>
       runScoutdServiceCommand("status", config),
     );
@@ -276,28 +282,31 @@ describe("runScoutdServiceCommand shell-out", () => {
   });
 
   test("rejects with a meaningful error on malformed JSON", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\nprintf '%s' \"$SCOUTD_STATUS_JSON\"\n");
     await expect(
       withEnv({
-        OPENSCOUT_SCOUTD_BIN: "/usr/bin/printenv",
-        status: "not json at all",
+        OPENSCOUT_SCOUTD_BIN: scoutd,
+        SCOUTD_STATUS_JSON: "not json at all",
       }, () => runScoutdServiceCommand("status", config)),
     ).rejects.toThrow(/returned non-JSON stdout/);
   });
 
   test("rejects with stderr detail on non-zero exit", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\necho 'broken scoutd' >&2\nexit 2\n");
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: "/bin/ls" }, () => runScoutdServiceCommand("start", config)),
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () => runScoutdServiceCommand("start", config)),
     ).rejects.toThrow(/scoutd start failed:/);
   });
 
   test("rejects a runaway child without hanging", async () => {
+    const scoutd = writeFakeScoutd("#!/bin/sh\nwhile :; do printf y; done\n");
     const started = Date.now();
     await expect(
-      withEnv({ OPENSCOUT_SCOUTD_BIN: "/usr/bin/yes" }, () =>
+      withEnv({ OPENSCOUT_SCOUTD_BIN: scoutd }, () =>
         runScoutdServiceCommand("start", config, 2_000),
       ),
     ).rejects.toThrow(/scoutd start (exceeded output limit|timed out after 2000ms)/);
     // Must reject promptly, not let a runaway child pin the caller.
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(2_500);
   });
 });

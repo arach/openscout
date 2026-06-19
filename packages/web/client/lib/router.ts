@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
-import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
+import { surfaceKeyFromParts } from "./terminal-sessions.ts";
+import { terminalRoutePath } from "./terminal-route.ts";
 import type {
   AgentTab,
   FollowPreferredView,
@@ -542,22 +543,7 @@ export function routePath(r: Route): string {
       return `/follow${search ? `?${search}` : ""}`;
     }
     case "terminal":
-      if (r.agentId) {
-        const params = new URLSearchParams();
-        if (r.mode) params.set("mode", r.mode);
-        return `/terminal/${encodeURIComponent(r.agentId)}${searchSuffix(params)}`;
-      }
-      {
-        const params = new URLSearchParams();
-        if (r.mode) params.set("mode", r.mode);
-        const surfaceParts = surfacePartsFromKey(r.terminalSurfaceKey);
-        if (surfaceParts) {
-          return `/terminal/${encodeURIComponent(surfaceParts.backend)}/${encodeURIComponent(surfaceParts.sessionName)}${searchSuffix(params)}`;
-        }
-        if (r.terminalSessionId) params.set("session", r.terminalSessionId);
-        if (r.terminalSurfaceKey) params.set("surface", r.terminalSurfaceKey);
-        return `/terminal${searchSuffix(params)}`;
-      }
+      return terminalRoutePath(r);
   }
 }
 
