@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 
 import { timeAgo } from "../../lib/time.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
+import { HarnessMark } from "../../components/HarnessMark.tsx";
+import { isAgentBusy } from "../../lib/agent-state.ts";
 import { buildAgentLanePreview, filePreviewLabel, hasMeaningfulText } from "./agent-lane-preview.ts";
 import type { AgentLane } from "./agent-lanes-model.ts";
 import {
   laneContextLabel,
   lanePrimaryLabel,
-  laneStatusLabel,
 } from "./agent-lanes-model.ts";
 
 const FILE_STATE_LABEL: Record<string, string> = {
@@ -21,6 +22,29 @@ const FILE_STATE_LABEL: Record<string, string> = {
 // FILE_CAP rows — keeping every lane's summary the same height so the traces
 // below all start on the same line.
 const FILE_CAP = 5;
+
+/** A small folder mark for the cwd field — the glyph treatment mirrors the
+ *  branch's ⎇, so cwd / branch read as a labelled pair without written labels. */
+const FOLDER_GLYPH = (
+  <svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true">
+    <path
+      d="M2 4.2c0-.4.3-.7.7-.7h2.1l1 1h3.5c.4 0 .7.3.7.7V9c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7V4.2Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1"
+      strokeLinejoin="round"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+/** Compact a working directory to its last two path segments (full path stays
+ *  on the title tooltip). "/Users/art/dev/openscout/packages/web" → "packages/web". */
+function formatCwd(path: string): string {
+  const parts = path.replace(/\/+$/, "").split(/[\\/]/).filter(Boolean);
+  if (parts.length === 0) return path;
+  return parts.slice(-2).join("/");
+}
 
 const COLLAPSE_STORAGE_KEY = "openscout:agent-lane-summary-collapsed";
 
@@ -57,17 +81,27 @@ export function AgentLaneSummaryCard({
 }) {
   const { agent, observe, source, lastActiveAt } = lane;
   const primaryLabel = lanePrimaryLabel(agent, source);
-  const statusLabel = laneStatusLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
   const preview = buildAgentLanePreview(observe, agent, { isLive });
   const facts = lane.facts;
 
+  // The runtime the session runs on — shown as a brand mark on the avatar
+  // (replacing the written-out harness name).
+  const harness = agent.harness ?? preview?.harness ?? null;
+
+  // "Working" = the agent is mid-turn / in flight right now. Drives the subtle
+  // avatar motion + accent tint. We no longer surface a "Live" pill: you are
+  // watching the lane, so the work itself (motion) is the signal.
+  const working = isAgentBusy(agent.state ?? null, agent);
+
   // Context fields kept distinct (not pre-joined) so each can carry its own
-  // visual weight in the grouped one-line meta row.
+  // visual weight in the grouped one-line meta row. cwd + branch are the real
+  // "where is this running" facts — shown with glyphs rather than written labels.
   const model = facts?.model ?? preview?.model ?? null;
   const effort = facts?.effort ?? null;
-  const branch = facts?.branch ?? preview?.branch ?? null;
-  const hasConfig = Boolean(model || effort || branch);
+  const branch = facts?.branch ?? preview?.branch ?? agent.branch ?? null;
+  const cwd = facts?.cwd ?? agent.cwd ?? agent.projectRoot ?? null;
+  const hasConfig = Boolean(model || effort || branch || cwd);
 
   const statChips = preview
     ? [
@@ -120,7 +154,7 @@ export function AgentLaneSummaryCard({
 
   return (
     <section
-      className={`s-agent-lane-summary${isLive ? " s-agent-lane-summary--live" : ""}${collapsed ? " s-agent-lane-summary--collapsed" : ""}`}
+      className={`s-agent-lane-summary${working ? " s-agent-lane-summary--working" : ""}${collapsed ? " s-agent-lane-summary--collapsed" : ""}`}
       aria-label={`${primaryLabel} summary`}
     >
       <button
@@ -133,57 +167,74 @@ export function AgentLaneSummaryCard({
         <AgentAvatar
           agent={agent}
           placement="row"
-          size={28}
+          size={36}
           presence={false}
           className="s-agent-lane-avatar"
         />
         <div className="s-agent-lane-summary-identity">
           <div className="s-agent-lane-summary-title">{primaryLabel}</div>
           <div className="s-agent-lane-summary-meta">
-            {hasConfig ? (
-              <>
-                {model && <span className="s-agent-lane-meta-model">{model}</span>}
-                {effort && <span className="s-agent-lane-meta-effort">{effort}</span>}
-                {branch && (
-                  <span className="s-agent-lane-meta-branch">
-                    <span className="s-agent-lane-meta-glyph" aria-hidden="true">⎇</span>
-                    {branch}
+            {/* Left: where it runs — path, branch. */}
+            <span className="s-agent-lane-meta-where">
+              {cwd && (
+                <span className="s-agent-lane-meta-cwd" title={cwd}>
+                  <span className="s-agent-lane-meta-glyph s-agent-lane-meta-glyph--folder" aria-hidden="true">
+                    {FOLDER_GLYPH}
                   </span>
-                )}
-              </>
-            ) : (
-              <span className="s-agent-lane-meta-fallback">{contextLabel}</span>
-            )}
-            {lastActiveAt && (
-              <span className="s-agent-lane-meta-time">{timeAgo(lastActiveAt)}</span>
-            )}
+                  {formatCwd(cwd)}
+                </span>
+              )}
+              {branch && (
+                <span className="s-agent-lane-meta-branch" title={branch}>
+                  <span className="s-agent-lane-meta-glyph" aria-hidden="true">⎇</span>
+                  {branch}
+                </span>
+              )}
+              {!hasConfig && (
+                <span className="s-agent-lane-meta-fallback">{contextLabel}</span>
+              )}
+            </span>
+            {/* Right: what it is — harness logo anchors model + effort, the way
+                the avatar anchors the identity on the left. */}
+            <span className="s-agent-lane-meta-what">
+              {harness && (
+                <HarnessMark
+                  harness={harness}
+                  size={20}
+                  className="s-agent-lane-meta-harness-mark"
+                />
+              )}
+              {model && <span className="s-agent-lane-meta-model">{model}</span>}
+              {effort && <span className="s-agent-lane-meta-effort">{effort}</span>}
+              {lastActiveAt && (
+                <span className="s-agent-lane-meta-time">{timeAgo(lastActiveAt)}</span>
+              )}
+            </span>
           </div>
         </div>
-        <span className="s-agent-lane-summary-status">
-          {isLive && <span className="s-agent-lane-summary-live">Live</span>}
-          <span className="s-agent-lane-summary-badge">{statusLabel}</span>
-        </span>
-        <button
-          type="button"
-          className="s-agent-lane-summary-collapse"
-          aria-label={collapsed ? "Show summary" : "Hide summary"}
-          aria-expanded={!collapsed}
-          onClick={(event) => {
-            event.stopPropagation();
-            toggleCollapsed();
-          }}
-        >
-          <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">
-            <path
-              d="M2 3.5 L5 6.5 L8 3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        <div className="s-agent-lane-summary-aside">
+          <button
+            type="button"
+            className="s-agent-lane-summary-collapse"
+            aria-label={collapsed ? "Show summary" : "Hide summary"}
+            aria-expanded={!collapsed}
+            onClick={(event) => {
+              event.stopPropagation();
+              toggleCollapsed();
+            }}
+          >
+            <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">
+              <path
+                d="M2 3.5 L5 6.5 L8 3.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {!collapsed && (

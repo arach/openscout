@@ -109,6 +109,7 @@ export type LaneFacts = {
   model?: string;
   effort?: string;
   branch?: string;
+  cwd?: string;
   originator?: string;
   attribution?: TailHarness;
   turn?: { phase: "idle" | "started" | "complete"; index?: number };
@@ -839,6 +840,7 @@ export function buildLaneFacts(
       branchFromPayload(sessionMeta),
       agent.branch,
     ),
+    cwd: stringValue(session?.cwd, sessionMeta?.cwd, agent.cwd, agent.projectRoot),
     originator: stringValue(session?.originator, sessionMeta?.originator, sessionMeta?.source),
     attribution,
     turn: events.length > 0
@@ -848,7 +850,7 @@ export function buildLaneFacts(
     currentTask: currentTaskFromTailEvents(events, observe),
   };
 
-  for (const key of ["model", "effort", "branch", "originator", "attribution", "usage", "currentTask"] as const) {
+  for (const key of ["model", "effort", "branch", "cwd", "originator", "attribution", "usage", "currentTask"] as const) {
     if (facts[key] === undefined) delete facts[key];
   }
   return facts;

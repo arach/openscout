@@ -234,7 +234,9 @@
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--bg) 40%, transparent);
 }
 
-.s-agent-lane-summary--live {
+/* Only an actively-working lane carries the faint accent wash — idle lanes stay
+   neutral, so the tint means "moving now", not just "present in this view". */
+.s-agent-lane-summary--working {
   background:
     linear-gradient(
       180deg,
@@ -342,43 +344,6 @@
   text-overflow: ellipsis;
 }
 
-.s-agent-lane-summary-status {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  font-family: var(--font-sans);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--muted);
-  white-space: nowrap;
-  flex: none;
-}
-
-.s-agent-lane-summary-live {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2xs);
-  min-height: 18px;
-  padding: 0 var(--space-xs);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--green) 10%, transparent);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  font-weight: 600;
-  letter-spacing: var(--tracking-xs);
-  text-transform: lowercase;
-  color: var(--green);
-}
-
-.s-agent-lane-summary-live::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--green);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--green) 18%, transparent);
-}
-
 .s-agent-lane-summary-badge {
   display: inline-flex;
   align-items: center;
@@ -414,7 +379,7 @@
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface) 50%, transparent);
 }
 
-.s-agent-lane-summary--live .s-agent-lane-summary-panel {
+.s-agent-lane-summary--working .s-agent-lane-summary-panel {
   border-color: color-mix(in srgb, var(--green) 14%, transparent);
   background: color-mix(in srgb, var(--green) 2%, var(--bg) 42%);
 }
@@ -425,7 +390,8 @@
 .s-agent-lane-summary-meta {
   display: flex;
   flex-wrap: nowrap;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-md);
   min-height: 1rem;
   overflow: hidden;
@@ -434,6 +400,38 @@
   letter-spacing: var(--tracking-xs);
   white-space: nowrap;
   color: var(--dim);
+}
+
+/* Two clusters split by a gap: "where it runs" (path · branch) on the left, the
+   shrinkable side; "what it is" (harness logo · model · effort · time) on the
+   right, anchored by the brand mark and kept whole. */
+.s-agent-lane-meta-where {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.s-agent-lane-meta-what {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex: none;
+}
+
+.s-agent-lane-meta-harness-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--space-3xs);
+  color: var(--muted);
+  transition: color 200ms ease;
+}
+
+.s-agent-lane-summary--working .s-agent-lane-meta-harness-mark {
+  color: var(--ink);
 }
 
 .s-agent-lane-meta-model {
@@ -448,6 +446,7 @@
   text-transform: lowercase;
 }
 
+.s-agent-lane-meta-cwd,
 .s-agent-lane-meta-branch {
   flex: 0 1 auto;
   min-width: 0;
@@ -457,9 +456,20 @@
   white-space: nowrap;
 }
 
+/* cwd carries the most signal of the pair — let it keep a little more width. */
+.s-agent-lane-meta-cwd {
+  flex-shrink: 0.6;
+  color: var(--ink);
+}
+
 .s-agent-lane-meta-glyph {
   margin-right: var(--space-3xs);
   color: var(--dim);
+}
+
+.s-agent-lane-meta-glyph--folder svg {
+  display: inline-block;
+  vertical-align: -1.5px;
 }
 
 .s-agent-lane-meta-harness {
@@ -674,6 +684,65 @@
 .s-agent-lane-avatar {
   flex: none;
   overflow: visible;
+}
+
+/* Top-right cluster: the runtime brand mark, then the collapse caret. The mark
+   names the harness (Claude / Codex / Grok …) where the written-out name used
+   to sit — click-through to the click overlay, so it still opens the sheet. */
+.s-agent-lane-summary-aside {
+  flex: none;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: 1px;
+}
+
+
+/* ── Working motion ───────────────────────────────────────────────────────
+   When the agent is mid-turn the creature comes alive — a couple of things
+   move, never the whole body: the accent cells breathe and the eyes blink on
+   their own slow cadence. Idle lanes are perfectly still. */
+.s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--accent {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: s-sprite-accent 2.6s ease-in-out infinite;
+}
+
+.s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: s-sprite-blink 4.4s ease-in-out infinite;
+}
+
+@keyframes s-sprite-accent {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translateY(-2px) scale(1.08);
+    opacity: 0.7;
+  }
+}
+
+@keyframes s-sprite-blink {
+  0%,
+  88%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.14);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--accent,
+  .s-agent-lane-summary--working .s-agent-lane-avatar .sprite-cell--eye {
+    animation: none;
+  }
 }
 
 .s-agent-lane-preview-file-state {

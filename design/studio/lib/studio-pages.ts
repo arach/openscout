@@ -387,6 +387,21 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Keep the main view as the list (projects, or the agents under them) and move only the chrome. Search and New-chat leave the center and become rail actions that open a ⌘K command palette (cross-fleet lookup: agents · sessions) / a small composer over the list, then close — no pinned filter box, no second search staged in the center. Kept deliberately simple: two actions, the few agents you last touched, a settings foot (pointers/lenses cut for now). One emerald accent reserved for attention.",
   },
   {
+    href: "/studies/agent-lanes-card",
+    label: "Agent Lanes · Card",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-lanes-card/page.tsx",
+      "design/studio/components/HarnessMark.tsx",
+      "packages/web/client/screens/ops/AgentLaneSummaryCard.tsx",
+      "packages/web/client/components/HarnessMark.tsx",
+    ],
+    blurb:
+      "Design surface for the OPS agent-lanes summary card: harness brand-mark icons (Claude, Codex cloud, Grok, Gemini, Cursor, GitHub, OpenCode, Amp + geometric stand-ins) and the header/meta layout — avatar identity on the left, a unified secondary line split into where (path · branch) and what (harness logo anchoring model · effort · time). Iterate here, then port to the web component.",
+  },
+  {
     href: "/studies/agents-top-collapse",
     label: "Agents · Top Collapse",
     bucket: "studies",

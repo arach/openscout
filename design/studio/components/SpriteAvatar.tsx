@@ -136,14 +136,15 @@ export function SpriteSvg({
           const key = `${ri}-${ci}`;
           if (c === "eye") {
             return (
-              <g key={key}>
+              <g className="sprite-cell sprite-cell--eye" key={key}>
                 <rect x={x + gap} y={y + gap} width={cell - gap * 2} height={cell - gap * 2} rx={radius} fill={palette.sclera} />
-                <circle cx={x + cell / 2} cy={y + cell * 0.52} r={pupil} fill={palette.ink} />
+                <circle className="sprite-pupil" cx={x + cell / 2} cy={y + cell * 0.52} r={pupil} fill={palette.ink} />
               </g>
             );
           }
           const fill = c === "accent" ? palette.accent : c === "mouth" ? palette.ink : palette.body;
-          return <rect key={key} x={x + gap} y={y + gap} width={cell - gap * 2} height={cell - gap * 2} rx={radius} fill={fill} />;
+          const cls = c === "accent" ? "sprite-cell sprite-cell--accent" : c === "mouth" ? "sprite-cell sprite-cell--mouth" : "sprite-cell sprite-cell--body";
+          return <rect className={cls} key={key} x={x + gap} y={y + gap} width={cell - gap * 2} height={cell - gap * 2} rx={radius} fill={fill} />;
         }),
       )}
     </svg>
