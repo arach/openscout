@@ -263,9 +263,15 @@ function LaneCard({ lane, guides }: { lane: Lane; guides: boolean }) {
       {/* header — avatar + big name (hero), harness centered with the name;
           recent-activity + collapse caret pinned to the top corner */}
       <div className="head">
-        <span className="anchor anchor--av"><GuideBox /><SpriteAvatar name={lane.name} size={52} className="lane-av" /></span>
-        <div className="title"><span className="name">{lane.name}</span></div>
-        <span className="anchor anchor--hm"><GuideBox /><HarnessMark harness={lane.harness} size={24} className="hmark" /></span>
+        <span className="anchor anchor--av"><GuideBox /><SpriteAvatar name={lane.name} size={46} className="lane-av" /></span>
+        <div className="title">
+          <span className="name">{lane.name}</span>
+          <span className="subid">
+            <SessionGlyph /><span className="val">{lane.sessionId}</span>
+            {lane.parentSessionId && <><span className="gchar" aria-hidden>↳</span><span className="val">{lane.parentSessionId}</span></>}
+          </span>
+        </div>
+        <span className="anchor anchor--hm"><GuideBox /><HarnessMark harness={lane.harness} size={21} className="hmark" /></span>
         <div className="corner">
           <span className="time">{lane.time}</span>
           <button className="caret" aria-label="collapse">
@@ -283,10 +289,6 @@ function LaneCard({ lane, guides }: { lane: Lane; guides: boolean }) {
         <div className="drow">
           <span className="d d--strong"><ModelGlyph /><span className="val">{lane.model ?? "—"}</span></span>
           {lane.effort && <span className="d d--dim">{lane.effort}</span>}
-        </div>
-        <div className="drow drow--lineage">
-          <span className="d"><SessionGlyph /><span className="val">{lane.sessionId}</span></span>
-          {lane.parentSessionId && <span className="d"><span className="gchar" aria-hidden>↳</span><span className="val">{lane.parentSessionId}</span></span>}
         </div>
       </div>
 
@@ -396,7 +398,7 @@ const CSS = `
 .lane-row{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
 
 /* ── card ── */
-.card{width:380px;border:1px solid rgba(255,255,255,.07);border-radius:14px;overflow:hidden;
+.card{width:368px;border:1px solid rgba(255,255,255,.07);border-radius:9px;overflow:hidden;
   background:linear-gradient(180deg,rgba(255,255,255,.022),rgba(255,255,255,.006))}
 .card--working{background:linear-gradient(180deg,color-mix(in srgb,${C.green} 4%,rgba(255,255,255,.02)),rgba(255,255,255,.006))}
 
@@ -426,10 +428,15 @@ const CSS = `
 
 /* header — avatar + big name (hero), harness centered with the name;
    recent-activity + collapse caret pinned to the top corner */
-.head{position:relative;display:flex;align-items:center;gap:11px;padding:16px 16px 10px}
-.title{flex:0 1 auto;min-width:0;max-width:calc(100% - 150px)}
-.name{font-size:18px;font-weight:600;letter-spacing:-.02em;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.anchor--hm{align-self:center}
+/* top-aligned: the avatar anchors the header, name + session-id align to its top */
+.head{position:relative;display:flex;align-items:flex-start;gap:10px;padding:9px 13px 6px}
+.title{display:flex;flex-direction:column;gap:1px;flex:0 1 auto;min-width:0;max-width:calc(100% - 132px)}
+.name{font-size:16px;font-weight:600;letter-spacing:-.02em;color:${C.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.subid{display:inline-flex;align-items:center;gap:5px;font-family:ui-monospace,monospace;font-size:9.5px;color:${C.dim};min-width:0}
+.subid .gmark{color:${C.dim};flex:none}
+.subid .gchar{color:${C.dim};flex:none;font-size:10px;line-height:1}
+.subid .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.anchor--hm{align-self:flex-start;margin-top:1px}
 .hmark{color:${C.muted};display:inline-flex}
 .card--working .hmark{color:${C.ink}}
 .corner{position:absolute;top:11px;right:14px;display:flex;align-items:center;gap:7px}
@@ -438,8 +445,8 @@ const CSS = `
   border:0;background:transparent;color:${C.dim};border-radius:6px;cursor:pointer}
 
 /* fact lines — glyph-led, one cluster per concern, ready to grow (session/parent) */
-.details{display:flex;flex-direction:column;gap:5px;padding:0 16px 14px}
-.drow{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size:11px;min-width:0}
+.details{display:flex;flex-direction:column;gap:3px;padding:0 13px 9px}
+.drow{display:flex;align-items:center;gap:13px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size:11px;min-width:0}
 .d{display:inline-flex;align-items:center;gap:5px;min-width:0;color:${C.muted}}
 .d .gmark{color:${C.dim};flex:none}
 .d .gchar{color:${C.dim};flex:none;font-size:11px;line-height:1}
@@ -470,20 +477,20 @@ const CSS = `
 
 /* summary — the current-state screen: a bezeled box with a dark recessed interior
    (same "dark screen" vibe as the trace below), green-tinted while working. */
-.summary{margin:8px 16px 12px;padding:11px 12px;border:1px solid rgba(255,255,255,.06);border-radius:10px;
-  background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:9px}
+.summary{margin:4px 13px 9px;padding:9px 10px;border:1px solid rgba(255,255,255,.06);border-radius:7px;
+  background:rgba(0,0,0,.2);display:flex;flex-direction:column;gap:7px}
 .card--working .summary{border-color:color-mix(in srgb,${C.green} 14%,transparent);background:color-mix(in srgb,${C.green} 4%,rgba(0,0,0,.22))}
-.current{display:flex;gap:7px;font-size:12.5px;line-height:1.4;color:${C.ink}}
+.current{display:flex;gap:6px;font-size:12px;line-height:1.35;color:${C.ink}}
 .head-text{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* direction reads from the arrow shape (←/→), not colour — uniform with all marks */
 .dir{font-family:ui-monospace,monospace;flex:none;font-weight:600;color:${C.dim}}
 /* stats — understated subtle pills (matching the app's .s-agent-lane-stat):
    a faint ink-wash bg, muted mono, small. grounded but quiet, not a heavy bar. */
 .stats{display:flex;flex-wrap:wrap;gap:5px}
-.stat{display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;
+.stat{display:inline-flex;align-items:center;padding:2px 7px;border-radius:4px;
   font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.01em;color:${C.muted};
   background:color-mix(in srgb,${C.ink} 4%,transparent)}
-.files{display:flex;flex-direction:column;gap:3px}
+.files{display:flex;flex-direction:column;gap:2px}
 .file{display:flex;gap:8px;align-items:baseline;font-family:ui-monospace,monospace;font-size:11px}
 .fstate{color:${C.dim};text-transform:uppercase;font-size:9px;letter-spacing:.04em;width:24px;flex:none}
 .fstate--mod,.fstate--new{color:${C.muted}}
@@ -492,8 +499,8 @@ const CSS = `
 
 /* trace — the BOTTOM section: a recessed log panel split from the identity/summary
    above by a full-width divider + darker inset background. */
-.trace{padding:11px 16px 15px;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.22)}
-.trace-head{display:flex;align-items:baseline;justify-content:space-between;padding:0 0 9px}
+.trace{padding:9px 13px 12px;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.22)}
+.trace-head{display:flex;align-items:baseline;justify-content:space-between;padding:0 0 7px}
 .trace-label{font-family:ui-monospace,monospace;font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:${C.muted}}
 .trace-span{font-family:ui-monospace,monospace;font-size:10px;color:${C.dim}}
 /* three columns: time (left) · spine line · content. the glyph is the FIRST
@@ -508,7 +515,7 @@ const CSS = `
 .t-spine{position:absolute;left:35px;top:7px;bottom:9px;width:1px;
   background:linear-gradient(180deg,transparent 0%,color-mix(in srgb,${C.green} 34%,transparent) 13%,color-mix(in srgb,${C.green} 50%,transparent) 50%,color-mix(in srgb,${C.green} 34%,transparent) 87%,transparent 100%)}
 /* per-event elbow — a thin accent tick from the spine to each event (connected feel) */
-.tbody{position:relative;padding:0 0 10px;min-width:0}
+.tbody{position:relative;padding:0 0 7px;min-width:0}
 .tbody::before{content:"";position:absolute;left:-13px;top:8px;width:11px;height:1px;background:color-mix(in srgb,${C.green} 28%,transparent)}
 /* catalog keeps a per-row accented spine (continuous via stacking) + the same elbow */
 .cat-item .tgut::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:color-mix(in srgb,${C.green} 38%,transparent);transform:translateX(-50%)}
