@@ -354,13 +354,20 @@ export function readCodexRolloutUsageObservation(
   const totalTokenUsage = observedRecord(info?.total_token_usage);
   const lastTokenUsage = observedRecord(info?.last_token_usage);
   const rateLimits = observedRecord(record.rate_limits);
+  const inputTokens = observedNumber(totalTokenUsage?.input_tokens);
+  const outputTokens = observedNumber(totalTokenUsage?.output_tokens);
   const observation: CodexUsageObservation = {
-    inputTokens: observedNumber(totalTokenUsage?.input_tokens),
+    inputTokens,
     contextInputTokens: observedNumber(lastTokenUsage?.input_tokens),
     cacheReadInputTokens: observedNumber(totalTokenUsage?.cached_input_tokens),
-    outputTokens: observedNumber(totalTokenUsage?.output_tokens),
+    outputTokens,
     reasoningOutputTokens: observedNumber(totalTokenUsage?.reasoning_output_tokens),
-    totalTokens: observedNumber(totalTokenUsage?.total_tokens),
+    totalTokens: observedNumber(totalTokenUsage?.total_tokens)
+      ?? (
+        inputTokens !== undefined || outputTokens !== undefined
+          ? (inputTokens ?? 0) + (outputTokens ?? 0)
+          : undefined
+      ),
     contextWindowTokens: observedNumber(info?.model_context_window)
       ?? observedNumber(record.model_context_window),
     planType: observedString(rateLimits?.plan_type),

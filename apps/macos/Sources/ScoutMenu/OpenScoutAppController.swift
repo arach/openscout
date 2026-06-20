@@ -132,6 +132,19 @@ final class OpenScoutAppController: ObservableObject {
 
     private init() {}
 
+    var openScoutNetworkSetupActionLabel: String {
+        if !openScoutNetwork.sessionAvailable {
+            return "Sign in and publish"
+        }
+        if !openScoutNetwork.discoveryEnabled {
+            return "Publish this Mac"
+        }
+        if !openScoutNetworkRelayReady {
+            return "Start OSN relay"
+        }
+        return "Republish"
+    }
+
     func start() {
         guard refreshTimer == nil else {
             return
@@ -340,6 +353,19 @@ final class OpenScoutAppController: ObservableObject {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+
+    func setUpOpenScoutNetwork() {
+        runOpenScoutNetworkSetup(openSignInIfNeeded: true, reason: "Setting up OpenScout Network...")
+    }
+
+    func completeOpenScoutNetworkAuth(from url: URL) throws {
+        try OpenScoutNetworkSessionStore.saveSession(from: url)
+        runOpenScoutNetworkSetup(openSignInIfNeeded: false, reason: "Completing OpenScout Network setup...")
+    }
+
+    func finishOpenScoutNetworkSetupAfterAuth() {
+        runOpenScoutNetworkSetup(openSignInIfNeeded: false, reason: "Completing OpenScout Network setup...")
     }
 
     func openTailscale() {
@@ -630,9 +656,7 @@ final class OpenScoutAppController: ObservableObject {
     private func refreshOpenScoutNetworkState() {
         let settings = OpenScoutNetworkSettingsStore.load()
         let sessionAvailable = OpenScoutNetworkSessionStore.loadSessionToken() != nil
-        let relayReady = pairing.isRunning
-            && ((pairing.relay?.hasPrefix(settings.pairingRelayURL) ?? false)
-                || pairing.relay == settings.pairingRelayURL)
+        let relayReady = openScoutNetworkRelayReady(settings: settings)
         let statusLabel: String
         let detail: String
 
@@ -660,6 +684,71 @@ final class OpenScoutAppController: ObservableObject {
             statusLabel: statusLabel,
             statusDetail: detail
         )
+    }
+
+    private var openScoutNetworkRelayReady: Bool {
+        openScoutNetworkRelayReady(settings: OpenScoutNetworkSettingsStore.load())
+    }
+
+    private func openScoutNetworkRelayReady(settings: OpenScoutNetworkSettings) -> Bool {
+        pairing.isRunning
+            && ((pairing.relay?.hasPrefix(settings.pairingRelayURL) ?? false)
+                || pairing.relay == settings.pairingRelayURL)
+    }
+
+    private func enableOpenScoutNetworkSettings() throws {
+        var settings = OpenScoutNetworkSettingsStore.load()
+        settings.discoveryEnabled = true
+        settings.keepPairingRelayRunning = true
+        try OpenScoutNetworkSettingsStore.save(settings)
+        refreshOpenScoutNetworkState()
+    }
+
+    private func runOpenScoutNetworkSetup(openSignInIfNeeded: Bool, reason: String) {
+        guard !openScoutNetworkActionPending else {
+            return
+        }
+
+        openScoutNetworkActionPending = true
+        lastError = nil
+        resetActionLog()
+        appendActionLog(.info, reason)
+
+        Task {
+            defer {
+                openScoutNetworkActionPending = false
+            }
+
+            do {
+                try enableOpenScoutNetworkSettings()
+
+                guard OpenScoutNetworkSessionStore.loadSessionToken() != nil else {
+                    if openSignInIfNeeded {
+                        appendActionLog(.info, "Opening OpenScout Network sign-in...")
+                        signInOpenScoutNetwork()
+                    } else {
+                        appendActionLog(.error, "Sign-in did not provide an OpenScout Network session.")
+                    }
+                    requestRefresh(reason: .manual)
+                    return
+                }
+
+                appendActionLog(.info, "Restarting broker for OSN publishing...")
+                broker = BrokerState(from: try await brokerService.control(.restart))
+
+                appendActionLog(.info, "Starting OSN pairing relay...")
+                try await ensureOpenScoutNetworkPairingRelay()
+
+                refreshOpenScoutNetworkState()
+                appendActionLog(.success, "OpenScout Network is publishing this Mac.")
+                scheduleActionLogCollapse()
+            } catch {
+                lastError = error.localizedDescription
+                appendActionLog(.error, error.localizedDescription, copyDetails: error.localizedDescription)
+            }
+
+            requestRefresh(reason: .manual)
+        }
     }
 
     private func reconcileOpenScoutNetworkDiscovery() async {

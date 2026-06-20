@@ -85,9 +85,8 @@ enum HUDURLRouter {
 
     private static func handleOpenScoutNetworkAuth(url: URL) {
         do {
-            try OpenScoutNetworkSessionStore.saveSession(from: url)
+            try OpenScoutAppController.shared.completeOpenScoutNetworkAuth(from: url)
             NSLog("[scout://] OpenScout Network session saved")
-            OpenScoutAppController.shared.restartPairing()
         } catch {
             NSLog("[scout://] OpenScout Network auth failed: %@", error.localizedDescription)
         }

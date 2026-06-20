@@ -199,9 +199,12 @@ describe("buildObserveDataFromSnapshot", () => {
           observeUsage: {
             assistantMessages: 2,
             inputTokens: 12,
+            contextInputTokens: 137,
             outputTokens: 24,
             cacheReadInputTokens: 125,
             cacheCreationInputTokens: 60,
+            totalTokens: 221,
+            contextWindowTokens: 1000000,
             serviceTier: "standard",
           },
         },
@@ -226,9 +229,12 @@ describe("buildObserveDataFromSnapshot", () => {
       usage: {
         assistantMessages: 2,
         inputTokens: 12,
+        contextInputTokens: 137,
         outputTokens: 24,
         cacheReadInputTokens: 125,
         cacheCreationInputTokens: 60,
+        totalTokens: 221,
+        contextWindowTokens: 1000000,
         serviceTier: "standard",
       },
     });

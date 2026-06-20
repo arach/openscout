@@ -149,12 +149,19 @@ export function collapseObserveDisplayRows(events: ObserveEvent[]): ObserveDispl
       continue;
     }
 
-    const signature = observeEventSignature(current);
-    const prev = out[out.length - 1];
-    if (prev && observeEventSignature(prev.event) === signature) {
-      prev.repeatCount += 1;
-      prev.event = current;
-      continue;
+    // Authored, human-facing turns (messages to a channel, asks) always render
+    // as themselves — never merged into a "×N" badge. Repeat-collapse earns its
+    // keep on noisy machine output (reasoning streams, repeated tool calls), but
+    // on a real message the badge is cryptic and implies the agent "said it
+    // twice" when it's just feed repetition.
+    if (current.kind !== "message" && current.kind !== "ask") {
+      const signature = observeEventSignature(current);
+      const prev = out[out.length - 1];
+      if (prev && observeEventSignature(prev.event) === signature) {
+        prev.repeatCount += 1;
+        prev.event = current;
+        continue;
+      }
     }
 
     out.push({ event: current, repeatCount: 1 });

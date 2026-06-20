@@ -10,6 +10,10 @@ export { StateTracker } from "./state.js";
 export type { SessionState, SessionSummary, TurnState, BlockState } from "./state.js";
 export { OutboundBuffer } from "./buffer.js";
 export type { SequencedEvent } from "./buffer.js";
+export {
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  inferModelContextWindowTokens,
+} from "./model-context-window.js";
 export { SessionRegistry } from "./registry.js";
 export {
   SessionRegistryError,

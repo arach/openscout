@@ -4,7 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import type { Agent, Route } from "../../lib/types.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
+import { AgentLaneCard } from "./AgentLaneCard.tsx";
+import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
 import { AgentLaneSummaryCard } from "./AgentLaneSummaryCard.tsx";
 import {
@@ -72,29 +75,61 @@ function AgentLaneColumn({
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
   const hasTrace = Boolean(observe && observe.events.length > 0);
+  const liveClass = isLive ? " s-agent-lane--live" : "";
+  const newClass = isNew ? " s-agent-lane--new" : "";
+  const [collapsed, setCollapsed] = useState(false);
 
+  // The proven lane trace (distinguished per-kind rows, enter animations,
+  // auto-scroll, hidden scrollbars). Rendered fresh per call so it can sit in
+  // both the current column and the new card without sharing an element.
+  const renderTrace = () => (
+    <section className="s-agent-lane-trace" aria-label={`${lanePrimaryLabel(agent, source)} trace`}>
+      <div className="s-agent-lane-body">
+        {hasTrace ? (
+          <SessionObserve
+            data={observe ?? undefined}
+            agentId={lane.source === "scout" ? agent.id : undefined}
+            sessionId={agent.harnessSessionId}
+            showRail={false}
+            variant="lane"
+            nowMs={nowMs}
+            traceWindowMs={traceWindowMs}
+            traceWindowLabel={traceWindowLabel}
+          />
+        ) : (
+          <div className="s-agent-lane-empty">Waiting for trace activity…</div>
+        )}
+      </div>
+    </section>
+  );
+
+  // Temporary A/B: the current lane column and the new studio-design card,
+  // side by side on the same page, driven by the same live lane data. The new
+  // card brings a fresh identity header + dark status box, then hosts the SAME
+  // SessionObserve trace as the current column.
   return (
-    <article className={`s-agent-lane${isLive ? " s-agent-lane--live" : ""}${isNew ? " s-agent-lane--new" : ""}`}>
-      <AgentLaneSummaryCard lane={lane} isLive={isLive} onOpen={() => onInspect(lane)} />
-      <section className="s-agent-lane-trace" aria-label={`${lanePrimaryLabel(agent, source)} trace`}>
-        <div className="s-agent-lane-body">
-          {hasTrace ? (
-            <SessionObserve
-              data={observe ?? undefined}
-              agentId={lane.source === "scout" ? agent.id : undefined}
-              sessionId={agent.harnessSessionId}
-              showRail={false}
-              variant="lane"
-              nowMs={nowMs}
-              traceWindowMs={traceWindowMs}
-              traceWindowLabel={traceWindowLabel}
-            />
-          ) : (
-            <div className="s-agent-lane-empty">Waiting for trace activity…</div>
-          )}
-        </div>
-      </section>
-    </article>
+    <div className="s-agent-lane-compare">
+      <div className="s-agent-lane-compare-cell">
+        <span className="s-agent-lane-compare-tag">current</span>
+        <article className={`s-agent-lane${liveClass}${newClass}`}>
+          <AgentLaneSummaryCard lane={lane} isLive={isLive} onOpen={() => onInspect(lane)} />
+          {renderTrace()}
+        </article>
+      </div>
+      <div className="s-agent-lane-compare-cell">
+        <span className="s-agent-lane-compare-tag s-agent-lane-compare-tag--new">new</span>
+        <article className={`s-agent-lane${liveClass}${newClass}`}>
+          <AgentLaneCard
+            model={agentLaneToCardModel(lane, { isLive, nowMs })}
+            avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
+            trace={renderTrace()}
+            collapsed={collapsed}
+            onToggleCollapsed={() => setCollapsed((value) => !value)}
+            onOpen={() => onInspect(lane)}
+          />
+        </article>
+      </div>
+    </div>
   );
 }
 
@@ -110,6 +145,12 @@ export function AgentLanesView({
   const tailRecentLimit = agentLaneTailRecentLimit(horizon);
   const traceWindowMs = agentLaneHorizonWindowMs(horizon);
   const { discovery, events: tailEvents } = useTailFeed({
+    // Replay transcript history from disk (like TailView) so the horizon can
+    // reach into the past. Without this the broker returns only its live
+    // in-memory ring buffer, so widening to 4h/24h reveals nothing older than
+    // what's streamed in since the broker started. buildAgentLanes still trims
+    // everything to the selected windowMs.
+    includeTranscriptReplay: true,
     recentLimit: tailRecentLimit,
   });
   const returnRoute: Route = { view: "ops", mode: "lanes" };

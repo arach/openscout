@@ -28,8 +28,8 @@
 }
 
 .s-observe--lane .s-observe-main {
-  --lane-time-col: 54px;
-  --lane-spine-x: 56px;
+  --lane-time-col: 62px;
+  --lane-spine-x: 64px;
   padding: var(--space-sm) var(--space-lg) var(--space-lg);
   overflow-x: hidden;
 }
@@ -227,7 +227,9 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 1px;
+  /* the kind label + clock are two stacked lines — give them room to breathe so
+     neither crowds the other (the gutter widened to match). */
+  gap: 3px;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
@@ -236,6 +238,28 @@
   text-align: right;
   white-space: nowrap;
   padding-right: var(--space-sm);
+}
+
+/* the studio-style gutter: a row is NAMED by its kind/tool (primary), with the
+   clock kept as a quiet — but still legible — recency line beneath it. */
+.s-observe--lane .s-observe-row-kindlabel {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  letter-spacing: var(--tracking-xs);
+  line-height: 1.3;
+}
+.s-observe--lane .s-observe-row-clock {
+  font-size: 9px;
+  line-height: 1.3;
+  letter-spacing: 0.015em;
+  color: color-mix(in srgb, var(--dim) 90%, transparent);
+}
+/* the row's accent tint flows onto the label of the live edge only */
+.s-observe--lane .s-observe-row--kind-ask .s-observe-row-kindlabel {
+  color: color-mix(in srgb, var(--muted) 70%, var(--accent) 30%);
 }
 
 .s-observe--lane .s-observe-row-repeat {
@@ -464,6 +488,9 @@
   margin-left: var(--space-xs);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
 .s-observe--lane .s-observe-tool-stream--lane {
@@ -520,12 +547,12 @@
 
 .s-observe--lane .s-observe-tool-diff-add,
 .s-observe--lane .s-observe-diff-line--add {
-  color: var(--muted);
+  color: color-mix(in srgb, var(--ink) 58%, var(--muted));
 }
 
 .s-observe--lane .s-observe-tool-diff-del,
 .s-observe--lane .s-observe-diff-line--del {
-  color: color-mix(in srgb, var(--muted) 82%, var(--red) 18%);
+  color: color-mix(in srgb, var(--muted) 74%, var(--red) 26%);
 }
 
 .s-observe--lane .s-observe-tool-header--has-body {
@@ -544,6 +571,219 @@
 .s-observe--lane .s-observe-tool-cmd {
   font-size: var(--text-xs);
   word-break: break-word;
+}
+
+/* ── bespoke per-tool lane idioms ──────────────────────────────────────────
+ * Distinction comes from typographic idiom + contrast, never categorical
+ * colour: a shell line, a file path, a quoted needle. Each family reads as its
+ * own small component while sharing the quiet terminal block around it. */
+
+/* ── bash terminal block ───────────────────────────────────────────────────
+   A shell row reads as an embedded terminal line: a bordered, recessed pill
+   with an optional powerline directory segment (a leading cd), a chevron
+   prompt, then the command in three tiers — program (ink) · args (muted) ·
+   plumbing (dim). Single line; full command on hover. All colours derive from
+   tokens so it follows the theme. Markup + parsing live in LaneBashLine /
+   lib/bash-format.ts — this is just the skin. */
+.s-observe--lane .s-observe-tool--fam-bash,
+.s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-header {
+  /* the pill is the whole visual — drop the generic tool chrome around it */
+  background: transparent;
+  border-left: 0;
+  padding: 0;
+}
+/* give the pill a definite width to truncate against (the row's content box) */
+.s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-header,
+.s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-cmd {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.s-observe--lane .s-observe-bash {
+  --bash-bg: color-mix(in srgb, #000 22%, var(--bg));
+  --bash-seg: color-mix(in srgb, var(--ink) 9%, color-mix(in srgb, #000 22%, var(--bg)));
+  --bash-edge: color-mix(in srgb, var(--ink) 16%, transparent);
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--bash-bg);
+  border: 1px solid var(--bash-edge);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ink) 4%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+}
+.s-observe--lane .s-observe-bash-prompt {
+  flex: none;
+  margin-right: 8px;
+  font-weight: 700;
+  user-select: none;
+  color: color-mix(in srgb, var(--accent) 78%, var(--muted));
+}
+/* powerline directory segment (from a leading cd) — chip + bordered tip */
+.s-observe--lane .s-observe-bash-pl {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+}
+.s-observe--lane .s-observe-bash-seg {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px 1px 7px;
+  background: var(--bash-seg);
+  color: var(--muted);
+  border: 1px solid var(--bash-edge);
+  border-right: 0;
+  border-radius: 3px 0 0 3px;
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xs);
+}
+.s-observe--lane .s-observe-bash-sep {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  flex: none;
+  background: var(--bash-seg);
+  border-top: 1px solid var(--bash-edge);
+  border-right: 1px solid var(--bash-edge);
+  border-top-right-radius: 2px;
+  transform: rotate(45deg);
+  margin-left: -8px;
+}
+/* the command flexes + truncates with an ellipsis; prompt/segment/ok hold firm */
+.s-observe--lane .s-observe-bash-cmd {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-observe--lane .s-observe-bash-prog {
+  color: var(--ink);
+  font-weight: 600;
+}
+.s-observe--lane .s-observe-bash-arg {
+  color: var(--muted);
+}
+.s-observe--lane .s-observe-bash-flag {
+  color: color-mix(in srgb, var(--muted) 72%, var(--dim));
+}
+.s-observe--lane .s-observe-bash-dim {
+  color: var(--dim);
+}
+/* a cd destination — the directory name reads (muted), its path prefix recedes
+   (dim). Honest: it's plainly part of the command, not a prompt costume. */
+.s-observe--lane .s-observe-bash-dir {
+  color: var(--muted);
+}
+.s-observe--lane .s-observe-bash-dir-prefix {
+  color: var(--dim);
+}
+.s-observe--lane .s-observe-bash-ok {
+  flex: none;
+  margin-left: 9px;
+  color: var(--dim);
+}
+/* recognised command — a one-time shimmer the first time the row appears */
+.s-observe--lane .s-observe-bash-prog--known {
+  color: var(--ink);
+}
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .s-observe--lane .s-observe-bash-prog--known {
+    background: linear-gradient(
+      100deg,
+      var(--ink) 0%, var(--ink) 40%,
+      var(--accent) 50%,
+      var(--ink) 60%, var(--ink) 100%
+    );
+    background-size: 240% 100%;
+    background-position: 120% 0;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: s-observe-bash-shimmer 1100ms ease-out 200ms both;
+  }
+}
+@keyframes s-observe-bash-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -40% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .s-observe--lane .s-observe-bash-prog--known {
+    animation: none;
+    -webkit-text-fill-color: var(--ink);
+  }
+}
+
+/* file paths — the directory recedes and the file leaf is the hero: the leaf
+   never breaks mid-name, the directory ellipsises first if the row is cramped,
+   and the full path stays on hover (title). */
+.s-observe--lane .s-observe-tool-path {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  min-width: 0;
+}
+.s-observe--lane .s-observe-tool-path-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+.s-observe--lane .s-observe-tool-path-base--file {
+  flex: none;
+  white-space: nowrap;
+  color: var(--ink);
+  font-weight: 600;
+}
+/* read is the passive end of the spectrum — the leaf stays quiet, no weight */
+.s-observe--lane .s-observe-tool-path-base--read {
+  flex: none;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+/* search — a quoted needle, with quotes dimmed and an optional match tally */
+.s-observe--lane .s-observe-tool-needle {
+  color: var(--ink);
+}
+.s-observe--lane .s-observe-tool-needle-q {
+  color: var(--dim);
+}
+.s-observe--lane .s-observe-tool-count {
+  margin-left: var(--space-2xs);
+  color: var(--dim);
+}
+
+/* fetch — host carries the weight, path recedes */
+.s-observe--lane .s-observe-tool-host {
+  color: var(--ink);
+}
+.s-observe--lane .s-observe-tool-host-path {
+  margin-left: 1px;
+  color: var(--dim);
+}
+
+/* agent — a delegated sub-agent name */
+.s-observe--lane .s-observe-tool-agent-name {
+  color: var(--ink);
+}
+
+/* read rows recede a touch — the quietest tool in the trace */
+.s-observe--lane .s-observe-tool--fam-read {
+  background: color-mix(in srgb, var(--surface) 42%, transparent);
+}
+.s-observe--lane .s-observe-tool--fam-read .s-observe-tool-glyph {
+  color: color-mix(in srgb, var(--dim) 80%, transparent);
 }
 
 .s-observe-embed-page {

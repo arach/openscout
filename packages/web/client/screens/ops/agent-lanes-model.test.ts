@@ -815,6 +815,13 @@ describe("isAgentLaneWorking", () => {
                 reasoning_output_tokens: 8,
                 total_tokens: 42,
               },
+              last_token_usage: {
+                input_tokens: 12,
+                cached_input_tokens: 4,
+                output_tokens: 22,
+                reasoning_output_tokens: 8,
+                total_tokens: 34,
+              },
               model_context_window: 1000,
             },
             rate_limits: { plan_type: "pro" },
@@ -853,6 +860,8 @@ describe("isAgentLaneWorking", () => {
     expect(data.metadata?.session?.effort).toBe("xhigh");
     expect(data.metadata?.session?.originator).toBe("Codex Desktop");
     expect(data.metadata?.usage?.totalTokens).toBe(42);
+    expect(data.metadata?.usage?.contextInputTokens).toBe(12);
+    expect(data.metadata?.usage?.contextWindowTokens).toBe(1000);
     expect(data.metadata?.usage?.cacheReadInputTokens).toBe(4);
     expect(facts.model).toBe("gpt-5.5");
     expect(facts.effort).toBe("xhigh");
@@ -863,6 +872,48 @@ describe("isAgentLaneWorking", () => {
     expect(facts.touchedFiles.map((file) => file.path)).toContain(
       "packages/web/client/screens/ops/agent-lanes-model.ts",
     );
+  });
+
+  test("enriches Claude tail observe metadata with latest-turn context usage", () => {
+    const transcript = {
+      source: "claude",
+      transcriptPath: "/tmp/claude.jsonl",
+      sessionId: "claude-facts",
+      cwd: "/repo",
+      project: "repo",
+      harness: "scout-managed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const events = [
+      stubTailEvent("claude-facts", NOW - 2_000, "assistant", {
+        source: "claude",
+        raw: {
+          type: "assistant",
+          timestamp: "2026-06-20T20:00:00.000Z",
+          message: {
+            id: "msg-1",
+            role: "assistant",
+            model: "claude-opus-4-8",
+            content: [{ type: "text", text: "done" }],
+            usage: {
+              input_tokens: 2,
+              cache_read_input_tokens: 91_793,
+              cache_creation_input_tokens: 1_478,
+              output_tokens: 1_647,
+              service_tier: "standard",
+              speed: "standard",
+            },
+          },
+        },
+      }),
+    ];
+
+    const data = observeDataFromTail(transcript, events, true);
+
+    expect(data.metadata?.usage?.contextInputTokens).toBe(93_273);
+    expect(data.metadata?.usage?.contextWindowTokens).toBe(1_000_000);
+    expect(data.metadata?.usage?.totalTokens).toBe(94_920);
   });
 
   test("excludes stale observe history even when poll metadata is fresh", () => {
@@ -1109,6 +1160,10 @@ describe("buildAgentLanes roster", () => {
       tailEvents: [],
       observeCache: {
         [agent.id]: {
+          source: "history",
+          fidelity: "timestamped",
+          historyPath: "/tmp/warmup.jsonl",
+          sessionId: agent.harnessSessionId,
           data: {
             events: [{
               id: "boot",

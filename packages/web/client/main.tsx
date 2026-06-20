@@ -11,6 +11,7 @@ import {
   resolveScoutStartupTheme,
 } from "./lib/theme.ts";
 import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
+import { DevErrorOverlay } from "./dev/DevErrorOverlay.tsx";
 import "./styles/tokens.css";
 import "./styles/primitives.css";
 import "./arc-tailwind.css";
@@ -53,5 +54,9 @@ createRoot(el).render(
     ) : (
       <OpenScoutAppShell app={scoutApp} />
     )}
+    {/* dev-only runtime-issue HUD — captures uncaught errors, rejections, and
+        console/React errors (e.g. duplicate-key warnings) into a clean, copyable
+        surface. Tree-shaken out of production builds. */}
+    {import.meta.env.DEV ? <DevErrorOverlay /> : null}
   </StrictMode>,
 );

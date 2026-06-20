@@ -68,12 +68,16 @@ const LANES: Lane[] = [
       { state: "mod", path: "HarnessMark.tsx" },
     ],
     trace: [
-      { t: "1h", kind: "think", text: "Remove the dead corner-chip rules, then re-run tsc to confirm clean." },
-      { t: "1h", kind: "tool", tool: "Edit", arg: "…/screens/ops/agent-lanes.css", diff: { add: 4, del: 22 } },
-      { t: "1h", kind: "tool", tool: "Bash", arg: "tsc --noEmit -p . | grep HarnessMark", result: "0 errors" },
-      { t: "58m", kind: "note", text: "wrote /tmp/lane-card.png" },
-      { t: "48m", kind: "message", dir: "from", text: "let's do a lane agent lane study. beautiful and perfect" },
+      { t: "1h", kind: "message", dir: "from", text: "let's do a lane agent lane study. beautiful and perfect" },
+      { t: "1h", kind: "think", text: "Map the lane card surfaces first, then the trace styling." },
+      { t: "58m", kind: "tool", tool: "Bash", arg: 'rg "useObservePolling" packages/web --type ts -n', result: "9 matches" },
+      { t: "56m", kind: "tool", tool: "Read", arg: "src/screens/ops/agent-lanes.css" },
+      { t: "52m", kind: "tool", tool: "Edit", arg: "…/screens/ops/agent-lanes.css", diff: { add: 4, del: 22 } },
+      { t: "49m", kind: "tool", tool: "Bash", arg: "cd /Users/art/dev/openscout/packages/web && ./node_modules/.bin/tsc --noEmit -p tsconfig.json", result: "0 errors" },
+      { t: "47m", kind: "think", text: "Clean. Reload the lanes surface and confirm the secondary line lands." },
       { t: "44m", kind: "ask", text: "Center the harness with the name, or bottom-align?" },
+      { t: "40m", kind: "tool", tool: "Bash", arg: "cd ~/dev/openscout && bun bin/scout-app.ts dev-build 2>&1 | tail -5" },
+      { t: "33m", kind: "note", text: "wrote /tmp/lane-card.png" },
       { t: "31m", kind: "message", dir: "to", text: "Building the full lane card — header, summary, trace." },
     ],
   },
@@ -179,6 +183,128 @@ function traceStatus(ev: TraceEv): string {
   return "";
 }
 
+/* ── bash command, read in three tiers ─────────────────────────────────────
+ * prog — the real program (ink); arg — its arguments (muted); dim — everything
+ * else: a `cd …` / env prefix, operators (`&&` `|` `;`), redirects (`2>&1`), and
+ * piped helper commands. Home paths tilde-shorten. Mirrors the web lane bash
+ * renderer (packages/web SessionObserve) so a refinement here ports straight back. */
+type BashTier = "prog" | "arg" | "dim";
+type BashSpan = { text: string; tier: BashTier; known?: boolean; flag?: boolean };
+
+const BASH_OPERATORS = new Set(["&&", "||", "|", "|&", ";", "&"]);
+// builtins whose own arguments are plumbing. A LEADING `cd` is pulled out into a
+// powerline directory segment before this runs; this is the fallback for a
+// non-leading `cd` mid-pipeline.
+const BASH_PREFIX_BUILTINS = new Set(["cd", "export", "set", "source", ".", "unset", "alias"]);
+// wrappers that precede the REAL command — dim them, but the program still follows
+const BASH_WRAPPERS = new Set([
+  "sudo", "doas", "time", "env", "xargs", "nice", "nohup", "command", "builtin",
+  "exec", "watch", "stdbuf", "setsid", "timeout", "caffeinate",
+]);
+
+/* The commands agents actually reach for — POSIX/coreutils + the modern dev
+ * toolbelt. Recognising the program lets us treat it with confidence (and is the
+ * hook for per-command niceties later). Grouped only for editing legibility. */
+const KNOWN_COMMANDS = new Set([
+  // search / nav / text
+  "rg", "grep", "ag", "ack", "fd", "find", "awk", "sed", "cut", "tr", "sort", "uniq",
+  "wc", "head", "tail", "cat", "bat", "less", "more", "tee", "nl", "rev", "column",
+  "ls", "eza", "tree", "fzf", "jq", "yq", "xsv", "diff", "patch", "comm", "paste",
+  // vcs / gh
+  "git", "gh", "hub", "glab",
+  // js / runtimes / pkg
+  "node", "deno", "bun", "npm", "pnpm", "yarn", "npx", "tsc", "tsx", "vite", "esbuild",
+  "eslint", "prettier", "biome", "vitest", "jest", "mocha", "playwright",
+  // python / ruby / go / rust / jvm
+  "python", "python3", "pip", "pip3", "uv", "ruff", "ruby", "gem", "bundle", "rake",
+  "go", "gofmt", "cargo", "rustc", "java", "javac", "gradle", "mvn", "dotnet",
+  // swift / apple
+  "swift", "swiftc", "xcodebuild", "xcrun", "simctl", "pod", "fastlane",
+  // build / infra / net
+  "make", "cmake", "ninja", "docker", "kubectl", "helm", "terraform", "ansible",
+  "curl", "wget", "ssh", "scp", "rsync", "nc", "dig", "ping",
+  // fs / proc / sys
+  "cp", "mv", "rm", "mkdir", "touch", "ln", "chmod", "chown", "tar", "zip", "unzip",
+  "gzip", "ps", "kill", "pkill", "lsof", "df", "du", "top", "htop", "which", "echo",
+  "printf", "date", "sleep", "open", "pbcopy", "pbpaste", "say", "afplay", "defaults",
+]);
+
+const isBashRedirect = (t: string) => /^\d*[<>]{1,2}&?\d*$/u.test(t) || t === "&>" || t === "&>>";
+const isBashEnvAssignment = (t: string) => /^[A-Za-z_][A-Za-z0-9_]*=/u.test(t);
+const isBashFlag = (t: string) => /^-{1,2}[A-Za-z0-9]/u.test(t);
+/** The program's recognisable name (drop a path, so ./node_modules/.bin/tsc → tsc). */
+const bashBaseName = (t: string) => t.replace(/^.*\//u, "");
+
+function bashDisplaySpans(command: string): BashSpan[] {
+  const shortened = command.replace(/\/Users\/[^/\s]+/gu, "~");
+  const tokens = shortened.trim().split(/\s+/u).filter(Boolean);
+  const spans: BashSpan[] = [];
+  let expectProgram = true;
+  let foundPrimary = false;
+  let primaryArgs = false;
+  for (const token of tokens) {
+    if (BASH_OPERATORS.has(token) || isBashRedirect(token)) {
+      spans.push({ text: token, tier: "dim" });
+      expectProgram = true;
+      primaryArgs = false;
+      continue;
+    }
+    if (expectProgram) {
+      // env assignments + wrappers dim out but the program still follows them
+      if (isBashEnvAssignment(token) || BASH_WRAPPERS.has(token)) {
+        spans.push({ text: token, tier: "dim" });
+        continue;
+      }
+      if (BASH_PREFIX_BUILTINS.has(token)) {
+        spans.push({ text: token, tier: "dim" });
+        expectProgram = false;
+        primaryArgs = false;
+        continue;
+      }
+      spans.push({
+        text: token,
+        tier: foundPrimary ? "dim" : "prog",
+        known: KNOWN_COMMANDS.has(bashBaseName(token)),
+      });
+      primaryArgs = !foundPrimary;
+      foundPrimary = true;
+      expectProgram = false;
+      continue;
+    }
+    spans.push({
+      text: token,
+      tier: primaryArgs ? "arg" : "dim",
+      flag: primaryArgs && isBashFlag(token),
+    });
+  }
+  return spans;
+}
+
+function BashCmd({ command }: { command: string }) {
+  return (
+    <span className="tbash">
+      {bashDisplaySpans(command).map((s, i) => (
+        <span
+          key={i}
+          className={`tbash-${s.tier}${s.known ? " tbash-prog--known" : ""}${s.flag ? " tbash-flag" : ""}`}
+        >
+          {i > 0 ? " " : ""}{s.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Pull a leading `cd <dir> [&&]` off a command so the directory can ride its own
+ *  powerline segment and the real command leads. Returns the (tilde-shortened)
+ *  dir and the remaining command. */
+function splitCdPrefix(command: string): { dir: string | null; rest: string } {
+  const m = command.match(/^\s*cd\s+(\S+)\s*(?:&&\s*(.*))?$/u);
+  if (!m) return { dir: null, rest: command };
+  return { dir: m[1].replace(/\/Users\/[^/\s]+/u, "~"), rest: (m[2] ?? "").trim() };
+}
+
+
 /** One trace event row — three columns: time (left) · glyph (center) · content (one start). */
 function TraceRow({ ev, showTime = true, compact = false }: { ev: TraceEv; showTime?: boolean; compact?: boolean }) {
   const g = <span className={`tg${traceStatus(ev)}`} aria-hidden>{traceGlyph(ev)}</span>;
@@ -205,12 +331,38 @@ function TraceRow({ ev, showTime = true, compact = false }: { ev: TraceEv; showT
         {ev.kind === "system" && <div className={`tprimary tprimary--system${ev.error ? " tprimary--error" : ""}`}>{g}<span className="ttext">{ev.text}</span></div>}
         {ev.kind === "tool" && (
           <>
-            <div className="tprimary tprimary--tool">
-              {g}
-              <span className="ttool-name">{ev.tool}</span>
-              {ev.arg && <span className="targ">{ev.arg}</span>}
-              {ev.diff && <span className="tdiff"><span className="tadd">+{ev.diff.add}</span><span className="tdel">−{ev.diff.del}</span></span>}
-              {ev.result && <span className="tresult">{ev.result}</span>}
+            <div className={`tprimary tprimary--tool${ev.tool === "Bash" ? " tprimary--bash" : ""}`}>
+              {ev.tool === "Bash" ? (
+                /* bash reads as an embedded terminal line: a recessed block with
+                   a thin border + chevron prompt. A leading `cd` becomes a
+                   powerline directory segment; the tiered command follows. */
+                (() => {
+                  const { dir, rest } = splitCdPrefix(ev.arg ?? "");
+                  return (
+                    <span className="tbash-block" title={ev.arg}>
+                      {/* powerline order: directory segment first, then the
+                          chevron prompt right before the command. */}
+                      {dir && (
+                        <span className="tbash-pl">
+                          <span className="tbash-seg">{dir}</span>
+                          <span className="tbash-sep" aria-hidden />
+                        </span>
+                      )}
+                      <span className="tbash-prompt" aria-hidden>❯</span>
+                      {rest ? <BashCmd command={rest} /> : (!dir && <span className="tbash-arg">shell</span>)}
+                      {ev.result && <span className="tbash-ok">{ev.result}</span>}
+                    </span>
+                  );
+                })()
+              ) : (
+                <>
+                  {g}
+                  <span className="ttool-name">{ev.tool}</span>
+                  {ev.arg && <span className="targ">{ev.arg}</span>}
+                  {ev.diff && <span className="tdiff"><span className="tadd">+{ev.diff.add}</span><span className="tdel">−{ev.diff.del}</span></span>}
+                  {ev.result && <span className="tresult">{ev.result}</span>}
+                </>
+              )}
             </div>
             {ev.todos && (
               <div className="ttodos">
@@ -255,6 +407,20 @@ const TOOL_SAMPLES: { tag: string; ev: TraceEv }[] = [
     { state: "doing", text: "wire the config key" },
     { state: "todo", text: "merge + verify on device" },
   ] } },
+];
+
+/** Bash refinement bench — real-world command shapes to tune the three tiers on. */
+const BASH_SAMPLES: { tag: string; ev: TraceEv }[] = [
+  { tag: "cd-prefix", ev: { kind: "tool", tool: "Bash", arg: "cd /Users/art/dev/lattices/apps/mac && swift build -c release 2>&1 | tail -5" } },
+  { tag: "restart", ev: { kind: "tool", tool: "Bash", arg: "bun bin/lattices-app.ts restart 2>&1 | tail -5" } },
+  { tag: "env-prefix", ev: { kind: "tool", tool: "Bash", arg: "FORCE=1 NODE_ENV=prod node build.js --watch" } },
+  { tag: "ripgrep", ev: { kind: "tool", tool: "Bash", arg: 'rg "useObservePolling" packages/web --type ts -n', result: "9 matches" } },
+  { tag: "pipeline", ev: { kind: "tool", tool: "Bash", arg: "git log --oneline | grep fix | head -20" } },
+  { tag: "wrapper", ev: { kind: "tool", tool: "Bash", arg: "sudo lsof -i :3030" } },
+  { tag: "xargs", ev: { kind: "tool", tool: "Bash", arg: "rg -l TODO src | xargs sed -i '' 's/TODO/DONE/'" } },
+  { tag: "find", ev: { kind: "tool", tool: "Bash", arg: 'find . -name "*.tmp" -delete' } },
+  { tag: "path-prog", ev: { kind: "tool", tool: "Bash", arg: "./node_modules/.bin/tsc --noEmit -p tsconfig.json" } },
+  { tag: "simple + ok", ev: { kind: "tool", tool: "Bash", arg: "gh pr merge 250 --squash", result: "merged 44bcad1" } },
 ];
 
 function LaneCard({ lane, guides }: { lane: Lane; guides: boolean }) {
@@ -374,6 +540,16 @@ export default function AgentLanesCardPage() {
         ))}
       </div>
 
+      <h2 className="sec">Trace · bash <span className="sec-note">— three-tier refinement bench</span></h2>
+      <div className="catalog">
+        {BASH_SAMPLES.map((s, i) => (
+          <div className="cat-item" key={i}>
+            <span className="cat-tag">{s.tag}</span>
+            <TraceRow ev={s.ev} compact />
+          </div>
+        ))}
+      </div>
+
       <h2 className="sec">Harness marks · large</h2>
       <div className="bigmarks">
         {HARNESSES.map((h) => (
@@ -394,6 +570,7 @@ const CSS = `
 .lanes-study h1{font-size:28px;font-weight:600;margin:4px 0}
 .sub{font-family:ui-monospace,monospace;font-size:12px;color:${C.dim};margin:0}
 .sec{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${C.muted};margin:36px 0 14px}
+.sec-note{font-weight:400;text-transform:none;letter-spacing:0;color:${C.dim}}
 
 .lane-row{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
 
@@ -533,6 +710,64 @@ const CSS = `
 .tprimary--error{color:${C.red}}
 .ttool-name{color:${C.ink};flex:none}
 .targ{color:${C.dim};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* bash reads as an embedded terminal line — a recessed near-black block with a
+   distinct prompt — so it stands out from prose rows. Inside, three tiers:
+   program (ink, weighted) · args (muted) · plumbing (dim). Weight does the heavy
+   lifting; the block + prompt give it terminal identity. */
+.tprimary--bash{align-items:flex-start}
+.tbash-block{
+  display:inline-flex;align-items:baseline;max-width:100%;
+  padding:2px 9px;border-radius:6px;
+  background:#070809;
+  border:1px solid color-mix(in srgb,${C.ink} 13%,transparent);  /* thin DEFINED edge, not just darkness */
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03), 0 1px 2px rgba(0,0,0,.45);
+  white-space:nowrap;overflow:hidden;  /* single line — full command on hover */
+  cursor:default;
+}
+/* the command flexes + truncates with an ellipsis; prompt + segment hold firm */
+.tbash-block .tbash{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tbash-prompt,.tbash-pl{flex:none}
+.tbash-prompt{
+  color:color-mix(in srgb,${C.green} 78%,${C.muted});
+  font-weight:700;margin-right:8px;user-select:none;
+}
+/* powerline directory segment — a leading cd becomes a chip + arrow */
+.tbash-pl{display:inline-flex;align-items:center;vertical-align:baseline;margin-right:8px}
+.tbash-seg{
+  display:inline-flex;align-items:center;
+  background:#101620;color:${C.muted};  /* a slight shift up from the block, not a heavy block */
+  padding:1px 5px 1px 7px;
+  border:1px solid color-mix(in srgb,${C.ink} 17%,transparent);
+  border-right:0;border-radius:3px 0 0 3px;
+  font-size:10.5px;letter-spacing:.01em;
+}
+/* powerline tip — a rotated square so the outer border wraps around to the point */
+.tbash-sep{
+  display:inline-block;width:11px;height:11px;flex:none;
+  background:#101620;
+  border-top:1px solid color-mix(in srgb,${C.ink} 17%,transparent);
+  border-right:1px solid color-mix(in srgb,${C.ink} 17%,transparent);
+  border-top-right-radius:2px;
+  transform:rotate(45deg);
+  margin-left:-8px;
+}
+.tbash{overflow-wrap:anywhere}
+.tbash-prog{color:${C.ink};font-weight:600}
+.tbash-arg{color:${C.muted}}
+.tbash-flag{color:color-mix(in srgb,${C.muted} 72%,${C.dim})}
+.tbash-dim{color:color-mix(in srgb,${C.dim} 82%,transparent)}
+.tbash-ok{flex:none;margin-left:9px;color:${C.dim}}
+/* recognised command — a one-time shimmer the first time the row appears, then
+   settles to ink. (In the static study every known token shimmers once on load.) */
+.tbash-prog--known{
+  color:#eef0f2;
+  background:linear-gradient(100deg,#eef0f2 0%,#eef0f2 40%,${C.green} 50%,#eef0f2 60%,#eef0f2 100%);
+  background-size:240% 100%;background-position:120% 0;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:bash-shimmer 1100ms ease-out 350ms both;
+}
+@keyframes bash-shimmer{from{background-position:120% 0}to{background-position:-40% 0}}
+@media (prefers-reduced-motion:reduce){.tbash-prog--known{animation:none;-webkit-text-fill-color:#eef0f2}}
 .tnote{color:${C.dim};font-style:italic}
 /* detail lines hang under the primary text (11px glyph + 6px gap) */
 .tsub{padding-left:17px;margin-top:3px;min-width:0}
