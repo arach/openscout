@@ -11,18 +11,12 @@ import {
 import { api } from "../../lib/api.ts";
 import { useCanvasMinimapRegistration } from "../../lib/canvas-minimap.tsx";
 import {
-  MISSION_RECENT_WINDOWS,
   missionAgentMatchesQuery,
   clearMissionCanvasFocusRequest,
-  setMissionActivityFilter,
+  clearMissionSelection,
   setMissionFocusedId,
-  setMissionGroupMode,
-  setMissionQuery,
-  setMissionRecentWindow,
-  setMissionSourceFilter,
   setMissionVisibleAgents,
   toggleMissionSelected,
-  clearMissionSelection,
   useMissionControlStore,
   type MissionActivityState,
   type MissionGroupMode,
@@ -41,7 +35,6 @@ import {
   tailObserveEventDetail,
 } from "../../lib/tail-display.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
-import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
 import type {
   Agent,
   ObserveData,
@@ -104,6 +97,8 @@ type CanvasSubject = {
   group: string;
   stateRank: number;
   activity: MissionActivityState;
+  bandLabel: string;
+  bandRank: number;
   lastActiveAt: number;
 };
 type NativeSessionModel = {
@@ -116,15 +111,22 @@ type NativeSessionModel = {
   current: boolean;
   recent: boolean;
 };
+type SubjectGroup = { label: string; subjects: CanvasSubject[] };
+
+const ACTIVITY_CLUSTER_MAX_ROWS = 2;
 
 function computeLayout(
   subjects: CanvasSubject[],
   groupMode: MissionGroupMode,
-  recentLabel: string,
 ): CanvasLayout {
-  const groups = groupSubjects(subjects, groupMode, recentLabel);
+  const groups = groupSubjects(subjects, groupMode);
   if (groups.length === 0) return { groups: [], canvasW: 0, canvasH: 0 };
+  if (groupMode === "activity") return computeActivityLayout(groups);
 
+  return computeMasonryLayout(groups);
+}
+
+function computeMasonryLayout(groups: SubjectGroup[]): CanvasLayout {
   const targetCols = Math.max(1, Math.round(Math.sqrt(groups.length * 1.2)));
   const laid: LayoutGroup[] = [];
   const colHeights = new Array(targetCols).fill(CANVAS_PAD);
@@ -157,7 +159,37 @@ function computeLayout(
   return { groups: laid, canvasW, canvasH };
 }
 
-type SubjectGroup = { label: string; subjects: CanvasSubject[] };
+function computeActivityLayout(groups: SubjectGroup[]): CanvasLayout {
+  const laid: LayoutGroup[] = [];
+  let y = CANVAS_PAD;
+  let canvasW = CANVAS_PAD;
+
+  for (const group of groups) {
+    const rows = group.subjects.length <= ACTIVITY_CLUSTER_MAX_ROWS
+      ? 1
+      : ACTIVITY_CLUSTER_MAX_ROWS;
+    const cols = Math.max(1, Math.ceil(group.subjects.length / rows));
+    const groupW = cols * TILE_W + (cols - 1) * TILE_GAP;
+    const groupH = GROUP_LABEL_H + rows * TILE_H + (rows - 1) * TILE_GAP;
+    const x = CANVAS_PAD;
+
+    const tiles: LayoutTile[] = group.subjects.map((subject, i) => ({
+      agentId: subject.id,
+      x: x + (i % cols) * (TILE_W + TILE_GAP),
+      y: y + GROUP_LABEL_H + Math.floor(i / cols) * (TILE_H + TILE_GAP),
+    }));
+
+    laid.push({ label: group.label, x, y, w: groupW, h: groupH, tiles });
+    canvasW = Math.max(canvasW, x + groupW);
+    y += groupH + GROUP_GAP_Y;
+  }
+
+  return {
+    groups: laid,
+    canvasW: canvasW + CANVAS_PAD,
+    canvasH: y - GROUP_GAP_Y + CANVAS_PAD,
+  };
+}
 
 function activityRank(activity: MissionActivityState): number {
   switch (activity) {
@@ -170,15 +202,27 @@ function activityRank(activity: MissionActivityState): number {
   }
 }
 
+function activityBand(
+  current: boolean,
+  lastActiveAt: number,
+  now: number,
+): { label: string; rank: number; activity: MissionActivityState } {
+  if (current) return { label: "Live now", rank: 0, activity: "active" };
+  if (lastActiveAt <= 0) return { label: "Idle", rank: 5, activity: "idle" };
+  const age = Math.max(0, now - lastActiveAt);
+  if (age <= 5 * 60_000) return { label: "Last 5m", rank: 1, activity: "recent" };
+  if (age <= 30 * 60_000) return { label: "5-30m", rank: 2, activity: "recent" };
+  if (age <= 4 * 60 * 60_000) return { label: "30m-4h", rank: 3, activity: "recent" };
+  if (age <= 24 * 60 * 60_000) return { label: "4-24h", rank: 4, activity: "recent" };
+  return { label: "Idle", rank: 5, activity: "idle" };
+}
+
 function subjectGroupLabel(
   subject: CanvasSubject,
   groupMode: MissionGroupMode,
-  recentLabel: string,
 ): string {
   if (groupMode === "workspace") return subject.group;
-  if (subject.activity === "active") return "Active now";
-  if (subject.activity === "recent") return `Recent ${recentLabel}`;
-  return subject.group;
+  return subject.bandLabel;
 }
 
 function sortSubjectsByPriority(a: CanvasSubject, b: CanvasSubject): number {
@@ -192,8 +236,7 @@ function sortSubjectsByPriority(a: CanvasSubject, b: CanvasSubject): number {
 
 function groupSortRank(group: SubjectGroup, groupMode: MissionGroupMode): number {
   if (groupMode === "activity") {
-    if (group.label === "Active now") return 0;
-    if (group.label.startsWith("Recent ")) return 1;
+    return Math.min(...group.subjects.map((subject) => subject.bandRank));
   }
   return Math.min(...group.subjects.map((subject) => activityRank(subject.activity)));
 }
@@ -201,7 +244,6 @@ function groupSortRank(group: SubjectGroup, groupMode: MissionGroupMode): number
 function groupSubjects(
   subjects: CanvasSubject[],
   groupMode: MissionGroupMode,
-  recentLabel: string,
 ): SubjectGroup[] {
   const sorted = [...subjects].sort((a, b) => {
     return sortSubjectsByPriority(a, b);
@@ -209,7 +251,7 @@ function groupSubjects(
 
   const byGroup = new Map<string, CanvasSubject[]>();
   for (const subject of sorted) {
-    const label = subjectGroupLabel(subject, groupMode, recentLabel);
+    const label = subjectGroupLabel(subject, groupMode);
     if (!byGroup.has(label)) byGroup.set(label, []);
     byGroup.get(label)!.push(subject);
   }
@@ -233,38 +275,36 @@ function groupSubjects(
 function agentSubject(
   agent: Agent,
   activity: { current: boolean; recent: boolean; lastActiveAt: number } | undefined,
+  now: number,
 ): CanvasSubject {
   const stateOrder: Record<string, number> = { in_turn: 0, in_flight: 1, callable: 2, blocked: 3 };
   const state = normalizeAgentState(agent.state);
-  const activityState = activity?.current ? "active" : activity?.recent ? "recent" : "idle";
+  const lastActiveAt = activity?.lastActiveAt ?? agent.updatedAt ?? 0;
+  const band = activityBand(Boolean(activity?.current), lastActiveAt, now);
   return {
     id: agent.id,
     name: agent.name,
     group: agent.project ?? "unassigned",
     stateRank: stateOrder[state] ?? 1,
-    activity: activityState,
-    lastActiveAt: activity?.lastActiveAt ?? agent.updatedAt ?? 0,
+    activity: band.activity,
+    bandLabel: band.label,
+    bandRank: band.rank,
+    lastActiveAt,
   };
 }
 
-function nativeSubject(session: NativeSessionModel): CanvasSubject {
+function nativeSubject(session: NativeSessionModel, now: number): CanvasSubject {
+  const band = activityBand(session.current, session.lastActiveAt, now);
   return {
     id: session.id,
     name: session.agent.name,
     group: `native ${session.transcript.source}`,
     stateRank: session.current ? 0 : 1,
-    activity: session.current ? "active" : session.recent ? "recent" : "idle",
+    activity: band.activity,
+    bandLabel: band.label,
+    bandRank: band.rank,
     lastActiveAt: session.lastActiveAt,
   };
-}
-
-function sessionCountsByAgent(sessions: SessionEntry[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const session of sessions) {
-    if (!session.agentId) continue;
-    counts.set(session.agentId, (counts.get(session.agentId) ?? 0) + 1);
-  }
-  return counts;
 }
 
 function sessionLastActivityByAgent(sessions: SessionEntry[]): Map<string, number> {
@@ -280,6 +320,14 @@ function sessionLastActivityByAgent(sessions: SessionEntry[]): Map<string, numbe
 }
 
 function observeLastEventAt(observe: ObserveCacheEntry | undefined): number {
+  const lastEventAt = Math.max(
+    0,
+    ...(observe?.data.events ?? [])
+      .map((event) => event.at ?? 0)
+      .filter((at) => Number.isFinite(at)),
+  );
+  if (lastEventAt > 0) return lastEventAt;
+
   const sessionStart = observe?.data.metadata?.session?.sessionStart;
   if (typeof sessionStart !== "number" || !Number.isFinite(sessionStart)) return 0;
   const lastEventT = Math.max(0, ...(observe?.data.events ?? []).map((event) => event.t));
@@ -301,12 +349,14 @@ function agentLastActivityAt(
 function isAgentCurrentlyActive(
   agent: Agent,
   observe: ObserveCacheEntry | undefined,
+  now: number,
+  lastActiveAt: number,
 ): boolean {
-  return (
+  const hasLiveSignal =
     isAgentBusy(agent.state) ||
     observe?.data.live === true ||
-    (observe?.data.events ?? []).some((event) => event.live === true)
-  );
+    (observe?.data.events ?? []).some((event) => event.live === true);
+  return hasLiveSignal && lastActiveAt > 0 && now - lastActiveAt <= ACTIVE_EVENT_WINDOW_MS;
 }
 
 type ActivityInfo = { lastActiveAt: number; current: boolean; recent: boolean };
@@ -481,16 +531,12 @@ export function MissionControlView({
   const {
     activityFilter,
     sourceFilter,
-    recentWindowMs,
+    activityWindowMs,
     groupMode,
     query,
     focusedId,
     canvasFocusRequest,
   } = mc;
-  const setActivityFilter = setMissionActivityFilter;
-  const setSourceFilter = setMissionSourceFilter;
-  const setRecentWindowMs = setMissionRecentWindow;
-  const setGroupMode = setMissionGroupMode;
   const setFocusedId = setMissionFocusedId;
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [tailDiscovery, setTailDiscovery] = useState<TailDiscoverySnapshot | null>(null);
@@ -563,7 +609,6 @@ export function MissionControlView({
     return () => ro.disconnect();
   }, []);
 
-  const sessionCounts = useMemo(() => sessionCountsByAgent(sessions), [sessions]);
   const sessionsLastAt = useMemo(() => sessionLastActivityByAgent(sessions), [sessions]);
 
   const activityByAgent = useMemo(() => {
@@ -571,21 +616,26 @@ export function MissionControlView({
     for (const agent of agents) {
       const observe = observeCache[agent.id];
       const lastActiveAt = agentLastActivityAt(agent, observe, sessionsLastAt);
-      const current = isAgentCurrentlyActive(agent, observe);
+      const current = isAgentCurrentlyActive(agent, observe, now, lastActiveAt);
       map.set(agent.id, {
         lastActiveAt,
         current,
-        recent: current || (lastActiveAt > 0 && now - lastActiveAt <= recentWindowMs),
+        recent: current || (lastActiveAt > 0 && now - lastActiveAt <= activityWindowMs),
       });
     }
     return map;
-  }, [agents, now, observeCache, recentWindowMs, sessionsLastAt]);
+  }, [activityWindowMs, agents, now, observeCache, sessionsLastAt]);
 
   const nativeSessions = useMemo(() => {
     const agentSessionIds = new Set(
-      agents
-        .map((agent) => agent.harnessSessionId?.trim())
-        .filter((sessionId): sessionId is string => Boolean(sessionId)),
+      agents.flatMap((agent) => {
+        const observe = observeCache[agent.id];
+        return [
+          agent.harnessSessionId?.trim(),
+          observe?.sessionId?.trim(),
+          observe?.data.metadata?.session?.externalSessionId?.trim(),
+        ].filter((sessionId): sessionId is string => Boolean(sessionId));
+      }),
     );
     const eventsBySession = new Map<string, TailEvent[]>();
     for (const event of tailEvents) {
@@ -606,7 +656,7 @@ export function MissionControlView({
         const eventLastAt = Math.max(0, ...events.map((event) => event.ts));
         const lastActiveAt = Math.max(eventLastAt, transcript.mtimeMs);
         const current = lastActiveAt > 0 && now - lastActiveAt <= ACTIVE_EVENT_WINDOW_MS;
-        const recent = current || (lastActiveAt > 0 && now - lastActiveAt <= recentWindowMs);
+        const recent = current || (lastActiveAt > 0 && now - lastActiveAt <= activityWindowMs);
         const observe = nativeObserveData(transcript, events, current);
         return {
           id: nativeSessionId(transcript),
@@ -619,7 +669,7 @@ export function MissionControlView({
           recent,
         };
       });
-  }, [agents, now, recentWindowMs, tailDiscovery?.transcripts, tailEvents]);
+  }, [activityWindowMs, agents, now, observeCache, tailDiscovery?.transcripts, tailEvents]);
 
   const visibleAgents = useMemo(() => {
     if (sourceFilter === "native") return [];
@@ -627,7 +677,7 @@ export function MissionControlView({
     if (activityFilter !== "all") {
       list = list.filter((agent) => {
         const activity = activityByAgent.get(agent.id);
-        return activityFilter === "active" ? activity?.current : activity?.recent;
+        return activityFilter === "live" ? activity?.current : activity?.recent;
       });
     }
     if (query.trim()) {
@@ -653,7 +703,7 @@ export function MissionControlView({
     let list = nativeSessions;
     if (activityFilter !== "all") {
       list = list.filter((session) =>
-        activityFilter === "active" ? session.current : session.recent
+        activityFilter === "live" ? session.current : session.recent
       );
     }
     if (query.trim()) {
@@ -717,22 +767,17 @@ export function MissionControlView({
     setMissionVisibleAgents(merged);
   }, [activityByAgent, visibleAgents, visibleNativeSessions]);
 
-  const recentWindowLabel = useMemo(
-    () => MISSION_RECENT_WINDOWS.find((option) => option.value === recentWindowMs)?.label ?? "recent",
-    [recentWindowMs],
-  );
-
   const canvasSubjects = useMemo(
     () => [
-      ...visibleAgents.map((agent) => agentSubject(agent, activityByAgent.get(agent.id))),
-      ...visibleNativeSessions.map(nativeSubject),
+      ...visibleAgents.map((agent) => agentSubject(agent, activityByAgent.get(agent.id), now)),
+      ...visibleNativeSessions.map((session) => nativeSubject(session, now)),
     ],
-    [activityByAgent, visibleAgents, visibleNativeSessions],
+    [activityByAgent, now, visibleAgents, visibleNativeSessions],
   );
 
   const layout = useMemo(
-    () => computeLayout(canvasSubjects, groupMode, recentWindowLabel),
-    [canvasSubjects, groupMode, recentWindowLabel],
+    () => computeLayout(canvasSubjects, groupMode),
+    [canvasSubjects, groupMode],
   );
 
   const animTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -945,15 +990,6 @@ export function MissionControlView({
     clearMissionCanvasFocusRequest(canvasFocusRequest.serial);
   }, [canvasFocusRequest, focusCanvasSubject]);
 
-  const activeCount =
-    visibleAgents.filter((agent) => activityByAgent.get(agent.id)?.current).length +
-    visibleNativeSessions.filter((session) => session.current).length;
-  const recentCount =
-    (sourceFilter === "native" ? 0 : agents.filter((agent) => activityByAgent.get(agent.id)?.recent).length) +
-    (sourceFilter === "scout" ? 0 : nativeSessions.filter((session) => session.recent).length);
-  const visibleSessionCount =
-    visibleAgents.reduce((count, agent) => count + (sessionCounts.get(agent.id) ?? 0), 0) +
-    visibleNativeSessions.length;
   const visibleTileCount = visibleAgents.length + visibleNativeSessions.length;
   const totalTileCount = agents.length + nativeSessions.length;
   const minimapAgents = useMemo(
@@ -982,167 +1018,8 @@ export function MissionControlView({
   );
   useCanvasMinimapRegistration(minimapRegistration);
 
-  const selectedScoutAgentIds = useMemo(() => {
-    const scoutIds = new Set(agents.map((agent) => agent.id));
-    return mc.selectedIds.filter((id) => scoutIds.has(id));
-  }, [agents, mc.selectedIds]);
-  const selectedNativeSessionIds = useMemo(() => {
-    const nativeIds = new Set(visibleNativeSessions.map((session) => session.id));
-    return mc.selectedIds.filter((id) => nativeIds.has(id));
-  }, [mc.selectedIds, visibleNativeSessions]);
-  const selectedNativeCount = selectedNativeSessionIds.length;
-  const selectedLaunchableCount = selectedScoutAgentIds.length + selectedNativeSessionIds.length;
-  const groupNoun = groupMode === "activity" ? "group" : "workspace";
-
   return (
     <div className="s-mission">
-      <div className="s-mission-bar">
-        <span className="s-mission-bar-label">
-          {visibleTileCount}/{totalTileCount} tile{totalTileCount !== 1 ? "s" : ""} ·{" "}
-          {visibleSessionCount} session{visibleSessionCount !== 1 ? "s" : ""} ·{" "}
-          {layout.groups.length} {groupNoun}{layout.groups.length !== 1 ? "s" : ""}
-        </span>
-        <span className={`s-mission-bar-live${activeCount === 0 ? " s-mission-bar-live--idle" : ""}`}>
-          <span className="s-mission-bar-live-dot" />
-          {activeCount} active now
-        </span>
-        <div className="s-mission-bar-search">
-          <input
-            type="text"
-            className="s-mission-bar-search-input"
-            placeholder="Search agents…  (press /)"
-            value={query}
-            onChange={(event) => setMissionQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                if (query) {
-                  setMissionQuery("");
-                } else {
-                  (event.target as HTMLInputElement).blur();
-                }
-              }
-            }}
-          />
-        </div>
-        <div className="s-mission-controls" role="group" aria-label="Agent activity filter">
-          <button
-            type="button"
-            className={`s-mission-filter${activityFilter === "all" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setActivityFilter("all")}
-          >
-            All
-          </button>
-          <button
-            type="button"
-            className={`s-mission-filter${activityFilter === "active" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setActivityFilter("active")}
-          >
-            Active now
-          </button>
-          <button
-            type="button"
-            className={`s-mission-filter${activityFilter === "recent" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setActivityFilter("recent")}
-          >
-            Recent {recentCount}
-          </button>
-        </div>
-        <div className="s-mission-controls" role="group" aria-label="Session source filter">
-          <button
-            type="button"
-            className={`s-mission-filter${sourceFilter === "all" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setSourceFilter("all")}
-          >
-            All sources
-          </button>
-          <button
-            type="button"
-            className={`s-mission-filter${sourceFilter === "scout" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setSourceFilter("scout")}
-          >
-            Scout
-          </button>
-          <button
-            type="button"
-            className={`s-mission-filter${sourceFilter === "native" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setSourceFilter("native")}
-          >
-            Native {nativeSessions.length}
-          </button>
-        </div>
-        <div className="s-mission-controls" role="group" aria-label="Canvas grouping">
-          <button
-            type="button"
-            className={`s-mission-filter${groupMode === "activity" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setGroupMode("activity")}
-          >
-            Activity first
-          </button>
-          <button
-            type="button"
-            className={`s-mission-filter${groupMode === "workspace" ? " s-mission-filter--active" : ""}`}
-            onClick={() => setGroupMode("workspace")}
-          >
-            Workspace
-          </button>
-        </div>
-        {activityFilter === "recent" && (
-          <div className="s-mission-controls" role="group" aria-label="Recent activity window">
-            {MISSION_RECENT_WINDOWS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`s-mission-filter s-mission-filter--compact${recentWindowMs === option.value ? " s-mission-filter--active" : ""}`}
-                onClick={() => setRecentWindowMs(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        )}
-        <div className="s-mission-hotkeys">
-          {mc.selectedIds.length > 0 && (
-            <div className="s-mission-selection" role="group" aria-label="Selected agent actions">
-              <span className="s-mission-selection-count">
-                {mc.selectedIds.length} selected
-              </span>
-              {selectedNativeCount > 0 && (
-                <span className="s-mission-selection-note">
-                  {selectedScoutAgentIds.length} Scout · {selectedNativeCount} native
-                </span>
-              )}
-              <VantageHandoffButton
-                agentIds={selectedScoutAgentIds}
-                nativeSessionIds={selectedNativeSessionIds}
-                className="s-mission-selection-action s-mission-selection-action--vantage"
-                statusClassName="s-mission-selection-status"
-                label="Open in Vantage"
-                openingLabel="Opening..."
-                disabled={selectedLaunchableCount === 0}
-                title={selectedLaunchableCount > 0
-                  ? "Open selected sessions in the native Vantage canvas"
-                  : "Select Scout agents or native sessions to open in Vantage"}
-              />
-              <button
-                type="button"
-                className="s-mission-selection-action"
-                onClick={clearMissionSelection}
-              >
-                Clear
-              </button>
-            </div>
-          )}
-          <button
-            className="s-mission-hotkey s-mission-hotkey--btn"
-            onClick={() => triggerEntry(false)}
-            title="Reset to overview"
-          >
-            <kbd>H</kbd> Home
-          </button>
-          <span className="s-mission-hotkey"><kbd>Esc</kbd> Close focus</span>
-        </div>
-      </div>
-
       <div
         ref={viewportRef}
         className="s-mission-viewport"
@@ -1183,12 +1060,12 @@ export function MissionControlView({
                 key={g.label}
                 className={[
                   "s-mission-group-label",
-                  g.label === "Active now" && "s-mission-group-label--active",
-                  g.label.startsWith("Recent ") && "s-mission-group-label--recent",
+                  g.label === "Live now" && "s-mission-group-label--active",
+                  ["Last 5m", "5-30m", "30m-4h", "4-24h"].includes(g.label) && "s-mission-group-label--recent",
                 ].filter(Boolean).join(" ")}
                 style={{ left: g.x, top: g.y }}
               >
-                {g.label}
+                {g.label} · {g.tiles.length}
               </div>
             ))}
 

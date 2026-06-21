@@ -1587,10 +1587,12 @@ export async function requireScoutBrokerContext(
 
 export function scoutConversationIdForChannel(channel?: string): string {
   const normalizedChannel = channel?.trim() || "shared";
-  if (normalizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
-  if (normalizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
-  if (normalizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
-  return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
+  const sanitizedChannel = sanitizeConversationSegment(normalizedChannel);
+  if (sanitizedChannel.startsWith("channel.")) return sanitizedChannel;
+  if (sanitizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
+  if (sanitizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
+  if (sanitizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
+  return `channel.${sanitizedChannel}`;
 }
 
 function buildMentionCandidate(

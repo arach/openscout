@@ -488,6 +488,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Master page for the four screens in the Scout macOS app — Comms, Agents, Tail, Repos — rendered on the shared shell chrome (titlebar · nav rail · main · right inspector · status bar) so the shell can evolve coherently. Each window is a representative slice; the dedicated study for each screen is the source of truth.",
   },
   {
+    href: "/studies/scout-macos-refresh",
+    label: "Scout macOS · Refresh",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/scout-macos-refresh/page.tsx",
+      "docs/agent/studio-levelup-brief.md",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+    ],
+    blurb: "The consolidated macOS direction from the design review, in one projection of the refreshed Comms window — list · thread · inspector. Lands the ask-context story end to end (the [ask:<flightId>] reply-context backlink, the pinned originating-ask band, the list chip and inspector Ask block all reading one state), adopts the signed-off inspector grammar (Section/KV from scout-inspectors) for the channel inspector's Conversation/Project/Ask blocks, and adds the thread header sub-line + actions. A ledger maps every change to its macOS symbol and whether it ships, refines, or is net-new.",
+  },
+  {
     href: "/studies/scout-comms",
     label: "Scout Comms",
     bucket: "studies",
