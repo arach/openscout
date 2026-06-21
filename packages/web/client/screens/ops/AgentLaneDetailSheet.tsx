@@ -813,23 +813,21 @@ export function AgentLaneDetailSheet({
             {contextLabel} · {lastActiveAt ? timeAgo(lastActiveAt) : "idle"}
           </div>
         </div>
-        <HarnessMark
-          harness={agent.harness ?? stats.harness}
-          size={18}
-          className={`s-lane-sheet-hmark${isLive ? " s-lane-sheet-hmark--working" : ""}`}
-        />
         <span className="s-slide-spacer" />
+        {/* CTAs ride the header's horizontal line, aligned with the harness
+            brand mark: the primary (accent) goes to the agent home, the second
+            to its live trace. */}
+        <div className="s-lane-sheet-header-cta">
+          <HarnessMark
+            harness={agent.harness ?? stats.harness}
+            size={18}
+            className={`s-lane-sheet-hmark${isLive ? " s-lane-sheet-hmark--working" : ""}`}
+          />
+          <SheetGhost primary onClick={openProfile}>Agent profile</SheetGhost>
+          <SheetGhost onClick={openTraces}>Traces</SheetGhost>
+        </div>
         <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
           ×
-        </button>
-      </div>
-
-      <div className="s-lane-sheet-actions">
-        <button type="button" className="s-lane-sheet-action s-lane-sheet-action--primary" onClick={openProfile}>
-          Agent profile
-        </button>
-        <button type="button" className="s-lane-sheet-action" onClick={openTraces}>
-          Traces
         </button>
       </div>
 
@@ -937,9 +935,9 @@ export function AgentLaneDetailSheet({
         <section id="s-lane-sheet-runtime" className="s-lane-sheet-section">
           <SheetDisclose label="Runtime" hint={[agent.harness ?? stats.harness, facts?.model ?? stats.model].filter(Boolean).join(" · ") || undefined}>
             <dl className="s-lane-sheet-meta">
-              <SheetFact label="Model" value={facts?.model ?? stats.model ?? "—"} copy={facts?.model ?? stats.model ?? null} />
+              {/* model + harness live in the disclosure hint above, so the body
+                  doesn't replay them — it carries the rest of the runtime facts. */}
               <SheetFact label="Effort" value={facts?.effort ?? "—"} />
-              <SheetFact label="Harness" value={agent.harness ?? stats.harness ?? "—"} copy={agent.harness ?? stats.harness ?? null} />
               <SheetFact label="Branch" value={facts?.branch ?? stats.branch ?? "—"} copy={facts?.branch ?? stats.branch ?? null} />
               <SheetFact
                 label="Working dir"
