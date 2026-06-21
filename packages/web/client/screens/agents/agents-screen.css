@@ -262,6 +262,7 @@
 .s-sess-head {
   position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-lg);
@@ -305,6 +306,15 @@
   flex-direction: column;
   gap: var(--space-sm);
   min-width: 0;
+}
+
+.s-sess-id-copy,
+.s-sess-name,
+.s-sess-handle,
+.s-sess-glyph-v,
+.s-sess-fact-value {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .s-sess-name {
@@ -363,6 +373,43 @@
   max-width: 280px;
 }
 
+.s-sess-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  max-width: min(100%, 430px);
+}
+
+.s-sess-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  padding: var(--space-2xs) var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-snug);
+}
+
+.s-sess-fact-label {
+  flex: none;
+  color: var(--dim);
+  font-weight: 700;
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+}
+
+.s-sess-fact-value {
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+
 .s-sess-action {
   flex: none;
   font-family: var(--font-mono);
@@ -380,11 +427,13 @@
 }
 
 .s-sess-head-actions {
-  flex: none;
-  display: grid;
-  justify-items: end;
+  flex: 0 0 100%;
+  display: flex;
+  justify-content: flex-start;
+  justify-items: start;
   gap: var(--space-xs);
-  max-width: 260px;
+  max-width: none;
+  margin-left: calc(54px + var(--space-lg));
 }
 
 .s-sess-action:hover {
@@ -425,6 +474,23 @@
   letter-spacing: var(--tracking-sm);
   /* sober — the handle is identity, not a status; no arbitrary color */
   color: var(--dim);
+}
+
+@media (max-width: 720px) {
+  .s-sess-head {
+    flex-direction: column;
+  }
+
+  .s-sess-id {
+    align-items: flex-start;
+  }
+
+  .s-sess-head-actions {
+    display: flex;
+    justify-items: start;
+    margin-left: 0;
+    max-width: none;
+  }
 }
 
 .s-sess-band {

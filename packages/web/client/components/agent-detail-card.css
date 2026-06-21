@@ -61,7 +61,10 @@
 .agent-card--pinned .agent-card-link,
 .agent-card--pinned .agent-card-close,
 .agent-card--pinned .agent-live-actions,
-.agent-card--pinned .agent-live-actions-button {
+.agent-card--pinned .agent-live-actions-button,
+.agent-card--pinned .agent-card-field,
+.agent-card--pinned .agent-card-name,
+.agent-card--pinned .agent-card-value {
   pointer-events: auto;
 }
 
@@ -81,6 +84,16 @@
   color: var(--ink);
   line-height: var(--leading-tight);
   word-break: break-word;
+}
+
+.agent-card-name,
+.agent-card-value,
+.agent-card-mono,
+.agent-card-branch,
+.agent-card-model {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .agent-card-meta {

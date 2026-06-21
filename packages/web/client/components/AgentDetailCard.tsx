@@ -26,8 +26,11 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
   function AgentDetailCard({ agent, pinned, onOpen, onClose, onAction, style, className }, ref) {
     const state = normalizeAgentState(agent.state);
     const stateClass = agentStateCssToken(agent.state);
-    const cwd = homify(agent.cwd) ?? homify(agent.projectRoot);
-    const name = agent.handle ?? agent.name;
+    const cwdFull = agent.cwd ?? agent.projectRoot;
+    const cwd = pinned ? cwdFull : homify(cwdFull);
+    const handle = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+    const selector = agent.selector ?? agent.defaultSelector;
+    const name = handle ?? agent.name;
     const machine = agent.authorityNodeName
       ?? agent.homeNodeName
       ?? agent.authorityNodeId
@@ -62,9 +65,21 @@ export const AgentDetailCard = forwardRef<HTMLDivElement, AgentDetailCardProps>(
         </header>
 
         <div className="agent-card-body">
+          {handle && (
+            <Field label="handle">
+              <code className="agent-card-mono">{handle}</code>
+            </Field>
+          )}
+
+          {selector && (
+            <Field label="selector">
+              <code className="agent-card-mono">{selector}</code>
+            </Field>
+          )}
+
           {cwd && (
             <Field label="cwd">
-              <code className="agent-card-mono">{cwd}</code>
+              <code className="agent-card-mono" title={cwdFull ?? cwd}>{cwd}</code>
             </Field>
           )}
 

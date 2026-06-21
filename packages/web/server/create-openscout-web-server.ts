@@ -5523,6 +5523,8 @@ export async function createOpenScoutWebServer(
     const agents = queryAgents();
     const agent = agents.find((a) => a.id === agentId);
     if (!agent) return c.json(emptyAgentSessionCatalogPayload(agentId));
+    const observePayload = await loadAgentObservePayload(agentId).catch(() => null);
+    const observedModel = observePayload?.data.metadata?.session?.model?.trim() || null;
     const broker = await loadScoutBrokerContext().catch(() => null);
     const endpoint = broker ? activeEndpointForAgent(broker.snapshot, agentId, {
       harness: agent.harness,
@@ -5540,7 +5542,7 @@ export async function createOpenScoutWebServer(
         transport: agent.transport,
         terminalSurface: agent.terminalSurface,
         activeSessionId: endpoint?.sessionId ?? agent.harnessSessionId,
-        model: agent.model,
+        model: observedModel ?? agent.model,
         startedAt: agent.createdAt ?? agent.updatedAt,
         endpoint,
       }),

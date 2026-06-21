@@ -110,6 +110,23 @@ function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
   );
 }
 
+function HeaderFact({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <span className="s-sess-fact" title={title ?? value}>
+      <span className="s-sess-fact-label">{label}</span>
+      <span className="s-sess-fact-value">{value}</span>
+    </span>
+  );
+}
+
 function fmtTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
@@ -432,6 +449,13 @@ function ModularProfileCenter({
     () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
     [sessionCatalog?.sessions, activeSessionId],
   );
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const handleLabel = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+  const selectorLabel = agent.selector ?? agent.defaultSelector ?? null;
+  const cwdFull = agent.cwd ?? agent.projectRoot ?? null;
+  const cwdFact = cwdFull;
+  const liveSessionModel = activeSession?.model ?? null;
+  const hasDistinctSessionModel = Boolean(liveSessionModel && liveSessionModel !== agent.model);
   const [startState, setStartState] = useState<"idle" | "starting">("idle");
   const [startError, setStartError] = useState<string | null>(null);
   const [chatState, setChatState] = useState<"idle" | "opening">("idle");
@@ -525,12 +549,33 @@ function ModularProfileCenter({
                 </div>
               </div>
             )}
+            <div className="s-sess-facts" aria-label="Agent identity and runtime facts">
+              {handleLabel && <HeaderFact label="Handle" value={handleLabel} />}
+              {cwdFact && <HeaderFact label="Path" value={cwdFact} title={cwdFull ?? cwdFact} />}
+              {hasDistinctSessionModel && liveSessionModel && (
+                <HeaderFact label="Session model" value={liveSessionModel} />
+              )}
+              {(agent.harness || agent.model) && (
+                <HeaderFact
+                  label="Model"
+                  value={agent.model ?? `${agent.harness ?? "harness"} default`}
+                />
+              )}
+              {selectorLabel && <HeaderFact label="Selector" value={selectorLabel} />}
+            </div>
           </div>
         </div>
         {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
             distinct action from per-session Continue and the Message tab, so
             "Message" isn't duplicated across the tab, the header, and Continue. */}
         <div className="s-sess-head-actions">
+          <button
+            type="button"
+            className="s-sess-action"
+            onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+          >
+            Edit config
+          </button>
           <button
             type="button"
             className="s-sess-action"
@@ -696,7 +741,12 @@ export function AgentDetailWithRail({
   }, [agent.id]);
 
   useEffect(() => {
+    setSessionCatalog(null);
     void load();
+    const retry = window.setTimeout(() => {
+      void load();
+    }, 3000);
+    return () => window.clearTimeout(retry);
   }, [load]);
 
   useEffect(() => {

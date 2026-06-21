@@ -174,6 +174,25 @@ export type AgentConfigurationAgent = {
   conversationId: string | null;
 };
 
+export type LocalAgentConfigState = {
+  agentId: string;
+  editable: boolean;
+  model: string | null;
+  permissionProfile: string | null;
+  systemPrompt: string;
+  runtime: {
+    cwd: string;
+    harness: string;
+    transport: string;
+    sessionId: string;
+    wakePolicy: string;
+  };
+  launchArgs: string[];
+  capabilities: string[];
+  applyMode: "restart" | (string & {});
+  templateHint: string;
+};
+
 export type AgentConfigurationProject = {
   id: string;
   title: string;
