@@ -79,6 +79,21 @@ const BASH_TOOL_NAMES = new Set([
 /** A recent shell command pulled from the trace, with its one-line outcome. */
 type LaneCommand = { id: string; command: string; outcome: string | null };
 
+/** Unescape the common JSON string escapes in a value captured by regex (we
+ *  can't JSON.parse the whole object when the observe-log preview is truncated). */
+function unescapeJsonChunk(value: string): string {
+  return value.replace(/\\(["\\/bfnrt])/g, (_match, ch: string) => {
+    switch (ch) {
+      case "n": return "\n";
+      case "t": return "\t";
+      case "r": return "\r";
+      case "b": return "\b";
+      case "f": return "\f";
+      default: return ch; // " \ /
+    }
+  });
+}
+
 /** Codex-style shells pass the command as an argv array like
  *  `["bash","-lc","<script>"]`; show the script (or the joined argv for a bare
  *  `["ls","-la"]`) rather than dumping the raw JSON. */
@@ -111,7 +126,11 @@ function decodeBashArg(arg: string | undefined): string {
         }
       }
     } catch {
-      // fall through to the raw string
+      // Truncated/unparseable JSON — the observe log captures a bounded preview,
+      // so the closing quote/brace is often cut. Pull the command value out
+      // directly rather than dumping the raw `{"command":…` markup.
+      const match = raw.match(/"(?:command|cmd|script|input|code)"\s*:\s*"((?:[^"\\]|\\.)*)/);
+      if (match && match[1].trim()) return unescapeJsonChunk(match[1]).trim();
     }
   } else if (raw.startsWith("[")) {
     try {
@@ -725,13 +744,16 @@ export function AgentLaneDetailSheet({
   // the restrained one-liner instead of a fabricated sparkline.
   const cadenceAge = lastActiveAt ? timeAgo(lastActiveAt) : null;
 
-  const openSession = useCallback(() => {
-    if (source === "scout" || agent.agentClass !== "organic") {
-      openAgent(navigate, agent, { returnTo: returnRoute, observe: true });
-      return;
-    }
-    navigate({ view: "ops", mode: "tail", tailQuery: agent.harnessSessionId ?? agent.harness ?? agent.name });
-  }, [agent, navigate, returnRoute, source]);
+  // The sheet's two primary destinations: the agent's home (profile) and its
+  // live trace (observe). The old "Open session" dumped organic agents into a
+  // global tail filter, which never actually opened their session.
+  const openProfile = useCallback(() => {
+    openAgent(navigate, agent, { returnTo: returnRoute });
+  }, [agent, navigate, returnRoute]);
+
+  const openTraces = useCallback(() => {
+    openAgent(navigate, agent, { returnTo: returnRoute, observe: true });
+  }, [agent, navigate, returnRoute]);
 
   const openDocument = useCallback(
     (documentId: string) => {
@@ -803,14 +825,17 @@ export function AgentLaneDetailSheet({
       </div>
 
       <div className="s-lane-sheet-actions">
-        <button type="button" className="s-lane-sheet-action s-lane-sheet-action--primary" onClick={openSession}>
-          Open session
+        <button type="button" className="s-lane-sheet-action s-lane-sheet-action--primary" onClick={openProfile}>
+          Agent profile
+        </button>
+        <button type="button" className="s-lane-sheet-action" onClick={openTraces}>
+          Traces
         </button>
       </div>
 
       <nav className="s-lane-sheet-anchors" aria-label="Jump to section">
         <a href="#s-lane-sheet-vitals" className="s-lane-sheet-anchor">Vitals</a>
-        <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Cluster</a>
+        <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Runtime</a>
         <a href="#s-lane-sheet-files" className="s-lane-sheet-anchor">
           Files{touchedCount > 0 && <span className="s-lane-sheet-anchor-n">{touchedCount}</span>}
         </a>
@@ -863,7 +888,7 @@ export function AgentLaneDetailSheet({
                 <span className="s-lane-sheet-vitals-cmd" title={preview.headFull}>{preview.headline}</span>
                 {isLive && <span className="s-lane-sheet-vitals-caret" aria-hidden="true" />}
                 <span className="s-lane-sheet-vitals-now-acts">
-                  <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openSession}>
+                  <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openTraces}>
                     <ExternalLink size={11} strokeWidth={1.6} />
                   </button>
                   {preview.headFull && preview.headFull !== preview.headline && (
