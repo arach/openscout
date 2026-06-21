@@ -881,13 +881,17 @@
   color: var(--muted);
 }
 
-.s-lane-sheet-status {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-xs);
-  text-transform: lowercase;
-  color: var(--muted);
+/* harness brand mark in the header — a bare glyph that tints with state:
+   muted at rest, ink when the agent is live. Replaces the status text badge. */
+.s-lane-sheet-hmark {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  transition: color 200ms ease;
+}
+.s-lane-sheet-hmark--working {
+  color: var(--ink);
 }
 
 .s-lane-sheet-actions {
@@ -1091,52 +1095,146 @@
   color: var(--dim);
 }
 
-.s-lane-sheet-files,
+/* ── SheetDisclose — a calm, full-width disclosure (caret · label · right hint),
+   collapsed by default. Ports the calm study's `.disc*` rhythm. Runtime + Tokens
+   fold behind it so the panel reads at the floor and reveals in context. ────── */
+.s-lane-sheet-disc + .s-lane-sheet-disc {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.s-lane-sheet-disc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: var(--space-sm) 0;
+  text-align: left;
+}
+.s-lane-sheet-disc-head:hover .s-lane-sheet-disc-caret {
+  color: var(--muted);
+}
+.s-lane-sheet-disc-caret {
+  flex: none;
+  display: inline-flex;
+  width: 0.75rem;
+  justify-content: center;
+  color: var(--dim);
+  transition: transform 140ms ease;
+}
+.s-lane-sheet-disc-caret--open {
+  transform: rotate(90deg);
+}
+.s-lane-sheet-disc-label {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xs);
+  color: var(--ink);
+}
+.s-lane-sheet-disc-hint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.s-lane-sheet-disc-body {
+  padding: var(--space-2xs) 0 var(--space-md);
+}
+
+/* a small action bar at the foot of a disclosure body (Copy diagnostics) */
+.s-lane-sheet-disc-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
 .s-lane-sheet-docs {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
 }
 
-.s-lane-sheet-file {
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--bg) 45%, transparent);
-  overflow: hidden;
+/* a file group's rows sit flush — the flat rows carry their own dense rhythm. */
+.s-lane-sheet-files {
+  display: flex;
+  flex-direction: column;
 }
 
-.s-lane-sheet-file-head {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+/* ── FILES — flat dense rows (study `.frow`): leading tonal mark · path split
+   into dim dir (rtl-ellipsis) + ink base · trailing +adds/−dels · hover acts.
+   No card fill — the row highlights only on hover. ────────────────────────── */
+.s-lane-sheet-frow {
+  display: flex;
+  align-items: center;
   gap: var(--space-sm);
-  align-items: baseline;
-  padding: var(--space-sm) var(--space-md);
+  padding: 3px var(--space-xs) 3px 13px;
+  margin: 0 calc(-1 * var(--space-xs));
+  border-radius: var(--radius-sm);
+  min-width: 0;
 }
-
-.s-lane-sheet-file-state {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-xs);
-  color: var(--dim);
+.s-lane-sheet-frow:hover {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
 }
-
-.s-lane-sheet-file-state--modified,
-.s-lane-sheet-file-state--created {
-  color: var(--muted);
-}
-
-.s-lane-sheet-file-path {
+.s-lane-sheet-fstate {
+  flex: none;
+  width: 11px;
+  text-align: center;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--ink);
+  line-height: 1;
+  color: var(--dim);
+}
+.s-lane-sheet-fstate--created {
+  color: var(--accent);
+}
+.s-lane-sheet-fstate--modified {
+  color: var(--muted);
+}
+.s-lane-sheet-fstate--read {
+  color: color-mix(in srgb, var(--dim) 70%, transparent);
+}
+.s-lane-sheet-fpath {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.s-lane-sheet-fdir {
+  flex: 0 1 auto;
+  max-width: 46%;
+  color: var(--dim);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.s-lane-sheet-fbase {
+  flex: none;
+  color: var(--ink);
   white-space: nowrap;
 }
-
-.s-lane-sheet-file-meta {
+.s-lane-sheet-fdiff {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2xs);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  color: var(--muted);
+}
+.s-lane-sheet-frow-acts {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
 }
 
 /* per-file diff stat (+adds / −dels). Single accent for adds; dels recede so
@@ -1153,6 +1251,35 @@
 }
 .s-lane-sheet-file-del {
   color: var(--dim);
+}
+
+/* a square row action (open-in-diff) matching the copy/reveal affordances —
+   hidden until the row is hovered. */
+.s-lane-sheet-rowact {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 110ms ease, color 110ms ease, background 110ms ease;
+}
+.s-lane-sheet-rowact:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.s-lane-sheet-frow:hover .s-lane-sheet-rowact,
+.s-lane-sheet-frow:hover .s-lane-sheet-copy,
+.s-lane-sheet-frow:hover .s-lane-sheet-reveal,
+.s-lane-sheet-rowact:focus-visible {
+  opacity: 1;
 }
 
 /* ── grouped, uncapped file inventory (new · modified · read) ───────────────── */
@@ -1226,53 +1353,57 @@
   margin-right: var(--space-2xs);
 }
 
-/* ── Commands panel: recent shell commands, tiered like the observe trace ───── */
+/* ── Commands panel: recent shell commands in the study's flat `.crow` density —
+   leading prompt mark · single-line ellipsised text (observe-trace bash tiers
+   kept) · optional dim right-aligned outcome · hover copy. ─────────────────── */
 .s-lane-sheet-cmds {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3xs);
 }
-.s-lane-sheet-cmd {
+.s-lane-sheet-crow {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-xs);
+  align-items: center;
+  gap: var(--space-sm);
   padding: var(--space-3xs) var(--space-xs);
   margin: 0 calc(-1 * var(--space-xs));
   border-radius: var(--radius-sm);
   min-width: 0;
 }
-.s-lane-sheet-cmd:hover {
-  background: color-mix(in srgb, var(--bg) 50%, transparent);
+.s-lane-sheet-crow:hover {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
 }
-.s-lane-sheet-cmd-prompt {
+.s-lane-sheet-cmark {
   flex: none;
+  width: 12px;
+  text-align: center;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--accent) 72%, var(--muted));
+  color: color-mix(in srgb, var(--accent) 70%, var(--muted));
 }
-.s-lane-sheet-cmd-text {
+.s-lane-sheet-ctext {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.5;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.s-lane-sheet-cmd-outcome {
+.s-lane-sheet-cresult {
   flex: none;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   color: var(--dim);
   white-space: nowrap;
 }
-.s-lane-sheet-cmd-actions {
+.s-lane-sheet-crow-acts {
   flex: none;
   display: inline-flex;
   align-items: center;
 }
-.s-lane-sheet-cmd:hover .s-lane-sheet-copy {
+.s-lane-sheet-crow:hover .s-lane-sheet-copy {
   opacity: 1;
 }
 
@@ -1629,6 +1760,83 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── IDLE — idle should look idle, across the WHOLE panel ────────────────────
+   When the agent isn't mid-turn nothing should read as "actively working":
+   every pulse/blink is stilled, the live ring/dot goes inert, the well loses
+   its accent border + glow, and the context gauge is calmed to a quiet,
+   still, readable bar — informative, not "live". Accent (active vital) recedes;
+   green (liveness) goes dim. House rules hold: ONE accent, never a hue shift,
+   tokens only. The working state is untouched — it stays fully lively. */
+
+/* section: drop the emerald top wash — an idle hero is neutral. */
+.s-lane-sheet-vitals--idle {
+  background: none;
+}
+
+/* live indicator: kill the pulse + collapse the expanding ring; the dot goes
+   static and dim so it reads "inert", not "live". */
+.s-lane-sheet-vitals--idle .s-lane-sheet-vitals-live-dot {
+  background: var(--dim);
+  animation: none;
+  box-shadow: none;
+}
+.s-lane-sheet-vitals--idle .s-lane-sheet-vitals-live-ring {
+  border-color: color-mix(in srgb, var(--dim) 30%, transparent);
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+/* "last action" label: a calm neutral heading, not the green "executing" call. */
+.s-lane-sheet-vitals--idle .s-lane-sheet-vitals-now-label {
+  color: var(--muted);
+}
+
+/* action well: drop the accent border + outer glow → a quiet neutral inset. */
+.s-lane-sheet-vitals--idle .s-lane-sheet-vitals-well {
+  border-color: color-mix(in srgb, var(--ink) 8%, transparent);
+  box-shadow: none;
+}
+
+/* the ❯ command prompt loses its accent tint when idle. */
+.s-lane-sheet-vitals--idle .s-lane-sheet-vitals-prompt--cmd {
+  color: var(--dim);
+}
+
+/* context gauge — the main remaining bright element. Idle calms it from one
+   place: desaturate/dim the fill, drop the bloom, still + de-glow the edge, and
+   quiet the % pill. It stays readable and on-accent (no hue change), just not
+   "live". Threaded off the body modifier so the whole panel calms together. */
+.s-lane-sheet-body--idle .s-lane-sheet-vitals-gaugebar-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 22%, var(--surface)),
+    color-mix(in srgb, var(--accent) 48%, var(--muted))
+  );
+  box-shadow: none;
+}
+.s-lane-sheet-body--idle .s-lane-sheet-vitals-gaugebar-edge {
+  background: color-mix(in srgb, var(--accent) 55%, var(--muted));
+  box-shadow: none;
+  animation: none;
+  opacity: 1;
+}
+.s-lane-sheet-body--idle .s-lane-sheet-vitals-gauge-pct {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+
+/* honour reduced-motion regardless of state (idle already stills these, but a
+   working panel under reduced-motion should rest too). */
+@media (prefers-reduced-motion: reduce) {
+  .s-lane-sheet-vitals-live-dot,
+  .s-lane-sheet-vitals-live-ring,
+  .s-lane-sheet-vitals-caret,
+  .s-lane-sheet-vitals-gaugebar-edge {
+    animation: none;
+  }
+}
+
 /* ── runtime facts: value + hover copy/reveal targets ──────────────────────── */
 .s-lane-sheet-fact {
   display: flex;
@@ -1770,59 +1978,9 @@
   color: var(--muted);
 }
 
-.s-lane-sheet-plan {
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 40%, transparent);
-}
-
-.s-lane-sheet-plan-head {
-  appearance: none;
-  border: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2xs);
-  padding: var(--space-md) var(--space-lg);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.s-lane-sheet-plan-head:hover {
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-}
-
-.s-lane-sheet-plan-title {
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.s-lane-sheet-plan-meta {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  color: var(--muted);
-}
-
-.s-lane-sheet-plan-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: 0 var(--space-lg) var(--space-lg);
-}
-
-.s-lane-sheet-plan-summary {
-  margin: var(--space-md) 0 0;
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
-  line-height: 1.55;
-  color: var(--muted);
-}
-
-.s-lane-sheet-plan-steps {
+/* ── Docs card body bits (SessionDocumentCard) — kept on a `-doc-` namespace so
+   the flat plan card can own `.s-lane-sheet-plan-*` outright. ──────────────── */
+.s-lane-sheet-doc-steps {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1831,7 +1989,7 @@
   gap: var(--space-xs);
 }
 
-.s-lane-sheet-plan-step {
+.s-lane-sheet-doc-step {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: var(--space-md);
@@ -1839,7 +1997,7 @@
   padding: var(--space-xs) 0;
 }
 
-.s-lane-sheet-plan-step-state {
+.s-lane-sheet-doc-step-state {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-xs);
@@ -1847,22 +2005,22 @@
   text-transform: lowercase;
 }
 
-.s-lane-sheet-plan-step--in_progress .s-lane-sheet-plan-step-state {
+.s-lane-sheet-doc-step--in_progress .s-lane-sheet-doc-step-state {
   color: var(--ink);
 }
 
-.s-lane-sheet-plan-step--completed .s-lane-sheet-plan-step-state {
+.s-lane-sheet-doc-step--completed .s-lane-sheet-doc-step-state {
   color: var(--muted);
 }
 
-.s-lane-sheet-plan-step-text {
+.s-lane-sheet-doc-step-text {
   font-family: var(--font-sans);
   font-size: var(--text-sm);
   line-height: 1.45;
   color: var(--ink);
 }
 
-.s-lane-sheet-plan-doc {
+.s-lane-sheet-doc-pre {
   margin: 0;
   padding: var(--space-md);
   border-radius: var(--radius-sm);
@@ -1876,7 +2034,7 @@
   overflow: auto;
 }
 
-.s-lane-sheet-plan-open {
+.s-lane-sheet-doc-open {
   align-self: flex-start;
   appearance: none;
   border: 0;
@@ -1889,7 +2047,105 @@
   cursor: pointer;
 }
 
-.s-lane-sheet-plan-open:hover {
+.s-lane-sheet-doc-open:hover {
   color: var(--ink);
   text-decoration: underline;
+}
+
+/* ── PLANS — flat SheetPlanCard (study `.plan*`/`.pstep*`): NOT a bordered card.
+   caret · title · done/active/todo tally; expand to steps with status markers
+   (✓ struck · ▸ accent box + ink · ○ else) and an "Open in Plans →" foot. ──── */
+.s-lane-sheet-plans {
+  display: flex;
+  flex-direction: column;
+}
+.s-lane-sheet-plan {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 4.5%, transparent);
+}
+.s-lane-sheet-plan:first-child {
+  border-top: 0;
+}
+.s-lane-sheet-plan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: var(--space-sm) 0;
+  text-align: left;
+  min-width: 0;
+}
+.s-lane-sheet-plan-head:hover .s-lane-sheet-plan-title {
+  color: var(--ink);
+}
+.s-lane-sheet-plan-caret {
+  flex: none;
+  display: inline-flex;
+  width: 0.75rem;
+  justify-content: center;
+  color: var(--dim);
+  transition: transform 140ms ease;
+}
+.s-lane-sheet-plan-caret--open {
+  transform: rotate(90deg);
+}
+.s-lane-sheet-plan-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-lane-sheet-plan--open .s-lane-sheet-plan-title {
+  color: var(--ink);
+}
+.s-lane-sheet-plan-tally {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xs);
+  color: var(--dim);
+}
+.s-lane-sheet-plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  padding: 0 0 var(--space-sm) 18px;
+}
+.s-lane-sheet-pstep {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.s-lane-sheet-pstep-box {
+  flex: none;
+  width: 11px;
+  text-align: center;
+  color: var(--dim);
+}
+.s-lane-sheet-pstep-text {
+  min-width: 0;
+}
+.s-lane-sheet-pstep--completed .s-lane-sheet-pstep-text {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+.s-lane-sheet-pstep--in_progress .s-lane-sheet-pstep-box {
+  color: var(--accent);
+}
+.s-lane-sheet-pstep--in_progress .s-lane-sheet-pstep-text {
+  color: var(--ink);
+}
+.s-lane-sheet-plan-foot {
+  margin-top: var(--space-sm);
 }

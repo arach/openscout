@@ -5,6 +5,7 @@ import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client"
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
+import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import { tailAttributionLabel } from "../../lib/tail-display.ts";
 import { isAgentBusy } from "../../lib/agent-state.ts";
@@ -24,13 +25,14 @@ import type { AgentLane } from "./agent-lanes-model.ts";
 import {
   laneContextLabel,
   lanePrimaryLabel,
-  laneStatusLabel,
 } from "./agent-lanes-model.ts";
 
-const FILE_STATE_LABEL: Record<string, string> = {
-  created: "new",
-  modified: "mod",
-  read: "read",
+/** The leading tonal mark for a touched-file row — a step of one hue: created
+ *  is the accent step, modified the neutral step, read the faintest. */
+const FILE_STATE_MARK: Record<string, string> = {
+  created: "+",
+  modified: "~",
+  read: "○",
 };
 
 const PLAN_STEP_LABELS: Record<PlanDocumentStepStatus, string> = {
@@ -49,6 +51,22 @@ function fmtCount(value: number | null | undefined): string {
 /** Compact a token count for the gauge readout (108528 → "108k"). */
 function kfmt(value: number): string {
   return value >= 1000 ? `${Math.round(value / 1000)}k` : `${value}`;
+}
+
+/** Compact a count to a calm magnitude (15451636 → "15.5M", 48553 → "48.6k").
+ *  Ports the calm study's `mag()` so the Tokens disclosure hint reads small. */
+function mag(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  return `${value}`;
+}
+
+/** Split a path into its directory prefix (with trailing slash) and basename,
+ *  so the file row can dim the dir (rtl-ellipsis) and ink the leaf. */
+function splitPath(path: string): { dir: string; base: string } {
+  const i = path.lastIndexOf("/");
+  if (i < 0) return { dir: "", base: path };
+  return { dir: path.slice(0, i + 1), base: path.slice(i + 1) };
 }
 
 /** Tool names that are a shell command across both harness idioms (mirrors
@@ -316,8 +334,10 @@ function SheetFact({
   );
 }
 
-/** A touched-file row that JUMPS (open in Scout · reveal in OS) and COPIES its
- *  full path — turning the dead inventory list into an actionable one. */
+/** A touched-file row in the study's flat `.frow` treatment: a leading tonal
+ *  mark, the path split into dim dir (rtl-ellipsis) + ink base, a trailing
+ *  +adds/−dels, and hover open-in-diff / reveal / copy. No card fill — the row
+ *  highlights only on hover. JUMPS (open in Scout · reveal in OS) and copies. */
 function SheetFileRow({
   file,
   basePath,
@@ -334,47 +354,50 @@ function SheetFileRow({
   const label = filePreviewLabel(file);
   const full = file.path;
   const resolved = resolveLanePath(full, basePath);
+  const { dir, base } = splitPath(full);
   const hasDiff = file.add > 0 || file.del > 0;
   return (
-    <article className="s-lane-sheet-file" title={full}>
-      <div className="s-lane-sheet-file-head">
-        <span className={`s-lane-sheet-file-state s-lane-sheet-file-state--${file.state}`}>
-          {FILE_STATE_LABEL[file.state] ?? file.state}
+    <div className="s-lane-sheet-frow" title={full}>
+      <span className={`s-lane-sheet-fstate s-lane-sheet-fstate--${file.state}`} aria-hidden="true">
+        {FILE_STATE_MARK[file.state] ?? "○"}
+      </span>
+      <span className="s-lane-sheet-fpath">
+        {dir && <span className="s-lane-sheet-fdir">{dir}</span>}
+        <span className="s-lane-sheet-fbase">{base}</span>
+      </span>
+      {hasDiff && (
+        <span className="s-lane-sheet-fdiff">
+          {file.add > 0 && <span className="s-lane-sheet-file-add">+{file.add}</span>}
+          {file.del > 0 && <span className="s-lane-sheet-file-del">−{file.del}</span>}
         </span>
+      )}
+      <span className="s-lane-sheet-frow-acts">
         <button
           type="button"
-          className="s-lane-sheet-file-open"
-          title={`Preview ${label} in Scout`}
+          className="s-lane-sheet-rowact"
+          title={`Open ${label} in diff`}
+          aria-label={`Open ${label} in diff`}
           onClick={() => onOpen(resolved)}
         >
-          {label}
+          <ExternalLink size={11} strokeWidth={1.6} />
         </button>
-        <span className="s-lane-sheet-file-actions">
-          {hasDiff ? (
-            <span className="s-lane-sheet-file-diff">
-              {file.add > 0 && <span className="s-lane-sheet-file-add">+{file.add}</span>}
-              {file.del > 0 && <span className="s-lane-sheet-file-del">−{file.del}</span>}
-            </span>
-          ) : (
-            <span className="s-lane-sheet-file-meta">×{file.touches}</span>
-          )}
-          <RevealButton path={full} basePath={basePath} agentId={agentId} sessionId={sessionId} label={label} />
-          <SheetCopy value={full} label="file path" />
-        </span>
-      </div>
-    </article>
+        <RevealButton path={full} basePath={basePath} agentId={agentId} sessionId={sessionId} label={label} />
+        <SheetCopy value={full} label="file path" />
+      </span>
+    </div>
   );
 }
 
-/** One recent shell command, tiered the same way the observe trace reads it
- *  (program · args · plumbing), with hover copy of the full command. */
+/** One recent shell command in the study's flat `.crow` density: a leading
+ *  prompt mark, single-line ellipsised text (keeping the observe-trace bash-span
+ *  coloring), an optional dim right-aligned outcome, and hover copy. */
 function LaneCommandRow({ entry }: { entry: LaneCommand }) {
   const { dir, rest } = splitCdPrefix(tildeShortenPath(entry.command));
   const spans = bashDisplaySpans(rest || entry.command);
   return (
-    <div className="s-lane-sheet-cmd" title={entry.command}>
-      <span className="s-lane-sheet-cmd-prompt" aria-hidden="true">❯</span>
-      <span className="s-lane-sheet-cmd-text">
+    <div className="s-lane-sheet-crow" title={entry.command}>
+      <span className="s-lane-sheet-cmark" aria-hidden="true">❯</span>
+      <span className="s-lane-sheet-ctext">
         {dir && <span className="s-lane-sheet-bash-dir">{dir}/</span>}
         {spans.map((span, index) => (
           <span
@@ -385,10 +408,69 @@ function LaneCommandRow({ entry }: { entry: LaneCommand }) {
           </span>
         ))}
       </span>
-      {entry.outcome && <span className="s-lane-sheet-cmd-outcome">{entry.outcome}</span>}
-      <span className="s-lane-sheet-cmd-actions">
+      {entry.outcome && <span className="s-lane-sheet-cresult">{entry.outcome}</span>}
+      <span className="s-lane-sheet-crow-acts">
         <SheetCopy value={entry.command} label="command" />
       </span>
+    </div>
+  );
+}
+
+/** A calm, full-width disclosure (caret · label · right-aligned hint), collapsed
+ *  by default. Ports the calm study's `Disclose` — Runtime + Tokens fold behind
+ *  it so the panel reads at the floor and reveals detail in context. */
+function SheetDisclose({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={`s-lane-sheet-disc${open ? " s-lane-sheet-disc--open" : ""}`}>
+      <button type="button" className="s-lane-sheet-disc-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className={`s-lane-sheet-disc-caret${open ? " s-lane-sheet-disc-caret--open" : ""}`} aria-hidden="true">›</span>
+        <span className="s-lane-sheet-disc-label">{label}</span>
+        {hint != null && hint !== false && <span className="s-lane-sheet-disc-hint">{hint}</span>}
+      </button>
+      {open && <div className="s-lane-sheet-disc-body">{children}</div>}
+    </div>
+  );
+}
+
+/** A flat plan card (NOT a bordered card): caret · title · done/active/todo
+ *  tally; expand to steps with status markers, then an "Open in Plans →" foot.
+ *  Ports the calm study's `PlanRow`. */
+function SheetPlanCard({ plan, onOpen }: { plan: PlanDocument; onOpen: () => void }) {
+  const [open, setOpen] = useState(false);
+  const done = plan.steps.filter((step) => step.status === "completed").length;
+  const active = plan.steps.filter((step) => step.status === "in_progress").length;
+  const todo = plan.steps.length - done - active;
+  return (
+    <div className={`s-lane-sheet-plan${open ? " s-lane-sheet-plan--open" : ""}`}>
+      <button type="button" className="s-lane-sheet-plan-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className={`s-lane-sheet-plan-caret${open ? " s-lane-sheet-plan-caret--open" : ""}`} aria-hidden="true">›</span>
+        <span className="s-lane-sheet-plan-title" title={plan.title}>{plan.title}</span>
+        <span className="s-lane-sheet-plan-tally">{done} done · {active} active · {todo} todo</span>
+      </button>
+      {open && (
+        <div className="s-lane-sheet-plan-steps">
+          {plan.steps.map((step) => (
+            <div key={step.id} className={`s-lane-sheet-pstep s-lane-sheet-pstep--${step.status}`}>
+              <span className="s-lane-sheet-pstep-box" aria-hidden="true">
+                {step.status === "completed" ? "✓" : step.status === "in_progress" ? "▸" : "○"}
+              </span>
+              <span className="s-lane-sheet-pstep-text">{step.text}</span>
+            </div>
+          ))}
+          <div className="s-lane-sheet-plan-foot">
+            <SheetGhost onClick={onOpen}>Open in Plans →</SheetGhost>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -408,7 +490,7 @@ function SessionDocumentCard({
   const isPlan = document.steps.length > 0;
 
   return (
-    <article className={`s-lane-sheet-doc${isPlan ? " s-lane-sheet-doc--plan" : ""}`}>
+    <article className="s-lane-sheet-doc">
       <button
         type="button"
         className="s-lane-sheet-doc-head"
@@ -425,24 +507,24 @@ function SessionDocumentCard({
         <div className="s-lane-sheet-doc-body">
           {document.summary && <p className="s-lane-sheet-doc-summary">{document.summary}</p>}
           {isPlan && document.steps.length > 0 && (
-            <ol className="s-lane-sheet-plan-steps">
+            <ol className="s-lane-sheet-doc-steps">
               {document.steps.map((step) => (
                 <li
                   key={step.id}
-                  className={`s-lane-sheet-plan-step s-lane-sheet-plan-step--${step.status}`}
+                  className={`s-lane-sheet-doc-step s-lane-sheet-doc-step--${step.status}`}
                 >
-                  <span className="s-lane-sheet-plan-step-state">
+                  <span className="s-lane-sheet-doc-step-state">
                     {PLAN_STEP_LABELS[step.status]}
                   </span>
-                  <span className="s-lane-sheet-plan-step-text">{step.text}</span>
+                  <span className="s-lane-sheet-doc-step-text">{step.text}</span>
                 </li>
               ))}
             </ol>
           )}
           {(document.body || document.rawText) && (
-            <pre className="s-lane-sheet-plan-doc">{document.body || document.rawText}</pre>
+            <pre className="s-lane-sheet-doc-pre">{document.body || document.rawText}</pre>
           )}
-          <button type="button" className="s-lane-sheet-plan-open" onClick={onOpen}>
+          <button type="button" className="s-lane-sheet-doc-open" onClick={onOpen}>
             Open in Plans
           </button>
         </div>
@@ -481,10 +563,14 @@ export function AgentLaneDetailSheet({
   }, []);
 
   const primaryLabel = lanePrimaryLabel(agent, source);
-  const statusLabel = laneStatusLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
   const stats = useMemo(() => buildLaneSessionStats(lane), [lane]);
   const facts = lane.facts;
+  // `working` (isAgentBusy) stays TRUE after a codex turn completes, so the
+  // live/idle VISUAL must key off the actual turn phase when we have one — a
+  // finished turn should read "last action", not "executing now". Fall back to
+  // `working` only when there's no turn phase signal at all.
+  const isLive = facts?.turn?.phase ? facts.turn.phase === "started" : working;
 
   // The complete touched-file inventory (no arbitrary cap) enriched with the
   // per-file +adds/−dels summed from the trace's tool diffs, then split into the
@@ -545,11 +631,6 @@ export function AgentLaneDetailSheet({
   const copyAllCommands = useCallback(() => {
     void copyTextToClipboard(allCommands);
   }, [allCommands]);
-
-  const openAllPlans = useCallback(() => {
-    navigate({ view: "ops", mode: "plan" });
-    onClose();
-  }, [navigate, onClose]);
 
   const openAllInDiff = useCallback(() => {
     for (const file of fileGroups.changed) {
@@ -675,9 +756,11 @@ export function AgentLaneDetailSheet({
             {contextLabel} · {lastActiveAt ? timeAgo(lastActiveAt) : "idle"}
           </div>
         </div>
-        <span className="s-lane-sheet-status">
-          <span className="s-agent-lane-summary-badge">{statusLabel}</span>
-        </span>
+        <HarnessMark
+          harness={agent.harness ?? stats.harness}
+          size={18}
+          className={`s-lane-sheet-hmark${isLive ? " s-lane-sheet-hmark--working" : ""}`}
+        />
         <span className="s-slide-spacer" />
         <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
           ×
@@ -687,13 +770,6 @@ export function AgentLaneDetailSheet({
       <div className="s-lane-sheet-actions">
         <button type="button" className="s-lane-sheet-action s-lane-sheet-action--primary" onClick={openSession}>
           Open session
-        </button>
-        <button
-          type="button"
-          className="s-lane-sheet-action"
-          onClick={() => navigate({ view: "ops", mode: "plan" })}
-        >
-          All plans
         </button>
       </div>
 
@@ -710,18 +786,23 @@ export function AgentLaneDetailSheet({
         )}
         <a href="#s-lane-sheet-plans" className="s-lane-sheet-anchor">Plans</a>
         <a href="#s-lane-sheet-docs" className="s-lane-sheet-anchor">Docs</a>
-        {facts?.turn && (
+        {isLive && facts?.turn && (
           <span className="s-lane-sheet-anchorbar-turn">
             turn {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
           </span>
         )}
       </nav>
 
-      <div className="s-slide-body s-lane-sheet-body">
+      <div className={`s-slide-body s-lane-sheet-body${isLive ? " s-lane-sheet-body--working" : " s-lane-sheet-body--idle"}`}>
         {/* VITALS — the cockpit hero: alive · how full · how busy, in one look.
             A flat section (soft emerald top wash) holding the live action well,
-            the context-budget gauge, and a calm one-line cadence readout. */}
-        <section id="s-lane-sheet-vitals" className="s-lane-sheet-section s-lane-sheet-vitals">
+            the context-budget gauge, and a calm one-line cadence readout. When
+            the agent is idle the whole section is stilled (--idle): no wash, no
+            pulse, the live dot goes inert and the well reframes to "last action". */}
+        <section
+          id="s-lane-sheet-vitals"
+          className={`s-lane-sheet-section s-lane-sheet-vitals${isLive ? "" : " s-lane-sheet-vitals--idle"}`}
+        >
           {preview && (
             <div className="s-lane-sheet-vitals-now">
               <div className="s-lane-sheet-vitals-now-top">
@@ -729,8 +810,8 @@ export function AgentLaneDetailSheet({
                   <span className="s-lane-sheet-vitals-live-dot" />
                   <span className="s-lane-sheet-vitals-live-ring" />
                 </span>
-                <span className="s-lane-sheet-vitals-now-label">executing now</span>
-                {facts?.turn && (
+                <span className="s-lane-sheet-vitals-now-label">{isLive ? "executing now" : "last action"}</span>
+                {isLive && facts?.turn && (
                   <span className="s-lane-sheet-vitals-now-turn">
                     turn {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
                   </span>
@@ -745,7 +826,7 @@ export function AgentLaneDetailSheet({
                   <span className="s-lane-sheet-vitals-prompt s-lane-sheet-vitals-prompt--cmd" aria-hidden="true">❯</span>
                 )}
                 <span className="s-lane-sheet-vitals-cmd" title={preview.headFull}>{preview.headline}</span>
-                <span className="s-lane-sheet-vitals-caret" aria-hidden="true" />
+                {isLive && <span className="s-lane-sheet-vitals-caret" aria-hidden="true" />}
                 <span className="s-lane-sheet-vitals-now-acts">
                   <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openSession}>
                     <ExternalLink size={11} strokeWidth={1.6} />
@@ -794,57 +875,62 @@ export function AgentLaneDetailSheet({
         </section>
 
         <section id="s-lane-sheet-runtime" className="s-lane-sheet-section">
-          <SheetSecHead
-            label="Cluster"
-            count="runtime · tokens"
-            actions={<SheetGhost onClick={copyDiagnostics}>Copy diagnostics</SheetGhost>}
-          />
-          <dl className="s-lane-sheet-meta">
-            <SheetFact label="Model" value={facts?.model ?? stats.model ?? "—"} copy={facts?.model ?? stats.model ?? null} />
-            <SheetFact label="Effort" value={facts?.effort ?? "—"} />
-            <SheetFact label="Harness" value={agent.harness ?? stats.harness ?? "—"} copy={agent.harness ?? stats.harness ?? null} />
-            <SheetFact label="Branch" value={facts?.branch ?? stats.branch ?? "—"} copy={facts?.branch ?? stats.branch ?? null} />
-            <SheetFact
-              label="Working dir"
-              value={fmtPath(stats.cwd)}
-              title={stats.cwd ?? undefined}
-              copy={stats.cwd ?? null}
-              reveal={stats.cwd ? { path: stats.cwd, basePath: stats.cwd, agentId: agent.id, sessionId: stats.sessionId } : undefined}
-            />
-            <SheetFact
-              label="Session"
-              value={fmtPath(stats.sessionId, 36)}
-              title={stats.sessionId ?? undefined}
-              copy={stats.sessionId ?? null}
-            />
-            {agent.harnessLogPath && (
+          <SheetDisclose label="Runtime" hint={[agent.harness ?? stats.harness, facts?.model ?? stats.model].filter(Boolean).join(" · ") || undefined}>
+            <dl className="s-lane-sheet-meta">
+              <SheetFact label="Model" value={facts?.model ?? stats.model ?? "—"} copy={facts?.model ?? stats.model ?? null} />
+              <SheetFact label="Effort" value={facts?.effort ?? "—"} />
+              <SheetFact label="Harness" value={agent.harness ?? stats.harness ?? "—"} copy={agent.harness ?? stats.harness ?? null} />
+              <SheetFact label="Branch" value={facts?.branch ?? stats.branch ?? "—"} copy={facts?.branch ?? stats.branch ?? null} />
               <SheetFact
-                label="Transcript"
-                value={fmtPath(agent.harnessLogPath, 36)}
-                title={agent.harnessLogPath}
-                copy={agent.harnessLogPath}
-                reveal={{ path: agent.harnessLogPath, basePath: stats.cwd, agentId: agent.id, sessionId: stats.sessionId }}
+                label="Working dir"
+                value={fmtPath(stats.cwd)}
+                title={stats.cwd ?? undefined}
+                copy={stats.cwd ?? null}
+                reveal={stats.cwd ? { path: stats.cwd, basePath: stats.cwd, agentId: agent.id, sessionId: stats.sessionId } : undefined}
               />
-            )}
-            <SheetFact label="Origin" value={facts?.originator ?? "—"} copy={facts?.originator ?? null} />
-            <SheetFact
-              label="Attribution"
-              value={facts?.attribution ? tailAttributionLabel(facts.attribution) : "—"}
-            />
-            {facts?.currentTask && (
-              <SheetFact label="Task" value={facts.currentTask} title={facts.currentTask} copy={facts.currentTask} />
-            )}
-          </dl>
+              <SheetFact
+                label="Session"
+                value={fmtPath(stats.sessionId, 36)}
+                title={stats.sessionId ?? undefined}
+                copy={stats.sessionId ?? null}
+              />
+              {agent.harnessLogPath && (
+                <SheetFact
+                  label="Transcript"
+                  value={fmtPath(agent.harnessLogPath, 36)}
+                  title={agent.harnessLogPath}
+                  copy={agent.harnessLogPath}
+                  reveal={{ path: agent.harnessLogPath, basePath: stats.cwd, agentId: agent.id, sessionId: stats.sessionId }}
+                />
+              )}
+              <SheetFact label="Origin" value={facts?.originator ?? "—"} copy={facts?.originator ?? null} />
+              <SheetFact
+                label="Attribution"
+                value={facts?.attribution ? tailAttributionLabel(facts.attribution) : "—"}
+              />
+              {facts?.currentTask && (
+                <SheetFact label="Task" value={facts.currentTask} title={facts.currentTask} copy={facts.currentTask} />
+              )}
+            </dl>
+            <div className="s-lane-sheet-disc-bar">
+              <SheetGhost onClick={copyDiagnostics}>Copy diagnostics</SheetGhost>
+            </div>
+          </SheetDisclose>
 
           {usageCards.length > 0 && (
-            <div className="s-lane-sheet-dials">
-              {usageCards.map((entry) => (
-                <span key={entry.label} className="s-lane-sheet-dial">
-                  <span className="s-lane-sheet-dial-value">{fmtCount(entry.value)}</span>
-                  <span className="s-lane-sheet-dial-label">{entry.label}</span>
-                </span>
-              ))}
-            </div>
+            <SheetDisclose
+              label="Tokens"
+              hint={typeof usage?.totalTokens === "number" ? mag(usage.totalTokens) : undefined}
+            >
+              <div className="s-lane-sheet-dials">
+                {usageCards.map((entry) => (
+                  <span key={entry.label} className="s-lane-sheet-dial">
+                    <span className="s-lane-sheet-dial-value">{fmtCount(entry.value)}</span>
+                    <span className="s-lane-sheet-dial-label">{entry.label}</span>
+                  </span>
+                ))}
+              </div>
+            </SheetDisclose>
           )}
         </section>
 
@@ -972,22 +1058,15 @@ export function AgentLaneDetailSheet({
           <SheetSecHead
             label="Plans"
             count={documentsLoaded && plans.length > 0 ? plans.length : undefined}
-            actions={<SheetGhost onClick={openAllPlans}>Open in Plans →</SheetGhost>}
           />
           {!documentsLoaded ? (
             <div className="s-lane-sheet-empty">Indexing plan documents…</div>
           ) : plans.length === 0 ? (
             <div className="s-lane-sheet-empty">No plans matched this session yet.</div>
           ) : (
-            <div className="s-lane-sheet-docs">
+            <div className="s-lane-sheet-plans">
               {plans.map((plan) => (
-                <SessionDocumentCard
-                  key={plan.id}
-                  document={plan}
-                  expanded={expandedDocId === plan.id}
-                  onToggle={() => setExpandedDocId((current) => (current === plan.id ? null : plan.id))}
-                  onOpen={() => openDocument(plan.id)}
-                />
+                <SheetPlanCard key={plan.id} plan={plan} onOpen={() => openDocument(plan.id)} />
               ))}
             </div>
           )}
