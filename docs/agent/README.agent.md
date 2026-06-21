@@ -1,6 +1,6 @@
 # OpenScout Agent Context
 
-Verified: 2026-06-10
+Verified: 2026-06-19
 
 Purpose: dense context for coding agents working in this repo.
 

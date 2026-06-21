@@ -10,15 +10,49 @@ Scope: `packages/runtime/src/broker-daemon.ts`, with supporting reads of
 Method: local Codex sub-agent swarm plus parent synthesis. No files were edited
 by sub-agents. This document is the consolidated review.
 
+## Status Update (2026-06-19)
+
+The structural refactor recommended here has landed on the current branch.
+`broker-daemon.ts` is again a composition root, not the owner of every workflow.
+
+Measured locally after extraction:
+
+| File | Lines (approx.) | Role |
+| --- | ---: | --- |
+| `broker-daemon.ts` | 1,260 | process wiring, dependency assembly, startup/shutdown |
+| `broker-http-router.ts` | 980 | HTTP route table (replaces in-daemon routing) |
+| `broker-delivery-acceptance-service.ts` | 700 | `/v1/deliver` acceptance workflow |
+| `broker-local-invocation-service.ts` | 550 | local transport execution |
+| `broker-invocation-dispatch-service.ts` | 205 | invocation accept + dispatch |
+| `broker-*` modules (non-test) | 46 files | durable stores, mesh, streams, sessions, commands |
+
+What moved out of the monolith:
+
+- durable write helpers → `broker-durable-store.ts`, `broker-durable-record-store.ts`, `broker-delivery-store.ts`, `broker-work-item-store.ts`
+- delivery acceptance → `broker-delivery-acceptance-service.ts`
+- invocation accept/dispatch → `broker-invocation-dispatch-service.ts`
+- endpoint selection/execution → `broker-local-endpoint-resolver.ts`, `broker-local-invocation-service.ts`
+- target resolution → `broker-delivery-routing.ts`
+- conversations/messages → `broker-conversation-service.ts`, `broker-message-service.ts`
+- mesh → `broker-mesh-*-service.ts`
+- HTTP surfaces → `broker-http-router.ts` plus focused `*-http-service.ts` modules
+- managed sessions → `broker-managed-session-service.ts`
+- route inventory guardrail → `broker-daemon-route-inventory.test.ts`
+
+`docs/architecture.md` now carries the product-level broker module map. The
+sections below remain the original review: they document the pre-refactor
+monolith, the behavioral findings that motivated extraction, and the cleanup
+work that is still open.
+
 ## Executive Summary
 
-The broker daemon has become a 9,310-line composition root, HTTP router,
-application service, durable repository, endpoint/session lifecycle manager,
-transport dispatcher, mesh gateway, A2A server, feed hub, web supervisor, and
-mobile notification caller.
+At review time (2026-06-18), the broker daemon had become a 9,310-line
+composition root, HTTP router, application service, durable repository,
+endpoint/session lifecycle manager, transport dispatcher, mesh gateway, A2A
+server, feed hub, web supervisor, and mobile notification caller.
 
-That is not just a style problem. The current shape directly causes behavior
-like "UI says live, dispatch queues until online" because readiness is decided
+That was not just a style problem. The monolith shape directly caused behavior
+like "UI says live, dispatch queues until online" because readiness was decided
 by several different heuristics:
 
 - target resolution returns an agent, not a concrete endpoint/session;
@@ -26,14 +60,13 @@ by several different heuristics:
 - execution does separate transport-specific liveness checks;
 - queue/fail decisions happen after the invocation has already been accepted.
 
-The fix made today corrected one local branch of that drift, but the root
-cleanup is to introduce one endpoint selection/classification contract and make
-dispatch a durable schedulable operation rather than a fire-and-forget side
-effect.
+The fix made that day corrected one local branch of that drift. The structural
+cleanup (service extraction) has since landed; the behavioral cleanup below is
+still the priority.
 
-## File Shape
+## File Shape (pre-refactor, 2026-06-18)
 
-Measured locally:
+Measured locally at review time:
 
 - `packages/runtime/src/broker-daemon.ts`: 9,310 lines
 - top-level functions: about 300
@@ -522,7 +555,7 @@ Relevant code:
 
 Keep `broker-daemon.ts` as the process composition root, not the application.
 
-Target shape:
+### Target shape (review proposal)
 
 ```text
 broker-daemon.ts
@@ -569,6 +602,27 @@ feed-hub.ts
 notification-adapter.ts
   -> operator/mobile notification policy
 ```
+
+### As-implemented map (2026-06-19)
+
+Most of the proposal above now exists under `broker-*` modules. Naming differs
+slightly from the sketch, but responsibilities line up:
+
+| Proposal | Implemented module(s) | Notes |
+| --- | --- | --- |
+| composition root | `broker-daemon.ts` | ~1.3k lines |
+| HTTP router | `broker-http-router.ts`, `broker-http-helpers.ts`, `broker-http-entity-write-routes.ts` | route inventory test added |
+| write store | `broker-durable-store.ts`, `broker-durable-record-store.ts`, `broker-delivery-store.ts` | split across entity helpers |
+| delivery service | `broker-delivery-acceptance-service.ts`, `broker-delivery-routing.ts` | `/v1/deliver` path |
+| invocation service | `broker-invocation-dispatch-service.ts` | accept + dispatch; no dispatch-job outbox yet |
+| dispatch scheduler | partial in `broker-flight-lifecycle-service.ts`, `broker-local-invocation-service.ts` | queued drain on endpoint upsert; no durable job lease |
+| endpoint selection | `broker-local-endpoint-resolver.ts`, `broker-local-invocation-helpers.ts` | shared helpers; not one classifier contract yet |
+| transport adapters | still in `local-agents.ts`, `local-agent-transports.ts`, invoked from `broker-local-invocation-service.ts` | registry boundary not extracted |
+| managed sessions | `broker-managed-session-service.ts`, `broker-managed-session-http-service.ts` | |
+| mesh gateway | `broker-mesh-discovery-service.ts`, `broker-mesh-forwarding-service.ts`, `broker-mesh-http-service.ts`, `broker-mesh-bundle-service.ts` | |
+| A2A surface | `broker-a2a-service.ts` | |
+| feed hub | `broker-control-stream-service.ts`, `broker-trpc-router.ts` | SSE + WebSocket firehose |
+| notification adapter | `broker-operator-attention-service.ts` + `mobile-push.ts` | policy still close to delivery detail |
 
 ## Recommended Refactor Sequence
 
@@ -655,20 +709,17 @@ Move the lower-risk route groups after the core dispatch semantics are stable:
 
 ## Acceptance Criteria For Cleanup
 
-1. `broker-daemon.ts` becomes a composition root under roughly 1,500-2,000
-   lines, not the owner of business workflows.
-2. There is exactly one endpoint classifier/selector used by UI summaries,
-   dispatch diagnostics, and execution.
-3. Exact-session targeting either binds to one concrete endpoint or returns a
-   specific unavailable/ambiguous diagnostic before success.
-4. Accepted invocations create durable dispatch jobs in the same transaction.
-5. Restart can reconcile/claim pending dispatch jobs without endpoint-upsert
-   side effects.
-6. Endpoint/session execution is serialized unless the adapter explicitly opts
-   into concurrency.
-7. Route registration has tests preventing duplicate method/path branches.
-8. Mobile/APNs payloads carry only opaque IDs and generic alert text.
-9. Read models have an explicit freshness contract.
+| # | Criterion | Status (2026-06-19) |
+| --- | --- | --- |
+| 1 | `broker-daemon.ts` becomes a composition root under roughly 1,500-2,000 lines | **Done** (~1,260 lines) |
+| 2 | One endpoint classifier/selector for UI, dispatch, and execution | **Open** — helpers exist, contract not unified |
+| 3 | Exact-session targeting binds to one endpoint or fails before success | **Open** |
+| 4 | Accepted invocations create durable dispatch jobs in the same transaction | **Open** |
+| 5 | Restart reconciles pending dispatch jobs without endpoint-upsert side effects | **Open** |
+| 6 | Endpoint/session execution serialized unless adapter opts into concurrency | **Open** |
+| 7 | Route registration tests prevent duplicate method/path branches | **Done** — `broker-daemon-route-inventory.test.ts` |
+| 8 | Mobile/APNs payloads carry only opaque IDs and generic alert text | **Open** |
+| 9 | Read models have an explicit freshness contract | **Open** |
 
 ## Open Questions
 
@@ -684,17 +735,18 @@ Move the lower-risk route groups after the core dispatch semantics are stable:
 
 ## Bottom Line
 
-The broker should keep its canonical-writer role. The problem is that canonical
-ownership has been implemented as co-location of every concern in one daemon
-file. The cleanup should preserve one authority for Scout-owned records while
-splitting the concerns into explicit services:
+The broker should keep its canonical-writer role. At review time, canonical
+ownership had been implemented as co-location of every concern in one daemon
+file. Service extraction has since addressed the structural half of that
+problem; behavioral drift remains where endpoint readiness and dispatch
+scheduling are still decided by separate heuristics.
 
-- target resolution;
-- endpoint classification/selection;
-- durable dispatch scheduling;
-- transport adapters;
-- durable write/projection;
-- HTTP/A2A/MCP/mesh/mobile surfaces.
+Next priority after the module split:
 
-Do endpoint classification and durable dispatch first. Route extraction before
-those two would reduce file size but keep the behavioral drift.
+- endpoint classification/selection (one contract for UI, dispatch, execution);
+- durable dispatch scheduling (outbox + leases, not fire-and-forget side effects);
+- transport adapter boundaries;
+- notification policy hardening.
+
+Structural map: `docs/architecture.md` (Broker → module map). Behavioral
+findings and open acceptance criteria: sections above.
