@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Cpu, KeyRound, RefreshCw, Server, Settings, Wrench } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { api } from "../../lib/api.ts";
+import { ensureAgentChat } from "../../lib/agent-chat.ts";
+import { formatClockTimestamp } from "../../lib/time.ts";
 import type {
   AgentConfigurationAgent,
   AgentConfigurationProvider,
@@ -174,9 +176,17 @@ function SelectedAgentPanel({
           <button
             type="button"
             className="s-btn"
-            onClick={() => openContent(navigate, { view: "conversation", conversationId: agent.conversationId }, { returnTo: route })}
+            onClick={() => {
+              void ensureAgentChat(agent).then((conversationId) => {
+                openContent(
+                  navigate,
+                  { view: "conversation", conversationId },
+                  { returnTo: route },
+                );
+              });
+            }}
           >
-            Open DM
+            Open Chat
           </button>
         </div>
       </div>
@@ -285,7 +295,7 @@ export function AgentConfigurationScreen({
         <div className="sys-page-actions">
           {snapshot && (
             <div className="sys-sync-note">
-              Updated {new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              Updated {formatClockTimestamp(snapshot.generatedAt) || "unknown"}
             </div>
           )}
           <button

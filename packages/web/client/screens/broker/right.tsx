@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { api } from "../../lib/api.ts";
+import { useBrokerEvents } from "../../lib/sse.ts";
+import { timeAgo } from "../../lib/time.ts";
 import { BrokerAttemptInspector } from "./BrokerScreen.tsx";
 import type { BrokerDiagnostics, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 
@@ -308,21 +310,6 @@ function BrokerContextAttemptButton({
     </button>
   );
 }
-
-const TERMINAL_CHANNEL_RUN_STATES = new Set(["completed", "failed", "cancelled"]);
-
-type ChannelActivityItem = {
-  id: string;
-  kind: "work" | "run";
-  actorId: string | null;
-  actorName: string;
-  status: string;
-  title: string;
-  detail: string | null;
-  updatedAt: number;
-  active: boolean;
-  route: Route | null;
-};
 
 export function BrokerRight({
   selectedAttempt,

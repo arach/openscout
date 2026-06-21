@@ -1,0 +1,186 @@
+import { describe, expect, test } from "bun:test";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+
+import { createInMemoryControlRuntime } from "./broker.js";
+import {
+  buildCardlessSessionEndpoint,
+  cardlessSessionsForProjectRoot,
+  isCardlessSessionEndpoint,
+  registerCardlessSession,
+} from "./broker-cardless-session.js";
+import { resolveBrokerRouteTarget } from "./scout-dispatcher.js";
+
+const helpers = { isStale: () => false };
+const PROJECT = "/Users/arach/dev/openscout";
+
+function newRuntime() {
+  return createInMemoryControlRuntime({}, { localNodeId: "node-1" });
+}
+
+describe("SCO-070 cardless sessions", () => {
+  test("registers a session-kind actor + endpoint with no card", async () => {
+    const runtime = newRuntime();
+    const result = await registerCardlessSession(runtime, {
+      sessionId: "sess-abc12345",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    const snapshot = runtime.snapshot();
+
+    // The actor exists and is session-kind; NO agent card was minted.
+    expect(snapshot.actors["sess-abc12345"]?.kind).toBe("session");
+    expect(snapshot.agents["sess-abc12345"]).toBeUndefined();
+
+    // The endpoint occupies the identity slot with agentId === sessionId.
+    const endpoint = snapshot.endpoints[result.endpointId];
+    expect(endpoint?.agentId).toBe("sess-abc12345");
+    expect(isCardlessSessionEndpoint(endpoint!)).toBe(true);
+    expect(endpoint?.metadata?.pendingExternalSession).toBe(true);
+    expect(endpoint?.metadata?.externalSessionId).toBeUndefined();
+    expect(endpoint?.metadata?.threadId).toBeUndefined();
+  });
+
+  test("a cardless session routes via resolved_session with no ambiguity", async () => {
+    const runtime = newRuntime();
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-route-1",
+      transport: "claude_stream_json",
+      harness: "claude",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+
+    const result = resolveBrokerRouteTarget(
+      runtime.snapshot(),
+      { target: { kind: "session_id", sessionId: "sess-route-1" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe("sess-route-1");
+      expect(result.session.endpoint.sessionId).toBe("sess-route-1");
+      expect(result.session.nodeId).toBe("node-1");
+    }
+  });
+
+  test("two cardless sessions in one project each resolve, no ambiguity", async () => {
+    const runtime = newRuntime();
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-a",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-b",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    const snapshot = runtime.snapshot();
+
+    for (const id of ["sess-a", "sess-b"]) {
+      const result = resolveBrokerRouteTarget(
+        snapshot,
+        { target: { kind: "session_id", sessionId: id } },
+        { helpers },
+      );
+      expect(result.kind).toBe("resolved_session");
+    }
+
+    // Both appear under the project (seam 4 grouping).
+    const grouped = cardlessSessionsForProjectRoot(snapshot, PROJECT);
+    expect(grouped.map((e) => e.sessionId).sort()).toEqual(["sess-a", "sess-b"]);
+  });
+
+  test("sessions group under their resolved project root", async () => {
+    const runtime = newRuntime();
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-here",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    await registerCardlessSession(runtime, {
+      sessionId: "sess-elsewhere",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: "/Users/arach/dev/hudson",
+      nodeId: "node-1",
+    });
+    const snapshot = runtime.snapshot();
+
+    expect(cardlessSessionsForProjectRoot(snapshot, PROJECT).map((e) => e.sessionId)).toEqual([
+      "sess-here",
+    ]);
+    // Trailing-slash variant normalizes to the same root.
+    expect(
+      cardlessSessionsForProjectRoot(snapshot, `${PROJECT}/`).map((e) => e.sessionId),
+    ).toEqual(["sess-here"]);
+  });
+
+  test("expands home-relative paths before storing cardless endpoints", () => {
+    const endpoint = buildCardlessSessionEndpoint({
+      sessionId: "sess-home",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: "~/dev/openscout",
+      nodeId: "node-1",
+    });
+
+    const projectRoot = join(homedir(), "dev", "openscout");
+    expect(endpoint.cwd).toBe(projectRoot);
+    expect(endpoint.projectRoot).toBe(projectRoot);
+    expect(endpoint.metadata?.projectRoot).toBe(projectRoot);
+  });
+
+  test("a stale cardless endpoint drops from routing and grouping", () => {
+    const live = buildCardlessSessionEndpoint({
+      sessionId: "sess-live",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    const dead = buildCardlessSessionEndpoint({
+      sessionId: "sess-dead",
+      transport: "codex_app_server",
+      harness: "codex",
+      cwd: PROJECT,
+      nodeId: "node-1",
+    });
+    dead.metadata = { ...dead.metadata, staleLocalRegistration: true };
+
+    const snapshot = {
+      agents: {},
+      endpoints: { [live.id]: live, [dead.id]: dead },
+      actors: {},
+      nodes: {},
+      conversations: {},
+      bindings: {},
+      flights: {},
+      messages: [],
+      deliveries: [],
+      collaborations: {},
+      collaborationEvents: [],
+    } as unknown as ReturnType<ReturnType<typeof newRuntime>["snapshot"]>;
+
+    const deadResult = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "session_id", sessionId: "sess-dead" } },
+      { helpers },
+    );
+    expect(deadResult.kind).toBe("unknown");
+
+    const grouped = cardlessSessionsForProjectRoot(snapshot, PROJECT);
+    expect(grouped.map((e) => e.sessionId)).toEqual(["sess-live"]);
+    expect(resolve(PROJECT)).toBe(PROJECT);
+  });
+});

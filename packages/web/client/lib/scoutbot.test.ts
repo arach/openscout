@@ -10,6 +10,7 @@ import {
 function agent(input: Partial<Agent> & { id: string }): Agent {
   return {
     id: input.id,
+    definitionId: input.definitionId ?? input.id,
     name: input.name ?? input.id,
     handle: input.handle ?? null,
     agentClass: input.agentClass ?? "general",
@@ -21,6 +22,9 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     createdAt: input.createdAt ?? null,
     transport: input.transport ?? "codex_app_server",
     selector: input.selector ?? null,
+    defaultSelector: input.defaultSelector ?? null,
+    nodeQualifier: input.nodeQualifier ?? null,
+    workspaceQualifier: input.workspaceQualifier ?? null,
     wakePolicy: input.wakePolicy ?? "on_demand",
     capabilities: input.capabilities ?? ["chat", "invoke", "deliver"],
     project: input.project ?? null,
@@ -28,13 +32,17 @@ function agent(input: Partial<Agent> & { id: string }): Agent {
     role: input.role ?? null,
     model: input.model ?? null,
     harnessSessionId: input.harnessSessionId ?? null,
+    terminalSurface: input.terminalSurface ?? null,
     harnessLogPath: input.harnessLogPath ?? null,
-    conversationId: input.conversationId ?? `dm.operator.${input.id}`,
+    conversationId: input.conversationId ?? null,
     homeNodeId: input.homeNodeId ?? null,
     homeNodeName: input.homeNodeName ?? null,
     ownerId: input.ownerId ?? null,
     ownerName: input.ownerName ?? null,
     ownerHandle: input.ownerHandle ?? null,
+    staleLocalRegistration: input.staleLocalRegistration ?? false,
+    retiredFromFleet: input.retiredFromFleet ?? false,
+    replacedByAgentId: input.replacedByAgentId ?? null,
   };
 }
 

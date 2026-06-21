@@ -3,6 +3,7 @@ import type {
   AgentEndpoint,
   AgentState,
   ScoutCandidateEndpointState,
+  ScoutDispatchUnavailableTarget,
 } from "@openscout/protocol";
 
 import { isA2AHttpEndpoint } from "./a2a-http-endpoint.js";
@@ -165,6 +166,17 @@ export function isInactiveLocalAgent(agent: AgentDefinition | undefined): boolea
   return isRetiredLocalAgent(agent) || agent?.metadata?.staleLocalRegistration === true;
 }
 
+/**
+ * Terminal endpoint states for a cardless/session endpoint that has no backing
+ * agent card. Once an endpoint reaches one of these it should be ignored for
+ * routing even before the reaper stamps `staleLocalRegistration`.
+ */
+const TERMINAL_ENDPOINT_STATES: ReadonlySet<AgentState> = new Set<AgentState>([
+  "failed",
+  "superseded",
+  "stopped",
+]);
+
 export function isStaleLocalEndpoint(
   snapshot: RuntimeRegistrySnapshot,
   endpoint: AgentEndpoint | null,
@@ -173,7 +185,38 @@ export function isStaleLocalEndpoint(
     return true;
   }
 
-  return isInactiveLocalAgent(snapshot.agents[endpoint.agentId]);
+  const agent = snapshot.agents[endpoint.agentId];
+  if (!agent) {
+    // SCO-070 cardless/session endpoint: no agent card backs `agentId`, so the
+    // staleLocalRegistration marker (checked above) is the authoritative
+    // liveness signal, with terminal endpoint state as a conservative backstop.
+    return TERMINAL_ENDPOINT_STATES.has(endpoint.state);
+  }
+
+  return isInactiveLocalAgent(agent);
+}
+
+/**
+ * SCO-070: availability for a cardless session endpoint. The resolver already
+ * dropped stale/terminal endpoints, so a resolved session is unavailable only
+ * when its live endpoint has gone offline (the harness exited mid-flight).
+ */
+export function describeUnavailableSessionEndpoint(
+  endpoint: AgentEndpoint,
+): ScoutDispatchUnavailableTarget | null {
+  const endpointState = endpointCandidateState(endpoint.state);
+  if (endpointState === "online") {
+    return null;
+  }
+  return {
+    agentId: endpoint.agentId,
+    displayName: endpoint.agentId,
+    reason: "session_reference_not_attachable",
+    detail: `Session ${endpoint.sessionId ?? endpoint.id} is no longer attachable (endpoint ${endpoint.state}).`,
+    endpointState,
+    transport: endpoint.transport,
+    projectRoot: endpoint.projectRoot ?? endpoint.cwd ?? null,
+  };
 }
 
 export function homeEndpointForAgent(

@@ -70,7 +70,7 @@ export function ScoutFeatureFlagPanel({
   return (
     <div className="scout-flag-backdrop" onClick={onClose}>
       <div
-        ref={panelRef}
+        {...panelRef}
         className="scout-flag-panel"
         role="dialog"
         aria-modal="true"

@@ -26,7 +26,7 @@ export type Agent = {
   harnessSessionId: string | null;
   terminalSurface: TerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
-  conversationId: string;
+  conversationId: string | null;
   authorityNodeId?: string | null;
   authorityNodeName?: string | null;
   homeNodeId: string | null;
@@ -171,7 +171,7 @@ export type AgentConfigurationAgent = {
   projectRoot: string | null;
   cwd: string | null;
   capabilities: string[];
-  conversationId: string;
+  conversationId: string | null;
 };
 
 export type AgentConfigurationProject = {
@@ -647,6 +647,18 @@ export type SessionEntry = {
   alias?: string | null;
   naturalKey?: string | null;
   participantIds: string[];
+  participants?: Array<{
+    actorId: string;
+    kind?: string | null;
+    displayName: string;
+    label: string;
+    scopedAlias?: string | null;
+    agentId?: string | null;
+    sessionId?: string | null;
+    harness?: string | null;
+    transport?: string | null;
+    workspaceRoot?: string | null;
+  }>;
   authorityNodeId?: string | null;
   authorityNodeName?: string | null;
   agentId: string | null;

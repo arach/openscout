@@ -172,8 +172,8 @@ export function buildObserveDataFromTail(
     live: current && observeEvents.length > 0,
     metadata: {
       session: {
-        cwd: transcript.cwd,
-        externalSessionId: transcript.sessionId,
+        cwd: transcript.cwd ?? undefined,
+        externalSessionId: transcript.sessionId ?? undefined,
         sessionStart,
       },
     },

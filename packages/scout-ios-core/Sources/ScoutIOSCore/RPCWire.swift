@@ -13,10 +13,8 @@ import ScoutCapabilities
 
 // MARK: - Epoch helpers (ported)
 
-let scoutEpochMillisecondsCutoff = 10_000_000_000
-
 func scoutEpochMilliseconds(_ value: Int) -> Int {
-    value > scoutEpochMillisecondsCutoff ? value : value * 1000
+    Int(ScoutTimestamp.epochMilliseconds(TimeInterval(value)) ?? 0)
 }
 
 // MARK: - tRPC routing

@@ -7,6 +7,7 @@
 
 import { db } from "./internal/db.ts";
 import { conversationIdAliases } from "./internal/conversation-ids.ts";
+import { isOpaqueChannelId } from "@openscout/protocol";
 import {
   sqlJoinClauses,
   sqlPlaceholders,
@@ -16,13 +17,16 @@ import {
 import type { WebMessage } from "./types/web.ts";
 
 export function queryRecentMessages(limit = 80, opts?: { conversationId?: string }): WebMessage[] {
+  if (opts?.conversationId && !isOpaqueChannelId(opts.conversationId)) {
+    return [];
+  }
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
   const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
   const where = sqlJoinClauses([
     transientBrokerWorkingStatusPredicate("m"),
     conversationIds.length > 0
       ? `m.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
-      : null,
+      : "m.conversation_id LIKE 'c.%' AND length(m.conversation_id) > 2",
   ]);
 
   const rows = db()

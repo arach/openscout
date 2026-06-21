@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 
+import { formatClockTimestamp } from "../lib/time.ts";
 import {
   DEFAULT_MUTE,
   dismissPromotedBroadcast,
@@ -53,8 +54,7 @@ function activityLabel(activity: ScoutbotActivity): string {
 }
 
 function formatHms(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  return formatClockTimestamp(ts) || "—";
 }
 
 function tierDotClass(tier: BroadcastTier): string {

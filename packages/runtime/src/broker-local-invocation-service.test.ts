@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type {
+  ActorIdentity,
   AgentDefinition,
   AgentEndpoint,
   ConversationDefinition,
@@ -29,6 +30,17 @@ function testAgent(input: Partial<AgentDefinition> = {}): AgentDefinition {
     homeNodeId: "node-1",
     authorityNodeId: "node-1",
     advertiseScope: "local",
+    ...input,
+  };
+}
+
+function testActor(input: Partial<ActorIdentity> = {}): ActorIdentity {
+  return {
+    id: "agent-1",
+    kind: "agent",
+    displayName: "Agent One",
+    handle: "agent-one",
+    metadata: {},
     ...input,
   };
 }
@@ -121,11 +133,13 @@ function createHarness(input: {
   invokeError?: Error;
   invokeEndpoint?: (endpoint: AgentEndpoint, invocation: InvocationRequest) => Promise<{ output: string; externalSessionId?: string; metadata?: Record<string, unknown> }>;
   previousEndpoint?: AgentEndpoint;
+  actor?: ActorIdentity;
   agent?: AgentDefinition;
   conversation?: ConversationDefinition;
   now?: number;
 } = {}) {
   const agents: Record<string, AgentDefinition> = {};
+  const actors: Record<string, ActorIdentity> = {};
   const conversations: Record<string, ConversationDefinition> = {};
   const flights: Record<string, FlightRecord> = {};
   const endpoints: Record<string, AgentEndpoint> = {};
@@ -139,6 +153,10 @@ function createHarness(input: {
   if (input.agent !== null) {
     const agent = input.agent ?? testAgent();
     agents[agent.id] = agent;
+    actors[agent.id] = testActor(agent);
+  }
+  if (input.actor) {
+    actors[input.actor.id] = input.actor;
   }
   const conversation = input.conversation ?? testConversation();
   conversations[conversation.id] = conversation;
@@ -149,13 +167,14 @@ function createHarness(input: {
   const service = new BrokerLocalInvocationService({
     nodeId: "node-1",
     runtime: {
+      actor: (actorId) => actors[actorId],
       agent: (agentId) => agents[agentId],
       conversation: (conversationId) => conversations[conversationId],
       flightForInvocation: (invocationId) =>
         Object.values(flights).find((flight) => flight.invocationId === invocationId),
       snapshot: () => ({
         nodes: {},
-        actors: {},
+        actors,
         agents,
         endpoints,
         conversations,
@@ -312,7 +331,68 @@ describe("BrokerLocalInvocationService", () => {
     }));
   });
 
-  test("marks requester wait timeout as waiting, not failed", async () => {
+  test("runs a cardless session endpoint without an agent card", async () => {
+    const sessionActor = testActor({
+      id: "session-cardless-1",
+      kind: "session",
+      displayName: "openscout:session",
+      handle: "session-cardless-1",
+      metadata: { cardless: true },
+    });
+    const endpoint = testEndpoint({
+      id: "endpoint-cardless",
+      agentId: sessionActor.id,
+      transport: "tmux",
+      harness: "claude",
+      sessionId: sessionActor.id,
+      metadata: {
+        cardless: true,
+        sessionBacked: true,
+        pendingExternalSession: true,
+      },
+    });
+    const harness = createHarness({
+      agent: null,
+      actor: sessionActor,
+      endpoint,
+      invokeResult: {
+        output: "session reply",
+        externalSessionId: "provider-session-1",
+      },
+      now: 25_000,
+    });
+
+    await harness.service.execute(
+      testInvocation({ targetAgentId: sessionActor.id }),
+      testFlight({ targetAgentId: sessionActor.id }),
+    );
+
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "completed"]);
+    expect(harness.persistedFlights[1]).toEqual(expect.objectContaining({
+      state: "completed",
+      summary: "openscout:session replied.",
+      output: "session reply",
+    }));
+    expect(harness.persistedEndpoints.at(-1)).toEqual(expect.objectContaining({
+      id: "endpoint-cardless",
+      state: "idle",
+      metadata: expect.objectContaining({
+        externalSessionId: "provider-session-1",
+        pendingExternalSession: false,
+      }),
+    }));
+    expect(harness.postedMessages).toHaveLength(1);
+    expect(harness.postedMessages[0]).toEqual(expect.objectContaining({
+      actorId: sessionActor.id,
+      body: "session reply",
+      metadata: expect.objectContaining({
+        responderSessionId: sessionActor.id,
+        responderAgentName: sessionActor.handle,
+      }),
+    }));
+  });
+
+  test("keeps requester wait timeout flights running", async () => {
     const endpoint = testEndpoint({
       id: "endpoint-tmux",
       transport: "tmux",
@@ -325,10 +405,10 @@ describe("BrokerLocalInvocationService", () => {
 
     await harness.service.execute(testInvocation(), testFlight());
 
-    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "waiting"]);
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "running"]);
     expect(harness.persistedFlights[1]).toEqual(expect.objectContaining({
-      state: "waiting",
-      summary: "Agent One is still working; Scout stopped waiting for a synchronous result after 5000ms.",
+      state: "running",
+      summary: "Agent One is still working.",
       error: undefined,
       completedAt: undefined,
       metadata: expect.objectContaining({
@@ -339,7 +419,7 @@ describe("BrokerLocalInvocationService", () => {
     }));
     expect(harness.statusMessages).toEqual([]);
     expect(harness.warnings).toEqual([
-      "[openscout-runtime] Agent One is still working; Scout stopped waiting for a synchronous result after 5000ms.",
+      "[openscout-runtime] Agent One is still working; requester wait timed out after 5000ms.",
     ]);
   });
 

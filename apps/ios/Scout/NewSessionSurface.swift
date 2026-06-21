@@ -76,9 +76,7 @@ struct NewSessionSurface: View {
             HarnessOption(id: "codex", label: "Codex", models: [
                 .defaultOption,
                 ModelOption(id: "gpt-5.5", label: "GPT-5.5", value: "gpt-5.5"),
-                ModelOption(id: "gpt-5.4", label: "GPT-5.4", value: "gpt-5.4"),
-                ModelOption(id: "gpt-5.4-mini", label: "GPT-5.4 mini", value: "gpt-5.4-mini"),
-                ModelOption(id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", value: "gpt-5.3-codex-spark"),
+                ModelOption(id: "gpt-5.5-mini", label: "GPT-5.5 mini", value: "gpt-5.5-mini"),
             ]),
         ]
     }

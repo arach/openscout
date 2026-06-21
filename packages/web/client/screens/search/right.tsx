@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { api } from "../../lib/api.ts";
+import { formatAbsoluteTimestamp } from "../../lib/time.ts";
 import {
   facetText,
   firstFileRef,
@@ -52,13 +53,7 @@ function formatCount(value: number): string {
 }
 
 function formatTime(ms: number | undefined): string {
-  if (!ms) return "unknown";
-  return new Date(ms).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatAbsoluteTimestamp(ms) || "unknown";
 }
 
 function HighlightedText({ text, query }: { text: string; query: string }) {

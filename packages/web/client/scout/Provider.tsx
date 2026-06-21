@@ -14,7 +14,7 @@ import { api } from "../lib/api.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
-  scoutbotConversationId,
+  resolveScoutbotAgent,
   resolveScoutbotAgentId,
   type ScoutbotUiAction,
 } from "../lib/scoutbot.ts";
@@ -76,7 +76,7 @@ export interface ScoutContextValue {
   closeSettings: () => void;
 
   scoutbotAgentId: string;
-  scoutbotConversationId: string;
+  scoutbotConversationId: string | null;
   applyScoutbotUiAction: (action: ScoutbotUiAction) => void;
 
   selectedBrokerAttempt: BrokerRouteAttempt | null;
@@ -256,8 +256,9 @@ export function ScoutProvider({
     }),
     [initialTheme, nativeThemeVars],
   );
-  const scoutbotAgentId = useMemo(() => resolveScoutbotAgentId(agents), [agents]);
-  const scoutbotDmConversationId = useMemo(() => scoutbotConversationId(scoutbotAgentId), [scoutbotAgentId]);
+  const scoutbotAgent = useMemo(() => resolveScoutbotAgent(agents), [agents]);
+  const scoutbotAgentId = scoutbotAgent?.id ?? resolveScoutbotAgentId(agents);
+  const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
   const reloadInFlightRef = useRef<Promise<void> | null>(null);
 
   const reload = useCallback(async () => {

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  EPOCH_MILLISECONDS_FLOOR,
   durationMs,
   epochMs,
   epochMsFromSeconds,
@@ -19,6 +20,13 @@ describe("time primitives", () => {
   test("converts legacy epoch second input", () => {
     expect(epochMs(1_712_345_678)).toBe(1_712_345_678_000);
     expect(epochMsFromSeconds(1_712_345_678)).toBe(1_712_345_678_000);
+  });
+
+  test("uses the shared millisecond floor instead of the old 10B cutoff", () => {
+    const largeLegacySeconds = 99_999_999_999;
+
+    expect(epochMs(largeLegacySeconds)).toBe(99_999_999_999_000);
+    expect(epochMs(EPOCH_MILLISECONDS_FLOOR)).toBe(EPOCH_MILLISECONDS_FLOOR);
   });
 
   test("accepts numeric string input", () => {

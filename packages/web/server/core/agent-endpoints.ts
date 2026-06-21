@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-import type { AgentEndpoint } from "@openscout/protocol";
+import { type AgentEndpoint, epochMs } from "@openscout/protocol";
 
 export type EndpointPreference = {
   harness?: string | null;
@@ -18,15 +18,7 @@ export function endpointMetadataRecord(endpoint: AgentEndpoint | null | undefine
 }
 
 function metadataTimestampMs(value: unknown): number | null {
-  const numeric = typeof value === "number"
-    ? value
-    : typeof value === "string"
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
-  return numeric > 10_000_000_000 ? Math.floor(numeric) : Math.floor(numeric * 1000);
+  return epochMs(value);
 }
 
 function endpointFreshnessMs(endpoint: AgentEndpoint): number {

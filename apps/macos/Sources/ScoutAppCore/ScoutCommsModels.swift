@@ -1,4 +1,5 @@
 import Foundation
+import ScoutCapabilities
 
 public enum ScoutChannelScope: Sendable, Equatable {
     case direct
@@ -16,15 +17,32 @@ public struct ScoutChannelAsk: Decodable, Sendable, Equatable {
     public let state: ScoutAskState
 }
 
+public struct ScoutChannelParticipant: Identifiable, Decodable, Sendable, Equatable {
+    public let actorId: String
+    public let kind: String?
+    public let displayName: String
+    public let label: String
+    public let scopedAlias: String?
+    public let agentId: String?
+    public let sessionId: String?
+    public let harness: String?
+    public let transport: String?
+    public let workspaceRoot: String?
+
+    public var id: String { actorId }
+}
+
 public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let cId: String
     public let kind: String
     public let title: String
     public let alias: String?
     public let participantIds: [String]
+    public let participants: [ScoutChannelParticipant]
     public let agentId: String?
     public let agentName: String?
     public let harness: String?
+    public let sessionId: String?
     public let preview: String?
     public let messageCount: Int
     public let lastMessageAt: TimeInterval?
@@ -34,6 +52,7 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     public let ask: ScoutChannelAsk?
 
     public var id: String { cId }
+    public var chatId: String { cId }
 
     public var displayTitle: String {
         nilIfEmpty(alias) ?? nilIfEmpty(agentName) ?? title
@@ -79,20 +98,27 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         scope == .direct ? directPeerLabel : "#\(channelName)"
     }
 
-    public var cIdShort: String {
+    public var chatIdShort: String {
         if cId.hasPrefix("c.") {
-            return "cId \(String(cId.dropFirst(2).prefix(8)))"
+            return "chat \(String(cId.dropFirst(2).prefix(8)))"
         }
-        if cId.hasPrefix("dm.") {
-            return "cId legacy-dm"
-        }
-        if cId.hasPrefix("channel.") {
-            return "cId #\(String(cId.dropFirst("channel.".count)))"
-        }
-        return cId.count > 16 ? "cId \(String(cId.prefix(12)))" : "cId \(cId)"
+        return cId.count > 16 ? "chat \(String(cId.prefix(12)))" : "chat \(cId)"
+    }
+
+    public var cIdShort: String {
+        chatIdShort
+    }
+
+    public var sessionIdShort: String? {
+        guard let sessionId = nilIfEmpty(sessionId) else { return nil }
+        return sessionId.count > 18 ? "session \(String(sessionId.prefix(14)))" : "session \(sessionId)"
     }
 
     public var participantDisplayNames: [String] {
+        if !participants.isEmpty {
+            return uniqueMemberNames(participants.map { nilIfEmpty($0.label) ?? $0.displayName })
+        }
+
         if scope == .direct {
             let peer = nilIfEmpty(agentName)
                 ?? participantIds.first(where: { displayName(for: $0) != "Operator" }).map(displayName(for:))
@@ -109,15 +135,18 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case chatId
         case cId
         case fallbackId = "id"
         case kind
         case title
         case alias
         case participantIds
+        case participants
         case agentId
         case agentName
         case harness
+        case sessionId
         case preview
         case messageCount
         case lastMessageAt
@@ -129,18 +158,23 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        cId = try c.decodeIfPresent(String.self, forKey: .cId)
+        cId = try c.decodeIfPresent(String.self, forKey: .chatId)
+            ?? c.decodeIfPresent(String.self, forKey: .cId)
             ?? c.decode(String.self, forKey: .fallbackId)
         kind = try c.decode(String.self, forKey: .kind)
         title = try c.decode(String.self, forKey: .title)
         alias = try c.decodeIfPresent(String.self, forKey: .alias)
         participantIds = try c.decodeIfPresent([String].self, forKey: .participantIds) ?? []
+        participants = try c.decodeIfPresent([ScoutChannelParticipant].self, forKey: .participants) ?? []
         agentId = try c.decodeIfPresent(String.self, forKey: .agentId)
         agentName = try c.decodeIfPresent(String.self, forKey: .agentName)
         harness = try c.decodeIfPresent(String.self, forKey: .harness)
+        sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
         preview = try c.decodeIfPresent(String.self, forKey: .preview)
         messageCount = try c.decodeIfPresent(Int.self, forKey: .messageCount) ?? 0
-        lastMessageAt = try c.decodeIfPresent(TimeInterval.self, forKey: .lastMessageAt)
+        lastMessageAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .lastMessageAt)
+        )
         workspaceRoot = try c.decodeIfPresent(String.self, forKey: .workspaceRoot)
         currentBranch = try c.decodeIfPresent(String.self, forKey: .currentBranch)
         unreadCount = try c.decodeIfPresent(Int.self, forKey: .unreadCount) ?? 0
@@ -208,7 +242,9 @@ public struct ScoutMessage: Identifiable, Decodable, Sendable, Equatable {
             ?? actorId
             ?? "unknown"
         body = try c.decode(String.self, forKey: .body)
-        createdAt = try c.decode(TimeInterval.self, forKey: .createdAt)
+        createdAt = ScoutTimestamp.epochMilliseconds(
+            try c.decode(TimeInterval.self, forKey: .createdAt)
+        ) ?? 0
         messageClass = try c.decodeIfPresent(String.self, forKey: .messageClass) ?? "message"
         replyToMessageId = try c.decodeIfPresent(String.self, forKey: .replyToMessageId)
         metadata = try c.decodeIfPresent(ScoutMessageMetadata.self, forKey: .metadata)
@@ -229,6 +265,7 @@ public struct ScoutMessageMetadata: Decodable, Sendable, Equatable {
     public let originConversationId: String?
     public let originMessageId: String?
     public let targetAgentId: String?
+    public let flightId: String?
     public let workId: String?
     public let collaborationRecordId: String?
     public let scoutbotThreadId: String?
@@ -255,6 +292,7 @@ public struct ScoutMessageMetadata: Decodable, Sendable, Equatable {
         case originConversationId
         case originMessageId
         case targetAgentId
+        case flightId
         case workId
         case collaborationRecordId
         case scoutbotThreadId
@@ -414,8 +452,12 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
             ?? c.decodeIfPresent(String.self, forKey: .homeNodeName)
         conversationId = try c.decodeIfPresent(String.self, forKey: .conversationId)
         harnessSessionId = try c.decodeIfPresent(String.self, forKey: .harnessSessionId)
-        updatedAt = try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
-        createdAt = try c.decodeIfPresent(TimeInterval.self, forKey: .createdAt)
+        updatedAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .updatedAt)
+        )
+        createdAt = ScoutTimestamp.epochMilliseconds(
+            try c.decodeIfPresent(TimeInterval.self, forKey: .createdAt)
+        )
     }
 
     public static func formatAgo(sinceMs: TimeInterval?, now: Date = Date()) -> String {
@@ -423,17 +465,18 @@ public struct ScoutAgent: Identifiable, Decodable, Sendable, Equatable {
     }
 
     private static func formatRuntime(createdAtMs: TimeInterval?, now: Date = Date()) -> String {
-        guard let createdAtMs else { return "—" }
-        let then = Date(timeIntervalSince1970: createdAtMs / 1000)
-        let delta = max(0, Int(now.timeIntervalSince(then)))
-        if delta < 60 { return "\(delta)s" }
-        if delta < 3600 { return "\(delta / 60)m" }
-        if delta < 86_400 {
-            let h = delta / 3600
-            let m = (delta % 3600) / 60
+        guard let then = ScoutTimestamp.date(fromEpoch: createdAtMs) else { return "—" }
+        let delta = Int(now.timeIntervalSince(then))
+        if delta < -4 { return ScoutTimestamp.relativeAge(since: then, now: now) ?? "—" }
+        let elapsed = max(0, delta)
+        if elapsed < 60 { return "\(elapsed)s" }
+        if elapsed < 3600 { return "\(elapsed / 60)m" }
+        if elapsed < 86_400 {
+            let h = elapsed / 3600
+            let m = (elapsed % 3600) / 60
             return m == 0 ? "\(h)h" : "\(h)h \(m)m"
         }
-        return "\(delta / 86_400)d"
+        return "\(elapsed / 86_400)d"
     }
 
     private static func makeSummary(

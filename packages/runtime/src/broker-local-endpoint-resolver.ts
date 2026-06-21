@@ -62,6 +62,7 @@ export class BrokerLocalEndpointResolver {
     agentId: string,
     harness?: AgentEndpoint["harness"],
     targetSessionId?: string,
+    options: { includeWakeable?: boolean } = {},
   ): AgentEndpoint | undefined {
     const candidates = this.options.runtime.endpointsForAgent(agentId, {
       nodeId: this.options.nodeId,
@@ -80,7 +81,8 @@ export class BrokerLocalEndpointResolver {
         ? true
         : endpoint.transport === "pairing_bridge"
         ? endpoint.state !== "offline"
-        : this.options.isLocalAgentEndpointAlive(endpoint)
+        : (options.includeWakeable && isWakeableSessionBackedEndpoint(endpoint))
+          || this.options.isLocalAgentEndpointAlive(endpoint)
     ));
   }
 
@@ -93,6 +95,7 @@ export class BrokerLocalEndpointResolver {
       invocation.targetAgentId,
       requestedHarness,
       targetSessionId,
+      { includeWakeable: invocation.ensureAwake },
     );
     if (
       existing
@@ -211,4 +214,10 @@ export class BrokerLocalEndpointResolver {
   private now(): number {
     return (this.options.now ?? Date.now)();
   }
+}
+
+function isWakeableSessionBackedEndpoint(endpoint: AgentEndpoint): boolean {
+  return endpoint.metadata?.sessionBacked === true
+    && endpoint.state !== "offline"
+    && isBrokerRunnableLocalAgentTransport(endpoint.transport);
 }

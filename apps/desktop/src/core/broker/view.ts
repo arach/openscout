@@ -1,13 +1,8 @@
+import { epochMs } from "@openscout/protocol";
+
 export function normalizeUnixTimestamp(value: unknown): number | null {
-  const numeric = typeof value === "number"
-    ? value
-    : typeof value === "string"
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
-  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 export function formatScoutTimestamp(timestamp: number): string {

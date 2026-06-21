@@ -108,9 +108,7 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
         ]),
         .init(id: "codex", label: "Codex", models: [
             .init(harness: "codex", value: "gpt-5.5", label: "GPT-5.5", detail: "Recommended"),
-            .init(harness: "codex", value: "gpt-5.4", label: "GPT-5.4", detail: "Frontier"),
-            .init(harness: "codex", value: "gpt-5.4-mini", label: "GPT-5.4 mini", detail: "Fast"),
-            .init(harness: "codex", value: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", detail: "Research preview"),
+            .init(harness: "codex", value: "gpt-5.5-mini", label: "GPT-5.5 mini", detail: "Fast"),
         ]),
     ]
 }
@@ -247,7 +245,7 @@ struct ScoutSessionComposer: View {
                 ? "Message \(agent.displayName)…"
                 : "What should \(agent.displayName) start on?"
         case .project:
-            return "What should the new agent start on?"
+            return "What should the agent start on?"
         }
     }
 
@@ -473,20 +471,20 @@ struct ScoutSessionComposer: View {
         case .agent(let agent):
             return draft.mode == .continueContext
                 ? "Continue \(agent.displayName) with full context"
-                : "New conversation with \(agent.displayName)"
+                : "New chat with \(agent.displayName)"
         case .project:
-            return "Start a new conversation in a project"
+            return "Choose project, setup, and first message"
         }
     }
 
     private var targetSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Target", tint: ScoutPalette.dim)
-            targetKindPicker
-
             if isProjectTarget {
+                HudSectionLabel("Project", tint: ScoutPalette.dim)
                 projectModelHarnessRow
+                contactSection
             } else {
+                HudSectionLabel("Agent", tint: ScoutPalette.dim)
                 agentComboField
                 harnessModelChips
                 modePicker
@@ -494,30 +492,30 @@ struct ScoutSessionComposer: View {
         }
     }
 
-    /// A single grouped segmented control: one hairline track over an inset
-    /// well, segments sharing it; the active segment is a solid accent block
-    /// with a bg-color label (mirrors the Comms `.filters`/`.filter` toggle).
-    private var targetKindPicker: some View {
-        HStack(spacing: HudSpacing.xxs) {
-            segment(title: "Project", icon: "folder", isSelected: isProjectTarget) {
-                draft.target = .project
+    private var contactSection: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.md) {
+            HudSectionLabel("Contact", tint: ScoutPalette.dim)
+            HStack(spacing: HudSpacing.xxs) {
+                contactSegment(keepAgent: false, title: "One-time", icon: "bolt")
+                contactSegment(keepAgent: true, title: "Alias", icon: "at")
             }
-            segment(title: "Agent", icon: "person.crop.circle", isSelected: !isProjectTarget) {
-                guard let agent = draft.agent ?? availableAgents.first else { return }
-                selectAgent(agent)
+            .padding(HudSpacing.xxs)
+            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
+            .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+
+            if draft.keepAgent {
+                aliasFields
             }
-            .disabled(availableAgents.isEmpty)
-            .help(availableAgents.isEmpty ? "No agents in roster" : "Target an existing agent")
         }
-        .padding(HudSpacing.xxs)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-        .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+        .padding(.top, HudSpacing.xs)
     }
 
-    /// One segment of a grouped toggle. Active = solid `accent` block + bg-color
-    /// semibold label; inactive = clear fill + muted label.
-    private func segment(title: String, icon: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+    private func contactSegment(keepAgent: Bool, title: String, icon: String) -> some View {
+        let isSelected = draft.keepAgent == keepAgent
+        return Button {
+            draft.keepAgent = keepAgent
+            if keepAgent { ensureAliasDefaults() }
+        } label: {
             HStack(spacing: HudSpacing.xs) {
                 Image(systemName: icon)
                     .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
@@ -533,6 +531,32 @@ struct ScoutSessionComposer: View {
             )
         }
         .buttonStyle(.plain).scoutPointerCursor()
+    }
+
+    private var aliasFields: some View {
+        HStack(spacing: HudSpacing.sm) {
+            aliasTextField(key: "Alias", placeholder: defaultAgentAlias, text: $draft.agentName, mono: true)
+            aliasTextField(key: "Name", placeholder: defaultAgentDisplayName, text: $draft.displayName)
+        }
+    }
+
+    private func aliasTextField(key: String, placeholder: String, text: Binding<String>, mono: Bool = false) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text(key)
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .foregroundStyle(ScoutPalette.dim)
+                .textCase(.uppercase)
+            TextField(placeholder, text: text)
+                .textFieldStyle(.plain)
+                .font(mono ? HudFont.mono(HudTextSize.sm, weight: .semibold) : HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .tint(ScoutPalette.accent)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, HudSpacing.md)
+        .frame(height: 38)
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
+        .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
     }
 
     // The agent target picker — a type-to-filter combobox over the roster,
@@ -940,7 +964,7 @@ struct ScoutSessionComposer: View {
                 RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
                     .stroke(ready ? ScoutPalette.accent.opacity(0.46) : ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
                 if isSubmitting {
-                    ProgressView().controlSize(.small).scaleEffect(0.56).tint(ScoutPalette.dim)
+                    ScoutBrailleSpinner(size: 12, tint: ScoutPalette.accent)
                 } else {
                     Image(systemName: "arrow.up")
                         .font(.system(size: HudTextSize.sm, weight: .bold))
@@ -1034,6 +1058,7 @@ struct ScoutSessionComposer: View {
         var choices: [ScoutSessionModelChoice] = []
 
         func append(_ choice: ScoutSessionModelChoice) {
+            guard !isRetiredCodexModel(choice.value, harness: choice.harness) else { return }
             guard seen.insert(choice.value.lowercased()).inserted else { return }
             choices.append(choice)
         }
@@ -1132,6 +1157,12 @@ struct ScoutSessionComposer: View {
         return trimmed
     }
 
+    private func isRetiredCodexModel(_ model: String, harness: String) -> Bool {
+        guard harness.lowercased() == "codex" else { return false }
+        let lower = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4")
+    }
+
     private var startTitle: String {
         draft.mode == .continueContext ? "Continue" : "Start"
     }
@@ -1171,6 +1202,7 @@ struct ScoutSessionComposer: View {
         draft.target = .project
         draft.projectPath = trimmed
         lastProjectPath = trimmed
+        if draft.keepAgent { ensureAliasDefaults() }
     }
 
     private func selectAgent(_ agent: ScoutAgent) {
@@ -1212,6 +1244,33 @@ struct ScoutSessionComposer: View {
             return projectName(for: path)
         }
         return "No project"
+    }
+
+    private var defaultAgentDisplayName: String {
+        projectName(for: draft.projectPath)
+    }
+
+    private var defaultAgentAlias: String {
+        slug(defaultAgentDisplayName)
+    }
+
+    private func ensureAliasDefaults() {
+        if draft.agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.agentName = defaultAgentAlias
+        }
+        if draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            draft.displayName = defaultAgentDisplayName
+        }
+    }
+
+    private func slug(_ value: String) -> String {
+        let lowered = value.lowercased()
+        let scalars = lowered.unicodeScalars.map { scalar -> Character in
+            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : "-"
+        }
+        return String(scalars)
+            .split(separator: "-")
+            .joined(separator: "-")
     }
 
     private func agentDetail(_ agent: ScoutAgent) -> String {

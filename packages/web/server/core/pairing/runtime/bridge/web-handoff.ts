@@ -36,7 +36,7 @@ function scopesMatch(left: WebHandoffScope, right: WebHandoffScope): boolean {
   if (left.sessionId !== right.sessionId) {
     return false;
   }
-  if (left.kind === "session") {
+  if (left.kind === "session" || right.kind === "session") {
     return true;
   }
   return left.turnId === right.turnId && left.blockId === right.blockId;

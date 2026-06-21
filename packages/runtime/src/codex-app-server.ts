@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -15,7 +15,7 @@ import {
 import { CodexObservedTopologyTracker } from "@openscout/agent-sessions/adapters/codex/topology";
 import { resolveCodexExecutable } from "@openscout/agent-sessions/codex-executable";
 import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions/protocol/primitives";
-import type { ScoutReplyContext } from "@openscout/protocol";
+import { epochMs, type ScoutReplyContext } from "@openscout/protocol";
 import { buildManagedAgentEnvironment } from "./managed-agent-environment.js";
 import type { CodexApprovalPolicy, CodexSandboxMode } from "./permission-policy.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
@@ -518,6 +518,26 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function errorCode(error: unknown): string | null {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : null;
+}
+
+async function assertCodexWorkingDirectory(cwd: string, agentName: string): Promise<void> {
+  try {
+    const stats = await stat(cwd);
+    if (!stats.isDirectory()) {
+      throw new Error(`Codex app-server cwd is not a directory for ${agentName}: ${cwd}`);
+    }
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") {
+      throw new Error(`Codex app-server cwd does not exist for ${agentName}: ${cwd}`);
+    }
+    throw error;
+  }
+}
+
 function buildUnsupportedServerRequestError(message: CodexServerRequest): CodexErrorResponse {
   if (message.method === "item/tool/call") {
     const tool = typeof message.params?.tool === "string" ? message.params.tool : null;
@@ -733,8 +753,9 @@ function stringifyCodexItem(value: unknown): string {
 }
 
 function parseCodexTimestamp(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
+  const parsedEpoch = epochMs(value);
+  if (parsedEpoch !== null) {
+    return parsedEpoch;
   }
 
   if (typeof value === "string") {
@@ -1937,6 +1958,14 @@ class CodexAppServerSession {
     await mkdir(this.options.logsDirectory, { recursive: true });
     await writeFile(join(this.options.runtimeDirectory, "prompt.txt"), this.options.systemPrompt);
     this.proactiveShutdown = null;
+    try {
+      await assertCodexWorkingDirectory(this.options.cwd, this.options.agentName);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(errorMessage(error));
+      await appendFile(this.stderrLogPath, `[openscout] ${failure.message}\n`).catch(() => undefined);
+      await this.persistState().catch(() => undefined);
+      throw failure;
+    }
 
     const codexExecutable = resolveCodexExecutable();
     const launchArgs = normalizeCodexAppServerLaunchArgs(this.options.launchArgs);
@@ -2381,7 +2410,7 @@ class CodexAppServerSession {
     this.pendingRequests.clear();
 
     void appendFile(this.stderrLogPath, `[openscout] ${error.message}\n`).catch(() => undefined);
-    void this.persistState();
+    void this.persistState().catch(() => undefined);
   }
 
   private handleProactiveProcessExit(

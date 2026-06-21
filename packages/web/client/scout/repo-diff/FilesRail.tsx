@@ -110,7 +110,7 @@ export function FilesRail({
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = width;
-    const onMove = (moveEvent: PointerEvent) => {
+    const onMove = (moveEvent: globalThis.PointerEvent) => {
       setWidth(clampRailWidth(startWidth + moveEvent.clientX - startX));
     };
     const onUp = () => {

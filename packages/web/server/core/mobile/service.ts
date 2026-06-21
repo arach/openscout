@@ -7,6 +7,11 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
+import {
+  channelNaturalKeyFromMetadata,
+  directChannelNaturalKey,
+  epochMs,
+} from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   type ProjectInventoryEntry,
@@ -67,12 +72,8 @@ export type ScoutMobileAgentSummary = {
   state: "offline" | "available" | "working";
   statusLabel: string;
   sessionId: string | null;
-  /// The broker conversation the phone should open for this agent — its operator
-  /// DM, else the most-recent thread it participates in, else the canonical
-  /// `dm.operator.<agentId>` it WILL get on first send. This is the real
-  /// conversation id (snapshot/events/send all key off it); `sessionId` above is
-  /// only a harness label (e.g. `relay-openscout-claude`, shared across agents)
-  /// and must NOT be used for routing.
+  /// The broker chat the phone should open for this agent. It is an existing
+  /// opaque chat id, or null when no chat has been created yet.
   conversationId: string | null;
   lastActiveAt: number | null;
 };
@@ -175,13 +176,16 @@ export type SendScoutMobileMessageInput = {
 };
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
-  if (!value) return null;
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 function normalizeTimestampMs(value: number | null | undefined): number | null {
-  if (!value) return null;
-  return value > 10_000_000_000 ? Math.floor(value) : Math.floor(value * 1000);
+  return epochMs(value);
+}
+
+function requireTimestampMs(value: number | null | undefined): number {
+  return normalizeTimestampMs(value) ?? 0;
 }
 
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
@@ -298,7 +302,7 @@ function latestMessageByConversation(snapshot: ScoutBrokerSnapshot): Map<string,
     buckets.set(message.conversationId, next);
   }
   for (const messages of buckets.values()) {
-    messages.sort((left, right) => (normalizeTimestamp(left.createdAt) ?? 0) - (normalizeTimestamp(right.createdAt) ?? 0));
+    messages.sort((left, right) => requireTimestampMs(left.createdAt) - requireTimestampMs(right.createdAt));
   }
   return buckets;
 }
@@ -319,16 +323,6 @@ function rawConversationTitle(conversation: ScoutBrokerConversationRecord): stri
   return title.length > 0 ? title : null;
 }
 
-function conversationIdTitle(conversationId: string): string {
-  if (conversationId.startsWith("channel.")) {
-    return conversationId.slice("channel.".length);
-  }
-  if (conversationId.startsWith("dm.operator.")) {
-    return conversationId.slice("dm.operator.".length);
-  }
-  return conversationId;
-}
-
 function mobileConversationTitle(
   snapshot: ScoutBrokerSnapshot,
   conversation: ScoutBrokerConversationRecord,
@@ -337,10 +331,7 @@ function mobileConversationTitle(
   if (conversation.kind === "direct" && directAgentId) {
     return agentDisplayName(snapshot, directAgentId);
   }
-  const title = rawConversationTitle(conversation) ?? conversationIdTitle(conversation.id);
-  return conversation.kind === "channel" && title.startsWith("channel.")
-    ? title.slice("channel.".length)
-    : title;
+  return rawConversationTitle(conversation) ?? conversation.id;
 }
 
 function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): AgentEndpoint | null {
@@ -349,14 +340,11 @@ function endpointForAgent(snapshot: ScoutBrokerSnapshot, agentId: string): Agent
   )) ?? null;
 }
 
-/// The conversation id the phone should route an agent tap to. Reuses the same
-/// resolver the snapshot RPC uses, so whatever we hand the phone round-trips back
-/// to the identical conversation. When the agent has no conversation yet (a
-/// branch/card agent never DM'd from the phone), fall back to the canonical
-/// operator-DM id it will be created under on first send — so the snapshot opens
-/// an empty composer and live events/send line up once it exists.
-function mobileAgentConversationId(snapshot: ScoutBrokerSnapshot, agentId: string): string {
-  return resolveMobileConversation(snapshot, agentId)?.id ?? `dm.operator.${agentId}`;
+/// The conversation id the phone should route an agent tap to. It is always an
+/// existing broker chat id. When no chat exists yet, callers get null and must
+/// create one explicitly.
+function mobileAgentConversationId(snapshot: ScoutBrokerSnapshot, agentId: string): string | null {
+  return resolveMobileConversation(snapshot, agentId)?.id ?? null;
 }
 
 function buildMobileAgentSummary(
@@ -466,7 +454,7 @@ function messagesForConversation(
   return Object.values(snapshot.messages)
     .filter((message) => !isBrokerRequesterWaitTimeoutStatusMessage(message))
     .filter((message) => message.conversationId === conversationId)
-    .sort((left, right) => (normalizeTimestamp(left.createdAt) ?? 0) - (normalizeTimestamp(right.createdAt) ?? 0));
+    .sort((left, right) => requireTimestampMs(left.createdAt) - requireTimestampMs(right.createdAt));
 }
 
 function pageMessagesForConversation(
@@ -652,10 +640,8 @@ export async function getScoutFleet(
 
 /**
  * Resolve whatever id the phone routed with onto a real broker conversation.
- * The phone may send a conversation id directly (`c.…` from the activity feed, or
- * a `dm.…` direct id) or a bare agent id (from the Agents tab). Not every agent
- * has an `operator` DM — many only have ask/consult conversations keyed `c.…` —
- * so when there's no direct hit and no `dm.operator.{agentId}`, fall back to the
+ * The phone may send a chat id directly or a bare agent id from the Agents tab.
+ * Bare agent ids resolve to an existing direct chat by natural key, then to the
  * most-recent conversation the agent actually participates in.
  */
 function resolveMobileConversation(
@@ -665,8 +651,12 @@ function resolveMobileConversation(
   const direct = snapshot.conversations[rawId];
   if (direct) return direct;
 
-  const operatorDm = snapshot.conversations[`dm.operator.${rawId}`];
-  if (operatorDm) return operatorDm;
+  const directNaturalKey = directChannelNaturalKey(["operator", rawId]);
+  const directByNaturalKey = Object.values(snapshot.conversations).find(
+    (conversation) =>
+      channelNaturalKeyFromMetadata(conversation.metadata) === directNaturalKey,
+  );
+  if (directByNaturalKey) return directByNaturalKey;
 
   const participating = Object.values(snapshot.conversations).filter(
     (conversation) => conversation.participantIds?.includes(rawId),
@@ -684,41 +674,6 @@ function resolveMobileConversation(
     .sort((a, b) => lastActivityMs(b.id) - lastActivityMs(a.id))[0] ?? null;
 }
 
-/// An empty-but-valid snapshot for a known agent whose operator DM hasn't been
-/// created yet. Lets the phone open a composer (instead of erroring) for fleet
-/// agents you've never chatted with; the first send creates the conversation.
-function emptyMobileSessionSnapshot(
-  snapshot: ScoutBrokerSnapshot,
-  conversationId: string,
-  agentId: string,
-): ScoutMobileSessionSnapshot {
-  const endpoint = endpointForAgent(snapshot, agentId);
-  const agent = snapshot.agents[agentId] ?? null;
-  return {
-    session: {
-      id: conversationId,
-      name: agentDisplayName(snapshot, agentId),
-      adapterType: endpoint?.harness ?? "relay",
-      status: endpoint?.state === "offline" ? "idle" : "active",
-      cwd: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
-      model: typeof endpoint?.metadata?.model === "string" ? endpoint.metadata.model : null,
-      providerMeta: {
-        conversationId,
-        conversationKind: "direct",
-        agentId,
-        workspaceRoot: endpoint?.projectRoot ?? endpoint?.cwd ?? null,
-        harness: endpoint?.harness ?? null,
-        selector: agent?.selector ?? null,
-        defaultSelector: agent?.defaultSelector ?? null,
-        project: agentDisplayName(snapshot, agentId),
-      },
-    },
-    history: { hasOlder: false, oldestTurnId: null, newestTurnId: null },
-    turns: [],
-    currentTurnId: null,
-  };
-}
-
 export async function getScoutMobileSessionSnapshot(
   conversationId: string,
   options: {
@@ -732,15 +687,6 @@ export async function getScoutMobileSessionSnapshot(
   const { snapshot } = broker;
   const conversation = resolveMobileConversation(snapshot, conversationId);
   if (!conversation) {
-    // No conversation yet, but the phone routed a canonical `dm.operator.<agentId>`
-    // for a real agent — return an empty session rather than throwing.
-    const pendingAgentId = conversationId.startsWith("dm.operator.")
-      ? conversationId.slice("dm.operator.".length)
-      : null;
-    const pendingAgent = pendingAgentId ? snapshot.agents[pendingAgentId] : null;
-    if (pendingAgentId && pendingAgent && !isInactiveAgent(pendingAgent)) {
-      return emptyMobileSessionSnapshot(snapshot, conversationId, pendingAgentId);
-    }
     throw new Error(`Unknown mobile session "${conversationId}".`);
   }
 
@@ -1219,7 +1165,7 @@ export async function getScoutMobileConversations(
   for (const cursor of Object.values(snapshot.readCursors ?? {})) {
     if (selfIds.has(cursor.actorId)) {
       const prev = operatorReadAt.get(cursor.conversationId) ?? 0;
-      operatorReadAt.set(cursor.conversationId, Math.max(prev, cursor.lastReadAt ?? 0));
+      operatorReadAt.set(cursor.conversationId, Math.max(prev, normalizeTimestampMs(cursor.lastReadAt) ?? 0));
     }
   }
 
@@ -1230,11 +1176,12 @@ export async function getScoutMobileConversations(
     const mobileKind = commsMobileKind(conv.kind);
     if (filters.kind && filters.kind !== mobileKind) continue;
 
-    const messages = (byConversation.get(conv.id) ?? []).sort((a, b) => a.createdAt - b.createdAt);
+    const messages = (byConversation.get(conv.id) ?? [])
+      .sort((a, b) => requireTimestampMs(a.createdAt) - requireTimestampMs(b.createdAt));
     const last = messages[messages.length - 1];
     const readAt = operatorReadAt.get(conv.id);
     const unread = readAt != null
-      ? messages.filter((m) => m.createdAt > readAt && !selfIds.has(m.actorId)).length
+      ? messages.filter((m) => requireTimestampMs(m.createdAt) > readAt && !selfIds.has(m.actorId)).length
       : 0;
     const directAgentId = conv.kind === "direct"
       ? conv.participantIds.find((participantId) => !selfIds.has(participantId)) ?? null
@@ -1250,7 +1197,7 @@ export async function getScoutMobileConversations(
       topic: conv.topic ?? null,
       lastMessagePreview: last ? last.body.replace(/\s+/g, " ").trim().slice(0, 140) : null,
       lastMessageAuthor: last ? commsActorLabel(snapshot, last.actorId, selfIds) : null,
-      lastMessageAt: last ? last.createdAt : null,
+      lastMessageAt: last ? normalizeTimestampMs(last.createdAt) : null,
       messageCount: messages.length,
       unreadCount: unread,
     });
@@ -1272,7 +1219,7 @@ export async function getScoutMobileConversationMessages(
 
   const messages = Object.values(snapshot.messages ?? {})
     .filter((m) => m.conversationId === conversationId)
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .sort((a, b) => requireTimestampMs(a.createdAt) - requireTimestampMs(b.createdAt));
   const trimmed = limit > 0 && messages.length > limit
     ? messages.slice(messages.length - limit)
     : messages;
@@ -1284,7 +1231,7 @@ export async function getScoutMobileConversationMessages(
     authorLabel: commsActorLabel(snapshot, m.actorId, selfIds),
     authorKind: commsAuthorKind(snapshot, m.actorId, selfIds),
     body: m.body,
-    createdAt: m.createdAt,
+    createdAt: requireTimestampMs(m.createdAt),
     replyToMessageId: m.replyToMessageId ?? null,
     isOperator: selfIds.has(m.actorId),
   }));
@@ -1304,25 +1251,6 @@ export async function sendScoutMobileComms(
   if (!broker) throw new Error("Relay is not reachable.");
   const conv = broker.snapshot.conversations?.[input.conversationId];
   if (!conv) {
-    // First message to an agent we've never DM'd from the phone: the canonical
-    // operator DM (`dm.operator.<agentId>`) doesn't exist yet. Route through the
-    // agent so the broker creates the conversation under that same id.
-    const pendingAgentId = input.conversationId.startsWith("dm.operator.")
-      ? input.conversationId.slice("dm.operator.".length)
-      : null;
-    if (pendingAgentId && broker.snapshot.agents[pendingAgentId]) {
-      const result = await sendScoutMobileMessage(
-        {
-          agentId: pendingAgentId,
-          body: input.body,
-          clientMessageId: input.clientMessageId,
-          replyToMessageId: input.replyToMessageId,
-        },
-        currentDirectory,
-        deviceId,
-      );
-      return { conversationId: result.conversationId, messageId: result.messageId };
-    }
     throw new Error(`Unknown conversation: ${input.conversationId}`);
   }
   const selfIds = operatorActorIds();
@@ -1361,9 +1289,9 @@ export async function sendScoutMobileComms(
     };
   }
 
-  // Channels: post as the operator to the channel name (channel.<name> → <name>).
-  const channel = input.conversationId.startsWith("channel.")
-    ? input.conversationId.slice("channel.".length)
+  // Channels: post as the operator to the channel name carried in metadata.
+  const channel = typeof conv.metadata?.channel === "string" && conv.metadata.channel.trim()
+    ? conv.metadata.channel.trim()
     : conv.title;
   const result = await sendScoutMessage({
     senderId: MOBILE_OPERATOR_ID,
@@ -1405,7 +1333,8 @@ export async function markScoutMobileConversationRead(input: {
     let latest: { id: string; createdAt: number } | undefined;
     for (const m of Object.values(broker.snapshot.messages ?? {})) {
       if (m.conversationId !== input.conversationId) continue;
-      if (!latest || m.createdAt > latest.createdAt) latest = { id: m.id, createdAt: m.createdAt };
+      const createdAt = requireTimestampMs(m.createdAt);
+      if (!latest || createdAt > latest.createdAt) latest = { id: m.id, createdAt };
     }
     lastReadMessageId = latest?.id;
   }

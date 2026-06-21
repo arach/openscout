@@ -230,6 +230,35 @@ describe("BrokerLocalEndpointResolver", () => {
     expect(harness.persistedEndpoints).toHaveLength(1);
   });
 
+  test("selects a wakeable session-backed endpoint only when wake is requested", async () => {
+    const harness = createResolver();
+    const endpoint = testEndpoint({
+      id: "cardless-session",
+      agentId: "session-cardless",
+      transport: "claude_stream_json",
+      harness: "claude",
+      sessionId: "session-cardless",
+      metadata: {
+        cardless: true,
+        sessionBacked: true,
+        pendingExternalSession: true,
+      },
+    });
+    await harness.runtime.upsertEndpoint(endpoint);
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      targetAgentId: "session-cardless",
+      ensureAwake: false,
+      execution: { harness: "claude" },
+    }))).resolves.toBeUndefined();
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      targetAgentId: "session-cardless",
+      ensureAwake: true,
+      execution: { harness: "claude" },
+    }))).resolves.toEqual(endpoint);
+    expect(harness.ensuredBindings).toEqual([]);
+  });
+
   test("starts and persists a local binding when wake is requested without an exact session", async () => {
     const actor = testActor({ id: "actor-1" });
     const agent = testAgent({ id: "agent-1" });

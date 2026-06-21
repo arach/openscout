@@ -3,6 +3,7 @@ import type {
   AdapterBudgetObservationInput,
   AdapterBudgetObservations,
 } from "../../protocol/budget-observations.js";
+import { epochMs } from "../../protocol/time.js";
 
 export type CodexQuotaWindowObservation = {
   label: string;
@@ -120,8 +121,9 @@ function readRateLimitString(
 }
 
 function parseCodexTimestamp(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
+  const parsedEpoch = epochMs(value);
+  if (parsedEpoch !== undefined) {
+    return parsedEpoch;
   }
 
   if (typeof value === "string") {

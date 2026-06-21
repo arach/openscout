@@ -28,6 +28,7 @@ import {
   type ThreadWatchOpenResponse,
   type ThreadWatchRenewResponse,
   type WakePolicy,
+  epochMs,
 } from "@openscout/protocol";
 
 import {
@@ -233,9 +234,6 @@ type RelayConfig = {
   openaiApiKey?: string;
 };
 
-const BROKER_SHARED_CHANNEL_ID = "channel.shared";
-const BROKER_VOICE_CHANNEL_ID = "channel.voice";
-const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 
 function relayHubDirectory(): string {
@@ -323,10 +321,6 @@ function titleCaseName(value: string): string {
     .join(" ");
 }
 
-function sanitizeConversationSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
-}
-
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
@@ -360,15 +354,8 @@ function isInactiveBrokerAgent(
 }
 
 export function normalizeUnixTimestamp(value: unknown): number | null {
-  const numeric = typeof value === "number"
-    ? value
-    : typeof value === "string"
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
-  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 function maxDefined(values: Array<number | null | undefined>): number | null {
@@ -528,29 +515,15 @@ export async function requireScoutBrokerContext(baseUrl = resolveScoutBrokerUrl(
   return context;
 }
 
-export function scoutConversationIdForChannel(channel?: string): string {
-  const normalizedChannel = channel?.trim() || "shared";
-  if (normalizedChannel === "voice") {
-    return BROKER_VOICE_CHANNEL_ID;
-  }
-  if (normalizedChannel === "system") {
-    return BROKER_SYSTEM_CHANNEL_ID;
-  }
-  if (normalizedChannel === "shared") {
-    return BROKER_SHARED_CHANNEL_ID;
-  }
-  return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
-}
-
 function resolveConversationIdForChannel(
   snapshot: ScoutBrokerSnapshot,
   channel?: string,
-): string {
+): string | null {
   const normalizedChannel = channel?.trim() || "shared";
   const naturalKey = normalizedChannel === "system"
     ? systemChannelNaturalKey("system")
     : namedChannelNaturalKey(normalizedChannel);
-  return findConversationByIdentity(snapshot, naturalKey)?.id ?? scoutConversationIdForChannel(normalizedChannel);
+  return findConversationByIdentity(snapshot, naturalKey)?.id ?? null;
 }
 
 function relayRouteKind(
@@ -559,8 +532,7 @@ function relayRouteKind(
   if (conversation.kind === "direct") {
     return "dm";
   }
-  return conversation.id === BROKER_SHARED_CHANNEL_ID
-      || conversation.metadata?.channel === "shared"
+  return conversation.metadata?.channel === "shared"
     ? "broadcast"
     : "channel";
 }
@@ -1652,7 +1624,10 @@ export async function loadScoutMessages(options: {
   const search = new URLSearchParams();
   const conversationId = context
     ? resolveConversationIdForChannel(context.snapshot, options.channel)
-    : scoutConversationIdForChannel(options.channel);
+    : null;
+  if (!conversationId) {
+    return [];
+  }
   if (conversationId) {
     search.set("conversationId", conversationId);
   }
@@ -1669,6 +1644,9 @@ export async function loadScoutMessages(options: {
 export async function watchScoutMessages(options: ScoutWatchOptions): Promise<void> {
   const broker = await requireScoutBrokerContext();
   const conversationId = resolveConversationIdForChannel(broker.snapshot, options.channel);
+  if (!conversationId) {
+    throw new Error(`Channel "${options.channel?.trim() || "shared"}" does not have a chat yet.`);
+  }
   const controller = new AbortController();
   const abort = () => controller.abort();
 

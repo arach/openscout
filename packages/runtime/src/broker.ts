@@ -201,6 +201,10 @@ export class InMemoryControlRuntime implements ControlRuntime {
     return this.registry.agents[agentId];
   }
 
+  actor(actorId: ScoutId): ActorIdentity | undefined {
+    return this.registry.actors[actorId];
+  }
+
   conversation(conversationId: ScoutId): ConversationDefinition | undefined {
     return this.registry.conversations[conversationId];
   }
@@ -682,18 +686,21 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
   planInvocation(invocation: InvocationRequest): FlightRecord {
     const targetAgent = this.registry.agents[invocation.targetAgentId];
-    if (!targetAgent) {
-      throw new Error(`unknown agent: ${invocation.targetAgentId}`);
+    const targetActor = this.registry.actors[invocation.targetAgentId] ?? targetAgent;
+    if (!targetActor) {
+      throw new Error(`unknown target actor: ${invocation.targetAgentId}`);
     }
+    const targetNodeId = targetAgent?.authorityNodeId ?? invocation.targetNodeId ?? this.localNodeId;
+    const targetDisplayName = targetActor.displayName || invocation.targetAgentId;
 
     const targetEndpoints = this.endpointsForAgent(
       invocation.targetAgentId,
       {
-        nodeId: targetAgent.authorityNodeId,
+        nodeId: targetNodeId,
         harness: invocation.execution?.harness,
       },
     );
-    const isLocalAuthority = !this.localNodeId || targetAgent.authorityNodeId === this.localNodeId;
+    const isLocalAuthority = !this.localNodeId || !targetNodeId || targetNodeId === this.localNodeId;
     const startedAt = Date.now();
 
     let state: FlightRecord["state"] = invocation.ensureAwake ? "waking" : "queued";
@@ -706,12 +713,12 @@ export class InMemoryControlRuntime implements ControlRuntime {
         state = invocation.ensureAwake ? "waking" : "queued";
         summary = invocation.ensureAwake
           ? (invocation.execution?.harness
-              ? `${targetAgent.displayName} waking on ${invocation.execution.harness}.`
-              : `${targetAgent.displayName} waking.`)
-          : `Message stored for ${targetAgent.displayName}. Will deliver when online.`;
+              ? `${targetDisplayName} waking on ${invocation.execution.harness}.`
+              : `${targetDisplayName} waking.`)
+          : `Message stored for ${targetDisplayName}. Will deliver when online.`;
       } else {
         state = "queued";
-        summary = `${targetAgent.displayName} queued for local execution.`;
+        summary = `${targetDisplayName} queued for local execution.`;
       }
     }
 
@@ -745,6 +752,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
     this.flightIdByInvocationId.set(flight.invocationId, flight.id);
 
     const targetAgent = this.registry.agents[invocation.targetAgentId];
+    const targetEndpoint = preferredEndpoint(this.endpointsForAgent(invocation.targetAgentId));
 
     this.emit({
       id: createRuntimeId("evt"),
@@ -760,7 +768,7 @@ export class InMemoryControlRuntime implements ControlRuntime {
       kind: "flight.updated",
       ts: Date.now(),
       actorId: invocation.requesterId,
-      nodeId: targetAgent?.authorityNodeId,
+      nodeId: targetAgent?.authorityNodeId ?? targetEndpoint?.nodeId,
       payload: { flight },
     });
   }

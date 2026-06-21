@@ -19,7 +19,7 @@ import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { usePersistentNumber } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { conversationForAgent, routeMachineId } from "../../lib/router.ts";
+import { routeMachineId } from "../../lib/router.ts";
 import {
   filterAgentsByMachineScope,
   filterFleetByMachineScope,
@@ -1079,7 +1079,6 @@ function NowCard({
     navigate({
       view: "agents",
       agentId: agent.id,
-      conversationId: conversationForAgent(agent.id),
       tab: "observe",
     });
 
@@ -1442,10 +1441,10 @@ function QuietStartPanel({
           },
         }),
       });
-      navigate({
-        view: "conversation",
-        conversationId: result.conversationId ?? selectedAgent.conversationId ?? conversationForAgent(selectedAgent.id),
-      });
+      const conversationId = result.conversationId ?? selectedAgent.conversationId;
+      navigate(conversationId
+        ? { view: "conversation", conversationId }
+        : { view: "agents", agentId: selectedAgent.id, tab: "message" });
     } catch (submitError) {
       setAskError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {

@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
+import { mintChannelId } from "@openscout/protocol";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import type {
@@ -8,10 +10,8 @@ import type {
   ScoutBrokerSnapshot,
 } from "../core/broker/service.ts";
 import {
-  SCOUTBOT_DEFAULT_CONVERSATION_ID,
   SCOUTBOT_DEFAULT_THREAD_ID,
   SCOUTBOT_DEFAULT_THREAD_NAME,
-  SCOUTBOT_LEGACY_CONVERSATION_ID,
 } from "./role.ts";
 
 export type ScoutbotThreadPins = {
@@ -130,7 +130,7 @@ export class ScoutbotThreadMapStore {
     const map = await this.read();
     const now = opts.now ?? Date.now();
     const threadId = opts.threadId?.trim() || `thr-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-    const conversationId = opts.conversationId?.trim() || `dm.operator.scoutbot.${threadId.replace(/^thr-/, "")}`;
+    const conversationId = opts.conversationId?.trim() || mintChannelId(randomUUID);
     const thread: ScoutbotThreadRecord = {
       threadId,
       name: name.trim() || threadId,
@@ -214,9 +214,10 @@ export function defaultScoutbotThreadMapPath(): string {
 }
 
 export function chooseDefaultConversationId(snapshot?: ScoutBrokerSnapshot | null): string {
-  return snapshot?.conversations?.[SCOUTBOT_LEGACY_CONVERSATION_ID]
-    ? SCOUTBOT_LEGACY_CONVERSATION_ID
-    : SCOUTBOT_DEFAULT_CONVERSATION_ID;
+  const existing = Object.values(snapshot?.conversations ?? {}).find(
+    (conversation) => conversation.metadata?.scoutbotThreadId === SCOUTBOT_DEFAULT_THREAD_ID,
+  );
+  return existing?.id ?? mintChannelId(randomUUID);
 }
 
 export function buildScoutbotThreadConversation(

@@ -15,6 +15,7 @@ import {
 import type { Route } from "../../lib/types.ts";
 import type { SearchMode } from "../../lib/types.ts";
 import { api } from "../../lib/api.ts";
+import { formatClockTimestamp } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { SearchSubnav } from "./SearchSubnav.tsx";
 import {
@@ -154,7 +155,7 @@ function SearchIndexerPanel({
   status: KnowledgeStatus | null;
 }) {
   const updatedLabel = status
-    ? new Date(status.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    ? formatClockTimestamp(status.generatedAt) || "unknown"
     : "Not loaded";
   return (
     <section className="ks-panel ks-conversation-panel">

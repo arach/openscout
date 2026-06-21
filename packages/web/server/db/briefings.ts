@@ -19,6 +19,7 @@ import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { epochMs } from "@openscout/protocol";
 import {
   briefingsTable,
   desc,
@@ -29,7 +30,6 @@ import {
 
 const MAX_BRIEFINGS = 100;
 const DB_BUSY_TIMEOUT_MS = 2_500;
-const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 
 let _db: Database | null = null;
 let _drizzle: ReturnType<typeof openControlPlaneDrizzle> | null = null;
@@ -134,7 +134,7 @@ function parseJson<T>(value: string | null | undefined, fallback: T): T {
 }
 
 function normalizeTimestampMs(value: number): number {
-  return value < EPOCH_MILLISECONDS_FLOOR ? value * 1000 : value;
+  return epochMs(value) ?? value;
 }
 
 function rowToRecord(row: typeof briefingsTable.$inferSelect): SavedBriefingRow {

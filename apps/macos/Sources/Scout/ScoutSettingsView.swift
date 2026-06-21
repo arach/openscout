@@ -181,6 +181,7 @@ struct ScoutSettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                    .tint(ScoutPalette.accent)
                     .labelsHidden()
                     .frame(width: 300)
                 }

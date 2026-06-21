@@ -37,6 +37,7 @@ import {
 import { DataTable, type DataTableColumn } from "../../components/DataTable/DataTable.tsx";
 import { ObservedTopologyPanel } from "../../components/ObservedTopologyPanel.tsx";
 import { api } from "../../lib/api.ts";
+import { formatClockTimestamp, timeAgoWithSuffix } from "../../lib/time.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
 import type {
   TailDiscoverySnapshot,
@@ -180,17 +181,11 @@ function formatRuntime(sec: number): string {
 }
 
 function formatRelative(ms: number | null, now: number): string {
-  if (ms == null) return "—";
-  const delta = Math.max(0, Math.round((now - ms) / 1000));
-  if (delta < 2) return "just now";
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
-  return `${Math.floor(delta / 3600)}h ago`;
+  return timeAgoWithSuffix(ms, now) || "—";
 }
 
 function formatTimestamp(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  return formatClockTimestamp(ts) || "—";
 }
 
 function shortSession(sessionId: string | null): string {

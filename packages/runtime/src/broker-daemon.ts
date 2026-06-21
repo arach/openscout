@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { stat, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
 
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
@@ -79,6 +79,7 @@ import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane } from "./thread-events.js";
 import { invokeA2AHttpEndpoint } from "./a2a-http-endpoint.js";
 import { ensureOpenScoutCleanSlateSync, resolveOpenScoutSupportPaths } from "./support-paths.js";
+import { expandHomePath } from "./tool-resolution.js";
 import {
   requestScoutBrokerJson,
   registerActiveScoutBrokerService,
@@ -125,6 +126,7 @@ import { BrokerManagedSessionService } from "./broker-managed-session-service.js
 import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-service.js";
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
+import { registerCardlessSession } from "./broker-cardless-session.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
 import { createBrokerHttpRouter } from "./broker-http-router.js";
@@ -445,9 +447,6 @@ const capabilityMatrixService = new BrokerCapabilityMatrixService({
 const readBrokerCapabilityMatrixSnapshot = capabilityMatrixService.read.bind(capabilityMatrixService);
 let shuttingDown = false;
 const sseKeepAliveIntervalMs = Number.parseInt(process.env.OPENSCOUT_SSE_KEEPALIVE_MS ?? "15000", 10);
-const BROKER_SHARED_CHANNEL_ID = "channel.shared";
-const BROKER_VOICE_CHANNEL_ID = "channel.voice";
-const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 let meshRendezvousPublisher: MeshRendezvousPublisher | null = null;
 let parentWatcher: ReturnType<typeof setInterval> | null = null;
 
@@ -782,6 +781,54 @@ function brokerActorDisplayName(snapshot: ReturnType<typeof runtime.snapshot>, a
   });
 }
 
+async function createCardlessProjectSessionForDelivery(input: {
+  projectPath: string;
+  execution?: InvocationRequest["execution"];
+  projectAgent?: { displayName?: string; agentName?: string };
+  requesterId: string;
+  createdAt: number;
+}) {
+  void input.requesterId;
+  void input.createdAt;
+  const projectRoot = resolve(expandHomePath(input.projectPath));
+  const requestedHarness = input.execution?.harness;
+  const harness = requestedHarness === "codex" ? "codex" : "claude";
+  const transport = harness === "codex" ? "codex_app_server" : "claude_stream_json";
+  const sessionId = createRuntimeId("session");
+  const shortSessionId = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
+  const projectName = basename(projectRoot) || projectRoot;
+  const displayName = input.projectAgent?.displayName?.trim()
+    || input.projectAgent?.agentName?.trim()
+    || `${projectName}:${shortSessionId}`;
+  const registered = await registerCardlessSession({
+    upsertActor: upsertActorDurably,
+    upsertEndpoint: persistEndpoint,
+  }, {
+    sessionId,
+    transport,
+    harness,
+    cwd: projectRoot,
+    projectRoot,
+    nodeId,
+    displayName,
+    ...(input.execution?.model?.trim() ? { model: input.execution.model.trim() } : {}),
+  });
+  const endpoint = runtime.snapshot().endpoints[registered.endpointId];
+  if (!endpoint) {
+    throw new Error(`cardless session endpoint ${registered.endpointId} was not registered`);
+  }
+  return {
+    kind: "resolved_session" as const,
+    session: {
+      sessionId: registered.sessionId,
+      actorId: registered.actorId,
+      endpoint,
+      label: displayName,
+      nodeId: endpoint.nodeId,
+    },
+  };
+}
+
 async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {
   await conversationService.ensureActorForDelivery(actorId);
 }
@@ -1017,6 +1064,7 @@ const deliveryAcceptanceService = new BrokerDeliveryAcceptanceService({
   isLocalScoutProductTarget,
   onlineConversationNotifyTargets,
   resolveBrokerDeliveryTargetWithImplicitProjectAgent,
+  createCardlessProjectSession: createCardlessProjectSessionForDelivery,
   recordScoutDispatch: recordScoutDispatchDurably,
   describeUnavailableDeliveryTarget: (snapshot, agent, targetSessionId) =>
     unavailableTargetService.describe(snapshot, agent, targetSessionId),

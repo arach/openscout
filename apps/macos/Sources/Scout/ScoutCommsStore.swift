@@ -22,6 +22,11 @@ final class ScoutCommsStore: ObservableObject {
     @Published private(set) var observeAgentId: String?
     @Published private(set) var isObserveLoading = false
     @Published private(set) var observeError: String?
+    /// The selected conversation's current in-flight turn, if one is running.
+    /// Drives the in-thread "agent is working" preview so a new or slow session
+    /// shows progress without opening Observe. Nil when the conversation is idle
+    /// (no non-terminal flight).
+    @Published private(set) var activeTurn: ScoutActiveTurn?
     /// cIds that appeared in the latest channels fetch but weren't in the prior
     /// one — drives the list's one-shot "new conversation" reveal.
     @Published private(set) var newChannelIds: Set<String> = []
@@ -36,6 +41,7 @@ final class ScoutCommsStore: ObservableObject {
     private var observeRequestId: UUID?
     private var attemptedInitialChannelsLoad = false
     private var readCursorTask: Task<Void, Never>?
+    private var activeTurnTask: Task<Void, Never>?
     /// The "cId:lastMessageId" we last advanced the read cursor to. Guards the
     /// reactive advance against the steady-state poll re-firing the same POST on
     /// every heartbeat — we only re-mark when the selection or its newest
@@ -80,7 +86,7 @@ final class ScoutCommsStore: ObservableObject {
         agents.filter { $0.state == .working || $0.state == .needsAttention || $0.state == .available }.count
     }
 
-    /// Agents actually doing work right now — drives the Conversations list's
+    /// Agents actually doing work right now — drives the Chats list's
     /// quiet "something's happening" pulse.
     var workingAgentCount: Int {
         agents.filter { $0.state == .working }.count
@@ -110,11 +116,13 @@ final class ScoutCommsStore: ObservableObject {
         agentsTask?.cancel()
         observeTask?.cancel()
         readCursorTask?.cancel()
+        activeTurnTask?.cancel()
         channelsTask = nil
         messagesTask = nil
         agentsTask = nil
         observeTask = nil
         readCursorTask = nil
+        activeTurnTask = nil
         observeRequestId = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
@@ -126,6 +134,9 @@ final class ScoutCommsStore: ObservableObject {
         if let observeAgentId {
             loadObserve(agentId: observeAgentId, force: true)
         }
+        if let selectedCId {
+            loadActiveTurn(cId: selectedCId)
+        }
     }
 
     func selectChannel(_ cId: String) {
@@ -133,6 +144,11 @@ final class ScoutCommsStore: ObservableObject {
         selectedCId = cId
         selectedAgentId = channels.first(where: { $0.cId == cId })?.agentId
         messages = []
+        // Drop the prior conversation's in-flight row immediately so it can't
+        // flash on the new thread; the fire-now fetch repopulates if this one
+        // is mid-turn rather than waiting for the next poll tick.
+        activeTurn = nil
+        loadActiveTurn(cId: cId)
         loadMessages()
         // Opening a conversation reads it. Fire immediately (timestamp-based) so
         // unread clears even before the message list lands; loadMessages() will
@@ -409,6 +425,79 @@ final class ScoutCommsStore: ObservableObject {
             guard !ScoutAppError.isCancellation(error) else { return }
             guard observeRequestId == requestId, observeAgentId == agentId else { return }
             observeError = Self.userFacingError(error)
+        }
+    }
+
+    private func loadActiveTurn(cId: String) {
+        activeTurnTask?.cancel()
+        let agentId = selectedAgentId
+        let agentName = selectedAgent?.displayName
+            ?? selectedChannel?.agentName?.nilIfEmpty
+            ?? "agent"
+        activeTurnTask = Task { [weak self] in
+            await self?.fetchActiveTurn(cId: cId, agentId: agentId, agentName: agentName)
+        }
+    }
+
+    /// Read the conversation's current flight (reusing `/api/flights` — the same
+    /// endpoint the pending-list rows already use) and, while a turn is live,
+    /// enrich it with the agent's latest observe event for the rolling detail
+    /// line. Self-contained: it never touches the Observe sidecar's single-slot
+    /// state, so the in-thread preview works without opening Observe. The observe
+    /// call only fires while a non-terminal flight exists, so an idle
+    /// conversation costs just the lightweight flights read. Failures are
+    /// swallowed — an absent in-flight turn is the common, non-error case.
+    private func fetchActiveTurn(cId: String, agentId: String?, agentName: String) async {
+        defer { activeTurnTask = nil }
+        let base = ScoutWeb.baseURL()
+        let flightsURL = base
+            .appending(path: "api/flights")
+            .appending(queryItems: [
+                URLQueryItem(name: "conversationId", value: cId),
+                URLQueryItem(name: "active", value: "false"),
+            ])
+        let flights = (try? await fetch([ScoutPendingFlightStatus].self, from: flightsURL)) ?? []
+        guard selectedCId == cId else { return }
+        guard let live = flights.first(where: { !$0.isTerminal }) else {
+            setIfChanged(nil, to: \.activeTurn)
+            return
+        }
+
+        var detail: String?
+        if let agentId = agentId?.nilIfEmpty {
+            let observeURL = base.appending(path: "api/agents/\(agentId)/observe")
+            if let payload = try? await fetch(ScoutObservePayload.self, from: observeURL),
+               payload.data.live {
+                detail = payload.data.events.last.flatMap(Self.activeTurnDetailLine)
+            }
+            guard selectedCId == cId else { return }
+        }
+
+        setIfChanged(
+            ScoutActiveTurn(
+                agentName: agentName,
+                state: live.state,
+                summary: live.summary?.nilIfEmpty,
+                detail: detail
+            ),
+            to: \.activeTurn
+        )
+    }
+
+    /// Condense an observe event into a one-line "what it's doing right now"
+    /// string for the in-flight row's detail line.
+    private static func activeTurnDetailLine(_ event: ScoutObserveEvent) -> String? {
+        let text = event.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch event.kind {
+        case .tool:
+            if let tool = event.tool?.nilIfEmpty {
+                return text.isEmpty ? "Running \(tool)" : text
+            }
+            return text.isEmpty ? nil : text
+        case .think:
+            return text.isEmpty ? "Thinking…" : text
+        default:
+            return text.isEmpty ? nil : text
         }
     }
 

@@ -1,15 +1,7 @@
 #!/usr/bin/env bun
 
-import { spawn, spawnSync, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-  appendFileSync,
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  rmSync,
-} from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,15 +11,7 @@ const repoRoot = resolve(scriptDir, "..");
 const DEFAULT_PORTS = {
   broker: 65535,
   web: 3200,
-  vite: 5180,
-  pairing: 7888,
 };
-const WORKTREE_PORT_BASES = {
-  web: 3300,
-  vite: 5300,
-  pairing: 7900,
-};
-const WORKTREE_PORT_RANGE = 700;
 const VALUE_FLAGS = new Set(["--port", "--web-port", "--vite-port", "--pairing-port"]);
 
 function printHelp() {
@@ -42,12 +26,13 @@ Options:
   --no-ios            Skip the iOS build/install step.
   --require-ios       Fail if the iOS build/install step fails.
   --port <n>          Web app port. Alias: --web-port.
-  --vite-port <n>     Vite asset port.
+  --vite-port <n>     Accepted for compatibility; managed restarts do not start Vite.
   --pairing-port <n>  Pairing bridge port.
   -h, --help          Show this help.
 
 What it restarts:
-  packages, relay broker, web app, macOS Scout app, macOS menu helper, and iOS app.`);
+  packages, relay broker, broker-managed web app, macOS Scout app,
+  macOS menu helper, and iOS app.`);
 }
 
 function parsePort(value, flagName) {
@@ -157,48 +142,6 @@ function runStep(label, command, args = [], options = {}) {
   return true;
 }
 
-function safeGit(args, cwd) {
-  try {
-    return execFileSync("git", args, {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function resolveGitContext(cwd) {
-  const worktreeRoot = safeGit(["rev-parse", "--show-toplevel"], cwd);
-  const commonGitDir = safeGit(["rev-parse", "--git-common-dir"], cwd);
-  if (!worktreeRoot || !commonGitDir) {
-    return null;
-  }
-  return {
-    worktreeRoot: resolve(worktreeRoot),
-    commonRoot: resolve(cwd, commonGitDir, ".."),
-  };
-}
-
-function worktreeSlot(input) {
-  return createHash("sha256").update(input).digest().readUInt16BE(0) % WORKTREE_PORT_RANGE;
-}
-
-function resolveDefaultWebPorts() {
-  const context = resolveGitContext(repoRoot);
-  if (!context || context.worktreeRoot === context.commonRoot) {
-    return { ...DEFAULT_PORTS };
-  }
-  const slot = worktreeSlot(context.worktreeRoot);
-  return {
-    broker: DEFAULT_PORTS.broker,
-    web: WORKTREE_PORT_BASES.web + slot,
-    vite: WORKTREE_PORT_BASES.vite + slot,
-    pairing: WORKTREE_PORT_BASES.pairing + slot,
-  };
-}
-
 function freshGeneratedPaths() {
   return [
     "packages/protocol/dist",
@@ -229,55 +172,6 @@ function sleep(ms) {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
-function webLogPath() {
-  const explicit = process.env.OPENSCOUT_RESTART_ALL_WEB_LOG?.trim();
-  if (explicit) return explicit;
-  return join(homedir(), "Library", "Logs", "OpenScout", "restart-all-web.log");
-}
-
-function startWebDev(bunBin, options) {
-  const defaultPorts = resolveDefaultWebPorts();
-  const webPort = options.webPort ?? defaultPorts.web;
-  const vitePort = options.vitePort ?? defaultPorts.vite;
-  const pairingPort = options.pairingPort ?? defaultPorts.pairing;
-  const logPath = webLogPath();
-  mkdirSync(dirname(logPath), { recursive: true });
-  appendFileSync(
-    logPath,
-    `\n\n[restart:all] ${new Date().toISOString()} starting web dev on ${webPort}\n`,
-    "utf8",
-  );
-  const logFd = openSync(logPath, "a");
-  const child = spawn(
-    bunBin,
-    [
-      "run",
-      "--cwd",
-      "packages/web",
-      "dev",
-      "--port",
-      String(webPort),
-      "--vite-port",
-      String(vitePort),
-      "--pairing-port",
-      String(pairingPort),
-    ],
-    {
-      cwd: repoRoot,
-      detached: true,
-      env: process.env,
-      stdio: ["ignore", logFd, logFd],
-    },
-  );
-  child.unref();
-  closeSync(logFd);
-  return {
-    pid: child.pid,
-    url: `http://127.0.0.1:${webPort}`,
-    logPath,
-  };
-}
-
 async function waitForWeb(url, logPath) {
   const healthUrl = `${url}/api/health`;
   const deadline = Date.now() + 60_000;
@@ -296,6 +190,114 @@ async function waitForWeb(url, logPath) {
     await sleep(500);
   }
   throw new Error(`Web app did not become ready at ${healthUrl}. See ${logPath}.`);
+}
+
+function defaultSupportDirectory() {
+  return process.env.OPENSCOUT_SUPPORT_DIRECTORY?.trim()
+    || join(homedir(), "Library", "Application Support", "OpenScout");
+}
+
+function supportDirectoryFromStatus(status) {
+  return typeof status?.supportDirectory === "string" && status.supportDirectory.trim().length > 0
+    ? status.supportDirectory
+    : defaultSupportDirectory();
+}
+
+function supervisedWebLogPath(status) {
+  return join(supportDirectoryFromStatus(status), "logs", "web", "supervised-web.log");
+}
+
+function readOptionalPort(value) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : null;
+}
+
+function managedWebUrlFromStatus(status, options) {
+  const webService = status?.health?.services?.web;
+  if (typeof webService?.url === "string" && webService.url.trim().length > 0) {
+    return webService.url;
+  }
+  const servicePort = readOptionalPort(webService?.port);
+  if (servicePort) {
+    return `http://127.0.0.1:${servicePort}`;
+  }
+  const explicitPort = options.webPort ?? readOptionalPort(process.env.OPENSCOUT_WEB_PORT);
+  return `http://127.0.0.1:${explicitPort ?? DEFAULT_PORTS.web}`;
+}
+
+function brokerUrlFromStatus(status) {
+  if (typeof status?.brokerUrl === "string" && status.brokerUrl.trim().length > 0) {
+    try {
+      const port = readOptionalPort(new URL(status.brokerUrl).port);
+      if (port) {
+        return `http://127.0.0.1:${port}`;
+      }
+    } catch {
+      // Fall back to the configured/default local broker port.
+    }
+  }
+  const brokerPort = readOptionalPort(process.env.OPENSCOUT_BROKER_PORT) ?? DEFAULT_PORTS.broker;
+  return `http://127.0.0.1:${brokerPort}`;
+}
+
+async function waitForBrokerReady(bunBin) {
+  const deadline = Date.now() + 60_000;
+  let lastStatus = null;
+  while (Date.now() < deadline) {
+    const status = readBrokerStatus(bunBin);
+    if (status) {
+      lastStatus = status;
+      if (status.reachable === true && status.health?.ok === true) {
+        return status;
+      }
+    }
+    await sleep(500);
+  }
+  const detail = lastStatus?.health?.error ?? lastStatus?.lastLogLine ?? "status unavailable";
+  throw new Error(`Relay broker did not become ready: ${detail}`);
+}
+
+async function startManagedWeb(status, options) {
+  const brokerUrl = brokerUrlFromStatus(status);
+  const response = await fetch(new URL("/v1/web/start", brokerUrl), {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "x-forwarded-host": "scout.local",
+      "x-forwarded-proto": "http",
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  const body = await response.json();
+  if (!response.ok || body?.ok !== true) {
+    const detail = body?.error ?? response.statusText;
+    throw new Error(`Broker-managed web app did not start: ${detail}`);
+  }
+  return {
+    url: typeof body.webUrl === "string" && body.webUrl.trim().length > 0
+      ? body.webUrl
+      : managedWebUrlFromStatus(status, options),
+    logPath: supervisedWebLogPath(status),
+    pid: typeof body.pid === "number" ? body.pid : null,
+  };
+}
+
+function applyManagedWebEnvironment(options) {
+  const overrides = [];
+  if (options.webPort !== null) {
+    process.env.OPENSCOUT_WEB_PORT = String(options.webPort);
+    overrides.push(`web ${options.webPort}`);
+  }
+  if (options.pairingPort !== null) {
+    process.env.OPENSCOUT_PAIRING_PORT = String(options.pairingPort);
+    overrides.push(`pairing ${options.pairingPort}`);
+  }
+  if (options.vitePort !== null) {
+    console.warn("warn: --vite-port is ignored because restart:all uses broker-managed static web.");
+  }
+  if (overrides.length > 0) {
+    console.log(`managed web env override: ${overrides.join(", ")}`);
+  }
 }
 
 function readBrokerStatus(bunBin) {
@@ -327,6 +329,7 @@ async function main() {
   }
 
   const bunBin = resolveBunBin();
+  applyManagedWebEnvironment(options);
 
   if (options.fresh) {
     runStep("Quit macOS Scout app", bunBin, ["apps/macos/bin/scout-app.ts", "quit"], {
@@ -349,9 +352,10 @@ async function main() {
     "--json",
   ]);
 
-  console.log("\n==> Start web app");
-  const web = startWebDev(bunBin, options);
-  console.log(`web pid ${web.pid}; log ${web.logPath}`);
+  console.log("\n==> Start broker-managed web app");
+  const brokerReadyStatus = await waitForBrokerReady(bunBin);
+  const web = await startManagedWeb(brokerReadyStatus, options);
+  console.log(`web pid ${web.pid ?? "unknown"}; log ${web.logPath}`);
   await waitForWeb(web.url, web.logPath);
   console.log(`web ready at ${web.url}`);
 

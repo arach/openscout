@@ -14,7 +14,11 @@ Scout comms are **not an HTTP spec**, but they are not not like one:
 - it may create follow-on records such as flights, questions, or work items
 
 The important difference is that the local broker, not a wire format, is the
-canonical writer for Scout-owned coordination state.
+canonical writer for Scout-owned coordination state. Product surfaces should
+treat a **Chat** as the user-facing place where messages live; the broker and
+protocol currently store that place as a **Conversation** with a
+`conversationId`. For the Chat invariants and migration rules, read
+[`chat-model.md`](./chat-model.md).
 
 ## Current Posture
 
@@ -40,7 +44,7 @@ records back to the user. It should not infer routing from message body text.
 
 | Record | Meaning | Primary Type |
 | --- | --- | --- |
-| Conversation | A durable place messages belong: DM, channel, group DM, thread, or system lane | `ConversationDefinition` |
+| Chat / Conversation | A durable place messages belong: DM, channel, group DM, thread, or system lane. Chat is the public product noun; Conversation is the internal broker/protocol record. | `ConversationDefinition` |
 | Message | A durable body posted by one actor into one conversation | `MessageRecord` |
 | Delivery | A planned transport-specific fan-out for a message or ask | `DeliveryIntent` / `ScoutDeliverRequest` |
 | Invocation | An explicit request for an agent to do something | `InvocationRequest` |

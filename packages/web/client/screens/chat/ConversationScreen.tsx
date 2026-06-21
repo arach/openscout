@@ -34,8 +34,6 @@ import {
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { isNoisyConversationStatusMessage } from "../../lib/message-visibility.ts";
 import {
-  agentIdFromConversation,
-  conversationForAgent,
   routeMachineId,
 } from "../../lib/router.ts";
 import {
@@ -143,9 +141,8 @@ export function ConversationScreen({
   const appliedInitialDraftKeyRef = useRef<string | null>(null);
   const lastPostedReadCursorMessageIdRef = useRef<string | null>(null);
 
-  const legacyAgentId = agentIdFromConversation(conversationId);
-  const agentId = sessionMeta ? sessionMeta.agentId : legacyAgentId;
-  const isDm = sessionMeta ? sessionMeta.kind === "direct" : legacyAgentId !== null;
+  const agentId = sessionMeta?.agentId ?? null;
+  const isDm = sessionMeta?.kind === "direct";
   const agent = useMemo<Agent | null>(
     () =>
       agentId ? (scopedAgents.find((item) => item.id === agentId) ?? null) : null,
@@ -173,15 +170,11 @@ export function ConversationScreen({
       ).catch(() => null);
 
       setSessionMeta((previous) => keepPreviousIfJsonEqual(previous, meta));
-      const resolvedAgentId = meta?.agentId ?? legacyAgentId;
+      const resolvedAgentId = meta?.agentId ?? null;
 
       const canonicalConversationId =
         meta?.id && meta.id !== conversationId
           ? meta.id
-        : meta?.kind === "direct" &&
-        resolvedAgentId &&
-        resolvedAgentId.startsWith("local-session-agent-")
-          ? conversationForAgent(resolvedAgentId)
           : conversationId;
 
       if (canonicalConversationId !== conversationId) {
@@ -258,7 +251,7 @@ export function ConversationScreen({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
-  }, [conversationId, initialComposeMode, legacyAgentId, navigate]);
+  }, [conversationId, initialComposeMode, navigate]);
 
   useEffect(() => {
     void load();
@@ -1271,8 +1264,8 @@ export function ConversationScreen({
                                     openContent(
                                       navigate,
                                       {
-                                        view: "agent-info",
-                                        conversationId: conversationForAgent(messageAgent.id),
+                                        view: "agents",
+                                        agentId: messageAgent.id,
                                       },
                                       { returnTo: route },
                                     )
@@ -1312,8 +1305,8 @@ export function ConversationScreen({
                                   openContent(
                                     navigate,
                                     {
-                                      view: "agent-info",
-                                      conversationId: conversationForAgent(messageAgent.id),
+                                      view: "agents",
+                                      agentId: messageAgent.id,
                                     },
                                     { returnTo: route },
                                   )
