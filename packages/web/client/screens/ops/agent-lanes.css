@@ -1058,29 +1058,33 @@
   white-space: nowrap;
 }
 
-/* ── Cluster dials: the raw token totals as a demoted secondary readout ──────
-   A flat 3-column grid (in · out · cache rd · cache wr · total · reasoning),
-   hairline-separated from the runtime facts above — NOT bordered cards. */
+/* ── Token dials: the raw token totals as a segmented bordered grid (in · out ·
+   cache rd · cache wr · total · reasoning). Ports the calm study's `.usage` — a
+   3-column grid whose 1px gaps read as hairline dividers over panel-filled
+   cells, ink-bright values. */
 .s-lane-sheet-dials {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-sm) var(--space-md);
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 7px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 .s-lane-sheet-dial {
   display: flex;
   flex-direction: column;
   gap: var(--space-3xs);
+  padding: var(--space-sm) var(--space-md);
   min-width: 0;
+  background: var(--surface);
 }
 
 .s-lane-sheet-dial-value {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--muted);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
@@ -2111,6 +2115,28 @@
   font-size: var(--text-2xs);
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
+}
+/* Collapsed preview of the in-progress step (▸ active · text), ported from the
+   calm study's `.plan-now` — at-a-glance current step without expanding. */
+.s-lane-sheet-plan-now {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: 0 0 var(--space-sm) 18px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+.s-lane-sheet-plan-now-mark {
+  flex: none;
+  color: var(--accent);
+}
+.s-lane-sheet-plan-now-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .s-lane-sheet-plan-steps {
   display: flex;

@@ -79,8 +79,23 @@ const BASH_TOOL_NAMES = new Set([
 /** A recent shell command pulled from the trace, with its one-line outcome. */
 type LaneCommand = { id: string; command: string; outcome: string | null };
 
+/** Codex-style shells pass the command as an argv array like
+ *  `["bash","-lc","<script>"]`; show the script (or the joined argv for a bare
+ *  `["ls","-la"]`) rather than dumping the raw JSON. */
+function unwrapCommandArgv(parts: readonly unknown[]): string {
+  const argv = parts.filter((part): part is string => typeof part === "string");
+  if (argv.length === 0) return "";
+  const shell = argv[0].replace(/^.*\//, "");
+  const isShellWrapper =
+    argv.length >= 3 &&
+    (shell === "bash" || shell === "sh" || shell === "zsh" || shell === "fish") &&
+    /^-[a-z]*c$/.test(argv[1]);
+  return (isShellWrapper ? argv.slice(2) : argv).join(" ").trim();
+}
+
 /** Pull the command string out of a bash tool arg — usually a plain string, but
- *  some harnesses wrap it as `{"command":"…"}` JSON. */
+ *  some harnesses wrap it as `{"command":"…"}` JSON, and some pass the command
+ *  as an argv array (which otherwise leaks through as raw JSON). */
 function decodeBashArg(arg: string | undefined): string {
   const raw = arg?.trim();
   if (!raw) return "";
@@ -90,6 +105,20 @@ function decodeBashArg(arg: string | undefined): string {
       for (const key of ["command", "cmd", "script", "input", "code"]) {
         const value = parsed[key];
         if (typeof value === "string" && value.trim()) return value.trim();
+        if (Array.isArray(value)) {
+          const unwrapped = unwrapCommandArgv(value);
+          if (unwrapped) return unwrapped;
+        }
+      }
+    } catch {
+      // fall through to the raw string
+    }
+  } else if (raw.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        const unwrapped = unwrapCommandArgv(parsed);
+        if (unwrapped) return unwrapped;
       }
     } catch {
       // fall through to the raw string
@@ -441,21 +470,27 @@ function SheetDisclose({
   );
 }
 
-/** A flat plan card (NOT a bordered card): caret · title · done/active/todo
- *  tally; expand to steps with status markers, then an "Open in Plans →" foot.
- *  Ports the calm study's `PlanRow`. */
+/** A flat plan card (NOT a bordered card): caret · title · done/total tally.
+ *  When collapsed it previews the active step inline (▸); expanded it lists every
+ *  step with status markers, then an "Open in Plans →" foot. Ports the calm
+ *  study's `PlanRow`. */
 function SheetPlanCard({ plan, onOpen }: { plan: PlanDocument; onOpen: () => void }) {
   const [open, setOpen] = useState(false);
   const done = plan.steps.filter((step) => step.status === "completed").length;
-  const active = plan.steps.filter((step) => step.status === "in_progress").length;
-  const todo = plan.steps.length - done - active;
+  const active = plan.steps.find((step) => step.status === "in_progress");
   return (
     <div className={`s-lane-sheet-plan${open ? " s-lane-sheet-plan--open" : ""}`}>
       <button type="button" className="s-lane-sheet-plan-head" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className={`s-lane-sheet-plan-caret${open ? " s-lane-sheet-plan-caret--open" : ""}`} aria-hidden="true">›</span>
         <span className="s-lane-sheet-plan-title" title={plan.title}>{plan.title}</span>
-        <span className="s-lane-sheet-plan-tally">{done} done · {active} active · {todo} todo</span>
+        <span className="s-lane-sheet-plan-tally">{done}/{plan.steps.length}</span>
       </button>
+      {!open && active && (
+        <div className="s-lane-sheet-plan-now" title={active.text}>
+          <span className="s-lane-sheet-plan-now-mark" aria-hidden="true">▸</span>
+          <span className="s-lane-sheet-plan-now-text">{active.text}</span>
+        </div>
+      )}
       {open && (
         <div className="s-lane-sheet-plan-steps">
           {plan.steps.map((step) => (
