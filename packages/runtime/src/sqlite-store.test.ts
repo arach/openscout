@@ -514,7 +514,7 @@ describe("SQLiteControlPlaneStore", () => {
         windowKind: "primary",
         usedPercent: 60,
         percentRemaining: 40,
-        resetAt: 3000,
+        resetAt: 3_000_000,
       }));
       expect(currentQuotaWindows[1]).toEqual(expect.objectContaining({
         source: "provider_reported",
@@ -522,7 +522,7 @@ describe("SQLiteControlPlaneStore", () => {
         label: "weekly",
         windowKind: "secondary",
         percentRemaining: 72,
-        resetAt: 4000,
+        resetAt: 4_000_000,
       }));
 
       store.upsertEndpoint({
@@ -654,7 +654,7 @@ describe("SQLiteControlPlaneStore", () => {
         windowKind: "primary",
         usedPercent: 25,
         percentRemaining: 75,
-        resetAt: 3600,
+        resetAt: 3_600_000,
         planType: "max",
       }));
       expect(currentClaudeQuotaWindows[0]?.metadata).toEqual(expect.objectContaining({
@@ -669,7 +669,7 @@ describe("SQLiteControlPlaneStore", () => {
         label: "weekly",
         windowKind: "secondary",
         percentRemaining: 64,
-        resetAt: 4000,
+        resetAt: 4_000_000,
         planType: "max",
       }));
     } finally {
