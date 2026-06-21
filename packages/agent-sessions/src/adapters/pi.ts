@@ -1004,7 +1004,10 @@ export class PiAdapter extends BaseAdapter {
       : typeof message.provider === "string"
       ? message.provider
       : undefined;
-    if (!model && !provider) {
+
+    const usage = this.observeUsageFromMessage(message);
+
+    if (!model && !provider && !usage) {
       return;
     }
 
@@ -1013,7 +1016,65 @@ export class PiAdapter extends BaseAdapter {
     }
     this.updateSessionProviderMeta({
       ...(provider ? { provider } : {}),
+      ...(usage ? { observeUsage: usage } : {}),
     });
+  }
+
+  // Pi normalizes every provider response (xAI/Grok included, via the
+  // OpenAI-compatible completions path in pi-ai) into a single Usage shape:
+  //   { input, output, cacheRead, cacheWrite, totalTokens, cost }
+  // where `input` is the non-cached prompt portion and `output` already folds
+  // reasoning tokens in. We project that into the observe-usage metadata shape
+  // the web Tokens panel + context gauge read off providerMeta.observeUsage,
+  // merging onto whatever is already there so repeated assistant messages keep
+  // the latest cumulative figures. Only fields actually reported are emitted.
+  private observeUsageFromMessage(message: any): Record<string, unknown> | undefined {
+    const raw = message?.usage;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return undefined;
+    }
+
+    const num = (value: unknown): number | undefined =>
+      typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+
+    const inputTokens = num(raw.input);
+    const outputTokens = num(raw.output);
+    const cacheReadInputTokens = num(raw.cacheRead);
+    const cacheCreationInputTokens = num(raw.cacheWrite);
+    const totalTokens = num(raw.totalTokens)
+      ?? (inputTokens !== undefined || outputTokens !== undefined
+        ? (inputTokens ?? 0)
+          + (outputTokens ?? 0)
+          + (cacheReadInputTokens ?? 0)
+          + (cacheCreationInputTokens ?? 0)
+        : undefined);
+    // Context "used" = the full prompt for the latest turn (non-cached input +
+    // cache read + cache write), so the web context gauge can derive load.
+    const contextInputTokens = inputTokens !== undefined
+      || cacheReadInputTokens !== undefined
+      || cacheCreationInputTokens !== undefined
+      ? (inputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0)
+      : undefined;
+
+    const usage: Record<string, unknown> = {};
+    if (inputTokens !== undefined) usage.inputTokens = inputTokens;
+    if (outputTokens !== undefined) usage.outputTokens = outputTokens;
+    if (cacheReadInputTokens !== undefined) usage.cacheReadInputTokens = cacheReadInputTokens;
+    if (cacheCreationInputTokens !== undefined) usage.cacheCreationInputTokens = cacheCreationInputTokens;
+    if (totalTokens !== undefined) usage.totalTokens = totalTokens;
+    if (contextInputTokens !== undefined && contextInputTokens > 0) {
+      usage.contextInputTokens = contextInputTokens;
+    }
+
+    if (Object.keys(usage).length === 0) {
+      return undefined;
+    }
+
+    const current = this.session.providerMeta?.observeUsage;
+    const previous = current && typeof current === "object" && !Array.isArray(current)
+      ? current as Record<string, unknown>
+      : {};
+    return { ...previous, ...usage };
   }
 
   private updateSessionMetadataFromState(data: any): void {
