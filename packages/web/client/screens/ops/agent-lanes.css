@@ -212,18 +212,42 @@
 }
 
 .s-agent-lane-cockpit--sized {
-  overflow: auto;
-  overflow-anchor: none;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  justify-content: flex-start;
 }
 
+/* Status screen stays content-sized — never stretch into an empty black slab. */
 .s-agent-lane-cockpit--sized .s-lane-card-summary {
-  flex: 1 1 auto;
+  flex: none;
   min-height: 48px;
 }
 
 .s-agent-lane-cockpit--sized .s-lane-card-accs {
   flex: none;
+}
+
+/* Compact: one-line status glance; tools may scroll inside the pane. */
+.s-agent-lane-cockpit--compact .s-lane-card-head-text {
+  -webkit-line-clamp: 1;
+}
+
+/* Stats: unwrap the current step and show the token dial grid below the pills. */
+.s-agent-lane-cockpit--stats .s-lane-card-summary {
+  justify-content: flex-start;
+  overflow: auto;
+  min-height: 0;
+}
+
+.s-agent-lane-cockpit--stats .s-lane-card-head-text {
+  display: block;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.s-agent-lane-cockpit--stats .s-lane-card-headpop {
+  display: none;
 }
 
 .s-agent-lane-split {

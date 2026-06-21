@@ -144,6 +144,23 @@ export function agentLaneToCardModel(
   const tokens = fmtCompactTokens(usage?.totalTokens);
   const turns = facts?.turn?.index ?? session?.turnCount ?? null;
 
+  const tokenDials = usage
+    ? [
+        { label: "in", value: usage.inputTokens },
+        { label: "out", value: usage.outputTokens },
+        { label: "cache rd", value: usage.cacheReadInputTokens },
+        { label: "cache wr", value: usage.cacheCreationInputTokens },
+        { label: "total", value: usage.totalTokens },
+        { label: "reasoning", value: usage.reasoningOutputTokens },
+      ].filter((entry): entry is { label: string; value: number } => typeof entry.value === "number")
+    : [];
+  const tokenUsage: AgentLaneCardModel["tokenUsage"] = tokenDials.length > 0
+    ? {
+        total: typeof usage?.totalTokens === "number" ? usage.totalTokens : null,
+        dials: tokenDials,
+      }
+    : null;
+
   const working = isAgentBusy(agent.state ?? null, agent);
 
   // The status line shows the last known step. When the current event carries no
@@ -186,6 +203,7 @@ export function agentLaneToCardModel(
     context,
     tokens,
     turns,
+    tokenUsage,
     pops,
   };
 }

@@ -2,6 +2,8 @@ import "./agent-lane-card.css";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
+import { AgentLaneCockpitPane, cockpitHeightTier } from "./AgentLaneSummaryResize.tsx";
+
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 
@@ -58,6 +60,11 @@ export type AgentLaneCardModel = {
   context: number | null;   // % of context window used (0–100)
   tokens: string | null;    // compact total tokens, e.g. "15.4m"
   turns: number | null;     // current turn index / turn count
+  /** Token dial grid — shown when the cockpit is stretched tall. */
+  tokenUsage: {
+    total: number | null;
+    dials: Array<{ label: string; value: number }>;
+  } | null;
   /** Inventories revealed on tool-use pill hover — each a top-N of its kind. */
   pops: { tools: LanePopGroup; edits: LanePopGroup; reads: LanePopGroup; files: LanePopGroup };
 };
@@ -208,6 +215,141 @@ function StatInstr({ value, label, group }: { value: number; label: string; grou
   );
 }
 
+function fmtTokenCount(value: number): string {
+  return value.toLocaleString();
+}
+
+/** Compact total for the Tokens header hint — mirrors the lane sheet disclosure. */
+function magToken(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  return `${value}`;
+}
+
+function CockpitTokenPanel({ usage }: { usage: NonNullable<AgentLaneCardModel["tokenUsage"]> }) {
+  if (usage.dials.length === 0) return null;
+  return (
+    <div className="s-lane-card-cockpit-tokens" aria-label="Token usage">
+      <div className="s-lane-card-cockpit-tokens-head">
+        <span className="s-lane-card-cockpit-tokens-label">
+          <span className="s-lane-card-cockpit-tokens-mark" aria-hidden="true">◎</span>
+          Tokens
+        </span>
+        {usage.total != null && (
+          <span className="s-lane-card-cockpit-tokens-hint">{magToken(usage.total)}</span>
+        )}
+      </div>
+      <div className="s-lane-card-cockpit-dials">
+        {usage.dials.map((entry) => (
+          <span key={entry.label} className="s-lane-card-cockpit-dial">
+            <span className="s-lane-card-cockpit-dial-value">{fmtTokenCount(entry.value)}</span>
+            <span className="s-lane-card-cockpit-dial-label">{entry.label}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentLaneCardCockpit({
+  model,
+  cockpitHeight = null,
+}: {
+  model: AgentLaneCardModel;
+  cockpitHeight?: number | null;
+}) {
+  const showTokenPanel = cockpitHeightTier(cockpitHeight) === "stats";
+
+  return (
+    <>
+      <div className="s-lane-card-summary">
+        {model.head?.placeholder ? (
+          <div className={`s-lane-card-wait${model.working ? " s-lane-card-wait--working" : ""}`}>
+            <span className="s-lane-card-wait-dot" aria-hidden="true" />
+            <span className="s-lane-card-wait-label">{model.head.text}</span>
+          </div>
+        ) : (
+          <div className={`s-lane-card-current${model.head?.dir ? "" : " s-lane-card-current--console"}`}>
+            {model.head?.dir ? (
+              <DirArrow dir={model.head.dir} />
+            ) : (
+              <span className="s-lane-card-prompt" aria-hidden="true">❯</span>
+            )}
+            <span className="s-lane-card-headwrap">
+              <span className="s-lane-card-head-text">
+                {model.head?.text ?? "Waiting for trace activity…"}
+              </span>
+              {model.head?.full && (
+                <span className="s-lane-card-headpop" role="tooltip">
+                  {model.head.full}
+                </span>
+              )}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="s-lane-card-accs">
+        <div className="s-lane-card-accs-tools">
+          {model.stats.tools > 0 ? (
+            <>
+              <StatInstr value={model.stats.tools} label="tools" group={model.pops.tools} />
+              {model.stats.edits > 0 && (
+                <StatInstr value={model.stats.edits} label="edits" group={model.pops.edits} />
+              )}
+              {model.stats.reads > 0 && (
+                <StatInstr value={model.stats.reads} label="reads" group={model.pops.reads} />
+              )}
+              {model.stats.files > 0 && (
+                <StatInstr value={model.stats.files} label="files" group={model.pops.files} />
+              )}
+            </>
+          ) : (
+            <span className="s-lane-card-accs-empty">no tool activity yet</span>
+          )}
+        </div>
+        <div className="s-lane-card-vitals">
+          <span
+            className={`s-lane-card-instr s-lane-card-instr--ctx${
+              model.context == null ? " s-lane-card-instr--ctx-pending" : ""
+            }`}
+            title={
+              model.context == null
+                ? "Context window — awaiting usage"
+                : `Context window ${model.context}% used`
+            }
+          >
+            <span className="s-lane-card-gauge" aria-hidden="true">
+              <span
+                className="s-lane-card-gauge-fill"
+                style={{ width: `${model.context ?? 0}%` }}
+              />
+            </span>
+            <span className="s-lane-card-instr-val">
+              {model.context == null ? "—" : `${model.context}%`}
+            </span>
+            <span className="s-lane-card-instr-label">ctx</span>
+          </span>
+          {model.tokens && (
+            <span className="s-lane-card-instr">
+              <span className="s-lane-card-instr-val">{model.tokens}</span>
+              <span className="s-lane-card-instr-label">tokens</span>
+            </span>
+          )}
+          {model.turns != null && (
+            <span className="s-lane-card-instr">
+              <span className="s-lane-card-instr-val">{model.turns}</span>
+              <span className="s-lane-card-instr-label">{model.turns === 1 ? "turn" : "turns"}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {showTokenPanel && model.tokenUsage && <CockpitTokenPanel usage={model.tokenUsage} />}
+    </>
+  );
+}
+
 export function AgentLaneCard({
   model,
   avatar,
@@ -215,6 +357,7 @@ export function AgentLaneCard({
   collapsed = false,
   onToggleCollapsed,
   onOpen,
+  cockpitHeight,
 }: {
   model: AgentLaneCardModel;
   /** Avatar node (e.g. <AgentAvatar/>) — kept as a slot so the card stays pure. */
@@ -224,6 +367,8 @@ export function AgentLaneCard({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   onOpen?: () => void;
+  /** When set, the status screen + tools row sit in a vertically resizable cockpit pane. */
+  cockpitHeight?: number | null;
 }) {
   const {
     name, harness, model: modelName, effort,
@@ -341,98 +486,15 @@ export function AgentLaneCard({
         </div>
       </div>
 
-      {/* status screen — JUST the last known step (collapse hides this + the
-          accumulators; the trace below always stays). */}
+      {/* status screen + tools row — collapse hides the cockpit; the trace below stays. */}
       {!collapsed && (
-        <>
-          <div className="s-lane-card-summary">
-            {model.head?.placeholder ? (
-              <div className={`s-lane-card-wait${model.working ? " s-lane-card-wait--working" : ""}`}>
-                <span className="s-lane-card-wait-dot" aria-hidden="true" />
-                <span className="s-lane-card-wait-label">{model.head.text}</span>
-              </div>
-            ) : (
-              <div className={`s-lane-card-current${model.head?.dir ? "" : " s-lane-card-current--console"}`}>
-                {model.head?.dir ? (
-                  <DirArrow dir={model.head.dir} />
-                ) : (
-                  <span className="s-lane-card-prompt" aria-hidden="true">❯</span>
-                )}
-                <span className="s-lane-card-headwrap">
-                  <span className="s-lane-card-head-text">
-                    {model.head?.text ?? "Waiting for trace activity…"}
-                  </span>
-                  {model.head?.full && (
-                    <span className="s-lane-card-headpop" role="tooltip">
-                      {model.head.full}
-                    </span>
-                  )}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* accumulators — a reserved row BELOW the status (room kept even before
-              any tool runs, so the cockpit holds a steady ~4-line footprint). Tool
-              pills pop out their inventory on hover; session vitals (context
-              window · tokens · turn) trail right, with the context slot always
-              present (a quiet placeholder until usage is observed). */}
-          <div className="s-lane-card-accs">
-            <div className="s-lane-card-accs-tools">
-              {model.stats.tools > 0 ? (
-                <>
-                  <StatInstr value={model.stats.tools} label="tools" group={model.pops.tools} />
-                  {model.stats.edits > 0 && (
-                    <StatInstr value={model.stats.edits} label="edits" group={model.pops.edits} />
-                  )}
-                  {model.stats.reads > 0 && (
-                    <StatInstr value={model.stats.reads} label="reads" group={model.pops.reads} />
-                  )}
-                  {model.stats.files > 0 && (
-                    <StatInstr value={model.stats.files} label="files" group={model.pops.files} />
-                  )}
-                </>
-              ) : (
-                <span className="s-lane-card-accs-empty">no tool activity yet</span>
-              )}
-            </div>
-            <div className="s-lane-card-vitals">
-              <span
-                className={`s-lane-card-instr s-lane-card-instr--ctx${
-                  model.context == null ? " s-lane-card-instr--ctx-pending" : ""
-                }`}
-                title={
-                  model.context == null
-                    ? "Context window — awaiting usage"
-                    : `Context window ${model.context}% used`
-                }
-              >
-                <span className="s-lane-card-gauge" aria-hidden="true">
-                  <span
-                    className="s-lane-card-gauge-fill"
-                    style={{ width: `${model.context ?? 0}%` }}
-                  />
-                </span>
-                <span className="s-lane-card-instr-val">
-                  {model.context == null ? "—" : `${model.context}%`}
-                </span>
-                <span className="s-lane-card-instr-label">ctx</span>
-              </span>
-              {model.tokens && (
-                <span className="s-lane-card-instr">
-                  <span className="s-lane-card-instr-val">{model.tokens}</span>
-                  <span className="s-lane-card-instr-label">tokens</span>
-                </span>
-              )}
-              {model.turns != null && (
-                <span className="s-lane-card-instr">
-                  <span className="s-lane-card-instr-val">{model.turns}</span>
-                  <span className="s-lane-card-instr-label">{model.turns === 1 ? "turn" : "turns"}</span>
-                </span>
-              )}
-            </div>
-          </div>
-        </>
+        cockpitHeight !== undefined ? (
+          <AgentLaneCockpitPane cockpitHeight={cockpitHeight}>
+            <AgentLaneCardCockpit model={model} cockpitHeight={cockpitHeight} />
+          </AgentLaneCockpitPane>
+        ) : (
+          <AgentLaneCardCockpit model={model} />
+        )
       )}
 
       {/* trace — the proven SessionObserve lane timeline, always shown */}
