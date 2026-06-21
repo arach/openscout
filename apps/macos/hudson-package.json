@@ -26,7 +26,7 @@
         "executableName": "Scout",
         "binaryPath": ".build/release/Scout",
         "infoPlist": "ScoutInfo.plist",
-        "bundleIdentifier": "com.openscout.scout",
+        "bundleIdentifier": "app.openscout.scout",
         "icon": "../../apps/desktop/public/scout-icon.png",
         "embeddedHelpers": [
           {
@@ -37,7 +37,7 @@
             "executableName": "ScoutMenu",
             "binaryPath": ".build/release/ScoutMenu",
             "infoPlist": "Info.plist",
-            "bundleIdentifier": "app.openscout.mac.menu",
+            "bundleIdentifier": "app.openscout.scout.menu",
             "lsuiElement": true,
             "icon": "../../apps/desktop/public/scout-icon.png",
             "destination": "Contents/Library/LoginItems"

@@ -2,7 +2,7 @@ import Foundation
 import Dispatch
 import os
 
-/// A Scout Mac discovered on the local network via its `_scout-pair._tcp`
+/// A Scout Mac discovered on the local network via its `_oscout-pair._tcp`
 /// Bonjour advertisement. Unlike a QR payload, this carries only the Mac's
 /// stable identity + relay coordinates (the per-session pairing `room` is not in
 /// the TXT record); the app fetches the live payload from the Mac's `/pair`
@@ -25,7 +25,7 @@ public struct DiscoveredScoutMac: Sendable, Equatable, Identifiable {
     }
 }
 
-/// Browses `_scout-pair._tcp` and returns every Scout Mac advertising on the
+/// Browses `_oscout-pair._tcp` and returns every Scout Mac advertising on the
 /// LAN — the sibling of `BonjourRelayDiscovery`, which filters to one already
 /// known public key. This one knows no key in advance (the whole point of the
 /// "Pair with this Mac" experience is that nothing was scanned yet), so it
@@ -34,7 +34,7 @@ public final class BonjourMacDiscovery: NSObject, @unchecked Sendable {
     public static let serviceType = BonjourRelayDiscovery.serviceType
 
     private static let logger = Logger(
-        subsystem: "com.openscout.scoutioscore",
+        subsystem: "app.openscout.scout.ioscore",
         category: "BonjourMacDiscovery"
     )
 

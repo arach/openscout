@@ -176,7 +176,7 @@ Preferred implementation:
 
 - add a Scout app command for opening Settings, similar to the existing open-channel command:
   - `ScoutExternalCommand.openSettings()`
-  - notification name such as `com.openscout.app.open-settings`
+  - notification name such as `app.openscout.scout.open-settings`
   - `ScoutRootView` handles it by setting `section = .settings`
 - teach `ScoutAppBridge` or the helper to launch Scout with a settings command if Scout is cold.
 - keep this consistent with current `--channel` and HUD routing patterns.

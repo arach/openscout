@@ -183,6 +183,7 @@ function readStatusJsonSync(env: NodeJS.ProcessEnv = process.env): TailscaleStat
   try {
     const stdout = execFileSync(tailscaleBin, ["status", "--json"], {
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
       timeout: statusTimeoutMs(env),
       windowsHide: true,
     });

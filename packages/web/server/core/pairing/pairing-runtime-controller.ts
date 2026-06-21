@@ -31,7 +31,7 @@ import type { MeshRendezvousPublisher } from "@openscout/runtime";
 
 const SCOUT_PAIR_REFRESH_LEEWAY_MS = 30_000;
 const SCOUT_PAIR_RESTART_DELAY_MS = 2_000;
-const BONJOUR_SERVICE_TYPE = "_scout-pair._tcp";
+const BONJOUR_SERVICE_TYPE = "_oscout-pair._tcp";
 
 type PairingRuntimeControllerState = {
   current: PairingRuntimeSnapshot;

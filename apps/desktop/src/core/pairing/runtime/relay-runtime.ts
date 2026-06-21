@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -77,7 +77,7 @@ function storedCertificateLooksPubliclyTrusted(certPath: string): boolean {
 
 function readTailscaleStatus(): TailscaleStatusProbe | null {
   try {
-    const output = execSync("tailscale status --self=true --peers=false --json", {
+    const output = execFileSync("tailscale", ["status", "--self=true", "--peers=false", "--json"], {
       stdio: ["pipe", "pipe", "pipe"],
       timeout: 5_000,
     }).toString();

@@ -15,7 +15,7 @@ Project notes:
 - XcodeGen project definition: [project.yml](./project.yml)
 - source root: [Scout](./Scout)
 - scheme: `Scout`
-- bundle id: `com.openscout.scout`
+- bundle id: `app.openscout.scout`
 
 ## Local commands
 

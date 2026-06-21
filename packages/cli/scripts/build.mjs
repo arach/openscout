@@ -78,6 +78,13 @@ if (!bundleScoutTerminalRelayNode(repoRoot, terminalRelayOutput)) {
   process.exit(1);
 }
 
+// The control-plane web bundle boot smoke test initializes enough server
+// wiring to resolve the broker service helper. Package scoutd before that
+// smoke test so dev and release builds exercise the same packaged binary path.
+if (!buildAndPackageScoutd()) {
+  process.exit(1);
+}
+
 if (!bundleScoutControlPlaneWebServerBun(repoRoot, controlPlaneWebOutput)) {
   process.exit(1);
 }
@@ -231,10 +238,6 @@ function buildAndPackageScoutd() {
   const sizeMb = (statSync(scoutdPackagedBinary).size / (1024 * 1024)).toFixed(1);
   console.log(`  packaged scoutd -> ${scoutdPackagedBinary} (${sizeMb} MB, darwin-arm64)`);
   return true;
-}
-
-if (!buildAndPackageScoutd()) {
-  process.exit(1);
 }
 
 const pairingRuntimeControllerEntry = resolve(repoRoot, "packages", "web", "server", "pairing-runtime-controller.ts");

@@ -12,7 +12,7 @@ const GITHUB_REPO = "openscout";
 const APP_NAME = "OpenScout.app";
 const APP_PATH = `/Applications/${APP_NAME}`;
 const INFO_PLIST_PATH = `${APP_PATH}/Contents/Info.plist`;
-const APP_BUNDLE_ID = "com.openscout.scout";
+const APP_BUNDLE_ID = "app.openscout.scout";
 const APP_PROCESS_NAME = "Scout";
 const USER_AGENT = "scout-cli";
 

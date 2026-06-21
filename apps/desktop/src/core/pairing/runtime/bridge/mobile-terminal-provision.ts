@@ -93,7 +93,7 @@ export function provisionMobileTerminalAccess(
 }
 
 /**
- * Best-effort LAN-reachable name for this Mac. We advertise `_scout-pair._tcp`
+ * Best-effort LAN-reachable name for this Mac. We advertise `_oscout-pair._tcp`
  * over Bonjour, so the Mac's `<shortname>.local` resolves from the paired phone
  * (and from the iOS Simulator, which shares the host's resolver). The phone
  * prefers the host it already reached the bridge through (e.g. a Tailscale name

@@ -344,7 +344,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.2.70;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
+				PRODUCT_BUNDLE_IDENTIFIER = app.openscout.scout;
 				PRODUCT_MODULE_NAME = Scout;
 				PRODUCT_NAME = Scout;
 				SDKROOT = iphoneos;
@@ -435,7 +435,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.2.70;
-				PRODUCT_BUNDLE_IDENTIFIER = com.openscout.scout;
+				PRODUCT_BUNDLE_IDENTIFIER = app.openscout.scout;
 				PRODUCT_MODULE_NAME = Scout;
 				PRODUCT_NAME = Scout;
 				SDKROOT = iphoneos;

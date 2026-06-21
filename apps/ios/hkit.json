@@ -1,6 +1,6 @@
 {
   "app": "Scout",
-  "bundleId": "com.openscout.scout",
+  "bundleId": "app.openscout.scout",
   "xcodeproj": "Scout.xcodeproj",
   "xcodegen": "project.yml",
   "scheme": "Scout",

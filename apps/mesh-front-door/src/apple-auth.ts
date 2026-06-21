@@ -10,7 +10,7 @@
 
 export interface AppleAuthEnv {
   // Comma-separated list of accepted audiences (token `aud`). For the native
-  // flow this is the app bundle id, e.g. "com.openscout.scout". A web Services
+  // flow this is the app bundle id, e.g. "app.openscout.scout". A web Services
   // ID can be added later as an additional value.
   OPENSCOUT_APPLE_CLIENT_IDS?: string;
 }
@@ -210,9 +210,14 @@ function decodeUtf8(bytes: Uint8Array): string {
   return new TextDecoder().decode(bytes);
 }
 
-function bytesFromBase64URL(value: string): Uint8Array {
+function bytesFromBase64URL(value: string) {
   const padded = value.replaceAll("-", "+").replaceAll("_", "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-  return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 // Exposed only so tests can reset the module-level JWKS cache between cases.

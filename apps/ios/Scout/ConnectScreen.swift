@@ -8,7 +8,7 @@ import UIKit
 /// First-run gate. Shown when no bridge is trusted yet.
 ///
 /// The nicest path is front and center: if a Scout Mac is advertising on the
-/// same Wi-Fi (Bonjour `_scout-pair._tcp`), it shows up under "On your network"
+/// same Wi-Fi (Bonjour `_oscout-pair._tcp`), it shows up under "On your network"
 /// and a single tap pairs over the LAN — no QR, no clipboard. Scanning a QR and
 /// pasting a link stay as fallbacks, and "Continue without pairing" enters the
 /// shell unconnected so Settings is reachable first (surfaces stay empty — no
