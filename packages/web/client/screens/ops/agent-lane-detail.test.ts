@@ -53,7 +53,7 @@ function makePlanDocument(overrides: Partial<PlanDocument> = {}): PlanDocument {
     tags: ["lanes"],
     body: "ship lane sheet",
     rawText: "ship lane sheet",
-    steps: [{ id: "s1", text: "Add inspect sheet", status: "in_progress", rawMarker: ">" }],
+    steps: [{ id: "s1", order: 0, text: "Add inspect sheet", status: "in_progress", rawMarker: ">" }],
     createdAt: 1,
     updatedAt: 2,
     provenance: { root: "/Users/art/dev/openscout", rootKind: "workspace", relativePath: "docs/agent-lanes-plan.md" },
@@ -114,6 +114,26 @@ describe("buildLaneTouchedFiles", () => {
     const files = buildLaneTouchedFiles(observe, 2);
     expect(files.map((file) => file.path)).toEqual(["c.ts", "b.ts"]);
   });
+
+  test("drops mis-recorded bash tokens and dedupes duplicate paths", () => {
+    const observe: ObserveData = {
+      events: [],
+      files: [
+        { path: "necho", state: "read", touches: 1, lastT: 1 },
+        { path: "nCHROME=", state: "read", touches: 1, lastT: 2 },
+        { path: "Google", state: "read", touches: 1, lastT: 3 },
+        { path: "run.sh", state: "read", touches: 1, lastT: 4 },
+        { path: "run.sh", state: "read", touches: 1, lastT: 6 },
+        { path: "line_strip.png", state: "read", touches: 1, lastT: 5 },
+      ],
+    };
+
+    const files = buildLaneTouchedFiles(observe);
+    expect(files.map((file) => file.path).sort()).toEqual([
+      "line_strip.png",
+      "run.sh",
+    ]);
+  });
 });
 
 describe("docExcerpt", () => {
@@ -170,7 +190,7 @@ describe("relatedLaneDocs", () => {
         path: "docs/architecture.md",
         steps: [],
       }),
-      makePlanDocument({ id: "plan-a", steps: [{ id: "s1", text: "step", status: "pending", rawMarker: "-" }] }),
+      makePlanDocument({ id: "plan-a", steps: [{ id: "s1", order: 0, text: "step", status: "pending", rawMarker: "-" }] }),
     ];
 
     expect(relatedLaneDocs(documents, lane).map((doc) => doc.id)).toEqual(["doc-a"]);

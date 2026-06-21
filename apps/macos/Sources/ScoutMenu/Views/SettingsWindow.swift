@@ -766,18 +766,21 @@ private struct NetworkTab: View {
                 HStack(spacing: 8) {
                     Spacer(minLength: 0)
 
-                    if !controller.openScoutNetwork.sessionAvailable {
-                        Button("Sign in") {
-                            controller.signInOpenScoutNetwork()
-                        }
-                        .buttonStyle(PrimaryPillStyle())
+                    Button(controller.openScoutNetworkSetupActionLabel) {
+                        controller.setUpOpenScoutNetwork()
                     }
+                    .buttonStyle(PrimaryPillStyle())
+                    .disabled(controller.openScoutNetworkActionPending
+                        || controller.brokerActionPending
+                        || controller.pairingActionPending)
 
                     Button("Restart relay") {
                         controller.restartPairing()
                     }
                     .buttonStyle(SecondaryPillStyle())
-                    .disabled(controller.pairingActionPending || !controller.openScoutNetwork.discoveryEnabled)
+                    .disabled(controller.openScoutNetworkActionPending
+                        || controller.pairingActionPending
+                        || !controller.openScoutNetwork.discoveryEnabled)
                 }
             }
 

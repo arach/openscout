@@ -267,6 +267,38 @@ async function canResolveHost(hostname) {
   }
 }
 
+async function sleep(ms) {
+  await new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+async function fetchOk(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 750);
+  try {
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function waitForHttpOk(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await fetchOk(url)) {
+      return true;
+    }
+    await sleep(100);
+  }
+  return false;
+}
+
 function resolveEdgeScheme(value) {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) {
@@ -800,61 +832,11 @@ const localEdge = edgeEnabled
   : null;
 
 const children = {
-  vite: spawnVite(),
-  server: spawnServer(),
+  vite: null,
+  server: null,
   edge: localEdge?.caddy ?? null,
 };
 const mdnsProcesses = localEdge?.mdns ?? [];
-
-try {
-  await mkdir(resolve(stateRoot, "runs"), { recursive: true });
-  await writeFile(
-    stateFile,
-    JSON.stringify({
-      kind: "openscout-web-dev",
-      version: 1,
-      startedAt: new Date().toISOString(),
-      repoRoot: portDefaults.gitContext?.commonRoot || resolve(packageDirectory, "..", ".."),
-      worktreeRoot: portDefaults.gitContext?.worktreeRoot || resolve(packageDirectory, "..", ".."),
-      packageDirectory,
-      publicHost,
-      internalHost,
-      routes: {
-        terminalRelayPath: routes.terminalRelayPath,
-        viteHmrPath: routes.viteHmrPath,
-      },
-      ports: {
-        web: bunPort,
-        relay: bunPort + 1,
-        vite: vitePort,
-        pairing: pairingPort,
-      },
-      processes: {
-        manager: process.pid,
-        vite: children.vite?.pid ?? null,
-        server: children.server?.pid ?? null,
-        edge: children.edge?.pid ?? null,
-      },
-      localEdge: localEdge ? {
-        enabled: true,
-        scheme: edgeScheme,
-        caddyfilePath: localEdge.caddyfilePath,
-        portalUrl: edgePortalUrl,
-        nodeUrl: edgeNodeUrl,
-      } : {
-        enabled: false,
-      },
-      pairingHome: env.OPENSCOUT_PAIRING_HOME || null,
-    }, null, 2),
-    "utf8",
-  );
-} catch (error) {
-  console.warn(
-    `@openscout/web: failed to record dev state at ${stateFile}: ${
-      error instanceof Error ? error.message : String(error)
-    }`,
-  );
-}
 
 let exiting = false;
 const viteRestartWindowMs = 30_000;
@@ -910,14 +892,76 @@ function attachChildHandlers(name, child) {
   });
 }
 
-attachChildHandlers("vite", children.vite);
+process.on("SIGINT", () => void shutdown(0));
+process.on("SIGTERM", () => void shutdown(0));
+
+children.server = spawnServer();
 attachChildHandlers("server", children.server);
 if (children.edge) {
   attachChildHandlers("local edge", children.edge);
 }
 
-process.on("SIGINT", () => void shutdown(0));
-process.on("SIGTERM", () => void shutdown(0));
+const serverHealthUrl = `http://${internalHost}:${portLabel(bunPort)}${routes.healthPath}`;
+if (!await waitForHttpOk(serverHealthUrl, 15_000) && !exiting) {
+  console.warn(
+    `@openscout/web: Bun app did not answer ${routes.healthPath} within 15s; starting Vite anyway.`,
+  );
+}
+if (!exiting) {
+  children.vite = spawnVite();
+  attachChildHandlers("vite", children.vite);
+}
+
+try {
+  await mkdir(resolve(stateRoot, "runs"), { recursive: true });
+  await writeFile(
+    stateFile,
+    JSON.stringify({
+      kind: "openscout-web-dev",
+      version: 1,
+      startedAt: new Date().toISOString(),
+      repoRoot: portDefaults.gitContext?.commonRoot || resolve(packageDirectory, "..", ".."),
+      worktreeRoot: portDefaults.gitContext?.worktreeRoot || resolve(packageDirectory, "..", ".."),
+      packageDirectory,
+      publicHost,
+      internalHost,
+      routes: {
+        terminalRelayPath: routes.terminalRelayPath,
+        viteHmrPath: routes.viteHmrPath,
+      },
+      ports: {
+        web: bunPort,
+        relay: bunPort + 1,
+        vite: vitePort,
+        pairing: pairingPort,
+      },
+      processes: {
+        manager: process.pid,
+        vite: children.vite?.pid ?? null,
+        server: children.server?.pid ?? null,
+        edge: children.edge?.pid ?? null,
+      },
+      localEdge: localEdge ? {
+        enabled: true,
+        scheme: edgeScheme,
+        caddyfilePath: localEdge.caddyfilePath,
+        portalUrl: edgePortalUrl,
+        nodeUrl: edgeNodeUrl,
+      } : {
+        enabled: false,
+      },
+      pairingHome: env.OPENSCOUT_PAIRING_HOME || null,
+    }, null, 2),
+    "utf8",
+  );
+} catch (error) {
+  console.warn(
+    `@openscout/web: failed to record dev state at ${stateFile}: ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+}
+
 process.on("exit", () => {
   try {
     rmSync(stateFile, { force: true });

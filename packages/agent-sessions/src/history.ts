@@ -5,6 +5,12 @@ import {
   readCodexRolloutUsageObservation,
   type CodexQuotaWindowObservation,
 } from "./adapters/codex/usage.js";
+import { codexContextWindowTokens } from "./adapters/codex/context-window.js";
+import { claudeContextWindowTokens } from "./adapters/claude-code/context-window.js";
+import {
+  observedContextWindowTokens,
+  recordObservedContextWindow,
+} from "./model-window-registry.js";
 import type {
   Action,
   Block,
@@ -18,10 +24,13 @@ import type {
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;
 
 type ClaudeObserveUsageEntry = {
+  model?: string;
   inputTokens: number;
   outputTokens: number;
   cacheReadInputTokens: number;
   cacheCreationInputTokens: number;
+  contextInputTokens: number;
+  contextWindowTokens?: number;
   webSearchRequests: number;
   webFetchRequests: number;
   serviceTier?: string;
@@ -344,6 +353,8 @@ class ClaudeCodeHistoryParser {
   private activeStreamBlocks = new Map<number, TextualBlock>();
   private sawStreamTextThisTurn = false;
   private assistantUsageByMessageId = new Map<string, ClaudeObserveUsageEntry>();
+  private latestAssistantUsage: ClaudeObserveUsageEntry | null = null;
+  private claudeContextWindowTokens: number | undefined;
 
   constructor(
     private readonly session: Session,
@@ -461,7 +472,7 @@ class ClaudeCodeHistoryParser {
 
     const message = isRecord(record.message) ? record.message : null;
     const model = maybeString(message?.model);
-    if (model && !this.session.model) {
+    if (model && this.session.model !== model) {
       this.session.model = model;
     }
 
@@ -478,6 +489,8 @@ class ClaudeCodeHistoryParser {
     }
 
     this.assistantUsageByMessageId.set(messageId, usage);
+    this.latestAssistantUsage = usage;
+    this.claudeContextWindowTokens = usage.contextWindowTokens ?? this.claudeContextWindowTokens;
   }
 
   private readClaudeUsageEntry(record: Record<string, unknown>): ClaudeObserveUsageEntry | null {
@@ -490,26 +503,55 @@ class ClaudeCodeHistoryParser {
 
     const usage = isRecord(message?.usage) ? message.usage : null;
     const serverToolUse = isRecord(usage?.server_tool_use) ? usage.server_tool_use : null;
+    const inputTokens = maybeNumber(usage?.input_tokens) ?? 0;
+    const cacheReadInputTokens = maybeNumber(usage?.cache_read_input_tokens) ?? 0;
+    const cacheCreationInputTokens = maybeNumber(usage?.cache_creation_input_tokens) ?? 0;
+    const model = maybeString(message?.model);
+    const contextWindowTokens = this.readClaudeContextWindowTokens(record, message, usage);
+    const serviceTier = maybeString(message?.service_tier) ?? maybeString(usage?.service_tier);
+    const speed = maybeString(message?.speed) ?? maybeString(usage?.speed);
     const entry: ClaudeObserveUsageEntry = {
-      inputTokens: maybeNumber(usage?.input_tokens) ?? 0,
+      ...(model ? { model } : {}),
+      inputTokens,
       outputTokens: maybeNumber(usage?.output_tokens) ?? 0,
-      cacheReadInputTokens: maybeNumber(usage?.cache_read_input_tokens) ?? 0,
-      cacheCreationInputTokens: maybeNumber(usage?.cache_creation_input_tokens) ?? 0,
+      cacheReadInputTokens,
+      cacheCreationInputTokens,
+      contextInputTokens: inputTokens + cacheReadInputTokens + cacheCreationInputTokens,
+      ...(contextWindowTokens !== undefined ? { contextWindowTokens } : {}),
       webSearchRequests: maybeNumber(serverToolUse?.web_search_requests) ?? 0,
       webFetchRequests: maybeNumber(serverToolUse?.web_fetch_requests) ?? 0,
-      ...(maybeString(message?.service_tier) ? { serviceTier: maybeString(message?.service_tier) } : {}),
-      ...(maybeString(message?.speed) ? { speed: maybeString(message?.speed) } : {}),
+      ...(serviceTier ? { serviceTier } : {}),
+      ...(speed ? { speed } : {}),
     };
 
     const hasUsage = entry.inputTokens > 0
       || entry.outputTokens > 0
       || entry.cacheReadInputTokens > 0
       || entry.cacheCreationInputTokens > 0
+      || entry.contextInputTokens > 0
+      || entry.contextWindowTokens !== undefined
       || entry.webSearchRequests > 0
       || entry.webFetchRequests > 0
       || Boolean(entry.serviceTier)
       || Boolean(entry.speed);
     return hasUsage ? entry : null;
+  }
+
+  private readClaudeContextWindowTokens(
+    record: Record<string, unknown>,
+    message: Record<string, unknown> | null,
+    usage: Record<string, unknown> | null,
+  ): number | undefined {
+    return maybeNumber(usage?.context_window_tokens)
+      ?? maybeNumber(usage?.contextWindowTokens)
+      ?? maybeNumber(usage?.context_window)
+      ?? maybeNumber(usage?.model_context_window)
+      ?? maybeNumber(message?.context_window_tokens)
+      ?? maybeNumber(message?.contextWindowTokens)
+      ?? maybeNumber(message?.model_context_window)
+      ?? maybeNumber(record.context_window_tokens)
+      ?? maybeNumber(record.contextWindowTokens)
+      ?? maybeNumber(record.model_context_window);
   }
 
   private persistObserveUsageMetadata(): boolean {
@@ -561,6 +603,21 @@ class ClaudeCodeHistoryParser {
     if (outputTokens > 0) assignNumber("outputTokens", outputTokens);
     if (cacheReadInputTokens > 0) assignNumber("cacheReadInputTokens", cacheReadInputTokens);
     if (cacheCreationInputTokens > 0) assignNumber("cacheCreationInputTokens", cacheCreationInputTokens);
+    const totalTokens = inputTokens + outputTokens + cacheReadInputTokens + cacheCreationInputTokens;
+    if (totalTokens > 0) assignNumber("totalTokens", totalTokens);
+    const latestUsage = this.latestAssistantUsage;
+    if (latestUsage?.contextInputTokens && latestUsage.contextInputTokens > 0) {
+      assignNumber("contextInputTokens", latestUsage.contextInputTokens);
+    }
+    const claudeModel = latestUsage?.model ?? this.session.model;
+    // Claude never logs a window today, so this records nothing — but it keeps the
+    // learn-once-per-model path uniform if that ever changes.
+    recordObservedContextWindow(claudeModel, latestUsage?.contextWindowTokens ?? this.claudeContextWindowTokens);
+    const contextWindowTokens = latestUsage?.contextWindowTokens
+      ?? this.claudeContextWindowTokens
+      ?? observedContextWindowTokens(claudeModel)
+      ?? claudeContextWindowTokens(claudeModel);
+    if (contextWindowTokens > 0) assignNumber("contextWindowTokens", contextWindowTokens);
     if (webSearchRequests > 0) assignNumber("webSearchRequests", webSearchRequests);
     if (webFetchRequests > 0) assignNumber("webFetchRequests", webFetchRequests);
     if (serviceTier) assignString("serviceTier", serviceTier);
@@ -1539,6 +1596,7 @@ class CodexHistoryParser {
   private outputTokens = 0;
   private reasoningOutputTokens = 0;
   private cachedInputTokens = 0;
+  private totalTokens = 0;
   private contextInputTokens = 0;
   private previousInputTokens: number | undefined;
   private tokenEventCount = 0;
@@ -1948,6 +2006,12 @@ class CodexHistoryParser {
       return;
     }
 
+    // Codex logs its window most events — learn it once per model so the fallback
+    // tracks real data rather than a baked-in constant.
+    recordObservedContextWindow(this.session.model, observation.contextWindowTokens);
+    const contextWindowTokens = observation.contextWindowTokens
+      ?? observedContextWindowTokens(this.session.model)
+      ?? codexContextWindowTokens(this.session.model);
     const fallbackContextInputTokens = observation.inputTokens === undefined
       ? undefined
       : this.previousInputTokens === undefined
@@ -1959,7 +2023,7 @@ class CodexHistoryParser {
     if (
       contextInputTokens !== undefined
       && contextInputTokens > 0
-      && (observation.contextWindowTokens === undefined || contextInputTokens <= observation.contextWindowTokens)
+      && contextInputTokens <= contextWindowTokens
     ) {
       this.contextInputTokens = contextInputTokens;
     }
@@ -1968,7 +2032,13 @@ class CodexHistoryParser {
     this.outputTokens = observation.outputTokens ?? this.outputTokens;
     this.reasoningOutputTokens = observation.reasoningOutputTokens ?? this.reasoningOutputTokens;
     this.cachedInputTokens = observation.cacheReadInputTokens ?? this.cachedInputTokens;
-    this.contextWindowTokens = observation.contextWindowTokens ?? this.contextWindowTokens;
+    this.totalTokens = observation.totalTokens
+      ?? (
+        observation.inputTokens !== undefined || observation.outputTokens !== undefined
+          ? (observation.inputTokens ?? 0) + (observation.outputTokens ?? 0)
+          : this.totalTokens
+      );
+    this.contextWindowTokens = contextWindowTokens;
     this.planType = observation.planType ?? this.planType;
     if (observation.quotaWindows.length > 0) {
       this.quotaWindows = observation.quotaWindows;
@@ -1995,6 +2065,7 @@ class CodexHistoryParser {
     assignNumber("outputTokens", this.outputTokens);
     assignNumber("reasoningOutputTokens", this.reasoningOutputTokens);
     assignNumber("cacheReadInputTokens", this.cachedInputTokens);
+    assignNumber("totalTokens", this.totalTokens);
     if (this.contextWindowTokens !== undefined) assignNumber("contextWindowTokens", this.contextWindowTokens);
     assignNumber("tokenEvents", this.tokenEventCount);
     if (this.planType && usage.planType !== this.planType) {

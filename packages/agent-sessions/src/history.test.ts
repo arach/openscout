@@ -1,12 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   createHistorySessionSnapshot,
   inferHistorySessionAdapterType,
   supportsHistorySessionSnapshotForPath,
 } from "./history.ts";
+import { clearObservedContextWindows } from "./model-window-registry.ts";
 
 describe("history snapshot replay", () => {
+  // The learned-window registry is process-global; reset it so a window logged by
+  // one fixture session doesn't leak into another's inference path.
+  beforeEach(clearObservedContextWindows);
+
   test("reconstructs a unified Claude Code snapshot from external jsonl history", () => {
     const basePath = "/Users/arach/.claude/projects/-Users-arach-dev-openscout/session-123.jsonl";
     const content = [
@@ -161,6 +166,85 @@ describe("history snapshot replay", () => {
     }
   });
 
+  test("populates Claude context usage from latest assistant input and inferred model window", () => {
+    const basePath = "/Users/arach/.claude/projects/-Users-arach-dev-openscout/session-usage.jsonl";
+    const content = [
+      JSON.stringify({
+        type: "system",
+        subtype: "init",
+        timestamp: "2026-04-22T12:00:00.000Z",
+        session_id: "claude-usage-session",
+        cwd: "/Users/arach/dev/openscout",
+        model: "claude-opus-4-8",
+      }),
+      JSON.stringify({
+        type: "user",
+        timestamp: "2026-04-22T12:00:01.000Z",
+        message: { role: "user", content: "summarize the repo" },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-04-22T12:00:02.000Z",
+        message: {
+          id: "msg-first",
+          role: "assistant",
+          model: "claude-opus-4-8",
+          content: [{ type: "text", text: "first" }],
+          usage: {
+            input_tokens: 10,
+            cache_read_input_tokens: 100,
+            cache_creation_input_tokens: 20,
+            output_tokens: 5,
+            service_tier: "standard",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2026-04-22T12:00:03.000Z",
+        message: {
+          id: "msg-latest",
+          role: "assistant",
+          model: "claude-opus-4-8",
+          content: [{ type: "text", text: "latest" }],
+          usage: {
+            input_tokens: 30,
+            cache_read_input_tokens: 300,
+            cache_creation_input_tokens: 40,
+            output_tokens: 7,
+            speed: "standard",
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "result",
+        timestamp: "2026-04-22T12:00:04.000Z",
+        subtype: "success",
+        is_error: false,
+      }),
+    ].join("\n");
+
+    const result = createHistorySessionSnapshot({
+      path: basePath,
+      content,
+    });
+
+    expect(result.snapshot.session.providerMeta).toEqual(expect.objectContaining({
+      observeUsage: expect.objectContaining({
+        assistantMessages: 2,
+        inputTokens: 40,
+        outputTokens: 12,
+        cacheReadInputTokens: 400,
+        cacheCreationInputTokens: 60,
+        totalTokens: 512,
+        contextInputTokens: 370,
+        contextWindowTokens: 1_000_000,
+        serviceTier: "standard",
+        speed: "standard",
+      }),
+    }));
+  });
+
   test("replays embedded assistant tool_use and user tool_result records without inflating turns", () => {
     const basePath = "/Users/arach/.claude/projects/-Users-arach-dev-openscout/session-embedded.jsonl";
     const content = [
@@ -170,7 +254,7 @@ describe("history snapshot replay", () => {
         timestamp: "2026-04-25T23:00:00.000Z",
         session_id: "claude-embedded-session",
         cwd: "/Users/arach/dev/openscout",
-        model: "claude-opus-test",
+        model: "claude-opus-4-8",
       }),
       JSON.stringify({
         type: "user",
@@ -268,7 +352,7 @@ describe("history snapshot replay", () => {
         timestamp: "2026-04-25T23:00:00.000Z",
         session_id: "claude-observe-session",
         cwd: "/Users/arach/dev/openscout",
-        model: "claude-opus-test",
+        model: "claude-opus-4-8",
       }),
       JSON.stringify({
         type: "user",
@@ -286,7 +370,7 @@ describe("history snapshot replay", () => {
         message: {
           id: "msg-1",
           role: "assistant",
-          model: "claude-opus-test",
+          model: "claude-opus-4-8",
           content: [{ type: "thinking", thinking: "Looking around." }],
           stop_reason: "tool_use",
           service_tier: "standard",
@@ -309,7 +393,7 @@ describe("history snapshot replay", () => {
         message: {
           id: "msg-1",
           role: "assistant",
-          model: "claude-opus-test",
+          model: "claude-opus-4-8",
           content: [
             {
               type: "tool_use",
@@ -354,7 +438,7 @@ describe("history snapshot replay", () => {
         message: {
           id: "msg-2",
           role: "assistant",
-          model: "claude-opus-test",
+          model: "claude-opus-4-8",
           content: [{ type: "text", text: "Done." }],
           stop_reason: "end_turn",
           service_tier: "standard",
@@ -587,6 +671,7 @@ describe("history snapshot replay", () => {
           outputTokens: 20,
           reasoningOutputTokens: 7,
           cacheReadInputTokens: 40,
+          totalTokens: 400020,
           contextWindowTokens: 200000,
           planType: "plus",
           tokenEvents: 1,
@@ -641,6 +726,53 @@ describe("history snapshot replay", () => {
       expect(patchBlock.action.status).toBe("completed");
       expect(patchBlock.action.output).toContain("Success. Updated");
     }
+  });
+
+  test("infers a Codex model window when token logs omit the denominator", () => {
+    const basePath = "/Users/arach/.codex/sessions/2026/05/30/codex-no-window.jsonl";
+    const content = [
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:00.000Z",
+        type: "turn_context",
+        payload: {
+          cwd: "/Users/arach/dev/openscout",
+          model: "gpt-5.5",
+        },
+      }),
+      JSON.stringify({
+        timestamp: "2026-05-30T01:09:01.000Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            total_token_usage: {
+              input_tokens: 900000,
+              output_tokens: 50,
+              total_tokens: 900050,
+            },
+            last_token_usage: {
+              input_tokens: 12345,
+              output_tokens: 50,
+              total_tokens: 12395,
+            },
+          },
+        },
+      }),
+    ].join("\n");
+
+    const result = createHistorySessionSnapshot({
+      path: basePath,
+      content,
+    });
+
+    expect(result.snapshot.session.providerMeta).toEqual(expect.objectContaining({
+      observeUsage: expect.objectContaining({
+        inputTokens: 900000,
+        totalTokens: 900050,
+        contextInputTokens: 12345,
+        contextWindowTokens: 258400,
+      }),
+    }));
   });
 
   test("reconstructs Pi JSONL history into an observable session", () => {

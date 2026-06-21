@@ -147,7 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         openTailscaleItem.target = self
         menu.addItem(openTailscaleItem)
 
-        let openScoutNetworkItem = NSMenuItem(title: "Sign In to OpenScout Network", action: #selector(signInOpenScoutNetwork), keyEquivalent: "")
+        let openScoutNetworkItem = NSMenuItem(title: "Set Up OpenScout Network", action: #selector(setUpOpenScoutNetwork), keyEquivalent: "")
         openScoutNetworkItem.target = self
         menu.addItem(openScoutNetworkItem)
 
@@ -262,8 +262,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc
-    private func signInOpenScoutNetwork() {
-        controller.signInOpenScoutNetwork()
+    private func setUpOpenScoutNetwork() {
+        controller.setUpOpenScoutNetwork()
     }
 
     @objc
@@ -313,6 +313,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func handleOpenScoutNetworkAuthSaved(_ notification: Notification) {
-        controller.restartPairing()
+        controller.finishOpenScoutNetworkSetupAfterAuth()
     }
 }

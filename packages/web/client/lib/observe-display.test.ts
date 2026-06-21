@@ -26,6 +26,27 @@ describe("collapseObserveDisplayRows", () => {
     expect(rows[0]?.event.text).toContain("(2 reasoning updates)");
   });
 
+  test("never merges consecutive identical messages — authored turns stand alone", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({ id: "a", t: 1, kind: "message", text: "Committed and pushed." }),
+      observe({ id: "b", t: 2, kind: "message", text: "Committed and pushed." }),
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.repeatCount).toBe(1);
+    expect(rows[1]?.repeatCount).toBe(1);
+  });
+
+  test("never merges consecutive identical asks", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({ id: "a", t: 1, kind: "ask", text: "Proceed?" }),
+      observe({ id: "b", t: 2, kind: "ask", text: "Proceed?" }),
+    ]);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.repeatCount).toBe(1);
+  });
+
   test("collapses repeated identical shell commands", () => {
     const rows = collapseObserveDisplayRows([
       observe({ id: "a", t: 1, kind: "tool", tool: "Shell", arg: "rg LaneFacts packages/web", text: "Shell · rg LaneFacts packages/web" }),

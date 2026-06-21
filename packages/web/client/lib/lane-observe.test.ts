@@ -7,11 +7,14 @@ import {
   fmtLaneAgeLabel,
   fmtLaneWallGapLabel,
   fmtTraceSpanMs,
+  isPlausibleFilePath,
   laneSnippetText,
   laneTextNeedsExpand,
   laneToolArgSnippet,
   laneTraceWindowStats,
+  plausibleTouchedFiles,
 } from "./lane-observe.ts";
+import type { ObserveFile } from "./types.ts";
 
 describe("laneSnippetText", () => {
   test("clips long prose to a readable snippet", () => {
@@ -74,6 +77,85 @@ describe("filesFromObserveEvents", () => {
       ["packages/web/client/lib/observe-display.ts", "read"],
       ["packages/web/client/lib/lane-observe.ts", "modified"],
     ]);
+  });
+});
+
+describe("isPlausibleFilePath", () => {
+  test("rejects bash-command tokens mis-recorded as read files", () => {
+    const garbage = [
+      "necho", "nsed", "ngrep", "npython3", "nnpx", "nCHROME=",
+      "Google", "n#", "S…", "CHROME=", "echo", "sed", "grep",
+      "npx", "python3", "for", "do", "done", "then", "fi",
+    ];
+    for (const token of garbage) {
+      expect(isPlausibleFilePath(token)).toBe(false);
+    }
+  });
+
+  test("rejects flags, env assignments, JSON fragments, and short/newline tokens", () => {
+    expect(isPlausibleFilePath("-n")).toBe(false);
+    expect(isPlausibleFilePath("--headless")).toBe(false);
+    expect(isPlausibleFilePath("FOO=bar")).toBe(false);
+    expect(isPlausibleFilePath('{"path"')).toBe(false);
+    expect(isPlausibleFilePath("[1]")).toBe(false);
+    expect(isPlausibleFilePath("ab")).toBe(false);
+    expect(isPlausibleFilePath("x")).toBe(false);
+    expect(isPlausibleFilePath("")).toBe(false);
+    expect(isPlausibleFilePath("sed -n run.sh")).toBe(false); // multi-word
+    expect(isPlausibleFilePath("run\nsh")).toBe(false); // newline
+  });
+
+  test("accepts genuine file paths", () => {
+    const paths = [
+      "line_strip.png",
+      "run.sh",
+      "console.css",
+      "README.md",
+      "ScoutTheme.swift",
+      "packages/web/client/lib/lane-observe.ts",
+      "docs/design/tokens.md",
+      "/Applications/Google Chrome.app/x",
+    ];
+    for (const path of paths) {
+      expect(isPlausibleFilePath(path)).toBe(true);
+    }
+  });
+
+  test("never drops a token containing a slash", () => {
+    expect(isPlausibleFilePath("a/b")).toBe(true);
+    expect(isPlausibleFilePath("/dev/null")).toBe(true);
+    expect(isPlausibleFilePath("src/echo")).toBe(true);
+  });
+});
+
+describe("plausibleTouchedFiles", () => {
+  test("filters garbage and dedupes by normalized path", () => {
+    const files: ObserveFile[] = [
+      { path: "necho", state: "read", touches: 1, lastT: 1 },
+      { path: "nCHROME=", state: "read", touches: 1, lastT: 2 },
+      { path: "Google", state: "read", touches: 1, lastT: 3 },
+      { path: "run.sh", state: "read", touches: 1, lastT: 4 },
+      { path: "run.sh ", state: "read", touches: 2, lastT: 6 },
+      { path: "line_strip.png", state: "read", touches: 1, lastT: 5 },
+    ];
+
+    const result = plausibleTouchedFiles(files);
+    expect(result.map((file) => file.path).sort()).toEqual([
+      "line_strip.png",
+      "run.sh",
+    ]);
+    const runSh = result.find((file) => file.path === "run.sh");
+    expect(runSh?.touches).toBe(3);
+    expect(runSh?.lastT).toBe(6);
+  });
+
+  test("promotes state when merging duplicate entries", () => {
+    const files: ObserveFile[] = [
+      { path: "router.ts", state: "read", touches: 1, lastT: 1 },
+      { path: "router.ts", state: "modified", touches: 1, lastT: 2 },
+    ];
+    const [merged] = plausibleTouchedFiles(files);
+    expect(merged?.state).toBe("modified");
   });
 });
 

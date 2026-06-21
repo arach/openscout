@@ -1,9 +1,13 @@
 import { laneToolArgSnippet } from "../../lib/lane-observe.ts";
+import { splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
 import { observeToolIsEdit, observeToolIsRead } from "../../lib/tail-display.ts";
 import type { Agent, ObserveData, ObserveEvent, ObserveFile } from "../../lib/types.ts";
 
 export type AgentLanePreviewModel = {
   headline: string;
+  /** The same headline without the display truncation — for a "show full" popover
+   *  when the line is cut short. */
+  headFull: string;
   /** Who the headline message is with: "user" = a prompt from the user (←),
    *  "agent" = a reply to the user (→), null = non-conversation fallback. */
   headlineFrom: "user" | "agent" | null;
@@ -108,25 +112,39 @@ export function previewFocusEvent(
   return latestTool ?? substantive[substantive.length - 1];
 }
 
-function previewHeadline(event: ObserveEvent): string {
+/** Build the current-state headline. With `full`, the text/arg is left
+ *  untruncated (for the "show full" popover); otherwise it's clipped to a tidy
+ *  single-glance length. The tidying (tilde paths, dropped boilerplate `cd …&&`)
+ *  is applied either way so the popover reads as the same line, just complete. */
+function buildHeadline(event: ObserveEvent, full = false): string {
   const text = hasMeaningfulText(event.text) ? event.text!.trim() : undefined;
+  const clip = (value: string | undefined): string | undefined =>
+    value == null ? undefined : full ? value : value.slice(0, 72);
   switch (event.kind) {
-    case "tool":
-      return [
-        event.tool,
-        event.arg ? laneToolArgSnippet(event.arg, 72) : null,
-      ].filter(Boolean).join(" · ").trim() || "Running tool";
+    case "tool": {
+      // Tidy the command the same way the trace does: tilde-shorten paths and
+      // drop a leading boilerplate `cd …&&` so the headline shows the real
+      // action (`gh pr create …`), not codex's cd-to-root noise.
+      let arg = event.arg ? tildeShortenPath(event.arg) : null;
+      if (arg) arg = splitCdPrefix(arg).rest || arg;
+      const argText = arg ? (full ? arg : laneToolArgSnippet(arg, 72)) : null;
+      return [event.tool, argText].filter(Boolean).join(" · ").trim() || "Running tool";
+    }
     case "think":
-      return text?.slice(0, 72) || "Thinking";
+      return clip(text) || "Thinking";
     case "ask":
-      return text?.slice(0, 72) || `Ask → ${event.to ?? "operator"}`;
+      return clip(text) || `Ask → ${event.to ?? "operator"}`;
     case "message":
-      return text?.slice(0, 72) || `Message → ${event.to ?? "operator"}`;
+      return clip(text) || `Message → ${event.to ?? "operator"}`;
     case "note":
-      return text?.slice(0, 72) || "Turn update";
+      return clip(text) || "Turn update";
     default:
-      return text?.slice(0, 72) || event.kind;
+      return clip(text) || event.kind;
   }
+}
+
+function previewHeadline(event: ObserveEvent): string {
+  return buildHeadline(event);
 }
 
 function previewDetail(event: ObserveEvent): string | null {
@@ -181,6 +199,7 @@ export function buildAgentLanePreview(
 
   return {
     headline: previewHeadline(latest),
+    headFull: buildHeadline(latest, true),
     headlineFrom: latest.kind === "ask" ? "user" : latest.kind === "message" ? "agent" : null,
     detail: previewDetail(latest),
     model: session?.model ?? agent.model ?? null,

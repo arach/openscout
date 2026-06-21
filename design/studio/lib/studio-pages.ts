@@ -387,6 +387,35 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Keep the main view as the list (projects, or the agents under them) and move only the chrome. Search and New-chat leave the center and become rail actions that open a ⌘K command palette (cross-fleet lookup: agents · sessions) / a small composer over the list, then close — no pinned filter box, no second search staged in the center. Kept deliberately simple: two actions, the few agents you last touched, a settings foot (pointers/lenses cut for now). One emerald accent reserved for attention.",
   },
   {
+    href: "/studies/agent-lanes-card",
+    label: "Agent Lanes · Card",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agent-lanes-card/page.tsx",
+      "design/studio/components/HarnessMark.tsx",
+      "packages/web/client/screens/ops/AgentLaneSummaryCard.tsx",
+      "packages/web/client/components/HarnessMark.tsx",
+    ],
+    blurb:
+      "Design surface for the OPS agent-lanes summary card: harness brand-mark icons (Claude, Codex cloud, Grok, Gemini, Cursor, GitHub, OpenCode, Amp + geometric stand-ins) and the header/meta layout — avatar identity on the left, a unified secondary line split into where (path · branch) and what (harness logo anchoring model · effort · time). Iterate here, then port to the web component.",
+  },
+  {
+    href: "/studies/lane-detail-sheet",
+    label: "Agent Lane · Detail Sheet",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/lane-detail-sheet/page.tsx",
+      "design/studio/app/studies/agent-lanes-card/page.tsx",
+      "packages/web/client/screens/ops/AgentLaneDetailSheet.tsx",
+    ],
+    blurb:
+      "Tall right-side inspector for one agent's work session — the OPS lane detail sheet, redesigned from a read-only fact dump into a jumpable + copyable + grouped instrument. Three north-star ergonomics: JUMP (sticky anchor bar + per-row open/reveal), COPY (a hover copy dot on every id · path · value, plus Copy-diagnostics / Copy-changed / Copy-all), INVENTORY (collections as real, complete, groupable lists — no 10-cap). IA top→bottom: NOW (lead with the live ❯ action + stat strip) → ACTIONS → RUNTIME (ONE block, duplicate fact blocks killed; model · effort · branch · cwd · session · transcript with reveal) → USAGE → FILES (grouped NEW / MODIFIED / READ with per-file +adds −dels) → COMMANDS (this turn) → PLANS (step tally) → DOCS (collapsed when empty). Self-contained palette matching the lane card; one emerald accent, geometric marks only. Iterate here, port to the web component.",
+  },
+  {
     href: "/studies/agents-top-collapse",
     label: "Agents · Top Collapse",
     bucket: "studies",

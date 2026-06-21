@@ -115,7 +115,7 @@ export function OpsDefaultLeft() {
                 key={item.recordId}
                 name={item.title}
                 meta={timeAgo(item.updatedAt)}
-                tone="working"
+                tone="in_turn"
                 unread
                 title={`${label} · ${item.kind}`}
                 onClick={() => openAttention(item)}

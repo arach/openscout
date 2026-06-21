@@ -20,6 +20,7 @@ import type {
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
 import { collapseObserveDisplayRows } from "../../lib/observe-display.ts";
+import { formatBashLine, type PowerlineMode } from "../../lib/bash-format.ts";
 import {
   countObserveEventsBeforeHorizon,
   filterObserveEventsForHorizon,
@@ -457,9 +458,350 @@ function toolArgLabel(event: SessionEvent): string | undefined {
   return arg;
 }
 
+/* ── bespoke per-tool lane rows ────────────────────────────────────────────
+ * In the lane trace each tool call reads in its own idiom rather than a uniform
+ * "name + arg" line: bash as a shell prompt, file ops as clean paths, search as
+ * a quoted needle. The family is classified client-side so it survives both the
+ * rich observe builder (normalized names) and the tail parser (raw names). The
+ * expand/diff/outcome machinery below is shared — only the header line changes. */
+
+type LaneToolFamily = "bash" | "read" | "file" | "search" | "fetch" | "agent" | "generic";
+
+const LANE_TOOL_FAMILIES: Record<LaneToolFamily, readonly string[]> = {
+  // Names span both harness idioms: Claude's tool names (Read/Bash/Grep/…) and
+  // codex's raw call names (exec_command/apply_patch/…) which arrive verbatim.
+  bash: [
+    "bash", "shell", "terminal", "exec", "run", "command",
+    "exec_command", "shell_command", "local_shell", "container_exec", "container.exec",
+  ],
+  read: ["read", "view", "cat", "readfile", "open", "open_file"],
+  file: [
+    "write", "writefile", "create", "edit", "multiedit",
+    "str_replace", "str_replace_editor", "apply_patch", "applypatch", "patch", "patch_apply", "update",
+  ],
+  search: ["grep", "glob", "search", "rg", "ripgrep", "find", "codebase_search", "file_search"],
+  fetch: ["webfetch", "web_fetch", "fetch", "websearch", "web_search", "browse", "url"],
+  agent: ["agent", "task", "dispatch", "subagent"],
+  generic: [],
+};
+
+const LANE_FAMILY_GLYPH: Record<LaneToolFamily, string> = {
+  bash: "$",
+  read: "◎",
+  file: "✎",
+  search: "⌕",
+  fetch: "⤓",
+  agent: "◇",
+  generic: "▸",
+};
+
+/** The right-aligned gutter label for a lane row: the tool name for tool rows,
+ *  otherwise the event kind. Kept a single compact token (just first-letter
+ *  capitalised) so names like "WebSearch"/"TodoWrite" fit the narrow gutter the
+ *  way the studio trace shows them. Codex's raw ids are usually mapped to
+ *  friendly names (Shell/Edit/Read/Search) upstream. */
+function laneRowGutterLabel(event: SessionEvent): string {
+  if (event.kind === "tool") {
+    const tool = event.tool?.trim();
+    if (!tool) return "tool";
+    if (tool.length <= 2) return tool;
+    return tool.charAt(0).toUpperCase() + tool.slice(1);
+  }
+  return event.kind;
+}
+
+function laneToolFamily(tool: string | undefined): LaneToolFamily {
+  const key = (tool ?? "").trim().toLowerCase();
+  if (!key) return "generic";
+  for (const family of ["bash", "read", "file", "search", "fetch", "agent"] as const) {
+    if (LANE_TOOL_FAMILIES[family].includes(key)) return family;
+  }
+  return "generic";
+}
+
+function laneIsControlArg(arg: string | undefined): boolean {
+  return !arg || arg === "started" || arg === "completed";
+}
+
+/** Split a path into its directory prefix (kept with trailing slash) and leaf. */
+function laneSplitPath(raw: string): { dir: string; base: string } {
+  const clean = raw.trim().replace(/\/+$/u, "");
+  const slash = clean.lastIndexOf("/");
+  if (slash < 0) return { dir: "", base: clean };
+  return { dir: clean.slice(0, slash + 1), base: clean.slice(slash + 1) };
+}
+
+/** Keep only the last `segs` directory segments, eliding the rest with "…/". */
+function laneShortDir(dir: string, segs = 2): string {
+  const parts = dir.split("/").filter(Boolean);
+  if (parts.length === 0) return "";
+  if (parts.length <= segs) return `${parts.join("/")}/`;
+  return `…/${parts.slice(-segs).join("/")}/`;
+}
+
+function laneSearchCount(result: SessionEvent["result"]): number | null {
+  if (!result) return null;
+  for (const key of ["matches", "count", "results", "hits"]) {
+    const value = result[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && /^\d+$/u.test(value.trim())) return Number(value.trim());
+  }
+  return null;
+}
+
+function laneFetchHost(url: string): { host: string; path: string } {
+  try {
+    const parsed = new URL(url);
+    return { host: parsed.host, path: parsed.pathname + parsed.search };
+  } catch {
+    return { host: url, path: "" };
+  }
+}
+
+/** A codex shell wrapper like ["bash","-lc","<script>"] — show the script, not
+ *  the wrapper. Otherwise join the parts. */
+function laneCommandFromArray(parts: string[]): string {
+  if (parts.length >= 3 && /^(?:ba|z)?sh$/u.test(parts[0]) && /^-[a-z]*c$/u.test(parts[1])) {
+    return parts.slice(2).join(" ");
+  }
+  return parts.join(" ");
+}
+
+/** Pull a display string out of a (possibly truncated) JSON arg by trying keys
+ *  in priority order. codex passes tool input as JSON in the call text, and the
+ *  tail summary may cut it off mid-string — so fall back to a forgiving regex
+ *  grab of the first matching key. Returns null when the arg isn't JSON-shaped. */
+function laneStripJsonArg(arg: string, keys: readonly string[]): string | null {
+  const text = arg.trim();
+  if (!text.startsWith("{") && !text.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      for (const key of keys) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) return value;
+        if (Array.isArray(value) && value.every((part) => typeof part === "string")) {
+          return laneCommandFromArray(value as string[]);
+        }
+      }
+    }
+  } catch {
+    // truncated/invalid JSON — fall through to the regex grab below
+  }
+  for (const key of keys) {
+    const match = text.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`, "u"));
+    if (match?.[1]) {
+      try {
+        return JSON.parse(`"${match[1]}"`) as string;
+      } catch {
+        return match[1];
+      }
+    }
+  }
+  return null;
+}
+
+/** codex apply_patch carries a patch blob; pull the first touched file path out
+ *  of its "*** Update File: <path>" header. */
+function lanePathFromPatch(arg: string): string | null {
+  const match = arg.match(/\*\*\*\s+(?:Update|Add|Delete|Move|Rename)\s+File:\s*(.+)/u);
+  if (!match) return null;
+  return match[1].trim().split(/\s*(?:->|=>)\s*/u)[0]?.trim() || null;
+}
+
+/** Resolve the raw tool arg into a clean display string for its family —
+ *  unwrapping codex JSON / patch blobs so paths and commands read cleanly. */
+function laneDecodeArg(family: LaneToolFamily, arg: string | undefined): string {
+  const raw = arg?.trim();
+  if (!raw) return "";
+  switch (family) {
+    case "bash":
+      return laneStripJsonArg(raw, ["cmd", "command", "script", "input", "code"]) ?? raw;
+    case "file":
+      if (raw.includes("*** ")) return lanePathFromPatch(raw) ?? raw;
+      return laneStripJsonArg(raw, ["file_path", "path", "filename", "file"]) ?? raw;
+    case "read":
+      return laneStripJsonArg(raw, ["file_path", "path", "filename", "file"]) ?? raw;
+    case "search":
+      return laneStripJsonArg(raw, ["pattern", "query", "glob", "regex", "q", "search"]) ?? raw;
+    case "fetch":
+      return laneStripJsonArg(raw, ["url", "href", "uri"]) ?? raw;
+    default:
+      return raw;
+  }
+}
+
+function LanePath({ path, tone }: { path: string; tone: "read" | "file" }) {
+  const { dir, base } = laneSplitPath(path);
+  return (
+    <span className="s-observe-tool-path" title={path}>
+      {dir && <span className="s-observe-tool-path-dir">{laneShortDir(dir)}</span>}
+      <span className={`s-observe-tool-path-base s-observe-tool-path-base--${tone}`}>{base}</span>
+    </span>
+  );
+}
+
+/** A cd destination: the directory name reads, the path prefix recedes. */
+function LaneBashDir({ path }: { path: string }) {
+  const slash = path.lastIndexOf("/");
+  const prefix = slash >= 0 ? path.slice(0, slash + 1) : "";
+  const leaf = slash >= 0 ? path.slice(slash + 1) : path;
+  return (
+    <span className="s-observe-bash-dir">
+      {prefix && <span className="s-observe-bash-dir-prefix">{prefix}</span>}
+      {leaf}
+    </span>
+  );
+}
+
+/**
+ * LaneBashLine — a shell command rendered as an embedded terminal line: a
+ * bordered pill with a chevron prompt, then the command in tiers (program ·
+ * args · plumbing), with a thoughtful `dir` treatment for a cd destination.
+ * A leading cd can optionally lift into a powerline segment (off by default —
+ * see lib/bash-format.ts). All parsing lives there; this stays presentational.
+ * Single line; the full command is on hover (title).
+ */
+function LaneBashLine({
+  command,
+  title,
+  outcome,
+  cwd,
+  powerline,
+}: {
+  command: string;
+  title?: string;
+  outcome?: string;
+  cwd?: string | null;
+  powerline?: PowerlineMode;
+}) {
+  const { dir, spans } = formatBashLine(command, { cwd, powerline });
+  return (
+    <span className="s-observe-bash" title={title ?? command}>
+      {dir && (
+        <span className="s-observe-bash-pl">
+          <span className="s-observe-bash-seg">{dir}</span>
+          <span className="s-observe-bash-sep" aria-hidden />
+        </span>
+      )}
+      <span className="s-observe-bash-prompt" aria-hidden>❯</span>
+      {spans.length > 0 ? (
+        <span className="s-observe-bash-cmd">
+          {spans.map((span, index) => {
+            const lead = index > 0 ? " " : "";
+            if (span.tier === "dir") {
+              return (
+                <span key={index}>
+                  {lead}
+                  <LaneBashDir path={span.text} />
+                </span>
+              );
+            }
+            return (
+              <span
+                key={index}
+                className={`s-observe-bash-${span.tier}${span.known ? " s-observe-bash-prog--known" : ""}${span.flag ? " s-observe-bash-flag" : ""}`}
+              >
+                {lead}
+                {span.text}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        !dir && <span className="s-observe-bash-arg">shell</span>
+      )}
+      {outcome && <span className="s-observe-bash-ok">{outcome}</span>}
+    </span>
+  );
+}
+
+function LaneToolContent({ family, event }: { family: LaneToolFamily; event: SessionEvent }) {
+  const decoded = laneDecodeArg(family, event.arg);
+  // Guard against showing raw JSON the decoder couldn't unwrap (e.g. codex
+  // write_stdin payloads) — fall back to the family's quiet placeholder instead.
+  const looksJson = decoded.startsWith("{") || decoded.startsWith("[");
+  const hasArg = Boolean(decoded) && !laneIsControlArg(decoded) && !looksJson;
+
+  switch (family) {
+    // bash is rendered by LaneBashLine (its own terminal block) in ToolBlock.
+    case "read":
+      return hasArg ? (
+        <LanePath path={decoded} tone="read" />
+      ) : (
+        <span className="s-observe-tool-cmd-name">read</span>
+      );
+    case "file": {
+      // codex apply_patch lands as arg:"patch" with the real path in the patch
+      // blob (event.detail); a Claude Edit lands with the path already in arg.
+      const path =
+        hasArg && decoded !== "patch" ? decoded : lanePathFromPatch(event.detail ?? "") ?? "";
+      return path ? (
+        <LanePath path={path} tone="file" />
+      ) : (
+        <span className="s-observe-tool-cmd-name">{event.tool ?? "edit"}</span>
+      );
+    }
+    case "search": {
+      if (!hasArg) return <span className="s-observe-tool-cmd-name">search</span>;
+      const count = laneSearchCount(event.result);
+      return (
+        <>
+          <span className="s-observe-tool-needle">
+            <span className="s-observe-tool-needle-q">"</span>
+            {laneToolArgSnippet(decoded, 64)}
+            <span className="s-observe-tool-needle-q">"</span>
+          </span>
+          {count != null && (
+            <span className="s-observe-tool-count">· {count} {count === 1 ? "match" : "matches"}</span>
+          )}
+        </>
+      );
+    }
+    case "fetch": {
+      if (!hasArg) return <span className="s-observe-tool-cmd-name">fetch</span>;
+      const { host, path } = laneFetchHost(decoded);
+      return (
+        <span className="s-observe-tool-url" title={decoded}>
+          <span className="s-observe-tool-host">{host}</span>
+          {path && path !== "/" && (
+            <span className="s-observe-tool-host-path">{laneToolArgSnippet(path, 40)}</span>
+          )}
+        </span>
+      );
+    }
+    case "agent":
+      return (
+        <span className="s-observe-tool-agent-name">{hasArg ? decoded : event.tool ?? "agent"}</span>
+      );
+    default:
+      return (
+        <>
+          <span className="s-observe-tool-cmd-name">{event.tool}</span>
+          {hasArg ? (
+            <>
+              {" "}
+              <span className="s-observe-tool-cmd-arg">{laneToolArgSnippet(decoded, 96)}</span>
+            </>
+          ) : null}
+        </>
+      );
+  }
+}
+
 function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const glyph = TOOL_GLYPH[observeToolGlyphKey(event.tool)] ?? "▸";
+  const family = laneToolFamily(event.tool);
+  const glyph = laneMode
+    ? LANE_FAMILY_GLYPH[family]
+    : TOOL_GLYPH[observeToolGlyphKey(event.tool)] ?? "▸";
+  // Lane bash renders as its own terminal block (chevron prompt, powerline cd
+  // segment, tiered command) — it supplies its own prompt, so skip the glyph.
+  const isLaneBash = laneMode && family === "bash";
+  const bashCommand = isLaneBash ? laneDecodeArg("bash", event.arg) : "";
+  const bashValid = Boolean(bashCommand) && !laneIsControlArg(bashCommand)
+    && !bashCommand.startsWith("{") && !bashCommand.startsWith("[");
   const command = toolArgLabel(event);
   const fullCommand = command ?? event.arg?.trim() ?? "";
   const laneCommand = laneMode ? laneToolArgSnippet(fullCommand) : fullCommand;
@@ -475,19 +817,32 @@ function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?
   );
 
   return (
-    <div className={`s-observe-tool s-observe-block${laneMode ? " s-observe-tool--lane" : ""}`}>
+    <div
+      className={`s-observe-tool s-observe-block${laneMode ? ` s-observe-tool--lane s-observe-tool--fam-${family}` : ""}`}
+    >
       <div
         className={`s-observe-tool-header${hasBody && !laneMode ? " s-observe-tool-header--has-body" : ""}`}
       >
-        <span className="s-observe-tool-glyph">{glyph}</span>
-        <span className="s-observe-tool-cmd">
-          <span className="s-observe-tool-cmd-name">{event.tool}</span>
-          {laneCommand ? (
+        {!isLaneBash && <span className="s-observe-tool-glyph">{glyph}</span>}
+        <span
+          className="s-observe-tool-cmd"
+          title={laneMode && !isLaneBash ? `${event.tool ?? ""} ${fullCommand}`.trim() || undefined : undefined}
+        >
+          {isLaneBash ? (
+            <LaneBashLine command={bashValid ? bashCommand : ""} title={bashValid ? bashCommand : undefined} />
+          ) : laneMode ? (
+            <LaneToolContent family={family} event={event} />
+          ) : (
             <>
-              {" "}
-              <span className="s-observe-tool-cmd-arg">{laneCommand}</span>
+              <span className="s-observe-tool-cmd-name">{event.tool}</span>
+              {laneCommand ? (
+                <>
+                  {" "}
+                  <span className="s-observe-tool-cmd-arg">{laneCommand}</span>
+                </>
+              ) : null}
             </>
-          ) : null}
+          )}
           {outcome === "success" && (
             <span className="s-observe-tool-outcome s-observe-tool-outcome--success">
               ok
@@ -720,9 +1075,15 @@ function StreamRow({
 
   const rowClass = [
     "s-observe-row",
+    `s-observe-row--kind-${event.kind}`,
     entering ? "s-observe-row--enter" : "",
     nudging ? "s-observe-row--nudge" : "",
   ].filter(Boolean).join(" ");
+
+  // Lane gutter label — names each row by its kind (boot · message · think · ask
+  // · note · system) or, for tool rows, the tool itself (Read · Bash · Grep …),
+  // the way the studio trace wires a right-aligned label into each event.
+  const gutterLabel = laneRowGutterLabel(event);
 
   return (
     <div
@@ -734,7 +1095,8 @@ function StreamRow({
       {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
 
       <div className="s-observe-row-time" title={rowTime.title}>
-        {rowTime.label}
+        {laneMode && <span className="s-observe-row-kindlabel">{gutterLabel}</span>}
+        <span className="s-observe-row-clock">{rowTime.label}</span>
         {repeatCount > 1 && (
           <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
             ×{repeatCount}

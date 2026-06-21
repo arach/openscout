@@ -97,7 +97,7 @@ export function OpsAgentsLeft() {
         <RailRow
           name="Agents"
           meta={`${online}`}
-          tone="ready"
+          tone="callable"
           active
           onClick={() => navigate({ view: "ops", mode: "agents" })}
         />
@@ -110,7 +110,7 @@ export function OpsAgentsLeft() {
         <RailRow
           name="Alerts"
           meta={`${errored}`}
-          tone={errored > 0 ? "working" : "neutral"}
+          tone={errored > 0 ? "in_turn" : "neutral"}
           unread={errored > 0}
           onClick={() => navigate({ view: "activity" })}
         />

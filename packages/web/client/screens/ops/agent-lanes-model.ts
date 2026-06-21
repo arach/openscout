@@ -1,7 +1,11 @@
 import type { ObserveCacheEntry } from "../../lib/observe.ts";
+// Import via the browser-safe `/client` entry — the barrel index re-exports
+// node-only history helpers (node:path) that crash the browser bundle.
+import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
 import {
   filesFromObserveEvents,
   filterObserveDataForHorizon,
+  isPlausibleFilePath,
   laneSnippetText,
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
@@ -109,6 +113,7 @@ export type LaneFacts = {
   model?: string;
   effort?: string;
   branch?: string;
+  cwd?: string;
   originator?: string;
   attribution?: TailHarness;
   turn?: { phase: "idle" | "started" | "complete"; index?: number };
@@ -309,7 +314,7 @@ function branchFromPayload(payload: Record<string, unknown> | null): string | un
   );
 }
 
-function usageFromCodexTokenEvent(event: TailEvent): ObserveUsageMeta | null {
+function usageFromCodexTokenEvent(event: TailEvent, model?: string): ObserveUsageMeta | null {
   if (event.source !== "codex") return null;
   if (rawRecordType(event) !== "event_msg" || payloadType(event) !== "token_count") {
     const summaryTotal = event.summary.match(/^tokens? · ([0-9,]+)/i)?.[1]?.replace(/,/g, "");
@@ -320,22 +325,31 @@ function usageFromCodexTokenEvent(event: TailEvent): ObserveUsageMeta | null {
   const payload = tailPayload(event);
   const info = nestedRecord(payload, "info");
   const total = nestedRecord(info, "total_token_usage");
+  const last = nestedRecord(info, "last_token_usage");
   const rateLimits = nestedRecord(payload, "rate_limits");
   if (!total && !info && !rateLimits) return null;
 
   const usage: ObserveUsageMeta = {};
   const inputTokens = numberValue(total?.input_tokens);
+  const contextInputTokens = numberValue(last?.input_tokens);
   const outputTokens = numberValue(total?.output_tokens);
   const reasoningOutputTokens = numberValue(total?.reasoning_output_tokens);
   const cacheReadInputTokens = numberValue(total?.cached_input_tokens);
   const cacheCreationInputTokens = numberValue(total?.cache_creation_input_tokens);
-  const totalTokens = numberValue(total?.total_tokens);
-  const contextWindowTokens = numberValue(info?.model_context_window);
+  const totalTokens = numberValue(total?.total_tokens)
+    ?? (
+      inputTokens !== undefined || outputTokens !== undefined
+        ? (inputTokens ?? 0) + (outputTokens ?? 0)
+        : undefined
+    );
+  const contextWindowTokens = numberValue(info?.model_context_window)
+    ?? inferModelContextWindowTokens({ model, adapterType: "codex" });
   const serviceTier = stringValue(payload?.service_tier, rateLimits?.service_tier);
   const speed = stringValue(payload?.speed, rateLimits?.speed);
   const planType = stringValue(payload?.plan_type, rateLimits?.plan_type);
 
   if (inputTokens !== undefined) usage.inputTokens = inputTokens;
+  if (contextInputTokens !== undefined) usage.contextInputTokens = contextInputTokens;
   if (outputTokens !== undefined) usage.outputTokens = outputTokens;
   if (reasoningOutputTokens !== undefined) usage.reasoningOutputTokens = reasoningOutputTokens;
   if (cacheReadInputTokens !== undefined) usage.cacheReadInputTokens = cacheReadInputTokens;
@@ -348,14 +362,72 @@ function usageFromCodexTokenEvent(event: TailEvent): ObserveUsageMeta | null {
   return Object.keys(usage).length > 0 ? usage : null;
 }
 
+function usageFromClaudeAssistantEvent(event: TailEvent): ObserveUsageMeta | null {
+  if (event.source !== "claude" || rawRecordType(event) !== "assistant") return null;
+  const raw = metadataRecord(event.raw);
+  const message = metadataRecord(raw?.message);
+  const usageRecord = metadataRecord(message?.usage);
+  if (!message || !usageRecord) return null;
+
+  const inputTokens = numberValue(usageRecord.input_tokens);
+  const outputTokens = numberValue(usageRecord.output_tokens);
+  const cacheReadInputTokens = numberValue(usageRecord.cache_read_input_tokens);
+  const cacheCreationInputTokens = numberValue(usageRecord.cache_creation_input_tokens);
+  const contextInputTokens = (inputTokens ?? 0) + (cacheReadInputTokens ?? 0) + (cacheCreationInputTokens ?? 0);
+  const contextWindowTokens = numberValue(usageRecord.context_window_tokens)
+    ?? numberValue(usageRecord.contextWindowTokens)
+    ?? numberValue(usageRecord.model_context_window)
+    ?? numberValue(message.context_window_tokens)
+    ?? numberValue(message.contextWindowTokens)
+    ?? numberValue(message.model_context_window)
+    ?? inferModelContextWindowTokens({
+      model: stringValue(message.model),
+      adapterType: "claude-code",
+    });
+  const totalTokens = (inputTokens ?? 0)
+    + (outputTokens ?? 0)
+    + (cacheReadInputTokens ?? 0)
+    + (cacheCreationInputTokens ?? 0);
+  const serverToolUse = metadataRecord(usageRecord.server_tool_use);
+
+  const usage: ObserveUsageMeta = {};
+  if (inputTokens !== undefined) usage.inputTokens = inputTokens;
+  if (contextInputTokens > 0) usage.contextInputTokens = contextInputTokens;
+  if (outputTokens !== undefined) usage.outputTokens = outputTokens;
+  if (cacheReadInputTokens !== undefined) usage.cacheReadInputTokens = cacheReadInputTokens;
+  if (cacheCreationInputTokens !== undefined) usage.cacheCreationInputTokens = cacheCreationInputTokens;
+  if (totalTokens > 0) usage.totalTokens = totalTokens;
+  if (contextWindowTokens > 0) usage.contextWindowTokens = contextWindowTokens;
+  const webSearchRequests = numberValue(serverToolUse?.web_search_requests);
+  const webFetchRequests = numberValue(serverToolUse?.web_fetch_requests);
+  if (webSearchRequests !== undefined) usage.webSearchRequests = webSearchRequests;
+  if (webFetchRequests !== undefined) usage.webFetchRequests = webFetchRequests;
+  const serviceTier = stringValue(message.service_tier, usageRecord.service_tier);
+  const speed = stringValue(message.speed, usageRecord.speed);
+  if (serviceTier) usage.serviceTier = serviceTier;
+  if (speed) usage.speed = speed;
+  return Object.keys(usage).length > 0 ? usage : null;
+}
+
 function usageFromTailEvents(events: TailEvent[]): ObserveUsageMeta | undefined {
   let latest: { ts: number; usage: ObserveUsageMeta } | null = null;
+  const turnContext = latestTurnContext(events);
+  const model = stringValue(
+    turnContext?.model,
+    nestedRecord(nestedRecord(turnContext, "collaboration_mode"), "settings")?.model,
+  );
   for (const event of events) {
-    if (event.source !== "codex") continue;
-    if (payloadType(event) !== "token_count" && !/^tokens?(?: ·|$)/i.test(event.summary.trim())) {
+    if (event.source !== "codex" && event.source !== "claude") continue;
+    if (
+      event.source === "codex"
+      && payloadType(event) !== "token_count"
+      && !/^tokens?(?: ·|$)/i.test(event.summary.trim())
+    ) {
       continue;
     }
-    const usage = usageFromCodexTokenEvent(event);
+    const usage = event.source === "codex"
+      ? usageFromCodexTokenEvent(event, model)
+      : usageFromClaudeAssistantEvent(event);
     if (!usage) continue;
     if (!latest || event.ts >= latest.ts) latest = { ts: event.ts, usage };
   }
@@ -400,6 +472,49 @@ function codexSessionMetaFromTailEvents(
   return session;
 }
 
+/**
+ * Claude Code transcript records carry session metadata inline rather than in
+ * dedicated `turn_context`/`session_meta` payloads: the git branch sits on the
+ * top-level `gitBranch` field and the model on assistant-message records at
+ * `message.model`. Pull the latest of each so Claude lanes get the same
+ * model/branch/cwd facts Codex lanes already have.
+ */
+function claudeSessionMetaFromTailEvents(
+  events: TailEvent[],
+): { model?: string; gitBranch?: string; cwd?: string } {
+  let model: { ts: number; value: string } | undefined;
+  let gitBranch: { ts: number; value: string } | undefined;
+  let cwd: { ts: number; value: string } | undefined;
+
+  for (const event of events) {
+    if (event.source !== "claude") continue;
+    const raw = metadataRecord(event.raw);
+    if (!raw) continue;
+
+    const branch = stringValue(raw.gitBranch);
+    if (branch && (!gitBranch || event.ts >= gitBranch.ts)) {
+      gitBranch = { ts: event.ts, value: branch };
+    }
+
+    const dir = stringValue(raw.cwd);
+    if (dir && (!cwd || event.ts >= cwd.ts)) {
+      cwd = { ts: event.ts, value: dir };
+    }
+
+    const message = nestedRecord(raw, "message");
+    const messageModel = stringValue(message?.model);
+    if (messageModel && (!model || event.ts >= model.ts)) {
+      model = { ts: event.ts, value: messageModel };
+    }
+  }
+
+  return {
+    model: model?.value,
+    gitBranch: gitBranch?.value,
+    cwd: cwd?.value,
+  };
+}
+
 function mergeObserveFiles(
   left: ObserveFile[] | undefined,
   right: ObserveFile[] | undefined,
@@ -407,7 +522,9 @@ function mergeObserveFiles(
   const byPath = new Map<string, ObserveFile>();
   for (const file of [...left ?? [], ...right ?? []]) {
     const path = file.path?.trim();
-    if (!path) continue;
+    // Reject mis-recorded bash tokens (e.g. `necho`, `nCHROME=`) that leak into
+    // the raw `observe.files` READ inventory; the client inferer is already clean.
+    if (!path || !isPlausibleFilePath(path)) continue;
     const existing = byPath.get(path);
     if (!existing) {
       byPath.set(path, { ...file, path });
@@ -486,9 +603,14 @@ function observeSessionFromTail(
   sessionStart: number,
 ): ObserveSessionMeta {
   const base = codexSessionMetaFromTailEvents(transcript, events);
+  const claude = claudeSessionMetaFromTailEvents(events);
   return {
     ...base,
-    cwd: base.cwd ?? transcript.cwd ?? undefined,
+    // Codex extraction wins where present; Claude lanes carry model/branch
+    // inline on the raw records, so backfill any field still empty.
+    model: base.model ?? claude.model,
+    gitBranch: base.gitBranch ?? claude.gitBranch,
+    cwd: base.cwd ?? claude.cwd ?? transcript.cwd ?? undefined,
     externalSessionId: base.externalSessionId ?? transcript.sessionId ?? undefined,
     sessionStart,
   };
@@ -839,6 +961,7 @@ export function buildLaneFacts(
       branchFromPayload(sessionMeta),
       agent.branch,
     ),
+    cwd: stringValue(session?.cwd, sessionMeta?.cwd, agent.cwd, agent.projectRoot),
     originator: stringValue(session?.originator, sessionMeta?.originator, sessionMeta?.source),
     attribution,
     turn: events.length > 0
@@ -848,7 +971,7 @@ export function buildLaneFacts(
     currentTask: currentTaskFromTailEvents(events, observe),
   };
 
-  for (const key of ["model", "effort", "branch", "originator", "attribution", "usage", "currentTask"] as const) {
+  for (const key of ["model", "effort", "branch", "cwd", "originator", "attribution", "usage", "currentTask"] as const) {
     if (facts[key] === undefined) delete facts[key];
   }
   return facts;

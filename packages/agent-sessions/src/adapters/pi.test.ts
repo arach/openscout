@@ -155,6 +155,101 @@ describe("PiAdapter event mapping", () => {
     }));
   });
 
+  test("projects xAI/Grok token usage into observe-usage metadata", () => {
+    const adapter = new PiAdapter({
+      sessionId: "pi-session-grok",
+      name: "Grok test",
+      cwd: "/Users/tester/project",
+    });
+    const tracker = new StateTracker();
+    tracker.createSession(adapter.session.id, adapter.session);
+    adapter.on("event", (event) => {
+      tracker.trackEvent(adapter.session.id, event);
+    });
+
+    const handleEvent = (adapter as unknown as { handleEvent(event: unknown): void }).handleEvent.bind(adapter);
+    handleEvent({ type: "turn_start" });
+    // Pi normalizes xAI's OpenAI-compatible usage
+    //   { prompt_tokens, completion_tokens, total_tokens,
+    //     prompt_tokens_details.cached_tokens, completion_tokens_details.reasoning_tokens }
+    // into its own Usage shape before emitting it on the assistant message.
+    handleEvent({
+      type: "turn_end",
+      message: {
+        role: "assistant",
+        provider: "xai",
+        model: "grok-4.3",
+        stopReason: "stop",
+        content: [{ type: "text", text: "Done." }],
+        usage: {
+          input: 900,
+          output: 250,
+          cacheRead: 100,
+          cacheWrite: 0,
+          totalTokens: 1250,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+      toolResults: [],
+    });
+
+    const snapshot = tracker.getSessionState(adapter.session.id);
+    expect(snapshot?.session.providerMeta?.provider).toBe("xai");
+    expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
+      inputTokens: 900,
+      outputTokens: 250,
+      cacheReadInputTokens: 100,
+      totalTokens: 1250,
+      // full prompt for the latest turn = input + cacheRead + cacheWrite
+      contextInputTokens: 1000,
+    }));
+    // cacheWrite was 0 — we never fabricate zero-valued fields.
+    expect(snapshot?.session.providerMeta?.observeUsage).not.toHaveProperty("cacheCreationInputTokens");
+  });
+
+  test("derives total usage when the model omits totalTokens", () => {
+    const adapter = new PiAdapter({
+      sessionId: "pi-session-grok-2",
+      name: "Grok test",
+      cwd: "/Users/tester/project",
+    });
+    const tracker = new StateTracker();
+    tracker.createSession(adapter.session.id, adapter.session);
+    adapter.on("event", (event) => {
+      tracker.trackEvent(adapter.session.id, event);
+    });
+
+    const handleEvent = (adapter as unknown as { handleEvent(event: unknown): void }).handleEvent.bind(adapter);
+    handleEvent({ type: "turn_start" });
+    handleEvent({
+      type: "message_end",
+      message: {
+        role: "assistant",
+        provider: "xai",
+        model: "grok-4.3",
+        content: [{ type: "text", text: "Reply." }],
+        usage: {
+          input: 400,
+          output: 80,
+          cacheRead: 0,
+          cacheWrite: 20,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      },
+    });
+    handleEvent({ type: "turn_end", toolResults: [] });
+
+    const snapshot = tracker.getSessionState(adapter.session.id);
+    expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
+      inputTokens: 400,
+      outputTokens: 80,
+      cacheCreationInputTokens: 20,
+      // 400 + 80 + 0 + 20
+      totalTokens: 500,
+      contextInputTokens: 420,
+    }));
+  });
+
   test("keeps tool-use turns observable and projects the following final turn", () => {
     const adapter = new PiAdapter({
       sessionId: "pi-session-2",

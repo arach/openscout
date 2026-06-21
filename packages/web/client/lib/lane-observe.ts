@@ -205,6 +205,99 @@ function normalizeInferredPath(raw: string): string | null {
   return trimmed;
 }
 
+/**
+ * Shell/command words that occasionally leak into `observe.files` READ inventory
+ * when a multi-line bash command is mis-recorded line-by-line. We prefer the
+ * structural rules below, but a small denylist catches bare command words
+ * (including newline-split `\n…` artifacts that surface as a leading `n`).
+ */
+const SHELL_COMMAND_WORDS = new Set([
+  "echo", "sed", "grep", "egrep", "fgrep", "rg", "awk", "cat", "head", "tail",
+  "ls", "cd", "pwd", "cp", "mv", "rm", "mkdir", "touch", "chmod", "chown",
+  "npx", "npm", "pnpm", "yarn", "bun", "node", "deno", "python", "python3",
+  "pip", "pip3", "ruby", "go", "cargo", "rustc", "swift", "make", "cmake",
+  "bash", "sh", "zsh", "fish", "curl", "wget", "git", "docker", "kubectl",
+  "for", "do", "done", "then", "fi", "else", "elif", "case", "esac", "while",
+  "until", "function", "return", "exit", "set", "export", "source", "eval",
+  "true", "false", "test", "find", "xargs", "sort", "uniq", "wc", "tee",
+  "open", "kill", "ps", "top", "env", "printf", "read", "sleep",
+]);
+
+const KNOWN_FILE_EXTENSIONS = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts",
+  "swift", "kt", "java", "go", "rs", "rb", "py", "php", "c", "h", "cc",
+  "cpp", "hpp", "m", "mm", "cs", "scala", "clj", "ex", "exs", "lua", "dart",
+  "json", "json5", "jsonc", "yaml", "yml", "toml", "xml", "ini", "cfg",
+  "conf", "env", "lock", "properties", "plist", "entitlements",
+  "md", "mdx", "markdown", "txt", "rst", "adoc", "csv", "tsv",
+  "css", "scss", "sass", "less", "html", "htm", "vue", "svelte",
+  "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+  "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "tiff", "avif",
+  "pdf", "mp4", "mov", "webm", "mp3", "wav", "woff", "woff2", "ttf", "otf",
+  "sql", "graphql", "gql", "proto", "prisma", "wasm", "map",
+  "gradle", "bazel", "bzl", "mk", "cmake", "dockerfile", "gitignore",
+  "npmrc", "nvmrc", "editorconfig", "prettierrc", "eslintrc", "babelrc",
+]);
+
+const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const FILE_EXTENSION_RE = /\.([A-Za-z0-9_+-]{1,12})$/;
+
+/**
+ * Gate touched-file inventory entries to plausible file paths. Rejects shell
+ * command tokens, env assignments, flags, JSON fragments, and newline-split
+ * artifacts that pollute the READ list; accepts anything containing a `/` or a
+ * basename ending in a recognized file extension.
+ *
+ * Conservative by design: NEVER drops a token containing a `/`.
+ */
+export function isPlausibleFilePath(path: string): boolean {
+  if (typeof path !== "string") return false;
+  const trimmed = path.trim();
+  if (!trimmed) return false;
+
+  // Newline-bearing tokens are command fragments, never a single file path.
+  if (/[\n\r]/.test(trimmed)) return false;
+
+  // Anything with a path separator is a genuine path — accept unconditionally.
+  if (trimmed.includes("/")) return true;
+
+  // From here on it's a bare basename (no `/`). Apply structural rejections.
+  if (trimmed.length < 3) return false;
+  if (trimmed.startsWith("-")) return false; // flags / option fragments
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return false; // JSON
+  if (ENV_ASSIGNMENT_RE.test(trimmed)) return false; // CHROME=, nCHROME=
+  if (/\s/.test(trimmed)) return false; // multi-word — not a basename
+
+  const lower = trimmed.toLowerCase();
+  if (SHELL_COMMAND_WORDS.has(lower)) return false;
+  // Newline-split artifact: a leading `n` glued to a command word (e.g. `necho`).
+  if (lower.startsWith("n") && SHELL_COMMAND_WORDS.has(lower.slice(1))) return false;
+
+  // A bare basename is a file only if it has a recognized extension.
+  const extMatch = trimmed.match(FILE_EXTENSION_RE);
+  if (!extMatch) return false;
+  return KNOWN_FILE_EXTENSIONS.has(extMatch[1].toLowerCase());
+}
+
+/** Filter + dedupe touched-file inventory by normalized path for display. */
+export function plausibleTouchedFiles(files: ObserveFile[]): ObserveFile[] {
+  const byPath = new Map<string, ObserveFile>();
+  for (const file of files) {
+    const path = file.path?.trim();
+    if (!path || !isPlausibleFilePath(path)) continue;
+    const existing = byPath.get(path);
+    if (!existing) {
+      byPath.set(path, { ...file, path });
+      continue;
+    }
+    existing.touches += file.touches;
+    existing.lastT = Math.max(existing.lastT, file.lastT);
+    if (existing.state === "read" && file.state !== "read") existing.state = file.state;
+    if (existing.state === "modified" && file.state === "created") existing.state = "created";
+  }
+  return [...byPath.values()];
+}
+
 function pathsFromToolArg(tool: string | undefined, arg: string | undefined): string[] {
   const paths = new Set<string>();
   const command = arg?.trim();
