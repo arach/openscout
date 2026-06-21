@@ -16,7 +16,6 @@ import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
-import { AgentLaneSummaryCard } from "./AgentLaneSummaryCard.tsx";
 import {
   AgentLaneSummaryResizeHandle,
   readStoredLaneSummaryHeight,
@@ -123,41 +122,27 @@ function AgentLaneColumn({
     </section>
   );
 
-  // Temporary A/B: the current lane column and the new studio-design card,
-  // side by side on the same page, driven by the same live lane data. The new
-  // card brings a fresh identity header + dark status box, then hosts the SAME
-  // SessionObserve trace as the current column.
+  // The agent lane: the studio-design card (identity header + resizable cockpit
+  // overlay) above the live SessionObserve trace.
   return (
-    <div className="s-agent-lane-compare">
-      <div className="s-agent-lane-compare-cell">
-        <span className="s-agent-lane-compare-tag">current</span>
-        <article className={`s-agent-lane s-agent-lane--split${liveClass}${newClass}`}>
-          <AgentLaneSummaryCard lane={lane} isLive={isLive} onOpen={() => onInspect(lane)} />
-          {renderTrace()}
-        </article>
-      </div>
-      <div className="s-agent-lane-compare-cell">
-        <span className="s-agent-lane-compare-tag s-agent-lane-compare-tag--new">new</span>
-        <article className={`s-agent-lane s-agent-lane--split${liveClass}${newClass}`}>
-          <AgentLaneCard
-            model={agentLaneToCardModel(lane, { isLive, nowMs })}
-            avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
-            collapsed={collapsed}
-            cockpitHeight={collapsed ? undefined : summaryHeight}
-            onToggleCollapsed={() => setCollapsed((value) => !value)}
-            onOpen={() => onInspect(lane)}
-          />
-          {!collapsed && (
-            <AgentLaneSummaryResizeHandle
-              onResizeStart={onSummaryResizeStart}
-              onReset={onSummaryResizeReset}
-              active={summaryResizing}
-            />
-          )}
-          {renderTrace()}
-        </article>
-      </div>
-    </div>
+    <article className={`s-agent-lane${liveClass}${newClass}`}>
+      <AgentLaneCard
+        model={agentLaneToCardModel(lane, { isLive, nowMs })}
+        avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
+        collapsed={collapsed}
+        cockpitHeight={collapsed ? undefined : summaryHeight}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
+        onOpen={() => onInspect(lane)}
+      />
+      {!collapsed && (
+        <AgentLaneSummaryResizeHandle
+          onResizeStart={onSummaryResizeStart}
+          onReset={onSummaryResizeReset}
+          active={summaryResizing}
+        />
+      )}
+      {renderTrace()}
+    </article>
   );
 }
 

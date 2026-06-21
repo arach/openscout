@@ -161,43 +161,9 @@
   padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
 }
 
-/* ── TEMPORARY: side-by-side A/B of the current lane column vs the new
-   studio-design AgentLaneCard. Each lane renders both, paired and labelled,
-   from the same live data. Remove this block (and the pairing in
-   AgentLaneColumn) once a direction is chosen. ─────────────────────────────── */
-.s-agent-lane-compare {
-  flex: none;
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-sm);
-  min-height: 0;
-}
-.s-agent-lane-compare-cell {
-  flex: none;
-  width: 512px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.s-agent-lane-compare-cell .s-agent-lane {
-  width: 100%;
-  flex: 1 1 auto;
-  min-height: 0;
-}
-.s-agent-lane-compare-tag {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  letter-spacing: var(--tracking-xs);
-  text-transform: uppercase;
-  color: var(--dim);
-}
-.s-agent-lane-compare-tag--new {
-  color: var(--green);
-}
-
-.s-agent-lane--split > .s-lane-card {
+/* The card sits flush at the top of the lane; the trace below it takes the
+   remaining height. */
+.s-agent-lane > .s-lane-card {
   flex: none;
   height: auto;
   min-height: 0;
