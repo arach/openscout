@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Route } from "../lib/types.ts";
+import type { Route } from "../../lib/types.ts";
 import "./home-hero.css";
 
 type HeartrateBucketView = { ts: number; count: number; value: number };

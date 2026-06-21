@@ -26,6 +26,18 @@ type StoredItem = {
   ct: Uint8Array;
 };
 
+/**
+ * Return a view whose backing store is a concrete `ArrayBuffer`, satisfying
+ * `BufferSource` for WebCrypto. `Uint8Array<ArrayBufferLike>` (the default in
+ * recent lib.dom typings) is not assignable to `BufferSource` because a
+ * `SharedArrayBuffer` lacks `resize`; copying into a fresh buffer narrows it.
+ */
+function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const copy = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+  copy.set(bytes);
+  return copy;
+}
+
 const ITEMS_STORE = "items";
 const KEYS_STORE = "keys";
 const MASTER_KEY_NAME = "master";
@@ -63,7 +75,7 @@ export class HudVault {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     let ct: ArrayBuffer;
     try {
-      ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, cryptoKey, value);
+      ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, cryptoKey, toBufferSource(value));
     } catch (error) {
       throw new HudVaultError("crypto_failed", "AES-GCM encrypt failed", error);
     }
@@ -75,7 +87,11 @@ export class HudVault {
     if (!stored) return null;
     const cryptoKey = await this.getOrCreateCryptoKey();
     try {
-      const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: stored.iv }, cryptoKey, stored.ct);
+      const pt = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: toBufferSource(stored.iv) },
+        cryptoKey,
+        toBufferSource(stored.ct),
+      );
       return new Uint8Array(pt);
     } catch (error) {
       throw new HudVaultError("crypto_failed", "AES-GCM decrypt failed", error);

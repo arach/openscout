@@ -88,7 +88,7 @@ function buildActionCue({
     };
   }
 
-  if (detail.activeFlights.length > 0 || detail.state === "in_turn" || state === "in_flight") {
+  if (detail.activeFlights.length > 0 || detail.state === "in_turn" || detail.state === "in_flight") {
     return {
       eyebrow: "Next move",
       title: `${ownerLabel} is working`,

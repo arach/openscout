@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { useCallback, useMemo, useState, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import {
   fileDisplayPath,
   fileKey,
@@ -106,7 +106,7 @@ export function FilesRail({
     });
   }, []);
 
-  const beginResize = useCallback((event: PointerEvent<HTMLDivElement>) => {
+  const beginResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = width;

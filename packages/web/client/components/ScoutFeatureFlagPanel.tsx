@@ -1,7 +1,7 @@
 import "./scout-feature-flag-panel.css";
 
 import { useEffect, useMemo } from "react";
-import { useOptionalFeatureFlags } from "hudsonkit/flags";
+import { normalizeOverride, useOptionalFeatureFlags, type FeatureFlagOverride } from "hudsonkit/flags";
 import { X } from "lucide-react";
 
 import { useFocusTrap } from "../lib/keyboard-nav.ts";
@@ -16,9 +16,10 @@ const BUNDLE_LABELS: Record<ScoutFlagBundle, string> = {
   "max-pro": "Max pro",
 };
 
-function localSelectValue(value: boolean | undefined): "default" | "on" | "off" {
-  if (value === true) return "on";
-  if (value === false) return "off";
+function localSelectValue(value: FeatureFlagOverride): "default" | "on" | "off" {
+  const normalized = normalizeOverride(value);
+  if (normalized === true) return "on";
+  if (normalized === false) return "off";
   return "default";
 }
 
@@ -43,7 +44,7 @@ export function ScoutFeatureFlagPanel({
   audienceOptions?: readonly string[];
 }) {
   const flags = useOptionalFeatureFlags();
-  const panelRef = useFocusTrap<HTMLDivElement>(isOpen);
+  const { ref: panelRef, onKeyDown: onPanelKeyDown } = useFocusTrap<HTMLDivElement>(isOpen);
   const devTools = isScoutDevToolsAvailable();
   const { activeBundle, applyBundle } = useScoutDevFlagControls();
   const rows = useMemo(() => flags?.all() ?? [], [flags]);
@@ -74,6 +75,7 @@ export function ScoutFeatureFlagPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="scout-flag-title"
+        onKeyDown={onPanelKeyDown}
         onClick={(event) => event.stopPropagation()}
       >
         <header className="scout-flag-head">

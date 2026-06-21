@@ -13,7 +13,9 @@ const LEGACY_RELOAD_NAVIGATION_TYPE = 1;
 
 export function isBrowserReloadNavigation(
   performanceLike: PerformanceNavigationLike | undefined =
-    typeof performance === "undefined" ? undefined : performance,
+    typeof performance === "undefined"
+      ? undefined
+      : (performance as unknown as PerformanceNavigationLike),
 ): boolean {
   const navigationEntries = performanceLike?.getEntriesByType?.("navigation") ?? [];
   const navigationEntry = navigationEntries.find((entry) => typeof entry.type === "string");

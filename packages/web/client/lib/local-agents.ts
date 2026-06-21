@@ -77,6 +77,7 @@ export function synthesizeOrganicAgents(
 
     synthetic.push({
       id: `harness:${p.source}:${p.pid}`,
+      definitionId: `harness:${p.source}`,
       name: p.source,
       handle: null,
       agentClass: "organic",
@@ -88,6 +89,9 @@ export function synthesizeOrganicAgents(
       createdAt: null,
       transport: null,
       selector: null,
+      defaultSelector: null,
+      nodeQualifier: null,
+      workspaceQualifier: null,
       wakePolicy: null,
       capabilities: [],
       project,
@@ -102,6 +106,10 @@ export function synthesizeOrganicAgents(
       ownerId: null,
       ownerName: null,
       ownerHandle: null,
+      staleLocalRegistration: false,
+      retiredFromFleet: false,
+      replacedByAgentId: null,
+      terminalSurface: null,
     });
   }
   return synthetic;

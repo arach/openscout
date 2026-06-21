@@ -1,1 +1,1 @@
-export { KnowledgeSearchInspector } from "../../screens/search/right.tsx";
+export { KnowledgeSearchInspector } from "./search/right.tsx";

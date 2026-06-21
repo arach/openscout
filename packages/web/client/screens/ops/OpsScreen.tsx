@@ -45,14 +45,7 @@ export function OpsScreen({
           <TailView
             navigate={navigate}
             initialFilter={tailQuery}
-            initialIds={route.view === "ops" ? {
-              flightId: route.flightId,
-              invocationId: route.invocationId,
-              conversationId: route.conversationId,
-              workId: route.workId,
-              sessionId: route.sessionId,
-              targetAgentId: route.targetAgentId,
-            } : undefined}
+            variant="tail"
           />
         )}
         {mode === "atop" && <AtopView />}
