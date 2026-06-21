@@ -96,7 +96,10 @@ function AgentLaneColumn({
   const hasTrace = Boolean(observe && observe.events.length > 0);
   const liveClass = isLive ? " s-agent-lane--live" : "";
   const newClass = isNew ? " s-agent-lane--new" : "";
-  const [collapsed, setCollapsed] = useState(false);
+  // Calm by default: the cockpit overlay starts collapsed (header + status
+  // stay; the resizable pane and its handle reveal on expand), rather than
+  // opening expanded.
+  const [collapsed, setCollapsed] = useState(true);
 
   // The proven lane trace (distinguished per-kind rows, enter animations,
   // auto-scroll, hidden scrollbars). Rendered fresh per call so it can sit in
