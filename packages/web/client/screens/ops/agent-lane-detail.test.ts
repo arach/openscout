@@ -53,7 +53,7 @@ function makePlanDocument(overrides: Partial<PlanDocument> = {}): PlanDocument {
     tags: ["lanes"],
     body: "ship lane sheet",
     rawText: "ship lane sheet",
-    steps: [{ id: "s1", text: "Add inspect sheet", status: "in_progress", rawMarker: ">" }],
+    steps: [{ id: "s1", order: 0, text: "Add inspect sheet", status: "in_progress", rawMarker: ">" }],
     createdAt: 1,
     updatedAt: 2,
     provenance: { root: "/Users/art/dev/openscout", rootKind: "workspace", relativePath: "docs/agent-lanes-plan.md" },
@@ -190,7 +190,7 @@ describe("relatedLaneDocs", () => {
         path: "docs/architecture.md",
         steps: [],
       }),
-      makePlanDocument({ id: "plan-a", steps: [{ id: "s1", text: "step", status: "pending", rawMarker: "-" }] }),
+      makePlanDocument({ id: "plan-a", steps: [{ id: "s1", order: 0, text: "step", status: "pending", rawMarker: "-" }] }),
     ];
 
     expect(relatedLaneDocs(documents, lane).map((doc) => doc.id)).toEqual(["doc-a"]);

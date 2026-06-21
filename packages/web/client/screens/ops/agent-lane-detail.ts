@@ -105,7 +105,7 @@ export function scorePlanForLane(document: PlanDocument, lane: AgentLane): numbe
     agent.name,
     agent.branch,
     agent.harness,
-    agent.workspace,
+    agent.workspaceQualifier,
     agent.harnessSessionId,
     session?.cwd,
     session?.gitBranch,
