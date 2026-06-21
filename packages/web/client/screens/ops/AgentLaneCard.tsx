@@ -251,6 +251,40 @@ function CockpitTokenPanel({ usage }: { usage: NonNullable<AgentLaneCardModel["t
   );
 }
 
+/** Fallback for the stats-tier expansion when an adapter reports no token usage
+ *  (e.g. Grok via xAI): surface the recently modified files — falling back to
+ *  everything touched — so the revealed space still earns its place. */
+function CockpitFilesPanel({ pops }: { pops: AgentLaneCardModel["pops"] }) {
+  const modified = pops.edits.rows.length > 0;
+  const group = modified ? pops.edits : pops.files;
+  if (group.rows.length === 0) return null;
+  const label = modified ? "Files modified" : "Files touched";
+  return (
+    <div className="s-lane-card-cockpit-files" aria-label={label}>
+      <div className="s-lane-card-cockpit-tokens-head">
+        <span className="s-lane-card-cockpit-tokens-label">{label}</span>
+        <span className="s-lane-card-cockpit-tokens-hint">{group.rows.length + group.more}</span>
+      </div>
+      <div className="s-lane-card-cockpit-files-list">
+        {group.rows.map((row, i) => (
+          <span
+            className="s-lane-card-cockpit-file"
+            // index-keyed: static snapshot, paths can repeat across tool calls
+            key={`${i}:${row.full || row.text}`}
+            title={row.full ?? row.text}
+          >
+            <span className={`s-lane-card-pop-mark s-lane-card-pop-mark--${row.tone}`}>{row.mark}</span>
+            <span className="s-lane-card-cockpit-file-text">{row.text}</span>
+          </span>
+        ))}
+        {group.more > 0 && (
+          <span className="s-lane-card-cockpit-file s-lane-card-cockpit-file--more">+{group.more} more</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AgentLaneCardCockpit({
   model,
   cockpitHeight = null,
@@ -345,7 +379,12 @@ function AgentLaneCardCockpit({
         </div>
       </div>
 
-      {showTokenPanel && model.tokenUsage && <CockpitTokenPanel usage={model.tokenUsage} />}
+      {showTokenPanel &&
+        (model.tokenUsage ? (
+          <CockpitTokenPanel usage={model.tokenUsage} />
+        ) : (
+          <CockpitFilesPanel pops={model.pops} />
+        ))}
     </>
   );
 }

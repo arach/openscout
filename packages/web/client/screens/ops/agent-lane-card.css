@@ -669,6 +669,42 @@
   color: var(--dim);
 }
 
+/* Stats-tier fallback when there's no token usage (e.g. Grok): the recently
+   modified files, in the same slot and visual weight as the token dials. */
+.s-lane-card-cockpit-files {
+  flex: none;
+  margin: -4px 16px 10px;
+}
+.s-lane-card-cockpit-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  border-radius: 7px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+.s-lane-card-cockpit-file {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding: 5px var(--space-md);
+  min-width: 0;
+  background: color-mix(in srgb, #000 30%, var(--bg));
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+.s-lane-card-cockpit-file-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.s-lane-card-cockpit-file--more {
+  color: var(--dim);
+}
+
 /* an instrument: a value + a quiet label */
 .s-lane-card-instr {
   position: relative;
