@@ -9,14 +9,12 @@ import SwiftUI
 /// The spine is `repo → worktree`; agents and sessions are *attributes* on a
 /// worktree, never the organizing axis. Ordering is attention-first everywhere
 /// (`ScoutRepoStore.projects` is already sorted worst-first; worktrees re-sort
-/// the same way inside the tree), and clean-&-idle worktrees fold away behind
-/// the header's "quiet" toggle so unfinished work floats to the top.
+/// the same way inside the tree). All worktrees stay visible — the header is
+/// just the section title above the sortable column row.
 ///
 /// Interaction mirrors `ScoutAgentsTree` exactly — j/k step, h/l fold-or-parent
 /// / expand-or-descend, g/⇧G to the edges, and the inspector follows the
-/// cursor — so the two trees read as one system. Two lenses (Table, Drift) read
-/// the *same* model: Table leads with churn/files/agents, Drift swaps the
-/// trailing cluster for ahead/behind/upstream.
+/// cursor — so the two trees read as one system.
 
 // MARK: - Metrics
 
@@ -468,32 +466,19 @@ struct ScoutReposContent: View {
         ScoutColumnHeader(horizontalPadding: ScoutReposMetrics.pageGutter) {
             titleCluster
         } secondary: {
-            lensStrip
+            EmptyView()
         } trailing: {
-            commandStrip
+            refreshButton
         }
     }
 
     private var titleCluster: some View {
-        let totals = repos.totals
-        return HStack(spacing: HudSpacing.sm) {
+        HStack(spacing: HudSpacing.sm) {
             Text("Repos")
                 .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
 
-            statusPill
-            refreshReceiptPill
-
-            countCluster(totals.projects, "repos")
-            countCluster(totals.worktrees, "trees")
-            if totals.dirtyWorktrees > 0 {
-                countCluster(totals.dirtyWorktrees, "dirty", tint: ScoutPalette.statusWarn)
-            }
-            if totals.attentionWorktrees > 0 {
-                countCluster(totals.attentionWorktrees, "attn", tint: ScoutPalette.statusError)
-            }
-
-            if repos.isLoading {
+            if repos.isLoading || repos.isRefreshing {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.86)
@@ -502,98 +487,13 @@ struct ScoutReposContent: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    @ViewBuilder private var statusPill: some View {
-        if repos.lastError != nil {
-            HudBadge("Error", tint: ScoutPalette.statusError, dot: true)
-        } else if !repos.hasLoaded {
-            HudBadge("Scanning", tint: ScoutPalette.statusWarn, dot: true)
-        } else if repos.isRefreshing {
-            HudBadge("Refreshing", tint: ScoutPalette.statusWarn, dot: true)
-        } else {
-            HudBadge("Live", tint: ScoutPalette.statusOk, dot: true)
-        }
-    }
-
-    @ViewBuilder private var refreshReceiptPill: some View {
-        if repos.lastRefreshWasForced, let fetchedAt = repos.lastFetchedAt {
-            HudBadge("Fresh \(Self.refreshClock.string(from: fetchedAt))", tint: ScoutPalette.statusOk)
-        }
-    }
-
-    private static let refreshClock: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter
-    }()
-
-    private func countCluster(_ value: Int, _ label: String, tint: Color? = nil) -> some View {
-        HStack(spacing: HudSpacing.xxs) {
-            Text("\(value)")
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
-                .foregroundStyle(tint ?? ScoutPalette.ink)
-                .monospacedDigit()
-            Text(label)
-                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(ScoutPalette.dim)
-        }
-    }
-
-    private var lensStrip: some View {
-        HStack(spacing: HudSpacing.xs) {
-            ForEach(ReposLens.allCases, id: \.self) { lens in
-                Button {
-                    repos.lens = lens
-                } label: {
-                    Text(lens.label.uppercased())
-                        .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                        .tracking(0.6)
-                        .foregroundStyle(repos.lens == lens ? ScoutPalette.ink : ScoutPalette.dim)
-                        .padding(.horizontal, HudSpacing.sm)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: HudRadius.tight)
-                                .fill(repos.lens == lens ? ScoutPalette.accentSoft : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .scoutPointerCursor()
-            }
-        }
-    }
-
-    private var commandStrip: some View {
-        HStack(spacing: HudSpacing.md) {
-            if repos.quietWorktreeCount > 0 || repos.showCleanIdle {
-                Button {
-                    withAnimation(.easeOut(duration: 0.16)) { repos.showCleanIdle.toggle() }
-                } label: {
-                    HStack(spacing: HudSpacing.xxs) {
-                        Image(systemName: repos.showCleanIdle ? "eye.fill" : "eye.slash")
-                            .font(.system(size: 9, weight: .semibold))
-                        Text(repos.showCleanIdle ? "Quiet shown" : "Quiet \(repos.quietWorktreeCount)")
-                    }
-                    .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
-                    .foregroundStyle(repos.showCleanIdle ? ScoutPalette.ink : ScoutPalette.dim)
-                }
-                .buttonStyle(.plain)
-                .scoutPointerCursor()
-            }
-
-            Button {
-                repos.refresh(force: true)
-            } label: {
-                HStack(spacing: HudSpacing.xxs) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                    Text(repos.isRefreshing ? "Refreshing" : "Refresh")
-                        .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
-                }
-                .foregroundStyle(repos.isRefreshing ? ScoutPalette.statusWarn : ScoutPalette.dim)
-            }
-            .buttonStyle(.plain)
-            .disabled(repos.isRefreshing)
-            .scoutPointerCursor()
-            .help("Force a fresh repository scan")
+    private var refreshButton: some View {
+        ScoutReposHeaderIconButton(
+            title: repos.isRefreshing ? "Refreshing" : "Refresh",
+            icon: "arrow.clockwise",
+            isEnabled: !repos.isRefreshing
+        ) {
+            repos.refresh(force: true)
         }
     }
 
@@ -1267,6 +1167,33 @@ private struct ScoutRepoAskError: LocalizedError {
     let message: String
 
     var errorDescription: String? { message }
+}
+
+private struct ScoutReposHeaderIconButton: View {
+    let title: String
+    let icon: String
+    let isEnabled: Bool
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(isHovering && isEnabled ? ScoutPalette.ink : ScoutPalette.dim)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                        .fill(isHovering && isEnabled ? ScoutSurface.hover : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+        .help(title)
+        .disabled(!isEnabled)
+        .onHover { isHovering = $0 }
+    }
 }
 
 // MARK: - Inspector (Context pane — follows the cursor)

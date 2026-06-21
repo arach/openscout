@@ -1160,9 +1160,9 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
-    : voiceProbeState === "probing" ? "Checking Vox"
-    : voiceProbeState === "launching" ? "Opening Vox"
-    : voiceAvailable === false ? "Launch Vox" : "Start Talking";
+    : voiceProbeState === "probing" ? "Checking Voice"
+    : voiceProbeState === "launching" ? "Opening Voice"
+    : voiceAvailable === false ? "Open Voice" : "Start Talking";
   if (collapsed) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">

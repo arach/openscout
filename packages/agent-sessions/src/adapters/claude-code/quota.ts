@@ -1,3 +1,5 @@
+import { epochMs } from "../../protocol/time.js";
+
 export type ClaudeCodeQuotaWindowObservation = {
   label: string;
   windowKind?: string;
@@ -66,9 +68,9 @@ function readString(source: Record<string, unknown> | undefined, keys: string[])
 }
 
 function timestampValue(value: unknown): number | undefined {
-  const numeric = numberValue(value);
-  if (numeric !== undefined) {
-    return numeric > 1_000_000_000_000 ? numeric : numeric * 1000;
+  const parsedEpoch = epochMs(value);
+  if (parsedEpoch !== undefined) {
+    return parsedEpoch;
   }
 
   const text = stringValue(value);

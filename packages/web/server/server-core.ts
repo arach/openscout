@@ -229,9 +229,13 @@ export async function registerScoutWebAssets(
   }
 
   app.use("/*", serveStatic({ root: options.staticRoot }));
+  app.get("/assets/*", (c) => c.notFound());
   app.get("/*", serveStatic({
     root: options.staticRoot,
     path: "index.html",
+    onFound: (_path, c) => {
+      c.header("cache-control", "no-store");
+    },
   }));
 }
 

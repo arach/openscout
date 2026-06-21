@@ -17,7 +17,7 @@ import type {
   ScoutPermissionProfile,
   ScoutReplyContext,
 } from "@openscout/protocol";
-import { BUILT_IN_AGENT_DEFINITION_IDS, normalizeAgentSelectorSegment } from "@openscout/protocol";
+import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import { DispatchStalledError } from "./dispatch-stalled.js";
 
@@ -310,10 +310,7 @@ function resolveLocalAgentContextPolicy(): LocalAgentContextPolicy {
 }
 
 function normalizeContextTimestamp(value: number | undefined): number | null {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return null;
-  }
-  return value < 1_000_000_000_000 ? value * 1000 : value;
+  return epochMs(value);
 }
 
 function metadataRecord(value: unknown): Record<string, unknown> | null {
@@ -401,7 +398,8 @@ export function classifyLocalAgentContextState(input: {
 }
 
 function normalizeBrokerTimestamp(value: number): number {
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? 0 : Math.floor(ms / 1000);
 }
 
 function scoutCliPath(): string {
@@ -537,7 +535,7 @@ function buildLocalAgentTmuxProtocolPrompt(context: LocalAgentSystemPromptTempla
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
     "  - Keep one-to-one handoffs in a DM: do not pin a channel when the request is for exactly one agent",
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
-    "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
+    "  - Do not use the shared channel for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
     "  - Capability requests should start with project path + harness/capability; let Scout route or create the worker instead of guessing generic names like claude.main",
     "  - Continue using returned refs/ids/session handles; name or pin a long-lived sibling only after the broker has routed a known-good worker",
@@ -565,7 +563,7 @@ function buildLocalAgentDirectProtocolPrompt(context: LocalAgentSystemPromptTemp
     "  - Default Scout loop: resolve identity, resolve one target, choose DM vs explicit channel, keep follow-up in that same venue",
     "  - Keep one-to-one handoffs in a DM: do not pin a channel when the request is for exactly one agent",
     "  - If you need multiple agents, use separate DMs or an explicit channel; do not guess a venue from multiple mentions",
-    "  - Do not use channel.shared for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
+    "  - Do not use the shared channel for ordinary delegation or follow-up; reserve it for explicit group updates or broadcasts",
     "  - If a short @handle may be ambiguous, resolve the exact target before sending; do not guess and do not fall back to shared",
     "  - Capability requests should start with project path + harness/capability; let Scout route or create the worker instead of guessing generic names like claude.main",
     "  - Continue using returned refs/ids/session handles; name or pin a long-lived sibling only after the broker has routed a known-good worker",
@@ -4589,6 +4587,8 @@ export async function invokeLocalAgentEndpoint(
   const replyContext = buildScoutReplyContext(agentRuntimeId, invocation);
   const registry = await readLocalAgentRegistry();
   const existing = registry[agentRuntimeId];
+  // invocation.timeoutMs is a caller wait budget. Local harness execution keeps
+  // tracking until the agent produces a terminal result or broker-visible reply.
 
   if (!existing && endpoint.transport === "codex_app_server") {
     await ensureLocalSessionEndpointOnline(endpoint);
@@ -4598,7 +4598,6 @@ export async function invokeLocalAgentEndpoint(
     const result = await invoke({
       ...buildCodexEndpointSessionOptions(endpoint),
       prompt,
-      timeoutMs: invocation.timeoutMs,
       replyContext,
     });
 
@@ -4613,7 +4612,6 @@ export async function invokeLocalAgentEndpoint(
     const result = await invokeClaudeStreamJsonAgent({
       ...buildClaudeEndpointSessionOptions(endpoint),
       prompt,
-      timeoutMs: invocation.timeoutMs,
     });
 
     return {
@@ -4627,7 +4625,6 @@ export async function invokeLocalAgentEndpoint(
     const result = await invokePiRpcAgent({
       ...buildPiEndpointSessionOptions(endpoint),
       prompt,
-      timeoutMs: invocation.timeoutMs,
     });
 
     return {
@@ -4695,7 +4692,6 @@ export async function invokeLocalAgentEndpoint(
         ),
       ),
       prompt,
-      timeoutMs: invocation.timeoutMs,
       replyContext,
     });
 
@@ -4717,7 +4713,6 @@ export async function invokeLocalAgentEndpoint(
         ),
       ),
       prompt,
-      timeoutMs: invocation.timeoutMs,
     });
 
     return {
@@ -4738,7 +4733,6 @@ export async function invokeLocalAgentEndpoint(
         ),
       ),
       prompt,
-      timeoutMs: invocation.timeoutMs,
     });
 
     return {

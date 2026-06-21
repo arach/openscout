@@ -377,7 +377,12 @@ function rowForAgent(
     const lastAt = session.lastMessageAt ?? 0;
     return lastAt > 0 && now - lastAt <= DAY_MS;
   });
-  const agentActivity = activity.filter((item) => item.actorName === agent.name || item.conversationId === agent.conversationId);
+  const agentConversationId = agent.conversationId;
+  const agentActivity = activity.filter(
+    (item) =>
+      item.actorName === agent.name
+      || Boolean(agentConversationId && item.conversationId === agentConversationId),
+  );
   const payload = observe.get(agent.id);
   const model = payload?.data.metadata?.session?.model ?? null;
   const provider = payload?.data.metadata?.session?.modelProvider ?? null;

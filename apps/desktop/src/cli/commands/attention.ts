@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 
+import { epochMs } from "@openscout/protocol";
+
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 import {
@@ -242,9 +244,9 @@ function parseAttentionSince(value: string, now = Date.now()): number {
     return now - amount * unitMs;
   }
 
-  const numeric = Number.parseInt(trimmed, 10);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric > 1_000_000_000_000 ? numeric : numeric * 1_000;
+  const parsedEpoch = epochMs(trimmed);
+  if (parsedEpoch !== null) {
+    return parsedEpoch;
   }
 
   const parsedDate = Date.parse(trimmed);

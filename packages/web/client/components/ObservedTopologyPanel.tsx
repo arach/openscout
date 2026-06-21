@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../lib/api.ts";
+import { timeAgoWithSuffix } from "../lib/time.ts";
 import type {
   HarnessTopologyObservation,
   HarnessTopologySnapshot,
@@ -56,15 +57,6 @@ function shortId(value: string | undefined): string | null {
   if (!value) return null;
   if (value.length <= 12) return value;
   return value.slice(0, 12);
-}
-
-function timeAgo(ts: number | null): string | null {
-  if (!ts) return null;
-  const diff = Math.max(0, Date.now() - ts);
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
 function sourceLabel(source: string): string {
@@ -403,7 +395,7 @@ function TopologySource({
       {!isRail && (
         <div className="s-observed-topology-source-head">
           <span>{sourceLabel(source.source)}</span>
-          <span>{timeAgo(source.observedAt) ?? "observed"}</span>
+          <span>{timeAgoWithSuffix(source.observedAt) || "observed"}</span>
         </div>
       )}
 
@@ -431,7 +423,7 @@ function TopologySource({
                     {workflow.label}
                   </span>
                   <span className="s-observed-topology-workflow-age">
-                    {timeAgo(workflow.latestAt) ?? "observed"}
+                    {timeAgoWithSuffix(workflow.latestAt) || "observed"}
                   </span>
                 </div>
                 <div className="s-observed-topology-workflow-meta">

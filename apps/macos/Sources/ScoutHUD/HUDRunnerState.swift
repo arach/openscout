@@ -121,6 +121,8 @@ final class HUDRunnerState: ObservableObject {
         let filtered = all.filter { model in
             model.harnesses.isEmpty
                 || model.harnesses.contains(selectedHarness)
+        }.filter { model in
+            !isRetiredModel(model.id, harness: selectedHarness)
         }
         return filtered.isEmpty ? [HudRunnerModelOption(id: "", label: fallbackModelLabel(for: selectedHarness), harnesses: [], source: "fallback")] : filtered
     }
@@ -384,13 +386,15 @@ final class HUDRunnerState: ObservableObject {
     private func preferredModel(for harness: String) -> String {
         let candidates = (options?.models ?? []).filter { model in
             !model.id.isEmpty && (model.harnesses.isEmpty || model.harnesses.contains(harness))
+        }.filter { model in
+            !isRetiredModel(model.id, harness: harness)
         }
         let preference: [String]
         switch harness {
         case "claude":
             preference = ["claude-opus-4-8", "opus", "claude-sonnet-4-6", "sonnet", "claude-haiku-4-5", "haiku"]
         case "codex":
-            preference = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+            preference = ["gpt-5.5", "gpt-5.5-mini"]
         default:
             preference = []
         }
@@ -408,6 +412,12 @@ final class HUDRunnerState: ObservableObject {
         case "codex": return "GPT-5.5"
         default: return "model"
         }
+    }
+
+    private func isRetiredModel(_ model: String, harness: String) -> Bool {
+        guard harness.lowercased() == "codex" else { return false }
+        let lower = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4")
     }
 
     private func normalizedSearch(_ value: String) -> String {

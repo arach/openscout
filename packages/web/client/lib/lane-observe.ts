@@ -1,4 +1,4 @@
-import { fullTimestamp, timeAgo } from "./time.ts";
+import { fullTimestamp, normalizeTimestampMs, timeAgo } from "./time.ts";
 import { observeToolIsEdit, observeToolIsRead } from "./tail-display.ts";
 import type { ObserveEvent, ObserveFile, ObserveData } from "./types.ts";
 
@@ -45,11 +45,11 @@ export function fmtLaneWallGapLabel(gapMs: number): string | null {
   if (!Number.isFinite(gapMs) || gapMs < LANE_WALL_GAP_MIN_MS) return null;
   const totalSeconds = Math.floor(gapMs / 1000);
   if (totalSeconds < 3_600) {
-    return `+${Math.floor(totalSeconds / 60)}m gap`;
+    return `${Math.floor(totalSeconds / 60)}m gap`;
   }
   const hours = Math.floor(totalSeconds / 3_600);
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  return minutes > 0 ? `+${hours}h ${minutes}m gap` : `+${hours}h gap`;
+  return minutes > 0 ? `${hours}h ${minutes}m gap` : `${hours}h gap`;
 }
 
 export function laneTraceWindowStats(
@@ -92,12 +92,12 @@ export function observeEventWallMs(
   event: ObserveEvent,
   sessionStartMs: number | undefined,
 ): number | null {
-  if (typeof event.at === "number" && Number.isFinite(event.at)) {
-    return event.at;
-  }
+  const eventAt = normalizeTimestampMs(event.at);
+  if (eventAt !== null) return eventAt;
   if (!Number.isFinite(event.t) || event.t < 0) return null;
-  if (typeof sessionStartMs !== "number" || !Number.isFinite(sessionStartMs)) return null;
-  return sessionStartMs + event.t * 1000;
+  const sessionStart = normalizeTimestampMs(sessionStartMs);
+  if (sessionStart === null) return null;
+  return sessionStart + event.t * 1000;
 }
 
 export function filterObserveEventsForHorizon(

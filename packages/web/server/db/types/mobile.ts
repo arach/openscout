@@ -18,12 +18,8 @@ export type MobileAgentSummary = {
   state: AgentSummaryState;
   statusLabel: string;
   sessionId: string | null;
-  /// The broker conversation the phone should open for this agent — its operator
-  /// DM if one exists, else the most-recent thread it actually posted in (an
-  /// ask/`c.…` conversation), else the canonical `dm.operator.<id>` it'll be
-  /// created under on first send. Routing taps by this (not `sessionId`, which is
-  /// only ever the operator-DM id and misses ask threads) is what makes the
-  /// transcript load. snapshot/live-events/send all key off this id.
+  /// The broker chat the phone should open for this agent. This is an existing
+  /// opaque chat id, or null when no chat has been created yet.
   conversationId: string | null;
   lastActiveAt: number | null;
 };

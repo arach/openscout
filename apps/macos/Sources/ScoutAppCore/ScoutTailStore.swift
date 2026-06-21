@@ -12,13 +12,23 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
     @Published public private(set) var lastReceivedAt: Date?
     @Published public var query = ""
     @Published public var selectedSource: String?
+    @Published public var selectedOrigin: String?
+    @Published public var selectedProject: String?
     @Published public var selectedKind: ScoutTailEventKind?
     @Published public var isFollowing = true
-    @Published public var showMetadata = false
+    @Published public var showMetadata = false {
+        didSet {
+            guard oldValue != showMetadata else { return }
+            publishDisplayEvents()
+        }
+    }
 
     private let client: ScoutTailClient
     private let pollInterval: TimeInterval = 1.4
-    private let maxEvents = 700
+    private let maxRawEvents = 700
+    private let maxWorkEvents = 700
+    private var rawEvents: [ScoutTailEvent] = []
+    private var workEvents: [ScoutTailEvent] = []
     private var pollTask: Task<Void, Never>?
     private var fetchTask: Task<Void, Never>?
     private var lastMergeAt: Date?
@@ -28,13 +38,27 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
         self.client = client
     }
 
+    public var hasBufferedEvents: Bool {
+        !rawEvents.isEmpty
+    }
+
+    public var bufferedEventCount: Int {
+        rawEvents.count
+    }
+
     public var filteredEvents: [ScoutTailEvent] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return events.filter { event in
             if !showMetadata, event.isLowSignalMetadata {
                 return false
             }
-            if let selectedSource, event.source != selectedSource {
+            if let selectedSource, event.sourceLabel != selectedSource {
+                return false
+            }
+            if let selectedOrigin, event.originLabel != selectedOrigin {
+                return false
+            }
+            if let selectedProject, event.projectLabel != selectedProject {
                 return false
             }
             if let selectedKind, event.kind != selectedKind {
@@ -82,6 +106,44 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
 
     public var liveRateLabel: String {
         String(format: "%.1f lines/s", linesPerSecond)
+    }
+
+    public var hasActiveFilters: Bool {
+        selectedSource != nil
+            || selectedOrigin != nil
+            || selectedProject != nil
+            || selectedKind != nil
+            || !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public func clearFilters() {
+        query = ""
+        selectedSource = nil
+        selectedOrigin = nil
+        selectedProject = nil
+        selectedKind = nil
+    }
+
+    public var activeFilterSummary: String? {
+        var parts: [String] = []
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedQuery.isEmpty {
+            parts.append("query: \(trimmedQuery)")
+        }
+        if let selectedSource {
+            parts.append("source: \(selectedSource)")
+        }
+        if let selectedOrigin {
+            parts.append("origin: \(selectedOrigin)")
+        }
+        if let selectedProject {
+            parts.append("project: \(selectedProject)")
+        }
+        if let selectedKind {
+            parts.append("kind: \(selectedKind.title)")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
     }
 
     public func start() {
@@ -142,8 +204,12 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
             scoutSetIfChanged(0, to: \.linesPerSecond)
             return
         }
-        let previousIds = Set(events.map(\.id))
-        let newCount = next.filter { !previousIds.contains($0.id) }.count
+        let previousIds = Set(rawEvents.map(\.id))
+        let newEvents = next.filter { !previousIds.contains($0.id) }
+        let visibleNewEvents = showMetadata
+            ? newEvents
+            : newEvents.filter { !$0.isLowSignalMetadata }
+        let newCount = visibleNewEvents.count
         let now = Date()
         let elapsed = max(0.1, now.timeIntervalSince(lastMergeAt ?? now.addingTimeInterval(-pollInterval)))
         scoutSetIfChanged(newCount, to: \.lastBatchCount)
@@ -152,19 +218,44 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
         if newCount > 0 {
             scoutSetIfChanged(now, to: \.lastReceivedAt)
         }
+        guard !newEvents.isEmpty else { return }
 
-        var byId = Dictionary(uniqueKeysWithValues: events.map { ($0.id, $0) })
-        for event in next {
+        rawEvents = mergedEvents(rawEvents, with: newEvents, limit: maxRawEvents)
+
+        let newWorkEvents = newEvents.filter { !$0.isLowSignalMetadata }
+        if !newWorkEvents.isEmpty {
+            workEvents = mergedEvents(workEvents, with: newWorkEvents, limit: maxWorkEvents)
+        }
+
+        if showMetadata || !newWorkEvents.isEmpty {
+            publishDisplayEvents()
+        }
+    }
+
+    private func publishDisplayEvents() {
+        scoutSetIfChanged(showMetadata ? rawEvents : workEvents, to: \.events)
+    }
+
+    private func mergedEvents(
+        _ existing: [ScoutTailEvent],
+        with incoming: [ScoutTailEvent],
+        limit: Int
+    ) -> [ScoutTailEvent] {
+        var byId: [String: ScoutTailEvent] = [:]
+        byId.reserveCapacity(existing.count + incoming.count)
+        for event in existing {
             byId[event.id] = event
         }
-        let merged = byId.values
+        for event in incoming {
+            byId[event.id] = event
+        }
+        return byId.values
             .sorted { lhs, rhs in
                 if lhs.ts == rhs.ts { return lhs.id < rhs.id }
                 return lhs.ts < rhs.ts
             }
-            .suffix(maxEvents)
+            .suffix(limit)
             .map { $0 }
-        scoutSetIfChanged(merged, to: \.events)
     }
 
     private func refreshDiscoveryIfNeeded() async throws {

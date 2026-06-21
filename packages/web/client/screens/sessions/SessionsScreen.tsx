@@ -10,6 +10,11 @@ import {
 
 import { DataTable, type DataTableColumn } from "../../components/DataTable/DataTable.tsx";
 import { api } from "../../lib/api.ts";
+import {
+  formatAbsoluteTimestamp,
+  normalizeTimestampMs,
+  timeAgo,
+} from "../../lib/time.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -100,8 +105,11 @@ const COLUMNS: DataTableColumn<RawSessionRow, SessionColumnKey>[] = [
     defaultWidth: 86,
     minWidth: 64,
     render: (row) => (
-      <span title={formatAbsolute(row.mtimeMs)}>
-        {formatRelative(Math.max(row.mtimeMs, row.lastEvent?.ts ?? 0), Date.now())}
+      <span title={formatAbsoluteTimestamp(row.mtimeMs)}>
+        {timeAgo(Math.max(
+          normalizeTimestampMs(row.mtimeMs) ?? 0,
+          normalizeTimestampMs(row.lastEvent?.ts) ?? 0,
+        )) || "-"}
       </span>
     ),
   },
@@ -158,23 +166,6 @@ function formatBytes(bytes: number): string {
   if (kib < 1024) return `${kib.toFixed(kib >= 10 ? 0 : 1)} KiB`;
   const mib = kib / 1024;
   return `${mib.toFixed(mib >= 10 ? 0 : 1)} MiB`;
-}
-
-function formatRelative(ms: number | null, now: number): string {
-  if (!ms) return "-";
-  const delta = Math.max(0, Math.round((now - ms) / 1000));
-  if (delta < 2) return "now";
-  if (delta < 60) return `${delta}s`;
-  if (delta < 3600) return `${Math.floor(delta / 60)}m`;
-  if (delta < 86400) return `${Math.floor(delta / 3600)}h`;
-  return `${Math.floor(delta / 86400)}d`;
-}
-
-function formatAbsolute(ms: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(ms));
 }
 
 function matchesQuery(row: RawSessionRow, query: string): boolean {

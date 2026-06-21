@@ -305,6 +305,7 @@ struct HUDRunnerOverlay: View {
             let models = rankedModels(
                 allModels.filter { model in
                     !model.id.isEmpty && (model.harnesses.isEmpty || model.harnesses.contains(harness.id))
+                        && !isRetiredModel(model.id, harness: harness.id)
                 },
                 harnessId: harness.id
             )
@@ -363,7 +364,7 @@ struct HUDRunnerOverlay: View {
         case "claude":
             preference = ["claude-opus-4-8", "opus", "claude-sonnet-4-6", "sonnet", "claude-haiku-4-5", "haiku"]
         case "codex":
-            preference = ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"]
+            preference = ["gpt-5.5", "gpt-5.5-mini"]
         default:
             preference = []
         }
@@ -376,6 +377,12 @@ struct HUDRunnerOverlay: View {
             if lhsRank != rhsRank { return lhsRank < rhsRank }
             return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
         }
+    }
+
+    private func isRetiredModel(_ model: String, harness: String) -> Bool {
+        guard harness.lowercased() == "codex" else { return false }
+        let lower = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4")
     }
 
     private func runnerLabel(_ value: String) -> some View {

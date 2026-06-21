@@ -88,9 +88,9 @@ export function VoxSetupPanel({
       <div className="flex items-start gap-2">
         <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
         <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Vox</div>
+          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Voice</div>
           <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Start Vox, then retry once the menu bar icon is visible.
+            Enable local voice, then retry once the menu bar icon is visible.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -103,24 +103,24 @@ export function VoxSetupPanel({
       <div className="mt-3 grid grid-cols-3 gap-2">
         <VoxSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Launch Vox"}
+          label={probeState === "launching" ? "Opening" : "Open Voice"}
           onClick={onLaunch}
           disabled={probeState === "probing"}
-          title="Launch Vox"
+          title="Open voice controls"
         />
         <VoxSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           label="Retry"
           onClick={onRetry}
           disabled={isBusy}
-          title="Check Vox again"
+          title="Check voice again"
         />
         <VoxSetupButton
           icon={<Settings size={12} />}
           label="Settings"
           onClick={onSettings}
           disabled={probeState === "probing"}
-          title="Open Vox settings"
+          title="Open voice settings"
         />
       </div>
     </div>

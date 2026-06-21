@@ -1,4 +1,5 @@
 import Foundation
+import ScoutCapabilities
 
 enum BrokerControlAction: String {
     case install
@@ -359,8 +360,7 @@ struct BrokerRestartTelemetry: Decodable, Sendable, Equatable {
     }
 
     private static func dateFromEpoch(_ value: Double) -> Date {
-        let seconds = value > 10_000_000_000 ? value / 1000 : value
-        return Date(timeIntervalSince1970: seconds)
+        ScoutTimestamp.date(fromEpoch: value) ?? Date(timeIntervalSince1970: 0)
     }
 
     private static func formatDuration(milliseconds: Int) -> String {

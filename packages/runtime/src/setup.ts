@@ -12,6 +12,7 @@ import {
   parseAgentSelector,
   normalizeAgentSelectorSegment,
   normalizeScoutPermissionProfile,
+  isOpaqueChannelId,
   resolveAgentSelector,
   type AgentSelector,
   type AgentSelectorCandidate,
@@ -39,7 +40,6 @@ import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./us
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
-export const SCOUT_PRIMARY_CONVERSATION_ID = "dm.scout.primary";
 export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "pi"] as const;
 export type ManagedAgentHarness = typeof MANAGED_AGENT_HARNESSES[number];
 
@@ -419,8 +419,7 @@ export const DEFAULT_OPERATOR_NAME = guessedOperatorName();
 const DEFAULT_CAPABILITIES: AgentCapability[] = ["chat", "invoke", "deliver"];
 const DEFAULT_TRANSPORT: RelayRuntimeTransport = "tmux";
 const DEFAULT_TELEGRAM_MODE: TelegramBridgeMode = "polling";
-const LEGACY_DEFAULT_TELEGRAM_CONVERSATION_ID = "channel.shared";
-const DEFAULT_TELEGRAM_CONVERSATION_ID = SCOUT_PRIMARY_CONVERSATION_ID;
+const DEFAULT_TELEGRAM_CONVERSATION_ID = "";
 const SETTINGS_VERSION = 1;
 const PROJECT_CONFIG_VERSION = 1;
 const PROJECT_SCAN_SKIP_DIRECTORIES = new Set([
@@ -715,20 +714,7 @@ function normalizeTelegramBridgeMode(value: unknown): TelegramBridgeMode {
 
 function normalizeTelegramConversationId(value: unknown): string {
   const normalized = normalizeOptionalString(value);
-  if (!normalized || normalized === LEGACY_DEFAULT_TELEGRAM_CONVERSATION_ID) {
-    return DEFAULT_TELEGRAM_CONVERSATION_ID;
-  }
-
-  return normalized;
-}
-
-export function primaryDirectConversationIdForAgent(agentId: string): string {
-  const normalizedAgentId = normalizeAgentId(agentId);
-  if (normalizedAgentId === SCOUT_AGENT_ID) {
-    return SCOUT_PRIMARY_CONVERSATION_ID;
-  }
-
-  return `dm.operator.${normalizedAgentId}`;
+  return isOpaqueChannelId(normalized) ? normalized : DEFAULT_TELEGRAM_CONVERSATION_ID;
 }
 
 function resolveNodeQualifier(): string {

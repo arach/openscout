@@ -7,6 +7,7 @@ import type {
   FlightRecord,
   MessageRecord,
 } from "@openscout/protocol";
+import { epochMs } from "@openscout/protocol";
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   type ProjectInventoryEntry,
@@ -172,13 +173,12 @@ export type SendScoutMobileMessageInput = {
 };
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
-  if (!value) return null;
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 function normalizeTimestampMs(value: number | null | undefined): number | null {
-  if (!value) return null;
-  return value > 10_000_000_000 ? Math.floor(value) : Math.floor(value * 1000);
+  return epochMs(value);
 }
 
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {

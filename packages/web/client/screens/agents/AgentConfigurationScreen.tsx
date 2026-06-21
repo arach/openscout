@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Cpu, KeyRound, RefreshCw, Server, Settings, Wrench } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Bot, Cpu, KeyRound, RefreshCw, Save, Server, Settings, Wrench } from "lucide-react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { api } from "../../lib/api.ts";
+import { ensureAgentChat } from "../../lib/agent-chat.ts";
+import { formatClockTimestamp } from "../../lib/time.ts";
 import type {
   AgentConfigurationAgent,
   AgentConfigurationProvider,
   AgentConfigurationRuntime,
   AgentConfigurationState,
+  LocalAgentConfigState,
   Route,
 } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -131,14 +134,115 @@ function AgentRow({
   );
 }
 
+type LocalAgentConfigUpdateResponse = {
+  config: LocalAgentConfigState;
+  restarted: boolean;
+};
+
+function applyConfigDrafts(
+  config: LocalAgentConfigState,
+  setConfig: (value: LocalAgentConfigState) => void,
+  setModelDraft: (value: string) => void,
+  setCwdDraft: (value: string) => void,
+  setHarnessDraft: (value: string) => void,
+) {
+  setConfig(config);
+  setModelDraft(config.model ?? "");
+  setCwdDraft(config.runtime.cwd);
+  setHarnessDraft(config.runtime.harness);
+}
+
 function SelectedAgentPanel({
   agent,
   navigate,
+  onConfigSaved,
 }: {
   agent: AgentConfigurationAgent | null;
   navigate: (r: Route) => void;
+  onConfigSaved?: () => void;
 }) {
   const { route } = useScout();
+  const agentId = agent?.id ?? null;
+  const [config, setConfig] = useState<LocalAgentConfigState | null>(null);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [modelDraft, setModelDraft] = useState("");
+  const [cwdDraft, setCwdDraft] = useState("");
+  const [harnessDraft, setHarnessDraft] = useState("");
+  const [restartOnSave, setRestartOnSave] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving">("idle");
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const configRequestIdRef = useRef(0);
+
+  const loadConfig = useCallback(async () => {
+    const requestId = ++configRequestIdRef.current;
+    setSaveMessage(null);
+    setRestartOnSave(false);
+    if (!agentId) {
+      setConfig(null);
+      setConfigError(null);
+      setConfigLoading(false);
+      return;
+    }
+    setConfigLoading(true);
+    setConfigError(null);
+    try {
+      const next = await api<LocalAgentConfigState>(`/api/agents/${encodeURIComponent(agentId)}/config`);
+      if (requestId !== configRequestIdRef.current) return;
+      applyConfigDrafts(next, setConfig, setModelDraft, setCwdDraft, setHarnessDraft);
+    } catch (loadError) {
+      if (requestId !== configRequestIdRef.current) return;
+      setConfig(null);
+      setModelDraft("");
+      setCwdDraft("");
+      setHarnessDraft(agent?.harness ?? "");
+      setConfigError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      if (requestId === configRequestIdRef.current) {
+        setConfigLoading(false);
+      }
+    }
+  }, [agent?.harness, agentId]);
+
+  useEffect(() => {
+    void loadConfig();
+  }, [loadConfig]);
+
+  const harnessOptions = useMemo(() => {
+    const values = ["claude", "codex", "pi", config?.runtime.harness, agent?.harness, harnessDraft]
+      .filter((value): value is string => Boolean(value?.trim()));
+    return Array.from(new Set(values));
+  }, [agent?.harness, config?.runtime.harness, harnessDraft]);
+
+  const saveConfig = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!agentId || !config || saveState === "saving") return;
+    setSaveState("saving");
+    setSaveMessage(null);
+    setConfigError(null);
+    try {
+      const next = await api<LocalAgentConfigUpdateResponse>(`/api/agents/${encodeURIComponent(agentId)}/config`, {
+        method: "POST",
+        body: JSON.stringify({
+          model: modelDraft.trim() || null,
+          runtime: {
+            cwd: cwdDraft.trim() || config.runtime.cwd,
+            harness: harnessDraft.trim() || config.runtime.harness,
+          },
+          restart: restartOnSave,
+        }),
+      });
+      applyConfigDrafts(next.config, setConfig, setModelDraft, setCwdDraft, setHarnessDraft);
+      setRestartOnSave(false);
+      setSaveMessage(next.restarted ? "Saved and restarted" : "Saved");
+      onConfigSaved?.();
+    } catch (saveError) {
+      setConfigError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaveState("idle");
+    }
+  };
+
   if (!agent) {
     return (
       <div className="sys-panel agent-config-detail-panel">
@@ -174,9 +278,17 @@ function SelectedAgentPanel({
           <button
             type="button"
             className="s-btn"
-            onClick={() => openContent(navigate, { view: "conversation", conversationId: agent.conversationId }, { returnTo: route })}
+            onClick={() => {
+              void ensureAgentChat(agent).then((conversationId) => {
+                openContent(
+                  navigate,
+                  { view: "conversation", conversationId },
+                  { returnTo: route },
+                );
+              });
+            }}
           >
-            Open DM
+            Open Chat
           </button>
         </div>
       </div>
@@ -188,25 +300,113 @@ function SelectedAgentPanel({
         </div>
         <div>
           <span className="agent-config-label">Harness</span>
-          <strong>{agent.harness ?? "Not reported"}</strong>
+          <strong className="agent-config-selectable">{agent.harness ?? "Not reported"}</strong>
         </div>
         <div>
           <span className="agent-config-label">Transport</span>
-          <strong>{agent.transport ?? "Not reported"}</strong>
+          <strong className="agent-config-selectable">{agent.transport ?? "Not reported"}</strong>
         </div>
         <div>
-          <span className="agent-config-label">Model</span>
-          <strong>{agent.model ?? "Not reported"}</strong>
+          <span className="agent-config-label">Reported model</span>
+          <strong className="agent-config-selectable">{agent.model ?? "Not reported"}</strong>
+        </div>
+        <div>
+          <span className="agent-config-label">Configured model</span>
+          <strong className="agent-config-selectable">
+            {configLoading ? "Loading..." : config ? (config.model ?? "Harness default") : "Not editable"}
+          </strong>
         </div>
         <div className="agent-config-detail-wide">
           <span className="agent-config-label">Project</span>
-          <code>{shortPath(agent.projectRoot)}</code>
+          <code className="agent-config-inline-code" title={agent.projectRoot ?? undefined}>
+            {shortPath(agent.projectRoot)}
+          </code>
+        </div>
+        <div className="agent-config-detail-wide">
+          <span className="agent-config-label">Working dir</span>
+          <code className="agent-config-inline-code" title={agent.cwd ?? config?.runtime.cwd ?? undefined}>
+            {shortPath(agent.cwd ?? config?.runtime.cwd ?? null)}
+          </code>
         </div>
         <div className="agent-config-detail-wide">
           <span className="agent-config-label">Capabilities</span>
-          <span>{displayCapabilities(agent.capabilities)}</span>
+          <span className="agent-config-selectable">{displayCapabilities(agent.capabilities)}</span>
         </div>
       </div>
+
+      {configLoading && (
+        <div className="agent-config-edit agent-config-edit-empty">
+          <span className="agent-config-save-note">Loading editable launch config...</span>
+        </div>
+      )}
+
+      {!configLoading && config && (
+        <form className="agent-config-edit" onSubmit={saveConfig}>
+          <div className="agent-config-edit-grid">
+            <label className="agent-config-field">
+              <span>Model</span>
+              <input
+                name="model"
+                value={modelDraft}
+                placeholder="Harness default"
+                disabled={!config.editable || saveState === "saving"}
+                onChange={(event) => setModelDraft(event.currentTarget.value)}
+              />
+            </label>
+            <label className="agent-config-field">
+              <span>Harness</span>
+              <select
+                name="harness"
+                value={harnessDraft}
+                disabled={!config.editable || saveState === "saving"}
+                onChange={(event) => setHarnessDraft(event.currentTarget.value)}
+              >
+                {harnessOptions.map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="agent-config-field agent-config-field-wide">
+              <span>Working dir</span>
+              <input
+                name="cwd"
+                value={cwdDraft}
+                disabled={!config.editable || saveState === "saving"}
+                onChange={(event) => setCwdDraft(event.currentTarget.value)}
+              />
+            </label>
+          </div>
+          <div className="agent-config-save-row">
+            <label className="agent-config-check">
+              <input
+                type="checkbox"
+                checked={restartOnSave}
+                disabled={!config.editable || saveState === "saving"}
+                onChange={(event) => setRestartOnSave(event.currentTarget.checked)}
+              />
+              <span>Restart after saving</span>
+            </label>
+            <button
+              type="submit"
+              className="s-btn"
+              disabled={!config.editable || saveState === "saving"}
+            >
+              <Save size={13} />
+              {saveState === "saving" ? "Saving..." : "Save config"}
+            </button>
+            {saveMessage && <span className="agent-config-save-note">{saveMessage}</span>}
+            {configError && <span className="agent-config-save-error">{configError}</span>}
+          </div>
+        </form>
+      )}
+
+      {!configLoading && !config && (
+        <div className="agent-config-edit agent-config-edit-empty">
+          <span className="agent-config-save-error">
+            {configError ?? "No editable local config found"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -285,7 +485,7 @@ export function AgentConfigurationScreen({
         <div className="sys-page-actions">
           {snapshot && (
             <div className="sys-sync-note">
-              Updated {new Date(snapshot.generatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+              Updated {formatClockTimestamp(snapshot.generatedAt) || "unknown"}
             </div>
           )}
           <button
@@ -384,7 +584,11 @@ export function AgentConfigurationScreen({
               </div>
             </div>
 
-            <SelectedAgentPanel agent={selectedAgent} navigate={navigate} />
+            <SelectedAgentPanel
+              agent={selectedAgent}
+              navigate={navigate}
+              onConfigSaved={() => void load("manual")}
+            />
           </div>
 
           <div className="agent-config-layout">

@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { ScoutbotThreadMapStore } from "./thread-map.ts";
 
 describe("ScoutbotThreadMapStore", () => {
-  test("auto-creates default thread and grandfathers legacy conversation", async () => {
+  test("auto-creates default thread from an existing opaque scoutbot conversation", async () => {
     const dir = await mkdtemp(join(tmpdir(), "scoutbot-thread-map-"));
     try {
       const store = new ScoutbotThreadMapStore(join(dir, "threads.json"));
@@ -18,15 +18,17 @@ describe("ScoutbotThreadMapStore", () => {
           nodes: {},
           messages: {},
           conversations: {
-            "dm.operator.scoutbot": {
-              id: "dm.operator.scoutbot",
+            "c.scoutbot-default": {
+              id: "c.scoutbot-default",
               kind: "direct",
               title: "Scout",
               visibility: "private",
               shareMode: "local",
               authorityNodeId: "node-1",
               participantIds: ["operator", "scoutbot"],
-              metadata: {},
+              metadata: {
+                scoutbotThreadId: "thr-default",
+              },
             },
           },
         },
@@ -35,7 +37,7 @@ describe("ScoutbotThreadMapStore", () => {
       expect(thread).toMatchObject({
         threadId: "thr-default",
         name: "default",
-        conversationId: "dm.operator.scoutbot",
+        conversationId: "c.scoutbot-default",
         transportSessionId: "codex-thread-1",
         transport: "codex_app_server",
         lastActiveAt: 99,

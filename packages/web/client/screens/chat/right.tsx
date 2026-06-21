@@ -26,7 +26,6 @@ import {
   formatAbsoluteTimestamp,
   timeAgo,
 } from "../../lib/time.ts";
-import { agentIdFromConversation } from "../../lib/router.ts";
 import { isActiveConversationFlight } from "../../lib/conversations.ts";
 import {
   buildTailRouteQuery,
@@ -165,7 +164,7 @@ export function ConversationInspector() {
     void load();
   }, [load]);
 
-  const agentId = meta?.agentId ?? agentIdFromConversation(conversationId ?? "");
+  const agentId = meta?.agentId ?? null;
   const agent = useMemo(
     () => (agentId ? agents.find((a) => a.id === agentId) ?? null : null),
     [agents, agentId],

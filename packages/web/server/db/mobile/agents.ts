@@ -6,8 +6,9 @@
  * web-shaped equivalents live in `../agents.ts`.
  */
 
+import { directChannelNaturalKey } from "@openscout/protocol";
+
 import { db } from "../internal/db.ts";
-import { conversationIdForAgent } from "../internal/conversation-ids.ts";
 import { compact } from "../internal/paths.ts";
 import {
   LATEST_AGENT_ENDPOINT_JOIN,
@@ -24,26 +25,25 @@ import type {
 } from "../types/mobile.ts";
 
 /**
- * The conversation the phone should open for an agent. Mirrors the broker
- * snapshot resolver (`resolveMobileConversation` in core/mobile/service): the
- * operator DM if it exists, else the most-recent conversation the agent has
- * posted in (its ask/`c.…` thread), else the canonical operator-DM id the broker
- * will create on first send. The phone routes taps by this — NOT `sessionId`,
- * which is only ever the operator-DM id and so misses ask threads (the bug where
- * multi-agent-project transcripts came up blank). Single-agent version for the
- * detail query; the list query (`queryMobileAgents`) resolves the same thing in
- * batch.
+ * The conversation the phone should open for an agent. It is an existing broker
+ * chat id: the operator DM if it exists, else the most recent conversation the
+ * agent posted in. We do not synthesize structural chat ids.
  */
-function resolveAgentConversationId(agentId: string): string {
-  const dm = conversationIdForAgent(agentId);
-  if (db().prepare(`SELECT 1 FROM conversations WHERE id = ? LIMIT 1`).get(dm)) {
-    return dm;
-  }
+function resolveAgentConversationId(agentId: string): string | null {
+  const naturalKey = directChannelNaturalKey(["operator", agentId]);
+  const direct = db().prepare(
+    `SELECT id FROM conversations
+     WHERE json_extract(metadata_json, '$.naturalKey') = ?
+     ORDER BY created_at ASC
+     LIMIT 1`,
+  ).get(naturalKey) as { id: string } | undefined;
+  if (direct?.id) return direct.id;
+
   const recent = db().prepare(
     `SELECT conversation_id FROM messages WHERE actor_id = ?
        GROUP BY conversation_id ORDER BY MAX(created_at) DESC LIMIT 1`,
   ).get(agentId) as { conversation_id: string } | undefined;
-  return recent?.conversation_id ?? dm;
+  return recent?.conversation_id ?? null;
 }
 
 export function queryMobileAgents(
@@ -77,13 +77,16 @@ export function queryMobileAgents(
   );
 
   // Conversation each agent should open (see `resolveAgentConversationId`).
-  // Resolved in batch — the operator DMs that exist + the most-recent
+  // Resolved in batch — existing direct chats by natural key + the most-recent
   // conversation each actor has posted in — so the per-agent lookup below is a
   // map hit instead of two queries per row.
-  const operatorDmIds = new Set(
+  const directByNaturalKey = new Map(
     (db().prepare(
-      `SELECT id FROM conversations WHERE id LIKE 'dm.operator.%'`,
-    ).all() as Array<{ id: string }>).map((r) => r.id),
+      `SELECT id, json_extract(metadata_json, '$.naturalKey') AS natural_key
+       FROM conversations
+       WHERE json_extract(metadata_json, '$.naturalKey') LIKE 'direct:%'`,
+    ).all() as Array<{ id: string; natural_key: string | null }>)
+      .flatMap((row) => row.natural_key ? [[row.natural_key, row.id] as const] : []),
   );
   const recentConvByActor = new Map<string, string>();
   for (const r of db().prepare(
@@ -94,10 +97,9 @@ export function queryMobileAgents(
   ).all() as Array<{ actor_id: string; conversation_id: string }>) {
     if (!recentConvByActor.has(r.actor_id)) recentConvByActor.set(r.actor_id, r.conversation_id);
   }
-  const resolveConversationId = (agentId: string): string => {
-    const dm = conversationIdForAgent(agentId);
-    if (operatorDmIds.has(dm)) return dm;
-    return recentConvByActor.get(agentId) ?? dm;
+  const resolveConversationId = (agentId: string): string | null => {
+    const naturalKey = directChannelNaturalKey(["operator", agentId]);
+    return directByNaturalKey.get(naturalKey) ?? recentConvByActor.get(agentId) ?? null;
   };
 
   const rows = db().prepare(
@@ -151,7 +153,7 @@ export function queryMobileAgents(
       transport: r.transport,
       state,
       statusLabel,
-      sessionId: conversationIdForAgent(r.id),
+      sessionId: null,
       conversationId: resolveConversationId(r.id),
       lastActiveAt: lastMessageAt.get(r.id) ?? null,
     };
@@ -247,9 +249,12 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     summary: a.summary,
   }));
 
-  const msgRow = db().prepare(
-    `SELECT COUNT(*) AS cnt FROM messages WHERE conversation_id = ?`,
-  ).get(conversationIdForAgent(agentId)) as { cnt: number } | null;
+  const conversationId = resolveAgentConversationId(agentId);
+  const msgRow = conversationId
+    ? db().prepare(
+      `SELECT COUNT(*) AS cnt FROM messages WHERE conversation_id = ?`,
+    ).get(conversationId) as { cnt: number } | null
+    : null;
   const messageCount = msgRow?.cnt ?? 0;
 
   const lastMessageAt = (db().prepare(
@@ -270,8 +275,8 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
     transport: row.transport,
     state,
     statusLabel,
-    sessionId: conversationIdForAgent(row.id),
-    conversationId: resolveAgentConversationId(row.id),
+    sessionId: null,
+    conversationId,
     lastActiveAt: lastMessageAt,
     cwd: compact(row.cwd),
     wakePolicy: row.wake_policy,

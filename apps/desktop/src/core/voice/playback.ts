@@ -1,4 +1,4 @@
-import type { ConversationDefinition, MessageRecord } from "@openscout/protocol";
+import { epochMs, type ConversationDefinition, type MessageRecord } from "@openscout/protocol";
 
 type ScoutVoicePlaybackSnapshot = {
   messages: Record<string, MessageRecord>;
@@ -20,8 +20,8 @@ export type ScoutVoicePlaybackInput = {
 };
 
 function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) return 0;
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? 0 : Math.floor(ms / 1000);
 }
 
 function sanitizeScoutVoiceBody(body: string): string {

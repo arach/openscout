@@ -422,6 +422,10 @@ export function resolveManagedSessionAttachTarget(
       throw new Error(`alias ${selector} is ambiguous across ${resolution.candidates.length} agents`);
     case "unparseable":
       throw new Error(`could not parse alias ${selector}`);
+    case "resolved_session":
+      // SCO-070: a selector that resolves to a cardless session has no agent
+      // card to attach a managed session to — treat like "no card matched".
+      return target;
     case "unknown":
       return target;
   }

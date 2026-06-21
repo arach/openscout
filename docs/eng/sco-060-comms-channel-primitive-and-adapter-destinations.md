@@ -31,7 +31,7 @@ The model direction is also simple: a DM is a channel with a small member set an
 | --- | --- |
 | **Comms** | The native communication surface. |
 | **Channel** | Durable top-level communication unit. DMs, group DMs, named shared lanes, and system lanes all fit here. |
-| **cId** | Stable channel id. Prefer opaque `c.<uuid>` ids for new rows. |
+| **cId** | Stable channel id. Prefer opaque `chat_<random>` ids for new rows. Older `c.<uuid>` rows remain readable for compatibility. |
 | **Alias** | Optional display handle such as `#talkie-next`. |
 | **Member** | Actor allowed to participate or receive events under policy. |
 | **Thread** | Nested discussion rooted at a message inside a channel. |
@@ -43,7 +43,7 @@ The model direction is also simple: a DM is a channel with a small member set an
 
 ```ts
 type Channel = {
-  cId: `c.${string}`;
+  cId: `chat_${string}` | `c.${string}`;
   kind: "direct" | "group" | "shared" | "system";
   alias?: string;
   title: string;

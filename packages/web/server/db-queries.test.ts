@@ -91,7 +91,7 @@ function createSeededStore(): SQLiteControlPlaneStore {
     advertiseScope: "local",
   });
   store.upsertConversation({
-    id: "conv-1",
+    id: "c.conv-1",
     kind: "direct",
     title: "Direct",
     visibility: "private",
@@ -106,7 +106,7 @@ function createSeededStore(): SQLiteControlPlaneStore {
     createdById: "operator",
     ownerId: "agent-1",
     nextMoveOwnerId: "agent-1",
-    conversationId: "conv-1",
+    conversationId: "c.conv-1",
     state: "working",
     acceptanceState: "none",
     requestedById: "operator",
@@ -121,7 +121,7 @@ function createSeededStore(): SQLiteControlPlaneStore {
     ownerId: "agent-1",
     nextMoveOwnerId: "agent-1",
     parentId: "work-1",
-    conversationId: "conv-1",
+    conversationId: "c.conv-1",
     state: "open",
     acceptanceState: "none",
     requestedById: "agent-1",
@@ -145,7 +145,7 @@ function createSeededStore(): SQLiteControlPlaneStore {
     action: "consult",
     task: "Do the work",
     collaborationRecordId: "work-1",
-    conversationId: "conv-1",
+    conversationId: "c.conv-1",
     ensureAwake: true,
     stream: false,
     createdAt: 100,
@@ -189,7 +189,7 @@ describe("web db query flights", () => {
     const store = createSeededStore();
 
     try {
-      const flights = queryFlights({ conversationId: "conv-1", collaborationRecordId: "work-1" });
+      const flights = queryFlights({ conversationId: "c.conv-1", collaborationRecordId: "work-1" });
 
       expect(flights).toEqual([
         {
@@ -197,7 +197,7 @@ describe("web db query flights", () => {
           invocationId: "inv-1",
           agentId: "agent-1",
           agentName: "Agent One",
-          conversationId: "conv-1",
+          conversationId: "c.conv-1",
           collaborationRecordId: "work-1",
           state: "running",
           summary: "In progress",
@@ -223,7 +223,7 @@ describe("web db query flights", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Recent millisecond running work",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: recentMs,
@@ -244,7 +244,7 @@ describe("web db query flights", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Recent legacy-second running work",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: recentSeconds,
@@ -259,8 +259,8 @@ describe("web db query flights", () => {
         startedAt: recentSeconds,
       });
 
-      const flights = queryFlights({ conversationId: "conv-1", activeOnly: true });
-      const runs = queryRuns({ conversationId: "conv-1" });
+      const flights = queryFlights({ conversationId: "c.conv-1", activeOnly: true });
+      const runs = queryRuns({ conversationId: "c.conv-1" });
 
       expect(flights).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: "flight-recent-active-ms", startedAt: recentMs }),
@@ -287,7 +287,7 @@ describe("web db query flights", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Queue until online",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: now - 1_000,
@@ -309,7 +309,7 @@ describe("web db query flights", () => {
         },
       });
 
-      expect(queryFlights({ conversationId: "conv-1", activeOnly: true }))
+      expect(queryFlights({ conversationId: "c.conv-1", activeOnly: true }))
         .toEqual(expect.arrayContaining([
           expect.objectContaining({
             id: "flight-dispatch-outcome",
@@ -345,7 +345,7 @@ describe("web db query flights", () => {
       expect(queryFollowTarget({ flightId: "flight-1" })).toEqual({
         flightId: "flight-1",
         invocationId: "inv-1",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         workId: "work-1",
         sessionId: "codex-thread-1",
         targetAgentId: "agent-1",
@@ -367,7 +367,7 @@ describe("web db query flights", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Old queued work",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: old,
@@ -395,7 +395,7 @@ describe("web db query runs", () => {
     const store = createSeededStore();
 
     try {
-      const runs = queryRuns({ conversationId: "conv-1", collaborationRecordId: "work-1", active: false });
+      const runs = queryRuns({ conversationId: "c.conv-1", collaborationRecordId: "work-1", active: false });
 
       expect(runs).toEqual([
         {
@@ -406,7 +406,7 @@ describe("web db query runs", () => {
           agentName: "Agent One",
           workId: "work-1",
           collaborationRecordId: "work-1",
-          conversationId: "conv-1",
+          conversationId: "c.conv-1",
           invocationId: "inv-1",
           flightIds: ["flight-1"],
           state: "running",
@@ -442,7 +442,7 @@ describe("web db query runs", () => {
         createdById: "agent-1",
         ownerId: "agent-1",
         nextMoveOwnerId: "operator",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         state: "open",
         acceptanceState: "none",
         askedById: "agent-1",
@@ -458,7 +458,7 @@ describe("web db query runs", () => {
         action: "consult",
         task: "Answer the pending question",
         collaborationRecordId: "question-1",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: 121,
@@ -580,7 +580,7 @@ describe("web db query runs", () => {
         action: "consult",
         task: "This has not produced a flight yet",
         collaborationRecordId: "work-1",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: 300,
@@ -600,7 +600,7 @@ describe("web db query runs", () => {
         agentName: "Agent One",
         workId: "work-1",
         collaborationRecordId: "work-1",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         invocationId: "inv-without-flight",
         state: "unknown",
         reviewState: "needed",
@@ -624,7 +624,7 @@ describe("web db query broker diagnostics", () => {
     try {
       store.recordMessage({
         id: "msg-routed-old",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -660,7 +660,7 @@ describe("web db query broker diagnostics", () => {
     try {
       store.recordMessage({
         id: "msg-routed-newer",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -686,7 +686,7 @@ describe("web db query broker diagnostics", () => {
       });
       store.recordMessage({
         id: "msg-routed-older",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -733,7 +733,7 @@ describe("web db query heartrate", () => {
     try {
       store.recordMessage({
         id: "msg-heartrate-1",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -744,7 +744,7 @@ describe("web db query heartrate", () => {
       });
       store.recordMessage({
         id: "msg-heartrate-2",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "operator",
@@ -793,7 +793,7 @@ describe("web db timestamp normalization", () => {
     try {
       store.recordMessage({
         id: "msg-normalized-ms",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "operator",
@@ -804,7 +804,7 @@ describe("web db timestamp normalization", () => {
       });
       store.recordMessage({
         id: "msg-normalized-seconds",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -815,7 +815,7 @@ describe("web db timestamp normalization", () => {
       });
       store.recordMessage({
         id: "msg-normalized-old-ms",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "operator",
@@ -825,8 +825,8 @@ describe("web db timestamp normalization", () => {
         createdAt: recentMs - 24 * 60 * 60_000,
       });
 
-      const messages = queryRecentMessages(10, { conversationId: "conv-1" });
-      const session = querySessionById("conv-1");
+      const messages = queryRecentMessages(10, { conversationId: "c.conv-1" });
+      const session = querySessionById("c.conv-1");
       const activity = queryActivity(20);
       const fleet = queryFleet({ limit: 10, activityLimit: 1 });
       const mobileDetail = queryMobileAgentDetail("agent-1");
@@ -839,7 +839,7 @@ describe("web db timestamp normalization", () => {
       expect(messages.find((message) => message.id === "msg-normalized-ms")?.createdAt)
         .toBe(recentMs);
       expect(session?.lastMessageAt).toBe(recentSeconds * 1000);
-      expect(mobileSessions.find((item) => item.id === "conv-1")?.lastMessageAt)
+      expect(mobileSessions.find((item) => item.id === "c.conv-1")?.lastMessageAt)
         .toBe(recentSeconds * 1000);
       expect(activity.find((item) => item.id === "activity:message:msg-normalized-seconds")?.ts)
         .toBe(recentSeconds * 1000);
@@ -865,7 +865,7 @@ describe("web db message filtering", () => {
     try {
       store.recordMessage({
         id: "msg-visible",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "operator",
@@ -876,7 +876,7 @@ describe("web db message filtering", () => {
       });
       store.recordMessage({
         id: "msg-timeout-status",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "status",
@@ -891,7 +891,7 @@ describe("web db message filtering", () => {
         },
       });
 
-      const messages = queryRecentMessages(10, { conversationId: "conv-1" });
+      const messages = queryRecentMessages(10, { conversationId: "c.conv-1" });
 
       expect(messages.map((message) => message.id)).toEqual(["msg-visible"]);
     } finally {
@@ -981,7 +981,7 @@ describe("web db query agents", () => {
       expect(agents.map((agent) => agent.state)).toEqual(["available", "working"]);
       expect(agents.map((agent) => agent.projectRoot)).toEqual(["/tmp/agent-2-new", "/tmp/agent-1-new"]);
       expect(agents.map((agent) => agent.updatedAt)).toEqual([30_000, 20_000]);
-      expect(agents.map((agent) => agent.conversationId)).toEqual(["dm.operator.agent-2", "dm.operator.agent-1"]);
+      expect(agents.map((agent) => agent.conversationId)).toEqual([null, null]);
       expect(exactAgent?.id).toBe("agent-1");
       expect(exactAgent?.transport).toBe("codex_app_server");
       expect(exactAgent?.updatedAt).toBe(20_000);
@@ -990,28 +990,13 @@ describe("web db query agents", () => {
     }
   });
 
-  test("synthesizes a direct session for an agent even before the first message", () => {
+  test("does not synthesize a direct session for an agent before a chat exists", () => {
     const store = createSeededStore();
 
     try {
       const session = querySessionById("dm.operator.agent-1");
 
-      expect(session).toEqual({
-        id: "dm.operator.agent-1",
-        kind: "direct",
-        title: "Agent One",
-        participantIds: ["operator", "agent-1"],
-        agentId: "agent-1",
-        agentName: "Agent One",
-        harness: null,
-        harnessSessionId: null,
-        harnessLogPath: null,
-        currentBranch: null,
-        preview: null,
-        messageCount: 0,
-        lastMessageAt: null,
-        workspaceRoot: null,
-      });
+      expect(session).toBeNull();
     } finally {
       store.close();
     }
@@ -1065,7 +1050,7 @@ describe("web db query agents", () => {
         projectRoot: "/tmp/openscout",
       });
       store.upsertConversation({
-        id: "dm.local-session-agent-test.scout.main.mini",
+        id: "c.local-session-agent-test-scout-main",
         kind: "direct",
         title: "Scout <> Codex 023e",
         visibility: "private",
@@ -1074,7 +1059,7 @@ describe("web db query agents", () => {
         participantIds: ["local-session-agent-test", "scout.main.mini"],
       });
 
-      const session = querySessionById("dm.local-session-agent-test.scout.main.mini");
+      const session = querySessionById("c.local-session-agent-test-scout-main");
 
       expect(session?.agentId).toBe("local-session-agent-test");
       expect(session?.agentName).toBe("Codex 023e");
@@ -1084,7 +1069,7 @@ describe("web db query agents", () => {
     }
   });
 
-  test("collapses local-session DM forks to a single canonical thread id", () => {
+  test("does not rewrite local-session direct chat ids through aliases", () => {
     const store = createSeededStore();
 
     try {
@@ -1123,7 +1108,7 @@ describe("web db query agents", () => {
         advertiseScope: "local",
       });
       store.upsertConversation({
-        id: "dm.operator.local-session-agent-test",
+        id: "c.operator-local-session-agent-test",
         kind: "direct",
         title: "Codex 023e",
         visibility: "private",
@@ -1132,7 +1117,7 @@ describe("web db query agents", () => {
         participantIds: ["operator", "local-session-agent-test"],
       });
       store.upsertConversation({
-        id: "dm.local-session-agent-test.scout.main.mini",
+        id: "c.local-session-agent-test-scout-main",
         kind: "direct",
         title: "Scout <> Codex 023e",
         visibility: "private",
@@ -1142,7 +1127,7 @@ describe("web db query agents", () => {
       });
       store.recordMessage({
         id: "legacy-msg",
-        conversationId: "dm.local-session-agent-test.scout.main.mini",
+        conversationId: "c.local-session-agent-test-scout-main",
         actorId: "scout.main.mini",
         originNodeId: "node-1",
         class: "agent",
@@ -1153,7 +1138,7 @@ describe("web db query agents", () => {
       });
       store.recordMessage({
         id: "canonical-msg",
-        conversationId: "dm.operator.local-session-agent-test",
+        conversationId: "c.operator-local-session-agent-test",
         actorId: "local-session-agent-test",
         originNodeId: "node-1",
         class: "agent",
@@ -1166,7 +1151,7 @@ describe("web db query agents", () => {
       const sessions = querySessions(80).filter((entry) => entry.agentId === "local-session-agent-test");
 
       expect(sessions).toHaveLength(1);
-      expect(sessions[0]?.id).toBe("dm.operator.local-session-agent-test");
+      expect(sessions[0]?.id).toBe("c.local-session-agent-test-scout-main");
     } finally {
       store.close();
     }
@@ -1176,11 +1161,11 @@ describe("web db query agents", () => {
     const store = createSeededStore();
 
     try {
-      setConversationCreatedAt("conv-1", 1);
+      setConversationCreatedAt("c.conv-1", 1);
 
       store.recordMessage({
-        id: "conv-1-late-message",
-        conversationId: "conv-1",
+        id: "c.conv-1-late-message",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -1204,7 +1189,7 @@ describe("web db query agents", () => {
         setConversationCreatedAt(conversationId, 1_000 + i);
       }
 
-      expect(querySessions(1).map((session) => session.id)).toEqual(["conv-1"]);
+      expect(querySessions(1).map((session) => session.id)).toEqual(["c.conv-1"]);
     } finally {
       store.close();
     }
@@ -1214,7 +1199,7 @@ describe("web db query agents", () => {
     const store = createSeededStore();
 
     try {
-      setConversationCreatedAt("conv-1", 1);
+      setConversationCreatedAt("c.conv-1", 1);
 
       for (let i = 0; i < 205; i += 1) {
         const conversationId = `newer-conv-${i}`;
@@ -1230,16 +1215,16 @@ describe("web db query agents", () => {
         setConversationCreatedAt(conversationId, 1_000 + i);
       }
 
-      const session = querySessionById("conv-1");
+      const session = querySessionById("c.conv-1");
 
-      expect(session?.id).toBe("conv-1");
+      expect(session?.id).toBe("c.conv-1");
       expect(session?.agentId).toBe("agent-1");
     } finally {
       store.close();
     }
   });
 
-  test("reads canonical DM history through legacy local-session fork aliases", () => {
+  test("does not read direct history through legacy local-session aliases", () => {
     const store = createSeededStore();
 
     try {
@@ -1290,7 +1275,7 @@ describe("web db query agents", () => {
         conversationId: "dm.operator.local-session-agent-test",
       });
 
-      expect(messages.map((message) => message.body)).toContain("legacy alias message");
+      expect(messages.map((message) => message.body)).toEqual([]);
     } finally {
       store.close();
     }
@@ -1384,7 +1369,7 @@ describe("web db query agents", () => {
         },
       });
 
-      const session = querySessions(10).find((entry) => entry.id === "conv-1");
+      const session = querySessions(10).find((entry) => entry.id === "c.conv-1");
 
       expect(session?.harnessSessionId).toBe("019d9762-19f7-7792-8962-90d924ce7faa");
       expect(session?.harnessLogPath).toBe(
@@ -1649,7 +1634,7 @@ describe("web db query agents", () => {
     }
   });
 
-  test("reads direct messages across operator identity aliases", () => {
+  test("does not read direct messages across operator identity aliases", () => {
     const store = createSeededStore();
     const home = mkdtempSync(join(tmpdir(), "openscout-web-user-config-"));
     tempRoots.add(home);
@@ -1687,7 +1672,7 @@ describe("web db query agents", () => {
         conversationId: "dm.operator.agent-1",
       });
 
-      expect(messages.map((message) => message.id)).toContain("msg-arach");
+      expect(messages.map((message) => message.id)).toEqual([]);
     } finally {
       store.close();
     }
@@ -1699,7 +1684,7 @@ describe("web db query agents", () => {
     try {
       store.recordMessage({
         id: "msg-operator",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "agent",
@@ -1710,7 +1695,7 @@ describe("web db query agents", () => {
       });
       store.recordMessage({
         id: "msg-reply",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -1738,7 +1723,7 @@ describe("web db query agents", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Reply once",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: 171,
@@ -1760,7 +1745,7 @@ describe("web db query agents", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Reply twice",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: 173,
@@ -2200,7 +2185,7 @@ describe("web db query fleet", () => {
       });
       store.recordMessage({
         id: "msg-recovered-stale-resume-request",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "agent",
@@ -2216,7 +2201,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Recovered stale resume failure",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         messageId: "msg-recovered-stale-resume-request",
         ensureAwake: true,
         stream: false,
@@ -2235,7 +2220,7 @@ describe("web db query fleet", () => {
       });
       store.recordMessage({
         id: "msg-recovered-stale-resume-status",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "system",
         originNodeId: "node-1",
         class: "status",
@@ -2249,7 +2234,7 @@ describe("web db query fleet", () => {
 
       store.recordMessage({
         id: "msg-task-failure-request",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "agent",
@@ -2265,7 +2250,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Task failure should stay visible",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         messageId: "msg-task-failure-request",
         ensureAwake: true,
         stream: false,
@@ -2284,7 +2269,7 @@ describe("web db query fleet", () => {
       });
       store.recordMessage({
         id: "msg-task-failure-status",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "system",
         originNodeId: "node-1",
         class: "status",
@@ -2298,7 +2283,7 @@ describe("web db query fleet", () => {
 
       store.recordMessage({
         id: "msg-later-success-request",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "agent",
@@ -2314,7 +2299,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Later successful smoke check",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         messageId: "msg-later-success-request",
         ensureAwake: true,
         stream: false,
@@ -2332,7 +2317,7 @@ describe("web db query fleet", () => {
       });
       store.recordMessage({
         id: "msg-later-success-reply",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "agent-1",
         originNodeId: "node-1",
         class: "agent",
@@ -2375,7 +2360,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Review the current spec",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: now - 20_000,
@@ -2402,7 +2387,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Active turn stopped by OpenScout",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         ensureAwake: true,
         stream: false,
         createdAt: now - 16_000,
@@ -2451,7 +2436,7 @@ describe("web db query fleet", () => {
     try {
       store.recordMessage({
         id: "msg-ack-request",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         actorId: "operator",
         originNodeId: "node-1",
         class: "agent",
@@ -2467,7 +2452,7 @@ describe("web db query fleet", () => {
         targetAgentId: "agent-1",
         action: "consult",
         task: "Review the current patch",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         messageId: "msg-ack-request",
         ensureAwake: true,
         stream: false,
@@ -2484,7 +2469,7 @@ describe("web db query fleet", () => {
       });
       store.recordMessage({
         id: "msg-ack-reply",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         replyToMessageId: "msg-ack-request",
         actorId: "agent-1",
         originNodeId: "node-1",
@@ -2790,7 +2775,7 @@ describe("web db query work items", () => {
           ownerName: "Agent One",
           nextMoveOwnerId: "agent-1",
           nextMoveOwnerName: "Agent One",
-          conversationId: "conv-1",
+          conversationId: "c.conv-1",
           createdAt: 90,
           updatedAt: 90,
           parentId: null,
@@ -2813,7 +2798,7 @@ describe("web db query work items", () => {
           ownerName: "Agent One",
           nextMoveOwnerId: "agent-1",
           nextMoveOwnerName: "Agent One",
-          conversationId: "conv-1",
+          conversationId: "c.conv-1",
           createdAt: 95,
           updatedAt: 95,
           parentId: "work-1",
@@ -2864,7 +2849,7 @@ describe("web db query work items", () => {
 
       expect(queryWorkItems({ conversationId: "conv-work-2" }).map((item) => item.id))
         .toEqual(["work-conversation-2"]);
-      expect(queryWorkItems({ conversationId: "conv-1" }).map((item) => item.id))
+      expect(queryWorkItems({ conversationId: "c.conv-1" }).map((item) => item.id))
         .toEqual(["work-1", "work-1-child"]);
     } finally {
       store.close();
@@ -2883,7 +2868,7 @@ describe("web db query work items", () => {
         createdById: "operator",
         ownerId: "agent-1",
         nextMoveOwnerId: "operator",
-        conversationId: "conv-1",
+        conversationId: "c.conv-1",
         state: "waiting",
         acceptanceState: "none",
         requestedById: "operator",

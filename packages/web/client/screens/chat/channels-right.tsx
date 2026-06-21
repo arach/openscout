@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { agentStateCssToken, agentStateLabel, normalizeAgentState } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
-import { actorColor } from "../../lib/colors.ts";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
+import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
-import { openAgent } from "../../scout/slots/openAgent.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
 import type { Agent, AgentRun, Route, WorkItem } from "../../lib/types.ts";
 
+const TERMINAL_CHANNEL_RUN_STATES = new Set(["completed", "failed", "cancelled"]);
+
+type ChannelActivityItem = {
+  id: string;
+  kind: "work" | "run";
+  actorId: string | null;
+  actorName: string;
+  status: string;
+  title: string;
+  detail: string | null;
+  updatedAt: number;
+  active: boolean;
+  route: Route | null;
+};
+
 function channelRouteLabel(channelId: string): string {
-  if (channelId.startsWith("channel.")) {
-    return `#${channelId.slice("channel.".length)}`;
-  }
-  if (channelId.startsWith("dm.")) {
-    return "Direct message";
-  }
   return channelId;
 }
 
@@ -299,15 +307,4 @@ function ChannelActivityButton({
   );
 }
 
-const OPS_MODE_LABELS: Record<OpsMode, string> = {
-  mission: "Control",
-  plan: "Plans",
-  issues: "Alerts",
-  tail: "Tail",
-  atop: "Runtime",
-  agents: "Agents",
-  lanes: "Lanes",
-};
-
 export { ChannelInspectorPanel as ChatChannelsRight };
-

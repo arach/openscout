@@ -116,6 +116,7 @@ struct ScoutRootView: View {
     @State private var pendingInitialJump = true
 
     private static let messageListBottomAnchor = "scout.messageList.bottom"
+    private static let activeTurnAnchor = "scout.messageList.activeTurn"
     @State private var suggestions: [MessageSuggestion] = []
     @State private var selectedSuggestionIndex = 0
     @State private var currentSuggestionTrigger: MessageSuggestionTrigger?
@@ -633,7 +634,7 @@ struct ScoutRootView: View {
         observeAgent(agent)
     }
 
-    /// Jump into the selected row's conversation (⌘↩, Agents page) — the focused
+    /// Jump into the selected row's chat (⌘↩, Agents page) — the focused
     /// session if a session row is selected, else the agent's channel.
     private func openSelectedAgentChannel() {
         if section == .repos {
@@ -686,7 +687,7 @@ struct ScoutRootView: View {
     private func startNewConversation() {
         repos.refresh()
         sessionDraft = ScoutSessionDraft(
-            title: "New conversation",
+            title: "New chat",
             target: .project,
             projectPath: defaultProjectPath,
             mode: .fresh,
@@ -698,31 +699,46 @@ struct ScoutRootView: View {
 
     private func startConversationFromMessage(_ message: ScoutMessage, agent: ScoutAgent?) {
         repos.refresh()
-        let target: ScoutSessionDraft.Target = agent.map { .agent($0) } ?? .project
         sessionDraft = ScoutSessionDraft(
             title: "Branch from message",
-            target: target,
-            projectPath: agent?.projectRoot?.nilIfEmpty ?? defaultProjectPath,
+            target: .project,
+            projectPath: agent?.projectRoot?.nilIfEmpty ?? agent?.cwd?.nilIfEmpty ?? defaultProjectPath,
             mode: .fresh,
             instructions: message.body,
             fromMessageId: message.id,
             fromConversationId: message.cId,
             seedSourceName: agent?.displayName.nilIfEmpty ?? message.actorName.nilIfEmpty,
-            seedPreview: message.body
+            seedPreview: message.body,
+            harness: agent?.harness?.nilIfEmpty,
+            model: preferredFreshModel(harness: agent?.harness, model: agent?.model)
         )
     }
 
     private func startSessionWithAgent(_ agent: ScoutAgent, mode: ScoutSessionDraft.Mode) {
         repos.refresh()
+        let target: ScoutSessionDraft.Target = mode == .continueContext ? .agent(agent) : .project
         sessionDraft = ScoutSessionDraft(
-            title: mode == .continueContext ? "Continue conversation" : "New conversation",
-            target: .agent(agent),
-            projectPath: agent.projectRoot?.nilIfEmpty ?? "",
+            title: mode == .continueContext ? "Continue chat" : "New chat",
+            target: target,
+            projectPath: agent.projectRoot?.nilIfEmpty ?? agent.cwd?.nilIfEmpty ?? defaultProjectPath,
             mode: mode,
             instructions: "",
             fromMessageId: nil,
-            fromConversationId: nil
+            fromConversationId: nil,
+            harness: mode == .continueContext ? nil : agent.harness?.nilIfEmpty,
+            model: mode == .continueContext ? nil : preferredFreshModel(harness: agent.harness, model: agent.model)
         )
+    }
+
+    private func preferredFreshModel(harness: String?, model: String?) -> String? {
+        guard let harness = harness?.nilIfEmpty else { return model?.nilIfEmpty }
+        guard harness.lowercased() == "codex" else { return model?.nilIfEmpty }
+        guard let model = model?.nilIfEmpty else { return "gpt-5.5" }
+        let lower = model.lowercased()
+        if lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4") {
+            return "gpt-5.5"
+        }
+        return model
     }
 
     private func handleSessionStarted(_ result: ScoutSessionStartResult, draft submittedDraft: ScoutSessionDraft) {
@@ -809,6 +825,9 @@ struct ScoutRootView: View {
             guard let cId = pending.conversationId else { return false }
             return channelIds.contains(cId)
         }
+        for pending in pendingConversations where pendingFlightTasks[pending.id] == nil {
+            startPendingFlightMonitor(for: pending)
+        }
         cancelPendingFlightMonitorsForMissingRows()
     }
 
@@ -831,7 +850,7 @@ struct ScoutRootView: View {
         case .project:
             let path = draft.projectPath.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = URL(fileURLWithPath: path).lastPathComponent
-            return name.isEmpty ? "New conversation" : name
+            return name.isEmpty ? "New chat" : name
         }
     }
 
@@ -872,9 +891,18 @@ struct ScoutRootView: View {
             return
         }
         if status.isFailure {
-            pendingConversations[index].state = .failed(status.summary?.nilIfEmpty ?? "Flight \(status.state).")
+            if status.removePendingRow {
+                pendingConversations.remove(at: index)
+            } else {
+                pendingConversations[index].state = .failed(status.summary?.nilIfEmpty ?? "Flight \(status.state).")
+            }
             pendingFlightTasks[pendingId]?.cancel()
             pendingFlightTasks[pendingId] = nil
+        } else if status.isTerminal {
+            pendingConversations.remove(at: index)
+            pendingFlightTasks[pendingId]?.cancel()
+            pendingFlightTasks[pendingId] = nil
+            store.refresh(force: true)
         }
     }
 
@@ -910,7 +938,39 @@ struct ScoutRootView: View {
            let match = flights.first(where: { $0.id == flightId }) {
             return match
         }
-        return flights.first
+        if let flight = flights.first {
+            return flight
+        }
+        return try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending)
+    }
+
+    private static func fetchPendingFailureMessageStatus(
+        conversationId: String,
+        pending: ScoutPendingConversation
+    ) async throws -> ScoutPendingFlightStatus? {
+        let url = ScoutWeb.baseURL()
+            .appending(path: "api/messages")
+            .appending(queryItems: [
+                URLQueryItem(name: "conversationId", value: conversationId),
+                URLQueryItem(name: "limit", value: "12"),
+            ])
+        let messages = try await ScoutHTTP.fetch([ScoutMessage].self, from: url)
+        guard let failure = messages.first(where: { message in
+            let statusLike = message.messageClass == "status"
+                || message.metadata?.source == "broker"
+                || message.metadata?.flightId != nil
+            return statusLike
+                && message.body.localizedCaseInsensitiveContains("failed")
+                && (pending.flightId == nil || message.metadata?.flightId == pending.flightId)
+        }) else {
+            return nil
+        }
+        return ScoutPendingFlightStatus(
+            id: pending.flightId?.nilIfEmpty ?? failure.id,
+            state: "failed",
+            summary: failure.body.components(separatedBy: .newlines).first?.nilIfEmpty,
+            removePendingRow: true
+        )
     }
 
     /// Root for resolving relative file paths quoted in a message: prefer the
@@ -1041,9 +1101,8 @@ struct ScoutRootView: View {
         }
     }
 
-    // One clean line: just the conversation's handle. The cId and participant
-    // strip that used to ride a second row are redundant with the inspector
-    // card (which lists members + cId), so they're gone here.
+    // One clean line: just the chat's handle. Chat identity and
+    // participants live in the inspector so the header stays calm.
     private var chatHeader: some View {
         ScoutColumnHeader {
             // The focal title of the band — larger than the list title (13) and
@@ -1069,7 +1128,7 @@ struct ScoutRootView: View {
                     if store.messages.isEmpty {
                         HudEmptyState(
                             title: store.selectedChannel == nil ? "No channel selected" : "No messages yet",
-                            subtitle: store.selectedChannel == nil ? "Choose a DM or channel from the list." : "This cId has no visible messages.",
+                            subtitle: store.selectedChannel == nil ? "Choose a chat from the list." : "This chat has no visible messages.",
                             icon: "bubble.left"
                         )
                         .frame(maxWidth: .infinity, minHeight: 360)
@@ -1085,6 +1144,15 @@ struct ScoutRootView: View {
                                 }
                             )
                                 .id(message.id)
+                        }
+
+                        // The agent's still-running turn, rendered as a transient
+                        // row at the tail of the thread. It vanishes the same poll
+                        // tick the finished message lands (activeTurn → nil).
+                        if let activeTurn = store.activeTurn {
+                            ScoutInFlightTurnRow(turn: activeTurn)
+                                .id(Self.activeTurnAnchor)
+                                .transition(.opacity)
                         }
 
                         // Bottom sentinel: visible only when scrolled to the
@@ -1105,6 +1173,7 @@ struct ScoutRootView: View {
                 ))
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .scoutOverlayScrollers()
+                .animation(.easeOut(duration: 0.2), value: store.activeTurn)
             }
             .scrollIndicators(.visible)
             .onAppear {
@@ -1128,6 +1197,14 @@ struct ScoutRootView: View {
                     withAnimation(.easeOut(duration: 0.16)) {
                         proxy.scrollTo(Self.messageListBottomAnchor, anchor: .bottom)
                     }
+                }
+            }
+            // Keep the thread pinned to the bottom as the in-flight row appears
+            // and its headline/detail update, so progress stays in view.
+            .onChange(of: store.activeTurn) { _, _ in
+                guard followLatest, !store.messages.isEmpty else { return }
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(Self.messageListBottomAnchor, anchor: .bottom)
                 }
             }
         }
@@ -1485,10 +1562,34 @@ struct ScoutRootView: View {
     }
 
     private var composerPlaceholder: String {
+        if let steerLabel = composerSteerLabel {
+            return steerLabel
+        }
         if let title = store.selectedChannel?.displayHandle, !title.isEmpty {
             return "Message \(title)"
         }
         return "Message"
+    }
+
+    private var composerSteerLabel: String? {
+        guard let channel = store.selectedChannel else { return nil }
+        let targets = channel.participants
+            .filter { participant in
+                let kind = participant.kind?.lowercased()
+                return participant.label.localizedCaseInsensitiveCompare("Operator") != .orderedSame
+                    && kind != "person"
+                    && kind != "system"
+                    && kind != "device"
+            }
+            .map { $0.label }
+        guard !targets.isEmpty else { return nil }
+        if targets.count == 1, let target = targets.first {
+            return "Steer \(target)"
+        }
+        if targets.count == 2 {
+            return "Steer \(targets[0]) and \(targets[1])"
+        }
+        return "Steer \(targets.count) agents"
     }
 
     private var composerCanSend: Bool {
@@ -1519,7 +1620,7 @@ struct ScoutRootView: View {
     }
 
     private var composerStatusText: String? {
-        if store.selectedChannel == nil { return "Select a conversation to message" }
+        if store.selectedChannel == nil { return "Select a chat to message" }
         if isDictating { return voiceStatusLine }
         if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
@@ -1930,7 +2031,7 @@ struct ScoutRootView: View {
     private func inspectorTitle(multiAgent: Bool) -> String {
         switch section {
         case .tail:
-            return "Tail"
+            return "Distribution"
         case .repos:
             if repos.worktree(id: reposTree.selectedWorktreeID) != nil { return "Worktree" }
             if repos.project(id: reposTree.selectedProjectID) != nil { return "Repo" }
@@ -1942,9 +2043,7 @@ struct ScoutRootView: View {
 
     @ViewBuilder
     private func inspectorHeaderBadge(multiAgent: Bool) -> some View {
-        if section == .tail {
-            ScoutTailFollowBadge(tail: tail)
-        } else if section == .repos {
+        if section == .repos {
             // No verdict pill for a worktree — the inspector's Position block
             // carries current state calmly. Keep a project-level attention
             // summary, which reads as a roll-up rather than a per-branch verdict.
@@ -2060,7 +2159,7 @@ struct ScoutRootView: View {
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: fileViewer.target)
     }
 
-    /// Conversations attached to an agent, most-recent first — feeds the
+    /// Chats attached to an agent, most-recent first — feeds the
     /// inspector's Sessions list.
     private func agentChannels(for agent: ScoutAgent) -> [ScoutChannel] {
         store.channels
@@ -2578,15 +2677,6 @@ private struct ScoutTailErrorItem: View {
                     .lineLimit(1)
             }
         }
-    }
-}
-
-/// The tail inspector's Live/Paused badge — observes the tail store so the
-/// follow state flips without the root having to observe tail.
-private struct ScoutTailFollowBadge: View {
-    @ObservedObject var tail: ScoutTailStore
-    var body: some View {
-        HudBadge(tail.isFollowing ? "Live" : "Paused", tint: tail.isFollowing ? ScoutPalette.statusOk : ScoutPalette.muted, dot: tail.isFollowing)
     }
 }
 
@@ -3305,12 +3395,14 @@ private struct ScoutEyebrow: View {
                     .fill(ScoutPalette.accent)
                     .frame(width: 2, height: 9)
             }
-            // Studio section labels are a calm, faint mono eyebrow — they index
-            // the group without competing with the values beneath them.
+            // Section labels index the group without competing with the values
+            // beneath them — but the hierarchy is carried by size, weight, and
+            // tracking, not by fading the ink toward the background. Readable
+            // `muted` keeps every eyebrow legible across the theme matrix.
             Text(text.uppercased())
                 .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
                 .tracking(1.4)
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(ScoutPalette.muted)
         }
     }
 }
@@ -3397,7 +3489,7 @@ private struct ScoutInspectorKVRow: View {
             Text(key.uppercased())
                 .font(HudFont.mono(9, weight: .semibold))
                 .tracking(0.9)
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
             Spacer(minLength: HudSpacing.sm)
             Text(value)
@@ -3544,8 +3636,8 @@ private struct ScoutAgentInspector: View {
 
     /// Sessions attached to this agent. Rows are navigation-first: role +
     /// metadata at rest (no height-shifting hover swap), expanding to a
-    /// mini-card with the full action set — Observe · Take over · Message ·
-    /// Fork — when engaged (tapped open). Those per-session verbs live here, on
+    /// mini-card with the full action set plus both identity layers: harness
+    /// `sessionId` first, then Scout chat id. Those per-session verbs live here, on
     /// the session they act on; the header carries the only global action,
     /// "+ New session". Only one row expands at a time.
     private var sessionsList: some View {
@@ -3564,6 +3656,7 @@ private struct ScoutAgentInspector: View {
                 ForEach(agentChannels.prefix(6)) { channel in
                     ScoutInspectorSessionRow(
                         channel: channel,
+                        sessionId: channel.sessionId,
                         role: agent.roleLabel,
                         isWorking: live && channel.cId == selectedChannel?.cId,
                         isExpanded: expandedSessionCId == channel.cId,
@@ -3685,7 +3778,7 @@ private struct ScoutAgentInspector: View {
             "branch    \(agent.branchLabel)",
             "path      \(agent.workspace)",
         ]
-        if let selectedChannel { lines.append("cId       \(selectedChannel.cId)") }
+        if let selectedChannel { lines.append("chat      \(selectedChannel.chatId)") }
         if let sessionId { lines.append("harnessSession \(sessionId)") }
         return lines.joined(separator: "\n")
     }
@@ -4581,14 +4674,21 @@ private func scoutHomeTilde(_ path: String) -> String {
     return "~" + path.dropFirst(home.count)
 }
 
+private func scoutShortIdentifier(_ value: String, prefix: Int = 10) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.count > prefix else { return trimmed }
+    return String(trimmed.prefix(prefix))
+}
+
 /// A session in the inspector's Sessions list, with progressive disclosure:
 ///  · rest    — dot · title · role badge · age, then a metadata line
 ///  · hover   — quick actions (Observe / Message) replace the age
-///  · engaged — tap to expand into a mini-card: full id/path/branch/msgs +
+///  · engaged — tap to expand into a mini-card: full session id/chat id/path/branch/msgs +
 ///              the per-session action set (Observe · Message · Fork; Take over
 ///              joins once it has a backend).
 private struct ScoutInspectorSessionRow: View {
     let channel: ScoutChannel
+    let sessionId: String?
     let role: String
     /// True only when the agent is live AND this is the session in focus — the
     /// dot lights for active work, not merely for being selected.
@@ -4679,12 +4779,26 @@ private struct ScoutInspectorSessionRow: View {
     }
 
     private var metaLine: some View {
-        Text(metaText)
-            .font(HudFont.mono(HudTextSize.micro))
-            .foregroundStyle(ScoutPalette.muted)
-            .lineLimit(1)
-            .truncationMode(.middle)
-            .padding(.leading, 13)
+        HStack(spacing: HudSpacing.xs) {
+            if let sessionId = sessionId?.nilIfEmpty {
+                Text("session \(scoutShortIdentifier(sessionId))")
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+                    .help("Session id: \(sessionId)")
+            }
+            Text(channel.chatIdShort)
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+                .help("Chat ID: \(channel.chatId)")
+            Text(metaText)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutPalette.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.leading, 13)
     }
 
     private var metaText: String {
@@ -4697,7 +4811,10 @@ private struct ScoutInspectorSessionRow: View {
     private var expandedDetail: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
             VStack(alignment: .leading, spacing: 3) {
-                detailRow("id", channel.cId)
+                if let sessionId = sessionId?.nilIfEmpty {
+                    detailRow("session", sessionId)
+                }
+                detailRow("chat", channel.chatId)
                 if let path = channel.workspaceRoot?.nilIfEmpty { detailRow("path", scoutHomeTilde(path)) }
                 if let branch = channel.currentBranch?.nilIfEmpty { detailRow("branch", branch) }
                 detailRow("msgs", "\(channel.messageCount)")
@@ -4713,7 +4830,7 @@ private struct ScoutInspectorSessionRow: View {
                 .font(HudFont.mono(8, weight: .semibold))
                 .tracking(0.5)
                 .foregroundStyle(ScoutPalette.muted)
-                .frame(width: 34, alignment: .leading)
+                .frame(width: 78, alignment: .leading)
             Text(value)
                 .font(HudFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutPalette.ink)
@@ -5141,7 +5258,7 @@ private struct ScoutAgentAbility {
 
     var title: String {
         switch normalized {
-        case "chat": return "Conversation"
+        case "chat": return "Chat"
         case "invoke": return "Work requests"
         case "deliver": return "Result delivery"
         case "observe": return "Live observe"
@@ -5321,7 +5438,7 @@ private struct ScoutChannelInspector: View {
 
             HudCard {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
-                    HudKVRow("cId", value: channel.cId)
+                    HudKVRow("Chat ID", value: channel.chatId)
                     HudKVRow("Messages", value: "\(channel.messageCount)")
                     HudKVRow("Branch", value: channel.currentBranch?.nilIfEmpty ?? "—")
                 }

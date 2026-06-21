@@ -236,7 +236,7 @@ function stopLegacyRunner(log: ScoutbotRunnerLog): void {
   const legacy = g[LEGACY_SCOUTBOT_RUNNER_KEY] as { handle?: { stop?: () => Promise<void> } | null } | undefined;
   const handle = legacy?.handle;
   if (!handle?.stop) return;
-  legacy.handle = null;
+  if (legacy) legacy.handle = null;
   log.info("stopping legacy scoutbot runner");
   void handle.stop().catch(() => undefined);
 }

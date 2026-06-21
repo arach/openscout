@@ -1235,6 +1235,31 @@ describe("ensureCodexAppServerAgentOnline", () => {
     ]);
   });
 
+  test("reports a missing working directory before spawning Codex", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-codex-missing-cwd-test-"));
+    tempPaths.add(tempRoot);
+    const runtimeDirectory = join(tempRoot, "runtime");
+    const logsDirectory = join(tempRoot, "logs");
+    const missingCwd = join(tempRoot, "missing-project");
+
+    const options = {
+      agentName: "codex-missing-cwd",
+      sessionId: "attached-codex-missing-cwd",
+      cwd: missingCwd,
+      systemPrompt: "Start a session.",
+      runtimeDirectory,
+      logsDirectory,
+      launchArgs: [],
+    } as const;
+
+    await expect(ensureCodexAppServerAgentOnline(options)).rejects.toThrow(
+      `Codex app-server cwd does not exist for codex-missing-cwd: ${missingCwd}`,
+    );
+
+    const stderr = readFileSync(join(logsDirectory, "stderr.log"), "utf8");
+    expect(stderr).toContain(`Codex app-server cwd does not exist for codex-missing-cwd: ${missingCwd}`);
+  });
+
   test("normalizes legacy model launch args for app-server sessions", () => {
     expect(normalizeCodexAppServerLaunchArgs(["--model", "gpt-5.4-mini"])).toEqual([
       "-c",

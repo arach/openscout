@@ -235,7 +235,7 @@ struct AgentsSurface: View {
     /// Live session → open it on the machine it lives on. No session → there's
     /// nothing to resume, so land on the project (info + a launcher).
     private func tapAgent(_ agent: AgentSummary, in section: MachineAgents) {
-        if agent.sessionId != nil {
+        if agent.sessionId != nil, agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             openSession(agent, client: section.client)
         } else {
             sheetClient = section.client
@@ -244,11 +244,11 @@ struct AgentsSurface: View {
     }
 
     private func openSession(_ agent: AgentSummary, client: (any ScoutBrokerClient)?) {
-        // Route by the agent's real broker conversation (its operator DM), NOT
-        // `sessionId` — that's a harness label (e.g. "relay-openscout-claude"),
-        // shared across agents, that resolves to no conversation. Fall back to the
-        // canonical `dm.operator.<id>` the broker creates on first send.
-        let conversationId = agent.conversationId ?? "dm.operator.\(agent.id)"
+        // Route by the agent's real broker chat, not `sessionId` (a harness
+        // label shared across agents). If no chat exists yet, the caller keeps
+        // the user on the project/agent sheet.
+        guard let conversationId = agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !conversationId.isEmpty else { return }
         routeClient = client
         route = ConversationRoute(id: conversationId, title: agent.title)
     }
@@ -829,10 +829,5 @@ func displayProjectName(_ raw: String?) -> String? {
 /// Compact relative age ("now" / "3m" / "2h" / "1d") for a row's right edge or a
 /// machine's last-seen stamp.
 private func machineRelativeAge(_ date: Date?) -> String? {
-    guard let date else { return nil }
-    let s = max(0, Int(Date().timeIntervalSince(date)))
-    if s < 60 { return "now" }
-    if s < 3600 { return "\(s / 60)m" }
-    if s < 86_400 { return "\(s / 3600)h" }
-    return "\(s / 86_400)d"
+    ScoutTimestamp.relativeAge(since: date)
 }

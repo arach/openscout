@@ -3,6 +3,7 @@ import type {
   VoxSpeakResult,
   VoxSpeechTimingCueRequest,
 } from "../../lib/vox.ts";
+import { formatClockTimestamp } from "../../lib/time.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import type { VoiceFxParams } from "@voxd/client/fx";
 
@@ -299,7 +300,7 @@ export function makeScoutAudioLaunchContext() {
     requesterName: "OpenScout",
     productName: "Scout Audio",
     headline: "Turn on local voice",
-    body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
+    body: "Scout Audio uses local speech capture and spoken replies. Enable voice, then return here to talk with your workspace.",
     actionLabel: "Return to OpenScout",
     logo: {
       url: new URL("/openscout-icon.png", window.location.href).toString(),
@@ -318,7 +319,7 @@ export function estimateBriefDuration(text: string): number {
 }
 
 export function formatReminderDueAt(dueAt: number): string {
-  return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return formatClockTimestamp(dueAt) || "unknown";
 }
 
 export function wait(ms: number): Promise<void> {

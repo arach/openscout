@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createTextDocument, TextDocumentSurface } from "../../components/TextDocumentSurface.tsx";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import { timeAgo } from "../../lib/time.ts";
+import { formatAbsoluteTimestamp, timeAgo } from "../../lib/time.ts";
 import type {
   Agent,
   PlanDocument,
@@ -236,7 +236,7 @@ function PlanDocumentDetail({
           <MetaLine label="Path" value={document.path} />
           <MetaLine label="Workspace" value={document.workspaceName ?? document.provenance.root} />
           <MetaLine label="Agent" value={document.agentName ?? owner?.name ?? document.agentId ?? "unassigned"} />
-          <MetaLine label="Updated" value={new Date(document.updatedAt).toLocaleString()} />
+          <MetaLine label="Updated" value={formatAbsoluteTimestamp(document.updatedAt) || "unknown"} />
         </dl>
       </section>
     </div>

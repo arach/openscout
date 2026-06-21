@@ -502,7 +502,7 @@ describe("broker daemon messaging routes", () => {
       state: "active",
     });
     await broker.postJson(harness.baseUrl, "/v1/conversations", {
-      id: "c.11111111-1111-4111-8111-111111111111",
+      id: "chat_11111111111141118111111111111111",
       kind: "channel",
       title: "ops",
       visibility: "workspace",

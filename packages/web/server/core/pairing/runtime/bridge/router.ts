@@ -829,10 +829,9 @@ const mobileRouter = t.router({
           message: "conversationId is required",
         });
       }
-      // Pass the routed id straight through — the snapshot service resolves it
-      // against the live broker snapshot (a `c.…`/`dm.…` conversation id, or a
-      // bare agent id → its actual conversation). The old `dm.operator.{agentId}`
-      // wrap was wrong for agents whose conversation is keyed `c.…`.
+      // Pass the routed id straight through. The snapshot service resolves it
+      // against the live broker snapshot as an opaque chat id or a bare agent id
+      // whose actual conversation is discovered from broker state.
       return getScoutMobileSessionSnapshot(
         rawId,
         {

@@ -42,7 +42,7 @@ export type WebAgent = {
   harnessSessionId: string | null;
   terminalSurface: WebTerminalSurfaceDescriptor | null;
   harnessLogPath: string | null;
-  conversationId: string;
+  conversationId: string | null;
   authorityNodeId: string | null;
   authorityNodeName: string | null;
   homeNodeId: string | null;

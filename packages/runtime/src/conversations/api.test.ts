@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  CHAT_ID_PREFIX,
   directChannelNaturalKey,
   type ConversationDefinition,
 } from "@openscout/protocol";
 
 import { SQLiteControlPlaneStore } from "../sqlite-store.ts";
-import { conversationIdForAgent } from "./legacy-ids.ts";
 
 const dbRoots = new Set<string>();
 
@@ -120,15 +120,23 @@ describe("Conversations", () => {
     }
   });
 
-  test("findByAgent resolves the operator↔agent direct id", () => {
+  test("findByAgent resolves opaque operator↔agent direct conversations by natural key", () => {
     const store = createStore();
     try {
       seedActorsAndNode(store, ["operator", "agent-1"]);
-      const id = conversationIdForAgent("agent-1");
-      store.conversations.upsert(makeConversation({ id, participantIds: ["operator", "agent-1"] }));
+      const naturalKey = directChannelNaturalKey(["operator", "agent-1"]);
+      const created = store.conversations.ensureByNaturalKey({
+        naturalKey,
+        kind: "direct",
+        title: "Direct",
+        visibility: "private",
+        shareMode: "local",
+        authorityNodeId: "node-1",
+        participantIds: ["operator", "agent-1"],
+      });
 
       const found = store.conversations.findByAgent("agent-1");
-      expect(found?.id).toBe(id);
+      expect(found?.id).toBe(created.id);
       expect(found?.kind).toBe("direct");
     } finally {
       store.close();
@@ -243,7 +251,7 @@ describe("Conversations", () => {
         authorityNodeId: "node-1",
         participantIds: ["operator", "agent-1"],
       });
-      expect(created.id).toMatch(/^c\.[0-9a-f-]{36}$/);
+      expect(created.id).toMatch(new RegExp(`^${CHAT_ID_PREFIX}[0-9a-f]{32}$`));
       expect(created.metadata?.naturalKey).toBe(naturalKey);
 
       const reloaded = store.conversations.findById(created.id);
@@ -266,85 +274,17 @@ describe("Conversations", () => {
     }
   });
 
-  test("findByAgent resolves opaque direct conversations by natural key", () => {
+  test("findByAgent ignores structural ids without a natural key", () => {
     const store = createStore();
     try {
       seedActorsAndNode(store, ["operator", "agent-1"]);
-      const created = store.conversations.ensureByNaturalKey({
-        naturalKey: directChannelNaturalKey(["operator", "agent-1"]),
-        kind: "direct",
-        title: "Direct",
-        visibility: "private",
-        shareMode: "local",
-        authorityNodeId: "node-1",
-        participantIds: ["operator", "agent-1"],
-      });
-
-      expect(store.conversations.findByAgent("agent-1")?.id).toBe(created.id);
-    } finally {
-      store.close();
-    }
-  });
-
-  test("resolveLegacyId resolves dm.<operator>.<agent> structural ids", () => {
-    const store = createStore();
-    try {
-      seedActorsAndNode(store, ["operator", "agent-1"]);
-      const id = conversationIdForAgent("agent-1");
-      store.conversations.upsert(makeConversation({ id }));
-
-      const resolved = store.conversations.resolveLegacyId(id);
-      expect(resolved?.id).toBe(id);
-    } finally {
-      store.close();
-    }
-  });
-
-  test("resolveLegacyId resolves structural direct ids to opaque natural-key rows", () => {
-    const store = createStore();
-    try {
-      seedActorsAndNode(store, ["operator", "agent-1"]);
-      const created = store.conversations.ensureByNaturalKey({
-        naturalKey: directChannelNaturalKey(["operator", "agent-1"]),
-        kind: "direct",
-        title: "Direct",
-        visibility: "private",
-        shareMode: "local",
-        authorityNodeId: "node-1",
-        participantIds: ["operator", "agent-1"],
-      });
-
-      const resolved = store.conversations.resolveLegacyId(conversationIdForAgent("agent-1"));
-      expect(resolved?.id).toBe(created.id);
-    } finally {
-      store.close();
-    }
-  });
-
-  test("resolveLegacyId returns null when no candidate row exists", () => {
-    const store = createStore();
-    try {
-      expect(store.conversations.resolveLegacyId("dm.operator.nobody")).toBeNull();
-      expect(store.conversations.resolveLegacyId("garbage")).toBeNull();
-    } finally {
-      store.close();
-    }
-  });
-
-  test("resolveLegacyId resolves dm.<agent>.scout.main.mini local-session variant", () => {
-    const store = createStore();
-    try {
-      seedActorsAndNode(store, ["operator", "local-session-agent-abc"]);
-      const canonicalId = conversationIdForAgent("local-session-agent-abc");
       store.conversations.upsert(makeConversation({
-        id: canonicalId,
-        participantIds: ["operator", "local-session-agent-abc"],
+        id: "dm.operator.agent-1",
+        participantIds: ["operator", "agent-1"],
       }));
 
-      // legacy `dm.<agent>.scout.main.mini` should still resolve to the canonical row.
-      const legacyId = `dm.${["local-session-agent-abc", "scout.main.mini"].sort().join(".")}`;
-      const resolved = store.conversations.resolveLegacyId(legacyId);
-      expect(resolved?.id).toBe(canonicalId);
+      expect(store.conversations.findById("dm.operator.agent-1")?.id).toBe("dm.operator.agent-1");
+      expect(store.conversations.findByAgent("agent-1")).toBeNull();
     } finally {
       store.close();
     }

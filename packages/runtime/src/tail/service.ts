@@ -32,6 +32,8 @@ const SHALLOW_DISCOVERY_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_SHALLOW
 const DEEP_DISCOVERY_INTERVAL_MS = readPositiveIntEnv("OPENSCOUT_TAIL_DEEP_DISCOVERY_INTERVAL_MS", 60 * 60_000);
 const PER_SESSION_BUFFER_LIMIT = 2_000;
 const AGGREGATE_BUFFER_LIMIT = 10_000;
+const QUIET_EVENT_COALESCE_WINDOW_MS = readPositiveIntEnv("OPENSCOUT_TAIL_QUIET_EVENT_COALESCE_WINDOW_MS", 5_000);
+const QUIET_EVENT_COALESCE_MAX_KEYS = readPositiveIntEnv("OPENSCOUT_TAIL_QUIET_EVENT_COALESCE_MAX_KEYS", 2_000);
 const RAW_MAX_DEPTH = 5;
 const RAW_MAX_STRING_LEN = 1_000;
 const RAW_MAX_ARRAY_ITEMS = 25;
@@ -62,6 +64,7 @@ const aggregateBuffer: TailEvent[] = [];
 const perSessionBuffer = new Map<string, TailEvent[]>();
 const subscribers = new Set<Subscriber>();
 const knownTranscripts = new Map<string, DiscoveredTranscript>();
+const quietEventLastSeen = new Map<string, number>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let hotDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 let shallowDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
@@ -165,8 +168,80 @@ function parsedEventsToArray(events: TailEvent | TailEvent[] | null): TailEvent[
   return Array.isArray(events) ? events : [events];
 }
 
+const GROK_QUIET_PHASES = new Set([
+  "streaming_reasoning",
+  "streaming_text",
+  "tool_execution",
+  "permission_prompt",
+]);
+
+function normalizedSummary(event: TailEvent): string {
+  return event.summary.trim().toLowerCase();
+}
+
+function quietTailEventKey(event: TailEvent): string | null {
+  const summary = normalizedSummary(event);
+  if (!summary) return null;
+
+  if (event.source === "grok") {
+    if (summary === "first token") return `${event.source}:${event.sessionId}:first-token`;
+    if (summary.startsWith("loop ")) return `${event.source}:${event.sessionId}:loop`;
+    if (!summary.startsWith("phase ·")) return null;
+    const phase = summary.slice("phase ·".length).trim();
+    return GROK_QUIET_PHASES.has(phase)
+      ? `${event.source}:${event.sessionId}:phase:${phase}`
+      : null;
+  }
+
+  if (event.source !== "codex") return null;
+
+  if (event.kind === "tool-result") {
+    if (summary.startsWith("-> chunk id:")) return `${event.source}:${event.sessionId}:tool-result-chunk`;
+    if (/^->\s+wall time:/u.test(summary)) return `${event.source}:${event.sessionId}:tool-result-wall-time`;
+    if (summary.includes("_end ·")) return `${event.source}:${event.sessionId}:tool-result-end`;
+    if (summary.startsWith("->")) return `${event.source}:${event.sessionId}:tool-result-arrow`;
+    return null;
+  }
+
+  if (event.kind !== "system") return null;
+  if (summary === "user_message") return `${event.source}:${event.sessionId}:user-message-meta`;
+  if (summary === "agent_message") return `${event.source}:${event.sessionId}:agent-message-meta`;
+  if (summary === "[reasoning]") return `${event.source}:${event.sessionId}:reasoning-marker`;
+  if (summary.startsWith("turn context")) return `${event.source}:${event.sessionId}:turn-context`;
+  if (summary.startsWith("tokens ·")) return `${event.source}:${event.sessionId}:tokens`;
+  if (summary.startsWith("session ")) return `${event.source}:${event.sessionId}:session-meta`;
+  return null;
+}
+
+function pruneQuietTailCoalescer(now: number): void {
+  if (quietEventLastSeen.size <= QUIET_EVENT_COALESCE_MAX_KEYS) return;
+  const cutoff = now - QUIET_EVENT_COALESCE_WINDOW_MS * 4;
+  for (const [key, seenAt] of quietEventLastSeen) {
+    if (seenAt < cutoff) quietEventLastSeen.delete(key);
+  }
+  if (quietEventLastSeen.size <= QUIET_EVENT_COALESCE_MAX_KEYS) return;
+  for (const key of quietEventLastSeen.keys()) {
+    quietEventLastSeen.delete(key);
+    if (quietEventLastSeen.size <= QUIET_EVENT_COALESCE_MAX_KEYS) break;
+  }
+}
+
+function shouldCoalesceQuietTailEvent(event: TailEvent): boolean {
+  const key = quietTailEventKey(event);
+  if (!key) return false;
+  const now = Number.isFinite(event.ts) ? event.ts : Date.now();
+  const lastSeenAt = quietEventLastSeen.get(key);
+  if (lastSeenAt != null && now - lastSeenAt < QUIET_EVENT_COALESCE_WINDOW_MS) {
+    return true;
+  }
+  quietEventLastSeen.set(key, now);
+  pruneQuietTailCoalescer(now);
+  return false;
+}
+
 function pushEvent(rawEvent: TailEvent): void {
   const event = compactEvent(rawEvent);
+  if (shouldCoalesceQuietTailEvent(event)) return;
   aggregateBuffer.push(event);
   if (aggregateBuffer.length > AGGREGATE_BUFFER_LIMIT) {
     aggregateBuffer.splice(0, aggregateBuffer.length - AGGREGATE_BUFFER_LIMIT);
@@ -502,6 +577,12 @@ export function subscribeTail(handler: Subscriber): () => void {
 export function snapshotRecentEvents(limit = 500): TailEvent[] {
   return aggregateBuffer.slice(-limit);
 }
+
+export const __testing = {
+  quietTailEventKey,
+  resetQuietTailCoalescer: () => quietEventLastSeen.clear(),
+  shouldCoalesceQuietTailEvent,
+};
 
 export async function readRecentLiveEvents(limit = 500): Promise<TailEvent[]> {
   if (watchers.size === 0) {

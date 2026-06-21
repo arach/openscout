@@ -13,6 +13,7 @@ import {
   laneToolArgSnippet,
   laneTraceWindowStats,
   plausibleTouchedFiles,
+  observeEventWallMs,
 } from "./lane-observe.ts";
 import type { ObserveFile } from "./types.ts";
 
@@ -192,6 +193,20 @@ describe("filterObserveEventsForHorizon", () => {
   });
 });
 
+describe("observeEventWallMs", () => {
+  test("normalizes direct and derived observe timestamps to epoch milliseconds", () => {
+    expect(observeEventWallMs(
+      { id: "direct", t: 10, at: 1_700_000_000, kind: "tool", text: "direct", tool: "Shell" },
+      undefined,
+    )).toBe(1_700_000_000_000);
+
+    expect(observeEventWallMs(
+      { id: "derived", t: 45, kind: "tool", text: "derived", tool: "Shell" },
+      1_700_000_000,
+    )).toBe(1_700_000_045_000);
+  });
+});
+
 describe("filterObserveDataForHorizon", () => {
   const NOW = 1_700_000_000_000;
   const sessionStart = NOW - 60 * 60_000;
@@ -227,8 +242,8 @@ describe("fmtLaneAgeLabel", () => {
 describe("fmtLaneWallGapLabel", () => {
   test("shows meaningful wall-clock gaps only", () => {
     expect(fmtLaneWallGapLabel(45_000)).toBeNull();
-    expect(fmtLaneWallGapLabel(18 * 60_000)).toBe("+18m gap");
-    expect(fmtLaneWallGapLabel(2 * 60 * 60_000 + 15 * 60_000)).toBe("+2h 15m gap");
+    expect(fmtLaneWallGapLabel(18 * 60_000)).toBe("18m gap");
+    expect(fmtLaneWallGapLabel(2 * 60 * 60_000 + 15 * 60_000)).toBe("2h 15m gap");
   });
 });
 

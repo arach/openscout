@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  type ActorIdentity,
   type AgentDefinition,
   type FlightRecord,
   type InvocationRequest,
@@ -34,6 +35,17 @@ function agent(input: Partial<AgentDefinition> = {}): AgentDefinition {
     homeNodeId: "node-local",
     authorityNodeId: "node-local",
     advertiseScope: "local",
+    ...input,
+  };
+}
+
+function actor(input: Partial<ActorIdentity> = {}): ActorIdentity {
+  return {
+    id: "agent-1",
+    kind: "agent",
+    displayName: "Agent One",
+    handle: "agent-one",
+    metadata: {},
     ...input,
   };
 }
@@ -93,6 +105,7 @@ function dispatchRecord(input: Partial<ScoutDispatchRecord> = {}): ScoutDispatch
 }
 
 function createHarness(input: {
+  actors?: Record<string, ActorIdentity>;
   agents?: Record<string, AgentDefinition>;
   nodes?: Record<string, NodeDefinition>;
   flights?: Record<string, FlightRecord>;
@@ -101,6 +114,9 @@ function createHarness(input: {
   describeUnavailableInvocationTarget?: BrokerInvocationDispatchServiceDeps["describeUnavailableInvocationTarget"];
 } = {}) {
   const agents = input.agents ?? { "agent-1": agent() };
+  const actors = input.actors ?? Object.fromEntries(
+    Object.values(agents).map((nextAgent) => [nextAgent.id, actor(nextAgent)]),
+  );
   const nodes = input.nodes ?? {};
   const flights = input.flights ?? {};
   const recordInvocationCalls: Array<{
@@ -130,7 +146,7 @@ function createHarness(input: {
     runtime: {
       snapshot: () => ({
         nodes,
-        actors: {},
+        actors,
         agents,
         endpoints: {},
         conversations: {},
@@ -142,6 +158,7 @@ function createHarness(input: {
         collaborationRecords: {},
         unblockRequests: {},
       }),
+      actor: (actorId) => actors[actorId],
       agent: (agentId) => agents[agentId],
       node: (nodeId) => nodes[nodeId],
       flightForInvocation: (invocationId) => flights[invocationId],
@@ -283,6 +300,65 @@ describe("BrokerInvocationDispatchService", () => {
       expect.objectContaining({
         invocation: expect.objectContaining({ targetAgentId: "agent-resolved" }),
         flight: expect.objectContaining({ invocationId: "invocation-resolved" }),
+      }),
+    ]);
+  });
+
+  test("launches resolved session actors without requiring an agent card", async () => {
+    const sessionActor = actor({
+      id: "session-cardless-1",
+      kind: "session",
+      displayName: "openscout:session",
+      metadata: { cardless: true },
+    });
+    const harness = createHarness({
+      actors: { [sessionActor.id]: sessionActor },
+      agents: {},
+      resolution: {
+        kind: "resolved_session",
+        session: {
+          sessionId: sessionActor.id,
+          actorId: sessionActor.id,
+          label: "openscout:session",
+          nodeId: "node-local",
+          endpoint: {
+            id: "endpoint-cardless",
+            agentId: sessionActor.id,
+            nodeId: "node-local",
+            harness: "claude",
+            transport: "claude_stream_json",
+            state: "idle",
+            sessionId: sessionActor.id,
+            metadata: { cardless: true, sessionBacked: true },
+          },
+        },
+      },
+    });
+
+    const payload = {
+      ...invocation({
+        id: "invocation-cardless",
+        targetAgentId: "placeholder",
+      }),
+      target: { kind: "session_id" as const, sessionId: sessionActor.id },
+    };
+
+    const result = await harness.service.handleInvocationRequest(payload);
+    await Bun.sleep(0);
+
+    expect(result).toEqual(expect.objectContaining({
+      accepted: true,
+      invocationId: "invocation-cardless",
+      targetAgentId: sessionActor.id,
+      state: "queued",
+    }));
+    expect(harness.recordInvocationCalls[0]?.invocation).toEqual(expect.objectContaining({
+      id: "invocation-cardless",
+      targetAgentId: sessionActor.id,
+    }));
+    expect(harness.launched).toEqual([
+      expect.objectContaining({
+        invocation: expect.objectContaining({ targetAgentId: sessionActor.id }),
       }),
     ]);
   });

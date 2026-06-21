@@ -12,7 +12,6 @@
  */
 
 export { closeDb, configureReadonlyDb } from "./db/internal/db.ts";
-export { conversationIdForAgent } from "./db/internal/conversation-ids.ts";
 
 export type {
   WebActivityItem,

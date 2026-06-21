@@ -4,7 +4,7 @@ import { open } from "node:fs/promises";
 import path from "node:path";
 
 import type { SessionState } from "@openscout/agent-sessions";
-import type { AgentEndpoint } from "@openscout/protocol";
+import { epochMs, type AgentEndpoint } from "@openscout/protocol";
 import { loadScoutBrokerContext } from "../../core/broker/service.ts";
 import {
   answerLocalAgentSessionQuestion,
@@ -83,10 +83,8 @@ function escapeAppleScriptString(value: string): string {
 }
 
 function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) {
-    return 0;
-  }
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? 0 : Math.floor(ms / 1000);
 }
 
 function formatRelativeTime(value: number): string {

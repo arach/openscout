@@ -825,12 +825,7 @@ private struct CommsBubble: View {
 
 /// Compact relative age ("now" / "3m" / "2h" / "1d") for a row's right edge.
 private func relativeAge(_ date: Date?) -> String? {
-    guard let date else { return nil }
-    let s = max(0, Int(Date().timeIntervalSince(date)))
-    if s < 60 { return "now" }
-    if s < 3600 { return "\(s / 60)m" }
-    if s < 86_400 { return "\(s / 3600)h" }
-    return "\(s / 86_400)d"
+    ScoutTimestamp.relativeAge(since: date)
 }
 
 #if DEBUG
@@ -841,28 +836,28 @@ extension CommsSurface {
         let now = Date()
         return [
             CommsConversation(
-                id: "channel.shared", kind: .channel, title: "shared",
+                id: "c.demo-shared", kind: .channel, title: "shared",
                 topic: "fleet-wide coordination",
                 lastMessagePreview: "shipping the projects-first Home now — machine rail looks great",
                 lastMessageAuthor: "broker-smith",
                 lastMessageAt: now.addingTimeInterval(-90), messageCount: 42, unreadCount: 3
             ),
             CommsConversation(
-                id: "channel.voice", kind: .channel, title: "voice",
+                id: "c.demo-voice", kind: .channel, title: "voice",
                 topic: "TTS + dictation",
                 lastMessagePreview: "Parakeet warm-up no longer cancels on thread exit",
                 lastMessageAuthor: "tail-tuner",
                 lastMessageAt: now.addingTimeInterval(-1_500), messageCount: 11, unreadCount: 0
             ),
             CommsConversation(
-                id: "dm.operator.broker-smith", kind: .direct, title: "broker-smith",
+                id: "c.demo-broker-smith", kind: .direct, title: "broker-smith",
                 participants: ["broker-smith"],
                 lastMessagePreview: "Done — mobile/comms routes are wired in both mirrors.",
                 lastMessageAuthor: "broker-smith",
                 lastMessageAt: now.addingTimeInterval(-300), messageCount: 8, unreadCount: 1
             ),
             CommsConversation(
-                id: "dm.operator.tail-tuner", kind: .direct, title: "tail-tuner",
+                id: "c.demo-tail-tuner", kind: .direct, title: "tail-tuner",
                 participants: ["tail-tuner"],
                 lastMessagePreview: "You: can you confirm the firehose still streams?",
                 lastMessageAuthor: "You",

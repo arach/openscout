@@ -1,4 +1,5 @@
 import { estimateAdapterCost, type AdapterCostUsage } from "../protocol/cost.js";
+import { epochMs } from "../protocol/time.js";
 import type {
   AdapterBudgetObservationInput,
   AdapterBudgetObservations,
@@ -34,6 +35,18 @@ function numberValue(value: unknown): number | undefined {
 function numberOrNullish(value: unknown): number | null | undefined {
   const n = numberValue(value);
   return n === undefined ? undefined : n;
+}
+
+function timestampValue(value: unknown): number | undefined {
+  const parsedEpoch = epochMs(value);
+  if (parsedEpoch !== undefined) {
+    return parsedEpoch;
+  }
+
+  const text = stringValue(value);
+  if (!text) return undefined;
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function hasUsage(usage: AdapterCostUsage): boolean {
@@ -86,8 +99,8 @@ function observedAt(
   providerMeta: Record<string, unknown> | undefined,
   now: number,
 ): number {
-  return numberValue(input.lastSeenAt)
-    ?? numberValue(providerMeta?.lastSeenAt)
+  return timestampValue(input.lastSeenAt)
+    ?? timestampValue(providerMeta?.lastSeenAt)
     ?? now;
 }
 
@@ -173,7 +186,7 @@ function buildQuotaWindowObservations(
   const provider = observedProvider(input, providerMeta, options.provider);
   const model = observedModel(input, providerMeta);
   const sessionId = observedSessionId(input, providerMeta);
-  const capturedAt = numberValue(observeQuota?.capturedAt)
+  const capturedAt = timestampValue(observeQuota?.capturedAt)
     ?? observedAt(input, providerMeta, now);
   const planType = stringValue(observeQuota?.planType);
   const userId = stringValue(observeQuota?.userId);
@@ -203,7 +216,7 @@ function buildQuotaWindowObservations(
       percentRemaining,
       used: numberValue(window.used),
       limit: numberValue(window.limit),
-      resetAt: numberValue(window.resetAt),
+      resetAt: timestampValue(window.resetAt),
       windowMs: numberValue(window.windowMs),
       capturedAt,
       metadata: {

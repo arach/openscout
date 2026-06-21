@@ -1,7 +1,11 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { Agent } from "./types.ts";
+import type * as ReactModule from "react";
 
-const React = await import("../../node_modules/react/index.js");
+// @ts-expect-error -- the relative .js path keeps bun's runtime resolution to the real react
+// module; a bare "react" specifier would be hijacked by tsconfig `paths` to the .d.ts. The cast
+// restores the proper types that the path import otherwise loses.
+const React = (await import("../../node_modules/react/index.js")) as typeof ReactModule;
 
 mock.module("react", () => React);
 

@@ -4,7 +4,7 @@ declare const durationMsBrand: unique symbol;
 export type EpochMs = number & { readonly [epochMsBrand]: "EpochMs" };
 export type DurationMs = number & { readonly [durationMsBrand]: "DurationMs" };
 
-const LEGACY_EPOCH_SECONDS_CUTOFF = 1_000_000_000_000;
+export const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 
 function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
@@ -33,7 +33,7 @@ export function epochMs(value: unknown): EpochMs | null {
     return null;
   }
 
-  return Math.trunc(parsed < LEGACY_EPOCH_SECONDS_CUTOFF ? parsed * 1000 : parsed) as EpochMs;
+  return Math.trunc(parsed < EPOCH_MILLISECONDS_FLOOR ? parsed * 1000 : parsed) as EpochMs;
 }
 
 export function epochMsFromSeconds(value: number): EpochMs {

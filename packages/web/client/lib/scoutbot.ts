@@ -115,10 +115,6 @@ export function resolveScoutbotAgentId(agents: Agent[]): string {
   return resolveScoutbotAgent(agents)?.id ?? DEFAULT_SCOUTBOT_AGENT_ID;
 }
 
-export function scoutbotConversationId(agentId: string): string {
-  return `dm.operator.${agentId}`;
-}
-
 export function isScoutbotActorId(actorId: string, scoutbotAgentId = DEFAULT_SCOUTBOT_AGENT_ID): boolean {
   const normalized = actorId.trim().toLowerCase();
   const scoutbot = scoutbotAgentId.trim().toLowerCase();

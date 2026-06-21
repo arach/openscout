@@ -4,6 +4,7 @@ export type ActorKind =
   | "person"
   | "helper"
   | "agent"
+  | "session"
   | "system"
   | "bridge"
   | "device";

@@ -2,7 +2,6 @@ import { UserPlus } from "lucide-react";
 import type { CSSProperties } from "react";
 import { actorColor } from "../../lib/colors.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
-import { conversationForAgent } from "../../lib/router.ts";
 import type { Agent, Route } from "../../lib/types.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
@@ -134,8 +133,8 @@ export function ConversationHeader({
                       openContent(
                         navigate,
                         {
-                          view: "agent-info",
-                          conversationId: conversationForAgent(participant.agent!.id),
+                          view: "agents",
+                          agentId: participant.agent!.id,
                         },
                         { returnTo: route },
                       )

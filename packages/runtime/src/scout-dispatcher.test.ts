@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
 
 import type { AgentDefinition, AgentEndpoint } from "@openscout/protocol";
 
@@ -468,6 +470,26 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe("talkie.main");
+    }
+  });
+
+  test("expands home-relative project path targets before matching broker roots", () => {
+    const projectRoot = resolve(homedir(), "dev", "openscout");
+    const target = makeAgent({
+      id: "openscout.main",
+      definitionId: "openscout",
+      metadata: { projectRoot },
+    });
+    const snapshot = makeSnapshot([target]);
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "project_path", projectPath: "~/dev/openscout" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("openscout.main");
     }
   });
 

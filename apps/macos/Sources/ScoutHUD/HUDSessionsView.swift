@@ -525,9 +525,7 @@ private struct SessionDetailInline: View {
         }
         let aid = session.id
         if !aid.isEmpty {
-            // Synthesize the operator DM url. Matches the broker's
-            // `dm.operator.<agentId>` convention.
-            return relativeURL("/c/\(percent("dm.operator.\(aid)"))", base: base)
+            return relativeURL("/agents/\(percent(aid))?tab=message", base: base)
         }
         return relativeURL("/sessions", base: base)
     }

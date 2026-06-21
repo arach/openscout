@@ -1,4 +1,5 @@
 import {
+  type ActorIdentity,
   type AgentDefinition,
   type FlightRecord,
   type InvocationRequest,
@@ -21,10 +22,14 @@ import {
   type BrokerRouteTargetInput,
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
-import { homeEndpointForAgent } from "./broker-endpoint-selection.js";
+import {
+  describeUnavailableSessionEndpoint,
+  homeEndpointForAgent,
+} from "./broker-endpoint-selection.js";
 
 export type BrokerInvocationDispatchRuntime = {
   snapshot(): RuntimeSnapshot;
+  actor(actorId: string): ActorIdentity | undefined;
   agent(agentId: string): AgentDefinition | undefined;
   node(nodeId: string): NodeDefinition | undefined;
   flightForInvocation(invocationId: string): FlightRecord | undefined;
@@ -156,7 +161,7 @@ export class BrokerInvocationDispatchService {
   }> => {
     await this.deps.syncRegisteredLocalAgentsIfChanged("invocation");
     const resolved = await this.deps.resolveInvocationTarget(payload);
-    if (resolved.kind !== "resolved") {
+    if (resolved.kind !== "resolved" && resolved.kind !== "resolved_session") {
       const envelope = buildDispatchEnvelope(
         resolved,
         askedLabelForRouteTarget(payload),
@@ -176,16 +181,23 @@ export class BrokerInvocationDispatchService {
       };
     }
 
+    // SCO-070: a cardless session resolves to an endpoint owned by the session
+    // marker. The invocation target stores that actor id; no agent card is needed.
+    const targetActorId = resolved.kind === "resolved"
+      ? resolved.agent.id
+      : resolved.session.actorId;
     const invocation: InvocationRequest = {
       ...payload,
-      targetAgentId: resolved.agent.id,
+      targetAgentId: targetActorId,
     };
 
-    const unavailable = this.deps.describeUnavailableInvocationTarget?.(
-      this.deps.runtime.snapshot(),
-      resolved.agent,
-      targetSessionIdForInvocation(invocation),
-    );
+    const unavailable = resolved.kind === "resolved"
+      ? this.deps.describeUnavailableInvocationTarget?.(
+          this.deps.runtime.snapshot(),
+          resolved.agent,
+          targetSessionIdForInvocation(invocation),
+        )
+      : describeUnavailableSessionEndpoint(resolved.session.endpoint);
     if (unavailable && this.deps.buildUnavailableDispatchEnvelope) {
       const envelope = this.deps.buildUnavailableDispatchEnvelope(
         askedLabelForRouteTarget(payload),
@@ -267,8 +279,9 @@ export class BrokerInvocationDispatchService {
 
   readonly dispatchAcceptedInvocation = async (invocation: InvocationRequest): Promise<void> => {
     const targetAgent = this.deps.runtime.agent(invocation.targetAgentId);
-    if (!targetAgent) {
-      await this.failAcceptedInvocation(invocation, `unknown agent ${invocation.targetAgentId}`);
+    const targetActor = this.deps.runtime.actor(invocation.targetAgentId) ?? targetAgent;
+    if (!targetActor) {
+      await this.failAcceptedInvocation(invocation, `unknown target actor ${invocation.targetAgentId}`);
       return;
     }
 
@@ -278,7 +291,7 @@ export class BrokerInvocationDispatchService {
       return;
     }
 
-    if (targetAgent.authorityNodeId && targetAgent.authorityNodeId !== this.deps.nodeId) {
+    if (targetAgent?.authorityNodeId && targetAgent.authorityNodeId !== this.deps.nodeId) {
       const authorityNode = this.deps.runtime.node(targetAgent.authorityNodeId);
       const authorityIssue = this.deps.describeRemoteAuthorityIssue(targetAgent, authorityNode);
       if (authorityIssue) {

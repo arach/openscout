@@ -3,8 +3,8 @@ import { Settings } from "lucide-react";
 import { type CommandOption, type StatusColor, type TakeoverState } from "@hudsonkit";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
+import { ensureAgentChat } from "../lib/agent-chat.ts";
 import { useScout } from "./Provider.tsx";
-import { conversationForAgent } from "../lib/router.ts";
 import type { MeshStatus } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import {
@@ -172,11 +172,20 @@ export function useScoutCommands(): CommandOption[] {
       commands.push({
         id: `scout:message:${agent.id}`,
         label: `Message ${agent.name}`,
-        action: () =>
-          navigate({
-            view: "conversation",
-            conversationId: conversationForAgent(agent.id),
-          }),
+        action: () => {
+          void ensureAgentChat(agent)
+            .then((conversationId) => {
+              navigate({
+                view: "conversation",
+                conversationId,
+              });
+            })
+            .catch(() => navigate({
+              view: "agents",
+              agentId: agent.id,
+              tab: "message",
+            }));
+        },
       });
     }
 
