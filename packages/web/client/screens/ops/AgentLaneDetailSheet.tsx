@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
+import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
 
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
@@ -43,6 +44,11 @@ const PLAN_STEP_LABELS: Record<PlanDocumentStepStatus, string> = {
 function fmtCount(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return value.toLocaleString();
+}
+
+/** Compact a token count for the gauge readout (108528 → "108k"). */
+function kfmt(value: number): string {
+  return value >= 1000 ? `${Math.round(value / 1000)}k` : `${value}`;
 }
 
 /** Tool names that are a shell command across both harness idioms (mirrors
@@ -231,6 +237,54 @@ function RevealButton({
       }}
     >
       <ExternalLink size={11} strokeWidth={1.6} />
+    </button>
+  );
+}
+
+/** Section header — a label + optional count, a hairline rule that fills the
+ *  remaining width, and optional inline action buttons on the right. Ports the
+ *  studio's SecHead so every section reads as a titled rule, not a bare h3. */
+function SheetSecHead({
+  id,
+  label,
+  count,
+  actions,
+}: {
+  id?: string;
+  label: string;
+  count?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="s-lane-sheet-sechead" id={id}>
+      <span className="s-lane-sheet-sechead-label">{label}</span>
+      {count != null && count !== false && (
+        <span className="s-lane-sheet-sechead-count">{count}</span>
+      )}
+      <span className="s-lane-sheet-sechead-rule" aria-hidden="true" />
+      {actions && <span className="s-lane-sheet-sechead-actions">{actions}</span>}
+    </div>
+  );
+}
+
+/** A small bordered pill action button — the studio's `.ghost`. `primary` adds
+ *  the green-tinted treatment for the lead action. */
+function SheetGhost({
+  children,
+  onClick,
+  primary = false,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      className={`s-lane-sheet-ghost${primary ? " s-lane-sheet-ghost--primary" : ""}`}
+      onClick={onClick}
+    >
+      {children}
     </button>
   );
 }
@@ -461,6 +515,42 @@ export function AgentLaneDetailSheet({
     [fileGroups.changed, stats.cwd],
   );
 
+  // Copy payloads for the section-header ghost actions (diagnostics block · the
+  // recent command list), built from the same data the panel already renders.
+  const diagnostics = useMemo(() => {
+    const lines: string[] = [`agent: ${primaryLabel}`];
+    const harness = agent.harness ?? stats.harness;
+    const model = facts?.model ?? stats.model;
+    if (harness || model || facts?.effort) {
+      lines.push(`harness: ${[harness, model, facts?.effort].filter(Boolean).join(" · ")}`);
+    }
+    const branch = facts?.branch ?? stats.branch;
+    if (branch) lines.push(`branch: ${branch}`);
+    if (stats.cwd) lines.push(`cwd: ${stats.cwd}`);
+    if (stats.sessionId) lines.push(`session: ${stats.sessionId}`);
+    if (agent.harnessLogPath) lines.push(`transcript: ${agent.harnessLogPath}`);
+    if (facts?.originator) lines.push(`origin: ${facts.originator}`);
+    return lines.join("\n");
+  }, [agent, facts, primaryLabel, stats]);
+
+  const allCommands = useMemo(
+    () => commands.map((entry) => entry.command).join("\n"),
+    [commands],
+  );
+
+  const copyDiagnostics = useCallback(() => {
+    void copyTextToClipboard(diagnostics);
+  }, [diagnostics]);
+
+  const copyAllCommands = useCallback(() => {
+    void copyTextToClipboard(allCommands);
+  }, [allCommands]);
+
+  const openAllPlans = useCallback(() => {
+    navigate({ view: "ops", mode: "plan" });
+    onClose();
+  }, [navigate, onClose]);
+
   const openAllInDiff = useCallback(() => {
     for (const file of fileGroups.changed) {
       openFilePreview(resolveLanePath(file.path, stats.cwd));
@@ -479,17 +569,45 @@ export function AgentLaneDetailSheet({
 
   const usage = facts?.usage ?? stats.usage;
 
+  // The raw token totals — rendered as the Cluster's demoted secondary "dials"
+  // (short lowercase labels), no longer a bordered card grid.
   const usageCards = useMemo(() => {
     if (!usage) return [];
     return [
-      { label: "Input", value: usage.inputTokens },
-      { label: "Output", value: usage.outputTokens },
-      { label: "Cache read", value: usage.cacheReadInputTokens },
-      { label: "Cache write", value: usage.cacheCreationInputTokens },
-      { label: "Total", value: usage.totalTokens },
-      { label: "Reasoning", value: usage.reasoningOutputTokens },
+      { label: "in", value: usage.inputTokens },
+      { label: "out", value: usage.outputTokens },
+      { label: "cache rd", value: usage.cacheReadInputTokens },
+      { label: "cache wr", value: usage.cacheCreationInputTokens },
+      { label: "total", value: usage.totalTokens },
+      { label: "reasoning", value: usage.reasoningOutputTokens },
     ].filter((entry) => typeof entry.value === "number");
   }, [usage]);
+
+  // CONTEXT BUDGET GAUGE — the primary vital. Used = the live context input
+  // (last-turn input tokens), budget = the model's context window. The window
+  // is normally pre-resolved; if it's missing, infer it from the model/adapter
+  // here so the model file stays untouched. If there is no `contextInputTokens`
+  // at all, the gauge is hidden (no 0%/NaN meter) and the rest of Vitals stays.
+  const contextGauge = useMemo(() => {
+    const used = usage?.contextInputTokens;
+    if (typeof used !== "number" || !Number.isFinite(used)) return null;
+    const budget =
+      usage?.contextWindowTokens ??
+      inferModelContextWindowTokens({
+        model: facts?.model ?? stats.model,
+        adapterType: agent.harness ?? stats.harness,
+      });
+    if (typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0) {
+      return null;
+    }
+    const pct = Math.min(100, Math.max(0, Math.round((used / budget) * 100)));
+    return { used, budget, pct };
+  }, [usage, facts?.model, stats.model, agent.harness, stats.harness]);
+
+  // CADENCE — a calm one-line readout (events · tools · age). There is no real
+  // per-bucket activity time-series in the data model, so we deliberately ship
+  // the restrained one-liner instead of a fabricated sparkline.
+  const cadenceAge = lastActiveAt ? timeAgo(lastActiveAt) : null;
 
   const openSession = useCallback(() => {
     if (source === "scout" || agent.agentClass !== "organic") {
@@ -580,13 +698,8 @@ export function AgentLaneDetailSheet({
       </div>
 
       <nav className="s-lane-sheet-anchors" aria-label="Jump to section">
-        {preview && (
-          <a href="#s-lane-sheet-now" className="s-lane-sheet-anchor">Now</a>
-        )}
-        <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Runtime</a>
-        {usageCards.length > 0 && (
-          <a href="#s-lane-sheet-usage" className="s-lane-sheet-anchor">Usage</a>
-        )}
+        <a href="#s-lane-sheet-vitals" className="s-lane-sheet-anchor">Vitals</a>
+        <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Cluster</a>
         <a href="#s-lane-sheet-files" className="s-lane-sheet-anchor">
           Files{touchedCount > 0 && <span className="s-lane-sheet-anchor-n">{touchedCount}</span>}
         </a>
@@ -597,40 +710,95 @@ export function AgentLaneDetailSheet({
         )}
         <a href="#s-lane-sheet-plans" className="s-lane-sheet-anchor">Plans</a>
         <a href="#s-lane-sheet-docs" className="s-lane-sheet-anchor">Docs</a>
+        {facts?.turn && (
+          <span className="s-lane-sheet-anchorbar-turn">
+            turn {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
+          </span>
+        )}
       </nav>
 
       <div className="s-slide-body s-lane-sheet-body">
-        {preview && (
-          <section id="s-lane-sheet-now" className="s-lane-sheet-section s-lane-sheet-now">
-            <h3 className="s-lane-sheet-h">Now</h3>
-            <div className={`s-lane-sheet-now-line${preview.headlineFrom ? "" : " s-lane-sheet-now-line--console"}`}>
-              {preview.headlineFrom === "user" ? (
-                <span className="s-lane-sheet-now-mark" aria-hidden="true">←</span>
-              ) : preview.headlineFrom === "agent" ? (
-                <span className="s-lane-sheet-now-mark" aria-hidden="true">→</span>
-              ) : (
-                <span className="s-lane-sheet-now-mark s-lane-sheet-now-prompt" aria-hidden="true">❯</span>
-              )}
-              <span className="s-lane-sheet-now-text" title={preview.headFull}>{preview.headline}</span>
-              {preview.headFull && preview.headFull !== preview.headline && (
-                <SheetCopy value={preview.headFull} label="current action" />
-              )}
-            </div>
-            <div className="s-lane-sheet-now-foot">
-              {facts?.turn && (
-                <span className="s-lane-sheet-now-turn">
-                  turn · {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
+        {/* VITALS — the cockpit hero: alive · how full · how busy, in one look.
+            A flat section (soft emerald top wash) holding the live action well,
+            the context-budget gauge, and a calm one-line cadence readout. */}
+        <section id="s-lane-sheet-vitals" className="s-lane-sheet-section s-lane-sheet-vitals">
+          {preview && (
+            <div className="s-lane-sheet-vitals-now">
+              <div className="s-lane-sheet-vitals-now-top">
+                <span className="s-lane-sheet-vitals-live" aria-hidden="true">
+                  <span className="s-lane-sheet-vitals-live-dot" />
+                  <span className="s-lane-sheet-vitals-live-ring" />
                 </span>
-              )}
-              <button type="button" className="s-lane-sheet-now-jump" onClick={openSession}>
-                Open trace →
-              </button>
+                <span className="s-lane-sheet-vitals-now-label">executing now</span>
+                {facts?.turn && (
+                  <span className="s-lane-sheet-vitals-now-turn">
+                    turn {facts.turn.phase}{facts.turn.index ? ` · #${facts.turn.index}` : ""}
+                  </span>
+                )}
+              </div>
+              <div className="s-lane-sheet-vitals-well">
+                {preview.headlineFrom === "user" ? (
+                  <span className="s-lane-sheet-vitals-prompt" aria-hidden="true">←</span>
+                ) : preview.headlineFrom === "agent" ? (
+                  <span className="s-lane-sheet-vitals-prompt" aria-hidden="true">→</span>
+                ) : (
+                  <span className="s-lane-sheet-vitals-prompt s-lane-sheet-vitals-prompt--cmd" aria-hidden="true">❯</span>
+                )}
+                <span className="s-lane-sheet-vitals-cmd" title={preview.headFull}>{preview.headline}</span>
+                <span className="s-lane-sheet-vitals-caret" aria-hidden="true" />
+                <span className="s-lane-sheet-vitals-now-acts">
+                  <button type="button" className="s-lane-sheet-reveal" title="Open trace at this step" aria-label="Open trace" onClick={openSession}>
+                    <ExternalLink size={11} strokeWidth={1.6} />
+                  </button>
+                  {preview.headFull && preview.headFull !== preview.headline && (
+                    <SheetCopy value={preview.headFull} label="current action" />
+                  )}
+                </span>
+              </div>
             </div>
-          </section>
-        )}
+          )}
+
+          {contextGauge && (
+            <div className="s-lane-sheet-vitals-gauge">
+              <div className="s-lane-sheet-vitals-gauge-top">
+                <span className="s-lane-sheet-vitals-gauge-label">context</span>
+                <span className="s-lane-sheet-vitals-gauge-read">
+                  <b>{kfmt(contextGauge.used)}</b>
+                  <span className="s-lane-sheet-vitals-gauge-of"> / {kfmt(contextGauge.budget)}</span>
+                  <span className="s-lane-sheet-vitals-gauge-unit"> tokens</span>
+                  <span className="s-lane-sheet-vitals-gauge-pct">{contextGauge.pct}%</span>
+                </span>
+              </div>
+              <div
+                className="s-lane-sheet-vitals-gaugebar"
+                role="meter"
+                aria-label="context budget"
+                aria-valuenow={contextGauge.pct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <span className="s-lane-sheet-vitals-gaugebar-fill" style={{ width: `${contextGauge.pct}%` }}>
+                  <span className="s-lane-sheet-vitals-gaugebar-edge" aria-hidden="true" />
+                </span>
+                {[25, 50, 75].map((tick) => (
+                  <span key={tick} className="s-lane-sheet-vitals-gaugebar-tick" style={{ left: `${tick}%` }} aria-hidden="true" />
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="s-lane-sheet-vitals-cadence">
+            <b>{fmtCount(stats.events)}</b> events · <b>{fmtCount(stats.tools)}</b> tools
+            {cadenceAge ? <> · {cadenceAge}</> : null}
+          </div>
+        </section>
 
         <section id="s-lane-sheet-runtime" className="s-lane-sheet-section">
-          <h3 className="s-lane-sheet-h">Runtime</h3>
+          <SheetSecHead
+            label="Cluster"
+            count="runtime · tokens"
+            actions={<SheetGhost onClick={copyDiagnostics}>Copy diagnostics</SheetGhost>}
+          />
           <dl className="s-lane-sheet-meta">
             <SheetFact label="Model" value={facts?.model ?? stats.model ?? "—"} copy={facts?.model ?? stats.model ?? null} />
             <SheetFact label="Effort" value={facts?.effort ?? "—"} />
@@ -667,81 +835,44 @@ export function AgentLaneDetailSheet({
               <SheetFact label="Task" value={facts.currentTask} title={facts.currentTask} copy={facts.currentTask} />
             )}
           </dl>
-        </section>
 
-        {usageCards.length > 0 && (
-          <section id="s-lane-sheet-usage" className="s-lane-sheet-section">
-            <h3 className="s-lane-sheet-h">Usage</h3>
-            <div className="s-lane-sheet-usage">
+          {usageCards.length > 0 && (
+            <div className="s-lane-sheet-dials">
               {usageCards.map((entry) => (
-                <div key={entry.label} className="s-lane-sheet-usage-card">
-                  <span className="s-lane-sheet-usage-value">{fmtCount(entry.value)}</span>
-                  <span className="s-lane-sheet-usage-label">{entry.label}</span>
-                </div>
+                <span key={entry.label} className="s-lane-sheet-dial">
+                  <span className="s-lane-sheet-dial-value">{fmtCount(entry.value)}</span>
+                  <span className="s-lane-sheet-dial-label">{entry.label}</span>
+                </span>
               ))}
             </div>
-          </section>
-        )}
-
-        <section className="s-lane-sheet-section">
-          <h3 className="s-lane-sheet-h">Session stats</h3>
-          <div className="s-lane-sheet-stats">
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.tools)}</span>
-              <span className="s-lane-sheet-stat-label">tools</span>
-            </div>
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.edits)}</span>
-              <span className="s-lane-sheet-stat-label">edits</span>
-            </div>
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.reads)}</span>
-              <span className="s-lane-sheet-stat-label">reads</span>
-            </div>
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.thinks)}</span>
-              <span className="s-lane-sheet-stat-label">thinks</span>
-            </div>
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.files)}</span>
-              <span className="s-lane-sheet-stat-label">files</span>
-            </div>
-            <div className="s-lane-sheet-stat">
-              <span className="s-lane-sheet-stat-value">{fmtCount(stats.events)}</span>
-              <span className="s-lane-sheet-stat-label">events</span>
-            </div>
-          </div>
+          )}
         </section>
 
         <section id="s-lane-sheet-files" className="s-lane-sheet-section">
-          <h3 className="s-lane-sheet-h">
-            Files
-            {touchedCount > 0 && (
-              <span className="s-lane-sheet-h-count">
-                {fileGroups.changed.length} changed · {fileGroups.read.length} read
-              </span>
-            )}
-            {fileGroups.changed.length > 0 && (
-              <span className="s-lane-sheet-files-tools">
-                {(fileGroups.totalAdd > 0 || fileGroups.totalDel > 0) && (
-                  <span className="s-lane-sheet-file-diff" aria-hidden="true">
-                    {fileGroups.totalAdd > 0 && <span className="s-lane-sheet-file-add">+{fileGroups.totalAdd}</span>}
-                    {fileGroups.totalDel > 0 && <span className="s-lane-sheet-file-del">−{fileGroups.totalDel}</span>}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  className={`s-lane-sheet-bulk${changedCopied ? " s-lane-sheet-bulk--done" : ""}`}
-                  onClick={copyChanged}
-                >
-                  {changedCopied ? "Copied" : "Copy changed"}
-                </button>
-                <button type="button" className="s-lane-sheet-bulk" onClick={openAllInDiff}>
-                  Open all → diff
-                </button>
-              </span>
-            )}
-          </h3>
+          <SheetSecHead
+            label="Files"
+            count={
+              touchedCount > 0
+                ? `${fileGroups.changed.length} changed · ${fileGroups.read.length} read`
+                : undefined
+            }
+            actions={
+              fileGroups.changed.length > 0 ? (
+                <>
+                  {(fileGroups.totalAdd > 0 || fileGroups.totalDel > 0) && (
+                    <span className="s-lane-sheet-file-diff" aria-hidden="true">
+                      {fileGroups.totalAdd > 0 && <span className="s-lane-sheet-file-add">+{fileGroups.totalAdd}</span>}
+                      {fileGroups.totalDel > 0 && <span className="s-lane-sheet-file-del">−{fileGroups.totalDel}</span>}
+                    </span>
+                  )}
+                  <SheetGhost onClick={copyChanged}>
+                    {changedCopied ? "Copied" : "Copy changed"}
+                  </SheetGhost>
+                  <SheetGhost onClick={openAllInDiff}>Open all → diff</SheetGhost>
+                </>
+              ) : undefined
+            }
+          />
           {touchedCount === 0 ? (
             <div className="s-lane-sheet-empty">No files touched in this session yet.</div>
           ) : (
@@ -824,10 +955,11 @@ export function AgentLaneDetailSheet({
 
         {commands.length > 0 && (
           <section id="s-lane-sheet-commands" className="s-lane-sheet-section">
-            <h3 className="s-lane-sheet-h">
-              Commands
-              <span className="s-lane-sheet-h-count">recent</span>
-            </h3>
+            <SheetSecHead
+              label="Commands"
+              count="recent"
+              actions={<SheetGhost onClick={copyAllCommands}>Copy all</SheetGhost>}
+            />
             <div className="s-lane-sheet-cmds">
               {commands.map((entry) => (
                 <LaneCommandRow key={entry.id} entry={entry} />
@@ -837,12 +969,11 @@ export function AgentLaneDetailSheet({
         )}
 
         <section id="s-lane-sheet-plans" className="s-lane-sheet-section">
-          <h3 className="s-lane-sheet-h">
-            Plans
-            {documentsLoaded && plans.length > 0 && (
-              <span className="s-lane-sheet-h-count">{plans.length}</span>
-            )}
-          </h3>
+          <SheetSecHead
+            label="Plans"
+            count={documentsLoaded && plans.length > 0 ? plans.length : undefined}
+            actions={<SheetGhost onClick={openAllPlans}>Open in Plans →</SheetGhost>}
+          />
           {!documentsLoaded ? (
             <div className="s-lane-sheet-empty">Indexing plan documents…</div>
           ) : plans.length === 0 ? (
@@ -863,12 +994,10 @@ export function AgentLaneDetailSheet({
         </section>
 
         <section id="s-lane-sheet-docs" className="s-lane-sheet-section">
-          <h3 className="s-lane-sheet-h">
-            Docs
-            {documentsLoaded && docs.length > 0 && (
-              <span className="s-lane-sheet-h-count">{docs.length}</span>
-            )}
-          </h3>
+          <SheetSecHead
+            label="Docs"
+            count={documentsLoaded && docs.length > 0 ? docs.length : undefined}
+          />
           {!documentsLoaded ? (
             <div className="s-lane-sheet-empty">Indexing documents…</div>
           ) : docs.length === 0 ? (
