@@ -114,6 +114,26 @@ describe("buildLaneTouchedFiles", () => {
     const files = buildLaneTouchedFiles(observe, 2);
     expect(files.map((file) => file.path)).toEqual(["c.ts", "b.ts"]);
   });
+
+  test("drops mis-recorded bash tokens and dedupes duplicate paths", () => {
+    const observe: ObserveData = {
+      events: [],
+      files: [
+        { path: "necho", state: "read", touches: 1, lastT: 1 },
+        { path: "nCHROME=", state: "read", touches: 1, lastT: 2 },
+        { path: "Google", state: "read", touches: 1, lastT: 3 },
+        { path: "run.sh", state: "read", touches: 1, lastT: 4 },
+        { path: "run.sh", state: "read", touches: 1, lastT: 6 },
+        { path: "line_strip.png", state: "read", touches: 1, lastT: 5 },
+      ],
+    };
+
+    const files = buildLaneTouchedFiles(observe);
+    expect(files.map((file) => file.path).sort()).toEqual([
+      "line_strip.png",
+      "run.sh",
+    ]);
+  });
 });
 
 describe("docExcerpt", () => {

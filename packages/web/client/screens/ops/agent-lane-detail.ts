@@ -1,3 +1,4 @@
+import { plausibleTouchedFiles } from "../../lib/lane-observe.ts";
 import { observeToolIsEdit, observeToolIsRead } from "../../lib/tail-display.ts";
 import type {
   ObserveData,
@@ -59,7 +60,9 @@ export function buildLaneTouchedFiles(
 ): ObserveFile[] {
   if (!observe || observe.files.length === 0) return [];
 
-  return [...observe.files]
+  // `observe.files` READ entries can leak mis-recorded bash tokens (e.g. `necho`,
+  // `nCHROME=`); gate + dedupe before display so only real paths surface.
+  return plausibleTouchedFiles(observe.files)
     .sort((left, right) => {
       const leftChanged = left.state === "read" ? 0 : 1;
       const rightChanged = right.state === "read" ? 0 : 1;

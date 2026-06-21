@@ -5,6 +5,7 @@ import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client"
 import {
   filesFromObserveEvents,
   filterObserveDataForHorizon,
+  isPlausibleFilePath,
   laneSnippetText,
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
@@ -521,7 +522,9 @@ function mergeObserveFiles(
   const byPath = new Map<string, ObserveFile>();
   for (const file of [...left ?? [], ...right ?? []]) {
     const path = file.path?.trim();
-    if (!path) continue;
+    // Reject mis-recorded bash tokens (e.g. `necho`, `nCHROME=`) that leak into
+    // the raw `observe.files` READ inventory; the client inferer is already clean.
+    if (!path || !isPlausibleFilePath(path)) continue;
     const existing = byPath.get(path);
     if (!existing) {
       byPath.set(path, { ...file, path });
