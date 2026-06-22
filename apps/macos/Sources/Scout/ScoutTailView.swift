@@ -362,8 +362,7 @@ struct ScoutTailContent: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(visibleEvents.indices, id: \.self) { index in
-                                let event = visibleEvents[index]
+                            ForEach(visibleEvents) { event in
                                 Group {
                                     if viewMode == .ledger {
                                         ScoutTailRow(
@@ -381,7 +380,7 @@ struct ScoutTailContent: View {
                                             event: event,
                                             activeAgent: activeAgent(for: event),
                                             isSelected: selectedEventId == event.id,
-                                            isFirst: index == visibleEvents.startIndex,
+                                            isFirst: event.id == visibleEvents.first?.id,
                                             onOpenSession: { onOpenSession(event) },
                                             onOpenAgent: { agent in onOpenAgent(agent) }
                                         ) {
@@ -916,34 +915,42 @@ private struct ScoutTailIdentityCell: View {
 
     var body: some View {
         HStack(spacing: HudSpacing.xs) {
-            if let activeAgent {
-                SpriteAvatarView(agent: activeAgent, size: 18, tile: true)
-            } else {
-                Color.clear.frame(width: 18, height: 18)
-            }
+            // Every row gets a deterministic sprite, keyed to whatever identity
+            // it resolves to — so the column is never a blank gutter and the same
+            // agent/project reads as the same mark down the stream.
+            SpriteAvatarView(name: spriteName, size: 18, tile: true)
             label
         }
+    }
+
+    /// The name the sprite is generated from: resolved agent → project → proc.
+    private var spriteName: String {
+        if let activeAgent { return activeAgent.displayName }
+        if scoutTailCopyable(event.projectLabel) != nil { return event.projectLabel }
+        return procFallbackLabel
     }
 
     @ViewBuilder
     private var label: some View {
         if let activeAgent {
+            // Resolved agent: an @handle at full ink — the thing you scan for.
             ScoutTailHoverAction(
-                title: activeAgent.displayName,
+                title: atHandle(activeAgent.displayName),
                 actionHelp: "Open agent observe",
                 tint: agentInk,
                 activeTint: ScoutPalette.accent,
-                font: HudFont.ui(HudTextSize.sm, weight: .medium),
+                font: ScoutTailFont.mono(HudTextSize.sm, weight: .medium),
                 truncationMode: .tail,
                 action: { onOpenAgent(activeAgent) }
             )
         } else if scoutTailCopyable(event.projectLabel) != nil {
+            // Unresolved: the project, muted (no @, lower confidence).
             ScoutTailHoverAction(
                 title: event.projectLabel,
                 actionHelp: "Reveal project in Finder",
                 tint: ScoutPalette.muted,
                 activeTint: ScoutPalette.ink,
-                font: HudFont.ui(HudTextSize.sm, weight: .regular),
+                font: ScoutTailFont.mono(HudTextSize.sm, weight: .regular),
                 truncationMode: .middle,
                 action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
             )
@@ -954,6 +961,10 @@ private struct ScoutTailIdentityCell: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+    }
+
+    private func atHandle(_ name: String) -> String {
+        name.hasPrefix("@") ? name : "@\(name)"
     }
 
     private var agentInk: Color {
@@ -967,24 +978,40 @@ private struct ScoutTailIdentityCell: View {
     }
 }
 
-/// The action summary. Type carries kind — human turns are sans (user heavier),
-/// machine I/O is mono — and color stays monochrome, graded by emphasis.
+/// The action summary. All-mono (the firehose is a log, not prose), with kind
+/// carried by weight + color. Tool calls — the commands — get the "little" code
+/// treatment: a touch smaller, ink, on a faint inset chip, so they read as the
+/// shell lines they are. Results/system recede; user/assistant prose stays full.
 private struct ScoutTailActionText: View {
     let event: ScoutTailEvent
     let emphasized: Bool
 
     var body: some View {
-        Text(event.summary)
-            .font(font)
-            .foregroundStyle(color)
-            .lineLimit(1)
-            .truncationMode(.tail)
+        if event.kind == .tool {
+            Text(event.summary)
+                .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .regular))
+                .foregroundStyle(emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.86))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, HudSpacing.xs)
+                .padding(.vertical, 1)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .fill(ScoutSurface.inset)
+                )
+        } else {
+            Text(event.summary)
+                .font(font)
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
     }
 
     private var font: Font {
         switch event.kind {
-        case .user: return HudFont.ui(HudTextSize.sm, weight: .semibold)
-        case .assistant: return HudFont.ui(HudTextSize.sm, weight: .regular)
+        case .user: return ScoutTailFont.mono(HudTextSize.xs, weight: .semibold)
+        case .assistant: return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
         case .tool, .toolResult, .system, .other: return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
         }
     }
