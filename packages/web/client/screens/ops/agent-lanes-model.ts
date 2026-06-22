@@ -2,6 +2,7 @@ import type { ObserveCacheEntry } from "../../lib/observe.ts";
 // Import via the browser-safe `/client` entry — the barrel index re-exports
 // node-only history helpers (node:path) that crash the browser bundle.
 import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
+import type { TerminalSessionRecord } from "@openscout/protocol";
 import {
   filesFromObserveEvents,
   filterObserveDataForHorizon,
@@ -807,6 +808,162 @@ export function nativeSessionAgent(
   };
 }
 
+const TERMINAL_BACKEND_HARNESSES = new Set(["tmux", "zellij"]);
+
+function projectFromPath(path: string | null | undefined): string | null {
+  const trimmed = path?.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? trimmed;
+}
+
+function terminalSurfaceDescriptor(
+  session: TerminalSessionRecord,
+): Agent["terminalSurface"] {
+  const surface = session.surfaces[0];
+  if (!surface) return null;
+  return {
+    backend: surface.backend,
+    sessionName: surface.sessionName,
+    paneId: surface.paneId,
+    socketDir: surface.socketDir ?? null,
+  };
+}
+
+function isRegisteredHarnessTerminalSession(session: TerminalSessionRecord): boolean {
+  const harness = session.harness?.trim();
+  if (!harness || TERMINAL_BACKEND_HARNESSES.has(harness.toLowerCase())) return false;
+  if (!session.sourceSessionId?.trim()) return false;
+  if (session.metadata?.registryState === "discovered") return false;
+  return session.surfaces.length > 0;
+}
+
+function terminalSessionRefs(session: TerminalSessionRecord): string[] {
+  const refs = new Set<string>();
+  for (const candidate of [
+    session.id,
+    session.sourceSessionId,
+    normalizeTailSessionRef(session.sourceSessionId),
+  ]) {
+    const trimmed = candidate?.trim();
+    if (trimmed) refs.add(trimmed);
+  }
+  for (const surface of session.surfaces) {
+    const surfaceName = surface.sessionName?.trim();
+    if (surfaceName) refs.add(surfaceName);
+  }
+  return [...refs];
+}
+
+function nativeTerminalSessionId(session: TerminalSessionRecord): string {
+  return `native:${session.harness}:terminal:${session.id}`;
+}
+
+function terminalSessionAgent(
+  session: TerminalSessionRecord,
+  lastActiveAt: number,
+  current: boolean,
+): Agent {
+  const harness = session.harness.trim() || "native";
+  const sessionId = session.sourceSessionId.trim() || session.id;
+  const project = projectFromPath(session.cwd);
+  return {
+    id: nativeTerminalSessionId(session),
+    definitionId: `native:${harness}`,
+    name: `${titleCase(harness)} ${shortId(sessionId)}`,
+    handle: null,
+    agentClass: "organic",
+    harness,
+    state: current ? "working" : "idle",
+    projectRoot: session.cwd || null,
+    cwd: session.cwd || null,
+    updatedAt: lastActiveAt,
+    createdAt: session.createdAt ?? null,
+    transport: terminalSurfaceDescriptor(session)?.backend ?? null,
+    selector: null,
+    defaultSelector: null,
+    nodeQualifier: null,
+    workspaceQualifier: null,
+    wakePolicy: null,
+    capabilities: [],
+    project,
+    branch: null,
+    role: null,
+    model: null,
+    harnessSessionId: sessionId,
+    harnessLogPath: null,
+    conversationId: sessionId,
+    homeNodeId: null,
+    homeNodeName: null,
+    ownerId: null,
+    ownerName: null,
+    ownerHandle: null,
+    staleLocalRegistration: false,
+    retiredFromFleet: false,
+    replacedByAgentId: null,
+    terminalSurface: terminalSurfaceDescriptor(session),
+  };
+}
+
+function terminalSurfaceLabel(session: TerminalSessionRecord): string | null {
+  const surface = session.surfaces[0];
+  return surface ? `${surface.backend}:${surface.sessionName}` : null;
+}
+
+function sessionBackedObserveData(input: {
+  id: string;
+  harness: string | null | undefined;
+  sessionId: string | null | undefined;
+  cwd: string | null | undefined;
+  model?: string | null;
+  startedAt: number;
+  current: boolean;
+  detail?: string | null;
+}): ObserveData {
+  const harness = input.harness?.trim() || "Native";
+  return {
+    events: [{
+      id: `${input.id}:session-ready`,
+      t: 0,
+      at: input.startedAt,
+      kind: "system",
+      text: `${titleCase(harness)} session ready`,
+      detail: input.detail ?? input.cwd ?? input.sessionId ?? undefined,
+      live: input.current,
+    }],
+    files: [],
+    live: input.current,
+    metadata: {
+      session: {
+        adapterType: input.harness ?? undefined,
+        cwd: input.cwd ?? undefined,
+        externalSessionId: input.sessionId ?? undefined,
+        sessionStart: input.startedAt,
+        model: input.model ?? undefined,
+        source: "session-registry",
+      },
+    },
+  };
+}
+
+function terminalSessionObserveData(
+  session: TerminalSessionRecord,
+  current: boolean,
+  lastActiveAt: number,
+): ObserveData {
+  const surface = terminalSurfaceLabel(session);
+  const detail = [surface ? `surface: ${surface}` : null, session.cwd].filter(Boolean).join(" · ");
+  return sessionBackedObserveData({
+    id: nativeTerminalSessionId(session),
+    harness: session.harness,
+    sessionId: session.sourceSessionId,
+    cwd: session.cwd,
+    startedAt: lastActiveAt,
+    current,
+    detail: detail || null,
+  });
+}
+
 export function observeLastSubstantiveActivityAt(
   observe: ObserveData | null | undefined,
 ): number | null {
@@ -1093,7 +1250,7 @@ function scoutSessionRefsForAgent(agent: Agent): string[] {
   return [...refs];
 }
 
-/** Prefer deliberate scout cards over relay placeholders when several agents share a session ref. */
+/** Prefer deliberate scout cards over transport placeholders when several agents share a session ref. */
 function scoutBindingRank(agent: Agent): number {
   if (!hasDesignedAgentCard(agent, "scout")) return 0;
   if (hasProviderHarnessSession(agent)) return 2;
@@ -1139,6 +1296,13 @@ function agentSharesTranscriptSession(
   return scoutSessionRefsForAgent(agent).some((ref) => representedSessionRefs.has(ref));
 }
 
+function terminalSessionSharesRepresentedSession(
+  session: TerminalSessionRecord,
+  representedSessionRefs: ReadonlySet<string>,
+): boolean {
+  return terminalSessionRefs(session).some((ref) => representedSessionRefs.has(ref));
+}
+
 function sessionSubstantiveLastActiveAt(
   sessionId: string | null | undefined,
   eventsBySession: Map<string, TailEvent[]>,
@@ -1153,6 +1317,60 @@ function sessionSubstantiveLastActiveAt(
     latest = Math.max(latest, event.ts);
   }
   return latest;
+}
+
+function terminalSessionSubstantiveLastActiveAt(
+  session: TerminalSessionRecord,
+  eventsBySession: Map<string, TailEvent[]>,
+): number {
+  let latest = 0;
+  for (const ref of terminalSessionRefs(session)) {
+    latest = Math.max(latest, sessionSubstantiveLastActiveAt(ref, eventsBySession));
+  }
+  return latest;
+}
+
+function scoutAgentForTerminalSession(
+  session: TerminalSessionRecord,
+  scoutBySession: Map<string, Agent>,
+): Agent | undefined {
+  for (const ref of terminalSessionRefs(session)) {
+    const agent = scoutBySession.get(ref);
+    if (agent) return agent;
+  }
+  return undefined;
+}
+
+function shouldUseSessionBackedPlaceholderLane(
+  agent: Agent,
+  now: number,
+  windowMs: number,
+): boolean {
+  if (!hasProviderHarnessSession(agent)) return false;
+  if (isIdleCodexRelay(agent)) return false;
+  const transport = agent.transport?.trim();
+  if (transport !== "pi_rpc" && transport !== "pairing_bridge") return false;
+  const updatedAt = agent.updatedAt ?? 0;
+  return updatedAt > 0 && now - updatedAt <= windowMs;
+}
+
+function agentSessionBackedObserveData(
+  agent: Agent,
+  current: boolean,
+  lastActiveAt: number,
+): ObserveData {
+  return sessionBackedObserveData({
+    id: agent.id,
+    harness: agent.harness,
+    sessionId: agent.harnessSessionId,
+    cwd: agent.cwd ?? agent.projectRoot,
+    model: agent.model,
+    startedAt: lastActiveAt,
+    current,
+    detail: [agent.transport, agent.cwd ?? agent.projectRoot, agent.harnessSessionId]
+      .filter(Boolean)
+      .join(" · ") || null,
+  });
 }
 
 function hasNativeLaneWorkingSignal(
@@ -1325,6 +1543,7 @@ const PROVIDER_HARNESS_TRANSPORTS = new Set([
   "codex_app_server",
   "claude_stream_json",
   "pairing_bridge",
+  "pi_rpc",
 ]);
 
 /** Configured registry placeholders without transport — not part of live lane roster diagnostics. */
@@ -1472,6 +1691,7 @@ export function buildAgentLanes(input: {
   tailEvents: TailEvent[];
   processes?: TailDiscoveredProcess[];
   scoutAgents?: Agent[];
+  terminalSessions?: TerminalSessionRecord[];
   observeCache?: Record<string, ObserveCacheEntry | undefined>;
   now: number;
   workingOnly?: boolean;
@@ -1484,6 +1704,7 @@ export function buildAgentLanes(input: {
     tailEvents,
     processes = [],
     scoutAgents = input.agents ?? [],
+    terminalSessions = [],
     observeCache = {},
     now,
     workingOnly = true,
@@ -1508,7 +1729,7 @@ export function buildAgentLanes(input: {
   }
 
   const representedTranscriptSessionRefs = new Set<string>();
-  const transcriptBoundAgentIds = new Set<string>();
+  const representedBoundAgentIds = new Set<string>();
   const rosterIssues: AgentLaneRosterIssue[] = [
     ...collectDuplicateTranscriptIssues(transcripts),
     ...collectScoutFleetIssues(scoutAgents, scoutBySession),
@@ -1525,7 +1746,7 @@ export function buildAgentLanes(input: {
     }
 
     const scoutAgent = scoutAgentForTranscript(transcript, scoutBySession);
-    if (scoutAgent) transcriptBoundAgentIds.add(scoutAgent.id);
+    if (scoutAgent) representedBoundAgentIds.add(scoutAgent.id);
     const observe = observeDataFromTail(transcript, events, current, { now, windowMs });
     const facts = buildLaneFacts(transcript, events, scoutAgent ?? nativeSessionAgent(transcript, lastActiveAt, current), processes, observe);
     const sessionSubstantiveAt = lastActiveAt;
@@ -1560,12 +1781,53 @@ export function buildAgentLanes(input: {
     lanes.push(lane);
   }
 
+  for (const session of terminalSessions) {
+    if (!isRegisteredHarnessTerminalSession(session)) continue;
+    if (terminalSessionSharesRepresentedSession(session, representedTranscriptSessionRefs)) {
+      continue;
+    }
+
+    const sessionSubstantiveAt = terminalSessionSubstantiveLastActiveAt(session, eventsBySession);
+    const lastActiveAt = Math.max(sessionSubstantiveAt, session.updatedAt ?? 0, session.createdAt ?? 0);
+    const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
+    if (!current) continue;
+
+    const scoutAgent = scoutAgentForTerminalSession(session, scoutBySession);
+    if (scoutAgent) representedBoundAgentIds.add(scoutAgent.id);
+    const terminalAgent = terminalSessionAgent(session, lastActiveAt, current);
+    const agent = scoutAgent
+      ? {
+          ...scoutAgent,
+          harnessSessionId: scoutAgent.harnessSessionId ?? session.sourceSessionId,
+          terminalSurface: scoutAgent.terminalSurface ?? terminalAgent.terminalSurface,
+          updatedAt: Math.max(scoutAgent.updatedAt ?? 0, lastActiveAt),
+        }
+      : terminalAgent;
+    const observe = terminalSessionObserveData(session, current, lastActiveAt);
+    const lane: AgentLane = {
+      id: scoutAgent ? scoutAgent.id : nativeTerminalSessionId(session),
+      agent,
+      source: scoutAgent ? "scout" : "native",
+      observe,
+      facts: buildLaneFacts(null, [], agent, processes, observe),
+      lastActiveAt,
+      current,
+    };
+    if (workingOnly && !isAgentLaneWorking(lane, now, windowMs, sessionSubstantiveAt || lastActiveAt)) {
+      continue;
+    }
+    for (const ref of terminalSessionRefs(session)) {
+      representedTranscriptSessionRefs.add(ref);
+    }
+    lanes.push(lane);
+  }
+
   for (const agent of scoutAgents) {
     if (isIdleCodexRelay(agent)) continue;
     if (!hasDesignedAgentCard(agent, "scout")) continue;
     if (!hasProviderHarnessSession(agent)) continue;
     if (agentSharesTranscriptSession(agent, representedTranscriptSessionRefs)) {
-      if (!transcriptBoundAgentIds.has(agent.id)) {
+      if (!representedBoundAgentIds.has(agent.id)) {
         const sessionRef = canonicalScoutSessionKey(agent) ?? agent.id;
         pushRosterIssue(rosterIssues, rosterIssueIds, {
           kind: "shadowed_scout_card",
@@ -1583,9 +1845,19 @@ export function buildAgentLanes(input: {
       agent.harnessSessionId,
       eventsBySession,
     );
-    const lastActiveAt = Math.max(laneActivityAt(agent, observeEntry, now), sessionSubstantiveAt);
+    const placeholderEligible = shouldUseSessionBackedPlaceholderLane(agent, now, windowMs);
+    const placeholderAt = placeholderEligible ? agent.updatedAt ?? 0 : 0;
+    const lastActiveAt = Math.max(laneActivityAt(agent, observeEntry, now), sessionSubstantiveAt, placeholderAt);
     const current = lastActiveAt > 0 && now - lastActiveAt <= windowMs;
-    const observe = filterObserveDataForHorizon(observeEntry?.data ?? null, now, windowMs);
+    let observe = filterObserveDataForHorizon(observeEntry?.data ?? null, now, windowMs);
+    if (
+      placeholderEligible
+      && current
+      && !hasDisplayableLaneTrace(observe)
+      && !isAgentLaneLive(observe)
+    ) {
+      observe = agentSessionBackedObserveData(agent, current, lastActiveAt);
+    }
     const lane: AgentLane = {
       id: agent.id,
       agent,

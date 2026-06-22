@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { relayAgentLogsDirectory } from "@openscout/runtime/support-paths";
+import { localAgentLogsDirectory } from "@openscout/runtime/support-paths";
 
 import { metadataString } from "./parse.ts";
 
@@ -32,8 +32,19 @@ export function pairingHarnessLogPath(
   return join(HOME, ".scout", "pairing", normalizedAdapter, normalizedSessionId, "logs", "stdout.log");
 }
 
-export function relayHarnessLogPath(agentId: string): string {
-  return join(relayAgentLogsDirectory(agentId), "stdout.log");
+export function localAgentHarnessLogPath(agentId: string): string {
+  return join(localAgentLogsDirectory(agentId), "stdout.log");
+}
+
+const TRANSPORT_ADAPTER_LOG_NAMESPACE: Record<string, string> = {
+  codex_app_server: "codex",
+  claude_stream_json: "claude",
+  pi_rpc: "pi",
+};
+
+function adapterLogNamespaceForTransport(transport: string | null | undefined): string | null {
+  const normalized = transport?.trim();
+  return normalized ? TRANSPORT_ADAPTER_LOG_NAMESPACE[normalized] ?? null : null;
 }
 
 /** Runtime/tmux refs — not provider harness conversation ids. */
@@ -49,7 +60,122 @@ function providerHarnessSessionId(value: string | null | undefined): string | nu
   return trimmed;
 }
 
-/** Idle codex relays keep a persisted thread but lanes bind only on active work. */
+const DEFAULT_PROVIDER_SESSION_METADATA_KEYS = [
+  "externalSessionId",
+  "threadId",
+] as const;
+
+const EXTERNAL_PROVIDER_SESSION_METADATA_KEYS = [
+  "externalSessionId",
+] as const;
+
+const THREAD_FIRST_PROVIDER_SESSION_METADATA_KEYS = [
+  "threadId",
+  "externalSessionId",
+] as const;
+
+type ProviderSessionMetadataKey = typeof DEFAULT_PROVIDER_SESSION_METADATA_KEYS[number];
+
+type HarnessSessionContext = {
+  endpointSessionId: string | null;
+  metadata: Record<string, unknown> | undefined;
+};
+
+type HarnessSessionResolver = (context: HarnessSessionContext) => string | null;
+
+function normalizedTransport(transport: string | null | undefined): string | null {
+  return transport?.trim() || null;
+}
+
+function firstProviderHarnessSessionId(candidates: readonly (string | null | undefined)[]): string | null {
+  for (const candidate of candidates) {
+    const sessionId = providerHarnessSessionId(candidate);
+    if (sessionId) return sessionId;
+  }
+  return null;
+}
+
+function providerSessionIdFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+  keys: readonly ProviderSessionMetadataKey[],
+): string | null {
+  return firstProviderHarnessSessionId(keys.map((key) => metadataString(metadata, key)));
+}
+
+function resolveNoProviderHarnessSessionId(): string | null {
+  return null;
+}
+
+function resolveDefaultHarnessSessionId({ metadata }: HarnessSessionContext): string | null {
+  return providerSessionIdFromMetadata(metadata, DEFAULT_PROVIDER_SESSION_METADATA_KEYS);
+}
+
+function resolveThreadFirstHarnessSessionId({ metadata }: HarnessSessionContext): string | null {
+  return providerSessionIdFromMetadata(metadata, THREAD_FIRST_PROVIDER_SESSION_METADATA_KEYS);
+}
+
+function resolvePairingBridgeHarnessSessionId({ metadata }: HarnessSessionContext): string | null {
+  const attachedTransport = metadataString(metadata, "attachedTransport");
+  const metadataKeys = attachedTransport === "codex_app_server"
+    ? THREAD_FIRST_PROVIDER_SESSION_METADATA_KEYS
+    : EXTERNAL_PROVIDER_SESSION_METADATA_KEYS;
+  return providerSessionIdFromMetadata(metadata, metadataKeys);
+}
+
+function resolveClaudeStreamJsonHarnessSessionId(
+  { endpointSessionId, metadata }: HarnessSessionContext,
+): string | null {
+  const externalSessionId = firstProviderHarnessSessionId([metadataString(metadata, "externalSessionId")]);
+  if (externalSessionId) {
+    return externalSessionId;
+  }
+
+  const runtimeInstanceId = metadataString(metadata, "runtimeInstanceId")
+    ?? metadataString(metadata, "runtimeSessionId");
+  const endpoint = endpointSessionId?.trim() ?? null;
+  if (!endpoint || endpoint === runtimeInstanceId) {
+    return null;
+  }
+  return providerHarnessSessionId(endpoint);
+}
+
+function resolvePiRpcHarnessSessionId(
+  { endpointSessionId, metadata }: HarnessSessionContext,
+): string | null {
+  return firstProviderHarnessSessionId([
+    metadataString(metadata, "externalSessionId"),
+    metadataString(metadata, "threadId"),
+    endpointSessionId,
+  ]);
+}
+
+const HARNESS_SESSION_RESOLVERS: Record<string, HarnessSessionResolver> = {
+  tmux: resolveNoProviderHarnessSessionId,
+  zellij: resolveNoProviderHarnessSessionId,
+  pairing_bridge: resolvePairingBridgeHarnessSessionId,
+  codex_app_server: resolveThreadFirstHarnessSessionId,
+  claude_stream_json: resolveClaudeStreamJsonHarnessSessionId,
+  pi_rpc: resolvePiRpcHarnessSessionId,
+};
+
+function harnessSessionResolverForTransport(transport: string | null): HarnessSessionResolver {
+  if (!transport) return resolveDefaultHarnessSessionId;
+  return HARNESS_SESSION_RESOLVERS[transport] ?? resolveDefaultHarnessSessionId;
+}
+
+const PREWARMED_CODEX_AGENT_STATE = "available";
+
+function shouldExposeHarnessSessionIdForAgent(
+  transport: string | null,
+  agentState: string | null | undefined,
+): boolean {
+  const state = agentState?.trim();
+  const isPrewarmedCodexAppServer = normalizedTransport(transport) === "codex_app_server"
+    && state === PREWARMED_CODEX_AGENT_STATE;
+  return !isPrewarmedCodexAppServer;
+}
+
+/** Idle codex app-server sessions keep a persisted thread but lanes bind only on active work. */
 export function resolveHarnessSessionIdForAgent(
   transport: string | null,
   endpointSessionId: string | null,
@@ -58,8 +184,7 @@ export function resolveHarnessSessionIdForAgent(
 ): string | null {
   const resolved = resolveHarnessSessionId(transport, endpointSessionId, metadata);
   if (!resolved) return null;
-  const state = agentState?.trim();
-  if (transport === "codex_app_server" && state === "available") {
+  if (!shouldExposeHarnessSessionIdForAgent(transport, agentState)) {
     return null;
   }
   return resolved;
@@ -70,46 +195,43 @@ export function resolveHarnessSessionId(
   endpointSessionId: string | null,
   metadata: Record<string, unknown> | undefined,
 ): string | null {
-  if (transport === "tmux" || transport === "zellij") {
-    return null;
-  }
+  return harnessSessionResolverForTransport(normalizedTransport(transport))({
+    endpointSessionId,
+    metadata,
+  });
+}
 
-  if (transport === "pairing_bridge") {
-    const attachedTransport = metadataString(metadata, "attachedTransport");
-    if (attachedTransport === "codex_app_server") {
-      return providerHarnessSessionId(
-        metadataString(metadata, "threadId")
-        ?? metadataString(metadata, "externalSessionId"),
-      );
-    }
-    return providerHarnessSessionId(metadataString(metadata, "externalSessionId"));
-  }
+type HarnessLogPathContext = {
+  agentId: string;
+  endpointSessionId: string | null;
+  metadata: Record<string, unknown> | undefined;
+};
 
-  if (transport === "codex_app_server") {
-    return providerHarnessSessionId(
-      metadataString(metadata, "threadId")
-      ?? metadataString(metadata, "externalSessionId"),
-    );
-  }
+type HarnessLogPathResolver = (context: HarnessLogPathContext) => string | null;
 
-  if (transport === "claude_stream_json") {
-    const externalSessionId = providerHarnessSessionId(metadataString(metadata, "externalSessionId"));
-    if (externalSessionId) {
-      return externalSessionId;
-    }
-    const runtimeInstanceId = metadataString(metadata, "runtimeInstanceId")
-      ?? metadataString(metadata, "runtimeSessionId");
-    const endpoint = endpointSessionId?.trim() ?? null;
-    if (!endpoint || endpoint === runtimeInstanceId) {
-      return null;
-    }
-    return providerHarnessSessionId(endpoint);
-  }
+function resolvePairingBridgeHarnessLogPath(
+  { endpointSessionId, metadata }: HarnessLogPathContext,
+): string | null {
+  const pairingSessionId = metadataString(metadata, "pairingSessionId") ?? endpointSessionId;
+  const adapterType = metadataString(metadata, "pairingAdapterType")
+    ?? adapterLogNamespaceForTransport(metadataString(metadata, "attachedTransport"));
+  return pairingHarnessLogPath(adapterType, pairingSessionId);
+}
 
-  return providerHarnessSessionId(
-    metadataString(metadata, "externalSessionId")
-    ?? metadataString(metadata, "threadId"),
-  );
+function resolveLocalAgentHarnessLogPath({ agentId }: HarnessLogPathContext): string {
+  return localAgentHarnessLogPath(agentId);
+}
+
+const HARNESS_LOG_PATH_RESOLVERS: Record<string, HarnessLogPathResolver> = {
+  pairing_bridge: resolvePairingBridgeHarnessLogPath,
+  codex_app_server: resolveLocalAgentHarnessLogPath,
+  claude_stream_json: resolveLocalAgentHarnessLogPath,
+  pi_rpc: resolveLocalAgentHarnessLogPath,
+};
+
+function harnessLogPathResolverForTransport(transport: string | null): HarnessLogPathResolver | null {
+  if (!transport) return null;
+  return HARNESS_LOG_PATH_RESOLVERS[transport] ?? null;
 }
 
 export function resolveHarnessLogPath(
@@ -118,21 +240,6 @@ export function resolveHarnessLogPath(
   endpointSessionId: string | null,
   metadata: Record<string, unknown> | undefined,
 ): string | null {
-  if (transport === "pairing_bridge") {
-    const pairingSessionId = metadataString(metadata, "pairingSessionId") ?? endpointSessionId;
-    const attachedTransport = metadataString(metadata, "attachedTransport");
-    const adapterType = metadataString(metadata, "pairingAdapterType")
-      ?? (attachedTransport === "codex_app_server"
-        ? "codex"
-        : attachedTransport === "claude_stream_json"
-          ? "claude"
-          : null);
-    return pairingHarnessLogPath(adapterType, pairingSessionId);
-  }
-
-  if (transport === "codex_app_server" || transport === "claude_stream_json") {
-    return relayHarnessLogPath(agentId);
-  }
-
-  return null;
+  const resolver = harnessLogPathResolverForTransport(normalizedTransport(transport));
+  return resolver?.({ agentId, endpointSessionId, metadata }) ?? null;
 }

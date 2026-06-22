@@ -266,7 +266,7 @@ function SessionSummary({
     traceState === "loading"
       ? "checking for terminal or transcript activity"
       : traceState === "unavailable"
-        ? "this relay has no observable transcript attached"
+        ? "this session has no observable transcript attached"
         : "no agent work has been recorded yet";
   const stats: Array<{ k: string; v: string }> = [
     { k: "turns", v: fmtCompactNumber(ctx?.turnCount ?? data?.metadata?.session?.turnCount ?? 0) },
@@ -372,7 +372,7 @@ function SessionSummary({
         ) : (
           <div className="s-sum-status-note">
             {active
-              ? "The relay exists, but no turn/tool/file activity has reached Scout yet."
+              ? "The session exists, but no turn/tool/file activity has reached Scout yet."
               : "This prior session has no observable work trace."}
           </div>
         )}

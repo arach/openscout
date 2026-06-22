@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { TerminalSessionRecord } from "@openscout/protocol";
 import type { Agent } from "../../lib/types.ts";
 import {
   agentLaneHorizonWindowMs,
@@ -1043,7 +1044,7 @@ describe("buildAgentLanes roster", () => {
     expect(issues.some((issue) => issue.kind === "harness_session_polluted")).toBe(true);
   });
 
-  test("binds relay scout claude cards to the live transcript instead of spawning broker lanes", () => {
+  test("binds scout claude cards to the live transcript instead of spawning broker lanes", () => {
     const mkAgent = (suffix: string) => {
       const agent = stubAgent(`relay-card-${suffix}`);
       agent.harness = "claude";
@@ -1079,7 +1080,7 @@ describe("buildAgentLanes roster", () => {
     expect(issues.length).toBeGreaterThan(0);
   });
 
-  test("does not add broker lanes for relay flights without a matching transcript", () => {
+  test("does not add broker lanes for transport-only flights without a matching transcript", () => {
     const agent = stubAgent("relay-flight");
     agent.harness = "claude";
     agent.harnessSessionId = "relay-openscout-card-flight-claude";
@@ -1145,7 +1146,7 @@ describe("buildAgentLanes roster", () => {
     expect(lanes[0]?.agent.id).toBe(agent.id);
   });
 
-  test("excludes idle codex relays with warmup-only observe traces", () => {
+  test("excludes idle codex app-server sessions with warmup-only observe traces", () => {
     const agent = stubAgent("Atelier");
     agent.harness = "codex";
     agent.transport = "codex_app_server";
@@ -1181,6 +1182,110 @@ describe("buildAgentLanes roster", () => {
       },
       now: NOW,
       horizon: "30m",
+    });
+
+    expect(lanes).toHaveLength(0);
+  });
+
+  test("admits recent pi rpc codex sessions before transcript activity arrives", () => {
+    const agent = stubAgent("lattices");
+    agent.harness = "codex";
+    agent.transport = "pi_rpc";
+    agent.state = "idle";
+    agent.harnessSessionId = "lattices-pi-codex";
+    agent.project = "lattices";
+    agent.cwd = "/Users/art/dev/lattices";
+    agent.updatedAt = NOW - 6_000;
+
+    const { lanes, issues } = buildAgentLanes({
+      scoutAgents: [agent],
+      transcripts: [],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("scout");
+    expect(lanes[0]?.agent.id).toBe(agent.id);
+    expect(lanes[0]?.observe?.events[0]?.text).toBe("Codex session ready");
+    expect(issues.some((issue) => issue.kind === "harness_session_unbound")).toBe(false);
+  });
+
+  test("admits registered terminal harness sessions before transcript activity arrives", () => {
+    const terminalSession: TerminalSessionRecord = {
+      id: "ts.codex-live",
+      harness: "codex",
+      sourceSessionId: "codex-native-session",
+      cwd: "/Users/art/dev/lattices",
+      resumeCommand: "codex resume codex-native-session",
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "lattices-codex",
+        paneId: "%1",
+        attachCommand: ["tmux", "attach", "-t", "lattices-codex"],
+        observeCommand: null,
+        relay: {
+          backend: "tmux",
+          sessionName: "lattices-codex",
+          tmuxSession: "lattices-codex",
+        },
+        state: "live",
+      }],
+      createdAt: NOW - 7_000,
+      updatedAt: NOW - 5_000,
+      metadata: { source: "scout-cli", updatedBy: "session_intake" },
+    };
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [],
+      transcripts: [],
+      terminalSessions: [terminalSession],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
+    });
+
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.source).toBe("native");
+    expect(lanes[0]?.agent.harness).toBe("codex");
+    expect(lanes[0]?.agent.harnessSessionId).toBe("codex-native-session");
+    expect(lanes[0]?.agent.terminalSurface?.sessionName).toBe("lattices-codex");
+    expect(lanes[0]?.observe?.events[0]?.text).toBe("Codex session ready");
+  });
+
+  test("ignores backend-only discovered terminal sessions in lanes", () => {
+    const terminalSession: TerminalSessionRecord = {
+      id: "discovered.tmux.1",
+      harness: "tmux",
+      sourceSessionId: "random-shell",
+      cwd: "",
+      resumeCommand: "tmux attach -t random-shell",
+      surfaces: [{
+        backend: "tmux",
+        sessionName: "random-shell",
+        paneId: null,
+        attachCommand: ["tmux", "attach", "-t", "random-shell"],
+        observeCommand: null,
+        relay: {
+          backend: "tmux",
+          sessionName: "random-shell",
+          tmuxSession: "random-shell",
+        },
+        state: "live",
+      }],
+      createdAt: NOW,
+      updatedAt: NOW,
+      metadata: { registryState: "discovered" },
+    };
+
+    const { lanes } = buildAgentLanes({
+      scoutAgents: [],
+      transcripts: [],
+      terminalSessions: [terminalSession],
+      tailEvents: [],
+      now: NOW,
+      horizon: "5m",
     });
 
     expect(lanes).toHaveLength(0);
@@ -1229,7 +1334,7 @@ describe("buildAgentLanes roster", () => {
 });
 
 describe("roster issues", () => {
-  test("does not flag terminal relay agents as harness session unbound", () => {
+  test("does not flag terminal-surface agents as harness session unbound", () => {
     const agent = stubAgent("02.agentic-code");
     agent.transport = "tmux";
     agent.terminalSurface = {
@@ -1270,7 +1375,7 @@ describe("roster issues", () => {
     expect(issues.some((issue) => issue.kind === "harness_session_unbound")).toBe(false);
   });
 
-  test("does not flag idle codex relays waiting for the next thread", () => {
+  test("does not flag idle codex app-server sessions waiting for the next thread", () => {
     const agent = stubAgent("Openscout 185");
     agent.transport = "codex_app_server";
     agent.harness = "codex";

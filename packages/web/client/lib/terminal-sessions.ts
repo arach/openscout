@@ -25,8 +25,11 @@ export type TerminalListItem = {
   searchable: string;
 };
 
-export async function fetchTerminalSessions(): Promise<TerminalSessionRecord[]> {
-  const payload = await api<TerminalSessionsPayload>("/api/terminal-sessions?includeDiscovered=1");
+export async function fetchTerminalSessions(options: { includeDiscovered?: boolean } = {}): Promise<TerminalSessionRecord[]> {
+  const includeDiscovered = options.includeDiscovered ?? true;
+  const payload = await api<TerminalSessionsPayload>(
+    `/api/terminal-sessions${includeDiscovered ? "?includeDiscovered=1" : ""}`,
+  );
   return payload.sessions;
 }
 
