@@ -28,6 +28,7 @@ function agent(overrides: Partial<Agent>): Agent {
     role: null,
     model: null,
     harnessSessionId: "session-1",
+    terminalSurface: null,
     harnessLogPath: null,
     conversationId: "dm.operator.agent-1",
     homeNodeId: null,

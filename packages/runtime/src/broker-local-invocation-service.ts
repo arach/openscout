@@ -1,5 +1,6 @@
 import {
   buildScoutReturnAddress,
+  type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
   type ConversationDefinition,
@@ -28,10 +29,20 @@ import { isDispatchStalledError } from "./dispatch-stalled.js";
 import { isCodexAppServerExitError } from "./codex-app-server.js";
 
 type LocalInvocationRuntime = {
+  actor(actorId: string): ActorIdentity | undefined;
   agent(agentId: string): AgentDefinition | undefined;
   conversation(conversationId: string): ConversationDefinition | undefined;
   flightForInvocation(invocationId: string): FlightRecord | undefined;
   snapshot(): RuntimeSnapshot;
+};
+
+type LocalInvocationTargetIdentity = {
+  id: string;
+  displayName: string;
+  handle?: string;
+  definitionId?: string;
+  selector?: string;
+  defaultSelector?: string;
 };
 
 type LocalInvocationEndpointResolver = {
@@ -129,6 +140,8 @@ export class BrokerLocalInvocationService {
 
   async execute(invocation: InvocationRequest, initialFlight: FlightRecord): Promise<void> {
     const agent = this.options.runtime.agent(invocation.targetAgentId);
+    const actor = this.options.runtime.actor(invocation.targetAgentId) ?? agent;
+    const target = localInvocationTargetIdentity(invocation.targetAgentId, agent, actor);
     let endpoint: AgentEndpoint | undefined;
     const previousEndpoint = this.options.endpointResolver.activeLocalEndpointForAgent(
       invocation.targetAgentId,
@@ -143,7 +156,7 @@ export class BrokerLocalInvocationService {
       const failedFlight = {
         ...initialFlight,
         state: "failed" as const,
-        summary: `${agent?.displayName ?? invocation.targetAgentId} could not be prepared.`,
+        summary: `${target.displayName} could not be prepared.`,
         error: `Endpoint resolution failed before execution: ${message}`,
         completedAt: this.now(),
         metadata: {
@@ -156,7 +169,7 @@ export class BrokerLocalInvocationService {
       return;
     }
 
-    if (!agent || !endpoint) {
+    if (!actor || !endpoint) {
       const targetSessionId = invocationTargetSessionId(invocation);
       const staleEndpointReason = targetSessionId
         ? staleLocalEndpointReason(latestEndpointForAgent(this.options.runtime.snapshot(), invocation.targetAgentId))
@@ -165,7 +178,7 @@ export class BrokerLocalInvocationService {
         const failedFlight = {
           ...initialFlight,
           state: "failed" as const,
-          summary: `${agent?.displayName ?? invocation.targetAgentId} could not be prepared.`,
+          summary: `${target.displayName} could not be prepared.`,
           error: `Endpoint resolution failed before execution: ${staleEndpointReason}`,
           completedAt: this.now(),
           metadata: {
@@ -182,7 +195,7 @@ export class BrokerLocalInvocationService {
       const queuedFlight = {
         ...initialFlight,
         state: "queued" as const,
-        summary: `Message stored for ${agent?.displayName ?? invocation.targetAgentId}. Will deliver when online.`,
+        summary: `Message stored for ${target.displayName}. Will deliver when online.`,
         metadata: {
           ...(initialFlight.metadata ?? {}),
           dispatchOutcome: {
@@ -204,8 +217,8 @@ export class BrokerLocalInvocationService {
       const failedFlight = {
         ...initialFlight,
         state: "failed" as const,
-        summary: `${agent.displayName} has no supported local executor.`,
-        error: `Endpoint transport ${endpoint.transport} is registered for ${agent.id}, but the broker only routes through direct local agent adapters or A2A HTTP endpoints.`,
+        summary: `${target.displayName} has no supported local executor.`,
+        error: `Endpoint transport ${endpoint.transport} is registered for ${target.id}, but the broker only routes through direct local agent adapters or A2A HTTP endpoints.`,
         completedAt: this.now(),
       };
       await this.options.persistFlight(failedFlight);
@@ -241,7 +254,7 @@ export class BrokerLocalInvocationService {
     const runningFlight = {
       ...initialFlight,
       state: "running" as const,
-      summary: `${agent.displayName} acknowledged via ${dispatchAck.strategy}.`,
+      summary: `${target.displayName} acknowledged via ${dispatchAck.strategy}.`,
       error: undefined,
       completedAt: undefined,
       metadata: {
@@ -259,7 +272,7 @@ export class BrokerLocalInvocationService {
         const completedFlight = {
           ...runningFlight,
           state: "completed" as const,
-          summary: `${agent.displayName} received the message.`,
+          summary: `${target.displayName} received the message.`,
           output: result.output,
           completedAt: this.now(),
         };
@@ -283,7 +296,7 @@ export class BrokerLocalInvocationService {
 
       const postedReply = this.options.existingBrokerReplyForInvocation(
         invocation,
-        agent.id,
+        target.id,
         runningFlight.startedAt ?? this.now(),
       );
       const output = postedReply?.body || result.output;
@@ -291,8 +304,8 @@ export class BrokerLocalInvocationService {
         const failedFlight = {
           ...runningFlight,
           state: "failed" as const,
-          summary: `${agent.displayName} returned an empty reply.`,
-          error: `Local agent ${agent.id} completed without broker-visible output.`,
+          summary: `${target.displayName} returned an empty reply.`,
+          error: `Local target ${target.id} completed without broker-visible output.`,
           completedAt: this.now(),
           metadata: {
             ...(runningFlight.metadata ?? {}),
@@ -318,7 +331,7 @@ export class BrokerLocalInvocationService {
       const completedFlight = {
         ...runningFlight,
         state: "completed" as const,
-        summary: `${agent.displayName} replied.`,
+        summary: `${target.displayName} replied.`,
         output,
         completedAt: this.now(),
       };
@@ -335,7 +348,7 @@ export class BrokerLocalInvocationService {
           await this.options.postConversationMessage({
             id: this.options.createId("msg"),
             conversationId: invocation.conversationId,
-            actorId: agent.id,
+            actorId: target.id,
             originNodeId: this.options.nodeId,
             class: "agent",
             body: output,
@@ -352,11 +365,11 @@ export class BrokerLocalInvocationService {
               source: "broker",
               ...this.options.scoutbotReplyProvenanceMetadata(invocation),
               returnAddress: buildScoutReturnAddress({
-                actorId: agent.id,
-                handle: agent.handle?.trim() || agent.definitionId,
-                displayName: agent.displayName,
-                selector: agent.selector,
-                defaultSelector: agent.defaultSelector,
+                actorId: target.id,
+                handle: target.handle?.trim() || target.definitionId || target.id,
+                displayName: target.displayName,
+                selector: target.selector,
+                defaultSelector: target.defaultSelector,
                 conversationId: invocation.conversationId,
                 replyToMessageId: invocation.messageId,
                 nodeId: completedEndpoint.nodeId,
@@ -369,7 +382,7 @@ export class BrokerLocalInvocationService {
               responderSessionId: completedEndpoint.sessionId ?? "",
               responderCwd: completedEndpoint.cwd ?? "",
               responderProjectRoot: completedEndpoint.projectRoot ?? "",
-              responderAgentName: String(completedEndpoint.metadata?.agentName ?? agent.id),
+              responderAgentName: String(completedEndpoint.metadata?.agentName ?? target.handle ?? target.id),
               responderStartedAt: String(completedEndpoint.metadata?.startedAt ?? ""),
               responderNodeId: completedEndpoint.nodeId,
             },
@@ -377,7 +390,7 @@ export class BrokerLocalInvocationService {
         }
       }
     } catch (error) {
-      await this.handleExecutionError({ error, invocation, agent, runningEndpoint, runningFlight });
+      await this.handleExecutionError({ error, invocation, target, runningEndpoint, runningFlight });
     }
   }
 
@@ -414,6 +427,7 @@ export class BrokerLocalInvocationService {
         lastCompletedAt: this.now(),
         ...(resultExternalSessionId ? {
           externalSessionId: resultExternalSessionId,
+          pendingExternalSession: false,
           ...(runningEndpoint.transport === "codex_app_server" ? { threadId: resultExternalSessionId } : {}),
         } : {}),
       },
@@ -423,11 +437,11 @@ export class BrokerLocalInvocationService {
   private async handleExecutionError(input: {
     error: unknown;
     invocation: InvocationRequest;
-    agent: AgentDefinition;
+    target: LocalInvocationTargetIdentity;
     runningEndpoint: AgentEndpoint;
     runningFlight: FlightRecord;
   }): Promise<void> {
-    const { error, invocation, agent, runningEndpoint, runningFlight } = input;
+    const { error, invocation, target, runningEndpoint, runningFlight } = input;
     const message = error instanceof Error ? error.message : String(error);
     if (isRequesterWaitTimeoutError(error)) {
       const currentFlight = this.options.runtime.flightForInvocation(invocation.id);
@@ -436,17 +450,17 @@ export class BrokerLocalInvocationService {
       }
       const postedReply = this.options.existingBrokerReplyForInvocation(
         invocation,
-        agent.id,
+        target.id,
         runningFlight.startedAt ?? this.now(),
       );
       if (postedReply && await this.options.completeInvocationForBrokerReply(invocation, postedReply)) {
         return;
       }
 
-      const waitingFlight = {
+      const continuingFlight = {
         ...runningFlight,
-        state: "waiting" as const,
-        summary: `${agent.displayName} is still working; Scout stopped waiting for a synchronous result after ${error.timeoutMs}ms.`,
+        state: "running" as const,
+        summary: `${target.displayName} is still working.`,
         error: undefined,
         completedAt: undefined,
         metadata: {
@@ -456,8 +470,10 @@ export class BrokerLocalInvocationService {
           timeoutScope: "requester_wait",
         },
       };
-      await this.options.persistFlight(waitingFlight);
-      this.options.warn?.(`[openscout-runtime] ${waitingFlight.summary}`);
+      await this.options.persistFlight(continuingFlight);
+      this.options.warn?.(
+        `[openscout-runtime] ${target.displayName} is still working; requester wait timed out after ${error.timeoutMs}ms.`,
+      );
       return;
     }
 
@@ -465,7 +481,7 @@ export class BrokerLocalInvocationService {
       const stalledFlight = {
         ...runningFlight,
         state: "failed" as const,
-        summary: `${agent.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
+        summary: `${target.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
         error: message,
         completedAt: this.now(),
         metadata: {
@@ -499,8 +515,8 @@ export class BrokerLocalInvocationService {
         ? "codex_app_server_proactive_shutdown"
         : "codex_app_server_sigterm";
       const summary = error.exitKind === "proactive_shutdown"
-        ? `${agent.displayName} was stopped by OpenScout before it could reply.`
-        : `${agent.displayName} was interrupted by a local Codex app-server SIGTERM.`;
+        ? `${target.displayName} was stopped by OpenScout before it could reply.`
+        : `${target.displayName} was interrupted by a local Codex app-server SIGTERM.`;
       const interruptedFlight = {
         ...runningFlight,
         state: "failed" as const,
@@ -538,7 +554,7 @@ export class BrokerLocalInvocationService {
     const failedFlight = {
       ...runningFlight,
       state: "failed" as const,
-      summary: `${agent.displayName} failed to respond.`,
+      summary: `${target.displayName} failed to respond.`,
       error: message,
       completedAt: this.now(),
     };
@@ -568,4 +584,21 @@ function localInvocationRouteKey(invocation: InvocationRequest): string {
     invocation.execution?.harness ?? "*",
     invocationTargetSessionId(invocation) ?? "*",
   ].join("\u0000");
+}
+
+function localInvocationTargetIdentity(
+  targetId: string,
+  agent: AgentDefinition | undefined,
+  actor: ActorIdentity | undefined,
+): LocalInvocationTargetIdentity {
+  const target: LocalInvocationTargetIdentity = {
+    id: targetId,
+    displayName: agent?.displayName || actor?.displayName || targetId,
+  };
+  const handle = agent?.handle ?? actor?.handle;
+  if (handle) target.handle = handle;
+  if (agent?.definitionId) target.definitionId = agent.definitionId;
+  if (agent?.selector) target.selector = agent.selector;
+  if (agent?.defaultSelector) target.defaultSelector = agent.defaultSelector;
+  return target;
 }

@@ -222,15 +222,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
   // /agents/{agentId} → agents view with selected agent
   if (parts[0] === "agents" && parts[1]) {
     const agentId = decodeURIComponent(parts[1]);
-    // When tab=message, the DM conversation is implied from the agentId.
-    if (agentTab === "message") {
-      return scoped({
-        view: "agents",
-        agentId,
-        conversationId: conversationForAgent(agentId),
-        tab: "message",
-      });
-    }
     return scoped({
       view: "agents",
       agentId,
@@ -425,19 +416,10 @@ export function routePath(r: Route): string {
       return `/agent/${encodeURIComponent(r.conversationId)}`;
     case "agents": {
       const params = new URLSearchParams();
-      const isDmConv =
-        !!r.agentId &&
-        !!r.conversationId &&
-        r.conversationId === conversationForAgent(r.agentId);
-      const defaultTab = isDmConv
-        ? "profile"
-        : r.conversationId
+      const defaultTab = r.conversationId
           ? "message"
           : "profile";
-      if (isDmConv) {
-        // DM conversation is implied by `?tab=message`; omit /c/ segment.
-        params.set("tab", r.tab ?? "message");
-      } else if (r.tab && r.tab !== defaultTab) {
+      if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
       if (!r.agentId && r.projectSlug) {
@@ -445,9 +427,7 @@ export function routePath(r: Route): string {
       }
       appendMachineScope(params, r);
       const path = r.agentId
-        ? isDmConv
-          ? `/agents/${encodeURIComponent(r.agentId)}`
-          : r.conversationId
+        ? r.conversationId
             ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
             : `/agents/${encodeURIComponent(r.agentId)}`
         : "/agents";
@@ -638,17 +618,4 @@ export function useRouter() {
   }, []);
 
   return { route, navigate };
-}
-
-/* ── Helpers ── */
-
-/** Extract agent ID from a dm.operator.{agentId} conversation ID. */
-export function agentIdFromConversation(cid: string): string | null {
-  const m = cid.match(/^dm\.operator\.(.+)$/);
-  return m ? m[1] : null;
-}
-
-/** Derive a conversation ID from an agent ID. */
-export function conversationForAgent(agentId: string): string {
-  return `dm.operator.${agentId}`;
 }

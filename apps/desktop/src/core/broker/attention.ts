@@ -193,6 +193,7 @@ export function buildScoutAttentionReport(
     if (!projectAllowed(projectRoot, projectFilters)) continue;
 
     const terminal = TERMINAL_FLIGHT_STATES.has(flight.state);
+    if (terminal && flightAttentionDismissed(flight, at)) continue;
     const riskText = [flight.error, flight.summary, flight.output, invocation?.task]
       .filter(Boolean)
       .join("\n");
@@ -227,6 +228,7 @@ export function buildScoutAttentionReport(
   for (const message of Object.values(snapshot.messages ?? {})) {
     if (message.createdAt < options.since) continue;
     if (!RISK_TEXT_PATTERN.test(message.body)) continue;
+    if (messageFlightAttentionDismissed(snapshot, message)) continue;
     const projectRoot = projectRootForMessage(snapshot, message);
     if (!projectAllowed(projectRoot, projectFilters)) continue;
     const project = ensureProject(projects, projectRoot);
@@ -739,6 +741,22 @@ function isStaleReconciledFlight(flight: FlightRecord): boolean {
   return /Stale running flight reconciled:/i.test(text);
 }
 
+function flightAttentionDismissed(flight: FlightRecord, at: number | null): boolean {
+  const dismissedAt = metadataNumber(flight.metadata, "operatorAttentionDismissedAt");
+  return dismissedAt !== null && (at === null || dismissedAt >= at);
+}
+
+function messageFlightAttentionDismissed(
+  snapshot: ScoutBrokerSnapshot,
+  message: MessageRecord,
+): boolean {
+  const flightId = metadataString(message.metadata, "flightId");
+  if (!flightId) return false;
+  const flight = snapshot.flights?.[flightId];
+  if (!flight) return false;
+  return flightAttentionDismissed(flight, flightActivityAt(flight, snapshot.invocations?.[flight.invocationId]));
+}
+
 function projectRootMentionedInText(
   snapshot: ScoutBrokerSnapshot,
   text: string | null | undefined,
@@ -839,6 +857,17 @@ function metadataString(
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): number | null {
+  const value = metadata?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const parsed = Number(value.trim());
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizeName(value: string): string {

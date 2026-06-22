@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Loader2, RefreshCw, Rocket } from "lucide-react";
+import { Loader2, RefreshCw, Rocket, Settings } from "lucide-react";
 import type { VoiceProbeState } from "./scoutbot-model.ts";
 
 export function ScoutbotIconButton({
@@ -73,11 +73,13 @@ export function ScoutVoiceSetupPanel({
   probeState,
   onLaunch,
   onRetry,
+  onSettings,
 }: {
   issue: string | null;
   probeState: VoiceProbeState;
   onLaunch: () => void;
   onRetry: () => void;
+  onSettings: () => void;
 }) {
   const isBusy = probeState === "probing" || probeState === "launching";
 
@@ -98,7 +100,7 @@ export function ScoutVoiceSetupPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-3 gap-2">
         <ScoutVoiceSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
           label={probeState === "launching" ? "Opening" : "Open Scout"}
@@ -112,6 +114,13 @@ export function ScoutVoiceSetupPanel({
           onClick={onRetry}
           disabled={isBusy}
           title="Check Scout voice again"
+        />
+        <ScoutVoiceSetupButton
+          icon={<Settings size={12} />}
+          label="Settings"
+          onClick={onSettings}
+          disabled={probeState === "probing"}
+          title="Open Scoutbot voice settings"
         />
       </div>
     </div>

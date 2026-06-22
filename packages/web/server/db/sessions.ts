@@ -12,15 +12,12 @@
  */
 import { db } from "./internal/db.ts";
 import {
-  namedChannelNaturalKey,
   channelNaturalKeyFromMetadata,
-  directChannelNaturalKey,
+  isOpaqueChannelId,
 } from "@openscout/protocol";
 import {
   configuredOperatorActorIds,
-  conversationIdForAgent,
   isLikelyLocalSessionAgentId,
-  parseDirectConversationId,
 } from "./internal/conversation-ids.ts";
 import { compact, resolveHarnessLogPath, resolveHarnessSessionId } from "./internal/paths.ts";
 import {
@@ -70,16 +67,8 @@ export function pickDirectConversationAgentId(
 export function shouldPreferSessionSummary(
   candidate: MobileSessionSummary,
   existing: MobileSessionSummary,
-  agentId: string,
+  _agentId: string,
 ): boolean {
-  const canonicalConversationId = conversationIdForAgent(agentId);
-  const candidateIsCanonical = candidate.id === canonicalConversationId;
-  const existingIsCanonical = existing.id === canonicalConversationId;
-
-  if (candidateIsCanonical !== existingIsCanonical) {
-    return candidateIsCanonical;
-  }
-
   const candidateLastAt = candidate.lastMessageAt ?? 0;
   const existingLastAt = existing.lastMessageAt ?? 0;
   if (candidateLastAt !== existingLastAt) {
@@ -108,6 +97,7 @@ export function queryConversationDefinitionById(
   metadata: Record<string, unknown>;
   participantIds: string[];
 } | null {
+  if (!isOpaqueChannelId(conversationId)) return null;
   const row = db().prepare(
     `SELECT id, kind, title, visibility, share_mode, authority_node_id,
             topic, parent_conversation_id, message_id, metadata_json
@@ -197,9 +187,6 @@ function conversationAliasForRow(
   }
 
   if (row.kind === "channel") {
-    if (row.id.startsWith("channel.")) {
-      return formatChannelAlias(row.id.slice("channel.".length));
-    }
     return formatChannelAlias(row.title);
   }
 
@@ -216,29 +203,6 @@ function conversationIdentityFields(
     ...(alias ? { alias } : {}),
     ...(naturalKey ? { naturalKey } : {}),
   };
-}
-
-function resolveConversationAlias(conversationId: string): string | null {
-  const byMetadata = db().prepare(
-    `SELECT id, metadata_json
-     FROM conversations
-     ORDER BY created_at ASC`,
-  ).all() as Array<{ id: string; metadata_json: string | null }>;
-  const directConversation = parseDirectConversationId(conversationId);
-  const naturalKey = directConversation
-    ? directChannelNaturalKey([directConversation.operatorId, directConversation.agentId])
-    : conversationId.startsWith("channel.")
-      ? namedChannelNaturalKey(conversationId.slice("channel.".length))
-      : null;
-
-  for (const row of byMetadata) {
-    const metadata = parseMetadataJson(row.metadata_json);
-    if (naturalKey && channelNaturalKeyFromMetadata(metadata) === naturalKey) {
-      return row.id;
-    }
-  }
-
-  return null;
 }
 
 function projectSessionConversationRows(
@@ -427,6 +391,7 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
        FROM messages
        GROUP BY conversation_id
      ) ms ON ms.conversation_id = c.id
+     WHERE c.id LIKE 'c.%' AND length(c.id) > 2
      ORDER BY COALESCE(ms.last_message_at, ${conversationCreatedAtExpression}, 0) DESC, ${conversationCreatedAtExpression} DESC, c.id ASC
      LIMIT ?`,
   ).all(limit) as SessionConversationRow[];
@@ -438,6 +403,9 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
 }
 
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
+  if (!isOpaqueChannelId(conversationId)) {
+    return null;
+  }
   const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
   const readRow = (id: string) => db().prepare(
     `SELECT
@@ -465,88 +433,5 @@ export function querySessionById(conversationId: string): MobileSessionSummary |
     return existing;
   }
 
-  const resolvedConversationId = resolveConversationAlias(conversationId);
-  if (resolvedConversationId) {
-    const resolvedRow = readRow(resolvedConversationId);
-    const resolved = resolvedRow
-      ? projectSessionConversationRows([resolvedRow], { dedupeLocalSessionDirects: false, limit: 1 })[0] ?? null
-      : null;
-    if (resolved) {
-      return resolved;
-    }
-  }
-
-  const directConversation = parseDirectConversationId(conversationId);
-  if (!directConversation) {
-    return null;
-  }
-
-  return synthesizeDirectSession(conversationId, directConversation.agentId, directConversation.operatorId);
-}
-
-export function synthesizeDirectSession(
-  conversationId: string,
-  agentId: string,
-  operatorId: string,
-): MobileSessionSummary | null {
-  const agent = db().prepare(
-     `SELECT
-        a.id AS agent_id,
-        ac.display_name,
-        ep.harness,
-        ep.transport,
-        ep.project_root,
-       ep.session_id,
-       ep.metadata_json AS endpoint_metadata_json,
-        a.metadata_json
-      FROM agents a
-      JOIN actors ac ON ac.id = a.id
-      ${LATEST_AGENT_ENDPOINT_JOIN}
-      WHERE a.id = ?`,
-  ).get(agentId) as {
-    agent_id: string;
-    display_name: string;
-    harness: string | null;
-    transport: string | null;
-    project_root: string | null;
-    session_id: string | null;
-    endpoint_metadata_json: string | null;
-    metadata_json: string | null;
-  } | null;
-
-  if (!agent) {
-    return null;
-  }
-
-  let currentBranch: string | null = null;
-  let endpointMeta: Record<string, unknown> = {};
-  try {
-    const metadata = agent.metadata_json ? JSON.parse(agent.metadata_json) : {};
-    currentBranch = (metadata.branch as string) ?? (metadata.workspaceQualifier as string) ?? null;
-  } catch {}
-  try {
-    endpointMeta = agent.endpoint_metadata_json ? JSON.parse(agent.endpoint_metadata_json) : {};
-  } catch {}
-
-  return {
-    id: conversationId,
-    kind: "direct",
-    title: agent.display_name,
-    participantIds: [operatorId, agentId],
-    agentId,
-    agentName: agent.display_name,
-    harness: agent.harness,
-    harnessSessionId: resolveHarnessSessionId(agent.transport, agent.session_id, endpointMeta),
-    harnessLogPath: resolveHarnessLogPath(
-      agentId,
-      agent.transport,
-      agent.session_id,
-      endpointMeta,
-    ),
-    currentBranch,
-    preview: null,
-    messageCount: 0,
-    lastMessageAt: null,
-    workspaceRoot: compact(agent.project_root),
-  };
+  return null;
 }

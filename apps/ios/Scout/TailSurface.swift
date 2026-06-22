@@ -43,7 +43,7 @@ struct TailSurface: View {
                 Spacer()
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: HudSpacing.sm) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(events) { event in
                             row(event)
                         }
@@ -57,57 +57,72 @@ struct TailSurface: View {
     }
 
     private func row(_ event: TailEvent) -> some View {
-        HStack(alignment: .top, spacing: HudSpacing.lg) {
-            VStack(alignment: .leading, spacing: HudSpacing.xs) {
-                HStack(spacing: HudSpacing.sm) {
-                    HudBadge(attributionLabel(event.harness), tint: attributionColor(event.harness), dot: true)
-                    Text(event.source)
-                        .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                        .foregroundStyle(ScoutInk.dim)
-                    Text(event.kind.rawValue)
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutInk.muted)
-                    Spacer(minLength: 0)
-                    Text(timeLabel(event.tsMs))
-                        .font(HudFont.mono(HudTextSize.micro))
-                        .foregroundStyle(ScoutInk.dim)
-                }
-                Text(event.summary)
-                    .font(HudFont.mono(HudTextSize.xs))
-                    .foregroundStyle(HudPalette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+            Text(timeLabel(event.tsMs))
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutInk.dim)
+                .frame(width: 52, alignment: .leading)
+            Text(event.source)
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 48, alignment: .leading)
+                .lineLimit(1)
+            Text(originAbbrev(event.harness))
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutInk.dim)
+                .frame(width: 18, alignment: .leading)
+            HStack(spacing: 2) {
+                Text(kindGlyph(event.kind))
+                Text(kindLabel(event.kind))
+                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
             }
+            .foregroundStyle(ScoutInk.dim)
+            .frame(width: 40, alignment: .leading)
+            Text(event.summary)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(HudSpacing.lg)
+        .padding(.vertical, HudSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
-        )
-    }
-
-    private func attributionLabel(_ harness: TailEvent.Harness) -> String {
-        switch harness {
-        case .scoutManaged: return "scout"
-        case .hudsonManaged: return "hudson"
-        case .unattributed: return "unattributed"
+        .overlay(alignment: .bottom) {
+            HudDivider(color: HudHairline.subtle)
         }
     }
 
-    private func attributionColor(_ harness: TailEvent.Harness) -> Color {
+    private func originAbbrev(_ harness: TailEvent.Harness) -> String {
         switch harness {
-        case .scoutManaged: return HudPalette.accent   // the one accent
-        case .hudsonManaged: return ScoutInk.muted
-        case .unattributed: return ScoutInk.dim
+        case .scoutManaged: return "sc"
+        case .hudsonManaged: return "hu"
+        case .unattributed: return "na"
+        }
+    }
+
+    private func kindGlyph(_ kind: TailEvent.Kind) -> String {
+        switch kind {
+        case .user: return ">"
+        case .assistant: return "<"
+        case .tool: return "*"
+        case .toolResult: return "="
+        case .system: return "~"
+        case .other: return "·"
+        }
+    }
+
+    private func kindLabel(_ kind: TailEvent.Kind) -> String {
+        switch kind {
+        case .user: return "USR"
+        case .assistant: return "AST"
+        case .tool: return "TOL"
+        case .toolResult: return "OUT"
+        case .system: return "SYS"
+        case .other: return "EVT"
         }
     }
 
     private func timeLabel(_ tsMs: Int64) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(tsMs) / 1000)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter.string(from: date)
+        ScoutTimestamp.clockTime(fromEpoch: TimeInterval(tsMs)) ?? "—"
     }
 
     private func subscribe() async {

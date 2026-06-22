@@ -84,17 +84,17 @@ struct ScoutCommands: Commands {
 
             Divider()
 
-            Button("Show All Conversations") {
+            Button("Show All Chats") {
                 ScoutAppCommand.filterAll.post()
             }
             .keyboardShortcut("1", modifiers: .command)
 
-            Button("Show Direct Conversations") {
+            Button("Show Direct Chats") {
                 ScoutAppCommand.filterDirect.post()
             }
             .keyboardShortcut("2", modifiers: .command)
 
-            Button("Show Shared Conversations") {
+            Button("Show Shared Chats") {
                 ScoutAppCommand.filterShared.post()
             }
             .keyboardShortcut("3", modifiers: .command)

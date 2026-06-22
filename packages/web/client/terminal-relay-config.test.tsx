@@ -1,9 +1,19 @@
 import { describe, expect, mock, test } from "bun:test";
+import type * as ReactModule from "react";
+import type * as ReactJsxRuntimeModule from "react/jsx-runtime";
+import type * as ReactJsxDevRuntimeModule from "react/jsx-dev-runtime";
+import type * as ReactDomServerModule from "react-dom/server";
 
-const React = await import("../node_modules/react/index.js");
-const ReactJsxRuntime = await import("../node_modules/react/jsx-runtime.js");
-const ReactJsxDevRuntime = await import("../node_modules/react/jsx-dev-runtime.js");
-const ReactDomServer = await import("../node_modules/react-dom/server.node.js");
+// The relative .js paths keep bun's runtime resolution to the real modules; bare specifiers would
+// be hijacked by tsconfig `paths` to the .d.ts files. The casts restore the types those imports lose.
+// @ts-expect-error -- untyped relative .js import (see note above)
+const React = (await import("../node_modules/react/index.js")) as typeof ReactModule;
+// @ts-expect-error -- untyped relative .js import (see note above)
+const ReactJsxRuntime = (await import("../node_modules/react/jsx-runtime.js")) as typeof ReactJsxRuntimeModule;
+// @ts-expect-error -- untyped relative .js import (see note above)
+const ReactJsxDevRuntime = (await import("../node_modules/react/jsx-dev-runtime.js")) as typeof ReactJsxDevRuntimeModule;
+// @ts-expect-error -- untyped relative .js import (see note above)
+const ReactDomServer = (await import("../node_modules/react-dom/server.node.js")) as typeof ReactDomServerModule;
 const { createElement } = React;
 const { renderToStaticMarkup } = ReactDomServer;
 
@@ -12,7 +22,10 @@ mock.module("react/jsx-runtime", () => ReactJsxRuntime);
 mock.module("react/jsx-dev-runtime", () => ReactJsxDevRuntime);
 mock.module("react-dom/server", () => ReactDomServer);
 
-let terminalRelayProps: { relay?: { sendInput?: (value: string) => void; sendLine?: (value: string) => void; restart?: () => void } } | null = null;
+type TerminalRelayCapture = {
+  relay?: { sendInput?: (value: string) => void; sendLine?: (value: string) => void; restart?: () => void };
+};
+let terminalRelayProps: TerminalRelayCapture | null = null;
 const baseRelaySendInput = mock((_value: string) => {});
 const baseRelaySendLine = mock((_value: string) => {});
 const baseRelayRestart = mock(() => {});
@@ -38,7 +51,7 @@ let scoutAgents: unknown[] = [];
 mock.module("@hudsonkit", () => ({
   useTerminalRelay: useTerminalRelayMock,
   TerminalRelay: (props: { relay?: unknown }) => {
-    terminalRelayProps = props as typeof terminalRelayProps;
+    terminalRelayProps = props as TerminalRelayCapture;
     return createElement("div");
   },
 }));
@@ -220,10 +233,11 @@ describe("terminal relay config", () => {
       navigate: () => {},
     }));
 
-    expect(terminalRelayProps?.relay).toBeTruthy();
-    terminalRelayProps?.relay?.sendInput?.("whoami");
-    terminalRelayProps?.relay?.sendLine?.("whoami");
-    terminalRelayProps?.relay?.restart?.();
+    const captured = terminalRelayProps as TerminalRelayCapture | null;
+    expect(captured?.relay).toBeTruthy();
+    captured?.relay?.sendInput?.("whoami");
+    captured?.relay?.sendLine?.("whoami");
+    captured?.relay?.restart?.();
 
     expect(baseRelaySendInput).not.toHaveBeenCalled();
     expect(baseRelaySendLine).not.toHaveBeenCalled();

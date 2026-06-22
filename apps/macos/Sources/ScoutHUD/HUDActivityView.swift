@@ -1,4 +1,5 @@
 import AppKit
+import ScoutAppCore
 import SwiftUI
 
 // Activity tab — native port of design/studio/components/hud/HudActivity.tsx.
@@ -237,7 +238,7 @@ struct HUDActivityView: View {
             let agent = item.agentId.flatMap { agentById[$0] }
             let name = agent?.name ?? item.displayName
             let handle = agent?.handle
-            let then = Date(timeIntervalSince1970: item.ts / 1000)
+            let then = ScoutRelativeTime.date(item.ts) ?? Date(timeIntervalSince1970: 0)
             let ageSec = max(0, Int(now.timeIntervalSince(then)))
             let kind = Self.kind(for: item.kind)
             let category = Self.category(for: kind)

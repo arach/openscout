@@ -918,7 +918,7 @@ private func agentMessagesURL(_ agent: HudAgent) -> URL {
         return agentRelativeURL("/c/\(agentPercent(cid))", base: base)
     }
     if !agent.id.isEmpty {
-        return agentRelativeURL("/c/\(agentPercent("dm.operator.\(agent.id)"))", base: base)
+        return agentRelativeURL("/agents/\(agentPercent(agent.id))?tab=message", base: base)
     }
     return agentRelativeURL("/agents", base: base)
 }

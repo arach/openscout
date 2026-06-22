@@ -292,12 +292,7 @@ public final class ScoutComposeService: ObservableObject {
     }
 
     private static func formatClock(epochMs: Double?) -> String {
-        let date: Date
-        if let ms = epochMs, ms > 0 {
-            date = Date(timeIntervalSince1970: ms / 1000.0)
-        } else {
-            date = Date()
-        }
+        let date = ScoutRelativeTime.date(epochMs) ?? Date()
         let f = DateFormatter()
         f.dateFormat = "HH:mm"
         return f.string(from: date)

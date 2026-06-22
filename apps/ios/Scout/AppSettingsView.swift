@@ -1,6 +1,7 @@
 import SwiftUI
 import HudsonUI
 import HudsonVoice
+import ScoutCapabilities
 import ScoutIOSCore
 #if canImport(UIKit)
 import UIKit
@@ -395,7 +396,7 @@ struct AppSettingsView: View {
     }
 
     private func logTime(_ entry: ConnectionLogEntry) -> String {
-        Date(timeIntervalSince1970: Double(entry.tsMs) / 1000)
+        (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
             .formatted(.dateTime.hour().minute().second())
     }
 

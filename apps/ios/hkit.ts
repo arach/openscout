@@ -27,12 +27,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 // --- Feature catalog: feature name -> build env HudsonKit gates on ------------
-// HudsonTerminal (Termini/Ghostty SSH+PTY) and HudsonVoice (Vox/Parakeet) are
-// optional backends wired as local-path deps; HudsonKit only declares them when
-// these are set at manifest-eval time. See reference_scout_device_build.
+// HudsonTerminal (Termini/Ghostty SSH+PTY) and HudsonVoice (embedded
+// VoxEngine/Parakeet) are optional backends wired as local-path deps; HudsonKit
+// only declares them when these are set at manifest-eval time. See
+// reference_scout_device_build.
 const FEATURE_CATALOG: Record<string, { env: Record<string, string>; note: string }> = {
   terminal: { env: { HUDSONKIT_WITH_TERMINAL: "1" }, note: "HudsonTerminal — Termini SSH/PTY (Ghostty)" },
-  voice: { env: { HUDSONKIT_WITH_VOICE: "1" }, note: "HudsonVoice — Vox/Parakeet dictation" },
+  voice: { env: { HUDSONKIT_WITH_VOICE: "1" }, note: "HudsonVoice — embedded VoxEngine/Parakeet dictation" },
 };
 
 interface Manifest {

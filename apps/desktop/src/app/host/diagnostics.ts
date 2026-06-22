@@ -5,6 +5,7 @@ import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { epochMs } from "@openscout/protocol";
 import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
 import {
   resolveOpenScoutSupportPaths,
@@ -131,10 +132,8 @@ function compactHomePath(value: string | null | undefined): string | null {
 }
 
 function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) {
-    return 0;
-  }
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? 0 : Math.floor(ms / 1000);
 }
 
 function formatRelativeTime(value: number): string {

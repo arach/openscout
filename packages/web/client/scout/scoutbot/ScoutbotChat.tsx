@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Archive, CheckCircle2, ChevronDown, ChevronUp, Copy, History, Loader2, Mic, SendHorizontal, Square } from "lucide-react";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import {
+  formatAbsoluteTimestamp,
+  formatClockTimestamp,
+  normalizeTimestampMs,
+} from "../../lib/time.ts";
 import { ScoutbotMarkdown } from "../../lib/scoutbot-markdown.tsx";
 import { stripScoutbotUiFences } from "../../lib/scoutbot.ts";
 import type {
@@ -45,7 +50,7 @@ export function ChatHistory({
   const sessionsCount = state.sessions.length;
   const retention = state.retention;
   const startedAt = state.session.createdAt
-    ? new Date(state.session.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    ? formatClockTimestamp(state.session.createdAt)
     : null;
   const titleLine = state.session.title && state.session.title !== "New Scout Session"
     ? state.session.title
@@ -117,12 +122,7 @@ export function ChatHistory({
               const isActive = entry.id === state.session.id;
               const isBusy = switchingSessionId === entry.id;
               const isArchiving = archivingSessionId === entry.id;
-              const ts = new Date(entry.updatedAt).toLocaleString([], {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              });
+              const ts = formatAbsoluteTimestamp(entry.updatedAt) || "unknown";
               const display = entry.title && entry.title !== "New Scout Session"
                 ? entry.title
                 : `Session ${entry.id.slice(0, 8)}`;
@@ -190,7 +190,7 @@ export function ChatHistory({
               {showTimestamp && (
                 <div
                   className="self-center rounded-full bg-white/[0.06] px-2.5 py-0.5 font-mono text-[9px] font-medium text-[var(--scout-chrome-ink-ghost)]"
-                  title={new Date(message.createdAt).toLocaleString()}
+                  title={formatAbsoluteTimestamp(message.createdAt)}
                   aria-label={timestamp}
                 >
                   {timestamp}
@@ -370,12 +370,18 @@ function shouldShowScoutbotMessageTimestamp(
 ): boolean {
   if (!previous) return true;
   if (!isSameScoutbotMessageDay(previous.createdAt, current.createdAt)) return true;
-  return Math.abs(current.createdAt - previous.createdAt) >= SCOUTBOT_MESSAGE_TIMESTAMP_GAP_MS;
+  const previousMs = normalizeTimestampMs(previous.createdAt);
+  const currentMs = normalizeTimestampMs(current.createdAt);
+  if (previousMs === null || currentMs === null) return true;
+  return Math.abs(currentMs - previousMs) >= SCOUTBOT_MESSAGE_TIMESTAMP_GAP_MS;
 }
 
 function isSameScoutbotMessageDay(left: number, right: number): boolean {
-  const leftDate = new Date(left);
-  const rightDate = new Date(right);
+  const leftMs = normalizeTimestampMs(left);
+  const rightMs = normalizeTimestampMs(right);
+  if (leftMs === null || rightMs === null) return false;
+  const leftDate = new Date(leftMs);
+  const rightDate = new Date(rightMs);
   return (
     leftDate.getFullYear() === rightDate.getFullYear() &&
     leftDate.getMonth() === rightDate.getMonth() &&
@@ -384,16 +390,18 @@ function isSameScoutbotMessageDay(left: number, right: number): boolean {
 }
 
 function formatScoutbotMessageTimestamp(value: number): string {
-  const date = new Date(value);
+  const valueMs = normalizeTimestampMs(value);
+  if (valueMs === null) return "";
+  const date = new Date(valueMs);
   const now = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
   const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-  if (isSameScoutbotMessageDay(value, now.getTime())) {
+  if (isSameScoutbotMessageDay(valueMs, now.getTime())) {
     return `Today ${time}`;
   }
-  if (isSameScoutbotMessageDay(value, yesterday.getTime())) {
+  if (isSameScoutbotMessageDay(valueMs, yesterday.getTime())) {
     return `Yesterday ${time}`;
   }
   if (date.getFullYear() === now.getFullYear()) {

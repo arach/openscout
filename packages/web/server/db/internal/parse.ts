@@ -3,7 +3,7 @@
  * db-queries.ts as part of SCO-031 Phase A.
  */
 
-import { epochMs } from "@openscout/protocol";
+import { EPOCH_MILLISECONDS_FLOOR, epochMs } from "@openscout/protocol";
 
 export function metadataString(
   metadata: Record<string, unknown> | undefined,
@@ -24,7 +24,7 @@ export function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
-export const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
+export { EPOCH_MILLISECONDS_FLOOR };
 
 export function coerceNumber(value: number | string | null | undefined): number | null {
   if (typeof value === "number") {

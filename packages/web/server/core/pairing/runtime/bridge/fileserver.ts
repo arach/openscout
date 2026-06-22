@@ -498,6 +498,9 @@ function renderFileChangeHandoffPage(
   block: ActionBlock,
 ): string {
   const action = block.action;
+  if (action.kind !== "file_change") {
+    throw new Error("renderFileChangeHandoffPage requires a file_change action");
+  }
   const title = action.path || snapshot.session.name || snapshot.session.id;
   const hero = `
     <section class="hero">

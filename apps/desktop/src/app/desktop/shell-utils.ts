@@ -2,9 +2,11 @@ import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { epochMs } from "@openscout/protocol";
+
 export function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) return 0;
-  return value > 10_000_000_000 ? Math.floor(value / 1000) : value;
+  const ms = epochMs(value);
+  return ms === null ? 0 : Math.floor(ms / 1000);
 }
 
 export function isoFromTimestamp(value: number): string {
@@ -27,14 +29,17 @@ export function formatDayLabel(value: number): string {
 }
 
 export function formatRelativeTime(value: number): string {
-  const deltaSeconds = Math.max(0, Math.floor(Date.now() / 1000) - normalizeTimestamp(value));
-  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
-  const deltaMinutes = Math.floor(deltaSeconds / 60);
-  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaSeconds = Math.floor(Date.now() / 1000) - normalizeTimestamp(value);
+  const future = deltaSeconds < -4;
+  const absoluteSeconds = Math.abs(deltaSeconds);
+  if (absoluteSeconds < 5) return "now";
+  if (absoluteSeconds < 60) return future ? `in ${absoluteSeconds}s` : `${absoluteSeconds}s ago`;
+  const deltaMinutes = Math.floor(absoluteSeconds / 60);
+  if (deltaMinutes < 60) return future ? `in ${deltaMinutes}m` : `${deltaMinutes}m ago`;
   const deltaHours = Math.floor(deltaMinutes / 60);
-  if (deltaHours < 24) return `${deltaHours}h ago`;
+  if (deltaHours < 24) return future ? `in ${deltaHours}h` : `${deltaHours}h ago`;
   const deltaDays = Math.floor(deltaHours / 24);
-  return `${deltaDays}d ago`;
+  return future ? `in ${deltaDays}d` : `${deltaDays}d ago`;
 }
 
 export function formatDateTimeLabel(value: number | null | undefined): string | null {

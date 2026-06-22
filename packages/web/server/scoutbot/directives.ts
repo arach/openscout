@@ -86,7 +86,7 @@ export function parseScoutbotDirectives(input: string): ScoutbotDirectiveParseRe
 
     messageTokens.push(token);
 
-    const action = command ? null : parseActionToken(token);
+    const action: ScoutbotDirectiveAction | null = command ? null : parseActionToken(token);
     if (action) {
       command = { name: action, raw: token };
       commandIndex = index;

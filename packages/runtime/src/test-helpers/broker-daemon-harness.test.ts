@@ -3,7 +3,12 @@ import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { directChannelNaturalKey, namedChannelNaturalKey } from "@openscout/protocol";
+import {
+  CHAT_ID_PREFIX,
+  directChannelNaturalKey,
+  isOpaqueChannelId,
+  namedChannelNaturalKey,
+} from "@openscout/protocol";
 
 import { DEFAULT_BROKER_HOST, buildDefaultBrokerUrl } from "../broker-process-manager";
 
@@ -30,7 +35,8 @@ export function createBrokerDaemonTestHarness() {
       participantIds: string[];
     },
   ): void {
-    expect(conversation?.id.startsWith("c.")).toBe(true);
+    expect(conversation?.id.startsWith(CHAT_ID_PREFIX)).toBe(true);
+    expect(isOpaqueChannelId(conversation?.id)).toBe(true);
     expect(conversation?.metadata?.naturalKey).toBe(directChannelNaturalKey(input.participantIds));
     expect(conversation?.metadata?.legacyId).toBeUndefined();
     expect(conversation?.metadata?.legacyConversationId).toBeUndefined();
@@ -44,7 +50,8 @@ export function createBrokerDaemonTestHarness() {
       participantIds: string[];
     },
   ): void {
-    expect(conversation?.id.startsWith("c.")).toBe(true);
+    expect(conversation?.id.startsWith(CHAT_ID_PREFIX)).toBe(true);
+    expect(isOpaqueChannelId(conversation?.id)).toBe(true);
     expect(conversation?.metadata?.channel).toBe(input.channel);
     expect(conversation?.metadata?.naturalKey).toBe(namedChannelNaturalKey(input.channel));
     expect(conversation?.metadata?.legacyId).toBeUndefined();

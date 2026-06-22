@@ -675,20 +675,14 @@ export function presenceColor(
 }
 
 export function shortConversationIdentity(id: string): string {
-  if (id.startsWith("conv.")) {
-    return `conv.${id.slice("conv.".length, "conv.".length + 8)}`;
-  }
-  if (id.startsWith("channel.")) {
-    return `#${id.slice("channel.".length)}`;
-  }
-  if (id.startsWith("dm.")) {
-    return "legacy DM";
+  if (id.startsWith("c.")) {
+    return `c.${id.slice("c.".length, "c.".length + 8)}`;
   }
   return id.length > 22 ? `${id.slice(0, 10)}...${id.slice(-7)}` : id;
 }
 
-export function conversationIdentityLabel(id: string): string {
-  return id.startsWith("conv.") ? "UID" : "ID";
+export function conversationIdentityLabel(_id: string): string {
+  return "Chat ID";
 }
 
 export function groupSessionsByWorkspace(

@@ -361,14 +361,12 @@ struct HomeSurface: View {
     }
 
     /// Open an agent's conversation. We route by the agent's real broker
-    /// `conversationId` — its operator DM — NOT its `sessionId` (a harness label
-    /// like "relay-openscout-claude" that's shared across agents and resolves to
-    /// no conversation). When the bridge predates this field, fall back to the
-    /// canonical `dm.operator.<id>` the broker will create on first send. Agent
-    /// taps always open the full conversation surface (composer + streaming), so
-    /// this skips the comms-reader detection used for activity-feed links.
+    /// `conversationId`, not `sessionId` (a harness label shared across agents).
+    /// If no chat exists yet, the row is non-interactive until an explicit
+    /// create-chat action returns an opaque chat id.
     private func tap(_ agent: AgentSummary) -> (() -> Void)? {
-        let conversationId = agent.conversationId ?? "dm.operator.\(agent.id)"
+        guard let conversationId = agent.conversationId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !conversationId.isEmpty else { return nil }
         return { route = .session(id: conversationId, title: agent.title) }
     }
 
@@ -420,84 +418,7 @@ struct HomeSurface: View {
     }
 
     private func activityRoute(for event: TailEvent, conversationId: String) -> HomeConversationRoute {
-        if let comms = commsConversation(
-            from: conversationId,
-            titleFallback: event.source,
-            preview: event.summary,
-            timestamp: Date(timeIntervalSince1970: Double(event.tsMs) / 1000)
-        ) {
-            return .comms(comms)
-        }
         return .session(id: conversationId, title: event.source)
-    }
-
-    private func commsConversation(
-        from conversationId: String,
-        titleFallback: String?,
-        preview: String?,
-        timestamp: Date?
-    ) -> CommsConversation? {
-        if conversationId.starts(with: "dm.operator.") {
-            let title = commsTitle(from: conversationId, prefix: "dm.operator.", fallback: titleFallback)
-            return CommsConversation(
-                id: conversationId,
-                kind: .direct,
-                title: title,
-                participants: [title],
-                lastMessagePreview: preview,
-                lastMessageAt: timestamp
-            )
-        }
-        if conversationId.starts(with: "channel.") {
-            let title = commsTitle(from: conversationId, prefix: "channel.")
-            return CommsConversation(
-                id: conversationId,
-                kind: title == "system" ? .system : .channel,
-                title: title,
-                topic: title == "system" ? "system" : "channel",
-                lastMessagePreview: preview,
-                lastMessageAt: timestamp
-            )
-        }
-        if conversationId.starts(with: "group.") {
-            let title = commsTitle(from: conversationId, prefix: "group.", fallback: titleFallback)
-            return CommsConversation(
-                id: conversationId,
-                kind: .group,
-                title: title,
-                participants: [title],
-                lastMessagePreview: preview,
-                lastMessageAt: timestamp
-            )
-        }
-        if conversationId.starts(with: "thread.") {
-            return CommsConversation(
-                id: conversationId,
-                kind: .thread,
-                title: commsTitle(from: conversationId, prefix: "thread.", fallback: titleFallback),
-                lastMessagePreview: preview,
-                lastMessageAt: timestamp
-            )
-        }
-        return nil
-    }
-
-    private func commsTitle(from conversationId: String, prefix: String, fallback: String? = nil) -> String {
-        let raw = conversationId.hasPrefix(prefix) ? String(conversationId.dropFirst(prefix.count)) : conversationId
-        let derived = raw
-            .split(separator: ".")
-            .first
-            .map(String.init)?
-            .replacingOccurrences(of: "-", with: " ")
-            ?? raw
-        guard let fallback = fallback?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !fallback.isEmpty,
-              fallback.caseInsensitiveCompare("operator") != .orderedSame,
-              fallback.caseInsensitiveCompare("you") != .orderedSame
-        else {
-            return derived
-        }
-        return fallback
     }
 
     private func toggleActivity(_ id: String) {
@@ -768,7 +689,7 @@ private struct ActivityRow: View {
 
     private var metaLine: String {
         var parts = [event.source, event.kind.rawValue]
-        if let age = relativeAgeString(Date(timeIntervalSince1970: Double(event.tsMs) / 1000)) {
+        if let age = ScoutTimestamp.relativeAge(fromEpoch: TimeInterval(event.tsMs)) {
             parts.append(age)
         }
         return parts.joined(separator: " · ")
@@ -776,7 +697,7 @@ private struct ActivityRow: View {
 
     private var expandedMetaLine: String {
         var parts = [attributionLabel, event.kind.rawValue]
-        if let age = relativeAgeString(Date(timeIntervalSince1970: Double(event.tsMs) / 1000)) {
+        if let age = ScoutTimestamp.relativeAge(fromEpoch: TimeInterval(event.tsMs)) {
             parts.append(age)
         }
         return parts.joined(separator: " · ")
@@ -1278,12 +1199,7 @@ private func homeShortIdentifier(_ value: String?) -> String? {
 
 /// A terse "last active" age — "now", "5m", "2h", "3d".
 private func relativeAgeString(_ date: Date?) -> String? {
-    guard let t = date else { return nil }
-    let s = Date().timeIntervalSince(t)
-    if s < 45 { return "now" }
-    if s < 3_600 { return "\(Int(s / 60))m" }
-    if s < 86_400 { return "\(Int(s / 3_600))h" }
-    return "\(Int(s / 86_400))d"
+    ScoutTimestamp.relativeAge(since: date)
 }
 
 /// The status label, but only when it carries signal beyond the state — generic

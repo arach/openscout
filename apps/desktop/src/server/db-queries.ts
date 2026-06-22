@@ -10,6 +10,8 @@ import { Database } from "bun:sqlite";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { EPOCH_MILLISECONDS_FLOOR } from "@openscout/protocol";
+
 /* ── Types (match what the client expects) ── */
 
 export type WebAgent = {
@@ -200,7 +202,6 @@ function isDuplicateActivityFeedItem(previous: WebActivityItem | null, next: Web
 
 const ACTIVE_FLIGHT_STATES_SQL = sqlStringList(["running", "waking", "waiting", "queued"]);
 const ACTIVE_FLIGHT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-const EPOCH_MILLISECONDS_FLOOR = 1_000_000_000_000;
 const ACTIVE_WORK_STATES_SQL = sqlStringList(["open", "working", "waiting", "review"]);
 
 function staleFlightActivityPredicate(alias: string): string {

@@ -2,19 +2,16 @@
  * `Conversations` — the single, service-shaped entry point for conversation
  * identity operations across runtime and web (SCO-031 §5). Despite the
  * "repo" framing in the design doc, this is not a pure repository — methods
- * like `ensureByNaturalKey` and `resolveLegacyId` carry domain logic, so it
- * is named for what it is: the conversations API on the store.
+ * like `ensureByNaturalKey` carry domain logic, so it is named for what it is:
+ * the conversations API on the store.
  *
  * Read methods reuse the host `SQLiteControlPlaneStore`'s connection handles
  * so we never open a third bun:sqlite connection to the same database file.
  * Writes funnel through `store.upsertConversation` so transaction/WAL
  * coordination stays in one place.
  *
- * In SCO-031 the body is "lift the existing structural-ID logic verbatim";
- * SCO-030 then fills in `findByNaturalKey` + `ensureByNaturalKey` once the
- * `natural_key` column lands. Until then `resolveLegacyId` carries the
- * deprecated `dm.{operator}.{agent}` parse/build helpers — see
- * `./legacy-ids.ts` for the structural form definitions.
+ * Chat/conversation identity is opaque. Semantic shapes such as direct-message
+ * participants or channel names live in metadata `naturalKey`, never in `id`.
  */
 
 import { randomUUID } from "node:crypto";
@@ -36,13 +33,6 @@ import {
 } from "@openscout/protocol";
 
 import type { SQLiteControlPlaneStore } from "../sqlite-store.js";
-
-import {
-  conversationIdForAgent,
-  directConversationIdCandidates,
-  parseDirectConversationId,
-  parseLegacyScoutSessionConversationId,
-} from "./legacy-ids.js";
 
 export interface EnsureConversationInput {
   naturalKey: string;
@@ -66,7 +56,6 @@ export interface ConversationsApi {
   ensureByNaturalKey(input: EnsureConversationInput): ConversationDefinition;
   upsert(c: ConversationDefinition): void;
   delete(id: ScoutId): void;
-  resolveLegacyId(rawId: string): ConversationDefinition | null;
 }
 
 interface ConversationRow {
@@ -108,14 +97,8 @@ export class Conversations implements ConversationsApi {
     return null;
   }
 
-  /**
-   * Build the canonical operator↔agent direct conversation id and look it up.
-   * Equivalent to the inline `queryConversationDefinitionById(conversationIdForAgent(agentId))`
-   * pattern that used to live in `db-queries.ts`.
-   */
   findByAgent(agentId: ScoutId): ConversationDefinition | null {
-    return this.findById(conversationIdForAgent(agentId))
-      ?? this.findByNaturalKey(directChannelNaturalKey(["operator", agentId]));
+    return this.findByNaturalKey(directChannelNaturalKey(["operator", agentId]));
   }
 
   findByParent(parentId: ScoutId): ConversationDefinition[] {
@@ -140,8 +123,7 @@ export class Conversations implements ConversationsApi {
    * In SCO-031 this only matches when the membership multiset is identical —
    * the dedup logic from `pickDirectConversationAgentId` / `shouldPreferSessionSummary`
    * stays in the session pickers because it is concerned with display
-   * ordering rather than identity. SCO-030 may replace this with a
-   * `natural_key`-driven match for canonical direct/channel forms.
+   * ordering rather than identity.
    */
   findByParticipants(participants: ScoutId[]): ConversationDefinition | null {
     const uniqueParticipants = Array.from(new Set(participants.filter(Boolean)));
@@ -213,53 +195,4 @@ export class Conversations implements ConversationsApi {
     this.writeDb.query("DELETE FROM conversations WHERE id = ?1").run(id);
   }
 
-  /**
-   * Resolve a raw URL/path conversation id to a canonical row, falling back
-   * to the legacy structural form (`dm.{operator}.{agent}` and the
-   * `dm.{agent}.scout.main.mini` variant). Returns `null` when the id is
-   * unknown.
-   *
-   * SCO-030 marks this `@deprecated` and removes it once the structural-ID
-   * compat window closes.
-   */
-  resolveLegacyId(rawId: string): ConversationDefinition | null {
-    const direct = this.findById(rawId);
-    if (direct) {
-      return direct;
-    }
-
-    const parsedDirect = parseDirectConversationId(rawId);
-    if (parsedDirect) {
-      const byNaturalKey = this.findByNaturalKey(
-        directChannelNaturalKey([parsedDirect.operatorId, parsedDirect.agentId]),
-      );
-      if (byNaturalKey) {
-        return byNaturalKey;
-      }
-      for (const candidate of directConversationIdCandidates(parsedDirect.agentId)) {
-        const hit = this.findById(candidate);
-        if (hit) {
-          return hit;
-        }
-      }
-    }
-
-    const legacyScoutAgentId = parseLegacyScoutSessionConversationId(rawId);
-    if (legacyScoutAgentId) {
-      const byNaturalKey = this.findByNaturalKey(
-        directChannelNaturalKey(["operator", legacyScoutAgentId]),
-      );
-      if (byNaturalKey) {
-        return byNaturalKey;
-      }
-      for (const candidate of directConversationIdCandidates(legacyScoutAgentId)) {
-        const hit = this.findById(candidate);
-        if (hit) {
-          return hit;
-        }
-      }
-    }
-
-    return null;
-  }
 }

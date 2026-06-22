@@ -1,4 +1,9 @@
-import type { ConversationBinding, ConversationDefinition, MessageRecord } from "@openscout/protocol";
+import {
+  epochMs,
+  type ConversationBinding,
+  type ConversationDefinition,
+  type MessageRecord,
+} from "@openscout/protocol";
 
 export type ScoutTelegramNodeSnapshot = {
   id: string;
@@ -171,6 +176,5 @@ export function resolveScoutTelegramOwnerNodeId(
 }
 
 function normalizeTimestamp(value: number | null | undefined): number {
-  if (!value) return 0;
-  return value > 10_000_000_000 ? value : value * 1000;
+  return epochMs(value) ?? 0;
 }

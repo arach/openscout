@@ -1,5 +1,25 @@
 import Foundation
 
+private let scoutGrokQuietPhases: Set<String> = [
+    "streaming_reasoning",
+    "streaming_text",
+    "tool_execution",
+    "permission_prompt",
+]
+
+private func scoutTrimmedLowercase(_ value: String) -> String {
+    value
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+}
+
+private func scoutCodexChunkToolResult(_ summary: String) -> Bool {
+    let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.hasPrefix("-> Chunk ID:")
+        || trimmed.range(of: #"^->\s+Wall time:"#,
+                         options: .regularExpression) != nil
+}
+
 public enum ScoutTailEventKind: String, Decodable, Sendable, CaseIterable, Identifiable, Equatable {
     case user
     case assistant
@@ -58,7 +78,7 @@ public struct ScoutTailEvent: Identifiable, Decodable, Sendable, Equatable {
     public let summary: String
 
     public var date: Date {
-        Date(timeIntervalSince1970: ts > 10_000_000_000 ? ts / 1000 : ts)
+        ScoutRelativeTime.date(ts) ?? Date(timeIntervalSince1970: 0)
     }
 
     public var clockLabel: String {
@@ -102,11 +122,53 @@ public struct ScoutTailEvent: Identifiable, Decodable, Sendable, Equatable {
         }
     }
 
+    public var originAbbrev: String {
+        switch harness {
+        case "scout-managed": return "sc"
+        case "hudson-managed": return "hu"
+        case "unattributed": return "na"
+        default: return String(originLabel.prefix(2))
+        }
+    }
+
     public var isLowSignalMetadata: Bool {
+        let normalized = scoutTrimmedLowercase(summary)
+
+        if sourceLabel == "grok" {
+            if normalized == "first token" || normalized.hasPrefix("loop ") {
+                return true
+            }
+
+            if normalized.hasPrefix("phase ·") {
+                let phase = normalized
+                    .dropFirst("phase ·".count)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if scoutGrokQuietPhases.contains(phase) {
+                    return true
+                }
+            }
+        }
+
+        if sourceLabel == "codex" {
+            if kind == .toolResult {
+                let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+                if scoutCodexChunkToolResult(trimmed) { return true }
+                if trimmed.contains("_end ·") { return true }
+                if trimmed.hasPrefix("->") { return true }
+            }
+
+            if kind == .system {
+                if normalized == "user_message" || normalized == "agent_message" {
+                    return true
+                }
+                if normalized == "[reasoning]" { return true }
+                if normalized.hasPrefix("turn context") { return true }
+                if normalized.hasPrefix("tokens ·") { return true }
+                if normalized.hasPrefix("session ") { return true }
+            }
+        }
+
         if kind == .other || kind == .system {
-            let normalized = summary
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
             if normalized.hasPrefix("last-prompt:") { return true }
             if normalized.hasPrefix("permission-mode") { return true }
             if normalized == "[ai-title]"

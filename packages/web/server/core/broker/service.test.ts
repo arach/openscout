@@ -15,6 +15,7 @@ import {
   openScoutPeerSession,
   readScoutBrokerHealth,
   resolveScoutBrokerUrl,
+  sendScoutConversationSteer,
   sendScoutConversationMessage,
   sendScoutMessage,
 } from "./service.ts";
@@ -532,7 +533,7 @@ describe("sendScoutMessage", () => {
         naturalKey: "channel:talkie-next",
       }),
     }));
-    expect(conversationPost?.body?.id).toMatch(/^c\.[0-9a-f-]{36}$/);
+    expect(conversationPost?.body?.id).toMatch(/^chat_[0-9a-f]{32}$/);
     expect(messagePost?.body).toMatchObject({
       conversationId: conversationPost?.body?.id,
       actorId: "operator",
@@ -636,6 +637,203 @@ describe("sendScoutConversationMessage", () => {
           destinationId: "dm.hudson.main.mini.narrative-studio.main.mini",
         },
       });
+  }, 15000);
+});
+
+describe("sendScoutConversationSteer", () => {
+  test("records one operator message and wakes every non-human participant in an agent-to-agent conversation", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+          },
+          agents: {
+            "hudson.main.mini": {
+              id: "hudson.main.mini",
+              kind: "agent",
+              handle: "hudson",
+              selector: "@hudson",
+              displayName: "Hudson",
+              metadata: { selector: "@hudson" },
+            },
+            "narrative-studio.main.mini": {
+              id: "narrative-studio.main.mini",
+              kind: "agent",
+              handle: "narrative-studio",
+              selector: "@narrative-studio",
+              displayName: "Narrative Studio",
+              metadata: { selector: "@narrative-studio" },
+            },
+          },
+          endpoints: {
+            "endpoint-hudson": {
+              id: "endpoint-hudson",
+              agentId: "hudson.main.mini",
+              nodeId: "node-1",
+              harness: "claude",
+              transport: "tmux",
+              state: "idle",
+              sessionId: "relay-hudson-claude",
+            },
+            "endpoint-narrative": {
+              id: "endpoint-narrative",
+              agentId: "narrative-studio.main.mini",
+              nodeId: "node-1",
+              harness: "claude",
+              transport: "claude_stream_json",
+              state: "idle",
+              sessionId: "relay-narrative-claude",
+            },
+          },
+          conversations: {
+            "c.hudson-narrative": {
+              id: "c.hudson-narrative",
+              kind: "direct",
+              title: "Hudson <> Narrative Studio",
+              visibility: "private",
+              authorityNodeId: "node-1",
+              participantIds: ["hudson.main.mini", "narrative-studio.main.mini"],
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/invocations") {
+        return jsonResponse({
+          accepted: true,
+          invocationId: body.id,
+          flightId: `flight-${body.targetAgentId}`,
+          targetAgentId: body.targetAgentId,
+          state: "queued",
+          flight: {
+            id: `flight-${body.targetAgentId}`,
+            invocationId: body.id,
+            requesterId: body.requesterId,
+            targetAgentId: body.targetAgentId,
+            state: "queued",
+          },
+        });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "Who has next?",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(result).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.hudson-narrative",
+      invokedTargets: ["hudson.main.mini", "narrative-studio.main.mini"],
+      unresolvedTargets: [],
+    });
+    const messagePost = requests.find((request) => request.path === "/v1/messages")?.body;
+    expect(messagePost).toMatchObject({
+      conversationId: "c.hudson-narrative",
+      actorId: "operator",
+      body: "Who has next?",
+      audience: {
+        notify: ["hudson.main.mini", "narrative-studio.main.mini"],
+        reason: "direct_message",
+      },
+      metadata: {
+        source: "scout-web",
+        destinationKind: "conversation",
+        destinationId: "c.hudson-narrative",
+        intent: "steer",
+        relayTargetIds: ["hudson.main.mini", "narrative-studio.main.mini"],
+      },
+    });
+
+    const invocationPosts = requests
+      .filter((request) => request.path === "/v1/invocations")
+      .map((request) => request.body);
+    expect(invocationPosts).toHaveLength(2);
+    expect(invocationPosts).toEqual([
+      expect.objectContaining({
+        targetAgentId: "hudson.main.mini",
+        action: "wake",
+        conversationId: "c.hudson-narrative",
+        messageId: messagePost.id,
+        execution: {
+          session: "existing",
+          targetSessionId: "relay-hudson-claude",
+        },
+        metadata: expect.objectContaining({
+          intent: "steer",
+          relayTarget: "hudson.main.mini",
+          relayMessageId: messagePost.id,
+        }),
+      }),
+      expect.objectContaining({
+        targetAgentId: "narrative-studio.main.mini",
+        action: "wake",
+        conversationId: "c.hudson-narrative",
+        messageId: messagePost.id,
+        execution: {
+          session: "existing",
+          targetSessionId: "relay-narrative-claude",
+        },
+        metadata: expect.objectContaining({
+          intent: "steer",
+          relayTarget: "narrative-studio.main.mini",
+          relayMessageId: messagePost.id,
+        }),
+      }),
+    ]);
+
+    requests.length = 0;
+    const scopedResult = await sendScoutConversationSteer({
+      conversationId: "c.hudson-narrative",
+      senderId: "operator",
+      body: "@Tesla take this one.",
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(scopedResult).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.hudson-narrative",
+      invokedTargets: ["hudson.main.mini"],
+      unresolvedTargets: [],
+    });
+    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+      .toMatchObject({
+        mentions: [{ actorId: "hudson.main.mini", label: "@Tesla" }],
+        audience: {
+          notify: ["hudson.main.mini"],
+          reason: "direct_message",
+        },
+      });
+    expect(requests.filter((request) => request.path === "/v1/invocations").map((request) => request.body.targetAgentId))
+      .toEqual(["hudson.main.mini"]);
   }, 15000);
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +14,8 @@ const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalHome = process.env.HOME;
 const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalPath = process.env.PATH;
+const originalGhBin = process.env.OPENSCOUT_GH_BIN;
+const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const tempPaths = new Set<string>();
 
 afterEach(() => {
@@ -39,6 +41,16 @@ afterEach(() => {
     delete process.env.PATH;
   } else {
     process.env.PATH = originalPath;
+  }
+  if (originalGhBin === undefined) {
+    delete process.env.OPENSCOUT_GH_BIN;
+  } else {
+    process.env.OPENSCOUT_GH_BIN = originalGhBin;
+  }
+  if (originalGhRateLimitJson === undefined) {
+    delete process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
+  } else {
+    process.env.OPENSCOUT_GH_RATE_LIMIT_JSON = originalGhRateLimitJson;
   }
 
   for (const path of tempPaths) {
@@ -374,17 +386,14 @@ describe("service budgets", () => {
     tempPaths.add(root);
     const controlHome = join(root, "control-plane");
     const home = join(root, "home");
-    const bin = join(root, "bin");
     process.env.OPENSCOUT_CONTROL_HOME = controlHome;
     process.env.HOME = home;
     process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
-    process.env.PATH = bin;
+    process.env.PATH = "";
     mkdirSync(controlHome, { recursive: true });
-    mkdirSync(bin, { recursive: true });
 
     const reset = Math.floor((Date.now() + 3600 * 1000) / 1000);
-    const ghPath = join(bin, "gh");
-    writeFileSync(ghPath, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({
+    process.env.OPENSCOUT_GH_RATE_LIMIT_JSON = JSON.stringify({
       resources: {
         core: {
           limit: 5000,
@@ -392,8 +401,7 @@ describe("service budgets", () => {
           reset,
         },
       },
-    })}'\n`, "utf8");
-    chmodSync(ghPath, 0o755);
+    });
 
     const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
     createQuotaTable(rawDb);

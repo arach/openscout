@@ -33,6 +33,6 @@ export function openAgent(
   navigate({
     view: "agents",
     agentId: agent.id,
-    ...(options.observe ? { conversationId: agent.conversationId, tab: "observe" } : {}),
+    ...(options.observe ? { tab: "observe" } : {}),
   });
 }

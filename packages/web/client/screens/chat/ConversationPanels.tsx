@@ -8,7 +8,6 @@ import {
   normalizeAgentState,
 } from "../../lib/agent-state.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
-import { conversationForAgent } from "../../lib/router.ts";
 import { isUnread, type LastViewedMap } from "../../lib/sessionRead.ts";
 import {
   formatAbsoluteTimestamp,
@@ -202,7 +201,7 @@ export function PresenceSidebar({
               onClick={() =>
                 openContent(
                   navigate,
-                  { view: "agent-info", conversationId: conversationForAgent(p.agent!.id) },
+                  { view: "agents", agentId: p.agent!.id },
                   { returnTo: route },
                 )
               }

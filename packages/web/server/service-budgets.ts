@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { createInterface } from "node:readline";
 import { Database } from "bun:sqlite";
+import { epochMs } from "@openscout/protocol";
 import { resolveClaudeStatuslineDirectory } from "@openscout/runtime/claude-statusline";
 import { db, resolveDbPath } from "./db/internal/db.ts";
 
@@ -35,6 +36,8 @@ const QUOTA_HISTORY_LOOKBACK_MS = WEEK_MS;
 const QUOTA_HISTORY_ID_PREFIX = "budget:quota:history:";
 const PERSISTED_QUOTA_ROW_LIMIT = 768;
 const CLAUDE_STATUSLINE_HISTORY_MAX_BYTES = 32 * 1024 * 1024;
+const GH_CLI_BIN_ENV = "OPENSCOUT_GH_BIN";
+const GH_RATE_LIMIT_JSON_ENV = "OPENSCOUT_GH_RATE_LIMIT_JSON";
 
 type GaugeTone = "ok" | "warn" | "err" | "dim";
 
@@ -100,9 +103,9 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
 
   inflight = (async () => {
     const [codex, claude, github] = await Promise.all([
-      loadCodexGauge(forceRefresh).catch(() => null),
-      loadClaudeGauge().catch(() => null),
-      loadGithubGauge(forceRefresh).catch(() => null),
+      loadCodexGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("codex", error)),
+      loadClaudeGauge().catch((error) => serviceBudgetProviderFailed("claude", error)),
+      loadGithubGauge(forceRefresh).catch((error) => serviceBudgetProviderFailed("github", error)),
     ]);
     const gauges = [codex, claude, github].filter((g): g is ServiceGauge => g !== null);
     const value: ServiceBudgetsResponse = { generatedAt: Date.now(), gauges };
@@ -114,6 +117,17 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
     return await inflight;
   } finally {
     inflight = null;
+  }
+}
+
+function serviceBudgetProviderFailed(provider: string, error: unknown): null {
+  debugServiceBudgetProvider(provider, "gauge failed", error);
+  return null;
+}
+
+function debugServiceBudgetProvider(provider: string, message: string, detail?: unknown): void {
+  if (process.env.OPENSCOUT_DEBUG_SERVICE_BUDGETS === "1") {
+    console.error(`[service-budgets] ${provider} ${message}`, detail);
   }
 }
 
@@ -874,30 +888,43 @@ async function loadGithubGauge(forceRefresh = false): Promise<ServiceGauge | nul
   }
 
   let stdout: string;
-  try {
-    const result = await execFileAsync("gh", ["api", "rate_limit"], {
-      timeout: GH_CLI_TIMEOUT_MS,
-      maxBuffer: 256 * 1024,
-    });
-    stdout = result.stdout;
-  } catch {
-    return null;
+  const fixtureJson = process.env[GH_RATE_LIMIT_JSON_ENV];
+  if (fixtureJson?.trim()) {
+    stdout = fixtureJson;
+  } else {
+    try {
+      const ghBin = process.env[GH_CLI_BIN_ENV] || "gh";
+      const result = await execFileAsync(ghBin, ["api", "rate_limit"], {
+        env: { ...process.env },
+        timeout: GH_CLI_TIMEOUT_MS,
+        maxBuffer: 256 * 1024,
+      });
+      stdout = result.stdout;
+    } catch (error) {
+      debugServiceBudgetProvider("github", "gh api failed", error);
+      return null;
+    }
   }
 
   let parsed: GhRateLimitResponse;
   try {
     parsed = JSON.parse(stdout);
-  } catch {
+  } catch (error) {
+    debugServiceBudgetProvider("github", "gh api returned invalid json", { error, stdout });
     return null;
   }
 
   const core = parsed.resources?.core;
   if (!core || typeof core.limit !== "number" || typeof core.remaining !== "number") {
+    debugServiceBudgetProvider("github", "gh api missing core rate limit", parsed);
     return null;
   }
 
   const snapshot = githubQuotaSnapshot(core, Date.now());
-  if (!snapshot) return null;
+  if (!snapshot) {
+    debugServiceBudgetProvider("github", "core rate limit could not become a snapshot", core);
+    return null;
+  }
 
   persistQuotaSnapshots([snapshot]);
   const persisted = loadPersistedProviderQuotaGauge({
@@ -923,9 +950,7 @@ function githubQuotaSnapshot(
   }
   const limit = core.limit;
   const used = Math.max(0, limit - core.remaining);
-  const resetAt = typeof core.reset === "number" && Number.isFinite(core.reset)
-    ? core.reset * 1000
-    : capturedAt + 3600 * 1000;
+  const resetAt = timestampMs(core.reset) ?? capturedAt + 3600 * 1000;
 
   return {
     provider: "github",
@@ -1078,9 +1103,8 @@ function stableHash(value: unknown): string {
 }
 
 function timestampMs(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return value > 1_000_000_000_000 ? value : value * 1000;
-  }
+  const normalized = epochMs(value);
+  if (normalized !== null) return normalized;
   if (typeof value === "string" && value.trim()) {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : undefined;

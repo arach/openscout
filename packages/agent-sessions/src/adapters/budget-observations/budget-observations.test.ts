@@ -4,6 +4,7 @@ import { readAdapterBudgetObservations } from "../budget-observations.js";
 
 describe("adapter budget observations", () => {
   test("reads Codex usage and provider-reported quota windows", () => {
+    const capturedAt = 1_700_000_002_000;
     const observations = readAdapterBudgetObservations({
       id: "endpoint-codex",
       harness: "codex",
@@ -21,7 +22,7 @@ describe("adapter budget observations", () => {
           planType: "plus",
         },
         observeQuota: {
-          capturedAt: 2000,
+          capturedAt,
           planType: "plus",
           windows: [
             {
@@ -32,7 +33,7 @@ describe("adapter budget observations", () => {
           ],
         },
       },
-    }, 2500);
+    }, capturedAt + 500);
 
     expect(observations.usage).toHaveLength(1);
     expect(observations.usage[0]).toEqual(expect.objectContaining({
@@ -54,12 +55,40 @@ describe("adapter budget observations", () => {
         windowKind: "primary",
         usedPercent: 60,
         percentRemaining: 40,
-        capturedAt: 2000,
+        capturedAt,
         metadata: expect.objectContaining({
           source: "codex.providerMeta.observeQuota",
         }),
       }),
     ]);
+  });
+
+  test("normalizes large legacy second quota timestamps", () => {
+    const observations = readAdapterBudgetObservations({
+      id: "endpoint-codex",
+      harness: "codex",
+      transport: "codex_app_server",
+      model: "gpt-5.4",
+      sessionId: "codex-session",
+      providerMeta: {
+        provider: "openai",
+        observeQuota: {
+          capturedAt: 99_999_999_999,
+          planType: "plus",
+          windows: [
+            {
+              label: "5h",
+              resetAt: 99_999_999_998,
+            },
+          ],
+        },
+      },
+    }, 2500);
+
+    expect(observations.quotaWindows[0]).toEqual(expect.objectContaining({
+      capturedAt: 99_999_999_999_000,
+      resetAt: 99_999_999_998_000,
+    }));
   });
 
   test("reads Claude Code usage without inventing quota windows", () => {
@@ -95,6 +124,7 @@ describe("adapter budget observations", () => {
   });
 
   test("reads Claude Code provider-reported quota windows", () => {
+    const capturedAt = 1_700_000_005_000;
     const observations = readAdapterBudgetObservations({
       id: "endpoint-claude",
       harness: "claude",
@@ -104,25 +134,25 @@ describe("adapter budget observations", () => {
       providerMeta: {
         provider: "anthropic",
         observeQuota: {
-          capturedAt: 5000,
+          capturedAt,
           planType: "max",
           windows: [
             {
               label: "5h",
               windowKind: "primary",
               usedPercent: 25,
-              resetAt: 6000,
+              resetAt: capturedAt + 1_000,
             },
             {
               label: "weekly",
               windowKind: "secondary",
               percentRemaining: 70,
-              resetAt: 7000,
+              resetAt: capturedAt + 2_000,
             },
           ],
         },
       },
-    }, 5500);
+    }, capturedAt + 500);
 
     expect(observations.usage).toHaveLength(0);
     expect(observations.quotaWindows).toEqual([
@@ -133,7 +163,7 @@ describe("adapter budget observations", () => {
         windowKind: "primary",
         usedPercent: 25,
         percentRemaining: 75,
-        capturedAt: 5000,
+        capturedAt,
         metadata: expect.objectContaining({
           source: "claude-code.providerMeta.observeQuota",
         }),
@@ -145,7 +175,7 @@ describe("adapter budget observations", () => {
         windowKind: "secondary",
         usedPercent: undefined,
         percentRemaining: 70,
-        capturedAt: 5000,
+        capturedAt,
         metadata: expect.objectContaining({
           source: "claude-code.providerMeta.observeQuota",
         }),

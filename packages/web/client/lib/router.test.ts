@@ -1,6 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
+import type * as ReactModule from "react";
 
-const React = await import("../../node_modules/react/index.js");
+// @ts-expect-error -- the relative .js path keeps bun's runtime resolution to the real react
+// module; a bare "react" specifier would be hijacked by tsconfig `paths` to the .d.ts. The cast
+// restores the proper types that the path import otherwise loses.
+const React = (await import("../../node_modules/react/index.js")) as typeof ReactModule;
 
 mock.module("react", () => React);
 
@@ -14,16 +18,16 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "conversations" })).toBe("/conversations");
   });
 
-  test("direct agent conversation routes default to the message tab", () => {
-    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini");
+  test("agent chat routes preserve opaque chat ids", () => {
+    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/c.openscout-chat");
 
     expect(route).toEqual({
       view: "agents",
       agentId: "openscout-6.main.mini",
-      conversationId: "dm.operator.openscout-6.main.mini",
+      conversationId: "c.openscout-chat",
       tab: "message",
     });
-    expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=message");
+    expect(routePath(route)).toBe("/agents/openscout-6.main.mini/c/c.openscout-chat");
   });
 
   test("machine-scoped routes round-trip through URLs", () => {
@@ -65,27 +69,27 @@ describe("agents route parsing", () => {
     });
     expect(routePath(agentRoute)).toBe("/agents/hudson.main?tab=observe&machineId=node-b");
 
-    const conversationRoute = routeFromUrl("http://127.0.0.1:43120/c/dm.operator.hudson?compose=ask&machineId=node-b");
+    const conversationRoute = routeFromUrl("http://127.0.0.1:43120/c/c.hudson-chat?compose=ask&machineId=node-b");
     expect(conversationRoute).toEqual({
       view: "conversation",
-      conversationId: "dm.operator.hudson",
+      conversationId: "c.hudson-chat",
       composeMode: "ask",
       machineId: "node-b",
     });
-    expect(routePath(conversationRoute)).toBe("/c/dm.operator.hudson?compose=ask&machineId=node-b");
+    expect(routePath(conversationRoute)).toBe("/c/c.hudson-chat?compose=ask&machineId=node-b");
 
     const messagesRoute = routeFromUrl(
-      "http://127.0.0.1:43120/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
+      "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread&machineId=node-b",
     );
     expect(messagesRoute).toEqual({
       view: "messages",
-      conversationId: "channel.font-studio",
+      conversationId: "c.font-studio",
       filter: "channel",
       sort: "unread",
       machineId: "node-b",
     });
     expect(routePath(messagesRoute)).toBe(
-      "/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
+      "/messages/c.font-studio?filter=channel&sort=unread&machineId=node-b",
     );
   });
 
@@ -99,15 +103,15 @@ describe("agents route parsing", () => {
   });
 
   test("observe deep links preserve the explicit observe tab", () => {
-    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini?tab=observe");
+    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/c.openscout-chat?tab=observe");
 
     expect(route).toEqual({
       view: "agents",
       agentId: "openscout-6.main.mini",
-      conversationId: "dm.operator.openscout-6.main.mini",
+      conversationId: "c.openscout-chat",
       tab: "observe",
     });
-    expect(routePath(route)).toBe("/agents/openscout-6.main.mini?tab=observe");
+    expect(routePath(route)).toBe("/agents/openscout-6.main.mini/c/c.openscout-chat?tab=observe");
   });
 
 
@@ -124,7 +128,7 @@ describe("agents route parsing", () => {
 
   test("follow routes preserve Scout ids and preferred view", () => {
     const route = routeFromUrl(
-      "http://127.0.0.1:43120/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",
+      "http://127.0.0.1:43120/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=c.hudson-chat&workId=work-1&targetAgentId=hudson.main",
     );
 
     expect(route).toEqual({
@@ -132,12 +136,12 @@ describe("agents route parsing", () => {
       preferredView: "tail",
       flightId: "flight-1",
       invocationId: "inv-1",
-      conversationId: "dm.operator.hudson",
+      conversationId: "c.hudson-chat",
       workId: "work-1",
       targetAgentId: "hudson.main",
     });
     expect(routePath(route)).toBe(
-      "/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",
+      "/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=c.hudson-chat&workId=work-1&targetAgentId=hudson.main",
     );
   });
 
@@ -228,23 +232,23 @@ describe("agents route parsing", () => {
 
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
-      "http://127.0.0.1:43120/messages/channel.font-studio?filter=channel&sort=unread",
+      "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread",
     );
     expect(route).toEqual({
       view: "messages",
-      conversationId: "channel.font-studio",
+      conversationId: "c.font-studio",
       filter: "channel",
       sort: "unread",
     });
     expect(routePath(route)).toBe(
-      "/messages/channel.font-studio?filter=channel&sort=unread",
+      "/messages/c.font-studio?filter=channel&sort=unread",
     );
   });
 
   test("messages defaults (all + recent) stay out of the URL", () => {
     expect(
-      routePath({ view: "messages", conversationId: "dm.operator.foo", filter: "all", sort: "recent" }),
-    ).toBe("/messages/dm.operator.foo");
+      routePath({ view: "messages", conversationId: "c.foo", filter: "all", sort: "recent" }),
+    ).toBe("/messages/c.foo");
   });
 
   test("agent configuration settings routes round-trip", () => {

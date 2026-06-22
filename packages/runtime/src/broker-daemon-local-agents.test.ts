@@ -10,7 +10,7 @@ import { createBrokerDaemonTestHarness } from "./test-helpers/broker-daemon-harn
 const broker = createBrokerDaemonTestHarness();
 
 describe("broker daemon local agent routing", () => {
-  test("rejects project-target deliveries when the project path has no registered participant", async () => {
+  test("starts a cardless project session when the project path has no registered participant", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
     const projectRoot = join(controlHome, "projects", "implicit-project");
@@ -20,6 +20,7 @@ describe("broker daemon local agent routing", () => {
     const harness = await broker.startBroker({
       controlHome,
       env: {
+        HOME: controlHome,
         OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
         OPENSCOUT_CORE_AGENTS: "",
         OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
@@ -27,7 +28,13 @@ describe("broker daemon local agent routing", () => {
       },
     });
 
-    const response = await broker.postJsonStatus(harness.baseUrl, "/v1/deliver", {
+    const response = await broker.postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-project-auto-card",
       caller: {
         actorId: "operator",
@@ -35,31 +42,44 @@ describe("broker daemon local agent routing", () => {
       },
       target: {
         kind: "project_path",
-        projectPath: projectRoot,
+        projectPath: "~/projects/implicit-project",
       },
       body: "Review this project without a pre-created card.",
       intent: "consult",
       ensureAwake: false,
       createdAt: Date.now(),
     });
-    const body = response.body as {
-      kind: string;
-      accepted: boolean;
-      reason?: string;
-      rejection?: { kind: string; askedLabel: string };
-    };
 
-    expect(response.status).toBe(422);
-    expect(body.kind).toBe("rejected");
-    expect(body.accepted).toBe(false);
-    expect(body.reason).toBe("unknown_target");
-    expect(body.rejection).toEqual(expect.objectContaining({
-      kind: "unknown",
-      askedLabel: projectRoot,
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.state).toBe("queued");
+
+    const snapshot = await broker.getJson<{
+      actors: Record<string, { kind: string; metadata?: Record<string, unknown> }>;
+      agents: Record<string, unknown>;
+      endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.actors[response.targetAgentId!]).toEqual(expect.objectContaining({
+      kind: "session",
+      metadata: expect.objectContaining({ cardless: true, projectRoot }),
     }));
+    expect(snapshot.agents[response.targetAgentId!]).toBeUndefined();
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        projectRoot,
+        metadata: expect.objectContaining({
+          cardless: true,
+          pendingExternalSession: true,
+        }),
+      }),
+    ]));
   }, 15_000);
 
-  test("routes project-path work to the registered project participant even when one-time was requested", async () => {
+  test("starts a cardless project session instead of using a registered card when one-time was requested", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
     const projectRoot = join(controlHome, "projects", "fresh-route");
@@ -125,13 +145,26 @@ describe("broker daemon local agent routing", () => {
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.targetAgentId).toBe("fresh-route.test-node");
+    expect(response.targetAgentId).toMatch(/^session-/);
     expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
     expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
     expect(response.flight?.state).toBe("queued");
+
+    const snapshot = await broker.getJson<{
+      agents: Record<string, unknown>;
+      endpoints: Record<string, { agentId: string; metadata?: Record<string, unknown> }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.agents[response.targetAgentId!]).toBeUndefined();
+    expect(snapshot.agents["fresh-route.test-node"]).toBeDefined();
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        metadata: expect.objectContaining({ cardless: true }),
+      }),
+    ]));
   }, 15_000);
 
-  test("rejects ambiguous project-target delivery instead of auto-provisioning a card", async () => {
+  test("starts a cardless project session when existing project cards are ambiguous", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
     const supportDirectory = join(controlHome, "support");
     const projectRoot = join(controlHome, "projects", "ambiguous-project");
@@ -183,7 +216,13 @@ describe("broker daemon local agent routing", () => {
       },
     });
 
-    const response = await broker.postJsonStatus(harness.baseUrl, "/v1/deliver", {
+    const response = await broker.postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      receipt?: { targetAgentId?: string };
+      flight?: { targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
       id: "deliver-project-auto-card-ambiguous",
       caller: {
         actorId: "operator",
@@ -202,25 +241,29 @@ describe("broker daemon local agent routing", () => {
       ensureAwake: false,
       createdAt: Date.now(),
     });
-    const body = response.body as {
-      kind: string;
-      accepted: boolean;
-      reason?: string;
-      rejection?: { kind: string; candidates?: unknown[]; askedLabel: string };
-    };
 
-    expect(response.status).toBe(422);
-    expect(body.kind).toBe("rejected");
-    expect(body.accepted).toBe(false);
-    expect(body.reason).toBe("ambiguous_target");
-    expect(body.rejection).toEqual(expect.objectContaining({
-      kind: "ambiguous",
-      askedLabel: projectRoot,
-      candidates: expect.arrayContaining([
-        expect.objectContaining({ agentId: "ambiguous-one.test-node" }),
-        expect.objectContaining({ agentId: "ambiguous-two.test-node" }),
-      ]),
-    }));
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    expect(response.targetAgentId).not.toBe("ambiguous-one.test-node");
+    expect(response.targetAgentId).not.toBe("ambiguous-two.test-node");
+    expect(response.receipt?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+    expect(response.flight?.state).toBe("queued");
+
+    const snapshot = await broker.getJson<{
+      agents: Record<string, unknown>;
+      endpoints: Record<string, { agentId: string; metadata?: Record<string, unknown> }>;
+    }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.agents[response.targetAgentId!]).toBeUndefined();
+    expect(snapshot.agents["ambiguous-one.test-node"]).toBeDefined();
+    expect(snapshot.agents["ambiguous-two.test-node"]).toBeDefined();
+    expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        agentId: response.targetAgentId,
+        metadata: expect.objectContaining({ cardless: true }),
+      }),
+    ]));
   }, 15_000);
 
   test("refreshes registered local agents before resolving broker-owned delivery", async () => {

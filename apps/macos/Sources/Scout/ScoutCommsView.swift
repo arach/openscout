@@ -115,6 +115,29 @@ struct ScoutPendingFlightStatus: Decodable, Sendable {
     let id: String
     let state: String
     let summary: String?
+    let removePendingRow: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case state
+        case summary
+    }
+
+    init(id: String, state: String, summary: String?, removePendingRow: Bool = false) {
+        self.id = id
+        self.state = state
+        self.summary = summary
+        self.removePendingRow = removePendingRow
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            id: try c.decode(String.self, forKey: .id),
+            state: try c.decode(String.self, forKey: .state),
+            summary: try c.decodeIfPresent(String.self, forKey: .summary)
+        )
+    }
 
     var isFailure: Bool {
         switch state.lowercased() {
@@ -133,6 +156,86 @@ struct ScoutPendingFlightStatus: Decodable, Sendable {
             return false
         }
     }
+}
+
+/// The selected conversation's current in-flight turn, surfaced inline in the
+/// thread so a new or slow session shows progress without opening Observe.
+/// `summary` is the flight's coarse status ("claude acknowledged"); `detail` is
+/// the agent's latest observe event ("Running grep") when one is live.
+struct ScoutActiveTurn: Equatable, Sendable {
+    let agentName: String
+    let state: String          // queued | waking | running | waiting
+    let summary: String?
+    let detail: String?
+}
+
+/// In-thread preview of a turn that's still running — the agent's sprite, a live
+/// braille spinner, a plain-language headline keyed off the flight state, and a
+/// rolling detail line from the latest observe event. Mirrors ScoutMessageRow's
+/// layout so it reads as the agent mid-thought rather than a separate banner;
+/// it's swapped for the real turn the moment the completed message lands.
+struct ScoutInFlightTurnRow: View {
+    let turn: ScoutActiveTurn
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            SpriteAvatarView(name: turn.agentName, size: 28, tile: true)
+
+            VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
+                HStack(alignment: .center, spacing: HudSpacing.md) {
+                    Text(turn.agentName)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    ScoutBrailleSpinner(size: 11, tint: spinnerTint)
+                    Text(headline)
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(headlineTint)
+                }
+                if let line = detailLine {
+                    Text(line)
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .animation(.easeOut(duration: 0.15), value: line)
+                }
+            }
+            .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detailLine: String? {
+        if let detail = turn.detail?.nilIfEmpty {
+            return detail
+        }
+        guard let summary = turn.summary?.nilIfEmpty else { return nil }
+        if summary.contains("Scout stopped waiting for a synchronous result")
+            || summary.contains("the requester stopped waiting after") {
+            return "Still working."
+        }
+        return summary
+    }
+
+    /// Plain language over flight jargon. `waking` → "Starting up…" is the beat
+    /// that answers "did it even pick up" for a cold new session. A live
+    /// `waiting` flight is still represented here as active work; explicit
+    /// attention states are surfaced elsewhere.
+    private var headline: String {
+        switch turn.state.lowercased() {
+        case "queued": return "Queued…"
+        case "waking": return "Starting up…"
+        case "running": return "Working…"
+        case "waiting": return "Currently working"
+        default: return "Working…"
+        }
+    }
+
+    private var spinnerTint: Color { ScoutPalette.accent }
+
+    private var headlineTint: Color { ScoutPalette.dim }
 }
 
 struct ScoutConversationListBar: View {
@@ -176,7 +279,7 @@ struct ScoutConversationListBar: View {
         // a chrome fill here would paint over the glow.
         ScoutColumnHeader(horizontalPadding: ScoutDesign.listGutter, background: .clear) {
             HStack(spacing: HudSpacing.md) {
-                Text("Conversations")
+                Text("Chats")
                     .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                     .foregroundStyle(ScoutPalette.ink)
                     .lineLimit(1)
@@ -242,7 +345,7 @@ struct ScoutConversationListBar: View {
 
     private func recencyBucket(for channel: ScoutChannel, now: Date, calendar: Calendar) -> RecencyBucket {
         guard let ts = channel.lastMessageAt else { return .earlier }
-        let date = Date(timeIntervalSince1970: ts > 10_000_000_000 ? ts / 1000 : ts)
+        guard let date = ScoutRelativeTime.date(ts) else { return .earlier }
         if now.timeIntervalSince(date) < 15 * 60 { return .now }
         if calendar.isDate(date, inSameDayAs: now) { return .today }
         return .earlier
@@ -252,7 +355,7 @@ struct ScoutConversationListBar: View {
         HStack(spacing: 0) {
             Text(bucket.label.uppercased())
                 .font(HudFont.mono(HudTextSize.micro, weight: .bold))
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(ScoutPalette.muted)
                 .tracking(1.0)
             Spacer(minLength: 0)
         }
@@ -275,7 +378,7 @@ struct ScoutConversationListBar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if channels.isEmpty && pendingConversations.isEmpty {
             HudEmptyState(
-                title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No conversations" : "No matches",
+                title: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No chats" : "No matches",
                 subtitle: query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No visible DMs or channels." : "Try another search or filter.",
                 icon: "bubble.left"
             )
@@ -317,7 +420,7 @@ struct ScoutConversationListBar: View {
     }
 }
 
-/// A quiet live pulse beside the Conversations title — breathes only while
+/// A quiet live pulse beside the Chats title — breathes only while
 /// agents are actively working. No label; the motion is the whole message.
 struct ScoutListLiveDot: View {
     let active: Bool
@@ -436,8 +539,8 @@ struct ScoutListNewButton: View {
         }
         .buttonStyle(.plain).scoutPointerCursor()
         .onHover { hovering = $0 }
-        .help("New conversation")
-        .accessibilityLabel("New conversation")
+        .help("New chat")
+        .accessibilityLabel("New chat")
     }
 }
 
@@ -566,8 +669,7 @@ struct ScoutPendingConversationRow: View {
     private var statusGlyph: some View {
         switch pending.state {
         case .starting:
-            ProgressView()
-                .controlSize(.small)
+            ScoutBrailleSpinner(size: 13, tint: ScoutPalette.accent)
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
@@ -620,9 +722,9 @@ struct ScoutPendingConversationRow: View {
 
     private func shortConversationId(_ cId: String) -> String {
         if cId.hasPrefix("c.") {
-            return "cId \(String(cId.dropFirst(2).prefix(8)))"
+            return "chat \(String(cId.dropFirst(2).prefix(8)))"
         }
-        return cId.count > 16 ? "cId \(String(cId.prefix(12)))" : "cId \(cId)"
+        return cId.count > 16 ? "chat \(String(cId.prefix(12)))" : "chat \(cId)"
     }
 }
 
@@ -666,6 +768,22 @@ struct ScoutConversationRow: View {
                             // answered ask is noise here, so it never shows a chip.
                             if channel.ask?.state == .pending {
                                 pendingChip
+                            }
+
+                            if let sessionIdShort = channel.sessionIdShort {
+                                Text(sessionIdShort)
+                                    .font(HudFont.mono(9, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.dim)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .help("Session id: \(channel.sessionId ?? "")")
+                            } else {
+                                Text(channel.chatIdShort)
+                                    .font(HudFont.mono(9, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.dim)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .help("Chat ID: \(channel.chatId)")
                             }
 
                             Spacer(minLength: HudSpacing.sm)
@@ -1011,7 +1129,7 @@ struct ScoutMessageRow: View {
                 Button {
                     onNewFromMessage()
                 } label: {
-                    Label("New conversation from this message…", systemImage: "bubble.left.and.text.bubble.right")
+                    Label("New chat from this message…", systemImage: "bubble.left.and.text.bubble.right")
                 }
                 Divider()
                 Button {

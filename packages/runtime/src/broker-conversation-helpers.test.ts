@@ -166,7 +166,7 @@ describe("broker conversation helpers", () => {
     expect(brokerActorDisplayName(snapshot, "human")).toBe("Human Sender");
     expect(brokerActorDisplayName(snapshot, "missing")).toBe("missing");
     expect(brokerConversationChannel(snapshot, "channel.shared")).toBe("shared");
-    expect(brokerConversationChannel(snapshot, "channel.voice")).toBe("voice");
+    expect(brokerConversationChannel(snapshot, "channel.voice")).toBeNull();
     expect(titleCaseName("agent_main-worker")).toBe("Agent Main Worker");
     expect(metadataStringValue({ projectRoot: " /repo " }, "projectRoot")).toBe("/repo");
     expect(metadataStringValue({ projectRoot: "   " }, "projectRoot")).toBeNull();

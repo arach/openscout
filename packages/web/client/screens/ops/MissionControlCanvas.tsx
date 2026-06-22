@@ -322,7 +322,7 @@ export function FocusOverlay({
                 onClick={onOpenConversation}
                 {...statusOnHover({
                   label: `Open conversation with ${agent.handle ?? agent.name}`,
-                  route: `/c/${agent.conversationId}`,
+                  ...(agent.conversationId ? { route: `/c/${agent.conversationId}` } : {}),
                 })}
               >
                 Open conversation ↗
@@ -534,7 +534,7 @@ function FocusActivityEmpty({
           onClick={onOpenConversation}
           {...statusOnHover({
             label: `Open conversation with ${agent.handle ?? agent.name}`,
-            route: `/c/${agent.conversationId}`,
+            ...(agent.conversationId ? { route: `/c/${agent.conversationId}` } : {}),
           })}
         >
           Open conversation ↗

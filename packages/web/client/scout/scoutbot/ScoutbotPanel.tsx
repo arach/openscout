@@ -1297,6 +1297,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
             probeState={voiceProbeState}
             onLaunch={launchScoutVoice}
             onRetry={() => void probeVoice()}
+            onSettings={() => setSettingsOpen(true)}
           />
         )}
 

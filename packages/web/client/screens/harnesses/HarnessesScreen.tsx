@@ -5,6 +5,11 @@ import { api } from "../../lib/api.ts";
 import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
+import {
+  formatAbsoluteTimestamp,
+  normalizeTimestampMs,
+  timeAgo,
+} from "../../lib/time.ts";
 import type {
   Agent,
   HarnessTopologyObservation,
@@ -154,20 +159,14 @@ function formatResetRelative(resetAt: number): string {
   return stale ? `stale ${label}` : label;
 }
 
-function timeAgo(ts: number | null): string {
-  if (!ts) return "-";
-  const diff = Math.max(0, Date.now() - ts);
-  if (diff < 60_000) return "now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
-  return `${Math.floor(diff / 86_400_000)}d`;
-}
-
 function budgetLatestAt(gauge: ServiceGauge | null): number | null {
   if (!gauge || gauge.kind !== "quota") return null;
   return quotaWindows(gauge)
     .flatMap((window) => window.history ?? [])
-    .reduce<number | null>((latest, point) => Math.max(latest ?? 0, point.capturedAt), null);
+    .reduce<number | null>((latest, point) => {
+      const capturedAt = normalizeTimestampMs(point.capturedAt);
+      return Math.max(latest ?? 0, capturedAt ?? 0) || latest;
+    }, null);
 }
 
 function observationHarnessId(observation: HarnessTopologyObservation): string {
@@ -177,7 +176,7 @@ function observationHarnessId(observation: HarnessTopologyObservation): string {
 function observationSeenAt(observation: HarnessTopologyObservation): number | null {
   const observedAt = Date.parse(observation.observedAt);
   const fromObserved = Number.isFinite(observedAt) ? observedAt : 0;
-  return Math.max(fromObserved, observation.changedAt ?? 0) || null;
+  return Math.max(fromObserved, normalizeTimestampMs(observation.changedAt) ?? 0) || null;
 }
 
 function sourceLabel(source: string): string {
@@ -215,7 +214,10 @@ function buildHarnessRows(
       { in_turn: 0, in_flight: 0, callable: 0, blocked: 0 },
     );
     const latestAgentAt = rowAgents.reduce<number | null>(
-      (latest, agent) => Math.max(latest ?? 0, agent.updatedAt ?? agent.createdAt ?? 0) || latest,
+      (latest, agent) => Math.max(
+        latest ?? 0,
+        normalizeTimestampMs(agent.updatedAt) ?? normalizeTimestampMs(agent.createdAt) ?? 0,
+      ) || latest,
       null,
     );
     const latestObservationAt = observations.reduce<number | null>(
@@ -262,7 +264,7 @@ function MiniHistory({ points }: { points?: BudgetHistoryPoint[] }) {
             key={`${point.capturedAt}:${index}`}
             className={`hs-history-bar hs-history-bar--${gaugeTone(point.fill)}`}
             style={{ height: `${Math.round(fill * 100)}%` }}
-            title={`${new Date(point.capturedAt).toLocaleString()} ${point.usedLabel}`}
+            title={`${formatAbsoluteTimestamp(point.capturedAt) || "unknown"} ${point.usedLabel}`}
           />
         );
       })}
@@ -360,7 +362,7 @@ function HarnessLedger({ rows }: { rows: HarnessRow[] }) {
               <div className="hs-project-cell" title={row.projects.join(", ")}>
                 {compactList(row.projects, 3)}
               </div>
-              <div className="hs-seen-cell">{timeAgo(row.latestSeen)}</div>
+              <div className="hs-seen-cell">{timeAgo(row.latestSeen) || "-"}</div>
             </div>
           );
         })}
@@ -378,7 +380,7 @@ function TopologySection({ snapshot }: { snapshot: HarnessTopologySnapshot | nul
           <h3>Observed topology</h3>
           <p>{observations.length} sources / {snapshot?.totals.agents ?? 0} observed agents / {snapshot?.totals.tasks ?? 0} tasks</p>
         </div>
-        <span className="hs-section-meta">{snapshot ? timeAgo(snapshot.generatedAt) : "-"}</span>
+        <span className="hs-section-meta">{snapshot ? timeAgo(snapshot.generatedAt) || "-" : "-"}</span>
       </div>
       {observations.length === 0 ? (
         <div className="hs-empty">No observed topology snapshot.</div>
@@ -393,7 +395,7 @@ function TopologySection({ snapshot }: { snapshot: HarnessTopologySnapshot | nul
               <article key={observation.id} className="hs-topology-card">
                 <div className="hs-topology-card-head">
                   <strong>{sourceLabel(observation.source)}</strong>
-                  <span>{timeAgo(observationSeenAt(observation))}</span>
+                  <span>{timeAgo(observationSeenAt(observation)) || "-"}</span>
                 </div>
                 <div className="hs-topology-counts">
                   <span><strong>{topology.groups.length}</strong> groups</span>

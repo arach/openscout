@@ -9,7 +9,6 @@ import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { resolveAgentTerminalSurface } from "../../lib/terminal-relay.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
-import { agentIdFromConversation } from "../../lib/router.ts";
 import {
   resolveActiveSessionId,
   resolveSelectedSessionId,
@@ -402,7 +401,6 @@ function AgentInfoRouteInspector({
   navigate: (r: Route) => void;
   route: Route;
 }) {
-  const legacyAgentId = agentIdFromConversation(conversationId);
   const [session, setSession] = useState<SessionEntry | null>(null);
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -424,7 +422,7 @@ function AgentInfoRouteInspector({
     void loadSession();
   });
 
-  const resolvedAgentId = session?.agentId ?? legacyAgentId;
+  const resolvedAgentId = session?.agentId ?? null;
   useEffect(() => {
     if (!resolvedAgentId || agents.some((candidate) => candidate.id === resolvedAgentId)) {
       setAgentDetail(null);

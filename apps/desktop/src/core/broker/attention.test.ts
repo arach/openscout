@@ -164,6 +164,131 @@ describe("buildScoutAttentionReport", () => {
     expect(report.projects).toHaveLength(0);
   });
 
+  test("does not surface dismissed failed flight attention", () => {
+    const now = 2_000_000;
+    const report = buildScoutAttentionReport(
+      createRuntimeRegistrySnapshot({
+        agents: {
+          "failed.codex": {
+            id: "failed.codex",
+            kind: "agent",
+            definitionId: "failed",
+            displayName: "Failed Codex",
+            agentClass: "builder",
+            capabilities: ["invoke"],
+            wakePolicy: "on_demand",
+            homeNodeId: "node-1",
+            authorityNodeId: "node-1",
+            advertiseScope: "local",
+            metadata: { projectRoot: "/tmp/failed" },
+          },
+        },
+        invocations: {
+          "inv-1": {
+            id: "inv-1",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "failed.codex",
+            action: "execute",
+            task: "Start the session.",
+            ensureAwake: true,
+            stream: true,
+            createdAt: now - 20_000,
+          },
+        },
+        flights: {
+          "flt-1": {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "failed.codex",
+            state: "failed",
+            error: "Codex app-server cwd does not exist.",
+            startedAt: now - 10_000,
+            completedAt: now - 5_000,
+            metadata: {
+              operatorAttentionDismissedAt: now - 4_000,
+            },
+          },
+        },
+      }),
+      { since: now - 60_000, now },
+    );
+
+    expect(report.projects).toHaveLength(0);
+  });
+
+  test("does not surface risky messages tied to dismissed flight attention", () => {
+    const now = 2_000_000;
+    const report = buildScoutAttentionReport(
+      createRuntimeRegistrySnapshot({
+        agents: {
+          "failed.codex": {
+            id: "failed.codex",
+            kind: "agent",
+            definitionId: "failed",
+            displayName: "Failed Codex",
+            agentClass: "builder",
+            capabilities: ["invoke"],
+            wakePolicy: "on_demand",
+            homeNodeId: "node-1",
+            authorityNodeId: "node-1",
+            advertiseScope: "local",
+            metadata: { projectRoot: "/tmp/failed" },
+          },
+        },
+        invocations: {
+          "inv-1": {
+            id: "inv-1",
+            requesterId: "operator",
+            requesterNodeId: "node-1",
+            targetAgentId: "failed.codex",
+            action: "execute",
+            task: "Start the session.",
+            ensureAwake: true,
+            stream: true,
+            createdAt: now - 20_000,
+          },
+        },
+        flights: {
+          "flt-1": {
+            id: "flt-1",
+            invocationId: "inv-1",
+            requesterId: "operator",
+            targetAgentId: "failed.codex",
+            state: "failed",
+            error: "Codex app-server cwd does not exist.",
+            startedAt: now - 10_000,
+            completedAt: now - 5_000,
+            metadata: {
+              operatorAttentionDismissedAt: now - 4_000,
+            },
+          },
+        },
+        messages: {
+          "msg-1": {
+            id: "msg-1",
+            conversationId: "c.failed",
+            actorId: "system",
+            originNodeId: "node-1",
+            body: "failed to respond: Codex app-server cwd does not exist.",
+            class: "status",
+            visibility: "private",
+            policy: "durable",
+            createdAt: now - 4_500,
+            metadata: {
+              flightId: "flt-1",
+              invocationId: "inv-1",
+            },
+          },
+        },
+      }),
+      { since: now - 60_000, now },
+    );
+
+    expect(report.projects).toHaveLength(0);
+  });
+
   test("maps risky system messages to a mentioned known project root", () => {
     const now = 2_000_000;
     const report = buildScoutAttentionReport(

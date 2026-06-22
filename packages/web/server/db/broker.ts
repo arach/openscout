@@ -8,6 +8,7 @@
  * module — they are only used by `queryBrokerDiagnostics`.
  */
 
+import type { SQLQueryBindings } from "bun:sqlite";
 import { db } from "./internal/db.ts";
 import { sqlTimestampMsExpression } from "./internal/sql-helpers.ts";
 import { normalizeTimestampMs, parseJson } from "./internal/parse.ts";
@@ -144,7 +145,7 @@ function cursorPredicate(
   cursor: BrokerCursor | null,
   tsExpression: string,
   idExpression: string,
-): { sql: string; params: unknown[] } {
+): { sql: string; params: SQLQueryBindings[] } {
   if (!cursor) return { sql: "", params: [] };
   return {
     sql: `(${tsExpression} < ? OR (${tsExpression} = ? AND ${idExpression} > ?))`,
@@ -156,7 +157,7 @@ function whereClause(parts: string[]): string {
   return parts.length > 0 ? `WHERE ${parts.join(" AND ")}` : "";
 }
 
-function countSql(sql: string, ...params: unknown[]): number {
+function countSql(sql: string, ...params: SQLQueryBindings[]): number {
   const row = db().prepare(sql).get(...params) as { count: number } | undefined;
   return row?.count ?? 0;
 }
@@ -186,7 +187,7 @@ function queryMessageRows(options: {
 }): MessageRow[] {
   const tsExpression = sqlTimestampMsExpression("m.created_at");
   const predicates: string[] = [];
-  const params: unknown[] = [];
+  const params: SQLQueryBindings[] = [];
   if (typeof options.since === "number") {
     predicates.push(`${tsExpression} >= ?`);
     params.push(options.since);
@@ -252,7 +253,7 @@ function routedMessageAttemptFromRow(row: MessageRow): WebBrokerRouteAttempt | n
     ts,
     actorName: row.actor_name ?? row.actor_id,
     target: metadataTarget(metadata),
-    route: metadataRoute(metadata) ?? (row.conversation_id.startsWith("dm.") ? "dm" : "channel"),
+    route: metadataRoute(metadata) ?? "unknown",
     detail: shortBrokerBody(row.body),
     conversationId: row.conversation_id,
     messageId: row.id,
@@ -320,7 +321,7 @@ function queryDispatchRows(limit: number, cursor: BrokerCursor | null, since?: n
   const tsExpression = sqlTimestampMsExpression("sd.dispatched_at");
   const sortIdExpression = "'dispatch:' || sd.id";
   const predicates: string[] = [];
-  const params: unknown[] = [];
+  const params: SQLQueryBindings[] = [];
   if (typeof since === "number") {
     predicates.push(`${tsExpression} >= ?`);
     params.push(since);
@@ -383,7 +384,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
   const tsExpression = sqlTimestampMsExpression("d.created_at");
   const sortIdExpression = "'delivery:' || d.id";
   const predicates: string[] = [`d.status IN (${FAILED_DELIVERY_STATUSES.map(() => "?").join(", ")})`];
-  const params: unknown[] = [...FAILED_DELIVERY_STATUSES];
+  const params: SQLQueryBindings[] = [...FAILED_DELIVERY_STATUSES];
   if (typeof since === "number") {
     predicates.push(`${tsExpression} >= ?`);
     params.push(since);
@@ -447,7 +448,7 @@ function queryDeliveryAttemptRows(limit: number, cursor: BrokerCursor | null, si
   const tsExpression = sqlTimestampMsExpression("da.created_at");
   const sortIdExpression = "'attempt:' || da.id";
   const predicates: string[] = [];
-  const params: unknown[] = [];
+  const params: SQLQueryBindings[] = [];
   if (typeof since === "number") {
     predicates.push(`${tsExpression} >= ?`);
     params.push(since);

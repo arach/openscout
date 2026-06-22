@@ -35,7 +35,14 @@ import {
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
 import { api } from "../../lib/api.ts";
-import { timeAgo } from "../../lib/time.ts";
+import {
+  formatClockTimestamp,
+  formatDurationClock,
+  fullTimestamp,
+  normalizeTimestampMs,
+  timeAgo,
+  timeAgoWithSuffix,
+} from "../../lib/time.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -107,20 +114,6 @@ type ObserveDetailRow = {
   actionBasePath?: string | null;
 };
 
-function fmtClock(sec: number): string {
-  if (!Number.isFinite(sec) || sec <= 0) {
-    return "00:00";
-  }
-  const totalSeconds = Math.floor(sec);
-  const h = Math.floor(totalSeconds / 3_600);
-  const m = Math.floor((totalSeconds % 3_600) / 60);
-  const s = totalSeconds % 60;
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  }
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
 /** Compact elapsed label for lane trace rows (avoids clock-like H:MM:SS). */
 function fmtElapsed(sec: number): string {
   if (!Number.isFinite(sec) || sec <= 0) {
@@ -136,6 +129,17 @@ function fmtElapsed(sec: number): string {
   const hours = Math.floor(totalSeconds / 3_600);
   const minutes = Math.floor((totalSeconds % 3_600) / 60);
   return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+}
+
+function fmtPreciseElapsed(sec: number): string {
+  return formatDurationClock(sec * 1000) || "0:00";
+}
+
+function fmtGap(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "0s";
+  }
+  return fmtElapsed(seconds);
 }
 
 function laneEventWallMs(
@@ -162,6 +166,26 @@ function fmtLaneRowTime(
     return { label: "" };
   }
   return { label: fmtElapsed(event.t) };
+}
+
+function fmtObserveRowTime(
+  event: Pick<ObserveEvent, "t" | "at">,
+  sessionStartMs: number | undefined,
+): { label: string; title?: string } {
+  const wallMs = laneEventWallMs(event, sessionStartMs);
+  const elapsed = fmtPreciseElapsed(event.t);
+
+  if (wallMs !== null) {
+    return {
+      label: formatClockTimestamp(wallMs) || fmtElapsed(event.t),
+      title: `${fullTimestamp(wallMs)} · elapsed ${elapsed}`,
+    };
+  }
+
+  return {
+    label: fmtElapsed(event.t),
+    title: `Elapsed ${elapsed} from session start`,
+  };
 }
 
 function isCursorAtLiveEdge(cursor: number, duration: number): boolean {
@@ -906,6 +930,7 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
   const copyText = event.answer
     ? `${event.text}\n\n↳ ${event.to ?? "you"}: ${event.answer}`
     : event.text ?? "";
+  const answerDelay = Math.max(0, (event.answerT ?? event.t) - event.t);
   return (
     <div className={`s-observe-ask s-observe-block${laneMode ? " s-observe-ask--lane" : ""}`}>
       <div className="s-observe-ask-label">↗ ask → {toLabel}</div>
@@ -919,7 +944,7 @@ function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: 
       {event.answer && (!laneMode || laneTextNeedsExpand(event.answer)) && (
         <div className="s-observe-ask-answer">
           <span className="s-observe-ask-answer-meta">
-            ↳ @{event.to ?? "you"} · +{(event.answerT ?? event.t) - event.t}s
+            ↳ @{event.to ?? "you"} · answered after {fmtGap(answerDelay)}
           </span>
           <div className="s-observe-ask-answer-text">{event.answer}</div>
         </div>
@@ -1065,12 +1090,12 @@ function StreamRow({
   const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
   const rowTime = laneMode
     ? fmtLaneRowTime(event, sessionStartMs, nowMs, preferWallAge)
-    : { label: fmtClock(event.t) };
+    : fmtObserveRowTime(event, sessionStartMs);
   const eventWallMs = laneEventWallMs(event, sessionStartMs);
   const wallGapLabel = preferWallAge && typeof prevWallMs === "number" && eventWallMs !== null
     ? fmtLaneWallGapLabel(eventWallMs - prevWallMs)
     : null;
-  const sessionGapLabel = !preferWallAge && gap > 15 ? `+${gap}s` : null;
+  const sessionGapLabel = !preferWallAge && gap > 15 ? `${fmtGap(gap)} gap` : null;
   const gapLabel = wallGapLabel ?? sessionGapLabel;
 
   const rowClass = [
@@ -1577,18 +1602,14 @@ function Scrubber({
 /* ── Session header ── */
 
 function fmtRelative(ts: number): string {
-  const diff = Date.now() - ts;
-  if (diff < 60_000) return "just now";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
+  return timeAgoWithSuffix(ts) || "unknown";
 }
 
 function fmtDuration(start: number, end: number): string {
-  const diff = end - start;
-  if (diff < 60_000) return `${Math.floor(diff / 1000)}s`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
-  return `${Math.floor(diff / 3_600_000)}h ${Math.floor((diff % 3_600_000) / 60_000)}m`;
+  const startMs = normalizeTimestampMs(start);
+  const endMs = normalizeTimestampMs(end);
+  if (startMs === null || endMs === null) return "0:00";
+  return formatDurationClock(endMs - startMs) || "0:00";
 }
 
 function SessionHeader({
@@ -1626,8 +1647,9 @@ function SessionHeader({
 
   const openPair = useCallback(() => {
     navigate({
-      view: "messages",
-      conversationId: `dm.operator.${agentId}`,
+      view: "agents",
+      agentId,
+      tab: "message",
     });
   }, [navigate, agentId]);
 

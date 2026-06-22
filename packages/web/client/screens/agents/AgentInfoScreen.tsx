@@ -7,7 +7,6 @@ import {
 } from "../../lib/agent-labels.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
 import { api } from "../../lib/api.ts";
-import { agentIdFromConversation } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { fullTimestamp, timeAgo } from "../../lib/time.ts";
 import { formatLabel } from "../../lib/text.ts";
@@ -106,8 +105,6 @@ export function AgentInfoScreen({
   const [agentDetail, setAgentDetail] = useState<Agent | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const legacyAgentId = agentIdFromConversation(conversationId);
-
   const load = useCallback(async () => {
     setError(null);
     try {
@@ -128,7 +125,7 @@ export function AgentInfoScreen({
     void load();
   });
 
-  const resolvedAgentId = session?.agentId ?? legacyAgentId;
+  const resolvedAgentId = session?.agentId ?? null;
   useEffect(() => {
     if (!resolvedAgentId || agents.some((candidate) => candidate.id === resolvedAgentId)) {
       setAgentDetail(null);

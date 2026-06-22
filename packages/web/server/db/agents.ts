@@ -2,13 +2,13 @@
  * Web-shaped agent listing queries.
  *
  * Lifted from db-queries.ts as part of SCO-031 Phase C. The
- * conversation-ID derivation for each agent is delegated to
- * `internal/conversation-ids.ts` so this module does not need to import
- * back into db-queries.ts.
+ * Agent rows expose an existing chat id when one exists. They do not mint or
+ * synthesize chat ids; chat creation goes through the broker.
  */
 
+import { directChannelNaturalKey } from "@openscout/protocol";
+
 import { db } from "./internal/db.ts";
-import { conversationIdForAgent } from "./internal/conversation-ids.ts";
 import { metadataString } from "./internal/parse.ts";
 import {
   compact,
@@ -25,6 +25,17 @@ import {
   type AgentFlightPhase,
 } from "./internal/sql-helpers.ts";
 import type { WebAgent } from "./types/web.ts";
+
+function existingDirectConversationIdForAgent(agentId: string): string | null {
+  const naturalKey = directChannelNaturalKey(["operator", agentId]);
+  const row = db().prepare(
+    `SELECT id FROM conversations
+     WHERE json_extract(metadata_json, '$.naturalKey') = ?
+     ORDER BY created_at ASC
+     LIMIT 1`,
+  ).get(naturalKey) as { id: string } | null;
+  return row?.id ?? null;
+}
 
 type AgentQueryRow = {
   id: string;
@@ -203,7 +214,7 @@ function mapAgentRows(
         metadata: endpointMeta,
       }),
       harnessLogPath: resolveHarnessLogPath(r.id, r.transport, r.session_id, endpointMeta),
-      conversationId: conversationIdForAgent(r.id),
+      conversationId: existingDirectConversationIdForAgent(r.id),
       authorityNodeId: r.authority_node_id,
       authorityNodeName: r.authority_node_name,
       homeNodeId: r.home_node_id,

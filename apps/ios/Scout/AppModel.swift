@@ -1354,7 +1354,10 @@ final class AppModel {
             return true
         }
 
-        let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+        guard let expiresAt = ScoutTimestamp.date(fromEpoch: expiresAtMs) else {
+            connectionLog.log("OpenScout Network auth callback had invalid expiry", event: .auth, level: .error, route: .oscout)
+            return true
+        }
         guard expiresAt > Date() else {
             connectionLog.log("OpenScout Network auth callback was already expired", event: .auth, level: .error, route: .oscout)
             return true
@@ -1523,7 +1526,13 @@ final class AppModel {
             openScoutNetworkAuthExpiresAt = nil
             return
         }
-        let expiresAt = Date(timeIntervalSince1970: expiresAtMs / 1000)
+        guard let expiresAt = ScoutTimestamp.date(fromEpoch: expiresAtMs) else {
+            try? ScoutIdentity.deleteOSNSessionToken()
+            UserDefaults.standard.removeObject(forKey: Self.openScoutNetworkAuthExpiresAtKey)
+            openScoutNetworkSessionToken = nil
+            openScoutNetworkAuthExpiresAt = nil
+            return
+        }
         guard expiresAt > Date() else {
             try? ScoutIdentity.deleteOSNSessionToken()
             UserDefaults.standard.removeObject(forKey: Self.openScoutNetworkAuthExpiresAtKey)

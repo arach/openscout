@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { api } from "../../lib/api.ts";
+import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { resolveActiveSessionId, resolveSelectedSessionId, sortSessionsByRecency } from "../../lib/session-catalog.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
@@ -105,6 +106,23 @@ function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
     <span className="s-sess-glyph-cell" title={v}>
       <span className="s-sess-glyph-ico">{ico}</span>
       <span className="s-sess-glyph-v">{v}</span>
+    </span>
+  );
+}
+
+function HeaderFact({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <span className="s-sess-fact" title={title ?? value}>
+      <span className="s-sess-fact-label">{label}</span>
+      <span className="s-sess-fact-value">{value}</span>
     </span>
   );
 }
@@ -395,6 +413,7 @@ function ModularProfileCenter({
   agent,
   name,
   sessionCatalog,
+  conversationId,
   navigate,
   route,
 }: {
@@ -430,12 +449,23 @@ function ModularProfileCenter({
     () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
     [sessionCatalog?.sessions, activeSessionId],
   );
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const handleLabel = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
+  const selectorLabel = agent.selector ?? agent.defaultSelector ?? null;
+  const cwdFull = agent.cwd ?? agent.projectRoot ?? null;
+  const cwdFact = cwdFull;
+  const liveSessionModel = activeSession?.model ?? null;
+  const hasDistinctSessionModel = Boolean(liveSessionModel && liveSessionModel !== agent.model);
   const [startState, setStartState] = useState<"idle" | "starting">("idle");
   const [startError, setStartError] = useState<string | null>(null);
+  const [chatState, setChatState] = useState<"idle" | "opening">("idle");
+  const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
     setStartState("idle");
     setStartError(null);
+    setChatState("idle");
+    setChatError(null);
   }, [agent.id]);
 
   // Selection is shared with the rail (Provider): it defaults to the active (or
@@ -447,8 +477,24 @@ function ModularProfileCenter({
     sessions,
   );
 
-  const openMessage = () =>
-    navigate({ view: "agents", agentId: agent.id, tab: "message" });
+  const openMessage = async () => {
+    if (chatState === "opening") return;
+    setChatState("opening");
+    setChatError(null);
+    try {
+      const chatId = await ensureAgentChat({ ...agent, conversationId });
+      navigate({
+        view: "agents",
+        agentId: agent.id,
+        conversationId: chatId,
+        tab: "message",
+      });
+    } catch (caught) {
+      setChatError(caught instanceof Error ? caught.message : "Could not open chat.");
+    } finally {
+      setChatState("idle");
+    }
+  };
   const startNewSession = async () => {
     if (startState === "starting") return;
     setStartState("starting");
@@ -503,6 +549,20 @@ function ModularProfileCenter({
                 </div>
               </div>
             )}
+            <div className="s-sess-facts" aria-label="Agent identity and runtime facts">
+              {handleLabel && <HeaderFact label="Handle" value={handleLabel} />}
+              {cwdFact && <HeaderFact label="Path" value={cwdFact} title={cwdFull ?? cwdFact} />}
+              {hasDistinctSessionModel && liveSessionModel && (
+                <HeaderFact label="Session model" value={liveSessionModel} />
+              )}
+              {(agent.harness || agent.model) && (
+                <HeaderFact
+                  label="Model"
+                  value={agent.model ?? `${agent.harness ?? "harness"} default`}
+                />
+              )}
+              {selectorLabel && <HeaderFact label="Selector" value={selectorLabel} />}
+            </div>
           </div>
         </div>
         {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
@@ -512,12 +572,20 @@ function ModularProfileCenter({
           <button
             type="button"
             className="s-sess-action"
+            onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+          >
+            Edit config
+          </button>
+          <button
+            type="button"
+            className="s-sess-action"
             disabled={startState === "starting"}
             onClick={startNewSession}
           >
             {startState === "starting" ? "Starting..." : "+ New session"}
           </button>
           {startError && <div className="s-sess-action-error">{startError}</div>}
+          {chatError && <div className="s-sess-action-error">{chatError}</div>}
         </div>
       </header>
 
@@ -592,7 +660,7 @@ function ModularProfileCenter({
                       agentId={agent.id}
                       session={s}
                       active={active}
-                      onPrimary={() => (active ? openMessage() : resumeSession(s))}
+                      onPrimary={() => (active ? void openMessage() : resumeSession(s))}
                       primaryLabel={active ? "Continue" : "Resume"}
                       primaryTitle={
                         active
@@ -673,7 +741,12 @@ export function AgentDetailWithRail({
   }, [agent.id]);
 
   useEffect(() => {
+    setSessionCatalog(null);
     void load();
+    const retry = window.setTimeout(() => {
+      void load();
+    }, 3000);
+    return () => window.clearTimeout(retry);
   }, [load]);
 
   useEffect(() => {
@@ -742,15 +815,72 @@ export function AgentDetailWithRail({
         </div>
       )}
 
-      {activeTab === "message" && conversationId && (
-        <div className="s-profile-tab-conversation">
-          <ConversationScreen
-            conversationId={conversationId}
+      {activeTab === "message" && (
+        conversationId ? (
+          <div className="s-profile-tab-conversation">
+            <ConversationScreen
+              conversationId={conversationId}
+              navigate={navigate}
+              embedded
+            />
+          </div>
+        ) : (
+          <StartAgentChatPane
+            agent={agent}
             navigate={navigate}
-            embedded
           />
-        </div>
+        )
       )}
+    </div>
+  );
+}
+
+function StartAgentChatPane({
+  agent,
+  navigate,
+}: {
+  agent: Agent;
+  navigate: (r: Route) => void;
+}) {
+  const [state, setState] = useState<"idle" | "opening">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  const openChat = async () => {
+    if (state === "opening") return;
+    setState("opening");
+    setError(null);
+    try {
+      const conversationId = await ensureAgentChat(agent);
+      navigate({
+        view: "agents",
+        agentId: agent.id,
+        conversationId,
+        tab: "message",
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not open chat.");
+    } finally {
+      setState("idle");
+    }
+  };
+
+  return (
+    <div className="s-profile-tab-conversation">
+      <div className="s-profile-activity-empty">
+        <div className="s-profile-activity-empty-title">No chat yet</div>
+        <div className="s-profile-activity-empty-detail">
+          Open a direct chat with {agent.name}. The broker will create a real chat ID and keep routing by this agent identity.
+        </div>
+        {error && <div className="s-sess-action-error">{error}</div>}
+        <button
+          type="button"
+          className="s-sess-action"
+          disabled={state === "opening"}
+          onClick={() => void openChat()}
+        >
+          {state === "opening" ? "Opening..." : "Open chat"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -772,7 +902,7 @@ export function AgentProfileBar({
     // reserved for watching the live terminal (the rail's Terminal action), so
     // the two surfaces no longer share a word.
     { key: "observe", label: "Trace" },
-    { key: "message", label: "Message", disabled: !conversationId },
+    { key: "message", label: "Message" },
   ];
   const navigateToTab = (tab: AgentTab) =>
     navigate({

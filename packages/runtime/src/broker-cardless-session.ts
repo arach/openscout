@@ -1,0 +1,163 @@
+import { basename, resolve } from "node:path";
+
+import type {
+  ActorIdentity,
+  AgentEndpoint,
+} from "@openscout/protocol";
+
+import type { ManagedLocalSessionTransport } from "./broker-managed-session-helpers.js";
+import { isStaleLocalEndpoint } from "./broker-endpoint-selection.js";
+import type { RuntimeRegistrySnapshot } from "./registry.js";
+import { expandHomePath } from "./tool-resolution.js";
+
+/**
+ * SCO-070 — Scout-initiated cardless sessions.
+ *
+ * A cardless session inverts ownership: it belongs to a project path, not to an
+ * agent card. It occupies the broker identity slot with its OWN session-kind
+ * actor (id = the Scout session marker) and an endpoint owned by that same
+ * marker — no `AgentDefinition` card is minted. The session routes through the
+ * `resolved_session` variant (see resolveSessionTarget), and the runtime treats
+ * the marker as an endpoint owner rather than a card id.
+ */
+
+export const CARDLESS_SESSION_SOURCE = "scout-cardless-session";
+
+export interface CardlessSessionInput {
+  /** Scout's broker-local session marker. Provider ids are attached later. */
+  sessionId: string;
+  transport: ManagedLocalSessionTransport;
+  harness: "codex" | "claude";
+  cwd: string;
+  projectRoot?: string;
+  nodeId: string;
+  displayName?: string;
+  externalSessionId?: string;
+  model?: string;
+  launchArgs?: string[];
+  /** Provenance only: the preset/card a cardless session was stamped with, if any. */
+  viaCard?: string;
+}
+
+function resolveCardlessSessionPath(path: string): string {
+  return resolve(expandHomePath(path));
+}
+
+/** Build the session-kind actor that occupies the identity slot (no card). */
+export function buildCardlessSessionActor(input: CardlessSessionInput): ActorIdentity {
+  const projectRoot = resolveCardlessSessionPath(input.projectRoot ?? input.cwd);
+  const projectName = basename(projectRoot) || projectRoot;
+  const shortId = input.sessionId.length > 8 ? input.sessionId.slice(0, 8) : input.sessionId;
+  return {
+    id: input.sessionId,
+    kind: "session",
+    displayName: input.displayName?.trim() || `${projectName}:${shortId}`,
+    handle: input.sessionId,
+    labels: ["cardless-session", "session"],
+    metadata: {
+      source: CARDLESS_SESSION_SOURCE,
+      sessionBacked: true,
+      cardless: true,
+      project: projectName,
+      projectRoot,
+      ...(input.viaCard ? { viaCard: input.viaCard } : {}),
+    },
+  };
+}
+
+/** Build the endpoint whose owner marker is the session id (no backing card). */
+export function buildCardlessSessionEndpoint(input: CardlessSessionInput): AgentEndpoint {
+  const projectRoot = resolveCardlessSessionPath(input.projectRoot ?? input.cwd);
+  const cwd = resolveCardlessSessionPath(input.cwd);
+  const projectName = basename(projectRoot) || projectRoot;
+  const externalSessionId = input.externalSessionId?.trim();
+  const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
+  return {
+    id: `endpoint.${input.sessionId}.${input.nodeId}.${input.transport}`,
+    agentId: input.sessionId,
+    nodeId: input.nodeId,
+    harness: input.harness,
+    transport: input.transport,
+    state: "idle",
+    cwd,
+    projectRoot,
+    sessionId: input.sessionId,
+    metadata: {
+      source: CARDLESS_SESSION_SOURCE,
+      sessionBacked: true,
+      cardless: true,
+      externalSource: "local-session",
+      project: projectName,
+      projectRoot,
+      pendingExternalSession: !externalSessionId,
+      ...(externalSessionId ? {
+        externalSessionId,
+        ...(input.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
+      } : {}),
+      ...(input.model?.trim() ? { model: input.model.trim() } : {}),
+      ...(launchArgs && launchArgs.length > 0 ? { launchArgs } : {}),
+      ...(input.viaCard ? { viaCard: input.viaCard } : {}),
+      startedAt: String(Date.now()),
+    },
+  };
+}
+
+/** Minimal sink the broker's in-memory runtime already satisfies. */
+export interface CardlessSessionRegistry {
+  upsertActor: (actor: ActorIdentity) => Promise<void> | void;
+  upsertEndpoint: (endpoint: AgentEndpoint) => Promise<void> | void;
+}
+
+/**
+ * Seam 1: register a cardless session against the control plane — upsert the
+ * session-kind actor and its endpoint, no card, no relay override. Callers feed
+ * the harness session id returned by `ensureClaudeStreamJsonAgentOnline` /
+ * `ensureCodexAppServerAgentOnline`.
+ */
+export async function registerCardlessSession(
+  registry: CardlessSessionRegistry,
+  input: CardlessSessionInput,
+): Promise<{ endpointId: string; sessionId: string; actorId: string }> {
+  const actor = buildCardlessSessionActor(input);
+  const endpoint = buildCardlessSessionEndpoint(input);
+  await registry.upsertActor(actor);
+  await registry.upsertEndpoint(endpoint);
+  return { endpointId: endpoint.id, sessionId: input.sessionId, actorId: actor.id };
+}
+
+export function isCardlessSessionEndpoint(endpoint: AgentEndpoint): boolean {
+  return endpoint.metadata?.source === CARDLESS_SESSION_SOURCE
+    || endpoint.metadata?.cardless === true;
+}
+
+/**
+ * Seam 4: group live cardless-session endpoints by their (resolved) project root.
+ * Reuses `resolve()` — the same normalization the endpoint builder stores — and
+ * the session-aware staleness filter so dead sessions drop out of the list.
+ */
+export function cardlessSessionEndpointsByProjectRoot(
+  snapshot: RuntimeRegistrySnapshot,
+): Map<string, AgentEndpoint[]> {
+  const byRoot = new Map<string, AgentEndpoint[]>();
+  for (const endpoint of Object.values(snapshot.endpoints)) {
+    if (!isCardlessSessionEndpoint(endpoint)) continue;
+    if (isStaleLocalEndpoint(snapshot, endpoint)) continue;
+    const root = resolveCardlessSessionPath(endpoint.projectRoot ?? endpoint.cwd ?? ".");
+    const list = byRoot.get(root);
+    if (list) {
+      list.push(endpoint);
+    } else {
+      byRoot.set(root, [endpoint]);
+    }
+  }
+  return byRoot;
+}
+
+/** Seam 4: the live cardless sessions for one project root. */
+export function cardlessSessionsForProjectRoot(
+  snapshot: RuntimeRegistrySnapshot,
+  projectRoot: string,
+): AgentEndpoint[] {
+  const root = resolveCardlessSessionPath(projectRoot);
+  return cardlessSessionEndpointsByProjectRoot(snapshot).get(root) ?? [];
+}

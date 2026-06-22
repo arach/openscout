@@ -25,6 +25,7 @@ import {
   mintChannelId,
   systemChannelNaturalKey,
   type FlightRecord,
+  type InvocationRequest,
   type NodeDefinition,
   type AgentSelector,
   type AgentSelectorCandidate,
@@ -38,6 +39,8 @@ import {
   type ScoutReturnAddress,
   type UnblockRequestEvent,
   type UnblockRequestRecord,
+  epochMs,
+  normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
@@ -61,8 +64,9 @@ import {
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
-import { resolveOperatorName } from "@openscout/runtime/user-config";
 import { loadLocalConfig, OPENSCOUT_PORTS } from "@openscout/runtime/local-config";
+import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
+import { resolveOperatorName } from "@openscout/runtime/user-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -188,6 +192,7 @@ export type ScoutMessagePostResult = {
   conversationId?: string;
   messageId?: string;
   flight?: ScoutFlightRecord;
+  flights?: ScoutFlightRecord[];
   invokedTargets: string[];
   unresolvedTargets: string[];
   targetDiagnostic?: ScoutTargetDiagnostic;
@@ -269,12 +274,28 @@ type RelayConfig = {
   openaiApiKey?: string;
 };
 
-const BROKER_SHARED_CHANNEL_ID = "channel.shared";
-const BROKER_VOICE_CHANNEL_ID = "channel.voice";
-const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 const DEFAULT_BROKER_HOST = "127.0.0.1";
 const DEFAULT_BROKER_PORT = OPENSCOUT_PORTS.broker;
+
+const SCOPED_ALIAS_POOL = [
+  "Curie",
+  "Dewey",
+  "Turing",
+  "Noether",
+  "Lovelace",
+  "Hopper",
+  "Franklin",
+  "Faraday",
+  "Tesla",
+  "Newton",
+  "Darwin",
+  "Ada",
+  "Sagan",
+  "Feynman",
+  "Bohr",
+  "Kepler",
+];
 
 function buildScoutBrokerUrlFromEnv(): string {
   const internal = process.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();
@@ -371,15 +392,8 @@ export function parseScoutHarness(value?: string | null): AgentHarness | undefin
 }
 
 export function normalizeUnixTimestamp(value: unknown): number | null {
-  const numeric = typeof value === "number"
-    ? value
-    : typeof value === "string"
-      ? Number(value)
-      : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
-  return numeric > 10_000_000_000 ? Math.floor(numeric / 1000) : Math.floor(numeric);
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 function maxDefined(values: Array<number | null | undefined>): number | null {
@@ -407,6 +421,62 @@ function displayNameForBrokerActor(snapshot: ScoutBrokerSnapshot, actorId: strin
     ?? titleCaseName(metadataString(snapshot.agents[actorId]?.metadata, "definitionId") || actorId);
 }
 
+function stableAliasSeed(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function scopedAliasForParticipant(
+  scopeId: string,
+  participantId: string,
+  usedAliases: Set<string>,
+): string {
+  const seed = stableAliasSeed(`${scopeId}:${participantId}`);
+  for (let offset = 0; offset < SCOPED_ALIAS_POOL.length; offset += 1) {
+    const alias = SCOPED_ALIAS_POOL[(seed + offset) % SCOPED_ALIAS_POOL.length]!;
+    if (!usedAliases.has(alias)) {
+      usedAliases.add(alias);
+      return alias;
+    }
+  }
+  const fallback = `Agent ${usedAliases.size + 1}`;
+  usedAliases.add(fallback);
+  return fallback;
+}
+
+function scopedAliasTargetsForConversation(
+  snapshot: ScoutBrokerSnapshot,
+  conversation: ScoutBrokerConversationRecord,
+  senderId: string,
+): Map<string, { actorId: string; label: string }> {
+  const usedAliases = new Set<string>();
+  const targets = new Map<string, { actorId: string; label: string }>();
+  for (const participantId of conversation.participantIds) {
+    if (!isSteerableParticipant(snapshot, participantId, senderId)) {
+      continue;
+    }
+    const alias = scopedAliasForParticipant(conversation.id, participantId, usedAliases);
+    const displayName = displayNameForBrokerActor(snapshot, participantId);
+    const values = [
+      alias,
+      `@${alias}`,
+      `${displayName} ${alias}`,
+      `${displayName}-${alias}`,
+      `${displayName}.${alias}`,
+    ];
+    for (const value of values) {
+      const key = normalizeAgentSelectorSegment(value);
+      if (key && !targets.has(key)) {
+        targets.set(key, { actorId: participantId, label: `@${alias}` });
+      }
+    }
+  }
+  return targets;
+}
+
 function firstEndpointForActor(
   snapshot: ScoutBrokerSnapshot,
   actorId: string,
@@ -414,6 +484,39 @@ function firstEndpointForActor(
   return Object.values(snapshot.endpoints)
     .filter((endpoint) => endpoint.agentId === actorId)
     .sort((lhs, rhs) => lhs.id.localeCompare(rhs.id))[0];
+}
+
+function endpointRank(endpoint: ScoutBrokerEndpointRecord): number {
+  switch (endpoint.state) {
+    case "active": return 5;
+    case "working": return 5;
+    case "waiting": return 4;
+    case "idle": return 3;
+    case "registered": return 2;
+    default: return 0;
+  }
+}
+
+function endpointTimestamp(endpoint: ScoutBrokerEndpointRecord): number {
+  return Math.max(
+    epochMs(endpoint.metadata?.lastStartedAt) ?? 0,
+    epochMs(endpoint.metadata?.lastCompletedAt) ?? 0,
+    epochMs(endpoint.metadata?.lastFailedAt) ?? 0,
+    epochMs(endpoint.metadata?.startedAt) ?? 0,
+  );
+}
+
+function bestEndpointForActor(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+): ScoutBrokerEndpointRecord | undefined {
+  return Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpoint.agentId === actorId)
+    .sort((left, right) =>
+      endpointRank(right) - endpointRank(left)
+      || endpointTimestamp(right) - endpointTimestamp(left)
+      || right.id.localeCompare(left.id)
+    )[0];
 }
 
 function buildScoutReturnAddress(
@@ -452,13 +555,16 @@ function buildScoutReturnAddress(
   });
 }
 
-function sanitizeConversationSegment(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-") || "shared";
-}
-
 function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function endpointSessionId(endpoint: ScoutBrokerEndpointRecord | undefined): string | undefined {
+  return endpoint?.sessionId?.trim()
+    || metadataString(endpoint?.metadata, "externalSessionId")
+    || metadataString(endpoint?.metadata, "threadId")
+    || metadataString(endpoint?.metadata, "sessionId");
 }
 
 function metadataBoolean(metadata: Record<string, unknown> | undefined, key: string): boolean {
@@ -473,6 +579,93 @@ function isSupersededBrokerAgent(snapshot: ScoutBrokerSnapshot, agentId: string)
   return metadataBoolean(agent.metadata, "retiredFromFleet")
     || metadataBoolean(agent.metadata, "staleLocalRegistration");
 }
+
+function operatorActorIdSet(senderId?: string): Set<string> {
+  return new Set(
+    [
+      "operator",
+      senderId?.trim(),
+      process.env.OPENSCOUT_OPERATOR_NAME?.trim(),
+      ...configuredOperatorActorIds(),
+    ].filter((value): value is string => Boolean(value)),
+  );
+}
+
+function isSteerableParticipant(
+  snapshot: ScoutBrokerSnapshot,
+  participantId: string,
+  senderId: string,
+): boolean {
+  const actorId = participantId.trim();
+  if (!actorId || operatorActorIdSet(senderId).has(actorId)) {
+    return false;
+  }
+  if (snapshot.agents[actorId]) {
+    return true;
+  }
+  if (bestEndpointForActor(snapshot, actorId)) {
+    return true;
+  }
+  const actorKind = snapshot.actors[actorId]?.kind;
+  return actorKind === "agent"
+    || actorKind === "session"
+    || actorKind === "helper"
+    || actorKind === "bridge";
+}
+
+function steerTargetLabel(snapshot: ScoutBrokerSnapshot, actorId: string): string {
+  return displayNameForBrokerActor(snapshot, actorId);
+}
+
+async function ensureSteerTargetAvailable(
+  broker: ScoutBrokerContext,
+  targetActorId: string,
+  currentDirectory: string,
+): Promise<boolean> {
+  if (!broker.snapshot.agents[targetActorId]) {
+    return Boolean(bestEndpointForActor(broker.snapshot, targetActorId));
+  }
+  return await ensureTargetRelayAgentRegistered(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    targetActorId,
+    currentDirectory,
+  );
+}
+
+function invocationTargetRoute(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+): ScoutRouteTarget | undefined {
+  if (snapshot.agents[actorId]) {
+    return { kind: "agent_id", agentId: actorId };
+  }
+  if (snapshot.actors[actorId]?.kind === "session" || bestEndpointForActor(snapshot, actorId)) {
+    return { kind: "session_id", sessionId: actorId };
+  }
+  return undefined;
+}
+
+function invocationExecutionForSteer(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+): InvocationRequest["execution"] {
+  const sessionId = endpointSessionId(bestEndpointForActor(snapshot, actorId));
+  return sessionId
+    ? { session: "existing", targetSessionId: sessionId }
+    : { session: "reuse" };
+}
+
+type ScoutInvocationPostResponse = {
+  accepted?: true;
+  invocationId?: string;
+  flightId?: string;
+  targetAgentId?: string;
+  state?: ScoutFlightRecord["state"];
+  flight?: ScoutFlightRecord;
+  dispatch?: unknown;
+};
 
 async function brokerReadJson<T>(
   baseUrl: string,
@@ -756,23 +949,15 @@ export async function requireScoutBrokerContext(baseUrl = resolveScoutBrokerUrl(
   return context;
 }
 
-export function scoutConversationIdForChannel(channel?: string): string {
-  const normalizedChannel = channel?.trim() || "shared";
-  if (normalizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
-  if (normalizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
-  if (normalizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
-  return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
-}
-
 function resolveConversationIdForChannel(
   snapshot: ScoutBrokerSnapshot,
   channel?: string,
-): string {
+): string | null {
   const normalizedChannel = channel?.trim() || "shared";
   const naturalKey = normalizedChannel === "system"
     ? systemChannelNaturalKey("system")
     : namedChannelNaturalKey(normalizedChannel);
-  return findConversationByIdentity(snapshot, naturalKey)?.id ?? scoutConversationIdForChannel(normalizedChannel);
+  return findConversationByIdentity(snapshot, naturalKey)?.id ?? null;
 }
 
 function buildMentionCandidate(
@@ -1971,6 +2156,211 @@ export async function sendScoutConversationMessage(input: {
   return { usedBroker: true, invokedTargets: validTargets, unresolvedTargets };
 }
 
+export async function sendScoutConversationSteer(input: {
+  conversationId: string;
+  senderId: string;
+  body: string;
+  attachments?: OutgoingAttachmentInput[];
+  targetParticipantIds?: string[];
+  createdAtMs?: number;
+  currentDirectory?: string;
+  source?: string;
+}): Promise<ScoutMessagePostResult> {
+  const broker = await loadScoutBrokerContext();
+  if (!broker) {
+    return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
+  }
+
+  const conversation = broker.snapshot.conversations[input.conversationId];
+  if (!conversation) {
+    throw new Error(`Conversation ${input.conversationId} is not available in the broker snapshot.`);
+  }
+
+  const currentDirectory = input.currentDirectory ?? process.cwd();
+  const createdAtMs = input.createdAtMs ?? Date.now();
+  const senderId = await resolveConversationActorId(
+    broker.baseUrl,
+    broker.snapshot,
+    broker.node.id,
+    input.senderId,
+    currentDirectory,
+  );
+  const mentionResolution = await resolveMentionTargets(
+    broker.snapshot,
+    input.body,
+    currentDirectory,
+  );
+  const selectors = extractAgentSelectors(input.body);
+  const scopedAliasTargets = scopedAliasTargetsForConversation(
+    broker.snapshot,
+    conversation,
+    senderId,
+  );
+  const scopedSelectorTargets = (
+    await Promise.all(
+      selectors.map(async (selector) => {
+        const target = scopedAliasTargets.get(normalizeAgentSelectorSegment(selector.label))
+          ?? scopedAliasTargets.get(normalizeAgentSelectorSegment(selector.definitionId));
+        if (!target) {
+          return null;
+        }
+        return await ensureSteerTargetAvailable(broker, target.actorId, currentDirectory)
+          ? { ...target, selectorLabel: selector.label }
+          : null;
+      }),
+    )
+  ).filter((target): target is { actorId: string; label: string; selectorLabel: string } => Boolean(target));
+  const scopedSelectorLabels = new Set(
+    scopedSelectorTargets.flatMap((target) => [
+      normalizeAgentSelectorSegment(target.label),
+      normalizeAgentSelectorSegment(target.selectorLabel),
+    ]),
+  );
+  const explicitTargetIds = [...new Set(
+    (input.targetParticipantIds ?? [])
+      .map((targetId) => targetId.trim())
+      .filter((targetId) => targetId.length > 0),
+  )];
+
+  const availableMentionTargets = (
+    await Promise.all(
+      mentionResolution.resolved.map(async (target) => (
+        await ensureSteerTargetAvailable(
+          broker,
+          target.agentId,
+          currentDirectory,
+        )
+          ? target
+          : null
+      )),
+    )
+  ).filter((target): target is ScoutMentionTarget => Boolean(target));
+  const explicitTargetAttempted = explicitTargetIds.length > 0 || selectors.length > 0;
+  const explicitAvailableTargets = (
+    await Promise.all(
+      explicitTargetIds.map(async (targetId) => (
+        isSteerableParticipant(broker.snapshot, targetId, senderId)
+        && await ensureSteerTargetAvailable(broker, targetId, currentDirectory)
+          ? targetId
+          : null
+      )),
+    )
+  ).filter((targetId): targetId is string => Boolean(targetId));
+  const defaultScopeTargets = explicitTargetAttempted
+    ? []
+    : conversation.participantIds.filter((participantId) =>
+        isSteerableParticipant(broker.snapshot, participantId, senderId)
+      );
+  const targetIds = [...new Set(
+    availableMentionTargets
+      .map((target) => target.agentId)
+      .concat(scopedSelectorTargets.map((target) => target.actorId))
+      .concat(explicitAvailableTargets)
+      .concat(defaultScopeTargets)
+      .filter((targetId) => targetId !== senderId),
+  )];
+  const unresolvedTargets = mentionResolution.resolved
+    .filter((target) => !targetIds.includes(target.agentId))
+    .map((target) => target.label)
+    .concat(mentionResolution.unresolved.filter((label) =>
+      !scopedSelectorLabels.has(normalizeAgentSelectorSegment(label))
+    ))
+    .concat(mentionResolution.ambiguous
+      .map((entry) => entry.label)
+      .filter((label) => !scopedSelectorLabels.has(normalizeAgentSelectorSegment(label))))
+    .concat(explicitTargetIds.filter((targetId) => !targetIds.includes(targetId)));
+
+  const messageId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const returnAddress = buildScoutReturnAddress(broker.snapshot, senderId, {
+    conversationId: conversation.id,
+    replyToMessageId: messageId,
+  });
+  const targetLabels = targetIds.map((targetId) => ({
+    actorId: targetId,
+    label: availableMentionTargets.find((target) => target.agentId === targetId)?.label
+      ?? scopedSelectorTargets.find((target) => target.actorId === targetId)?.label
+      ?? steerTargetLabel(broker.snapshot, targetId),
+  }));
+
+  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.messages, {
+    id: messageId,
+    conversationId: conversation.id,
+    actorId: senderId,
+    originNodeId: broker.node.id,
+    class: conversation.kind === "system" ? "system" : "agent",
+    body: input.body,
+    mentions: targetLabels,
+    attachments: normalizeOutgoingAttachments(input.attachments),
+    audience: targetIds.length > 0
+      ? {
+          notify: targetIds,
+          reason: conversation.kind === "channel" ? "mention" : "direct_message",
+        }
+      : undefined,
+    visibility: conversation.visibility,
+    policy: "durable",
+    createdAt: createdAtMs,
+    metadata: {
+      source: input.source?.trim() || "scout-web",
+      destinationKind: "conversation",
+      destinationId: conversation.id,
+      intent: "steer",
+      relayMessageId: messageId,
+      relayTargetIds: targetIds,
+      scopedTargets: targetLabels,
+      returnAddress,
+    },
+  });
+
+  const flights: ScoutFlightRecord[] = [];
+  for (const targetActorId of targetIds) {
+    const target = invocationTargetRoute(broker.snapshot, targetActorId);
+    const response = await brokerPostJson<ScoutInvocationPostResponse>(
+      broker.baseUrl,
+      scoutBrokerPaths.v1.invocations,
+      {
+        id: `inv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        requesterId: senderId,
+        requesterNodeId: broker.node.id,
+        targetAgentId: targetActorId,
+        ...(target ? { target } : {}),
+        action: "wake",
+        task: input.body,
+        conversationId: conversation.id,
+        messageId,
+        execution: invocationExecutionForSteer(broker.snapshot, targetActorId),
+        ensureAwake: true,
+        stream: false,
+        labels: ["steer"],
+        createdAt: Date.now(),
+        metadata: {
+          source: input.source?.trim() || "scout-web",
+          destinationKind: "conversation",
+          destinationId: conversation.id,
+          intent: "steer",
+          relayTarget: targetActorId,
+          relayTargetIds: targetIds,
+          relayMessageId: messageId,
+          returnAddress,
+        },
+      },
+    );
+    if (response.flight) {
+      flights.push(response.flight);
+    }
+  }
+
+  return {
+    usedBroker: true,
+    conversationId: conversation.id,
+    messageId,
+    ...(flights[0] ? { flight: flights[0] } : {}),
+    ...(flights.length ? { flights } : {}),
+    invokedTargets: targetIds,
+    unresolvedTargets,
+  };
+}
+
 export async function loadScoutReadCursors(input: {
   conversationId: string;
   baseUrl?: string;
@@ -2015,12 +2405,14 @@ export async function openScoutDirectSession(input: {
   agentId: string;
   currentDirectory?: string;
   operatorName?: string;
+  targetName?: string;
 }): Promise<ScoutDirectSessionResult> {
   const session = await openScoutPeerSession({
     sourceId: OPERATOR_ID,
     targetId: input.agentId,
     currentDirectory: input.currentDirectory,
     sourceName: input.operatorName,
+    targetName: input.targetName,
   });
   return {
     agent: session.agent,
@@ -2321,13 +2713,14 @@ export async function loadScoutMessages(options: {
 } = {}): Promise<ScoutBrokerMessageRecord[]> {
   const baseUrl = options.baseUrl ?? resolveScoutBrokerUrl();
   const context = await loadScoutBrokerContext(baseUrl);
+  const conversationId = context
+    ? resolveConversationIdForChannel(context.snapshot, options.channel)
+    : null;
+  if (!conversationId) {
+    return [];
+  }
   const search = new URLSearchParams();
-  search.set(
-    "conversationId",
-    context
-      ? resolveConversationIdForChannel(context.snapshot, options.channel)
-      : scoutConversationIdForChannel(options.channel),
-  );
+  search.set("conversationId", conversationId);
   if (typeof options.since === "number" && Number.isFinite(options.since) && options.since > 0) {
     search.set("since", String(options.since));
   }
@@ -2379,6 +2772,9 @@ export async function loadScoutActivityItems(options: {
 export async function watchScoutMessages(options: ScoutWatchOptions): Promise<void> {
   const broker = await requireScoutBrokerContext();
   const conversationId = resolveConversationIdForChannel(broker.snapshot, options.channel);
+  if (!conversationId) {
+    throw new Error(`Channel "${options.channel?.trim() || "shared"}" does not have a chat yet.`);
+  }
   const controller = new AbortController();
   const abort = () => controller.abort();
 

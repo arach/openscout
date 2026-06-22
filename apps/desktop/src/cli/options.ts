@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { parseScoutComposerRoute } from "@openscout/protocol";
+import { epochMs, parseScoutComposerRoute } from "@openscout/protocol";
 
 import { ScoutCliError } from "./errors.ts";
 
@@ -149,9 +149,9 @@ function parseSinceTimestamp(value: string): number {
     return Date.now() - amount * unitMs;
   }
 
-  const numeric = Number.parseInt(trimmed, 10);
-  if (Number.isFinite(numeric) && numeric > 0) {
-    return numeric > 1_000_000_000_000 ? numeric : numeric * 1_000;
+  const parsedEpoch = epochMs(trimmed);
+  if (parsedEpoch !== null) {
+    return parsedEpoch;
   }
 
   const parsedDate = Date.parse(trimmed);

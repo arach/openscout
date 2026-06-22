@@ -3,6 +3,7 @@ import type {
   ScoutSpeechResult,
   ScoutSpeechTimingCueRequest,
 } from "../../lib/scout-voice.ts";
+import { formatClockTimestamp } from "../../lib/time.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import type { VoiceFxParams } from "@voxd/client/fx";
 
@@ -318,7 +319,7 @@ export function estimateBriefDuration(text: string): number {
 }
 
 export function formatReminderDueAt(dueAt: number): string {
-  return new Date(dueAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return formatClockTimestamp(dueAt) || "unknown";
 }
 
 export function wait(ms: number): Promise<void> {

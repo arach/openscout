@@ -16,8 +16,8 @@ final class ScoutRepoStore: ObservableObject {
     @Published private(set) var lastFetchedAt: Date?
     @Published private(set) var lastRefreshWasForced = false
 
-    /// The clean-&-idle tray is folded by default — unfinished work floats up.
-    @Published var showCleanIdle = false
+    /// Show every worktree; the header no longer folds clean-&-idle rows away.
+    @Published var showCleanIdle = true
 
     /// Which lens the worktree rows read through. Native leads with Table; Drift
     /// is a toggle over the same model (ahead/behind/upstream instead of churn).

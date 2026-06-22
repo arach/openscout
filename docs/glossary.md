@@ -17,6 +17,7 @@ Scout is aware of adjacent standards such as A2A, but these definitions are for 
 | `session` | A concrete runtime context, such as a harness conversation or process, which may or may not be live now. | Scout-specific. |
 | `Scout address` | Scout's canonical routing address for an agent target, including qualifiers such as workspace, harness, and node when needed. | Richer than A2A identity. |
 | `ScoutAgentCard` | Scout's local discovery card for one addressable agent target. It may include provider, skills, interfaces, and security hints; route state belongs to endpoints and diagnostics. | Overlaps intentionally with A2A `AgentCard`, but is not the A2A wire shape. |
+| `chat` | The user-facing communication place where Scout-owned messages live. Internally this is a conversation record; product surfaces use an opaque Chat ID. See [`chat-model.md`](./chat-model.md). | Broadly compatible with A2A conversation/thread context. |
 | `conversation` | An addressable communication boundary such as a channel, DM, or thread. | Broadly compatible with A2A conversation/thread context. |
 | `message` | A durable communicative turn in a conversation. | Broadly compatible with A2A `Message`. |
 | `invocation` | Scout's explicit request for work. | Closest A2A analog is `Task` request. |

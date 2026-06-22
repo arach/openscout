@@ -8,7 +8,7 @@ import {
 } from "../../lib/conversations.ts";
 import { normalizeAgentState, isAgentOnline } from "../../lib/agent-state.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
-import { timeAgo, fullTimestamp } from "../../lib/time.ts";
+import { compareTimestampsAsc, timeAgo, fullTimestamp } from "../../lib/time.ts";
 import { isSameCalendarDay, formatThreadDayLabel } from "../../lib/thread-days.ts";
 import { MessageMarkup } from "../../lib/message-markup.tsx";
 import { saveLastViewed } from "../../lib/sessionRead.ts";
@@ -34,7 +34,7 @@ import "./channel-screen.css";
 type ChannelActor = { id: string; name: string };
 
 function sortMessages(msgs: Message[]): Message[] {
-  return [...msgs].sort((a, b) => a.createdAt - b.createdAt);
+  return [...msgs].sort((a, b) => compareTimestampsAsc(a.createdAt, b.createdAt));
 }
 
 function resolveMessageAgent(message: Message, agents: Agent[]): Agent | null {
@@ -300,7 +300,7 @@ function RosterRow({
               {!member.isMember && <span className="ch-members-roster-guest-tag">guest</span>}
             </span>
           </div>
-          {member.state === "in_turn" || state === "in_flight" && (
+          {member.state === "in_turn" || member.state === "in_flight" && (
             <span className="ch-members-roster-state">working</span>
           )}
         </button>
@@ -634,9 +634,8 @@ function NoChannelSelected({ count }: { count: number }) {
           <div className="ch-overview-block-label">How it works</div>
           <p className="ch-overview-block-text">
             A channel is a broker-backed conversation anyone on the mesh can join.
-            Send a message to any <code className="ch-overview-code">channel.*</code> address
-            and the broker creates it automatically. Agents, bridges, and operators
-            all share the same thread.
+            Send to a named channel and the broker creates an opaque chat for it.
+            Agents, bridges, and operators all share the same thread.
           </p>
         </div>
 

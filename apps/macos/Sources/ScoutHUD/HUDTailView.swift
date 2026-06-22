@@ -214,12 +214,12 @@ struct HUDTailView: View {
 
     var body: some View {
         Group {
-            if let error = tail.lastError, tail.events.isEmpty {
+            if let error = tail.lastError, !tail.hasBufferedEvents {
                 TailProblemView(message: error)
-            } else if tail.isLoading && tail.events.isEmpty {
+            } else if tail.isLoading && !tail.hasBufferedEvents {
                 TailLoadingView()
             } else if rows.isEmpty {
-                TailEmptyView(hasBufferedEvents: !tail.events.isEmpty)
+                TailEmptyView(hasBufferedEvents: tail.hasBufferedEvents)
             } else {
                 switch state.size {
                 case .compact: rowsBody(size: .compact)

@@ -32,7 +32,7 @@ import {
   useObservePolling,
   type ObserveCacheEntry,
 } from "../../lib/observe.ts";
-import { conversationForAgent } from "../../lib/router.ts";
+import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import {
   filterTailEventsForDisplay,
   observeKindFromTailEvent,
@@ -1252,20 +1252,42 @@ export function MissionControlView({
           observe={observeCache[focusedAgent.id]?.data ?? null}
           onClose={() => setFocusedId(null)}
           onSend={async (body, mode) => {
-            await api<unknown>(mode === "ask" ? "/api/ask" : "/api/send", {
+            if (mode === "ask") {
+              await api<unknown>("/api/ask", {
+                method: "POST",
+                body: JSON.stringify({
+                  body,
+                  targetAgentId: focusedAgent.id,
+                  targetLabel: focusedAgent.name,
+                }),
+              });
+              return;
+            }
+            const conversationId = await ensureAgentChat(focusedAgent);
+            await api<unknown>("/api/send", {
               method: "POST",
               body: JSON.stringify({
                 body,
-                conversationId: conversationForAgent(focusedAgent.id),
+                chatId: conversationId,
               }),
             });
           }}
           onOpenConversation={() => {
             setFocusedId(null);
-            navigate({
-              view: "conversation",
-              conversationId: conversationForAgent(focusedAgent.id),
-            });
+            void ensureAgentChat(focusedAgent)
+              .then((conversationId) => {
+                navigate({
+                  view: "conversation",
+                  conversationId,
+                });
+              })
+              .catch(() => {
+                navigate({
+                  view: "agents",
+                  agentId: focusedAgent.id,
+                  tab: "message",
+                });
+              });
           }}
           onTail={() => {
             setFocusedId(null);

@@ -28,6 +28,25 @@ If an agent can integrate with Mastra, eve, Cloudflare Agents, LangGraph,
 OpenAI Agents SDK, or another A2A-shaped system, it should be able to integrate
 with Scout without becoming Scout-specific.
 
+## Outside-In Posture
+
+This is an outside-in recommendation, not an implementation plan for Scout's
+maintainers.
+
+The goal is to describe what would make Scout feel excellent to external
+agents, frameworks, and team coordination products. Scout should interpret the
+details through its own shipped protocol types, runtime architecture, and
+maturity roadmap. If a name, route, or type below overlaps with an existing
+Scout implementation, prefer the existing Scout implementation and treat this
+document as directional pressure rather than replacement vocabulary.
+
+The desired effect is:
+
+```text
+An external integrator sees Scout and thinks:
+"Great, this speaks the shapes I already know."
+```
+
 ## North Star
 
 The public contract should be boring:
@@ -730,10 +749,10 @@ It recommends:
 5. Treat chat platforms as adapters, not the canonical work model.
 6. Put Scout-specific details in metadata and extensions.
 
-## Desired Implementation Priorities
+## What Would Make This Feel Great
 
-If Scout did the following, this proposal would consider the external interface
-healthy:
+From an outside integrator's point of view, Scout would feel excellent if it
+made these paths obvious and dependable:
 
 1. Serve high-quality A2A-compatible agent cards for the broker and each
    registered agent.
@@ -746,7 +765,7 @@ healthy:
 5. Support `contextId` and `referenceTaskIds` for follow-ups and refinements.
 6. Provide stable artifacts with text, data, file URL, and raw file parts.
 7. Use structured errors with remediation and optional Scout diagnostics.
-8. Add conformance tests against A2A sample clients and at least one real
+8. Provide conformance evidence against A2A sample clients and at least one real
    framework such as Mastra.
 9. Keep ordinary agent instructions focused on messages, tasks, statuses,
    context, and artifacts.

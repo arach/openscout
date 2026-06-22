@@ -1,5 +1,4 @@
 import { agentStateLabel, normalizeAgentState, type AgentInventoryStatus } from "../../lib/agent-state.ts";
-import { conversationForAgent } from "../../lib/router.ts";
 import { formatLabel } from "../../lib/text.ts";
 import {
   basename,
@@ -90,15 +89,6 @@ export function directSessionMaps(sessions: SessionEntry[]): {
 }
 
 export function shouldPreferDirectSession(candidate: SessionEntry & { agentId: string }, existing: SessionEntry): boolean {
-  const canonicalConversationId = conversationForAgent(candidate.agentId);
-  const candidateIsCanonical = candidate.id === canonicalConversationId;
-  const existingIsCanonical = existing.id === canonicalConversationId;
-  if (candidateIsCanonical !== existingIsCanonical) return candidateIsCanonical;
-
-  const candidateIsOperatorDm = candidate.id.startsWith(`dm.operator.`);
-  const existingIsOperatorDm = existing.id.startsWith(`dm.operator.`);
-  if (candidateIsOperatorDm !== existingIsOperatorDm) return candidateIsOperatorDm;
-
   const candidateLastAt = candidate.lastMessageAt ?? 0;
   const existingLastAt = existing.lastMessageAt ?? 0;
   if (candidateLastAt !== existingLastAt) return candidateLastAt > existingLastAt;
@@ -296,7 +286,6 @@ export function addSessionRef(candidates: Set<string>, value: string | null | un
 export function agentSessionRefs(row: AgentInventoryRow): Set<string> {
   const refs = new Set<string>();
   addSessionRef(refs, row.agent.conversationId);
-  addSessionRef(refs, conversationForAgent(row.agent.id));
   addSessionRef(refs, row.agent.harnessSessionId);
   addSessionRef(refs, row.agent.harnessLogPath);
   addSessionRef(refs, row.session?.id);

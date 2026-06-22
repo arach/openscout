@@ -1,4 +1,5 @@
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, resolve } from "node:path";
 
 import {
   constructAgentIdentity,
@@ -15,6 +16,7 @@ import {
   type ScoutDispatchCandidate,
   type ScoutDispatchEnvelope,
   type ScoutDispatchKind,
+  type ScoutId,
   type ScoutRoutePolicy,
   type ScoutRouteTarget,
 } from "@openscout/protocol";
@@ -25,12 +27,33 @@ import {
   endpointCandidateState,
   endpointMatchesTargetSession,
   homeEndpointForAgent,
+  isStaleLocalEndpoint,
+  localEndpointPreferenceRank,
 } from "./broker-endpoint-selection.js";
 
 export type RuntimeSnapshot = ReturnType<ReturnType<typeof createInMemoryControlRuntime>["snapshot"]>;
 
+/**
+ * Addressable target for a cardless session (SCO-070). Carries no
+ * AgentDefinition: the session resolves to a live endpoint directly, so the
+ * dispatch path must read identity/label off this shape instead of `agent`.
+ */
+export interface ResolvedSessionTarget {
+  /** The session id the caller addressed. */
+  sessionId: string;
+  /** Session-kind actor id occupying the identity slot (== endpoint.agentId marker). */
+  actorId: ScoutId;
+  /** Live endpoint to dispatch through. */
+  endpoint: AgentEndpoint;
+  /** Display label, e.g. `<cwd-basename>:<short-session>`. */
+  label: string;
+  /** endpoint.nodeId — the cross-node forwarding key. */
+  nodeId: ScoutId;
+}
+
 export type BrokerLabelResolution =
   | { kind: "resolved"; agent: AgentDefinition }
+  | { kind: "resolved_session"; session: ResolvedSessionTarget }
   | { kind: "ambiguous"; label: string; candidates: AgentDefinition[] }
   | { kind: "unparseable"; label: string }
   | { kind: "unknown"; label: string };
@@ -137,7 +160,11 @@ function projectRootForAgent(
 
 function normalizeProjectPath(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
-  return trimmed ? resolve(trimmed) : undefined;
+  if (!trimmed) return undefined;
+  const home = process.env.HOME?.trim() || homedir();
+  if (trimmed === "~") return home;
+  if (trimmed.startsWith("~/")) return resolve(home, trimmed.slice(2));
+  return resolve(trimmed);
 }
 
 function buildAgentLabelCandidate(
@@ -319,27 +346,62 @@ function resolveProjectPathTarget(
   };
 }
 
+function sessionTargetLabel(endpoint: AgentEndpoint, sessionId: string): string {
+  const shortId = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
+  const root = endpoint.cwd?.trim() || endpoint.projectRoot?.trim();
+  return root ? `${basename(root)}:${shortId}` : `session:${sessionId}`;
+}
+
 function resolveSessionTarget(
   snapshot: RuntimeSnapshot,
   sessionId: string,
   options: { helpers: Pick<DispatcherHelpers, "isStale"> },
 ): BrokerLabelResolution {
-  const candidates = Object.values(snapshot.endpoints)
-    .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId))
-    .map((endpoint) => snapshot.agents[endpoint.agentId])
-    .filter((agent): agent is AgentDefinition => Boolean(agent))
-    .map((agent) => agent);
-  const unique = [...new Map(candidates.map((agent) => [agent.id, agent])).values()];
-  if (unique.length === 0) {
+  const matching = Object.values(snapshot.endpoints)
+    .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId));
+  if (matching.length === 0) {
     return { kind: "unknown", label: `session:${sessionId}` };
   }
-  if (unique.length === 1) {
-    return { kind: "resolved", agent: unique[0]! };
+
+  // Card path (semantics unchanged from before SCO-070): if any matching endpoint
+  // is backed by an agent card, resolve to it — with NO staleness pre-filter, so
+  // the downstream unavailable check still surfaces "session not attachable" for a
+  // session whose card has gone stale.
+  const carded = [
+    ...new Map(
+      matching
+        .map((endpoint) => snapshot.agents[endpoint.agentId])
+        .filter((agent): agent is AgentDefinition => Boolean(agent))
+        .map((agent) => [agent.id, agent] as const),
+    ).values(),
+  ];
+  if (carded.length === 1) {
+    return { kind: "resolved", agent: carded[0]! };
   }
+  if (carded.length > 1) {
+    return { kind: "ambiguous", label: `session:${sessionId}`, candidates: carded };
+  }
+
+  // Cardless path (SCO-070): no backing AgentDefinition on any matching endpoint.
+  // Drop stale/terminal endpoints (staleLocalRegistration is authoritative) and
+  // collapse to the preferred live endpoint — multiple endpoints sharing a session
+  // id is a transport choice, not an identity ambiguity.
+  const live = matching.filter((endpoint) => !isStaleLocalEndpoint(snapshot, endpoint));
+  if (live.length === 0) {
+    return { kind: "unknown", label: `session:${sessionId}` };
+  }
+  const endpoint = [...live].sort(
+    (left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right),
+  )[0]!;
   return {
-    kind: "ambiguous",
-    label: `session:${sessionId}`,
-    candidates: unique,
+    kind: "resolved_session",
+    session: {
+      sessionId,
+      actorId: endpoint.agentId,
+      endpoint,
+      label: sessionTargetLabel(endpoint, sessionId),
+      nodeId: endpoint.nodeId,
+    },
   };
 }
 
@@ -453,7 +515,7 @@ export function summarizeDispatchCandidate(
 }
 
 export function buildDispatchEnvelope(
-  resolution: Exclude<BrokerLabelResolution, { kind: "resolved" }>,
+  resolution: Exclude<BrokerLabelResolution, { kind: "resolved" } | { kind: "resolved_session" }>,
   askedLabel: string,
   dispatcherNodeId: string,
   snapshot: RuntimeSnapshot,

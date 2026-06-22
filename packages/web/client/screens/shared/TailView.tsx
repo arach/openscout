@@ -12,6 +12,10 @@ import {
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
 import {
+  formatClockTimestamp,
+  normalizeTimestampMs,
+} from "../../lib/time.ts";
+import {
   collapseTailDisplayRows,
   isTailNoiseEvent,
   type TailDisplayMode,
@@ -41,6 +45,15 @@ const KIND_GLYPH: Record<TailEventKind, string> = {
   other: "·",
 };
 
+const KIND_LABEL: Record<TailEventKind, string> = {
+  user: "USR",
+  assistant: "AST",
+  tool: "TOL",
+  "tool-result": "OUT",
+  system: "SYS",
+  other: "EVT",
+};
+
 type TailAttribution = TailEvent["harness"];
 
 const ATTRIBUTION_LABEL: Record<TailAttribution, string> = {
@@ -49,10 +62,10 @@ const ATTRIBUTION_LABEL: Record<TailAttribution, string> = {
   unattributed: "native",
 };
 
-const ATTRIBUTION_CLASS: Record<TailAttribution, string> = {
-  "scout-managed": "s-tail-chip--origin-scout",
-  "hudson-managed": "s-tail-chip--origin-hudson",
-  unattributed: "s-tail-chip--origin-native",
+const ORIGIN_ABBR: Record<TailAttribution, string> = {
+  "scout-managed": "sc",
+  "hudson-managed": "hu",
+  unattributed: "na",
 };
 
 type TailViewVariant = "tail" | "issues";
@@ -96,12 +109,7 @@ function summarizeSources(
 }
 
 function formatTime(ts: number): string {
-  const date = new Date(ts);
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  const ss = String(date.getSeconds()).padStart(2, "0");
-  const ms = String(date.getMilliseconds()).padStart(3, "0");
-  return `${hh}:${mm}:${ss}.${ms}`;
+  return formatClockTimestamp(ts, { milliseconds: true }) || "—";
 }
 
 function shortSession(sessionId: string): string {
@@ -553,20 +561,23 @@ export function TailView({
     <div className={`s-tail s-tail--${chrome}`}>
       <div className={`s-tail-status${issueMode ? " s-tail-status--issues" : ""}`}>
         <span className="s-tail-status-cluster s-tail-status-cluster--metrics">
+          <span className={`s-tail-live-dot${paused ? " s-tail-live-dot--paused" : ""}`} aria-hidden="true" />
           <span className="s-tail-status-cell">
-            <span className="s-tail-rate-pulse" />
-            <strong>{transcriptCount}</strong> log{transcriptCount === 1 ? "" : "s"}
+            <span className="s-tail-status-key">log</span>
+            <strong>{transcriptCount}</strong>
           </span>
           <span className="s-tail-status-cell">
-            <strong>{totals?.total ?? 0}</strong> proc{(totals?.total ?? 0) === 1 ? "" : "s"}
+            <span className="s-tail-status-key">proc</span>
+            <strong>{totals?.total ?? 0}</strong>
           </span>
           <span className="s-tail-status-cell">
-            <strong>{rate.toFixed(1)}</strong> lines/s
+            <span className="s-tail-status-key">rate</span>
+            <strong>{rate.toFixed(1)}/s</strong>
           </span>
         </span>
         {!issueMode && (
           <span className="s-tail-status-cluster s-tail-status-cluster--display">
-            <span className="s-tail-status-label">show</span>
+            <span className="s-tail-status-key">view</span>
             <span className="s-tail-issue-filter" role="group" aria-label="Tail display mode">
               <button
                 type="button"
@@ -576,7 +587,7 @@ export function TailView({
                 onClick={() => setDisplayMode("work")}
                 aria-pressed={displayMode === "work"}
               >
-                Work
+                work
               </button>
               <button
                 type="button"
@@ -586,14 +597,14 @@ export function TailView({
                 onClick={() => setDisplayMode("all")}
                 aria-pressed={displayMode === "all"}
               >
-                All <strong>{filtered.length}</strong>
+                all:{filtered.length}
               </button>
             </span>
           </span>
         )}
         {issueMode && (
           <span className="s-tail-status-cluster s-tail-status-cluster--issues">
-            <span className="s-tail-status-label">alerts</span>
+            <span className="s-tail-status-key">flt</span>
             <span className="s-tail-issue-filter" role="group" aria-label="Alert severity filter">
               <button
                 type="button"
@@ -603,7 +614,7 @@ export function TailView({
                 onClick={() => setIssueFilter("errors-only")}
                 aria-pressed={issueFilter === "errors-only"}
               >
-                Errors <strong>{issueCounts.error}</strong>
+                err:{issueCounts.error}
               </button>
               <button
                 type="button"
@@ -613,7 +624,7 @@ export function TailView({
                 onClick={() => setIssueFilter("warn-plus")}
                 aria-pressed={issueFilter === "warn-plus"}
               >
-                Warn+ <strong>{issueCounts.total}</strong>
+                wrn+:{issueCounts.total}
               </button>
               <button
                 type="button"
@@ -623,32 +634,32 @@ export function TailView({
                 onClick={() => setIssueFilter("all")}
                 aria-pressed={issueFilter === "all"}
               >
-                All <strong>{events.length}</strong>
+                all:{events.length}
               </button>
             </span>
           </span>
         )}
         <span className="s-tail-status-spacer" />
         <span className="s-tail-status-cluster s-tail-status-cluster--harnesses">
-          <span className="s-tail-status-label">harness</span>
+          <span className="s-tail-status-key">src</span>
           <span className="s-tail-status-inline">
             {harnessCounts.length > 0 ? (
               harnessCounts.slice(0, 4).map((entry) => (
-                <span key={entry.source}>
-                  <strong>{entry.count}</strong> {entry.source}
+                <span key={entry.source} className="s-tail-status-src">
+                  {entry.source}:{entry.count}
                 </span>
               ))
             ) : (
-              <strong>none</strong>
+              <span className="s-tail-status-src">—</span>
             )}
           </span>
         </span>
         {filter && embedded && (
           <span className="s-tail-status-filter" title={filter}>
-            {filterLabel ?? "filtered"}
+            q={filterLabel ?? "filtered"}
           </span>
         )}
-        {paused && <span className="s-tail-status-paused">paused</span>}
+        {paused && <span className="s-tail-status-paused">‖ paused</span>}
       </div>
 
       {filterOpen && (
@@ -741,12 +752,12 @@ export function TailView({
         </div>
       ) : (
         <div className="s-tail-keys">
-          <span><kbd>j</kbd>/<kbd>k</kbd> scroll</span>
+          <span><kbd>j</kbd><kbd>k</kbd> scroll</span>
           <span><kbd>/</kbd> filter</span>
-          <span><kbd>G</kbd> jump live</span>
-          <span><kbd>esc</kbd> close filter</span>
+          <span><kbd>G</kbd> live</span>
+          <span><kbd>esc</kbd> clr</span>
           <span className="s-tail-keys-spacer" />
-          <span>{displayRows.length} shown · {events.length} buffered</span>
+          <span>{displayRows.length}/{events.length} buf</span>
         </div>
       )}
 
@@ -779,7 +790,6 @@ function TailRow({
   onProjectClick?: (project: string) => void;
   onSessionClick?: (sessionId: string) => void;
 }) {
-  const attributionClass = ATTRIBUTION_CLASS[event.harness];
   const attributionLabel = ATTRIBUTION_LABEL[event.harness];
   const harnessLabel = displayHarness(event.source);
   const issueClass = issueSeverity ? ` s-tail-row--issue s-tail-row--issue-${issueSeverity}` : "";
@@ -797,10 +807,14 @@ function TailRow({
       }}
     >
       <span className="s-tail-cell-time">{formatTime(event.ts)}</span>
-      <span className="s-tail-gutter">│</span>
-      <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
-      <span className={`s-tail-chip s-tail-chip--origin ${attributionClass}`} title={`origin: ${attributionLabel}`}>
-        {attributionLabel}
+      <span className="s-tail-token s-tail-token--harness" title={`source: ${harnessLabel}`}>
+        {harnessLabel}
+      </span>
+      <span
+        className="s-tail-token s-tail-token--origin"
+        title={`origin: ${attributionLabel}`}
+      >
+        {ORIGIN_ABBR[event.harness]}
       </span>
       <span className="s-tail-cell-context">
         <TailLink
@@ -808,9 +822,9 @@ function TailRow({
           onClick={onProjectClick ? () => onProjectClick(event.project) : undefined}
           title={`Filter to ${event.project}`}
         >
-          <strong>{event.project}</strong>
+          {event.project}
         </TailLink>
-        {" · "}
+        <span className="s-tail-sep">/</span>
         <TailLink
           className="s-tail-link s-tail-link--session"
           onClick={
@@ -822,13 +836,17 @@ function TailRow({
         >
           {shortSession(event.sessionId)}
         </TailLink>
-        {" · "}
+        <span className="s-tail-sep">:</span>
         <span className="s-tail-cell-pid" title={event.pid > 0 ? `pid ${event.pid}` : "file-backed log"}>
           {event.pid > 0 ? event.pid : "log"}
         </span>
       </span>
-      <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
+      <span className="s-tail-kind" title={event.kind}>
+        <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
+        <span className="s-tail-kind-label">{KIND_LABEL[event.kind]}</span>
+      </span>
       <span className="s-tail-summary">
+        {issueSeverity === "error" ? "✕ " : issueSeverity === "warn" ? "△ " : null}
         {event.summary}
         {repeatCount > 1 ? (
           <span className="s-tail-repeat" title={`${repeatCount} identical events collapsed`}>
@@ -882,7 +900,9 @@ function TailLink({
 }
 
 function formatFullTime(ts: number): string {
-  const d = new Date(ts);
+  const tsMs = normalizeTimestampMs(ts);
+  if (tsMs === null) return "—";
+  const d = new Date(tsMs);
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
@@ -943,7 +963,6 @@ function TailDetailSheet({
   onSessionClick?: (sessionId: string) => void;
 }) {
   const [showRaw, setShowRaw] = useState(true);
-  const attributionClass = ATTRIBUTION_CLASS[event.harness];
   const attributionLabel = ATTRIBUTION_LABEL[event.harness];
   const harnessLabel = displayHarness(event.source);
   const issueSeverity = classifyTailIssue(event);
@@ -963,15 +982,15 @@ function TailDetailSheet({
     >
         <div className="s-slide-header s-tail-sheet-header">
           <span className={`s-tail-glyph s-tail-glyph--${event.kind}`}>{KIND_GLYPH[event.kind]}</span>
-          <span className="s-tail-sheet-kind">{event.kind}</span>
+          <span className="s-tail-sheet-kind">{KIND_LABEL[event.kind]}</span>
           {issueSeverity && (
-            <span className={`s-tail-chip s-tail-chip--issue-${issueSeverity}`}>
-              {issueSeverity}
+            <span className={`s-tail-token s-tail-token--issue-${issueSeverity}`}>
+              {issueSeverity === "error" ? "✕" : "△"}
             </span>
           )}
-          <span className="s-tail-chip s-tail-chip--harness">{harnessLabel}</span>
-          <span className={`s-tail-chip s-tail-chip--origin ${attributionClass}`} title={`origin: ${attributionLabel}`}>
-            {attributionLabel}
+          <span className="s-tail-token s-tail-token--harness">{harnessLabel}</span>
+          <span className="s-tail-token s-tail-token--origin" title={`origin: ${attributionLabel}`}>
+            {ORIGIN_ABBR[event.harness]}
           </span>
           <span className="s-slide-spacer" />
           <span className="s-tail-sheet-time">{formatFullTime(event.ts)}</span>

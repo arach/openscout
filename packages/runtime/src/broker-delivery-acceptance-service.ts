@@ -32,6 +32,7 @@ import {
   type BrokerRouteTargetInput,
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
+import { describeUnavailableSessionEndpoint } from "./broker-endpoint-selection.js";
 
 type EnsureBrokerDeliveryConversationInput = {
   requesterId: string;
@@ -99,6 +100,13 @@ export type BrokerDeliveryAcceptanceServiceOptions = {
       reason: string;
     },
   ) => Promise<InvocationResolution>;
+  createCardlessProjectSession?: (input: {
+    projectPath: string;
+    execution?: InvocationRequest["execution"];
+    projectAgent?: ScoutDeliverRequest["projectAgent"];
+    requesterId: string;
+    createdAt: number;
+  }) => Promise<Extract<InvocationResolution, { kind: "resolved_session" }>>;
   recordScoutDispatch: (
     envelope: ScoutDispatchEnvelope,
     options?: {
@@ -444,17 +452,32 @@ export class BrokerDeliveryAcceptanceService {
       };
     }
 
-    const resolved = await this.options.resolveBrokerDeliveryTargetWithImplicitProjectAgent({
-      ...payload,
-      execution,
-    }, {
-      requesterId,
-      currentDirectory: projectPathRouteTarget(payload),
-      reason: "implicit project delivery card",
-    });
+    const projectPath = projectPathRouteTarget(payload);
+    const shouldCreateCardlessProjectSession =
+      Boolean(projectPath)
+      && payload.intent === "consult"
+      && !targetSessionId
+      && (execution?.session ?? "new") === "new"
+      && Boolean(this.options.createCardlessProjectSession);
+    const resolved = shouldCreateCardlessProjectSession
+      ? await this.options.createCardlessProjectSession!({
+          projectPath: projectPath!,
+          execution,
+          projectAgent: payload.projectAgent,
+          requesterId,
+          createdAt,
+        })
+      : await this.options.resolveBrokerDeliveryTargetWithImplicitProjectAgent({
+          ...payload,
+          execution,
+        }, {
+          requesterId,
+          currentDirectory: projectPath,
+          reason: "project delivery target",
+        });
     throwIfAborted(options.signal);
 
-    if (resolved.kind !== "resolved") {
+    if (resolved.kind !== "resolved" && resolved.kind !== "resolved_session") {
       const { record } = await this.options.recordScoutDispatch(
         buildDispatchEnvelope(
           resolved,
@@ -491,13 +514,29 @@ export class BrokerDeliveryAcceptanceService {
       };
     }
 
-    const unavailable = this.options.describeUnavailableDeliveryTarget(
-      this.options.runtimeSnapshot(),
-      resolved.agent,
-      targetSessionId,
-    );
+    // SCO-070: a cardless session resolves to an endpoint, not an agent card.
+    // Read identity/label off `target`; branch availability on endpoint state.
+    const target = resolved.kind === "resolved"
+      ? {
+          actorId: resolved.agent.id,
+          label: this.options.brokerTargetLabel(resolved.agent),
+          endpoint: undefined as AgentEndpoint | undefined,
+        }
+      : {
+          actorId: resolved.session.actorId,
+          label: resolved.session.label,
+          endpoint: resolved.session.endpoint as AgentEndpoint | undefined,
+        };
+
+    const unavailable = resolved.kind === "resolved"
+      ? this.options.describeUnavailableDeliveryTarget(
+          this.options.runtimeSnapshot(),
+          resolved.agent,
+          targetSessionId,
+        )
+      : describeUnavailableSessionEndpoint(resolved.session.endpoint);
     if (unavailable) {
-      const targetLabel = askedLabel || this.options.brokerTargetLabel(resolved.agent);
+      const targetLabel = askedLabel || target.label;
       const { record } = await this.options.recordScoutDispatch(
         this.options.buildUnavailableDispatchEnvelope(targetLabel, unavailable),
         {
@@ -524,7 +563,7 @@ export class BrokerDeliveryAcceptanceService {
     await this.options.ensureBrokerActorForDelivery(requesterId);
     const conversation = await this.options.ensureBrokerDeliveryConversation({
       requesterId,
-      targetAgentId: resolved.agent.id,
+      targetAgentId: target.actorId,
       channel: deliveryChannel,
     });
     const workResolution = payload.intent === "consult"
@@ -532,7 +571,7 @@ export class BrokerDeliveryAcceptanceService {
           payload,
           requestId,
           requesterId,
-          targetAgentId: resolved.agent.id,
+          targetAgentId: target.actorId,
           conversationId: conversation.id,
           createdAt,
         })
@@ -542,7 +581,7 @@ export class BrokerDeliveryAcceptanceService {
     const collaborationRecordId = workResolution.collaborationRecordId;
     const snapshot = this.options.runtimeSnapshot();
     const messageId = this.options.createId("msg");
-    const targetLabel = this.options.brokerTargetLabel(resolved.agent);
+    const targetLabel = target.label;
     const routeKind = this.options.brokerRouteKind(conversation);
     const message: MessageRecord = {
       id: messageId,
@@ -552,10 +591,10 @@ export class BrokerDeliveryAcceptanceService {
       class: conversation.kind === "system" ? "system" : "agent",
       body: payload.body.trim(),
       ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
-      mentions: [{ actorId: resolved.agent.id, label: targetLabel }],
+      mentions: [{ actorId: target.actorId, label: targetLabel }],
       ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
       audience: {
-        notify: [resolved.agent.id],
+        notify: [target.actorId],
         reason: conversation.kind === "direct" ? "direct_message" : "mention",
       },
       visibility: this.options.messageVisibilityForConversation(conversation),
@@ -566,10 +605,10 @@ export class BrokerDeliveryAcceptanceService {
         ...(labels.length ? { labels } : {}),
         ...(targetSessionId ? { targetSessionId } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
-        targetDisplayName: this.options.brokerActorDisplayName(snapshot, resolved.agent.id),
+        targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
-        relayTarget: resolved.agent.id,
-        relayTargetIds: [resolved.agent.id],
+        relayTarget: target.actorId,
+        relayTargetIds: [target.actorId],
         relayMessageId: messageId,
         ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),
         returnAddress: this.options.buildBrokerReturnAddressForActor(snapshot, requesterId, {
@@ -594,7 +633,7 @@ export class BrokerDeliveryAcceptanceService {
         routeKind,
         requesterId,
         requesterNodeId,
-        targetAgentId: resolved.agent.id,
+        targetAgentId: target.actorId,
         targetSessionId,
         targetLabel,
         conversationId: conversation.id,
@@ -607,7 +646,7 @@ export class BrokerDeliveryAcceptanceService {
         receipt,
         conversation,
         message,
-        targetAgentId: resolved.agent.id,
+        targetAgentId: target.actorId,
         ...(targetSessionId ? { targetSessionId } : {}),
         ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
       };
@@ -633,7 +672,7 @@ export class BrokerDeliveryAcceptanceService {
       id: this.options.createId("inv"),
       requesterId,
       requesterNodeId,
-      targetAgentId: resolved.agent.id,
+      targetAgentId: target.actorId,
       action: payload.intent === "tell" ? "wake" : "consult",
       task: payload.body.trim(),
       ...(collaborationRecordId ? { collaborationRecordId } : {}),
@@ -649,9 +688,9 @@ export class BrokerDeliveryAcceptanceService {
         ...(labels.length ? { labels } : {}),
         ...(targetSessionId ? { targetSessionId } : {}),
         requesterDisplayName: this.options.brokerActorDisplayName(snapshot, requesterId),
-        targetDisplayName: this.options.brokerActorDisplayName(snapshot, resolved.agent.id),
+        targetDisplayName: this.options.brokerActorDisplayName(snapshot, target.actorId),
         relayChannel: deliveryChannel || (conversation.kind === "direct" ? "dm" : "shared"),
-        relayTarget: resolved.agent.id,
+        relayTarget: target.actorId,
         ...(collaborationRecordId ? { collaborationRecordId, workId: collaborationRecordId } : {}),
         returnAddress: this.options.buildBrokerReturnAddressForActor(snapshot, requesterId, {
           conversationId: conversation.id,
@@ -675,7 +714,7 @@ export class BrokerDeliveryAcceptanceService {
         routeKind,
         requesterId,
         requesterNodeId,
-        targetAgentId: resolved.agent.id,
+        targetAgentId: target.actorId,
         targetSessionId,
         targetLabel,
         bindingRef,
@@ -685,7 +724,7 @@ export class BrokerDeliveryAcceptanceService {
       }),
       conversation,
       message,
-      targetAgentId: resolved.agent.id,
+      targetAgentId: target.actorId,
       ...(targetSessionId ? { targetSessionId } : {}),
       bindingRef,
       flight,

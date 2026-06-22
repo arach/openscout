@@ -1,10 +1,22 @@
 import type { MetadataMap, ScoutId } from "./common.js";
 
-export const CHANNEL_ID_PREFIX = "c.";
+export const CHANNEL_ID_PREFIX = "chat_";
+export const CHAT_ID_PREFIX = CHANNEL_ID_PREFIX;
+export const LEGACY_CHANNEL_ID_PREFIX = "c.";
 export const CHANNEL_NATURAL_KEY_METADATA = "naturalKey";
 
 export function mintChannelId(randomUuid: () => string): ScoutId {
-  return `${CHANNEL_ID_PREFIX}${randomUuid().toLowerCase()}`;
+  return `${CHAT_ID_PREFIX}${randomUuid().toLowerCase().replace(/-/g, "")}`;
+}
+
+export function isOpaqueChannelId(value: string | null | undefined): value is ScoutId {
+  if (typeof value !== "string") return false;
+  return (
+    value.startsWith(CHAT_ID_PREFIX) && value.length > CHAT_ID_PREFIX.length
+  ) || (
+    value.startsWith(LEGACY_CHANNEL_ID_PREFIX)
+    && value.length > LEGACY_CHANNEL_ID_PREFIX.length
+  );
 }
 
 export function directChannelNaturalKey(participantIds: ScoutId[]): string {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../../lib/api.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
-import { conversationForAgent, routeMachineId } from "../../lib/router.ts";
+import { routeMachineId } from "../../lib/router.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentDirectoryStudioInjection } from "../../studio/AgentDirectoryStudioInjection.tsx";
@@ -79,33 +79,20 @@ export function AgentsScreen({
 
   useEffect(() => {
     if (!selectedAgentId || !selectedAgent || !selectedAgentWasAliased) return;
-    const staleDirectConversationId = conversationForAgent(selectedAgentId);
-    const canonicalConversationId =
-      activeConversationId === staleDirectConversationId
-        ? selectedAgent.conversationId
-        : activeConversationId;
     navigate({
       view: "agents",
       agentId: selectedAgent.id,
-      ...(canonicalConversationId ? { conversationId: canonicalConversationId } : {}),
+      ...(activeConversationId ? { conversationId: activeConversationId } : {}),
       ...(activeTab ? { tab: activeTab } : {}),
     });
   }, [activeConversationId, activeTab, navigate, selectedAgent, selectedAgentId, selectedAgentWasAliased]);
 
   if (selectedAgent) {
-    const staleDirectConversationId =
-      selectedAgentWasAliased && selectedAgentId
-        ? conversationForAgent(selectedAgentId)
-        : null;
     const resolvedConversationId =
-      activeConversationId === staleDirectConversationId
-        ? selectedAgent.conversationId
-        : (
-          activeConversationId ??
-          conversationByAgentId.get(selectedAgent.id) ??
-          selectedAgent.conversationId ??
-          null
-        );
+      activeConversationId
+      ?? conversationByAgentId.get(selectedAgent.id)
+      ?? selectedAgent.conversationId
+      ?? null;
     const resolvedTab = activeTab
       ?? (activeConversationId ? "message" : "profile");
     return (

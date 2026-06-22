@@ -59,9 +59,7 @@ export function brokerConversationChannel(
   if (typeof conversation.metadata?.channel === "string") {
     return conversation.metadata.channel;
   }
-  return conversation.id.startsWith("channel.")
-    ? conversation.id.replace(/^channel\./, "")
-    : null;
+  return null;
 }
 
 export function titleCaseName(value: string): string {
@@ -112,13 +110,11 @@ export function brokerTargetLabel(agent: AgentDefinition): string {
 
 export function brokerRouteKind(
   conversation: Pick<ConversationDefinition, "id" | "kind" | "metadata">,
-  sharedChannelId = "channel.shared",
 ): ScoutDeliverRouteKind {
   if (conversation.kind === "direct") {
     return "dm";
   }
-  return conversation.id === sharedChannelId
-      || conversation.metadata?.channel === "shared"
+  return conversation.metadata?.channel === "shared"
     ? "broadcast"
     : "channel";
 }

@@ -43,6 +43,7 @@ import {
   type WorkItemState,
   type ScoutReturnAddress,
   type ScoutRouteTarget,
+  epochMs,
 } from "@openscout/protocol";
 import {
   ensureRelayAgentConfigured,
@@ -576,18 +577,8 @@ export function parseScoutLocalHarness(
 }
 
 export function normalizeUnixTimestamp(value: unknown): number | null {
-  const numeric =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value)
-        : Number.NaN;
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return null;
-  }
-  return numeric > 10_000_000_000
-    ? Math.floor(numeric / 1000)
-    : Math.floor(numeric);
+  const ms = epochMs(value);
+  return ms === null ? null : Math.floor(ms / 1000);
 }
 
 function maxDefined(values: Array<number | null | undefined>): number | null {

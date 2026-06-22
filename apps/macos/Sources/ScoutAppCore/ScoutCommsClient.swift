@@ -25,6 +25,7 @@ public struct ScoutCommsClient: Sendable {
         let url = ScoutWeb.baseURL()
             .appending(path: "api/messages")
             .appending(queryItems: [
+                URLQueryItem(name: "chatId", value: cId),
                 URLQueryItem(name: "cId", value: cId),
                 URLQueryItem(name: "conversationId", value: cId),
                 URLQueryItem(name: "limit", value: "\(limit)"),
@@ -40,6 +41,7 @@ public struct ScoutCommsClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: [
             "body": body,
+            "chatId": cId,
             "cId": cId,
             "conversationId": cId,
         ])
