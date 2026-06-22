@@ -4,6 +4,10 @@ import os
 
 public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
     public static let serviceType = "_oscout-pair._tcp."
+    public static let serviceTypes = [
+        serviceType,
+        "_scout-pair._tcp.",
+    ]
 
     private static let logger = Logger(
         subsystem: "app.openscout.scout.ioscore",
@@ -11,7 +15,7 @@ public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
     )
 
     private let targetPublicKeyHex: String
-    private let browser = NetServiceBrowser()
+    private var browsers: [NetServiceBrowser] = []
     private var resolvingServices: [String: NetService] = [:]
     private var discoveredRelayURLs: [String] = []
     private var continuation: CheckedContinuation<[String], Never>?
@@ -19,8 +23,6 @@ public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
     public init(publicKeyHex: String) {
         self.targetPublicKeyHex = publicKeyHex.lowercased()
         super.init()
-        browser.delegate = self
-        browser.includesPeerToPeer = true
     }
 
     @MainActor
@@ -41,7 +43,13 @@ public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
                 }
 
                 self.continuation = continuation
-                self.browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
+                for serviceType in Self.serviceTypes {
+                    let browser = NetServiceBrowser()
+                    browser.delegate = self
+                    browser.includesPeerToPeer = true
+                    self.browsers.append(browser)
+                    browser.searchForServices(ofType: serviceType, inDomain: "local.")
+                }
 
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(0.1, timeoutSeconds)) { [weak self] in
                     self?.finish()
@@ -53,7 +61,8 @@ public final class BonjourRelayDiscovery: NSObject, @unchecked Sendable {
     private func finish() {
         guard let continuation else { return }
         self.continuation = nil
-        browser.stop()
+        browsers.forEach { $0.stop() }
+        browsers.removeAll()
         resolvingServices.removeAll()
         continuation.resume(returning: deduplicatedRelayURLs(discoveredRelayURLs))
     }
@@ -133,6 +142,7 @@ func relayURLsFromBonjourAdvertisement(
 ) -> [String] {
     guard port > 0,
           txt["pk"]?.lowercased() == targetPublicKeyHex.lowercased(),
+          txt["mode"] != "discovery",
           let hostName = hostName?.trimmedNonEmpty else {
         return []
     }

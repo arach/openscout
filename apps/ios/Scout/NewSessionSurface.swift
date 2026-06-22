@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
@@ -40,6 +42,9 @@ struct NewSessionSurface: View {
     @State private var isSubmitting = false
     @State private var result: SessionInitiationResult?
     @State private var errorText: String?
+    @State private var pendingAttachments: [ScoutComposerAttachment] = []
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
     @State private var route: ConversationRoute?
     @FocusState private var instructionsFocused: Bool
 
@@ -171,10 +176,17 @@ struct NewSessionSurface: View {
                 onStatusContextChange: onConversationStatusContext
             )
         }
-        .sheet(isPresented: $showProjectPicker) {
-            ProjectPickerSheet(client: client, projectPath: $projectPath)
-        }
-        .task(id: reloadToken) { await loadWorkspaces() }
+            .sheet(isPresented: $showProjectPicker) {
+                ProjectPickerSheet(client: client, projectPath: $projectPath)
+            }
+            .onChange(of: selectedPhotoItems) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await addPhotos(items) }
+            }
+            .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                addFiles(result)
+            }
+            .task(id: reloadToken) { await loadWorkspaces() }
         // When the project changes, adopt that machine workspace's harnesses.
         .onChange(of: projectPath) { _, _ in applyWorkspaceDefault() }
     }
@@ -285,6 +297,23 @@ struct NewSessionSurface: View {
                     micButton
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
+                if !pendingAttachments.isEmpty {
+                    ComposerAttachmentStrip(attachments: pendingAttachments) { id in
+                        pendingAttachments.removeAll { $0.id == id }
+                    }
+                    .padding(.top, HudSpacing.sm)
+                }
+                HStack(spacing: HudSpacing.sm) {
+                    attachPhotoButton
+                    attachFileButton
+                    if !pendingAttachments.isEmpty {
+                        Text("\(pendingAttachments.count) attached")
+                            .font(HudFont.mono(HudTextSize.xxs))
+                            .foregroundStyle(ScoutInk.muted)
+                    }
+                    Spacer()
+                }
+                .padding(.top, HudSpacing.xs)
             }
             .padding(HudSpacing.lg)
             .scoutCard(cornerRadius: HudRadius.standard)
@@ -322,6 +351,25 @@ struct NewSessionSurface: View {
         }
     }
 
+    private var attachPhotoButton: some View {
+        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
+            Label("Photo", systemImage: "photo")
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutInk.muted)
+        }
+        .disabled(isSubmitting)
+    }
+
+    private var attachFileButton: some View {
+        Button { showFileImporter = true } label: {
+            Label("File", systemImage: "paperclip")
+                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
+                .foregroundStyle(ScoutInk.muted)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSubmitting)
+    }
+
     private var micColor: Color {
         switch voice.state {
         case .listening: return HudPalette.accent
@@ -333,6 +381,38 @@ struct NewSessionSurface: View {
 
     private func appendDictation(_ text: String) {
         instructions = instructions.isEmpty ? text : instructions + " " + text
+    }
+
+    @MainActor
+    private func addPhotos(_ items: [PhotosPickerItem]) async {
+        defer { selectedPhotoItems = [] }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
+            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
+            pendingAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(pendingAttachments.count + 1).\(ext)")
+            )
+        }
+    }
+
+    private func addFiles(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                let type = UTType(filenameExtension: url.pathExtension)
+                let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
+                pendingAttachments.append(
+                    ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
+                )
+            }
+        } catch {
+            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 
     private func updatePulse(for state: HudDictation.State) {
@@ -419,20 +499,44 @@ struct NewSessionSurface: View {
     // MARK: - Result
 
     private func resultCard(_ result: SessionInitiationResult) -> some View {
-        HudCard {
+        let promptSent = result.messageId?.isEmpty == false || result.flightId?.isEmpty == false
+        return HudCard {
             VStack(alignment: .leading, spacing: HudSpacing.md) {
                 HStack(spacing: HudSpacing.md) {
-                    HudStatusDot(color: HudPalette.statusOk, size: HudDotSize.medium)
-                    Text("Session started")
-                        .font(HudFont.ui(HudTextSize.md, weight: .semibold))
-                        .foregroundStyle(HudPalette.ink)
+                    HudStatusDot(color: promptSent ? HudPalette.statusOk : HudPalette.statusWarn, size: HudDotSize.medium)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(promptSent ? "Prompt sent" : "Session ready")
+                            .font(HudFont.ui(HudTextSize.md, weight: .semibold))
+                            .foregroundStyle(HudPalette.ink)
+                        Text(resultSummary(promptSent: promptSent))
+                            .font(HudFont.ui(HudTextSize.xs))
+                            .foregroundStyle(ScoutInk.muted)
+                            .lineLimit(2)
+                    }
                 }
                 idRow("conversation", result.conversationId)
-                idRow("agent", result.agentId)
-                idRow("flight", result.flightId)
                 idRow("message", result.messageId)
+                idRow("flight", result.flightId)
+                idRow("agent", result.agentId)
+                if let conversationId = result.conversationId, !conversationId.isEmpty {
+                    HStack {
+                        Spacer()
+                        HudButton("Open conversation", icon: "bubble.left.and.bubble.right", style: .secondary) {
+                            route = ConversationRoute(id: conversationId, title: sessionTitle)
+                        }
+                    }
+                    .padding(.top, HudSpacing.xs)
+                }
             }
         }
+    }
+
+    private func resultSummary(promptSent: Bool) -> String {
+        let project = projectLeaf.isEmpty ? "the selected project" : projectLeaf
+        if promptSent {
+            return "\(selectedHarnessLabel) is working in \(project)."
+        }
+        return "No prompt was sent; open the conversation to start."
     }
 
     private func idRow(_ label: String, _ value: String?) -> some View {
@@ -469,13 +573,16 @@ struct NewSessionSurface: View {
         !trimmedProjectPath.isEmpty
     }
 
-    private func makeSpec() -> SessionInitiationSpec {
+    private func makeSpec(attachments: [MessageAttachment]? = nil) -> SessionInitiationSpec {
         let trimmedInstructions = instructions.trimmingCharacters(in: .whitespacesAndNewlines)
         return SessionInitiationSpec(
             target: .init(projectPath: trimmedProjectPath),
             execution: .init(harness: harnessId, model: selectedModel.value, session: .new),
             agent: .init(persistence: "sticky"),
-            seed: .init(instructions: trimmedInstructions.isEmpty ? nil : trimmedInstructions)
+            seed: .init(
+                instructions: trimmedInstructions.isEmpty ? nil : trimmedInstructions,
+                attachments: attachments
+            )
         )
     }
 
@@ -485,9 +592,12 @@ struct NewSessionSurface: View {
         errorText = nil
         result = nil
         instructionsFocused = false
-        let spec = makeSpec()
+        let attachments = pendingAttachments
+        pendingAttachments = []
         Task {
             do {
+                let hosted = try await upload(attachments)
+                let spec = makeSpec(attachments: hosted)
                 let outcome = try await client.startSession(spec)
                 isSubmitting = false
                 result = outcome
@@ -496,10 +606,20 @@ struct NewSessionSurface: View {
                     route = ConversationRoute(id: conversationId, title: sessionTitle)
                 }
             } catch {
+                pendingAttachments = attachments
                 isSubmitting = false
                 errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
         }
+    }
+
+    private func upload(_ attachments: [ScoutComposerAttachment]) async throws -> [MessageAttachment]? {
+        guard !attachments.isEmpty else { return nil }
+        var hosted: [MessageAttachment] = []
+        for attachment in attachments {
+            hosted.append(try await client.uploadAttachment(attachment.upload))
+        }
+        return hosted
     }
 
     /// Title for the pushed conversation: the project's last path component,

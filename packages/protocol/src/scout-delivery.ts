@@ -6,7 +6,7 @@ import type {
   WorkItemRecord,
 } from "./collaboration.js";
 import type { FlightRecord, InvocationExecutionPreference } from "./invocations.js";
-import type { MessageRecord } from "./messages.js";
+import type { MessageAttachment, MessageRecord } from "./messages.js";
 import type {
   ScoutCallerContext,
   ScoutDispatchRecord,
@@ -48,6 +48,7 @@ export interface ScoutDeliverRequest {
   requesterId?: ScoutId;
   requesterNodeId?: ScoutId;
   body: string;
+  attachments?: MessageAttachment[];
   intent: ScoutDeliverIntent;
   target?: ScoutRouteTarget;
   targetLabel?: string;

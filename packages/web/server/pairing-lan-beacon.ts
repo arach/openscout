@@ -66,6 +66,7 @@ export function startScoutPairLanBeacon(
         `pk=${publicKeyHex}`,
         `fp=${fingerprint}`,
         "scheme=ws",
+        "mode=discovery",
       ],
       { stdio: "ignore" },
     );

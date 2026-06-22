@@ -107,7 +107,7 @@ enum ScoutAccentPalette: String, CaseIterable, Identifiable {
         switch self {
         case .forest: return .scoutAdaptive(light: scoutRGB(0.22, 0.48, 0.34), dark: scoutRGB(0.31, 0.64, 0.45))
         case .teal: return .scoutAdaptive(light: scoutRGB(0.00, 0.49, 0.53), dark: scoutRGB(0.39, 0.78, 0.76))
-        case .blue: return .scoutAdaptive(light: scoutRGB(0.286, 0.329, 0.769), dark: scoutRGB(0.427, 0.478, 0.910))
+        case .blue: return .scoutAdaptive(light: scoutRGB(0.243, 0.400, 0.800), dark: scoutRGB(0.333, 0.522, 0.902))
         case .amber: return .scoutAdaptive(light: scoutRGB(0.75, 0.41, 0.09), dark: scoutRGB(0.91, 0.60, 0.24))
         case .rose: return .scoutAdaptive(light: scoutRGB(0.70, 0.29, 0.38), dark: scoutRGB(0.92, 0.35, 0.45))
         }
@@ -117,7 +117,7 @@ enum ScoutAccentPalette: String, CaseIterable, Identifiable {
         switch self {
         case .forest: return .scoutAdaptive(light: scoutRGB(0.86, 0.91, 0.88), dark: scoutRGB(0.31, 0.64, 0.45, opacity: 0.14))
         case .teal: return .scoutAdaptive(light: scoutRGB(0.82, 0.92, 0.92), dark: scoutRGB(0.39, 0.78, 0.76, opacity: 0.14))
-        case .blue: return .scoutAdaptive(light: scoutRGB(0.91, 0.92, 0.98), dark: scoutRGB(0.427, 0.478, 0.910, opacity: 0.26))
+        case .blue: return .scoutAdaptive(light: scoutRGB(0.894, 0.918, 0.976), dark: scoutRGB(0.333, 0.522, 0.902, opacity: 0.22))
         case .amber: return .scoutAdaptive(light: scoutRGB(0.96, 0.90, 0.80), dark: scoutRGB(0.91, 0.60, 0.24, opacity: 0.15))
         case .rose: return .scoutAdaptive(light: scoutRGB(0.96, 0.86, 0.89), dark: scoutRGB(0.92, 0.35, 0.45, opacity: 0.15))
         }
@@ -357,27 +357,28 @@ enum ScoutThemePreset: String, CaseIterable, Identifiable {
                 statusInfo: scoutRGB(0.427, 0.478, 0.910)
             )
         case .juniper:
-            // Higher-contrast cool dark. Surface lifted off the canvas so cards
-            // separate; ink/muted/dim raised for legible secondary text;
-            // hairlines/borders cool-tinted (steel blue) and strengthened rather
-            // than flat white; brighter accent + status. Mirrors the Studio
-            // `juniper-d` skin.
+            // Neutralized "Nocturne" — true charcoal gray, not navy. The old
+            // skin tinted every surface and hairline steel-blue, so the whole
+            // window read cool before the accent. Now the grays are genuinely
+            // neutral (R=G=B) and indigo is the ONLY hue in the window. Surface
+            // is lifted off the canvas so cards separate; ink/muted/dim stay
+            // high-contrast. Mirrors the de-purpled Studio control.
             return ScoutThemeColors(
-                bg: scoutRGB(0.059, 0.075, 0.106),
-                chrome: scoutRGB(0.035, 0.047, 0.071),
-                surface: scoutRGB(0.133, 0.173, 0.231),
-                ink: scoutRGB(0.953, 0.965, 0.988),
-                muted: scoutRGB(0.698, 0.737, 0.804),
-                dim: scoutRGB(0.510, 0.553, 0.631),
-                border: scoutRGB(0.588, 0.675, 0.816, opacity: 0.24),
-                hairline: scoutRGB(0.588, 0.675, 0.816, opacity: 0.13),
-                hairlineStrong: scoutRGB(0.588, 0.675, 0.816, opacity: 0.28),
-                accent: scoutRGB(0.427, 0.478, 0.910),
-                accentSoft: scoutRGB(0.427, 0.478, 0.910, opacity: 0.26),
+                bg: scoutRGB(0.098, 0.098, 0.098),
+                chrome: scoutRGB(0.059, 0.059, 0.059),
+                surface: scoutRGB(0.161, 0.161, 0.161),
+                ink: scoutRGB(0.961, 0.961, 0.961),
+                muted: scoutRGB(0.714, 0.714, 0.714),
+                dim: scoutRGB(0.525, 0.525, 0.525),
+                border: scoutRGB(0.706, 0.706, 0.706, opacity: 0.22),
+                hairline: scoutRGB(0.706, 0.706, 0.706, opacity: 0.12),
+                hairlineStrong: scoutRGB(0.706, 0.706, 0.706, opacity: 0.28),
+                accent: scoutRGB(0.333, 0.522, 0.902),
+                accentSoft: scoutRGB(0.333, 0.522, 0.902, opacity: 0.22),
                 statusOk: scoutRGB(0.329, 0.788, 0.557),
                 statusWarn: scoutRGB(0.937, 0.627, 0.267),
                 statusError: scoutRGB(0.945, 0.353, 0.376),
-                statusInfo: scoutRGB(0.427, 0.478, 0.910)
+                statusInfo: scoutRGB(0.333, 0.522, 0.902)
             )
         }
     }

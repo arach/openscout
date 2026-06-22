@@ -8,6 +8,44 @@
 
 import Foundation
 
+/// Link-backed message attachment. The broker stores metadata only; bytes are
+/// fetched from `url` (or a future blob key) by readers/agents.
+public struct MessageAttachment: Codable, Sendable, Identifiable, Equatable, Hashable {
+    public var id: String
+    public var mediaType: String
+    public var fileName: String?
+    public var blobKey: String?
+    public var url: String?
+
+    public init(id: String, mediaType: String, fileName: String? = nil, blobKey: String? = nil, url: String? = nil) {
+        self.id = id
+        self.mediaType = mediaType
+        self.fileName = fileName
+        self.blobKey = blobKey
+        self.url = url
+    }
+}
+
+/// Raw bytes staged by a native composer before the bridge hosts them and
+/// returns a `MessageAttachment`.
+public struct AttachmentUpload: Codable, Sendable, Equatable {
+    public var data: Data
+    public var mediaType: String
+    public var fileName: String?
+
+    public init(data: Data, mediaType: String, fileName: String? = nil) {
+        self.data = data
+        self.mediaType = mediaType
+        self.fileName = fileName
+    }
+}
+
+public protocol AttachmentHostingCapability: Sendable {
+    /// Host bytes somewhere recipients can fetch, returning link-backed metadata
+    /// suitable for `PromptSpec.attachments` or `postMessage(... attachments:)`.
+    func uploadAttachment(_ attachment: AttachmentUpload) async throws -> MessageAttachment
+}
+
 /// A room in the mesh comms layer: a shared channel, a 1:1 direct thread with an
 /// agent, a group, or a sub-thread. The operator joins these from the Comms tab.
 public struct CommsConversation: Codable, Sendable, Identifiable, Equatable, Hashable {
@@ -72,6 +110,10 @@ public struct CommsMessage: Codable, Sendable, Identifiable, Equatable {
     public var replyToMessageId: String?
     /// True when this message was authored by the phone operator.
     public var isOperator: Bool
+    public var attachments: [MessageAttachment]
+    /// Stable caller-generated id used to reconcile optimistic local posts with
+    /// the authoritative broker echo.
+    public var clientMessageId: String?
 
     public init(
         id: String,
@@ -82,7 +124,9 @@ public struct CommsMessage: Codable, Sendable, Identifiable, Equatable {
         body: String,
         createdAt: Date,
         replyToMessageId: String? = nil,
-        isOperator: Bool = false
+        isOperator: Bool = false,
+        attachments: [MessageAttachment] = [],
+        clientMessageId: String? = nil
     ) {
         self.id = id
         self.conversationId = conversationId
@@ -93,6 +137,8 @@ public struct CommsMessage: Codable, Sendable, Identifiable, Equatable {
         self.createdAt = createdAt
         self.replyToMessageId = replyToMessageId
         self.isOperator = isOperator
+        self.attachments = attachments
+        self.clientMessageId = clientMessageId
     }
 }
 
@@ -110,7 +156,7 @@ public protocol CommsCapability: Sendable {
     /// Post a message into a conversation as the operator. `replyTo` threads the
     /// post under an existing message. Returns the new message id.
     @discardableResult
-    func postMessage(conversationId: String, body: String, replyTo: String?) async throws -> String
+    func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> String
 
     /// Mark a conversation read — advances the operator's read cursor on the
     /// broker through the latest message, clearing the unread badge. Returns the
@@ -118,4 +164,16 @@ public protocol CommsCapability: Sendable {
     /// this so the count doesn't linger forever.
     @discardableResult
     func markConversationRead(conversationId: String) async throws -> Int
+}
+
+public extension CommsCapability {
+    @discardableResult
+    func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?) async throws -> String {
+        try await postMessage(conversationId: conversationId, body: body, replyTo: replyTo, attachments: attachments, clientMessageId: nil)
+    }
+
+    @discardableResult
+    func postMessage(conversationId: String, body: String, replyTo: String?) async throws -> String {
+        try await postMessage(conversationId: conversationId, body: body, replyTo: replyTo, attachments: nil, clientMessageId: nil)
+    }
 }

@@ -1,5 +1,7 @@
 import SwiftUI
 import UIKit
+import PhotosUI
+import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
@@ -515,6 +517,10 @@ struct CommsThreadView: View {
     @State private var isLoading = true
     @State private var composerText = ""
     @State private var isSending = false
+    @State private var pendingAttachments: [ScoutComposerAttachment] = []
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+    @State private var composerError: String?
     @Environment(HudDictation.self) private var voice
     @State private var micPulse = false
     @FocusState private var composerFocused: Bool
@@ -626,44 +632,87 @@ struct CommsThreadView: View {
     // MARK: Composer
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: HudSpacing.md) {
-            micButton
-
-            TextField(composerPlaceholder, text: $composerText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...4)
-                .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
-                .tint(HudPalette.accent)
-                .focused($composerFocused)
-                .onSubmit(send)
-                .padding(.vertical, HudSpacing.xs)
-
-            Button(action: send) {
-                Glyphic.arrow(.top, size: 17)
-                    .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(canSend ? HudPalette.accent : HudSurface.inset))
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            if !pendingAttachments.isEmpty {
+                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
+                    pendingAttachments.removeAll { $0.id == id }
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
+            if let composerError {
+                Text(composerError)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(HudPalette.statusError)
+                    .lineLimit(2)
+            }
+            HStack(alignment: .bottom, spacing: HudSpacing.md) {
+                micButton
+                attachPhotoButton
+                attachFileButton
+
+                TextField(composerPlaceholder, text: $composerText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...4)
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(HudPalette.ink)
+                    .tint(HudPalette.accent)
+                    .focused($composerFocused)
+                    .onSubmit(send)
+                    .padding(.vertical, HudSpacing.xs)
+
+                Button(action: send) {
+                    Glyphic.arrow(.top, size: 17)
+                        .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(canSend ? HudPalette.accent : HudSurface.inset))
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+            }
+            .padding(.leading, HudSpacing.lg)
+            .padding(.trailing, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.sm)
+            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
+                            lineWidth: HudStrokeWidth.standard)
+            )
         }
-        .padding(.leading, HudSpacing.lg)
-        .padding(.trailing, HudSpacing.sm)
-        .padding(.vertical, HudSpacing.sm)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
-                        lineWidth: HudStrokeWidth.standard)
-        )
         .padding(.horizontal, HudSpacing.lg)
         .padding(.bottom, HudSpacing.sm)
         .background(HudPalette.bg)
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addPhotos(items) }
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            addFiles(result)
+        }
     }
 
     private var canSend: Bool {
-        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+        (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty) && !isSending
+    }
+
+    private var attachPhotoButton: some View {
+        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
+            Image(systemName: "photo")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 28, height: 28)
+        }
+        .disabled(isSending)
+    }
+
+    private var attachFileButton: some View {
+        Button { showFileImporter = true } label: {
+            Image(systemName: "paperclip")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSending)
     }
 
     private var micButton: some View {
@@ -720,6 +769,38 @@ struct CommsThreadView: View {
         composerText = composerText.isEmpty ? text : composerText + " " + text
     }
 
+    @MainActor
+    private func addPhotos(_ items: [PhotosPickerItem]) async {
+        defer { selectedPhotoItems = [] }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
+            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
+            pendingAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(pendingAttachments.count + 1).\(ext)")
+            )
+        }
+    }
+
+    private func addFiles(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                let type = UTType(filenameExtension: url.pathExtension)
+                let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
+                pendingAttachments.append(
+                    ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
+                )
+            }
+        } catch {
+            composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     private func updatePulse(for state: HudDictation.State) {
         micPulse = false
         if case .listening = state {
@@ -743,30 +824,69 @@ struct CommsThreadView: View {
 
     private func send() {
         let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
+        let attachments = pendingAttachments
+        guard (!text.isEmpty || !attachments.isEmpty), !isSending else { return }
         composerText = ""
+        pendingAttachments = []
+        composerError = nil
         isSending = true
-        // Optimistic echo so the operator sees their post immediately.
-        let optimistic = CommsMessage(
-            id: "local-\(UUID().uuidString)",
-            conversationId: conversation.id,
-            actorId: "operator",
-            authorLabel: "You",
-            authorKind: .person,
-            body: text,
-            createdAt: Date(),
-            isOperator: true
-        )
-        messages.append(optimistic)
         Task {
-            _ = try? await client.postMessage(conversationId: conversation.id, body: text, replyTo: nil)
-            // Re-pull to reconcile the optimistic echo with the broker's record
-            // (and surface any agent reply that already landed).
-            if let fresh = try? await client.conversationMessages(conversationId: conversation.id, limit: 200), !fresh.isEmpty {
-                messages = fresh
+            do {
+                let hosted = try await upload(attachments) ?? []
+                // Optimistic echo after hosting so the rendered chip/thumbnail
+                // uses the same link-backed metadata the broker stores.
+                let clientMessageId = "ios-\(UUID().uuidString)"
+                let optimistic = CommsMessage(
+                    id: clientMessageId,
+                    conversationId: conversation.id,
+                    actorId: "operator",
+                    authorLabel: "You",
+                    authorKind: .person,
+                    body: text,
+                    createdAt: Date(),
+                    isOperator: true,
+                    attachments: hosted,
+                    clientMessageId: clientMessageId
+                )
+                messages.append(optimistic)
+                let messageId = try await client.postMessage(
+                    conversationId: conversation.id,
+                    body: text,
+                    replyTo: nil,
+                    attachments: hosted.isEmpty ? nil : hosted,
+                    clientMessageId: clientMessageId
+                )
+                var authoritative = optimistic
+                authoritative.id = messageId
+                if let localIndex = messages.firstIndex(where: { $0.clientMessageId == clientMessageId }) {
+                    messages[localIndex] = authoritative
+                }
+                // Re-pull to reconcile the optimistic echo with the broker's
+                // record (and surface any agent reply that already landed).
+                if var fresh = try? await client.conversationMessages(conversationId: conversation.id, limit: 200), !fresh.isEmpty {
+                    let hasEcho = fresh.contains { message in
+                        message.id == messageId || message.clientMessageId == clientMessageId
+                    }
+                    if !hasEcho { fresh.append(authoritative) }
+                    messages = fresh
+                }
+                isSending = false
+            } catch {
+                composerText = text
+                pendingAttachments = attachments
+                composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                isSending = false
             }
-            isSending = false
         }
+    }
+
+    private func upload(_ attachments: [ScoutComposerAttachment]) async throws -> [MessageAttachment]? {
+        guard !attachments.isEmpty else { return nil }
+        var hosted: [MessageAttachment] = []
+        for attachment in attachments {
+            hosted.append(try await client.uploadAttachment(attachment.upload))
+        }
+        return hosted
     }
 }
 
@@ -789,18 +909,23 @@ private struct CommsBubble: View {
                             .foregroundStyle(ScoutInk.dim)
                     }
                 }
-                MessageMarkupView(text: message.body)
-                    .padding(.horizontal, HudSpacing.lg)
-                    .padding(.vertical, HudSpacing.md)
-                    .background(
-                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                            .fill(message.isOperator ? HudPalette.accent.opacity(0.16) : HudSurface.inset)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                            .stroke(message.isOperator ? HudPalette.accent.opacity(0.4) : HudHairline.subtle,
-                                    lineWidth: HudStrokeWidth.standard)
-                    )
+                VStack(alignment: message.isOperator ? .trailing : .leading, spacing: HudSpacing.sm) {
+                    if !message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        MessageMarkupView(text: message.body)
+                    }
+                    MessageAttachmentList(attachments: message.attachments)
+                }
+                .padding(.horizontal, HudSpacing.lg)
+                .padding(.vertical, HudSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .fill(message.isOperator ? HudPalette.accent.opacity(0.16) : HudSurface.inset)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .stroke(message.isOperator ? HudPalette.accent.opacity(0.4) : HudHairline.subtle,
+                                lineWidth: HudStrokeWidth.standard)
+                )
             }
             if !message.isOperator { Spacer(minLength: HudSpacing.huge) }
         }

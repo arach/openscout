@@ -1,6 +1,9 @@
 import SwiftUI
 import HudsonUI
 import ScoutCapabilities
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Renders a conversation text block's raw markdown as native, styled SwiftUI —
 /// not a wall of literal `**`, `#`, and ``` ` ```. It splits the text into
@@ -52,7 +55,23 @@ struct MessageMarkupView: View {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        return (try? AttributedString(markdown: string, options: options)) ?? AttributedString(string)
+        guard var attributed = try? AttributedString(markdown: string, options: options) else {
+            return AttributedString(string)
+        }
+        // SwiftUI does not style inline `code` spans on its own — the markdown
+        // parser only tags them with `.inlinePresentationIntent.code`. Give those
+        // runs a monospaced face and a faint chip background so inline code,
+        // identifiers, and paths read as code instead of plain prose. Foreground
+        // is left to the surrounding context (ink in body, muted in quotes).
+        let codeRanges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            guard let intent = run.inlinePresentationIntent, intent.contains(.code) else { return nil }
+            return run.range
+        }
+        for range in codeRanges {
+            attributed[range].font = HudFont.mono(HudTextSize.sm)
+            attributed[range].backgroundColor = HudPalette.ink.opacity(0.08)
+        }
+        return attributed
     }
 
     private func paragraph(_ text: String) -> some View {
@@ -122,9 +141,12 @@ struct MessageMarkupView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(code.components(separatedBy: "\n").enumerated()), id: \.offset) { _, line in
-                        Text(HudCodeHighlighter.highlight(line, language: language))
+                        // Render blank lines as a space so they keep their height
+                        // instead of collapsing and compressing the block.
+                        Text(HudCodeHighlighter.highlight(line.isEmpty ? " " : line, language: language))
                             .font(HudFont.mono(HudTextSize.sm))
                             .textSelection(.enabled)
+                            .fixedSize(horizontal: true, vertical: false)
                     }
                 }
             }
@@ -172,5 +194,231 @@ struct MessageMarkupView: View {
         }
         .padding(.horizontal, HudSpacing.md)
         .padding(.vertical, HudSpacing.sm)
+    }
+}
+
+// MARK: - Attachments
+
+struct ScoutComposerAttachment: Identifiable, Equatable {
+    let id = UUID()
+    let data: Data
+    let mediaType: String
+    let fileName: String
+
+    var upload: AttachmentUpload {
+        AttachmentUpload(data: data, mediaType: mediaType, fileName: fileName)
+    }
+
+    var isImage: Bool {
+        mediaType.lowercased().hasPrefix("image/")
+    }
+}
+
+struct ComposerAttachmentStrip: View {
+    let attachments: [ScoutComposerAttachment]
+    let onRemove: (UUID) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: HudSpacing.sm) {
+                ForEach(attachments) { attachment in
+                    ComposerAttachmentChip(attachment: attachment) {
+                        onRemove(attachment.id)
+                    }
+                }
+            }
+            .padding(.horizontal, HudSpacing.xs)
+        }
+    }
+}
+
+private struct ComposerAttachmentChip: View {
+    let attachment: ScoutComposerAttachment
+    let onRemove: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: HudSpacing.xxs) {
+                AttachmentPreview(
+                    mediaType: attachment.mediaType,
+                    fileName: attachment.fileName,
+                    data: attachment.data,
+                    url: nil
+                )
+                .frame(width: 58, height: 58)
+                Text(attachment.fileName)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutInk.muted)
+                    .lineLimit(1)
+                    .frame(width: 72)
+            }
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: HudTextSize.md))
+                    .foregroundStyle(.white, .black.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 4, y: -4)
+            .accessibilityLabel("Remove attachment")
+        }
+    }
+}
+
+struct MessageAttachmentList: View {
+    let attachments: [MessageAttachment]
+
+    var body: some View {
+        if !attachments.isEmpty {
+            VStack(alignment: .leading, spacing: HudSpacing.sm) {
+                ForEach(attachments) { attachment in
+                    MessageAttachmentCard(attachment: attachment)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct MessageAttachmentCard: View {
+    let attachment: MessageAttachment
+    var data: Data? = nil
+
+    var body: some View {
+        let mediaType = attachment.mediaType.lowercased()
+        if mediaType.hasPrefix("image/") {
+            imageCard
+        } else {
+            fileChip
+        }
+    }
+
+    private var imageCard: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            AttachmentPreview(
+                mediaType: attachment.mediaType,
+                fileName: displayName,
+                data: data,
+                url: attachment.url.flatMap(URL.init(string:))
+            )
+            .frame(maxWidth: 220, minHeight: 120, maxHeight: 180)
+            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+            Text(displayName)
+                .font(HudFont.mono(HudTextSize.xxs))
+                .foregroundStyle(ScoutInk.muted)
+                .lineLimit(1)
+        }
+        .padding(HudSpacing.sm)
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.raised.opacity(0.7)))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+        )
+    }
+
+    private var fileChip: some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: "doc")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(HudPalette.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(displayName)
+                    .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                    .foregroundStyle(HudPalette.ink)
+                    .lineLimit(1)
+                Text(attachment.mediaType)
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutInk.muted)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: HudSpacing.sm)
+            if attachment.url != nil {
+                Image(systemName: "link")
+                    .font(HudFont.ui(HudTextSize.xs))
+                    .foregroundStyle(ScoutInk.muted)
+            }
+        }
+        .padding(HudSpacing.md)
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
+        )
+    }
+
+    private var displayName: String {
+        attachment.fileName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? attachment.url.flatMap { URL(string: $0)?.lastPathComponent.nilIfEmpty }
+            ?? attachment.id
+    }
+}
+
+private struct AttachmentPreview: View {
+    let mediaType: String
+    let fileName: String
+    let data: Data?
+    let url: URL?
+
+    var body: some View {
+        Group {
+            if mediaType.lowercased().hasPrefix("image/") {
+                image
+            } else {
+                fileIcon
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var image: some View {
+        #if canImport(UIKit)
+        if let data, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else if let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().aspectRatio(contentMode: .fill)
+                case .failure:
+                    fileIcon
+                case .empty:
+                    ProgressView().controlSize(.small)
+                @unknown default:
+                    fileIcon
+                }
+            }
+        } else {
+            fileIcon
+        }
+        #else
+        fileIcon
+        #endif
+    }
+
+    private var fileIcon: some View {
+        VStack(spacing: HudSpacing.xs) {
+            Image(systemName: mediaType.lowercased().hasPrefix("image/") ? "photo" : "doc")
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+            Text(fileName)
+                .font(HudFont.mono(HudTextSize.micro))
+                .foregroundStyle(ScoutInk.dim)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

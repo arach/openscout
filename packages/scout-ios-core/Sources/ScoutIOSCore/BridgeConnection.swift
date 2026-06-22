@@ -324,6 +324,7 @@ public final class BridgeConnection: @unchecked Sendable {
 
     private var eventFanout: [UUID: AsyncStream<SequencedEvent>.Continuation] = [:]
     private var tailFanout: [UUID: AsyncStream<TailEvent>.Continuation] = [:]
+    private var mobileConversationChangeFanout: [UUID: AsyncStream<MobileConversationChangeEvent>.Continuation] = [:]
 
     // MARK: Exposed state
 
@@ -522,9 +523,9 @@ public final class BridgeConnection: @unchecked Sendable {
         // the QR's ordered relay URLs, route-filtered and deduplicated.
         let discovered = await BonjourRelayDiscovery.discoverRelayURLs(publicKeyHex: qrPayload.publicKey)
         let storedRelayURLs = qrPayload.orderedRelayURLs
-        let relayURLs = orderedRelayCandidates(
+        let relayURLs = orderedPairingRelayCandidates(
             discoveredRelayURLs: discovered,
-            storedRelayURLs: storedRelayURLs,
+            payloadRelayURLs: storedRelayURLs,
             userDefaults: userDefaults
         )
         await logRelayCandidateDiagnostics(
@@ -605,8 +606,10 @@ public final class BridgeConnection: @unchecked Sendable {
         _currentHost = nil
         let events = Array(eventFanout.values)
         let tails = Array(tailFanout.values)
+        let mobileChanges = Array(mobileConversationChangeFanout.values)
         eventFanout.removeAll()
         tailFanout.removeAll()
+        mobileConversationChangeFanout.removeAll()
         lock.unlock()
 
         activeReceive?.cancel()
@@ -615,6 +618,7 @@ public final class BridgeConnection: @unchecked Sendable {
         cancelAllPendingRequests(with: BridgeConnectionError.notConnected)
         events.forEach { $0.finish() }
         tails.forEach { $0.finish() }
+        mobileChanges.forEach { $0.finish() }
     }
 
     // MARK: - Relay candidate assembly (distilled from relayURLsForTrustedBridge)
@@ -1023,6 +1027,13 @@ public final class BridgeConnection: @unchecked Sendable {
             return
         }
 
+        // Mobile broker conversation invalidation (message posted / lifecycle changed in broker comms).
+        if let change = try? JSONDecoder().decode(MobileConversationChangeEvent.self, from: data),
+           change.event == "mobile:conversation:changed" || change.event == "mobile:conversation:lifecycle" {
+            fanoutMobileConversationChange(change)
+            return
+        }
+
         // Tail firehose event (disjoint required fields — `source`, `pid`, no `seq`).
         if let wire = try? JSONDecoder().decode(WireTailEvent.self, from: data) {
             fanoutTailEvent(wire.toCapability())
@@ -1082,6 +1093,11 @@ public final class BridgeConnection: @unchecked Sendable {
         continuations.forEach { $0.yield(event) }
     }
 
+    private func fanoutMobileConversationChange(_ event: MobileConversationChangeEvent) {
+        let continuations = lock.withLockReturning { Array(mobileConversationChangeFanout.values) }
+        continuations.forEach { $0.yield(event) }
+    }
+
     /// Live conversation events. Callers filter by conversation id.
     public func events() -> AsyncStream<SequencedEvent> {
         let id = UUID()
@@ -1100,6 +1116,17 @@ public final class BridgeConnection: @unchecked Sendable {
             lock.lock(); tailFanout[id] = continuation; lock.unlock()
             continuation.onTermination = { [weak self] _ in
                 self?.lock.lock(); self?.tailFanout.removeValue(forKey: id); self?.lock.unlock()
+            }
+        }
+    }
+
+    /// Broker-backed mobile conversation invalidations.
+    public func mobileConversationChanges() -> AsyncStream<MobileConversationChangeEvent> {
+        let id = UUID()
+        return AsyncStream { continuation in
+            lock.lock(); mobileConversationChangeFanout[id] = continuation; lock.unlock()
+            continuation.onTermination = { [weak self] _ in
+                self?.lock.lock(); self?.mobileConversationChangeFanout.removeValue(forKey: id); self?.lock.unlock()
             }
         }
     }
@@ -1322,6 +1349,22 @@ public struct ConnectionLogHandle: Sendable {
 }
 
 // MARK: - Wire tail event (donor TailEvent.swift) → ScoutCapabilities.TailEvent
+
+/// Broker message invalidation pushed over the mobile bridge when the Scout
+/// broker posts a comms message. The iOS surface uses this as a lightweight
+/// prompt to refresh the authoritative conversation snapshot.
+public struct MobileConversationChangeEvent: Codable, Sendable, Equatable {
+    public let event: String
+    public let conversationId: String
+    public let messageId: String?
+    public let clientMessageId: String?
+    public let invocationId: String?
+    public let flightId: String?
+    public let targetAgentId: String?
+    public let lifecycleState: String?
+    public let summary: String?
+    public let error: String?
+}
 
 /// The bridge's tail firehose JSON (mirrors apps/ios/Scout/Models/TailEvent.swift
 /// and packages/web/server/core/tail/types.ts). Its field shape and the harness

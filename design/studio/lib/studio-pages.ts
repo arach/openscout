@@ -472,6 +472,21 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "Toggle Current ↔ Rebalanced on the shipped Modular profile, both recreated in code. Principle: the main area holds what you came to know and do (state, work, relationships, actions); the side holds reference detail (raw console, runtime plumbing, paths). The live profile inverts this — center half-empty, rail hoarding sessions + talks-to + caps — so this pulls the primary modules into the center and slims the rail to a true inspector.",
   },
   {
+    href: "/studies/scout-macos",
+    label: "Scout macOS · Elevated",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/scout-macos/page.tsx",
+      "apps/macos/Sources/Scout/ScoutModels.swift",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+    ],
+    blurb:
+      "The iteration canvas for the elevated macOS direction. All four core screens — Comms, Agents, Tail, Repos — in one frosted-depth frame, applying the ScoutNext elegant language (raised surfaces, soft depth, corner ticks, bracketed controls, hand-drawn glyphs, ink-strong type) to the desktop shell. Content mirrors the live app; the treatment is the proposal. Baseline lives in scout-macos-shell; the Comms decision artifact in scout-macos-refresh.",
+  },
+  {
     href: "/studies/scout-macos-shell",
     label: "Scout macOS Shell",
     bucket: "studies",
@@ -501,6 +516,21 @@ export const STUDIO_PAGES: StudioPage[] = [
       "apps/macos/Sources/Scout/ScoutCommsView.swift",
     ],
     blurb: "The consolidated macOS direction from the design review, in one projection of the refreshed Comms window — list · thread · inspector. Lands the ask-context story end to end (the [ask:<flightId>] reply-context backlink, the pinned originating-ask band, the list chip and inspector Ask block all reading one state), adopts the signed-off inspector grammar (Section/KV from scout-inspectors) for the channel inspector's Conversation/Project/Ask blocks, and adds the thread header sub-line + actions. A ledger maps every change to its macOS symbol and whether it ships, refines, or is net-new.",
+  },
+  {
+    href: "/studies/scout-macos-control",
+    label: "Scout macOS · Control",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-macos-shell",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/scout-macos-control/page.tsx",
+      "apps/macos/Sources/Scout/ScoutTheme.swift",
+      "apps/macos/Sources/Scout/ScoutCommsView.swift",
+    ],
+    blurb:
+      "The control for the elevated direction: the existing style reconstructed in code (not screenshotted) at the same fidelity — Juniper Light, indigo, flat hairline lists, SF-Symbol rail, system type. An in-place Existing⇄Elevated toggle holds the same Comms content fixed (recency list, pinned ask, reply-context backlink, signed-off inspector blocks) so only the treatment varies, plus a plating-vs-substance ledger that separates real refresh wins from the studio's dark/green/glass plating.",
   },
   {
     href: "/studies/scout-comms",
@@ -899,21 +929,6 @@ export const STUDIO_PAGES: StudioPage[] = [
       "docs/eng/reviews/knowledge-search-redesign-dewey.md",
     ],
     blurb: "Result-experience redesign: session cards, conversation-first inspector, rendered vs raw, ranking, next actions.",
-  },
-  {
-    href: "/studies/navigation-taxonomy",
-    label: "Navigation Taxonomy",
-    bucket: "studies",
-    surface: "web",
-    family: "navigation",
-    status: "concept",
-    source: [
-      "design/studio/app/studies/navigation-taxonomy/page.tsx",
-      "packages/web/client/scout/topNavConfig.ts",
-      "packages/web/client/components/SecondaryNav.tsx",
-      "packages/web/client/lib/router.ts",
-    ],
-    blurb: "Before/after header model: primary intent, secondary surfaces, and route coverage.",
   },
   {
     href: "/studies/tree-viewer",
