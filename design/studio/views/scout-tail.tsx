@@ -31,12 +31,17 @@ type KindKey = "user" | "assistant" | "tool" | "toolResult" | "system" | "other"
 /* kind → { chip label, filter label, token tone }. The Swift `ScoutTailEventKind`
    already carries `label`/`title`/`glyph`; this locks the per-kind tone to a
    semantic token (no raw system colors). */
+/* Color marks only the three SIGNAL kinds — User/Assistant/Tool. The machine
+   bulk (OUT/SYS/EVT) stays neutral so the firehose reads htop-quiet rather than
+   a wall of competing hues. OUT is deliberately NOT blue: that blue belongs to
+   the accent identity, and OUT is the highest-volume kind. Mirrors the native
+   `ScoutTailKindTone`. */
 const KINDS: Record<KindKey, { label: string; title: string; tone: string }> = {
   user: { label: "USER", title: "User", tone: "var(--s-accent)" },
   assistant: { label: "ASST", title: "Assistant", tone: "var(--s-ok)" },
   tool: { label: "TOOL", title: "Tool", tone: "var(--s-warn)" },
-  toolResult: { label: "OUT", title: "Output", tone: "var(--s-info)" },
-  system: { label: "SYS", title: "System", tone: "var(--s-muted)" },
+  toolResult: { label: "OUT", title: "Output", tone: "var(--s-muted)" },
+  system: { label: "SYS", title: "System", tone: "var(--s-dim)" },
   other: { label: "EVT", title: "Other", tone: "var(--s-dim)" },
 };
 
@@ -46,18 +51,31 @@ const KIND_ORDER: KindKey[] = ["user", "assistant", "tool", "toolResult", "syste
    pick in the inspector Distribution actually filters this stream. */
 type Ev = { t: string; src: string; harness: string; origin: string; project: string; kind: KindKey; html: string };
 
+/* The `src` column is one SMART identity that always resolves to *something*:
+   a resolved agent (`@name`, full ink), else the project (muted), else a bare
+   `harness·pid` process (dim mono). The mix below shows all three tiers — the
+   firehose never shows a blank identity. Mirrors the native `identityCell`. */
 const EVENTS: Ev[] = [
   { t: "14:21:08", src: "@talkie", harness: "claude", origin: "native", project: "talkie", kind: "assistant", html: "render overlay settings before the first send — no skin flash on cold open" },
   { t: "14:21:03", src: "@scout", harness: "claude", origin: "scout", project: "openscout", kind: "tool", html: "Edit <code>service.ts</code> — repo-watch web converge" },
-  { t: "14:20:58", src: "@scout", harness: "claude", origin: "scout", project: "openscout", kind: "toolResult", html: "<code>+1,108 −231</code> · 27 files" },
+  { t: "14:20:58", src: "openscout", harness: "claude", origin: "scout", project: "openscout", kind: "toolResult", html: "<code>+1,108 −231</code> · 27 files" },
   { t: "14:20:55", src: "@hudson", harness: "claude", origin: "scout", project: "openscout", kind: "tool", html: "Read <code>HudNavigationSidebar.swift</code> · 412 lines" },
-  { t: "14:20:51", src: "@codex", harness: "codex", origin: "scout", project: "openscout", kind: "system", html: "session <code>relay-openscout-codex</code> started · tmux" },
+  { t: "14:20:51", src: "codex·4894", harness: "codex", origin: "scout", project: "openscout", kind: "system", html: "session <code>relay-openscout-codex</code> started · tmux" },
   { t: "14:20:44", src: "@art", harness: "claude", origin: "native", project: "openscout", kind: "user", html: "take both — and surface the active theme in the inspector" },
-  { t: "14:20:40", src: "@talkie", harness: "claude", origin: "native", project: "talkie", kind: "other", html: "permission-mode: acceptEdits" },
+  { t: "14:20:40", src: "talkie", harness: "claude", origin: "native", project: "talkie", kind: "other", html: "permission-mode: acceptEdits" },
   { t: "14:20:31", src: "@lattices", harness: "codex", origin: "scout", project: "openscout", kind: "assistant", html: "rebased main onto origin — 2 ahead, clean" },
   { t: "14:20:22", src: "@scout", harness: "claude", origin: "scout", project: "openscout", kind: "toolResult", html: "Bash <code>./node_modules/.bin/tsc</code> — ok, 0 errors" },
   { t: "14:20:09", src: "@hudson", harness: "claude", origin: "scout", project: "openscout", kind: "tool", html: "Grep <code>data-scout-skin</code> · 6 matches" },
 ];
+
+/* Classify the smart-identity tier from the `src` token, so the row can render
+   the right ink weight: `@name` → agent, `harness·pid` → proc, else project. */
+type IdTier = "agent" | "project" | "proc";
+function idTier(src: string): IdTier {
+  if (src.startsWith("@")) return "agent";
+  if (/·\d/.test(src)) return "proc";
+  return "project";
+}
 
 const FILTERS: ({ key: "all"; title: string } | { key: KindKey; title: string })[] = [
   { key: "all", title: "All" },
@@ -178,6 +196,7 @@ export default function ScoutTailStudy() {
           <div className={styles.main}>
             <ScoutPageHeader
               title="Tail"
+              glyph={<PulseGlyph />}
               live
               counts={[
                 { n: 25, label: "logs" },
@@ -250,7 +269,7 @@ export default function ScoutTailStudy() {
               {shown.map((e, i) => (
                 <div key={i} className={styles.ev}>
                   <span className={styles.evTime}>{e.t}</span>
-                  <span className={styles.evSrc}>{e.src}</span>
+                  <span className={`${styles.evSrc} ${styles[`evSrc_${idTier(e.src)}`]}`}>{e.src}</span>
                   <KindChip kind={e.kind} />
                   <span className={styles.evMsg} dangerouslySetInnerHTML={{ __html: e.html }} />
                 </div>
@@ -302,10 +321,16 @@ export default function ScoutTailStudy() {
   );
 }
 
+const SIGNAL_KINDS: Set<KindKey> = new Set(["user", "assistant", "tool"]);
+
 function KindChip({ kind }: { kind: KindKey }) {
   const k = KINDS[kind];
+  const neutral = !SIGNAL_KINDS.has(kind);
   return (
-    <span className={styles.kind} style={{ "--chip-tone": k.tone } as React.CSSProperties}>
+    <span
+      className={`${styles.kind} ${neutral ? styles.kindNeutral : ""}`}
+      style={{ "--chip-tone": k.tone } as React.CSSProperties}
+    >
       {k.label}
     </span>
   );
@@ -433,6 +458,16 @@ function TagGlyph() {
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="M3 7v5l9 9 5-5-9-9H3z" />
       <circle cx="7" cy="11" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/* Tail identity mark — a steady ECG/pulse line, the firehose's face. Mirrors
+   the native sidebar's "waveform.path.ecg". */
+function PulseGlyph() {
+  return (
+    <svg width="17" height="13" viewBox="0 0 22 14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M1 7h4.2l2-4.5 3 9 2.4-6 1.6 3H21" />
     </svg>
   );
 }

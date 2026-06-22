@@ -604,6 +604,32 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The group-conversation surface in the sprite identity language — every participant, agents AND the operator 'you', is a deterministic creature. Channel list rows lead with a stacked sprite cluster of their cast (+N for the rest); the thread gives the operator an accent-ringed sprite; a participant rail sits above the composer. Hue is the harness, shape is the name; the single red accent stays reserved for you-ring / unread / selection.",
   },
   {
+    href: "/studies/tail-treatments",
+    label: "Tail · Treatments",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/views/tail-treatments.tsx",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+    ],
+    blurb: "Four directions for the event stream, same data, compared like-for-like: a dense Console, a columnar Ledger, a roomy two-line Feed, and a Timeline spine. All keep one full line per event, drop every live cue, and drop throughput. Grounded in well-known log viewers.",
+  },
+  {
+    href: "/studies/tail-great",
+    label: "Tail · What Great Looks Like",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/views/tail-great.tsx",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+    ],
+    blurb: "The north-star for the live event stream: a firehose that reads like a calm shell log. One full line per event — the same agent stacks up and takes its space, never collapsed; runs breathe. Tool calls read like shell history, results collapse to an outcome. Each kind carries a glyph AND a color so it reads at a glance. One state only: Follow or Pause.",
+  },
+  {
     href: "/studies/scout-tail",
     label: "Scout Tail",
     bucket: "studies",

@@ -3,6 +3,34 @@ import HudsonUI
 import ScoutAppCore
 import SwiftUI
 
+/// The firehose's data type. JetBrains Mono — a code-grade face with a tall
+/// x-height and true tabular figures — reads cleaner than SF Mono for a dense
+/// stream of timestamps, ids, and tool calls. Falls back to the system
+/// monospaced face when JBM isn't installed, so it degrades gracefully.
+enum ScoutTailFont {
+    private static let hasJBM = NSFont(name: "JetBrains Mono", size: 12) != nil
+
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        hasJBM
+            ? .custom("JetBrains Mono", size: size).weight(weight)
+            : .system(size: size, weight: weight, design: .monospaced)
+    }
+}
+
+private enum ScoutTailViewMode: String, CaseIterable, Identifiable {
+    case ledger
+    case timeline
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ledger: return "Ledger"
+        case .timeline: return "Timeline"
+        }
+    }
+}
+
 struct ScoutTailContent: View {
     @ObservedObject var tail: ScoutTailStore
     let agents: [ScoutAgent]
@@ -12,6 +40,33 @@ struct ScoutTailContent: View {
     let onOpenAgent: (ScoutAgent) -> Void
 
     @State private var selectedEventId: String?
+
+    // Column widths persist across launches so a tuned firehose stays tuned.
+    @AppStorage("scout.tail.col.time") private var colTime: Double = 60
+    @AppStorage("scout.tail.col.identity") private var colIdentity: Double = 168
+    @AppStorage("scout.tail.col.kind") private var colKind: Double = 28
+
+    // The row treatment: Ledger (ruled columnar table) or Timeline (a
+    // chronological spine). Persisted so a chosen rhythm sticks.
+    @AppStorage("scout.tail.viewMode") private var viewModeRaw: String = ScoutTailViewMode.ledger.rawValue
+    private var viewMode: ScoutTailViewMode { ScoutTailViewMode(rawValue: viewModeRaw) ?? .ledger }
+    private var viewModeBinding: Binding<ScoutTailViewMode> {
+        Binding(get: { viewMode }, set: { viewModeRaw = $0.rawValue })
+    }
+
+    private var columnLayout: ScoutTailColumnLayout {
+        ScoutTailColumnLayout(time: CGFloat(colTime), identity: CGFloat(colIdentity), kind: CGFloat(colKind))
+    }
+
+    private var timeWidth: Binding<CGFloat> {
+        Binding(get: { CGFloat(colTime) }, set: { colTime = Double($0) })
+    }
+    private var identityWidth: Binding<CGFloat> {
+        Binding(get: { CGFloat(colIdentity) }, set: { colIdentity = Double($0) })
+    }
+    private var kindWidth: Binding<CGFloat> {
+        Binding(get: { CGFloat(colKind) }, set: { colKind = Double($0) })
+    }
 
     private var visibleEvents: [ScoutTailEvent] {
         tail.filteredEvents
@@ -58,7 +113,12 @@ struct ScoutTailContent: View {
     }
 
     private var titleCluster: some View {
-        HStack(spacing: HudSpacing.md) {
+        HStack(spacing: HudSpacing.sm) {
+            // A live pip leads the title — accent + breathing while following,
+            // a hollow ring when paused — so the surface reads as a live
+            // instrument before the eye even reaches the counts.
+            ScoutTailLivePip(isFollowing: tail.isFollowing)
+
             // Title + counts share one baseline so they read as a single lockup
             // rather than tiny stats floating at the title's mid-height.
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
@@ -70,34 +130,39 @@ struct ScoutTailContent: View {
             }
 
             if tail.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.86)
+                ScoutBrailleSpinner(size: HudTextSize.sm, tint: ScoutPalette.dim)
             }
         }
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// Two counts read as one strip: tabular figures at body size carry real
+    /// Three readouts read as one strip: tabular figures at body size carry real
     /// weight beside the title (no fine-print float), lowercase units recede,
-    /// and a hairline middot ties the pair together.
+    /// and hairline middots tie them together.
     private var headerMetrics: some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-            tailCountCluster(
-                tail.discovery?.totals.transcripts ?? tail.sessionCount,
-                "logs"
-            )
-            Text("·")
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-                .foregroundStyle(ScoutPalette.dim.opacity(0.55))
+            tailCountCluster(tail.discovery?.totals.transcripts ?? tail.sessionCount, "logs")
+            metricDot
             tailCountCluster(tail.discovery?.totals.total ?? 0, "procs")
+            metricDot
+            tailMetricCluster(String(format: "%.1f", tail.linesPerSecond), "lines/s")
         }
     }
 
+    private var metricDot: some View {
+        Text("·")
+            .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+            .foregroundStyle(ScoutPalette.dim.opacity(0.55))
+    }
+
     private func tailCountCluster(_ value: Int, _ label: String) -> some View {
+        tailMetricCluster("\(value)", label)
+    }
+
+    private func tailMetricCluster(_ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.xxs) {
-            Text("\(value)")
-                .font(HudFont.mono(HudTextSize.base, weight: .semibold))
+            Text(value)
+                .font(ScoutTailFont.mono(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .monospacedDigit()
             Text(label)
@@ -121,16 +186,16 @@ struct ScoutTailContent: View {
     private func activeFilterBanner(_ summary: String) -> some View {
         HStack(spacing: HudSpacing.sm) {
             Text("Filtered")
-                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .font(ScoutTailFont.mono(HudTextSize.micro, weight: .bold))
                 .foregroundStyle(ScoutPalette.dim)
             Text(summary)
-                .font(HudFont.mono(HudTextSize.xs, weight: .medium))
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
                 .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
             Text("\(visibleEvents.count) events")
-                .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .semibold))
                 .foregroundStyle(ScoutPalette.dim)
                 .monospacedDigit()
             Button("Clear") {
@@ -175,6 +240,10 @@ struct ScoutTailContent: View {
 
     private var commandStrip: some View {
         HStack(spacing: HudSpacing.sm) {
+            ScoutTailModeToggle(mode: viewModeBinding)
+
+            ScoutTailHeaderDivider()
+
             ScoutTailGhostButton(
                 title: tail.isFollowing ? "Pause" : "Follow",
                 icon: tail.isFollowing ? "pause.fill" : "play.fill"
@@ -198,9 +267,9 @@ struct ScoutTailContent: View {
     private func errorBanner(_ error: String) -> some View {
         HStack(spacing: HudSpacing.sm) {
             Text("✕")
-                .font(HudFont.mono(HudTextSize.xs, weight: .bold))
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .bold))
             Text(error)
-                .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
@@ -217,25 +286,25 @@ struct ScoutTailContent: View {
     private var tailSignalFooter: some View {
         HStack(spacing: HudSpacing.md) {
             Text(tail.isFollowing ? "●" : "○")
-                .font(HudFont.mono(HudTextSize.xs, weight: .bold))
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .bold))
                 .foregroundStyle(ScoutPalette.dim)
 
             Text(tail.isFollowing ? "follow" : "paused")
-                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .semibold))
                 .foregroundStyle(ScoutPalette.muted)
 
             Text("+\(tail.lastBatchCount)")
-                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .semibold))
                 .foregroundStyle(tail.lastBatchCount > 0 ? ScoutPalette.muted : ScoutPalette.dim)
                 .monospacedDigit()
 
             if let latestEvent {
                 Text(latestEvent.clockLabel)
-                    .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                    .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .medium))
                     .foregroundStyle(ScoutPalette.dim)
                     .monospacedDigit()
                 Text(latestEvent.sourceLabel)
-                    .font(HudFont.mono(HudTextSize.xxs, weight: .medium))
+                    .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .medium))
                     .foregroundStyle(ScoutPalette.dim)
                     .lineLimit(1)
             }
@@ -243,7 +312,7 @@ struct ScoutTailContent: View {
             Spacer(minLength: 0)
 
             Text("\(visibleEvents.count)/\(tail.bufferedEventCount) buf")
-                .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .semibold))
                 .foregroundStyle(ScoutPalette.dim)
                 .monospacedDigit()
         }
@@ -258,42 +327,70 @@ struct ScoutTailContent: View {
     @ViewBuilder
     private var stream: some View {
         if tail.isLoading && !tail.hasBufferedEvents {
-            VStack(spacing: HudSpacing.md) {
-                ProgressView()
-                Text("Loading tail")
-                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-                    .foregroundStyle(ScoutPalette.muted)
+            // First paint: real column structure immediately (header + ghost
+            // rows) instead of a centered blocker. Data streams in over the top
+            // as the fetch lands; the title-bar braille spinner carries progress.
+            VStack(spacing: 0) {
+                if viewMode == .ledger {
+                    ScoutTailHeaderRow(
+                        timeWidth: timeWidth,
+                        identityWidth: identityWidth,
+                        kindWidth: kindWidth
+                    )
+                }
+                ScoutTailSkeleton(columns: columnLayout)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if visibleEvents.isEmpty {
             VStack(spacing: HudSpacing.xs) {
                 Text(tail.hasBufferedEvents ? "— quiet metadata —" : "— no events —")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .font(ScoutTailFont.mono(HudTextSize.xs, weight: .semibold))
                     .foregroundStyle(ScoutPalette.dim)
                 Text(tail.hasBufferedEvents ? "show transcript metadata to inspect it" : "harness stream is quiet")
-                    .font(HudFont.mono(HudTextSize.micro))
+                    .font(ScoutTailFont.mono(HudTextSize.micro))
                     .foregroundStyle(ScoutPalette.dim.opacity(0.8))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(ScoutTailMetrics.pageGutter)
         } else {
             VStack(spacing: 0) {
-                ScoutTailHeaderRow()
+                if viewMode == .ledger {
+                    ScoutTailHeaderRow(
+                        timeWidth: timeWidth,
+                        identityWidth: identityWidth,
+                        kindWidth: kindWidth
+                    )
+                }
 
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(visibleEvents.indices, id: \.self) { index in
                                 let event = visibleEvents[index]
-                                ScoutTailRow(
-                                    event: event,
-                                    activeAgent: activeAgent(for: event),
-                                    isAlternating: !index.isMultiple(of: 2),
-                                    isSelected: selectedEventId == event.id,
-                                    onOpenSession: { onOpenSession(event) },
-                                    onOpenAgent: { agent in onOpenAgent(agent) }
-                                ) {
-                                    selectedEventId = selectedEventId == event.id ? nil : event.id
+                                Group {
+                                    if viewMode == .ledger {
+                                        ScoutTailRow(
+                                            event: event,
+                                            columns: columnLayout,
+                                            activeAgent: activeAgent(for: event),
+                                            isSelected: selectedEventId == event.id,
+                                            onOpenSession: { onOpenSession(event) },
+                                            onOpenAgent: { agent in onOpenAgent(agent) }
+                                        ) {
+                                            selectedEventId = selectedEventId == event.id ? nil : event.id
+                                        }
+                                    } else {
+                                        ScoutTailTimelineRow(
+                                            event: event,
+                                            activeAgent: activeAgent(for: event),
+                                            isSelected: selectedEventId == event.id,
+                                            isFirst: index == visibleEvents.startIndex,
+                                            onOpenSession: { onOpenSession(event) },
+                                            onOpenAgent: { agent in onOpenAgent(agent) }
+                                        ) {
+                                            selectedEventId = selectedEventId == event.id ? nil : event.id
+                                        }
+                                    }
                                 }
                                 .id(event.id)
 
@@ -365,13 +462,13 @@ struct ScoutTailInspector: View {
 
             HStack(spacing: HudSpacing.sm) {
                 Text("\(visibleCount) shown")
-                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .font(ScoutTailFont.mono(HudTextSize.xs, weight: .semibold))
                     .foregroundStyle(ScoutPalette.muted)
                     .monospacedDigit()
                 Text("·")
                     .foregroundStyle(ScoutPalette.dim)
                 Text("\(tail.bufferedEventCount) buffered")
-                    .font(HudFont.mono(HudTextSize.xs))
+                    .font(ScoutTailFont.mono(HudTextSize.xs))
                     .foregroundStyle(ScoutPalette.dim)
                     .monospacedDigit()
                 Spacer(minLength: 0)
@@ -546,7 +643,7 @@ private struct ScoutTailDistributionRow: View {
         Button(action: onSelect) {
             HStack(spacing: HudSpacing.sm) {
                 Text(label)
-                    .font(HudFont.mono(HudTextSize.xs, weight: active ? .bold : .semibold))
+                    .font(ScoutTailFont.mono(HudTextSize.xs, weight: active ? .bold : .semibold))
                     .foregroundStyle(active ? ScoutPalette.accent : ScoutPalette.muted)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -565,12 +662,12 @@ private struct ScoutTailDistributionRow: View {
 
                 HStack(spacing: HudSpacing.xxs) {
                     Text("\(count)")
-                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .font(ScoutTailFont.mono(HudTextSize.xs, weight: .semibold))
                         .foregroundStyle(active ? ScoutPalette.accent : ScoutPalette.muted)
                         .monospacedDigit()
                         .frame(width: 26, alignment: .trailing)
                     Text("\(percent)%")
-                        .font(HudFont.mono(HudTextSize.micro))
+                        .font(ScoutTailFont.mono(HudTextSize.micro))
                         .foregroundStyle(ScoutPalette.dim)
                         .monospacedDigit()
                         .frame(width: 28, alignment: .trailing)
@@ -596,14 +693,25 @@ private struct ScoutTailDistributionRow: View {
 }
 
 private struct ScoutTailHeaderRow: View {
+    @Binding var timeWidth: CGFloat
+    @Binding var identityWidth: CGFloat
+    @Binding var kindWidth: CGFloat
+
     var body: some View {
-        HStack(spacing: ScoutTailMetrics.columnGap) {
-            header("TIME", width: ScoutTailColumns.time)
-            header("HARNESS", width: ScoutTailColumns.harness)
-            header("AGENT", width: ScoutTailColumns.agent)
-            header("ACTION", width: nil)
+        // spacing: 0 — each inter-column gap IS the drag handle, sized to the
+        // row's columnGap so header labels stay column-aligned with the rows.
+        HStack(spacing: 0) {
+            label("TIME").frame(width: timeWidth, alignment: .leading)
+            handle($timeWidth, ScoutTailColumns.timeRange)
+            // Kind is a glyph in the rows — the header column stays unlabeled so
+            // the table doesn't shout a word the rows deliberately dropped.
+            label("").frame(width: kindWidth, alignment: .leading)
+            handle($kindWidth, ScoutTailColumns.kindRange)
+            label("SOURCE").frame(width: identityWidth, alignment: .leading)
+            handle($identityWidth, ScoutTailColumns.identityRange)
+            label("ACTION").frame(maxWidth: .infinity, alignment: .leading)
         }
-        .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+        .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .semibold))
         .tracking(ScoutTailMetrics.headerTracking)
         .foregroundStyle(ScoutPalette.dim)
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
@@ -614,57 +722,277 @@ private struct ScoutTailHeaderRow: View {
         }
     }
 
-    @ViewBuilder
-    private func header(_ title: String, width: CGFloat?) -> some View {
-        if let width {
-            Text(title).frame(width: width, alignment: .leading)
-        } else {
-            Text(title).frame(maxWidth: .infinity, alignment: .leading)
-        }
+    private func label(_ title: String) -> some View {
+        Text(title)
+    }
+
+    /// A draggable column boundary that lives inside the inter-column gap. The
+    /// hit zone is the full gap width; the hairline reveals on hover and the
+    /// cursor flips to resize-left-right (handled by HudResizableDivider's NSView).
+    private func handle(_ width: Binding<CGFloat>, _ range: ClosedRange<CGFloat>) -> some View {
+        HudResizableDivider(
+            width: width,
+            placement: .trailing,
+            range: range,
+            hitWidth: ScoutTailMetrics.columnGap,
+            hairlinePlacement: .center
+        )
+        .frame(height: 24)
     }
 }
 
+/// One Ledger row: time · kind glyph · avatar+identity · action, in the
+/// resizable columns. Color lives only in the kind glyph and the agent's sprite;
+/// everything else is neutral ink graded by emphasis. A hairline rules each row
+/// (the approved Ledger rhythm — no zebra, no left accent bar).
 private struct ScoutTailRow: View {
     let event: ScoutTailEvent
+    let columns: ScoutTailColumnLayout
     let activeAgent: ScoutAgent?
-    let isAlternating: Bool
     let isSelected: Bool
     let onOpenSession: () -> Void
     let onOpenAgent: (ScoutAgent) -> Void
     let action: () -> Void
 
     @State private var isHovering = false
+    private var emphasized: Bool { isSelected || isHovering }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: ScoutTailMetrics.columnGap) {
-            timeCell
-                .frame(width: ScoutTailColumns.time, alignment: .leading)
+        HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
+            ScoutTailTimeCell(event: event, emphasized: emphasized)
+                .frame(width: columns.time, alignment: .leading)
 
-            Text(event.sourceLabel)
-                .font(HudFont.ui(HudTextSize.sm, weight: .medium))
-                .foregroundStyle(harnessColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: ScoutTailColumns.harness, alignment: .leading)
+            ScoutTailKindGlyph(kind: event.kind)
+                .frame(width: columns.kind, alignment: .leading)
 
-            agentCell
-                .frame(width: ScoutTailColumns.agent, alignment: .leading)
+            ScoutTailIdentityCell(event: event, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
+                .frame(width: columns.identity, alignment: .leading)
 
-            Text(event.summary)
-                .font(actionFont)
-                .foregroundStyle(actionColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            ScoutTailActionText(event: event, emphasized: emphasized)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
         .frame(minHeight: ScoutTailMetrics.rowHeight)
         .background { rowBackground }
+        .overlay(alignment: .bottom) { HudDivider(color: ScoutDesign.hairline) }
         .contentShape(Rectangle())
         .onTapGesture(perform: action)
         .scoutPointerCursor()
         .onHover { isHovering = $0 }
-        .contextMenu {
+        .scoutTailRowMenu(event: event, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            ScoutPalette.accent.opacity(0.12)
+        } else if isHovering {
+            ScoutPalette.surface
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// One Timeline row: a chronological spine where each node IS the kind glyph,
+/// time on the axis's left, avatar + identity + action to its right.
+private struct ScoutTailTimelineRow: View {
+    let event: ScoutTailEvent
+    let activeAgent: ScoutAgent?
+    let isSelected: Bool
+    let isFirst: Bool
+    let onOpenSession: () -> Void
+    let onOpenAgent: (ScoutAgent) -> Void
+    let action: () -> Void
+
+    @State private var isHovering = false
+    private var emphasized: Bool { isSelected || isHovering }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: ScoutTailMetrics.columnGap) {
+            ScoutTailTimeCell(event: event, emphasized: emphasized)
+                .frame(width: 52, alignment: .leading)
+                .padding(.top, 8)
+
+            spine.frame(width: 18)
+
+            HStack(alignment: .center, spacing: HudSpacing.sm) {
+                ScoutTailIdentityCell(event: event, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
+                    .fixedSize(horizontal: true, vertical: false)
+                ScoutTailActionText(event: event, emphasized: emphasized)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 7)
+        }
+        .padding(.horizontal, ScoutTailMetrics.pageGutter)
+        .background { rowBackground }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .scoutPointerCursor()
+        .onHover { isHovering = $0 }
+        .scoutTailRowMenu(event: event, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
+    }
+
+    /// A continuous vertical axis with the kind-glyph node riding on it. The
+    /// first row's line is padded down to the node so it doesn't float above
+    /// the top of the stream.
+    private var spine: some View {
+        ZStack(alignment: .top) {
+            Rectangle()
+                .fill(ScoutDesign.hairlineStrong)
+                .frame(width: 1)
+                .frame(maxHeight: .infinity)
+                .padding(.top, isFirst ? 13 : 0)
+            node.padding(.top, 4)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private var node: some View {
+        ZStack {
+            Circle().fill(ScoutPalette.surface)
+            Circle().strokeBorder(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            ScoutTailKindGlyph(kind: event.kind, size: 10)
+        }
+        .frame(width: 18, height: 18)
+    }
+
+    @ViewBuilder
+    private var rowBackground: some View {
+        if isSelected {
+            ScoutPalette.accent.opacity(0.12)
+        } else if isHovering {
+            ScoutPalette.surface
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// The clock split into a brighter HH:mm and a recessive :ss so the timestamp
+/// reads as a designed numeral. Tabular figures keep every colon aligned.
+private struct ScoutTailTimeCell: View {
+    let event: ScoutTailEvent
+    let emphasized: Bool
+
+    var body: some View {
+        let clock = event.clockLabel
+        let cut = clock.index(clock.startIndex, offsetBy: min(5, clock.count))
+        let color = emphasized ? ScoutPalette.muted : ScoutPalette.dim
+        return HStack(spacing: 0) {
+            Text(String(clock[..<cut])).foregroundStyle(color)
+            Text(String(clock[cut...])).foregroundStyle(color.opacity(0.5))
+        }
+        .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
+        .monospacedDigit()
+        .lineLimit(1)
+    }
+}
+
+/// One identity column: a known agent's sprite + name at full ink (the thing
+/// you scan for); an unresolved event drops to its project (muted); a bare
+/// process drops to `source·pid` in dim mono. The sprite's *presence* — not a
+/// second column — signals a resolved agent.
+private struct ScoutTailIdentityCell: View {
+    let event: ScoutTailEvent
+    let activeAgent: ScoutAgent?
+    let emphasized: Bool
+    let onOpenAgent: (ScoutAgent) -> Void
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xs) {
+            if let activeAgent {
+                SpriteAvatarView(agent: activeAgent, size: 18, tile: true)
+            } else {
+                Color.clear.frame(width: 18, height: 18)
+            }
+            label
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if let activeAgent {
+            ScoutTailHoverAction(
+                title: activeAgent.displayName,
+                actionHelp: "Open agent observe",
+                tint: agentInk,
+                activeTint: ScoutPalette.accent,
+                font: HudFont.ui(HudTextSize.sm, weight: .medium),
+                truncationMode: .tail,
+                action: { onOpenAgent(activeAgent) }
+            )
+        } else if scoutTailCopyable(event.projectLabel) != nil {
+            ScoutTailHoverAction(
+                title: event.projectLabel,
+                actionHelp: "Reveal project in Finder",
+                tint: ScoutPalette.muted,
+                activeTint: ScoutPalette.ink,
+                font: HudFont.ui(HudTextSize.sm, weight: .regular),
+                truncationMode: .middle,
+                action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
+            )
+        } else {
+            Text(procFallbackLabel)
+                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .regular))
+                .foregroundStyle(ScoutPalette.dim)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    private var agentInk: Color {
+        emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.92)
+    }
+
+    /// Last-resort identity (`codex·4894`) so even a bare process is named.
+    private var procFallbackLabel: String {
+        let src = event.sourceLabel
+        return event.pid > 0 ? "\(src)·\(event.pid)" : src
+    }
+}
+
+/// The action summary. Type carries kind — human turns are sans (user heavier),
+/// machine I/O is mono — and color stays monochrome, graded by emphasis.
+private struct ScoutTailActionText: View {
+    let event: ScoutTailEvent
+    let emphasized: Bool
+
+    var body: some View {
+        Text(event.summary)
+            .font(font)
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+
+    private var font: Font {
+        switch event.kind {
+        case .user: return HudFont.ui(HudTextSize.sm, weight: .semibold)
+        case .assistant: return HudFont.ui(HudTextSize.sm, weight: .regular)
+        case .tool, .toolResult, .system, .other: return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
+        }
+    }
+
+    private var color: Color {
+        switch event.kind {
+        case .user: return ScoutPalette.ink
+        case .assistant: return emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.88)
+        case .tool, .toolResult: return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
+        case .system, .other: return emphasized ? ScoutPalette.muted : ScoutPalette.dim
+        }
+    }
+}
+
+/// The shared row context menu (reveal / copy / open), used by both treatments.
+private extension View {
+    func scoutTailRowMenu(
+        event: ScoutTailEvent,
+        activeAgent: ScoutAgent?,
+        onOpenSession: @escaping () -> Void,
+        onOpenAgent: @escaping (ScoutAgent) -> Void
+    ) -> some View {
+        contextMenu {
             Button("Reveal project in Finder") { scoutTailRevealPath(event.cwd) }
                 .disabled(scoutTailCopyable(event.cwd) == nil)
             Button("Copy project path") { scoutTailCopy(event.cwd) }
@@ -682,121 +1010,162 @@ private struct ScoutTailRow: View {
             Divider()
             Button("Copy PID") { scoutTailCopy("\(event.pid)") }
                 .disabled(event.pid <= 0)
-            Button("Copy event ID") {
-                scoutTailCopy(event.id)
-            }
-            Button("Copy summary") {
-                scoutTailCopy(event.summary)
-            }
+            Button("Copy event ID") { scoutTailCopy(event.id) }
+            Button("Copy summary") { scoutTailCopy(event.summary) }
         }
     }
+}
 
-    /// The clock split into a brighter HH:mm and a recessive :ss so the timestamp
-    /// column reads as a designed numeral rather than a flat mono dump. Tabular
-    /// figures keep every row's colons in the same place.
-    private var timeCell: some View {
-        let clock = event.clockLabel
-        let cut = clock.index(clock.startIndex, offsetBy: min(5, clock.count))
-        return HStack(spacing: 0) {
-            Text(String(clock[..<cut]))
-                .foregroundStyle(timeColor)
-            Text(String(clock[cut...]))
-                .foregroundStyle(timeColor.opacity(0.5))
-        }
-        .font(HudFont.mono(HudTextSize.xs, weight: .medium))
-        .monospacedDigit()
-        .lineLimit(1)
+private struct ScoutTailKindGlyph: View {
+    let kind: ScoutTailEventKind
+    var size: CGFloat = 12
+
+    var body: some View {
+        Text(kind.glyph)
+            .font(ScoutTailFont.mono(size, weight: .bold))
+            .foregroundStyle(ScoutTailKindTone.color(for: kind))
+            .frame(width: max(12, size + 4), height: max(12, size + 4), alignment: .center)
+            .lineLimit(1)
+            .accessibilityLabel(kind.title)
     }
+}
 
-    @ViewBuilder
-    private var agentCell: some View {
-        if let activeAgent {
-            ScoutTailHoverAction(
-                title: activeAgent.displayName,
-                actionHelp: "Open agent observe",
-                tint: agentInk,
-                activeTint: ScoutPalette.accent,
-                font: HudFont.ui(HudTextSize.sm, weight: .medium),
-                truncationMode: .tail,
-                action: { onOpenAgent(activeAgent) }
+/// A small chip carrying the event kind, with TWO treatments so color does real
+/// work instead of tinting everything: the three *signal* kinds — USER (accent),
+/// ASST (ok), TOOL (warn) — render as crisp colored tags (tone text on a tone
+/// wash, with a faint same-hue edge for definition); the machine bulk
+/// (OUT/SYS/EVT) renders as a recessed neutral tag (inset fill, grey text, no
+/// hue). The eye lands on the colored signal; the noise reads as quiet chrome.
+private struct ScoutTailKindChip: View {
+    let kind: ScoutTailEventKind
+
+    var body: some View {
+        Text(kind.label)
+            .font(ScoutTailFont.mono(HudTextSize.micro, weight: .bold))
+            .tracking(0.5)
+            .foregroundStyle(textColor)
+            .padding(.horizontal, HudSpacing.xs)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .fill(fillColor)
             )
-        } else if scoutTailCopyable(event.projectLabel) != nil {
-            // No resolved agent: fall back to the project, but render it
-            // recessive so real agents are what the eye lands on.
-            ScoutTailHoverAction(
-                title: event.projectLabel,
-                actionHelp: "Reveal project in Finder",
-                tint: ScoutPalette.dim,
-                activeTint: ScoutPalette.muted,
-                font: HudFont.ui(HudTextSize.sm, weight: .regular),
-                truncationMode: .middle,
-                action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                    .strokeBorder(borderColor, lineWidth: HudStrokeWidth.thin)
             )
-        } else {
-            Text("—")
-                .font(HudFont.ui(HudTextSize.sm, weight: .regular))
-                .foregroundStyle(ScoutPalette.dim.opacity(0.6))
-                .lineLimit(1)
+            .fixedSize()
+    }
+
+    private var tone: Color { ScoutTailKindTone.color(for: kind) }
+    private var isSignal: Bool { ScoutTailKindTone.isSignal(kind) }
+
+    private var textColor: Color { tone }
+    private var fillColor: Color { isSignal ? tone.opacity(0.16) : ScoutSurface.inset }
+    private var borderColor: Color { isSignal ? tone.opacity(0.30) : ScoutDesign.hairline }
+}
+
+enum ScoutTailKindTone {
+    /// Signal kinds earn a hue; machine output stays neutral. OUT (the highest-
+    /// volume kind) is deliberately *not* blue — that blue belongs to the
+    /// accent identity, and a firehose full of blue OUT chips would drown it.
+    static func color(for kind: ScoutTailEventKind) -> Color {
+        switch kind {
+        case .user: return ScoutPalette.accent
+        case .assistant: return ScoutPalette.statusOk
+        case .tool: return ScoutPalette.statusWarn
+        case .toolResult: return ScoutPalette.muted
+        case .system, .other: return ScoutPalette.dim
         }
     }
 
-    private var emphasized: Bool { isSelected || isHovering }
-
-    private var timeColor: Color {
-        emphasized ? ScoutPalette.muted : ScoutPalette.dim
+    /// The human/action kinds that carry a hue; the rest are neutral chrome.
+    static func isSignal(_ kind: ScoutTailEventKind) -> Bool {
+        switch kind {
+        case .user, .assistant, .tool: return true
+        case .toolResult, .system, .other: return false
+        }
     }
+}
 
-    private var harnessColor: Color {
-        emphasized ? ScoutPalette.ink : ScoutPalette.muted
+/// The live indicator beside the title: a breathing accent dot while following,
+/// a hollow neutral ring when paused. A Core-Animation `repeatForever` drives the
+/// breathe so it stays smooth without a per-frame timeline.
+private struct ScoutTailLivePip: View {
+    let isFollowing: Bool
+    @State private var pulse = false
+
+    var body: some View {
+        Group {
+            if isFollowing {
+                Circle()
+                    .fill(ScoutPalette.accent)
+                    .frame(width: 6, height: 6)
+                    .opacity(pulse ? 0.4 : 1.0)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                            pulse = true
+                        }
+                    }
+            } else {
+                Circle()
+                    .strokeBorder(ScoutPalette.dim, lineWidth: HudStrokeWidth.thin)
+                    .frame(width: 6, height: 6)
+            }
+        }
+        .accessibilityLabel(isFollowing ? "Following" : "Paused")
     }
+}
 
-    private var agentInk: Color {
-        emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.92)
-    }
+/// Ghost rows shown on the very first load, mirroring the real column layout so
+/// the surface has structure instantly (no centered blocker, no beach ball).
+/// A slow opacity pulse keeps it reading as "incoming" rather than broken.
+private struct ScoutTailSkeleton: View {
+    let columns: ScoutTailColumnLayout
 
-    /// Selection is a soft accent wash — the emphasis Arach approves — kept in
-    /// the Agent Lanes family by color, but deliberately *without* a leading
-    /// accent rail (the "left accent bar" treatment is permanently banned, even
-    /// on rows). Hover lifts to the plain surface; the resting stripe is an
-    /// ultra-subtle zebra that delineates rows in the firehose without a grid.
-    @ViewBuilder
-    private var rowBackground: some View {
-        if isSelected {
-            ScoutPalette.accent.opacity(0.12)
-        } else if isHovering {
-            ScoutPalette.surface
-        } else if isAlternating {
-            ScoutSurface.inset.opacity(0.22)
-        } else {
-            Color.clear
+    // Deterministic per-row action widths so the ghost stream looks like real,
+    // varied log lines rather than a uniform grid.
+    private static let actionWidths: [CGFloat] = [220, 150, 300, 110, 260, 180, 90, 240, 200, 130, 280, 160]
+
+    @State private var pulse = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Self.actionWidths.indices, id: \.self) { index in
+                row(actionWidth: Self.actionWidths[index], alternating: !index.isMultiple(of: 2))
+            }
+        }
+        .opacity(pulse ? 0.45 : 0.85)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.95).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
         }
     }
 
-    /// Type carries the event kind so no loud kind column is needed: human turns
-    /// are sans (user a touch heavier, since prompts are the highest-scan rows),
-    /// machine I/O is mono. Color stays monochrome — brightness, never hue.
-    private var actionFont: Font {
-        switch event.kind {
-        case .user:
-            return HudFont.ui(HudTextSize.sm, weight: .semibold)
-        case .assistant:
-            return HudFont.ui(HudTextSize.sm, weight: .regular)
-        case .tool, .toolResult, .system, .other:
-            return HudFont.mono(HudTextSize.xs, weight: .regular)
+    private func row(actionWidth: CGFloat, alternating: Bool) -> some View {
+        HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
+            bar(width: columns.time * 0.72)
+            bar(width: columns.identity * 0.6)
+            chip()
+            bar(width: actionWidth)
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, ScoutTailMetrics.pageGutter)
+        .frame(minHeight: ScoutTailMetrics.rowHeight)
+        .background(alternating ? ScoutSurface.inset.opacity(0.22) : Color.clear)
     }
 
-    private var actionColor: Color {
-        switch event.kind {
-        case .user:
-            return ScoutPalette.ink
-        case .assistant:
-            return emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.88)
-        case .tool, .toolResult:
-            return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
-        case .system, .other:
-            return emphasized ? ScoutPalette.muted : ScoutPalette.dim
-        }
+    private func bar(width: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+            .fill(ScoutSurface.inset)
+            .frame(width: width, height: 8)
+    }
+
+    private func chip() -> some View {
+        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+            .fill(ScoutSurface.inset)
+            .frame(width: max(28, columns.kind * 0.74), height: 12)
     }
 }
 
@@ -810,10 +1179,10 @@ private struct ScoutTailDetail: View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
                 Text("\(event.kind.glyph)\(event.kind.label)")
-                    .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                    .font(ScoutTailFont.mono(HudTextSize.micro, weight: .bold))
                     .foregroundStyle(ScoutPalette.dim)
                 Text(event.summary)
-                    .font(HudFont.mono(HudTextSize.xs))
+                    .font(ScoutTailFont.mono(HudTextSize.xs))
                     .foregroundStyle(ScoutPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -849,11 +1218,11 @@ private struct ScoutTailDetail: View {
     private func detailLine(_ key: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
             Text(key)
-                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .font(ScoutTailFont.mono(HudTextSize.micro, weight: .medium))
                 .foregroundStyle(ScoutPalette.dim)
                 .frame(width: 48, alignment: .leading)
             Text(value)
-                .font(HudFont.mono(HudTextSize.micro))
+                .font(ScoutTailFont.mono(HudTextSize.micro))
                 .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -864,12 +1233,12 @@ private struct ScoutTailDetail: View {
     private func detailAction(_ key: String, _ value: String, action: @escaping () -> Void) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
             Text(key)
-                .font(HudFont.mono(HudTextSize.micro, weight: .medium))
+                .font(ScoutTailFont.mono(HudTextSize.micro, weight: .medium))
                 .foregroundStyle(ScoutPalette.dim)
                 .frame(width: 48, alignment: .leading)
             Button(action: action) {
                 Text(value)
-                    .font(HudFont.mono(HudTextSize.micro))
+                    .font(ScoutTailFont.mono(HudTextSize.micro))
                     .foregroundStyle(ScoutPalette.muted)
                     .lineLimit(2)
                     .truncationMode(.middle)
@@ -892,9 +1261,28 @@ private enum ScoutTailMetrics {
 }
 
 private enum ScoutTailColumns {
-    static let time: CGFloat = 62
-    static let harness: CGFloat = 76
-    static let agent: CGFloat = 168
+    static let timeDefault: CGFloat = 60
+    /// One identity column replaces the old HARNESS + AGENT pair: it always
+    /// resolves to *something* (agent → project → source·pid), so the firehose
+    /// never shows two empty columns of dead width.
+    static let identityDefault: CGFloat = 156
+    /// The colored KIND chip sits where the eye scans the event type.
+    static let kindDefault: CGFloat = 50
+
+    // Drag-resize clamps. ACTION is flexible and absorbs whatever the three
+    // fixed columns don't take, so only these need bounds.
+    static let timeRange: ClosedRange<CGFloat> = 44...120
+    static let identityRange: ClosedRange<CGFloat> = 88...340
+    static let kindRange: ClosedRange<CGFloat> = 40...110
+}
+
+/// Live column widths, shared by the header (which mutates them via drag
+/// handles) and every row (which reads them). ACTION is implicit — it takes the
+/// remaining width.
+private struct ScoutTailColumnLayout {
+    var time: CGFloat
+    var identity: CGFloat
+    var kind: CGFloat
 }
 
 private struct ScoutTailHoverAction: View {
@@ -914,7 +1302,7 @@ private struct ScoutTailHoverAction: View {
         actionHelp: String,
         tint: Color,
         activeTint: Color,
-        font: Font = HudFont.mono(HudTextSize.xs, weight: .medium),
+        font: Font = ScoutTailFont.mono(HudTextSize.xs, weight: .medium),
         truncationMode: Text.TruncationMode,
         lineLimit: Int = 1,
         action: (() -> Void)? = nil
@@ -972,10 +1360,47 @@ private struct ScoutTailToken: View {
 
     var body: some View {
         Text(text)
-            .font(HudFont.mono(HudTextSize.xs, weight: emphasis ? .semibold : .medium))
+            .font(ScoutTailFont.mono(HudTextSize.xs, weight: emphasis ? .semibold : .medium))
             .foregroundStyle(emphasis ? ScoutPalette.muted : ScoutPalette.dim)
             .lineLimit(1)
             .truncationMode(.tail)
+    }
+}
+
+private struct ScoutTailModeToggle: View {
+    @Binding var mode: ScoutTailViewMode
+
+    var body: some View {
+        HStack(spacing: HudSpacing.xxs) {
+            ForEach(ScoutTailViewMode.allCases) { item in
+                Button {
+                    mode = item
+                } label: {
+                    Text(item.title)
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(mode == item ? ScoutPalette.ink : ScoutPalette.muted)
+                        .lineLimit(1)
+                        .padding(.horizontal, HudSpacing.sm)
+                        .frame(height: ScoutTailMetrics.controlHeight - 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                                .fill(mode == item ? ScoutDesign.bg : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .scoutPointerCursor()
+                .help(item.title)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .fill(ScoutSurface.control)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
+                .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
+        )
     }
 }
 

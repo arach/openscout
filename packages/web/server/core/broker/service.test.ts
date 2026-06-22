@@ -521,6 +521,8 @@ describe("sendScoutMessage", () => {
 
     expect(result).toEqual({
       usedBroker: true,
+      conversationId: conversationPost?.body?.id,
+      messageId: messagePost?.body?.id,
       invokedTargets: [],
       unresolvedTargets: [],
     });
@@ -617,14 +619,17 @@ describe("sendScoutConversationMessage", () => {
       currentDirectory: home,
       source: "scout-web",
     });
+    const messagePost = requests.find((request) => request.path === "/v1/messages");
 
     expect(result).toEqual({
       usedBroker: true,
+      conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
+      messageId: messagePost?.body?.id,
       invokedTargets: ["hudson.main.mini"],
       unresolvedTargets: [],
     });
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(false);
-    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+    expect(messagePost?.body)
       .toMatchObject({
         conversationId: "dm.hudson.main.mini.narrative-studio.main.mini",
         actorId: "operator",

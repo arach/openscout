@@ -54,7 +54,7 @@ type Turn = {
   me: boolean;
   author: string;
   handle: string;
-  avatar: string;
+  avatar?: string;
   time: string;
   long?: boolean;
   lines?: number;

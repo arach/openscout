@@ -165,13 +165,35 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Smart-identity column: brightness — not a second column — carries the
+   confidence of the attribution. A resolved agent reads at full ink, an
+   unresolved event drops to its project (muted), a bare process drops further
+   to mono dim. Accent is NOT spent here (it stays a whisper); the colored KIND
+   chip is what carries the per-row scan. */
 .evSrc {
-  color: var(--s-accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.evSrc_agent {
+  color: var(--s-ink);
+}
+
+.evSrc_project {
+  color: var(--s-muted);
+}
+
+.evSrc_proc {
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+}
+
+/* Two chip treatments so color does real work: SIGNAL kinds (USER/ASST/TOOL)
+   are crisp colored tags — tone text on a tone wash with a faint same-hue edge;
+   the machine bulk (OUT/SYS/EVT) is a recessed neutral tag — inset fill, grey
+   text, no hue. Mirrors the native `ScoutTailKindChip`. */
 .kind {
   justify-self: start;
   padding: 1px 6px;
@@ -181,7 +203,16 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--chip-tone);
-  background: color-mix(in srgb, var(--chip-tone) 15%, transparent);
+  background: color-mix(in srgb, var(--chip-tone) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-tone) 30%, transparent);
+}
+
+/* Neutral kinds: the tone is already grey (muted/dim), so recede the chip into
+   a recessed inset tag rather than tinting it. */
+.kindNeutral {
+  color: var(--s-dim);
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+  border-color: var(--s-hairline);
 }
 
 .evMsg {

@@ -148,17 +148,36 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
 
     public func start() {
         guard pollTask == nil else { return }
-        // Prime a newly visible surface with recent transcript-backed events.
-        // Live polling stays cheap after that; without this first replay the HUD
-        // can look silent when the broker has not already been tailing.
-        refresh(includeTranscripts: events.isEmpty)
+        let needsTranscriptPrime = events.isEmpty
+        // Fast first paint: live process inventory only — no transcript disk
+        // reads — so the stream shows real rows almost immediately.
+        refresh(includeTranscripts: false)
         let interval = pollInterval
         pollTask = Task { [weak self] in
+            guard let self else { return }
+            // Backfill transcript history once the fast prime settles. Without
+            // this replay the HUD can look silent when the broker was not
+            // already tailing — but it must not hold up the first rows, so it
+            // runs after the fast fetch rather than instead of it.
+            if needsTranscriptPrime {
+                await self.waitForIdleFetch()
+                guard !Task.isCancelled else { return }
+                self.refresh(includeTranscripts: true)
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-                guard let self else { return }
-                refresh()
+                guard !Task.isCancelled else { return }
+                self.refresh()
             }
+        }
+    }
+
+    /// Cheap main-actor poll until the in-flight fetch clears, so a follow-up
+    /// refresh can be issued without tripping the `fetchTask != nil` guard.
+    private func waitForIdleFetch() async {
+        while fetchTask != nil {
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            if Task.isCancelled { return }
         }
     }
 
