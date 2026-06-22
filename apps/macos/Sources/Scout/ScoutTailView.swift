@@ -114,20 +114,17 @@ struct ScoutTailContent: View {
 
     private var titleCluster: some View {
         HStack(spacing: HudSpacing.sm) {
-            // A live pip leads the title — accent + breathing while following,
-            // a hollow ring when paused — so the surface reads as a live
-            // instrument before the eye even reaches the counts.
-            ScoutTailLivePip(isFollowing: tail.isFollowing)
+            // The Tail identity mark — a steady ECG line (matches the sidebar
+            // icon). One quiet accent glyph, not a blinking "live" gimmick.
+            ScoutTailGlyph()
 
-            // Title + counts share one baseline so they read as a single lockup
-            // rather than tiny stats floating at the title's mid-height.
-            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
-                Text("Tail")
-                    .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
-                    .foregroundStyle(ScoutPalette.ink)
+            Text("Tail")
+                .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
 
-                headerMetrics
-            }
+            ScoutTailHeaderDivider()
+
+            headerMetrics
 
             if tail.isLoading {
                 ScoutBrailleSpinner(size: HudTextSize.sm, tint: ScoutPalette.dim)
@@ -136,16 +133,16 @@ struct ScoutTailContent: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// Three readouts read as one strip: tabular figures at body size carry real
-    /// weight beside the title (no fine-print float), lowercase units recede,
-    /// and hairline middots tie them together.
+    /// Quiet inventory read-out beside the title: tabular figures carry the count,
+    /// lowercase units recede, hairline middots tie them together. No throughput
+    /// or "live" rate — the stream itself is the liveness.
     private var headerMetrics: some View {
         HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
             tailCountCluster(tail.discovery?.totals.transcripts ?? tail.sessionCount, "logs")
             metricDot
             tailCountCluster(tail.discovery?.totals.total ?? 0, "procs")
             metricDot
-            tailMetricCluster(String(format: "%.1f", tail.linesPerSecond), "lines/s")
+            tailCountCluster(tail.sessionCount, "sessions")
         }
     }
 
@@ -326,10 +323,11 @@ struct ScoutTailContent: View {
 
     @ViewBuilder
     private var stream: some View {
-        if tail.isLoading && !tail.hasBufferedEvents {
-            // First paint: real column structure immediately (header + ghost
-            // rows) instead of a centered blocker. Data streams in over the top
-            // as the fetch lands; the title-bar braille spinner carries progress.
+        if tail.isLoading && visibleEvents.isEmpty {
+            // First paint: column structure immediately, then one clearly-moving
+            // braille spinner (it cycles, so the wait reads as working, not
+            // stuck) over a quiet "what's happening" line. Rows replace it the
+            // moment the fetch lands.
             VStack(spacing: 0) {
                 if viewMode == .ledger {
                     ScoutTailHeaderRow(
@@ -338,8 +336,7 @@ struct ScoutTailContent: View {
                         kindWidth: kindWidth
                     )
                 }
-                ScoutTailSkeleton(columns: columnLayout)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                tailLoadingState
             }
         } else if visibleEvents.isEmpty {
             VStack(spacing: HudSpacing.xs) {
@@ -423,6 +420,24 @@ struct ScoutTailContent: View {
                 }
             }
         }
+    }
+
+    /// First-load affordance: a single, visibly-cycling braille spinner over a
+    /// quiet status line. Animation = "working"; the old pulsing ghost rows read
+    /// as a frozen, broken table.
+    private var tailLoadingState: some View {
+        VStack(spacing: HudSpacing.md) {
+            ScoutBrailleSpinner(size: 20, tint: ScoutPalette.accent)
+            VStack(spacing: HudSpacing.xxs) {
+                Text("Reading the firehose")
+                    .font(ScoutTailFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.muted)
+                Text("scanning transcripts + live processes")
+                    .font(ScoutTailFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func activeAgent(for event: ScoutTailEvent) -> ScoutAgent? {
@@ -1059,81 +1074,33 @@ enum ScoutTailKindTone {
 /// The live indicator beside the title: a breathing accent dot while following,
 /// a hollow neutral ring when paused. A Core-Animation `repeatForever` drives the
 /// breathe so it stays smooth without a per-frame timeline.
-private struct ScoutTailLivePip: View {
-    let isFollowing: Bool
-    @State private var pulse = false
-
+/// The Tail identity mark — a steady ECG/heartbeat line, matching the sidebar's
+/// `waveform.path.ecg`. One quiet accent glyph that gives the header a face,
+/// drawn as a SwiftUI `Shape` (no SF Symbol) so it stays crisp at any size.
+private struct ScoutTailGlyph: View {
     var body: some View {
-        Group {
-            if isFollowing {
-                Circle()
-                    .fill(ScoutPalette.accent)
-                    .frame(width: 6, height: 6)
-                    .opacity(pulse ? 0.4 : 1.0)
-                    .onAppear {
-                        withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
-                            pulse = true
-                        }
-                    }
-            } else {
-                Circle()
-                    .strokeBorder(ScoutPalette.dim, lineWidth: HudStrokeWidth.thin)
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .accessibilityLabel(isFollowing ? "Following" : "Paused")
+        ScoutTailEcgShape()
+            .stroke(ScoutPalette.accent, style: StrokeStyle(lineWidth: 1.7, lineCap: .round, lineJoin: .round))
+            .frame(width: 18, height: 13)
     }
 }
 
-/// Ghost rows shown on the very first load, mirroring the real column layout so
-/// the surface has structure instantly (no centered blocker, no beach ball).
-/// A slow opacity pulse keeps it reading as "incoming" rather than broken.
-private struct ScoutTailSkeleton: View {
-    let columns: ScoutTailColumnLayout
-
-    // Deterministic per-row action widths so the ghost stream looks like real,
-    // varied log lines rather than a uniform grid.
-    private static let actionWidths: [CGFloat] = [220, 150, 300, 110, 260, 180, 90, 240, 200, 130, 280, 160]
-
-    @State private var pulse = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Self.actionWidths.indices, id: \.self) { index in
-                row(actionWidth: Self.actionWidths[index], alternating: !index.isMultiple(of: 2))
-            }
+private struct ScoutTailEcgShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        // Authored in a 22×14 space, scaled to the frame.
+        let sx = rect.width / 22, sy = rect.height / 14
+        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * sx, y: rect.minY + y * sy)
         }
-        .opacity(pulse ? 0.45 : 0.85)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.95).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
-    }
-
-    private func row(actionWidth: CGFloat, alternating: Bool) -> some View {
-        HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
-            bar(width: columns.time * 0.72)
-            bar(width: columns.identity * 0.6)
-            chip()
-            bar(width: actionWidth)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, ScoutTailMetrics.pageGutter)
-        .frame(minHeight: ScoutTailMetrics.rowHeight)
-        .background(alternating ? ScoutSurface.inset.opacity(0.22) : Color.clear)
-    }
-
-    private func bar(width: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-            .fill(ScoutSurface.inset)
-            .frame(width: width, height: 8)
-    }
-
-    private func chip() -> some View {
-        RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-            .fill(ScoutSurface.inset)
-            .frame(width: max(28, columns.kind * 0.74), height: 12)
+        var path = Path()
+        path.move(to: p(1, 7))
+        path.addLine(to: p(5.2, 7))
+        path.addLine(to: p(7.2, 2.5))
+        path.addLine(to: p(10.2, 11.5))
+        path.addLine(to: p(12.6, 5.5))
+        path.addLine(to: p(14.2, 8.5))
+        path.addLine(to: p(21, 8.5))
+        return path
     }
 }
 
