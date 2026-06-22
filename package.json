@@ -29,6 +29,7 @@
     "scout:build": "bun ./apps/macos/bin/scout-app.ts dev-build",
     "scout:launch": "bun ./apps/macos/bin/scout-app.ts launch",
     "scout:status": "bun ./apps/macos/bin/scout-app.ts status",
+    "scout:tui": "bun packages/cli/src/main.ts tui",
     "build": "npm run cli:build && npm run web:build",
     "check": "npm run protocol:check && bun run --cwd apps/desktop check && npm run runtime:check && bun run cloud:check && bun run mesh-front-door:check",
     "test": "bun run test:unit",

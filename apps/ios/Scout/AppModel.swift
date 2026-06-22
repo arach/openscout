@@ -177,6 +177,7 @@ final class AppModel {
         tailnetRoutingEnabled = BridgeRoutePreferences.tailnetRoutingEnabled()
         openScoutNetworkRoutingEnabled = BridgeRoutePreferences.openScoutNetworkRoutingEnabled()
         loadOpenScoutNetworkSession()
+        enableOpenScoutNetworkRoutingForSavedOSNRouteIfUnset()
         if let raw = UserDefaults.standard.string(forKey: Self.voicePrefKey),
            let pref = HudDictation.Preference(rawValue: raw) {
             dictation.preference = pref
@@ -535,6 +536,22 @@ final class AppModel {
             route: .oscout
         )
         reconnectIfCurrentRouteWasDisabled(.oscout, enabled: enabled)
+    }
+
+    private func enableOpenScoutNetworkRoutingForSavedOSNRouteIfUnset() {
+        guard !BridgeRoutePreferences.hasExplicitOpenScoutNetworkRoutingPreference(),
+              savedRouteSummary.hasOpenScoutNetworkRelay
+        else {
+            return
+        }
+        openScoutNetworkRoutingEnabled = true
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+        connectionLog.log(
+            "Enabled OpenScout Network routing for saved OSN bridge route",
+            event: .lifecycle,
+            level: .info,
+            route: .oscout
+        )
     }
 
     var openScoutNetworkAuthStatus: String {
@@ -1416,6 +1433,10 @@ final class AppModel {
             }
             try await pairingBridge.pair(qrPayload: payload, primaryName: deviceName)
             let route = pairingBridge.currentRoute
+            if route == .oscout {
+                openScoutNetworkRoutingEnabled = true
+                BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+            }
             let pairedMachineId = fleet.adoptConnectedPairingClient(pairingBridge)
             if let pairedMachineId {
                 BridgeBrokerClient.setActiveConnectionPublicKeyHex(pairedMachineId)

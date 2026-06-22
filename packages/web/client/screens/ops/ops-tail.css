@@ -14,11 +14,11 @@
 .s-tail-status {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
+  gap: var(--space-lg);
   row-gap: var(--space-2xs);
   flex-wrap: wrap;
-  min-height: 26px;
-  padding: var(--space-2xs) var(--space-lg);
+  min-height: 30px;
+  padding: var(--space-xs) var(--space-xl);
   flex: none;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 18%, var(--bg));
@@ -35,7 +35,19 @@
 
 .s-tail-status-cluster--metrics {
   flex: 0 0 auto;
-  gap: var(--space-md);
+  gap: var(--space-sm);
+}
+
+.s-tail-status-state {
+  color: color-mix(in srgb, var(--accent) 70%, var(--ink) 30%);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.s-tail-status-state--paused {
+  color: var(--muted);
 }
 
 .s-tail-status-cluster--display,
@@ -57,21 +69,6 @@
   letter-spacing: 0.06em;
   text-transform: lowercase;
   white-space: nowrap;
-}
-
-.s-tail-status-cell {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-2xs);
-  flex: none;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.s-tail-status-cell strong {
-  color: var(--ink);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
 }
 
 .s-tail-status-spacer {
@@ -116,12 +113,6 @@
   }
 }
 
-.s-tail-status-paused {
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  font-size: var(--text-xs);
-}
-
 .s-tail-status-filter {
   display: inline-block;
   max-width: min(34vw, 260px);
@@ -162,16 +153,18 @@
 
 .s-tail-live-dot {
   display: inline-block;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
   flex: none;
   animation: s-tail-pulse 1.6s infinite;
 }
 
 .s-tail-live-dot--paused {
   background: var(--dim);
+  box-shadow: none;
   animation: none;
 }
 
@@ -265,21 +258,24 @@
 .s-tail-row {
   display: grid;
   grid-template-columns:
-    84px       /* time */
-    52px       /* harness */
-    20px       /* origin abbr */
-    minmax(100px, 200px) /* project/session/pid */
-    42px       /* kind glyph+label */
+    92px       /* time */
+    60px       /* harness */
+    22px       /* origin abbr */
+    minmax(150px, 240px) /* project/session/pid */
+    48px       /* kind glyph+label */
     1fr;       /* summary */
   align-items: baseline;
-  gap: var(--space-sm);
-  padding: 0 var(--space-lg);
-  min-height: 18px;
+  gap: var(--space-md);
+  padding: var(--space-3xs) var(--space-xl);
+  min-height: 22px;
   font-size: var(--text-sm);
-  line-height: 1.35;
+  line-height: 1.5;
   color: var(--muted);
   white-space: nowrap;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.s-tail-row:nth-child(even) {
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
 }
 
 .s-tail--embedded .s-tail-row {
@@ -312,9 +308,9 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
-.s-tail-row--selected,
-.s-tail-row--selected:hover {
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
+.s-tail-row.s-tail-row--selected,
+.s-tail-row.s-tail-row--selected:hover {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
   color: var(--ink);
 }
 
@@ -413,6 +409,15 @@
   color: var(--dim);
 }
 
+/* Per-kind glyph hue — the firehose reads as colored bullets streaming past,
+   scannable at a glance without lighting up the whole row. */
+.s-tail-glyph--user { color: var(--info); }
+.s-tail-glyph--assistant { color: var(--accent); }
+.s-tail-glyph--tool { color: var(--cat-gold); }
+.s-tail-glyph--tool-result { color: var(--cat-sky); }
+.s-tail-glyph--system { color: var(--cat-purple); }
+.s-tail-glyph--other { color: var(--dim); }
+
 .s-tail-kind-label {
   font-size: var(--text-2xs);
   letter-spacing: 0.04em;
@@ -422,7 +427,7 @@
 .s-tail-summary {
   overflow: hidden;
   text-overflow: ellipsis;
-  color: inherit;
+  color: var(--ink);
 }
 
 .s-tail-repeat {

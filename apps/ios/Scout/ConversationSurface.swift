@@ -1,8 +1,79 @@
 import SwiftUI
 import Foundation
+import PhotosUI
+import UniformTypeIdentifiers
 import HudsonUI
 import HudsonVoice
 import ScoutCapabilities
+
+private enum UserSendPhase: Equatable {
+    case preparing
+    case uploading
+    case sending
+    case posted
+    case queued
+    case dispatching
+    case acknowledged
+    case working
+    case waiting
+    case completed
+    case failed(String)
+    case cancelled
+
+    var label: String {
+        switch self {
+        case .preparing: return "Preparing…"
+        case .uploading: return "Uploading attachments…"
+        case .sending: return "Sending…"
+        case .posted: return "Posted"
+        case .queued: return "Queued for agent"
+        case .dispatching: return "Starting agent…"
+        case .acknowledged: return "Agent picked it up"
+        case .working: return "Agent is working"
+        case .waiting: return "Agent needs input"
+        case .completed: return "Agent responded"
+        case .failed(let detail):
+            let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? "Send failed" : "Send failed: \(trimmed)"
+        case .cancelled: return "Cancelled"
+        }
+    }
+
+    var pulses: Bool {
+        switch self {
+        case .preparing, .uploading, .sending, .queued, .dispatching, .acknowledged, .working:
+            return true
+        case .posted, .waiting, .completed, .failed, .cancelled:
+            return false
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .failed, .cancelled:
+            return HudPalette.statusError
+        case .waiting:
+            return HudPalette.accent
+        case .acknowledged, .working, .completed:
+            return HudPalette.statusOk
+        default:
+            return ScoutInk.muted
+        }
+    }
+
+    static func fromLifecycle(_ state: ConversationLifecycleState) -> UserSendPhase {
+        switch state {
+        case .queued: return .queued
+        case .dispatching: return .dispatching
+        case .acknowledged: return .acknowledged
+        case .working: return .working
+        case .waiting: return .waiting
+        case .completed: return .completed
+        case .failed: return .failed("")
+        case .cancelled, .expired: return .cancelled
+        }
+    }
+}
 
 /// Conversation — the keystone surface. It owns no reduction logic of its own:
 /// it loads a snapshot, then folds the live event stream through the shared
@@ -26,14 +97,33 @@ struct ConversationSurface: View {
     @State private var loadPhase: LoadPhase = .loading
     @State private var composerText = ""
     @State private var isSending = false
+    @State private var pendingAttachments: [ScoutComposerAttachment] = []
+    @State private var selectedPhotoItems: [PhotosPickerItem] = []
+    @State private var showFileImporter = false
+    @State private var composerError: String?
     @State private var showSettings = false
     /// Messages sent from this device that haven't yet appeared in an
     /// authoritative snapshot. They render immediately (optimistic) and are
     /// reconciled out the moment the broker echoes them back.
     @State private var pending: [PendingUserSend] = []
-    /// The post-send refresh loop. Comms conversations get no live session-event
-    /// push, so we poll the snapshot until the reply lands.
-    @State private var replyPoll: Task<Void, Never>?
+    /// Per-message send/dispatch feedback keyed by the optimistic
+    /// `clientMessageId`, kept past broker acknowledgement until the agent reply
+    /// or lifecycle terminal state makes the status obsolete.
+    @State private var sendPhases: [String: UserSendPhase] = [:]
+    @State private var sendFlightIdsByClientMessageId: [String: String] = [:]
+    @State private var clientMessageIdsByFlightId: [String: String] = [:]
+    /// The active send operation, including attachment upload and the bridge RPC.
+    @State private var sendTask: Task<Void, Never>?
+    /// Owns the long-lived snapshot + event-stream loop so manual Retry cannot
+    /// create duplicate stream consumers for the same conversation.
+    @State private var runTask: Task<Void, Never>?
+    /// Broker comms messages arrive as lightweight invalidations, not full
+    /// session events. This task refreshes the snapshot when the bridge reports
+    /// that the broker posted a message in this conversation.
+    @State private var refreshTask: Task<Void, Never>?
+    /// Broker invocation / delivery / flight lifecycle stream. This drives the
+    /// visible "agent picked it up / working" status for a just-sent message.
+    @State private var lifecycleTask: Task<Void, Never>?
     @Environment(HudDictation.self) private var voice
     @State private var micPulse = false
     @FocusState private var composerFocused: Bool
@@ -49,7 +139,13 @@ struct ConversationSurface: View {
     private struct PendingUserSend: Equatable {
         let id: String
         let text: String
+        let attachments: [ScoutComposerAttachment]
         let startedAt: Int
+
+        var signature: String {
+            let names = attachments.map { "\($0.mediaType):\($0.fileName)" }.joined(separator: "|")
+            return "\(text)|\(names)"
+        }
     }
 
     var body: some View {
@@ -60,7 +156,7 @@ struct ConversationSurface: View {
         .background(HudPalette.bg)
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
-        .task(id: conversationId) { await run() }
+        .task(id: conversationId) { restartRun() }
         // Start warming the on-device model the moment you reach the conversation,
         // so Parakeet is hot well before the mic is ever tapped.
         .onAppear {
@@ -72,7 +168,10 @@ struct ConversationSurface: View {
         // cancelled (and restarted from ~38%) on every visit.
         .onDisappear {
             if voice.isListening { voice.cancel() }
-            replyPoll?.cancel()
+            sendTask?.cancel()
+            runTask?.cancel()
+            refreshTask?.cancel()
+            lifecycleTask?.cancel()
             onStatusContextChange(nil)
         }
         .onChange(of: projection.state?.session) { _, _ in publishStatusContext() }
@@ -94,49 +193,92 @@ struct ConversationSurface: View {
     /// surface + hairline border so it reads as a field, growing from one line
     /// to at most three before scrolling internally.
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: HudSpacing.md) {
-            micButton
-
-            TextField(composerPlaceholder, text: $composerText, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...3)
-                .font(HudFont.ui(HudTextSize.sm))
-                .foregroundStyle(HudPalette.ink)
-                .tint(HudPalette.accent)
-                .focused($composerFocused)
-                .onSubmit(send)
-                .padding(.vertical, HudSpacing.xs)
-
-            Button(action: send) {
-                Glyphic.arrow(.top, size: 17)
-                    .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle().fill(canSend ? HudPalette.accent : HudSurface.inset)
-                    )
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            if !pendingAttachments.isEmpty {
+                ComposerAttachmentStrip(attachments: pendingAttachments) { id in
+                    pendingAttachments.removeAll { $0.id == id }
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
+            if let composerError {
+                Text(composerError)
+                    .font(HudFont.mono(HudTextSize.xxs))
+                    .foregroundStyle(HudPalette.statusError)
+                    .lineLimit(2)
+            }
+            HStack(alignment: .bottom, spacing: HudSpacing.md) {
+                micButton
+                attachPhotoButton
+                attachFileButton
+
+                TextField(composerPlaceholder, text: $composerText, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...3)
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(HudPalette.ink)
+                    .tint(HudPalette.accent)
+                    .focused($composerFocused)
+                    .onSubmit(send)
+                    .padding(.vertical, HudSpacing.xs)
+
+                Button(action: send) {
+                    Glyphic.arrow(.top, size: 17)
+                        .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
+                        .frame(width: 28, height: 28)
+                        .background(
+                            Circle().fill(canSend ? HudPalette.accent : HudSurface.inset)
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+            }
+            .padding(.leading, HudSpacing.lg)
+            .padding(.trailing, HudSpacing.sm)
+            .padding(.vertical, HudSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .fill(HudSurface.inset)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                    .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
+                            lineWidth: HudStrokeWidth.standard)
+            )
         }
-        .padding(.leading, HudSpacing.lg)
-        .padding(.trailing, HudSpacing.sm)
-        .padding(.vertical, HudSpacing.sm)
-        .background(
-            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .fill(HudSurface.inset)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
-                        lineWidth: HudStrokeWidth.standard)
-        )
         .padding(.horizontal, HudSpacing.lg)
         .padding(.bottom, HudSpacing.sm)
         .background(HudPalette.bg)
+        .onChange(of: selectedPhotoItems) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await addPhotos(items) }
+        }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            addFiles(result)
+        }
     }
 
     private var canSend: Bool {
-        !composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending
+        (!composerText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingAttachments.isEmpty) && !isSending
+    }
+
+    private var attachPhotoButton: some View {
+        PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
+            Image(systemName: "photo")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 28, height: 28)
+        }
+        .disabled(isSending)
+    }
+
+    private var attachFileButton: some View {
+        Button { showFileImporter = true } label: {
+            Image(systemName: "paperclip")
+                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .foregroundStyle(ScoutInk.muted)
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(.plain)
+        .disabled(isSending)
     }
 
     /// On-device dictation toggle (HudsonKit `HudDictation`: Parakeet via Vox,
@@ -210,6 +352,38 @@ struct ConversationSurface: View {
             composerText = text
         } else {
             composerText += " " + text
+        }
+    }
+
+    @MainActor
+    private func addPhotos(_ items: [PhotosPickerItem]) async {
+        defer { selectedPhotoItems = [] }
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            let type = item.supportedContentTypes.first { $0.conforms(to: .image) }
+            let mediaType = type?.preferredMIMEType ?? "image/jpeg"
+            let ext = type?.preferredFilenameExtension ?? (mediaType == "image/png" ? "png" : "jpg")
+            pendingAttachments.append(
+                ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: "photo-\(pendingAttachments.count + 1).\(ext)")
+            )
+        }
+    }
+
+    private func addFiles(_ result: Result<[URL], Error>) {
+        do {
+            let urls = try result.get()
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                let type = UTType(filenameExtension: url.pathExtension)
+                let mediaType = type?.preferredMIMEType ?? "application/octet-stream"
+                pendingAttachments.append(
+                    ScoutComposerAttachment(data: data, mediaType: mediaType, fileName: url.lastPathComponent)
+                )
+            }
+        } catch {
+            composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
@@ -299,7 +473,7 @@ struct ConversationSurface: View {
                         icon: "exclamationmark.bubble"
                     )
                     HudButton("Retry", icon: "arrow.clockwise", style: .secondary) {
-                        Task { await run() }
+                        restartRun()
                     }
                 }
             case .loaded:
@@ -320,7 +494,12 @@ struct ConversationSurface: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: HudSpacing.xl) {
                         ForEach(turns) { turn in
-                            TurnView(turn: turn, onAnswer: answer, onDecide: decide)
+                            TurnView(
+                                turn: turn,
+                                sendPhase: sendPhase(for: turn),
+                                onAnswer: answer,
+                                onDecide: decide
+                            )
                                 .id(turn.id)
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -378,20 +557,24 @@ struct ConversationSurface: View {
         return (cwd as NSString).lastPathComponent
     }
 
+    private func restartRun() {
+        runTask?.cancel()
+        refreshTask?.cancel()
+        lifecycleTask?.cancel()
+        runTask = Task { await run() }
+        refreshTask = Task { await runRefreshes() }
+        lifecycleTask = Task { await runLifecycleUpdates() }
+    }
+
     private func run() async {
         loadPhase = .loading
         // Recover authoritative state, then fold live events on top — exactly
         // the snapshot-then-stream contract the projection is built around.
         do {
             let snapshot = try await client.snapshot(conversationId: conversationId)
-            var p = ConversationProjection()
-            p.applySnapshot(snapshot)
-            projection = p
-            // A snapshot can already carry an in-flight "working" turn — surface
-            // it as streaming so the badge/working row show before any live event.
-            isStreaming = snapshot.currentTurnId != nil
-            publishStatusContext()
-            loadPhase = .loaded
+            // Use the same merge path as broker invalidations so a snapshot that
+            // arrives after an optimistic send cannot make that send flicker out.
+            applyRefreshed(snapshot)
         } catch {
             // No authoritative snapshot. Surface the failure, but still attach to
             // the live stream so a session that's actively producing can populate.
@@ -400,39 +583,158 @@ struct ConversationSurface: View {
         // Live events flip the badge on only when they actually arrive — a
         // static (already-settled) conversation stays "idle".
         for await event in client.conversationEvents(conversationId: conversationId, sinceSeq: projection.lastAppliedSeq) {
-            isStreaming = true
             var p = projection
             p.apply(event)
             projection = p
+            isStreaming = p.state?.currentTurnId != nil
             publishStatusContext()
         }
         isStreaming = false
         publishStatusContext()
     }
 
-    private func send() {
-        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        composerText = ""
-        isSending = true
+    private func runRefreshes() async {
+        for await _ in client.conversationRefreshes(conversationId: conversationId) {
+            if Task.isCancelled { return }
+            await refreshSnapshot()
+        }
+    }
 
-        // Fold the message into the transcript the instant you hit send. The
-        // broker round-trip (and the snapshot that carries the real record) lands
-        // moments later; until then this optimistic turn stands in for it.
-        let outgoing = PendingUserSend(id: "local-\(UUID().uuidString)", text: text, startedAt: nowMs())
+    private func runLifecycleUpdates() async {
+        for await update in client.conversationLifecycleUpdates(conversationId: conversationId) {
+            if Task.isCancelled { return }
+            applyLifecycleUpdate(update)
+            await refreshSnapshot()
+        }
+    }
+
+    private func refreshSnapshot() async {
+        guard let snap = try? await client.snapshot(conversationId: conversationId) else { return }
+        if Task.isCancelled { return }
+        applyRefreshed(snap)
+    }
+
+    private func send() {
+        guard !isSending else { return }
+        let text = composerText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attachments = pendingAttachments
+        guard !text.isEmpty || !attachments.isEmpty else { return }
+        composerText = ""
+        pendingAttachments = []
+        composerError = nil
+        isSending = true
+        let clientMessageId = "ios-\(UUID().uuidString)"
+        let outgoing = PendingUserSend(id: clientMessageId, text: text, attachments: attachments, startedAt: nowMs())
         pending.append(outgoing)
+        sendPhases[clientMessageId] = attachments.isEmpty ? .sending : .preparing
         insertOptimisticUserTurn(outgoing)
 
-        replyPoll?.cancel()
-        replyPoll = Task {
-            _ = try? await client.send(PromptSpec(conversationId: conversationId, text: text))
-            // Re-enable the composer as soon as the send is acknowledged — the
-            // reply can keep streaming in while you queue the next message.
-            isSending = false
-            // Comms conversations get no live session-event push, so pull fresh
-            // snapshots until the reply (and its "working…" turn) arrive.
-            await pollForReply()
+        sendTask = Task {
+            do {
+                if !attachments.isEmpty {
+                    sendPhases[clientMessageId] = .uploading
+                }
+                let hosted = try await upload(attachments)
+                sendPhases[clientMessageId] = .sending
+                let result = try await client.send(
+                    PromptSpec(
+                        conversationId: conversationId,
+                        text: text,
+                        attachments: hosted,
+                        clientMessageId: clientMessageId
+                    )
+                )
+                recordSendResult(result, clientMessageId: clientMessageId)
+                // Re-enable the composer as soon as the send is acknowledged —
+                // the reply can keep streaming in while you queue the next message.
+                isSending = false
+                // Reconcile the optimistic turn immediately after the write ack.
+                // Later user/agent broker messages arrive through
+                // `conversationRefreshes`, which avoids an open-ended poll loop.
+                await refreshSnapshot()
+            } catch is CancellationError {
+                isSending = false
+            } catch {
+                removeOptimisticSend(clientMessageId)
+                composerText = text
+                pendingAttachments = attachments
+                composerError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                isSending = false
+            }
         }
+    }
+
+    private func upload(_ attachments: [ScoutComposerAttachment]) async throws -> [MessageAttachment]? {
+        guard !attachments.isEmpty else { return nil }
+        var hosted: [MessageAttachment] = []
+        for attachment in attachments {
+            hosted.append(try await client.uploadAttachment(attachment.upload))
+        }
+        return hosted
+    }
+
+    private func recordSendResult(_ result: ControlResult, clientMessageId: String) {
+        if let flightId = result.flightId?.trimmingCharacters(in: .whitespacesAndNewlines), !flightId.isEmpty {
+            sendFlightIdsByClientMessageId[clientMessageId] = flightId
+            clientMessageIdsByFlightId[flightId] = clientMessageId
+        }
+        if let state = result.lifecycleState {
+            sendPhases[clientMessageId] = UserSendPhase.fromLifecycle(state)
+        } else if result.flightId != nil {
+            sendPhases[clientMessageId] = .dispatching
+        } else if result.messageId != nil {
+            sendPhases[clientMessageId] = .posted
+        }
+    }
+
+    private func applyLifecycleUpdate(_ update: ConversationLifecycleUpdate) {
+        guard let clientMessageId = clientMessageId(for: update) else { return }
+        if let flightId = update.flightId?.trimmingCharacters(in: .whitespacesAndNewlines), !flightId.isEmpty {
+            sendFlightIdsByClientMessageId[clientMessageId] = flightId
+            clientMessageIdsByFlightId[flightId] = clientMessageId
+        }
+        if update.state == .failed {
+            sendPhases[clientMessageId] = .failed(update.error ?? update.summary ?? "")
+        } else {
+            sendPhases[clientMessageId] = UserSendPhase.fromLifecycle(update.state)
+        }
+    }
+
+    private func clientMessageId(for update: ConversationLifecycleUpdate) -> String? {
+        if let explicit = update.clientMessageId?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        if let flightId = update.flightId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let clientMessageId = clientMessageIdsByFlightId[flightId] {
+            return clientMessageId
+        }
+        if let messageId = update.messageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let turn = projection.state?.turns.first(where: { $0.id == messageId || $0.clientMessageId == messageId }),
+           let clientMessageId = turn.clientMessageId {
+            return clientMessageId
+        }
+        return nil
+    }
+
+    private func sendPhase(for turn: TurnState) -> UserSendPhase? {
+        guard turn.isUserTurn == true,
+              let clientMessageId = turn.clientMessageId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !clientMessageId.isEmpty
+        else { return nil }
+        return sendPhases[clientMessageId]
+    }
+
+    private func removeOptimisticSend(_ clientMessageId: String) {
+        pending.removeAll { $0.id == clientMessageId }
+        sendPhases.removeValue(forKey: clientMessageId)
+        if let flightId = sendFlightIdsByClientMessageId.removeValue(forKey: clientMessageId) {
+            clientMessageIdsByFlightId.removeValue(forKey: flightId)
+        }
+        guard var state = projection.state else { return }
+        state.turns.removeAll { turn in
+            turn.id == clientMessageId && turn.clientMessageId == clientMessageId
+        }
+        projection = ConversationProjection(state: state, lastAppliedSeq: projection.lastAppliedSeq)
     }
 
     /// Append a not-yet-acknowledged user message to the projection so it renders
@@ -446,31 +748,14 @@ struct ConversationSurface: View {
             id: "\(outgoing.id):body", turnId: outgoing.id,
             type: .text, status: .completed, index: 0, text: outgoing.text
         )
+        let attachmentBlocks = optimisticAttachmentBlocks(for: outgoing)
         s.turns.append(TurnState(
             id: outgoing.id, status: .completed,
-            blocks: [BlockState(block: block, status: .completed)],
-            startedAt: outgoing.startedAt, isUserTurn: true
+            blocks: [BlockState(block: block, status: .completed)] + attachmentBlocks,
+            startedAt: outgoing.startedAt, isUserTurn: true, clientMessageId: outgoing.id
         ))
         projection = ConversationProjection(state: s, lastAppliedSeq: projection.lastAppliedSeq)
         loadPhase = .loaded
-    }
-
-    /// Poll the authoritative snapshot until the agent's reply lands. Stops once
-    /// the newest turn is the agent's and no working turn remains — or after a
-    /// safety deadline so a silent/never-answering send can't poll forever.
-    private func pollForReply() async {
-        let deadline = Date().addingTimeInterval(120)
-        var first = true
-        while !Task.isCancelled && Date() < deadline {
-            if !first { try? await Task.sleep(for: .milliseconds(1200)) }
-            first = false
-            guard let snap = try? await client.snapshot(conversationId: conversationId) else { continue }
-            if Task.isCancelled { return }
-            applyRefreshed(snap)
-            if snap.currentTurnId == nil, let last = snap.turns.last, last.isUserTurn != true {
-                return
-            }
-        }
     }
 
     /// Adopt a fresh snapshot, keeping any still-unacknowledged optimistic turns
@@ -478,12 +763,30 @@ struct ConversationSurface: View {
     /// the broker echo. Only reassigns when the state actually changed, so an
     /// unchanged poll causes no re-render (and no scroll jump).
     private func applyRefreshed(_ snap: SessionState) {
-        let snapUserTexts = Set(
+        let snapClientMessageIds = Set(
             snap.turns
                 .filter { $0.isUserTurn == true }
-                .flatMap { $0.blocks.compactMap { $0.block.text } }
+                .compactMap { $0.clientMessageId?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
         )
-        pending.removeAll { snapUserTexts.contains($0.text) }
+        pending.removeAll { outgoing in
+            if snapClientMessageIds.contains(outgoing.id) { return true }
+            // Compatibility with older bridges that do not yet echo clientMessageId:
+            // only match recent user turns that have no id, so repeated text in the
+            // historical page does not clear the wrong optimistic send.
+            return snap.turns.contains { turn in
+                guard turn.isUserTurn == true,
+                      turn.clientMessageId == nil,
+                      turn.startedAt >= outgoing.startedAt - 10_000
+                else { return false }
+                let text = turn.blocks.compactMap { $0.block.text }.joined(separator: "\n")
+                let names = turn.blocks
+                    .filter { $0.block.type == .file }
+                    .map { "\($0.block.mimeType ?? ""):\($0.block.name ?? "")" }
+                    .joined(separator: "|")
+                return text == outgoing.text || "\(text)|\(names)" == outgoing.signature
+            }
+        }
 
         var merged = snap
         for outgoing in pending {
@@ -493,10 +796,12 @@ struct ConversationSurface: View {
             )
             merged.turns.append(TurnState(
                 id: outgoing.id, status: .completed,
-                blocks: [BlockState(block: block, status: .completed)],
-                startedAt: outgoing.startedAt, isUserTurn: true
+                blocks: [BlockState(block: block, status: .completed)] + optimisticAttachmentBlocks(for: outgoing),
+                startedAt: outgoing.startedAt, isUserTurn: true, clientMessageId: outgoing.id
             ))
         }
+
+        reconcileSendPhases(with: merged)
 
         let candidate = ConversationProjection(state: merged, lastAppliedSeq: projection.lastAppliedSeq)
         if candidate.state != projection.state {
@@ -507,7 +812,49 @@ struct ConversationSurface: View {
         publishStatusContext()
     }
 
+    private func reconcileSendPhases(with state: SessionState) {
+        if let currentTurnId = state.currentTurnId,
+           currentTurnId.hasPrefix("flight:") {
+            let flightId = String(currentTurnId.dropFirst("flight:".count))
+            if let clientMessageId = clientMessageIdsByFlightId[flightId],
+               sendPhases[clientMessageId] != .waiting {
+                sendPhases[clientMessageId] = .working
+            }
+        }
+
+        for clientMessageId in Array(sendPhases.keys) {
+            guard let userIndex = state.turns.firstIndex(where: {
+                $0.isUserTurn == true && $0.clientMessageId == clientMessageId
+            }) else { continue }
+            let laterAgentReply = state.turns.dropFirst(userIndex + 1).contains { turn in
+                turn.isUserTurn != true && !turn.id.hasPrefix("flight:")
+            }
+            if laterAgentReply {
+                sendPhases.removeValue(forKey: clientMessageId)
+                if let flightId = sendFlightIdsByClientMessageId.removeValue(forKey: clientMessageId) {
+                    clientMessageIdsByFlightId.removeValue(forKey: flightId)
+                }
+            }
+        }
+    }
+
     private func nowMs() -> Int { Int(Date().timeIntervalSince1970 * 1000) }
+
+    private func optimisticAttachmentBlocks(for outgoing: PendingUserSend) -> [BlockState] {
+        outgoing.attachments.enumerated().map { index, attachment in
+            let block = Block(
+                id: "\(outgoing.id):attachment:\(attachment.id.uuidString)",
+                turnId: outgoing.id,
+                type: .file,
+                status: .completed,
+                index: index + 1,
+                mimeType: attachment.mediaType,
+                name: attachment.fileName,
+                data: attachment.data.base64EncodedString()
+            )
+            return BlockState(block: block, status: .completed)
+        }
+    }
 
     private func answer(turnId: String, blockId: String, choice: [String]) {
         Task {
@@ -530,6 +877,7 @@ struct ConversationSurface: View {
 
 private struct TurnView: View {
     let turn: TurnState
+    let sendPhase: UserSendPhase?
     let onAnswer: (_ turnId: String, _ blockId: String, _ choice: [String]) -> Void
     let onDecide: (_ turnId: String, _ blockId: String, _ version: Int, _ decision: ActionDecisionSpec.Decision) -> Void
 
@@ -551,6 +899,16 @@ private struct TurnView: View {
             }
             ForEach(turn.blocks, id: \.block.id) { blockState in
                 BlockView(blockState: blockState, isUser: isUser, turnId: turn.id, onAnswer: onAnswer, onDecide: onDecide)
+            }
+            if isUser, let sendPhase {
+                HStack(spacing: HudSpacing.xs) {
+                    HudStatusDot(color: sendPhase.tint, size: 5, pulses: sendPhase.pulses)
+                    Text(sendPhase.label)
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(sendPhase.tint)
+                        .lineLimit(1)
+                }
+                .padding(.top, -HudSpacing.xs)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -586,8 +944,20 @@ private struct BlockView: View {
         case .error:
             textCard(block.message ?? "Error", fill: HudPalette.statusError.opacity(0.10), accent: HudPalette.statusError)
         case .file:
-            textCard(block.name ?? "file", fill: nil)
+            attachmentCard
         }
+    }
+
+    private var attachmentCard: some View {
+        let data = block.data.flatMap { Data(base64Encoded: $0) }
+        let url = block.url ?? (block.data?.hasPrefix("http") == true ? block.data : nil)
+        let attachment = MessageAttachment(
+            id: block.id,
+            mediaType: block.mimeType ?? "application/octet-stream",
+            fileName: block.name,
+            url: url
+        )
+        return MessageAttachmentCard(attachment: attachment, data: data)
     }
 
     /// Plain single-string card — used for error/file blocks where the content

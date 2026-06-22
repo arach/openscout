@@ -22,6 +22,7 @@ export async function runScoutMonitorApp(options: RunScoutMonitorAppOptions): Pr
   }
 
   const renderer = await createCliRenderer();
+  const root = createRoot(renderer);
   let closed = false;
 
   await new Promise<void>((resolve) => {
@@ -30,11 +31,22 @@ export async function runScoutMonitorApp(options: RunScoutMonitorAppOptions): Pr
         return;
       }
       closed = true;
-      renderer.destroy();
+      process.off("SIGINT", close);
+      process.off("SIGTERM", close);
+      try {
+        root.unmount();
+      } finally {
+        renderer.destroy();
+        process.stdin.setRawMode?.(false);
+        process.stdin.pause();
+      }
       resolve();
     };
 
-    createRoot(renderer).render(
+    process.once("SIGINT", close);
+    process.once("SIGTERM", close);
+
+    root.render(
       <ScoutMonitorApp
         currentDirectory={options.currentDirectory}
         channel={options.channel}

@@ -49,6 +49,7 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_oscout-pair._tcp</string>
+		<string>_scout-pair._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
 	<string>Scout uses the camera to scan the pairing QR code shown on your Mac.</string>

@@ -30,6 +30,7 @@ import {
   readScoutBrokerHealth,
   resolveHumanAskSenderName,
   resolveScoutSenderId,
+  scoutConversationIdForChannel,
   sendScoutMessage,
   sendScoutMessageToAgentIds,
   updateScoutWorkItem,
@@ -436,6 +437,16 @@ describe("parseScoutHarness", () => {
       `Unsupported local agent harness "flue". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`,
     );
     expect(parseScoutLocalHarness("pi")).toBe("pi");
+  });
+});
+
+describe("scoutConversationIdForChannel", () => {
+  test("accepts friendly channel names and normalized channel ids", () => {
+    expect(scoutConversationIdForChannel()).toBe("channel.shared");
+    expect(scoutConversationIdForChannel("shared")).toBe("channel.shared");
+    expect(scoutConversationIdForChannel("channel.shared")).toBe("channel.shared");
+    expect(scoutConversationIdForChannel("font studio")).toBe("channel.font-studio");
+    expect(scoutConversationIdForChannel("channel.font-studio")).toBe("channel.font-studio");
   });
 });
 

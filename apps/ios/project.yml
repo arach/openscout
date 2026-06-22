@@ -83,6 +83,7 @@ targets:
               NSIncludesSubdomains: true
         NSBonjourServices:
           - _oscout-pair._tcp
+          - _scout-pair._tcp
         NSLocalNetworkUsageDescription: Scout connects to your Mac over your local network when both devices are nearby.
         NSCameraUsageDescription: Scout uses the camera to scan the pairing QR code shown on your Mac.
     # Sign in with Apple (OSN native auth). Requires the matching capability on

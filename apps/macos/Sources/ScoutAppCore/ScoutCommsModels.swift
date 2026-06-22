@@ -130,6 +130,22 @@ public struct ScoutChannel: Identifiable, Decodable, Sendable, Equatable {
         return uniqueMemberNames(names.isEmpty ? [displayTitle] : names)
     }
 
+    /// True when the operator is NOT a participant — an agent↔agent thread the
+    /// operator is observing rather than part of. Drives the observer-first
+    /// chrome (the "Observing" banner, the "Jump in…" composer). With no
+    /// operator turn, the thread already renders with no accent bubble; the
+    /// accent returns only once the operator jumps in and posts.
+    public var isObserverThread: Bool {
+        let isOperatorName: (String) -> Bool = { $0.caseInsensitiveCompare("Operator") == .orderedSame }
+        if !participants.isEmpty {
+            return !participantDisplayNames.contains(where: isOperatorName)
+        }
+        // Fallback with no explicit participant list: a thread with 2+ agents
+        // and no operator reads as agent↔agent.
+        let peers = participantDisplayNames.filter { !isOperatorName($0) }
+        return peers.count >= 2 && !participantDisplayNames.contains(where: isOperatorName)
+    }
+
     public var ageLabel: String {
         ScoutRelativeTime.format(lastMessageAt)
     }

@@ -123,15 +123,16 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             profile: nil,
             branch: nil,
             model: spec.execution?.model,
-            forceNew: (spec.execution?.session == .new) ? true : nil
+            forceNew: (spec.execution?.session == .new) ? true : nil,
+            seed: spec.seed
         )
         let handle: MobileSessionHandle = try await connection.rpc("mobile/session/create", params: params)
         return SessionInitiationResult(
             ok: true,
             conversationId: handle.session.conversationId,
             agentId: handle.agent.id,
-            flightId: nil,
-            messageId: nil
+            flightId: handle.flightId,
+            messageId: handle.messageId
         )
     }
 
@@ -178,12 +179,66 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         }
     }
 
+    public func conversationRefreshes(conversationId: String) -> AsyncStream<Void> {
+        let upstream = connection.mobileConversationChanges()
+        return AsyncStream { continuation in
+            let task = Task {
+                for await change in upstream {
+                    guard change.conversationId == conversationId else { continue }
+                    continuation.yield(())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
+    public func conversationLifecycleUpdates(conversationId: String) -> AsyncStream<ConversationLifecycleUpdate> {
+        let upstream = connection.mobileConversationChanges()
+        return AsyncStream { continuation in
+            let task = Task {
+                for await change in upstream {
+                    guard change.conversationId == conversationId,
+                          let update = conversationLifecycleUpdate(from: change)
+                    else { continue }
+                    continuation.yield(update)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+
     // MARK: - ControlCapability
 
     public func send(_ prompt: PromptSpec) async throws -> ControlResult {
-        let params = mobilePromptSendParams(prompt, clientMessageId: UUID().uuidString)
+        let params = mobilePromptSendParams(prompt)
         let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
-        return ControlResult(ok: true, turnId: nil, messageId: result.messageId)
+        return ControlResult(
+            ok: true,
+            turnId: nil,
+            messageId: result.messageId,
+            flightId: result.flightId,
+            invocationId: result.invocationId,
+            targetAgentId: result.targetAgentId,
+            lifecycleState: result.lifecycleState.flatMap(ConversationLifecycleState.init(rawValue:)),
+            summary: result.summary
+        )
+    }
+
+    public func uploadAttachment(_ attachment: AttachmentUpload) async throws -> MessageAttachment {
+        let params = MobileAttachmentUploadParams(
+            data: attachment.data.base64EncodedString(),
+            mediaType: attachment.mediaType,
+            fileName: attachment.fileName
+        )
+        let result: MobileAttachmentUploadResult = try await connection.rpc("mobile/attachments/upload", params: params)
+        return MessageAttachment(
+            id: result.id,
+            mediaType: result.mediaType,
+            fileName: result.fileName,
+            url: result.url
+        )
     }
 
     public func answerQuestion(_ answer: QuestionAnswerSpec) async throws -> ControlResult {
@@ -256,12 +311,13 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     }
 
     @discardableResult
-    public func postMessage(conversationId: String, body: String, replyTo: String?) async throws -> String {
+    public func postMessage(conversationId: String, body: String, replyTo: String?, attachments: [MessageAttachment]?, clientMessageId: String?) async throws -> String {
         let params = MobileCommsSendParams(
             conversationId: conversationId,
             body: body,
+            attachments: attachments,
             replyToMessageId: replyTo,
-            clientMessageId: UUID().uuidString
+            clientMessageId: clientMessageId ?? UUID().uuidString
         )
         let result: MobileCommsSendResult = try await connection.rpc("mobile/comms/send", params: params)
         return result.messageId
@@ -290,12 +346,13 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     }
 }
 
-func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String) -> MobileCommsSendParams {
+func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String? = nil) -> MobileCommsSendParams {
     MobileCommsSendParams(
         conversationId: prompt.conversationId,
         body: prompt.text,
+        attachments: prompt.attachments,
         replyToMessageId: nil,
-        clientMessageId: clientMessageId
+        clientMessageId: prompt.clientMessageId ?? clientMessageId ?? UUID().uuidString
     )
 }
 
@@ -322,6 +379,25 @@ private func eventBelongsToConversation(_ event: ScoutEvent, conversationId: Str
     }
 }
 
+private func conversationLifecycleUpdate(from change: MobileConversationChangeEvent) -> ConversationLifecycleUpdate? {
+    guard change.event == "mobile:conversation:lifecycle",
+          let rawState = change.lifecycleState,
+          let state = ConversationLifecycleState(rawValue: rawState)
+    else { return nil }
+
+    return ConversationLifecycleUpdate(
+        conversationId: change.conversationId,
+        messageId: change.messageId,
+        clientMessageId: change.clientMessageId,
+        invocationId: change.invocationId,
+        flightId: change.flightId,
+        targetAgentId: change.targetAgentId,
+        state: state,
+        summary: change.summary,
+        error: change.error
+    )
+}
+
 // MARK: - tRPC param structs (ported from donor RPC.swift)
 
 struct MobileListParams: Codable, Sendable {
@@ -338,6 +414,7 @@ struct MobileCreateSessionParams: Codable, Sendable {
     var branch: String?
     var model: String?
     var forceNew: Bool?
+    var seed: SessionInitiationSpec.Seed?
 }
 
 struct MobileSessionSnapshotParams: Codable, Sendable {
@@ -356,6 +433,11 @@ struct MobileSendMessageParams: Codable, Sendable {
 struct MobileSendMessageResult: Codable, Sendable {
     let conversationId: String
     let messageId: String
+    let flightId: String?
+    let invocationId: String?
+    let targetAgentId: String?
+    let lifecycleState: String?
+    let summary: String?
 }
 
 struct QuestionAnswerParams: Codable, Sendable {
@@ -560,6 +642,8 @@ struct MobileSessionHandleAgent: Codable, Sendable {
 struct MobileSessionHandle: Codable, Sendable {
     let agent: MobileSessionHandleAgent
     let session: MobileSessionHandleConversation
+    let messageId: String?
+    let flightId: String?
 }
 
 // MARK: - Comms params + wire shapes → contract types
@@ -577,6 +661,7 @@ struct MobileCommsMessagesParams: Codable, Sendable {
 struct MobileCommsSendParams: Codable, Sendable {
     let conversationId: String
     let body: String
+    var attachments: [MessageAttachment]?
     var replyToMessageId: String?
     var clientMessageId: String?
 }
@@ -584,6 +669,26 @@ struct MobileCommsSendParams: Codable, Sendable {
 struct MobileCommsSendResult: Codable, Sendable {
     let conversationId: String
     let messageId: String
+    let flightId: String?
+    let invocationId: String?
+    let targetAgentId: String?
+    let lifecycleState: String?
+    let summary: String?
+}
+
+struct MobileAttachmentUploadParams: Codable, Sendable {
+    let data: String
+    let mediaType: String
+    let fileName: String?
+}
+
+struct MobileAttachmentUploadResult: Codable, Sendable {
+    let id: String
+    let url: String
+    let mediaType: String
+    let fileName: String?
+    let size: Int?
+    let expiresAt: Int?
 }
 
 struct MobileCommsMarkReadParams: Codable, Sendable {
@@ -637,6 +742,8 @@ struct MobileCommsMessage: Codable, Sendable {
     let createdAt: Int
     let replyToMessageId: String?
     let isOperator: Bool?
+    let attachments: [MessageAttachment]?
+    let clientMessageId: String?
 
     func toMessage() -> CommsMessage {
         CommsMessage(
@@ -648,7 +755,9 @@ struct MobileCommsMessage: Codable, Sendable {
             body: body,
             createdAt: Date(timeIntervalSince1970: Double(scoutEpochMilliseconds(createdAt)) / 1000.0),
             replyToMessageId: replyToMessageId,
-            isOperator: isOperator ?? (actorId == "operator")
+            isOperator: isOperator ?? (actorId == "operator"),
+            attachments: attachments ?? [],
+            clientMessageId: clientMessageId
         )
     }
 }

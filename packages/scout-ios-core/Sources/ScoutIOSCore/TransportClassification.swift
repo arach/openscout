@@ -76,6 +76,10 @@ public enum BridgeRoutePreferences {
         userDefaults.bool(forKey: openScoutNetworkUserDefaultsKey)
     }
 
+    public static func hasExplicitOpenScoutNetworkRoutingPreference(userDefaults: UserDefaults = .standard) -> Bool {
+        userDefaults.object(forKey: openScoutNetworkUserDefaultsKey) != nil
+    }
+
     public static func setOpenScoutNetworkRoutingEnabled(_ enabled: Bool, userDefaults: UserDefaults = .standard) {
         userDefaults.set(enabled, forKey: openScoutNetworkUserDefaultsKey)
     }
@@ -218,6 +222,20 @@ func orderedRelayCandidates(
         userDefaults: userDefaults
     )
     let candidates = relayURLsIncludingInsecureLocalFallbacks(allowed)
+    guard let primary = candidates.first else { return [] }
+    return deduplicatedRelayURLs(primary: primary, fallbacks: Array(candidates.dropFirst()))
+}
+
+func orderedPairingRelayCandidates(
+    discoveredRelayURLs: [String],
+    payloadRelayURLs: [String],
+    userDefaults: UserDefaults = .standard
+) -> [String] {
+    let allowedDiscovered = relayURLsAllowedByRouteSettings(
+        discoveredRelayURLs,
+        userDefaults: userDefaults
+    )
+    let candidates = relayURLsIncludingInsecureLocalFallbacks(allowedDiscovered + payloadRelayURLs)
     guard let primary = candidates.first else { return [] }
     return deduplicatedRelayURLs(primary: primary, fallbacks: Array(candidates.dropFirst()))
 }

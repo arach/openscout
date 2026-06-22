@@ -95,7 +95,8 @@ final class BridgeBrokerClientTests: XCTestCase {
         let spec = SessionInitiationSpec(
             target: .init(projectPath: "/Users/x/dev/openscout"),
             execution: .init(harness: "claude", model: "opus", session: .new),
-            agent: .init(name: "vox")
+            agent: .init(name: "vox"),
+            seed: .init(instructions: "check status")
         )
         let params = MobileCreateSessionParams(
             workspaceId: spec.target?.projectPath ?? "",
@@ -103,13 +104,19 @@ final class BridgeBrokerClientTests: XCTestCase {
             agentName: spec.agent?.name,
             worktree: nil, profile: nil, branch: nil,
             model: spec.execution?.model,
-            forceNew: (spec.execution?.session == .new) ? true : nil
+            forceNew: (spec.execution?.session == .new) ? true : nil,
+            seed: spec.seed
         )
         XCTAssertEqual(params.workspaceId, "/Users/x/dev/openscout")
         XCTAssertEqual(params.harness, "claude")
         XCTAssertEqual(params.model, "opus")
         XCTAssertEqual(params.agentName, "vox")
         XCTAssertEqual(params.forceNew, true)
+
+        let data = try JSONEncoder().encode(params)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let seed = json["seed"] as! [String: Any]
+        XCTAssertEqual(seed["instructions"] as? String, "check status")
     }
 
     func testPromptSendKeepsOpaqueConversationIdOutOfAgentTarget() throws {
@@ -127,5 +134,20 @@ final class BridgeBrokerClientTests: XCTestCase {
         XCTAssertNil(json["agentId"])
         XCTAssertEqual(json["body"] as? String, "continue")
         XCTAssertEqual(json["clientMessageId"] as? String, "client-1")
+    }
+
+    func testPromptSendPrefersCallerClientMessageId() throws {
+        let params = mobilePromptSendParams(
+            PromptSpec(
+                conversationId: "c.1",
+                text: "again",
+                clientMessageId: "ios-client-1"
+            ),
+            clientMessageId: "fallback-client-1"
+        )
+        let data = try JSONEncoder().encode(params)
+        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(json["clientMessageId"] as? String, "ios-client-1")
     }
 }

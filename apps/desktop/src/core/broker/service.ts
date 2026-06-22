@@ -496,8 +496,33 @@ export type ScoutDirectMessageResult = {
 export type ScoutWatchOptions = {
   channel?: string;
   conversationId?: string;
+  allConversations?: boolean;
   signal?: AbortSignal;
   onMessage: (message: ScoutBrokerMessageRecord) => void;
+  onLifecycle?: (lifecycle: ScoutBrokerConversationLifecycleRecord) => void;
+};
+
+export type ScoutBrokerConversationLifecycleState =
+  | "queued"
+  | "dispatching"
+  | "acknowledged"
+  | "working"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export type ScoutBrokerConversationLifecycleRecord = {
+  conversationId: string;
+  messageId?: string | null;
+  clientMessageId?: string | null;
+  invocationId?: string | null;
+  flightId?: string | null;
+  targetAgentId?: string | null;
+  state: ScoutBrokerConversationLifecycleState;
+  summary?: string | null;
+  error?: string | null;
 };
 
 export type ScoutWhoRegistrationKind = "broker" | "configured" | "discovered";
@@ -683,6 +708,14 @@ function metadataString(
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+function clientMessageMetadata(
+  clientMessageId: string | null | undefined,
+): Record<string, string> {
+  const normalized =
+    typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+  return normalized ? { clientMessageId: normalized } : {};
 }
 
 function metadataStringList(
@@ -1587,10 +1620,12 @@ export async function requireScoutBrokerContext(
 
 export function scoutConversationIdForChannel(channel?: string): string {
   const normalizedChannel = channel?.trim() || "shared";
-  if (normalizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
-  if (normalizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
-  if (normalizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
-  return `channel.${sanitizeConversationSegment(normalizedChannel)}`;
+  const sanitizedChannel = sanitizeConversationSegment(normalizedChannel);
+  if (sanitizedChannel.startsWith("channel.")) return sanitizedChannel;
+  if (sanitizedChannel === "voice") return BROKER_VOICE_CHANNEL_ID;
+  if (sanitizedChannel === "system") return BROKER_SYSTEM_CHANNEL_ID;
+  if (sanitizedChannel === "shared") return BROKER_SHARED_CHANNEL_ID;
+  return `channel.${sanitizedChannel}`;
 }
 
 function buildMentionCandidate(
@@ -2871,6 +2906,8 @@ export async function sendScoutMessage(input: {
   targetRef?: string;
   channel?: string;
   shouldSpeak?: boolean;
+  attachments?: OutgoingAttachmentInput[];
+  clientMessageId?: string | null;
   createdAtMs?: number;
   executionHarness?: AgentHarness;
   currentDirectory?: string;
@@ -2924,6 +2961,7 @@ export async function sendScoutMessage(input: {
       target,
       targetLabel: renderedTarget,
       body: input.body,
+      attachments: normalizeOutgoingAttachments(input.attachments),
       intent: deliveryIntent,
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
@@ -2936,6 +2974,7 @@ export async function sendScoutMessage(input: {
       ensureAwake: wake ? true : undefined,
       messageMetadata: {
         source,
+        ...clientMessageMetadata(input.clientMessageId),
         ...(wake ? { wake } : {}),
       },
       invocationMetadata: wakeInvocationMetadata,
@@ -2985,6 +3024,7 @@ export async function sendScoutMessage(input: {
       },
       targetLabel,
       body: input.body,
+      attachments: normalizeOutgoingAttachments(input.attachments),
       intent: deliveryIntent,
       channel: input.channel,
       speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(input.body) : undefined,
@@ -2992,6 +3032,7 @@ export async function sendScoutMessage(input: {
       ensureAwake: wake ? true : undefined,
       messageMetadata: {
         source,
+        ...clientMessageMetadata(input.clientMessageId),
         ...(wake ? { wake } : {}),
       },
       invocationMetadata: wakeInvocationMetadata,
@@ -3107,6 +3148,7 @@ export async function sendScoutMessage(input: {
     originNodeId: broker.node.id,
     class: conversation.kind === "system" ? "system" : "agent",
     body: input.body,
+    attachments: normalizeOutgoingAttachments(input.attachments),
     mentions: mentionResolution.resolved
       .filter((target) => validTargets.includes(target.agentId))
       .map((target) => ({ actorId: target.agentId, label: target.label })),
@@ -3123,6 +3165,7 @@ export async function sendScoutMessage(input: {
       relayChannel: relayChannelMetadata(conversation, input.channel),
       relayTargetIds: validTargets,
       relayMessageId: messageId,
+      ...clientMessageMetadata(input.clientMessageId),
       returnAddress,
     },
   });
@@ -3183,6 +3226,7 @@ export async function replyToScoutMessage(input: {
   replyToMessageId: string;
   shouldSpeak?: boolean;
   attachments?: OutgoingAttachmentInput[];
+  clientMessageId?: string | null;
   createdAtMs?: number;
   currentDirectory?: string;
   source?: string;
@@ -3271,6 +3315,7 @@ export async function replyToScoutMessage(input: {
       source,
       relayChannel: relayChannelMetadata(conversation),
       relayMessageId: messageId,
+      ...clientMessageMetadata(input.clientMessageId),
       returnAddress,
     },
   } satisfies MessageRecord);
@@ -3580,6 +3625,7 @@ export async function attachScoutManagedLocalSession(input: {
 export async function sendScoutDirectMessage(input: {
   agentId: string;
   body: string;
+  attachments?: OutgoingAttachmentInput[];
   currentDirectory?: string;
   clientMessageId?: string | null;
   replyToMessageId?: string | null;
@@ -3618,6 +3664,7 @@ export async function sendScoutDirectMessage(input: {
     },
     targetAgentId: input.agentId,
     body: input.body.trim(),
+    attachments: normalizeOutgoingAttachments(input.attachments),
     intent: "consult",
     replyToMessageId: input.replyToMessageId ?? undefined,
     execution: {
@@ -3630,7 +3677,7 @@ export async function sendScoutDirectMessage(input: {
       destinationKind: "direct",
       destinationId: input.agentId,
       referenceMessageIds: input.referenceMessageIds ?? [],
-      clientMessageId: input.clientMessageId ?? null,
+      ...clientMessageMetadata(input.clientMessageId),
       ...(input.deviceId ? { deviceId: input.deviceId } : {}),
     },
     invocationMetadata: {
@@ -4560,7 +4607,12 @@ export async function watchScoutMessages(
   options: ScoutWatchOptions,
 ): Promise<void> {
   const broker = await requireScoutBrokerContext();
-  const conversationId = options.conversationId ?? scoutConversationIdForChannel(options.channel);
+  const conversationId = options.conversationId ?? (
+    options.allConversations ? undefined : scoutConversationIdForChannel(options.channel)
+  );
+  if (!conversationId && !options.allConversations) {
+    throw new Error(`Channel "${options.channel?.trim() || "shared"}" does not have a chat yet.`);
+  }
   const controller = new AbortController();
   const abort = () => controller.abort();
 
@@ -4585,8 +4637,72 @@ export async function watchScoutMessages(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const messagesById = new Map(
+      Object.values(broker.snapshot.messages ?? {}).map((message) => [
+        message.id,
+        message,
+      ]),
+    );
+    const invocationsById = new Map(
+      Object.values(broker.snapshot.invocations ?? {}).map((invocation) => [
+        invocation.id,
+        invocation,
+      ]),
+    );
 
-    const handleBlock = (block: string) => {
+    const clientMessageIdFor = (
+      message: ScoutBrokerMessageRecord | undefined,
+    ): string | null => {
+      const raw = message?.metadata?.clientMessageId;
+      return typeof raw === "string" && raw.trim().length > 0
+        ? raw.trim()
+        : null;
+    };
+
+    const lifecycleStateForFlight = (
+      state: string | undefined,
+    ): ScoutBrokerConversationLifecycleState | null => {
+      switch (state) {
+        case "queued":
+          return "queued";
+        case "waking":
+          return "dispatching";
+        case "running":
+          return "working";
+        case "waiting":
+          return "waiting";
+        case "completed":
+          return "completed";
+        case "failed":
+          return "failed";
+        case "cancelled":
+          return "cancelled";
+        default:
+          return null;
+      }
+    };
+
+    const maybeRefreshMaps = async () => {
+      const latest = await loadScoutBrokerContext().catch(() => null);
+      if (!latest) return;
+      for (const message of Object.values(latest.snapshot.messages ?? {})) {
+        messagesById.set(message.id, message);
+      }
+      for (const invocation of Object.values(
+        latest.snapshot.invocations ?? {},
+      )) {
+        invocationsById.set(invocation.id, invocation);
+      }
+    };
+
+    const emitLifecycle = (
+      record: ScoutBrokerConversationLifecycleRecord,
+    ) => {
+      if (conversationId && record.conversationId !== conversationId) return;
+      options.onLifecycle?.(record);
+    };
+
+    const handleBlock = async (block: string) => {
       const trimmed = block.trim();
       if (!trimmed) return;
       let eventName = "";
@@ -4597,18 +4713,109 @@ export async function watchScoutMessages(
         if (line.startsWith("data:"))
           dataLines.push(line.slice("data:".length).trim());
       }
-      if (eventName !== "message.posted" || dataLines.length === 0) return;
+      if (dataLines.length === 0) return;
       let event: ControlEvent;
       try {
         event = JSON.parse(dataLines.join("\n")) as ControlEvent;
       } catch {
         return;
       }
-      const message = (
-        event as Extract<ControlEvent, { kind: "message.posted" }>
-      ).payload?.message as ScoutBrokerMessageRecord | undefined;
-      if (!message || message.conversationId !== conversationId) return;
-      options.onMessage(message);
+      if (event.kind === "message.posted" || eventName === "message.posted") {
+        const message = (
+          event as Extract<ControlEvent, { kind: "message.posted" }>
+        ).payload?.message as ScoutBrokerMessageRecord | undefined;
+        if (!message) return;
+        messagesById.set(message.id, message);
+        if (conversationId && message.conversationId !== conversationId) return;
+        options.onMessage(message);
+        return;
+      }
+
+      if (!options.onLifecycle) return;
+
+      if (event.kind === "invocation.requested") {
+        const invocation = (
+          event as Extract<ControlEvent, { kind: "invocation.requested" }>
+        ).payload?.invocation;
+        if (!invocation?.conversationId) return;
+        invocationsById.set(invocation.id, invocation);
+        const message = invocation.messageId
+          ? messagesById.get(invocation.messageId)
+          : undefined;
+        emitLifecycle({
+          conversationId: invocation.conversationId,
+          messageId: invocation.messageId ?? null,
+          clientMessageId: clientMessageIdFor(message),
+          invocationId: invocation.id,
+          targetAgentId: invocation.targetAgentId,
+          state: invocation.ensureAwake ? "dispatching" : "queued",
+        });
+        return;
+      }
+
+      if (event.kind === "flight.updated") {
+        const flight = (
+          event as Extract<ControlEvent, { kind: "flight.updated" }>
+        ).payload?.flight;
+        if (!flight) return;
+        let invocation = invocationsById.get(flight.invocationId);
+        if (!invocation) {
+          await maybeRefreshMaps();
+          invocation = invocationsById.get(flight.invocationId);
+        }
+        if (!invocation?.conversationId) return;
+        const message = invocation.messageId
+          ? messagesById.get(invocation.messageId)
+          : undefined;
+        emitLifecycle({
+          conversationId: invocation.conversationId,
+          messageId: invocation.messageId ?? null,
+          clientMessageId: clientMessageIdFor(message),
+          invocationId: invocation.id,
+          flightId: flight.id,
+          targetAgentId: flight.targetAgentId,
+          state: lifecycleStateForFlight(flight.state) ?? "dispatching",
+          summary: flight.summary ?? null,
+          error: flight.error ?? null,
+        });
+        return;
+      }
+
+      if (event.kind === "delivery.state.changed") {
+        const delivery = (
+          event as Extract<ControlEvent, { kind: "delivery.state.changed" }>
+        ).payload?.delivery;
+        if (!delivery) return;
+        if (
+          delivery.status !== "peer_acked" &&
+          delivery.status !== "acknowledged" &&
+          delivery.status !== "running"
+        ) return;
+        let invocation = delivery.invocationId
+          ? invocationsById.get(delivery.invocationId)
+          : undefined;
+        if (delivery.invocationId && !invocation) {
+          await maybeRefreshMaps();
+          invocation = invocationsById.get(delivery.invocationId);
+        }
+        const message = delivery.messageId
+          ? messagesById.get(delivery.messageId)
+          : undefined;
+        const lifecycleConversationId = invocation?.conversationId ?? message?.conversationId;
+        if (!lifecycleConversationId) return;
+        emitLifecycle({
+          conversationId: lifecycleConversationId,
+          messageId: delivery.messageId ?? invocation?.messageId ?? null,
+          clientMessageId: clientMessageIdFor(message),
+          invocationId: delivery.invocationId ?? invocation?.id ?? null,
+          flightId:
+            typeof delivery.metadata?.flightId === "string"
+              ? delivery.metadata.flightId
+              : null,
+          targetAgentId: delivery.targetId,
+          state: delivery.status === "running" ? "working" : "acknowledged",
+        });
+      }
     };
 
     while (true) {
@@ -4620,7 +4827,7 @@ export async function watchScoutMessages(
         if (delimiterIndex === -1) break;
         const block = buffer.slice(0, delimiterIndex);
         buffer = buffer.slice(delimiterIndex + 2);
-        handleBlock(block);
+        await handleBlock(block);
       }
     }
   } catch (error) {

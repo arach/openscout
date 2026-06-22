@@ -138,6 +138,8 @@
 
 .ml-selection-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2xs);
 }
 
@@ -167,6 +169,27 @@
 
 .ml-selection-btn--primary:hover {
   background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+.ml-selection-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-md);
+  text-align: right;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ml-selection-status--ok {
+  color: var(--accent);
+}
+
+.ml-selection-status--error {
+  color: var(--red);
 }
 
 /* Row, selected state, spec list, and caret styles now live in rail-row.css.

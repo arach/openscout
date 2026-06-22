@@ -43,6 +43,11 @@ import { handleRPC, type BridgeServerOptions } from "./server.ts";
 import { bridgeRouter, lookupMobileInboxItemForEvent } from "./router.ts";
 import { getTailFanout } from "./tail-fanout.ts";
 import {
+  watchScoutMessages,
+  type ScoutBrokerConversationLifecycleRecord,
+  type ScoutBrokerMessageRecord,
+} from "../../../broker/service.ts";
+import {
   SecureTransport,
   type SocketLike,
   type KeyPair,
@@ -73,6 +78,8 @@ interface SocketState {
   unsub?: () => void;
   /** Unsubscribe from broker tail-fanout (machine-wide harness firehose). */
   tailUnsub?: () => void;
+  /** Abort the broker message invalidation watch for this socket. */
+  brokerWatchAbort?: AbortController;
   /** Noise encryption transport (when secure=true). */
   transport?: SecureTransport;
   /** Short device ID derived from the remote peer's public key. */
@@ -113,6 +120,34 @@ function resolveCurrentDirectory(): string {
 }
 
 let loggedMissingApnsCredentials = false;
+
+function mobileConversationChangedEvent(message: ScoutBrokerMessageRecord) {
+  const rawClientMessageId = message.metadata?.clientMessageId;
+  const clientMessageId = typeof rawClientMessageId === "string" && rawClientMessageId.trim().length > 0
+    ? rawClientMessageId.trim()
+    : null;
+  return {
+    event: "mobile:conversation:changed" as const,
+    conversationId: message.conversationId,
+    messageId: message.id,
+    clientMessageId,
+  };
+}
+
+function mobileConversationLifecycleEvent(lifecycle: ScoutBrokerConversationLifecycleRecord) {
+  return {
+    event: "mobile:conversation:lifecycle" as const,
+    conversationId: lifecycle.conversationId,
+    messageId: lifecycle.messageId ?? null,
+    clientMessageId: lifecycle.clientMessageId ?? null,
+    invocationId: lifecycle.invocationId ?? null,
+    flightId: lifecycle.flightId ?? null,
+    targetAgentId: lifecycle.targetAgentId ?? null,
+    lifecycleState: lifecycle.state,
+    summary: lifecycle.summary ?? null,
+    error: lifecycle.error ?? null,
+  };
+}
 
 async function sendMobileInboxPushNotification(item: {
   id: string;
@@ -567,6 +602,27 @@ export function startBridgeServerTRPC(options: {
     state.tailUnsub = getTailFanout().subscribe((tailEvent) => {
       sendEvent(JSON.stringify(tailEvent));
     });
+
+    state.brokerWatchAbort?.abort();
+    const brokerWatchAbort = new AbortController();
+    state.brokerWatchAbort = brokerWatchAbort;
+    void watchScoutMessages({
+      allConversations: true,
+      signal: brokerWatchAbort.signal,
+      onMessage(message) {
+        sendEvent(JSON.stringify(mobileConversationChangedEvent(message)));
+      },
+      onLifecycle(lifecycle) {
+        sendEvent(JSON.stringify(mobileConversationLifecycleEvent(lifecycle)));
+      },
+    }).catch((error) => {
+      if (brokerWatchAbort.signal.aborted) return;
+      log.warn(
+        "broker",
+        "Broker message invalidation stream ended unexpectedly",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -671,6 +727,7 @@ export function startBridgeServerTRPC(options: {
               onClose: () => {
                 state.unsub?.();
                 state.tailUnsub?.();
+                state.brokerWatchAbort?.abort();
                 state.abortController.abort();
               },
             },
@@ -716,6 +773,7 @@ export function startBridgeServerTRPC(options: {
 
         state.unsub?.();
         state.tailUnsub?.();
+        state.brokerWatchAbort?.abort();
         state.abortController.abort();
         // Abort all per-request controllers (subscriptions, etc.).
         for (const ctrl of state.abortControllers.values()) {

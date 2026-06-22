@@ -15,6 +15,11 @@ import { bridgeRouter } from "./router.ts";
 import { callTRPCProcedure, getErrorShape, TRPCError } from "@trpc/server";
 import { log } from "./log.ts";
 import {
+  watchScoutMessages,
+  type ScoutBrokerConversationLifecycleRecord,
+  type ScoutBrokerMessageRecord,
+} from "../../../broker/service.ts";
+import {
   SecureTransport,
   type SocketLike,
   type KeyPair,
@@ -79,6 +84,34 @@ const MAX_BACKOFF_MS = 30_000;
 const BACKOFF_MULTIPLIER = 2;
 const LEGACY_CLIENT_ID = "__legacy__";
 
+function mobileConversationChangedEvent(message: ScoutBrokerMessageRecord) {
+  const rawClientMessageId = message.metadata?.clientMessageId;
+  const clientMessageId = typeof rawClientMessageId === "string" && rawClientMessageId.trim().length > 0
+    ? rawClientMessageId.trim()
+    : null;
+  return {
+    event: "mobile:conversation:changed" as const,
+    conversationId: message.conversationId,
+    messageId: message.id,
+    clientMessageId,
+  };
+}
+
+function mobileConversationLifecycleEvent(lifecycle: ScoutBrokerConversationLifecycleRecord) {
+  return {
+    event: "mobile:conversation:lifecycle" as const,
+    conversationId: lifecycle.conversationId,
+    messageId: lifecycle.messageId ?? null,
+    clientMessageId: lifecycle.clientMessageId ?? null,
+    invocationId: lifecycle.invocationId ?? null,
+    flightId: lifecycle.flightId ?? null,
+    targetAgentId: lifecycle.targetAgentId ?? null,
+    lifecycleState: lifecycle.state,
+    summary: lifecycle.summary ?? null,
+    error: lifecycle.error ?? null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -101,6 +134,7 @@ export function connectToRelay(
 
   let ws: WebSocket | null = null;
   let eventUnsub: (() => void) | null = null;
+  let brokerWatchAbort: AbortController | null = null;
   let stopped = false;
   let backoff = INITIAL_BACKOFF_MS;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -214,6 +248,7 @@ export function connectToRelay(
           peer.trustedPeer = readyInfo.wasTrustedPeer;
           replaceOlderPeerForSameDevice(peer);
           ensureBridgeEventSubscription();
+          ensureBrokerMessageSubscription();
           console.log(
             `[relay-client] secure handshake complete (peer: ${pubHex.slice(0, 12)}..., trusted: ${peer.trustedPeer}, device: ${peer.deviceId}, client: ${clientId})`,
           );
@@ -266,13 +301,13 @@ export function connectToRelay(
       return;
     }
     securePeers.delete(clientId);
-    maybeReleaseBridgeEventSubscription();
+    maybeReleaseMobileSubscriptions();
   }
 
   function handlePlaintextRelayMessage(envelope: RelayEnvelope | null, raw: unknown): void {
     if (envelope?.event === "close") {
       plaintextClients.delete(envelope.clientId);
-      maybeReleaseBridgeEventSubscription();
+      maybeReleaseMobileSubscriptions();
       return;
     }
 
@@ -283,6 +318,7 @@ export function connectToRelay(
     const isNewClient = !plaintextClients.has(clientId);
     plaintextClients.add(clientId);
     ensureBridgeEventSubscription();
+    ensureBrokerMessageSubscription();
 
     if (isNewClient) {
       sendExistingSessions((json) => sendRelayMessage(clientId, json));
@@ -300,28 +336,59 @@ export function connectToRelay(
         event: sequenced.event,
       });
 
-      if (secure) {
-        for (const peer of securePeers.values()) {
-          if (peer.transport.isReady()) {
-            peer.transport.send(json);
-          }
-        }
-        return;
-      }
-
-      for (const clientId of plaintextClients) {
-        sendRelayMessage(clientId, json);
-      }
+      broadcastToMobileClients(json);
     });
   }
 
-  function maybeReleaseBridgeEventSubscription(): void {
+  function ensureBrokerMessageSubscription(): void {
+    if (brokerWatchAbort) return;
+
+    const abort = new AbortController();
+    brokerWatchAbort = abort;
+    void watchScoutMessages({
+      allConversations: true,
+      signal: abort.signal,
+      onMessage(message) {
+        broadcastToMobileClients(JSON.stringify(mobileConversationChangedEvent(message)));
+      },
+      onLifecycle(lifecycle) {
+        broadcastToMobileClients(JSON.stringify(mobileConversationLifecycleEvent(lifecycle)));
+      },
+    }).catch((error) => {
+      if (abort.signal.aborted) return;
+      log.warn(
+        "broker",
+        "Broker message invalidation stream ended unexpectedly",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      if (brokerWatchAbort === abort) brokerWatchAbort = null;
+    });
+  }
+
+  function maybeReleaseMobileSubscriptions(): void {
     if (secure ? securePeers.size > 0 : plaintextClients.size > 0) {
       return;
     }
 
     eventUnsub?.();
     eventUnsub = null;
+    brokerWatchAbort?.abort();
+    brokerWatchAbort = null;
+  }
+
+  function broadcastToMobileClients(json: string): void {
+    if (secure) {
+      for (const peer of securePeers.values()) {
+        if (peer.transport.isReady()) {
+          peer.transport.send(json);
+        }
+      }
+      return;
+    }
+
+    for (const clientId of plaintextClients) {
+      sendRelayMessage(clientId, json);
+    }
   }
 
   function sendExistingSessions(send: (json: string) => void): void {
@@ -466,6 +533,8 @@ export function connectToRelay(
   function cleanup(): void {
     eventUnsub?.();
     eventUnsub = null;
+    brokerWatchAbort?.abort();
+    brokerWatchAbort = null;
     securePeers.clear();
     plaintextClients.clear();
     ws = null;

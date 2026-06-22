@@ -369,7 +369,7 @@ export class CodexAppServerExitError extends Error {
     signal: NodeJS.Signals | null;
     reason?: string | null;
   }) {
-    const exitKind: CodexAppServerExitKind = input.exitKind ?? (input.signal === "SIGTERM"
+    const exitKind: CodexAppServerExitKind = input.exitKind ?? (input.signal === "SIGTERM" || input.exitCode === 143
       ? "external_sigterm"
       : "unexpected_exit");
     super(codexAppServerExitMessage({
