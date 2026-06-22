@@ -1030,41 +1030,9 @@ private struct ScoutTailKindGlyph: View {
     }
 }
 
-/// A small chip carrying the event kind, with TWO treatments so color does real
-/// work instead of tinting everything: the three *signal* kinds — USER (accent),
-/// ASST (ok), TOOL (warn) — render as crisp colored tags (tone text on a tone
-/// wash, with a faint same-hue edge for definition); the machine bulk
-/// (OUT/SYS/EVT) renders as a recessed neutral tag (inset fill, grey text, no
-/// hue). The eye lands on the colored signal; the noise reads as quiet chrome.
-private struct ScoutTailKindChip: View {
-    let kind: ScoutTailEventKind
-
-    var body: some View {
-        Text(kind.label)
-            .font(ScoutTailFont.mono(HudTextSize.micro, weight: .bold))
-            .tracking(0.5)
-            .foregroundStyle(textColor)
-            .padding(.horizontal, HudSpacing.xs)
-            .padding(.vertical, 1)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .fill(fillColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .strokeBorder(borderColor, lineWidth: HudStrokeWidth.thin)
-            )
-            .fixedSize()
-    }
-
-    private var tone: Color { ScoutTailKindTone.color(for: kind) }
-    private var isSignal: Bool { ScoutTailKindTone.isSignal(kind) }
-
-    private var textColor: Color { tone }
-    private var fillColor: Color { isSignal ? tone.opacity(0.16) : ScoutSurface.inset }
-    private var borderColor: Color { isSignal ? tone.opacity(0.30) : ScoutDesign.hairline }
-}
-
+/// Tone mapping for the glyph-only KIND marker. Signal kinds earn distinct
+/// hues; machine/noise kinds stay neutral so the firehose does not become a
+/// wall of equally bright marks.
 enum ScoutTailKindTone {
     /// Signal kinds earn a hue; machine output stays neutral. OUT (the highest-
     /// volume kind) is deliberately *not* blue — that blue belongs to the
@@ -1265,15 +1233,16 @@ private enum ScoutTailColumns {
     /// One identity column replaces the old HARNESS + AGENT pair: it always
     /// resolves to *something* (agent → project → source·pid), so the firehose
     /// never shows two empty columns of dead width.
-    static let identityDefault: CGFloat = 156
-    /// The colored KIND chip sits where the eye scans the event type.
-    static let kindDefault: CGFloat = 50
+    static let identityDefault: CGFloat = 168
+    /// KIND is now a single glyph (no word-label), so the column is narrow — it
+    /// holds the mark, not a chip; the eye reads kind by shape + hue.
+    static let kindDefault: CGFloat = 28
 
     // Drag-resize clamps. ACTION is flexible and absorbs whatever the three
     // fixed columns don't take, so only these need bounds.
     static let timeRange: ClosedRange<CGFloat> = 44...120
     static let identityRange: ClosedRange<CGFloat> = 88...340
-    static let kindRange: ClosedRange<CGFloat> = 40...110
+    static let kindRange: ClosedRange<CGFloat> = 22...64
 }
 
 /// Live column widths, shared by the header (which mutates them via drag
