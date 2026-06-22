@@ -5125,6 +5125,32 @@ export async function createOpenScoutWebServer(
           202,
         );
   });
+  app.get("/api/notifications", (c) => {
+    const rawType = c.req.query("type") ?? "";
+    const requestedTypes = new Set(
+      rawType
+        .split(",")
+        .map((type) => type.trim())
+        .filter(Boolean),
+    );
+    const includePairingRequests =
+      requestedTypes.size === 0 || requestedTypes.has("pairing_request");
+    const notifications = includePairingRequests
+      ? pendingPairRequests.list()
+        .filter((request) => request.status === "pending")
+        .map((request) => ({
+          id: `pairing_request:${request.token}`,
+          type: "pairing_request",
+          title: `${request.requesterLabel?.trim() || "A device"} wants to pair`,
+          body: `On your network${request.requesterIp ? ` · ${request.requesterIp}` : ""}.`,
+          createdAt: request.createdAt,
+          updatedAt: request.updatedAt,
+          expiresAt: request.expiresAt,
+          data: { request },
+        }))
+      : [];
+    return c.json({ notifications });
+  });
   app.get("/api/pairing/requests", (c) =>
     c.json({ requests: pendingPairRequests.list() }),
   );
