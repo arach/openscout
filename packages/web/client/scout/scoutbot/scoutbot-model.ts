@@ -1,15 +1,15 @@
 import type {
-  VoxLiveHandle,
-  VoxSpeakResult,
-  VoxSpeechTimingCueRequest,
-} from "../../lib/vox.ts";
+  ScoutVoiceLiveHandle,
+  ScoutSpeechResult,
+  ScoutSpeechTimingCueRequest,
+} from "../../lib/scout-voice.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
 import type { VoiceFxParams } from "@voxd/client/fx";
 
 export const DEFAULT_SCOUTBOT_VOICE_PRESET_ID = "chill-dispatcher";
 export const SCOUTBOT_BRIEF_CUE_EARLY_MS = 100;
-export const VOX_LIVE_STOP_TIMEOUT_MS = 60_000;
-export const VOX_LIVE_CANCEL_TIMEOUT_MS = 2_500;
+export const SCOUT_VOICE_STOP_TIMEOUT_MS = 60_000;
+export const SCOUT_VOICE_CANCEL_TIMEOUT_MS = 2_500;
 export const STATE_PROMPT =
   "What's the state of things? Give me a terse ops summary, the biggest risk, and the next action you recommend.";
 export const SCOUTBOT_VOICE_SPEEDS = [1, 1.2, 1.35] as const;
@@ -89,7 +89,7 @@ export type ScoutbotAssistantReply = ScoutbotAssistantSessionState & {
   responseId: string | null;
 };
 
-export type VoxLiveCancelReason = "discard" | "stop-failed";
+export type ScoutVoiceCancelReason = "discard" | "stop-failed";
 
 export type ScoutbotBriefStep = {
   id: string;
@@ -123,7 +123,7 @@ export type ScoutbotBrief = {
 };
 
 export type PreparedBriefSpeech = {
-  promise: Promise<VoxSpeakResult | null>;
+  promise: Promise<ScoutSpeechResult | null>;
   abort: () => void;
 };
 
@@ -138,7 +138,7 @@ export type ScoutbotBriefSegment = {
 
 export type ScoutbotBriefSpeechPlan = {
   text: string;
-  cues: VoxSpeechTimingCueRequest[];
+  cues: ScoutSpeechTimingCueRequest[];
 };
 
 export type ScoutbotBriefCueSchedule = {
@@ -207,26 +207,26 @@ export function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: 
   });
 }
 
-export async function releaseVoxLive(
-  live: VoxLiveHandle,
+export async function releaseScoutVoiceLive(
+  live: ScoutVoiceLiveHandle,
   options: { allowCurrentSession?: boolean } = {},
 ): Promise<void> {
   if (!live.sessionId && !options.allowCurrentSession) return;
   await withTimeout(
     live.cancel(),
-    VOX_LIVE_CANCEL_TIMEOUT_MS,
-    "Timed out releasing Vox live session.",
+    SCOUT_VOICE_CANCEL_TIMEOUT_MS,
+    "Timed out releasing Scout voice session.",
   ).catch(() => undefined);
 }
 
-export function isVoxLiveCancellation(error: unknown): boolean {
+export function isScoutVoiceCancellation(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /session_cancelled|was cancelled|cancelled/i.test(message);
 }
 
 export function buildScoutbotBriefSpeechPlan(segments: ScoutbotBriefSegment[]): ScoutbotBriefSpeechPlan {
   let text = "";
-  const cues: VoxSpeechTimingCueRequest[] = [];
+  const cues: ScoutSpeechTimingCueRequest[] = [];
   for (const segment of segments) {
     const spoken = toSpokenScoutText(segment.narration);
     if (!spoken) {
@@ -247,7 +247,7 @@ export function buildScoutbotBriefSpeechPlan(segments: ScoutbotBriefSegment[]): 
 }
 
 export function resolveScoutbotBriefCueSchedule(
-  result: VoxSpeakResult,
+  result: ScoutSpeechResult,
   segments: ScoutbotBriefSegment[],
 ): ScoutbotBriefCueSchedule[] | null {
   const timingCues = result.speechTiming?.cues;
@@ -297,9 +297,9 @@ export function shortenForMenu(path: string): string {
 export function makeScoutAudioLaunchContext() {
   return {
     requesterName: "OpenScout",
-    productName: "Scout Audio",
+    productName: "Scout Voice",
     headline: "Turn on local voice",
-    body: "Scout Audio uses Vox for local speech capture and spoken replies. Start Vox, then return here to talk with your workspace.",
+    body: "Scout voice handles local speech capture and spoken replies. Start Scout services, then return here to talk with your workspace.",
     actionLabel: "Return to OpenScout",
     logo: {
       url: new URL("/openscout-icon.png", window.location.href).toString(),

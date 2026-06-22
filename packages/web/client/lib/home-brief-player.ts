@@ -6,10 +6,10 @@ import {
 } from "./scoutbot-broadcast-store.ts";
 import { toSpokenScoutText } from "./spoken-text.ts";
 import {
-  isVoxSpeechStopped,
-  startVoxSpeech,
-  type VoxSpeakHandle,
-} from "./vox.ts";
+  isScoutSpeechStopped,
+  startScoutSpeech,
+  type ScoutSpeechHandle,
+} from "./scout-voice.ts";
 
 const LAST_SPOKEN_BRIEF_KEY = "openscout.home.lastSpokenBriefId.v1";
 const BROADCAST_KEY = "home.brief.voice";
@@ -26,7 +26,7 @@ type HomeBriefPlayerState = {
 type Listener = () => void;
 
 const listeners = new Set<Listener>();
-let speechHandle: VoxSpeakHandle | null = null;
+let speechHandle: ScoutSpeechHandle | null = null;
 let broadcastTimer: ReturnType<typeof setInterval> | null = null;
 
 let state: HomeBriefPlayerState = {
@@ -117,9 +117,9 @@ export function startHomeBriefSpeech(input: {
 
   stopHomeBriefSpeech();
 
-  let handle: VoxSpeakHandle;
+  let handle: ScoutSpeechHandle;
   try {
-    handle = startVoxSpeech(toSpokenScoutText(text));
+    handle = startScoutSpeech(toSpokenScoutText(text));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not start brief voice";
     setState({ ...state, error: message });
@@ -138,7 +138,7 @@ export function startHomeBriefSpeech(input: {
 
   void handle.promise
     .catch((err) => {
-      if (!isVoxSpeechStopped(err)) {
+      if (!isScoutSpeechStopped(err)) {
         const message = err instanceof Error ? err.message : "Brief voice failed";
         console.warn("brief speech failed", err);
         setState({ ...state, error: message });

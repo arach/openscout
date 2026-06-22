@@ -373,6 +373,35 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
   },
   {
+    href: "/studies/agents-directory",
+    label: "Agents · Directory",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/agents-directory/page.tsx",
+      "packages/web/client/screens/agents/library.tsx",
+      "packages/web/client/screens/agents/AgentsScreen.tsx",
+    ],
+    blurb:
+      "Clean-sheet rebuild of the Agents starting place after the shipped projects-first table read as a dark, bland inventory. Same primary object (project) reborn as cards: project → agent cards → session map. Assumes many sessions per agent, so the session layer is an always-visible map (recency tiles, active in accent) with a focus caption + `+ start session`, not a collapsed list. A concise live-lanes peek opens full Lanes on engage. Tuned for Graphite Dark with sprite identity; one accent as a precedence ladder (needs-you ▸ working ▸ idle), never categorical status color.",
+  },
+  {
+    href: "/studies/agents-project",
+    label: "Agents · Project view",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/agents-project/page.tsx",
+      "design/studio/app/studies/agents-directory/page.tsx",
+      "packages/web/client/screens/agents/library.tsx",
+      "packages/web/client/screens/agents/model.ts",
+    ],
+    blurb:
+      "The wide pane when you focus ONE project — the fix for the near-blank project detail. Synthesis of three explored lenses: a command-center's density + resolve-in-place steering, a project-home's calm digest (harnesses · branches-in-flight · conversations · last-active) so an idle project reads full not blank, and a work-stream's produced changes as the review aside. Spine = the contributor roster (agent = project·harness rollup, sessions expand inline). A conditional `Now` band steers the highest-precedence agent without opening a thread. One accent as a precedence ladder (needs-you ▸ working ▸ idle), coherent with the gmail Directory study.",
+  },
+  {
     href: "/studies/agents-rail-actions",
     label: "Agents · Rail Actions",
     bucket: "studies",

@@ -24,14 +24,16 @@ export function ScoutStudyShell({
   pageId,
   title,
   blurb,
+  initialSkin = "juniper-l",
   children,
 }: {
   pageId: string;
   title: string;
   blurb: ReactNode;
+  initialSkin?: ScoutSkinId;
   children: ReactNode | ((skin: ScoutSkinId) => ReactNode);
 }) {
-  const [skin, setSkin] = useState<ScoutSkinId>("juniper-l");
+  const [skin, setSkin] = useState<ScoutSkinId>(initialSkin);
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">

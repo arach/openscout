@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Loader2, RefreshCw, Rocket, Settings } from "lucide-react";
+import { Loader2, RefreshCw, Rocket } from "lucide-react";
 import type { VoiceProbeState } from "./scoutbot-model.ts";
 
 export function ScoutbotIconButton({
@@ -68,18 +68,16 @@ export function ScoutbotActionButton({
   );
 }
 
-export function VoxSetupPanel({
+export function ScoutVoiceSetupPanel({
   issue,
   probeState,
   onLaunch,
   onRetry,
-  onSettings,
 }: {
   issue: string | null;
   probeState: VoiceProbeState;
   onLaunch: () => void;
   onRetry: () => void;
-  onSettings: () => void;
 }) {
   const isBusy = probeState === "probing" || probeState === "launching";
 
@@ -88,9 +86,9 @@ export function VoxSetupPanel({
       <div className="flex items-start gap-2">
         <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
         <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Vox</div>
+          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Scout Voice</div>
           <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Start Vox, then retry once the menu bar icon is visible.
+            Start Scout services, then retry once the menu bar icon is visible.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -100,34 +98,27 @@ export function VoxSetupPanel({
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <VoxSetupButton
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <ScoutVoiceSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Launch Vox"}
+          label={probeState === "launching" ? "Opening" : "Open Scout"}
           onClick={onLaunch}
           disabled={probeState === "probing"}
-          title="Launch Vox"
+          title="Open Scout services"
         />
-        <VoxSetupButton
+        <ScoutVoiceSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           label="Retry"
           onClick={onRetry}
           disabled={isBusy}
-          title="Check Vox again"
-        />
-        <VoxSetupButton
-          icon={<Settings size={12} />}
-          label="Settings"
-          onClick={onSettings}
-          disabled={probeState === "probing"}
-          title="Open Vox settings"
+          title="Check Scout voice again"
         />
       </div>
     </div>
   );
 }
 
-function VoxSetupButton({
+function ScoutVoiceSetupButton({
   icon,
   label,
   onClick,

@@ -252,7 +252,7 @@ export function ChatInput({
   onMicClick: () => void;
 }) {
   let micTitle = "Start talking";
-  if (voiceUnavailable) micTitle = "Launch Vox";
+  if (voiceUnavailable) micTitle = "Open Scout voice";
   if (recording) micTitle = "Stop talking";
   if (voiceBusy) micTitle = voiceLabel;
   const showVoiceLabel = voiceUnavailable || voiceBusy || recording;

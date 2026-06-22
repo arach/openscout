@@ -198,7 +198,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const agentTab = parseAgentTab(url.searchParams.get("tab"));
-  const agentProjectKey = url.searchParams.get("project")?.trim() || undefined;
+  const agentProjectSlug = url.searchParams.get("project")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
   }
@@ -240,7 +240,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   if (parts[0] === "agents") {
     return scoped({
       view: "agents",
-      ...(agentProjectKey ? { projectKey: agentProjectKey } : {}),
+      ...(agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
     });
   }
   if (parts[0] === "fleet") return scoped({ view: "fleet" });
@@ -440,8 +440,8 @@ export function routePath(r: Route): string {
       } else if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
-      if (!r.agentId && r.projectKey) {
-        params.set("project", r.projectKey);
+      if (!r.agentId && r.projectSlug) {
+        params.set("project", r.projectSlug);
       }
       appendMachineScope(params, r);
       const path = r.agentId
@@ -578,8 +578,8 @@ function routeKey(r: Route): string {
         ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
         : r.agentId
           ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
-          : r.projectKey
-            ? `agents-project:${r.projectKey}${scope}`
+          : r.projectSlug
+            ? `agents-project:${r.projectSlug}${scope}`
             : `agents${scope}`;
     case "sessions":
       return r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;

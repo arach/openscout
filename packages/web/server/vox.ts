@@ -1,3 +1,5 @@
+// Local runtime adapter used by `scout-voice.ts`. Route handlers should expose
+// Scout voice semantics and keep Vox-specific details behind that boundary.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";

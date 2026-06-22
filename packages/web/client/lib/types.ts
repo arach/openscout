@@ -1173,7 +1173,7 @@ export type Route =
       agentId?: string;
       conversationId?: string;
       tab?: AgentTab;
-      projectKey?: string;
+      projectSlug?: string;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)
   | ({ view: "conversations" } & MachineScopedRoute)
