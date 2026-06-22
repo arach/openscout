@@ -8,6 +8,7 @@ import { createTRPCClient, createWSClient, wsLink } from "@trpc/client";
 import type { BrokerRouter } from "@openscout/runtime/broker-trpc-router";
 
 import type { TailEvent } from "./types.ts";
+import { resolveScoutTailStreamUrl } from "./runtime-config.ts";
 
 type TailSubscription = (event: TailEvent) => void;
 
@@ -15,15 +16,6 @@ const subscribers = new Set<TailSubscription>();
 let wsClient: ReturnType<typeof createWSClient> | null = null;
 let trpc: ReturnType<typeof createTRPCClient<BrokerRouter>> | null = null;
 let activeSub: { unsubscribe: () => void } | null = null;
-
-function brokerWsUrl(): string {
-  // Broker runs on a well-known port (43110). The web app may be served from
-  // a different origin (vite dev, or the bundled web server), but the broker
-  // is always reachable on the same hostname.
-  const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
-  const port = 43110;
-  return `ws://${host}:${port}/trpc`;
-}
 
 function dispatch(event: TailEvent): void {
   for (const subscriber of [...subscribers]) {
@@ -34,7 +26,7 @@ function dispatch(event: TailEvent): void {
 function ensureSubscribed(): void {
   if (activeSub) return;
   if (!wsClient) {
-    wsClient = createWSClient({ url: brokerWsUrl() });
+    wsClient = createWSClient({ url: resolveScoutTailStreamUrl() });
     trpc = createTRPCClient<BrokerRouter>({ links: [wsLink({ client: wsClient })] });
   }
   activeSub = trpc!.tail.events.subscribe(undefined, {

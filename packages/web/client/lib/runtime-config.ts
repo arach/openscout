@@ -1,5 +1,7 @@
 import {
   DEFAULT_HEALTH_PATH,
+  DEFAULT_EVENTS_STREAM_PATH,
+  DEFAULT_TAIL_STREAM_PATH,
   DEFAULT_TERMINAL_RELAY_PATH,
   DEFAULT_TERMINAL_RELAY_HEALTH_PATH,
   DEFAULT_TERMINAL_RUN_PATH,
@@ -14,6 +16,8 @@ type ScoutBootstrapRoutes = {
   vantageOpenPath?: string;
   terminalRelayPath?: string;
   terminalRelayHealthPath?: string;
+  tailStreamPath?: string;
+  eventsStreamPath?: string;
   viteHmrPath?: string;
 };
 
@@ -39,6 +43,8 @@ const ROUTE_DEFAULTS = {
   vantageOpenPath: DEFAULT_VANTAGE_OPEN_PATH,
   terminalRelayPath: DEFAULT_TERMINAL_RELAY_PATH,
   terminalRelayHealthPath: DEFAULT_TERMINAL_RELAY_HEALTH_PATH,
+  tailStreamPath: DEFAULT_TAIL_STREAM_PATH,
+  eventsStreamPath: DEFAULT_EVENTS_STREAM_PATH,
   viteHmrPath: DEFAULT_VITE_HMR_PATH,
 } satisfies Required<ScoutBootstrapRoutes>;
 
@@ -88,4 +94,21 @@ export function resolveScoutTerminalRelayHealthUrl(): string {
   }
 
   return `${window.location.protocol}//${window.location.host}${terminalRelayHealthPath}`;
+}
+
+function resolveScoutWebSocketUrl(path: string): string {
+  if (typeof window === "undefined") {
+    return `ws://localhost:43120${path}`;
+  }
+
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}${path}`;
+}
+
+export function resolveScoutTailStreamUrl(): string {
+  return resolveScoutWebSocketUrl(resolveScoutRoutePath("tailStreamPath"));
+}
+
+export function resolveScoutEventsStreamUrl(): string {
+  return resolveScoutWebSocketUrl(resolveScoutRoutePath("eventsStreamPath"));
 }

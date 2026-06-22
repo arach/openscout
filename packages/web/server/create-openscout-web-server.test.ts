@@ -1798,6 +1798,8 @@ describe("createOpenScoutWebServer", () => {
     const body = await response.text();
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
+    expect(body).toContain('"tailStreamPath":"/ws/tail"');
+    expect(body).toContain('"eventsStreamPath":"/ws/events"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
@@ -2312,6 +2314,8 @@ describe("createOpenScoutWebServer", () => {
       const body = await response.text();
       expect(body).toContain('"terminalRelayPath":"/ws/relay"');
       expect(body).toContain('"terminalRelayHealthPath":"/ws/relay/health"');
+      expect(body).toContain('"tailStreamPath":"/ws/tail"');
+      expect(body).toContain('"eventsStreamPath":"/ws/events"');
     } finally {
       if (originalRelayPath === undefined) {
         delete process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH;

@@ -7,6 +7,8 @@ export const DEFAULT_UPLOAD_PATH = `${DEFAULT_API_BASE_PATH}/upload`;
 export const DEFAULT_RELAY_UPLOAD_PATH = `${DEFAULT_API_BASE_PATH}/relay/upload`;
 export const DEFAULT_TERMINAL_RELAY_PATH = "/ws/terminal";
 export const DEFAULT_TERMINAL_RELAY_HEALTH_PATH = `${DEFAULT_TERMINAL_RELAY_PATH}/health`;
+export const DEFAULT_TAIL_STREAM_PATH = "/ws/tail";
+export const DEFAULT_EVENTS_STREAM_PATH = "/ws/events";
 export const DEFAULT_VITE_HMR_PATH = "/ws/hmr";
 
 const OPENSCOUT_WEB_FLAG_BUNDLE_ALIASES = {
@@ -63,6 +65,14 @@ export function resolveOpenScoutWebRoutes(env = process.env) {
     terminalRelayHealthPath: normalizeRoutePath(
       env.OPENSCOUT_WEB_TERMINAL_RELAY_HEALTH_PATH,
       routeChildPath(terminalRelayPath, "health", DEFAULT_TERMINAL_RELAY_HEALTH_PATH),
+    ),
+    tailStreamPath: normalizeRoutePath(
+      env.OPENSCOUT_WEB_TAIL_STREAM_PATH,
+      DEFAULT_TAIL_STREAM_PATH,
+    ),
+    eventsStreamPath: normalizeRoutePath(
+      env.OPENSCOUT_WEB_EVENTS_STREAM_PATH,
+      DEFAULT_EVENTS_STREAM_PATH,
     ),
     viteHmrPath: normalizeRoutePath(
       env.OPENSCOUT_WEB_VITE_HMR_PATH,

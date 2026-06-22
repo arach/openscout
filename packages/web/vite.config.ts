@@ -87,6 +87,8 @@ export default defineConfig({
       "/api": { target: bunTarget, changeOrigin: false, ws: true },
       [routes.terminalRelayPath]: { target: bunTarget, changeOrigin: false, ws: true },
       [routes.terminalRelayHealthPath]: { target: bunTarget, changeOrigin: false, ws: false },
+      [routes.tailStreamPath]: { target: bunTarget, changeOrigin: false, ws: true },
+      [routes.eventsStreamPath]: { target: bunTarget, changeOrigin: false, ws: true },
     },
   },
   resolve: {
