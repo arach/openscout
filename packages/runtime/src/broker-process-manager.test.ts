@@ -7,9 +7,13 @@ import {
   buildDefaultBrokerUrl,
   buildLocalBrokerControlUrl,
   DEFAULT_BROKER_HOST,
+  DEFAULT_BROKER_HOST_MESH,
   DEFAULT_BROKER_PORT,
   DEFAULT_BROKER_URL,
+  resolveAdvertiseScope,
+  resolveBrokerHost,
   resolveBundledRuntimeDirFromModuleDir,
+  resolveBrokerServiceConfig,
   resolveScoutdCommand,
   runScoutdServiceCommand,
   selectLastRelevantLogLine,
@@ -53,6 +57,13 @@ function writeExecutableScript(path: string, script: string): string {
   return path;
 }
 
+function writeTailscaleFixture(body: unknown): string {
+  const root = mkdtempSync(join(tmpdir(), "openscout-broker-tailscale-"));
+  const filePath = join(root, "status.json");
+  writeFileSync(filePath, JSON.stringify(body, null, 2), "utf8");
+  return filePath;
+}
+
 let envQueue: Promise<unknown> = Promise.resolve();
 
 async function withEnv<T>(patch: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
@@ -94,6 +105,63 @@ describe("broker service scoutd adapter", () => {
     expect(buildLocalBrokerControlUrl("0.0.0.0", 65535)).toBe("http://127.0.0.1:65535");
     expect(buildLocalBrokerControlUrl("::", 65535)).toBe("http://127.0.0.1:65535");
     expect(buildLocalBrokerControlUrl("192.168.1.12", 65535)).toBe("http://192.168.1.12:65535");
+  });
+
+  test("ignores stale generated local service env when OSN discovery enables mesh", async () => {
+    const tailscaleFixture = writeTailscaleFixture({
+      BackendState: "Running",
+      Self: {
+        ID: "self-node",
+        HostName: "workstation",
+        DNSName: "workstation.tailnet.ts.net.",
+        TailscaleIPs: ["100.64.0.10"],
+        Online: true,
+      },
+      CurrentTailnet: {
+        MagicDNSSuffix: "tailnet.ts.net",
+      },
+    });
+
+    await withEnv({
+      OPENSCOUT_ADVERTISE_SCOPE: "local",
+      OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
+      OPENSCOUT_BROKER_PORT: String(DEFAULT_BROKER_PORT),
+      OPENSCOUT_BROKER_URL: DEFAULT_BROKER_URL,
+      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
+      OPENSCOUT_OSN_DISCOVERY_ENABLED: undefined,
+      OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleFixture,
+      OPENSCOUT_TAILSCALE_BIN: undefined,
+      OPENSCOUT_TAILSCALE_AUTO_HOSTS: undefined,
+    }, () => {
+      expect(resolveAdvertiseScope()).toBe("mesh");
+      expect(resolveBrokerHost()).toBe(DEFAULT_BROKER_HOST_MESH);
+      expect(resolveBrokerServiceConfig()).toMatchObject({
+        advertiseScope: "mesh",
+        brokerHost: DEFAULT_BROKER_HOST_MESH,
+        brokerUrl: "http://workstation.tailnet.ts.net:65535",
+      });
+    });
+  });
+
+  test("keeps an explicit local override when it is not the generated service triplet", async () => {
+    await withEnv({
+      OPENSCOUT_ADVERTISE_SCOPE: "local",
+      OPENSCOUT_BROKER_HOST: undefined,
+      OPENSCOUT_BROKER_URL: undefined,
+      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
+      OPENSCOUT_OSN_DISCOVERY_ENABLED: undefined,
+      OPENSCOUT_TAILSCALE_STATUS_JSON: undefined,
+      OPENSCOUT_TAILSCALE_BIN: undefined,
+      OPENSCOUT_TAILSCALE_AUTO_HOSTS: "0",
+    }, () => {
+      expect(resolveAdvertiseScope()).toBe("local");
+      expect(resolveBrokerHost()).toBe(DEFAULT_BROKER_HOST);
+      expect(resolveBrokerServiceConfig()).toMatchObject({
+        advertiseScope: "local",
+        brokerHost: DEFAULT_BROKER_HOST,
+        brokerUrl: DEFAULT_BROKER_URL,
+      });
+    });
   });
 
   test("resolves the package root from a bundled scout dist runtime module", () => {

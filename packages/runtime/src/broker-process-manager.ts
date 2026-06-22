@@ -118,10 +118,45 @@ export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
 export const DEFAULT_BROKER_PORT = 65535;
 export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
 
+export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
+  return `http://${host}:${port}`;
+}
+
+function normalizeBrokerUrl(value: string): string {
+  try {
+    return new URL(value).toString();
+  } catch {
+    return value.trim();
+  }
+}
+
+function readBrokerPort(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+  return Number.isFinite(parsed) ? parsed : DEFAULT_BROKER_PORT;
+}
+
+function envHasGeneratedLocalBrokerDefaults(env: NodeJS.ProcessEnv = process.env): boolean {
+  const scope = env.OPENSCOUT_ADVERTISE_SCOPE?.trim().toLowerCase();
+  const host = env.OPENSCOUT_BROKER_HOST?.trim();
+  const url = env.OPENSCOUT_BROKER_URL?.trim();
+  if (scope !== "local" || host !== DEFAULT_BROKER_HOST || !url) {
+    return false;
+  }
+
+  return normalizeBrokerUrl(url) === normalizeBrokerUrl(buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, readBrokerPort(env)));
+}
+
+function shouldIgnoreGeneratedLocalBrokerDefaults(env: NodeJS.ProcessEnv = process.env): boolean {
+  // Older LaunchAgents persisted the initial local defaults as env vars. Once
+  // settings enable OSN/mesh discovery, those generated values should not keep
+  // pinning the supervised broker to loopback forever.
+  return envHasGeneratedLocalBrokerDefaults(env) && openScoutNetworkDiscoveryEnabled(env);
+}
+
 export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): BrokerAdvertiseScope {
   const raw = (env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
   if (raw === "mesh") return "mesh";
-  if (raw === "local") return "local";
+  if (raw === "local" && !shouldIgnoreGeneratedLocalBrokerDefaults(env)) return "local";
   if (openScoutNetworkDiscoveryEnabled(env)) return "mesh";
   return DEFAULT_ADVERTISE_SCOPE;
 }
@@ -131,7 +166,11 @@ export function resolveBrokerHost(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = env.OPENSCOUT_BROKER_HOST;
-  if (typeof explicit === "string" && explicit.trim().length > 0) {
+  if (
+    typeof explicit === "string"
+    && explicit.trim().length > 0
+    && !(scope === "mesh" && shouldIgnoreGeneratedLocalBrokerDefaults(env))
+  ) {
     return explicit;
   }
   return scope === "mesh" ? DEFAULT_BROKER_HOST_MESH : DEFAULT_BROKER_HOST;
@@ -150,10 +189,6 @@ function localBrokerControlHost(host: string): string {
   return trimmed;
 }
 
-export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
-  return `http://${host}:${port}`;
-}
-
 function resolveBrokerUrl(
   host: string,
   port: number,
@@ -161,7 +196,7 @@ function resolveBrokerUrl(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = env.OPENSCOUT_BROKER_URL?.trim();
-  if (explicit) {
+  if (explicit && !(scope === "mesh" && shouldIgnoreGeneratedLocalBrokerDefaults(env))) {
     return explicit;
   }
   if (scope === "mesh") {
@@ -182,14 +217,6 @@ export function buildDefaultBrokerSocketPath(runtimeDirectory: string): string {
 }
 
 export const DEFAULT_BROKER_URL = buildDefaultBrokerUrl();
-
-function normalizeBrokerUrl(value: string): string {
-  try {
-    return new URL(value).toString();
-  } catch {
-    return value.trim();
-  }
-}
 
 export function resolveBrokerSocketPathForBaseUrl(
   baseUrl: string,
@@ -351,7 +378,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     : supportPaths.controlHome;
   const advertiseScope = resolveAdvertiseScope();
   const brokerHost = resolveBrokerHost(advertiseScope);
-  const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+  const brokerPort = readBrokerPort();
   const brokerUrl = resolveBrokerUrl(brokerHost, brokerPort, advertiseScope);
   const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
     ?? buildDefaultBrokerSocketPath(runtimeDirectory);
