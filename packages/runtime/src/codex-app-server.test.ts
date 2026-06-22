@@ -7,6 +7,7 @@ import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "@openscout/agent-sessions";
 import {
   buildCodexAppServerSessionSnapshot,
   buildCodexRolloutSessionSnapshot,
+  CodexAppServerExitError,
   ensureCodexAppServerAgentOnline,
   getCodexAppServerAgentSnapshot,
   invokeCodexAppServerAgent,
@@ -34,6 +35,32 @@ afterEach(() => {
   }
   tempPaths.clear();
 });
+
+async function readTextFileEventually(
+  filePath: string,
+  predicate: (text: string) => boolean = () => true,
+  timeoutMs = 1_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() <= deadline) {
+    try {
+      const text = readFileSync(filePath, "utf8");
+      if (predicate(text)) {
+        return text;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(`Timed out waiting for ${filePath}`);
+}
 
 function writeFakeCodexExecutable(baseDirectory: string): string {
   const executablePath = join(baseDirectory, "fake-codex");
@@ -305,6 +332,11 @@ function writeHangingFakeCodexExecutable(baseDirectory: string): string {
   const executablePath = join(baseDirectory, "fake-codex-hanging");
   writeFileSync(executablePath, `#!/usr/bin/env bun
 import readline from "node:readline";
+
+if (process.argv.includes("--version")) {
+  console.log("codex-cli 0.0.0");
+  process.exit(0);
+}
 
 setInterval(() => {}, 1_000);
 
@@ -1210,6 +1242,18 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 });
 
 describe("ensureCodexAppServerAgentOnline", () => {
+  test("classifies encoded SIGTERM exit codes as external interruptions", () => {
+    const error = new CodexAppServerExitError({
+      agentName: "codex-encoded-sigterm",
+      exitCode: 143,
+      signal: null,
+    });
+
+    expect(error.exitKind).toBe("external_sigterm");
+    expect(error.noteworthy).toBe(true);
+    expect(error.message).toBe("Codex app-server for codex-encoded-sigterm was interrupted by SIGTERM.");
+  });
+
   test("keeps bundled Codex app candidates before PATH candidates for inventory", () => {
     const candidates = resolveCodexExecutableCandidates({
       HOME: "/Users/tester",
@@ -1342,12 +1386,10 @@ describe("ensureCodexAppServerAgentOnline", () => {
     await shutdownCodexAppServerAgent(options, {
       reason: "OpenScout test requested shutdown",
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const stderr = readFileSync(join(logsDirectory, "stderr.log"), "utf8");
-    expect(stderr).toContain(
-      "[openscout] Codex app-server stopped for codex-proactive-shutdown: OpenScout test requested shutdown (SIGTERM)",
-    );
+    const expected = "[openscout] Codex app-server stopped for codex-proactive-shutdown: OpenScout test requested shutdown";
+    const stderr = await readTextFileEventually(join(logsDirectory, "stderr.log"), (text) => text.includes(expected));
+    expect(stderr).toContain(expected);
     expect(stderr).not.toContain("Codex app-server exited for codex-proactive-shutdown");
   });
 
@@ -1431,8 +1473,9 @@ describe("ensureCodexAppServerAgentOnline", () => {
       "Codex app-server for codex-external-sigterm was interrupted by SIGTERM.",
     );
 
-    const stderr = readFileSync(join(logsDirectory, "stderr.log"), "utf8");
-    expect(stderr).toContain("Codex app-server for codex-external-sigterm was interrupted by SIGTERM.");
+    const expected = "Codex app-server for codex-external-sigterm was interrupted by SIGTERM.";
+    const stderr = await readTextFileEventually(join(logsDirectory, "stderr.log"), (text) => text.includes(expected));
+    expect(stderr).toContain(expected);
     expect(stderr).not.toContain("Codex app-server exited for codex-external-sigterm (SIGTERM)");
 
     await shutdownCodexAppServerAgent(options);
