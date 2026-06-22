@@ -15,7 +15,7 @@ export type OpenScoutNetworkRuntimeSettings = {
 
 export function defaultOpenScoutNetworkSettings(): OpenScoutNetworkRuntimeSettings {
   return {
-    discoveryEnabled: false,
+    discoveryEnabled: true,
     rendezvousUrl: DEFAULT_OPENSCOUT_NETWORK_RENDEZVOUS_URL,
     pairingRelayUrl: DEFAULT_OPENSCOUT_NETWORK_PAIRING_RELAY_URL,
     keepPairingRelayRunning: true,

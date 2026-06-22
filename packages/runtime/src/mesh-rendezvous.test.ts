@@ -56,7 +56,6 @@ afterEach(() => {
 
 describe("mesh rendezvous publisher", () => {
   test("resolves opt-in publish config from env", () => {
-    expect(resolveMeshRendezvousPublishConfig({})).toBeUndefined();
     expect(resolveMeshRendezvousPublishConfig({ OPENSCOUT_MESH_RENDEZVOUS_URL: "false" })).toBeUndefined();
     expect(resolveMeshRendezvousPublishConfig({ OPENSCOUT_MESH_RENDEZVOUS_URL: "0" })).toBeUndefined();
     expect(resolveMeshRendezvousPublishConfig({
@@ -71,6 +70,30 @@ describe("mesh rendezvous publisher", () => {
       ttlMs: 120_000,
       intervalMs: 45_000,
     });
+  });
+
+  test("uses default OpenScout Network settings as the rendezvous opt-in", () => {
+    expect(resolveMeshRendezvousPublishConfig({
+      OPENSCOUT_MESH_RENDEZVOUS_TOKEN: "secret",
+    })).toEqual({
+      url: "https://mesh.oscout.net",
+      token: "secret",
+      sessionToken: undefined,
+      ttlMs: 60_000,
+      intervalMs: 30_000,
+    });
+  });
+
+  test("respects an explicit OpenScout Network discovery opt-out", async () => {
+    await writeOpenScoutSettings({
+      network: {
+        openScoutNetwork: {
+          discoveryEnabled: false,
+        },
+      },
+    });
+
+    expect(resolveMeshRendezvousPublishConfig({})).toBeUndefined();
   });
 
   test("resolves OSN session auth separately from shared bearer tokens", () => {
@@ -93,7 +116,9 @@ describe("mesh rendezvous publisher", () => {
       },
     });
 
-    expect(resolveMeshRendezvousPublishConfig({})).toMatchObject({
+    expect(resolveMeshRendezvousPublishConfig({
+      OPENSCOUT_MESH_RENDEZVOUS_TOKEN: "secret",
+    })).toMatchObject({
       url: "https://mesh.example.test",
     });
   });

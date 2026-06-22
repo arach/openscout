@@ -188,14 +188,14 @@ public struct OpenScoutNetworkViewState: Sendable {
     public var statusDetail: String
 
     public init(
-        discoveryEnabled: Bool = false,
+        discoveryEnabled: Bool = OpenScoutNetworkSettings.defaultDiscoveryEnabled,
         rendezvousURL: String = OpenScoutNetworkSettings.defaultRendezvousURL,
         pairingRelayURL: String = OpenScoutNetworkSettings.defaultPairingRelayURL,
         keepPairingRelayRunning: Bool = true,
         sessionAvailable: Bool = false,
         settingsPath: String = OpenScoutNetworkSettingsStore.settingsPath(),
-        statusLabel: String = "Off",
-        statusDetail: String = "OpenScout Network discovery is off."
+        statusLabel: String = "Sign in required",
+        statusDetail: String = "Sign in to OpenScout Network before publishing this Mac."
     ) {
         self.discoveryEnabled = discoveryEnabled
         self.rendezvousURL = rendezvousURL

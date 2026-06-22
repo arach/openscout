@@ -1,10 +1,11 @@
 import Foundation
 
 struct OpenScoutNetworkSettings: Sendable {
+    static let defaultDiscoveryEnabled = true
     static let defaultRendezvousURL = "https://mesh.oscout.net"
     static let defaultPairingRelayURL = "wss://mesh.oscout.net/v1/relay"
 
-    var discoveryEnabled: Bool = false
+    var discoveryEnabled: Bool = defaultDiscoveryEnabled
     var rendezvousURL: String = defaultRendezvousURL
     var pairingRelayURL: String = defaultPairingRelayURL
     var keepPairingRelayRunning: Bool = true
@@ -19,7 +20,7 @@ enum OpenScoutNetworkSettingsStore {
         }
 
         return OpenScoutNetworkSettings(
-            discoveryEnabled: osn["discoveryEnabled"] as? Bool ?? false,
+            discoveryEnabled: osn["discoveryEnabled"] as? Bool ?? OpenScoutNetworkSettings.defaultDiscoveryEnabled,
             rendezvousURL: normalizedURL(osn["rendezvousUrl"], fallback: OpenScoutNetworkSettings.defaultRendezvousURL),
             pairingRelayURL: normalizedURL(osn["pairingRelayUrl"], fallback: OpenScoutNetworkSettings.defaultPairingRelayURL),
             keepPairingRelayRunning: osn["keepPairingRelayRunning"] as? Bool ?? true

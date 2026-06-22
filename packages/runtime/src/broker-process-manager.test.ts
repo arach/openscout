@@ -122,12 +122,15 @@ describe("broker service scoutd adapter", () => {
       },
     });
 
+    const supportDirectory = mkdtempSync(join(tmpdir(), "openscout-broker-support-"));
+
     await withEnv({
       OPENSCOUT_ADVERTISE_SCOPE: "local",
       OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
       OPENSCOUT_BROKER_PORT: String(DEFAULT_BROKER_PORT),
       OPENSCOUT_BROKER_URL: DEFAULT_BROKER_URL,
-      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
+      OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: undefined,
       OPENSCOUT_OSN_DISCOVERY_ENABLED: undefined,
       OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleFixture,
       OPENSCOUT_TAILSCALE_BIN: undefined,

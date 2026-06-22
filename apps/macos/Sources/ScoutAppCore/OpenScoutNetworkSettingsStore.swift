@@ -7,6 +7,7 @@ import Foundation
 /// helper (supervision). The store reads and writes the same JSON file and
 /// preserves unrelated keys so neither surface clobbers the other's settings.
 public struct OpenScoutNetworkSettings: Sendable {
+    public static let defaultDiscoveryEnabled = true
     public static let defaultRendezvousURL = "https://mesh.oscout.net"
     public static let defaultPairingRelayURL = "wss://mesh.oscout.net/v1/relay"
 
@@ -16,7 +17,7 @@ public struct OpenScoutNetworkSettings: Sendable {
     public var keepPairingRelayRunning: Bool
 
     public init(
-        discoveryEnabled: Bool = false,
+        discoveryEnabled: Bool = defaultDiscoveryEnabled,
         rendezvousURL: String = defaultRendezvousURL,
         pairingRelayURL: String = defaultPairingRelayURL,
         keepPairingRelayRunning: Bool = true
@@ -37,7 +38,7 @@ public enum OpenScoutNetworkSettingsStore {
         }
 
         return OpenScoutNetworkSettings(
-            discoveryEnabled: osn["discoveryEnabled"] as? Bool ?? false,
+            discoveryEnabled: osn["discoveryEnabled"] as? Bool ?? OpenScoutNetworkSettings.defaultDiscoveryEnabled,
             rendezvousURL: normalizedURL(osn["rendezvousUrl"], fallback: OpenScoutNetworkSettings.defaultRendezvousURL),
             pairingRelayURL: normalizedURL(osn["pairingRelayUrl"], fallback: OpenScoutNetworkSettings.defaultPairingRelayURL),
             keepPairingRelayRunning: osn["keepPairingRelayRunning"] as? Bool ?? true

@@ -84,14 +84,14 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     struct OpenScoutNetworkViewState: Sendable {
-        var discoveryEnabled: Bool = false
+        var discoveryEnabled: Bool = OpenScoutNetworkSettings.defaultDiscoveryEnabled
         var rendezvousURL: String = OpenScoutNetworkSettings.defaultRendezvousURL
         var pairingRelayURL: String = OpenScoutNetworkSettings.defaultPairingRelayURL
         var keepPairingRelayRunning: Bool = true
         var sessionAvailable: Bool = false
         var settingsPath: String = OpenScoutNetworkSettingsStore.settingsPath()
-        var statusLabel: String = "Off"
-        var statusDetail: String = "OpenScout Network discovery is off."
+        var statusLabel: String = "Sign in required"
+        var statusDetail: String = "Sign in to OpenScout Network before publishing this Mac."
     }
 
     @Published private(set) var broker = BrokerState()

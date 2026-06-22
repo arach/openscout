@@ -68,13 +68,13 @@ describe("setup inventory", () => {
     process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
 
     const defaults = await readOpenScoutSettings();
-    expect(defaults.network.openScoutNetwork.discoveryEnabled).toBe(false);
+    expect(defaults.network.openScoutNetwork.discoveryEnabled).toBe(true);
     expect(defaults.network.openScoutNetwork.pairingRelayUrl).toBe("wss://mesh.oscout.net/v1/relay");
 
     const settings = await writeOpenScoutSettings({
       network: {
         openScoutNetwork: {
-          discoveryEnabled: true,
+          discoveryEnabled: false,
           rendezvousUrl: "https://mesh.example.test/",
           keepPairingRelayRunning: false,
         },
@@ -82,7 +82,7 @@ describe("setup inventory", () => {
     });
 
     expect(settings.network.openScoutNetwork).toEqual({
-      discoveryEnabled: true,
+      discoveryEnabled: false,
       rendezvousUrl: "https://mesh.example.test",
       pairingRelayUrl: "wss://mesh.oscout.net/v1/relay",
       keepPairingRelayRunning: false,
