@@ -93,11 +93,11 @@ describe("observeToolFieldsFromTailEvent", () => {
       result: { outcome: "success" },
     });
     expect(observeToolFieldsFromTailEvent(event({
-      summary: "Shell · curl -s http://127.0.0.1:5180/api/session-ref/test · success",
+      summary: "Shell · curl -s http://127.0.0.1:43122/api/session-ref/test · success",
       kind: "tool-result",
     }))).toEqual({
       tool: "Shell",
-      arg: "curl -s http://127.0.0.1:5180/api/session-ref/test",
+      arg: "curl -s http://127.0.0.1:43122/api/session-ref/test",
       result: { outcome: "success" },
     });
   });

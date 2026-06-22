@@ -191,8 +191,8 @@ describe("createBrokerCoreService", () => {
           managedBy: "broker",
           state: "running",
           pid: 4242,
-          port: 3200,
-          url: "http://127.0.0.1:3200",
+          port: 43120,
+          url: "http://127.0.0.1:43120",
           healthy: null,
         },
       }),
@@ -293,8 +293,8 @@ describe("createBrokerCoreService", () => {
       managedBy: "broker",
       state: "running",
       pid: 4242,
-      port: 3200,
-      url: "http://127.0.0.1:3200",
+      port: 43120,
+      url: "http://127.0.0.1:43120",
       healthy: null,
     });
     expect(capabilities).toEqual({

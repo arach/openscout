@@ -20,7 +20,7 @@ let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
 function brokerWsUrl(): string {
   const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
-  const port = 65535;
+  const port = 43110;
   return `ws://${host}:${port}/trpc`;
 }
 

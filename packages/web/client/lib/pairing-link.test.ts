@@ -6,7 +6,7 @@ describe("pairingDeepLink", () => {
   test("uses the iOS Scout URL scheme for pairing payloads", () => {
     const qrValue = JSON.stringify({
       v: 1,
-      relay: "ws://mac.tailnet.ts.net:7889",
+      relay: "ws://mac.tailnet.ts.net:43131",
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
@@ -23,8 +23,8 @@ describe("pairingDeepLink", () => {
   test("creates LAN-first and Tailscale-first links from one payload", () => {
     const qrValue = JSON.stringify({
       v: 1,
-      relay: "ws://192.168.18.14:7889",
-      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      relay: "ws://192.168.18.14:43131",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
@@ -33,16 +33,16 @@ describe("pairingDeepLink", () => {
     const links = pairingDeepLinks(qrValue);
     const lanPayload = {
       v: 1,
-      relay: "ws://192.168.18.14:7889",
-      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      relay: "ws://192.168.18.14:43131",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
     };
     const tailnetPayload = {
       v: 1,
-      relay: "ws://mac.tailnet.ts.net:7889",
-      fallbackRelays: ["ws://192.168.18.14:7889"],
+      relay: "ws://mac.tailnet.ts.net:43131",
+      fallbackRelays: ["ws://192.168.18.14:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
@@ -56,7 +56,7 @@ describe("pairingDeepLink", () => {
   test("recognizes Tailscale CGNAT relay URLs", () => {
     const qrValue = JSON.stringify({
       v: 1,
-      relay: "ws://100.123.16.74:7889",
+      relay: "ws://100.123.16.74:43131",
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,

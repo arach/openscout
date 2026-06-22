@@ -91,9 +91,9 @@ function restore(previous: Map<string, string | undefined>): void {
 
 describe("broker service scoutd adapter", () => {
   test("builds local broker control URLs from wildcard bind hosts", () => {
-    expect(buildLocalBrokerControlUrl("0.0.0.0", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("::", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("192.168.1.12", 65535)).toBe("http://192.168.1.12:65535");
+    expect(buildLocalBrokerControlUrl("0.0.0.0", 43110)).toBe("http://127.0.0.1:43110");
+    expect(buildLocalBrokerControlUrl("::", 43110)).toBe("http://127.0.0.1:43110");
+    expect(buildLocalBrokerControlUrl("192.168.1.12", 43110)).toBe("http://192.168.1.12:43110");
   });
 
   test("resolves the package root from a bundled scout dist runtime module", () => {

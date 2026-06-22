@@ -206,7 +206,7 @@ familiar than Tailscale, so the UI should treat it as the most mediated tier.
 The current documented discovery paths are:
 
 - Tailscale peer probing, when Tailscale is installed and running
-- manually configured seed URLs such as `OPENSCOUT_MESH_SEEDS=http://host:4080`
+- manually configured seed URLs such as `OPENSCOUT_MESH_SEEDS=http://host:43110`
 - future or optional rendezvous records, which still only publish presence and
   entrypoints
 

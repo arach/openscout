@@ -62,7 +62,7 @@ import {
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
-import { loadLocalConfig } from "@openscout/runtime/local-config";
+import { loadLocalConfig, OPENSCOUT_PORTS } from "@openscout/runtime/local-config";
 
 import {
   openAiAudioSpeechUrl,
@@ -274,7 +274,7 @@ const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 const DEFAULT_BROKER_HOST = "127.0.0.1";
-const DEFAULT_BROKER_PORT = 65535;
+const DEFAULT_BROKER_PORT = OPENSCOUT_PORTS.broker;
 
 function buildScoutBrokerUrlFromEnv(): string {
   const internal = process.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();

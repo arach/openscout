@@ -73,7 +73,7 @@ export function resolveScoutTerminalRelayUrl(): string {
   const terminalRelayPath = resolveScoutRoutePath("terminalRelayPath");
 
   if (typeof window === "undefined") {
-    return `ws://localhost:3200${terminalRelayPath}`;
+    return `ws://localhost:43120${terminalRelayPath}`;
   }
 
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -84,7 +84,7 @@ export function resolveScoutTerminalRelayHealthUrl(): string {
   const terminalRelayHealthPath = resolveScoutRoutePath("terminalRelayHealthPath");
 
   if (typeof window === "undefined") {
-    return `http://localhost:3200${terminalRelayHealthPath}`;
+    return `http://localhost:43120${terminalRelayHealthPath}`;
   }
 
   return `${window.location.protocol}//${window.location.host}${terminalRelayHealthPath}`;

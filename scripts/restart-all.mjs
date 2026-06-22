@@ -17,15 +17,15 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const DEFAULT_PORTS = {
-  broker: 65535,
-  web: 3200,
-  vite: 5180,
-  pairing: 7888,
+  broker: 43110,
+  web: 43120,
+  vite: 43122,
+  pairing: 43130,
 };
 const WORKTREE_PORT_BASES = {
-  web: 3300,
-  vite: 5300,
-  pairing: 7900,
+  web: 43200,
+  vite: 43900,
+  pairing: 44600,
 };
 const WORKTREE_PORT_RANGE = 700;
 const VALUE_FLAGS = new Set(["--port", "--web-port", "--vite-port", "--pairing-port"]);

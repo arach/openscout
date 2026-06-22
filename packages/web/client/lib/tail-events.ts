@@ -17,11 +17,11 @@ let trpc: ReturnType<typeof createTRPCClient<BrokerRouter>> | null = null;
 let activeSub: { unsubscribe: () => void } | null = null;
 
 function brokerWsUrl(): string {
-  // Broker runs on a well-known port (65535). The web app may be served from
+  // Broker runs on a well-known port (43110). The web app may be served from
   // a different origin (vite dev, or the bundled web server), but the broker
   // is always reachable on the same hostname.
   const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
-  const port = 65535;
+  const port = 43110;
   return `ws://${host}:${port}/trpc`;
 }
 

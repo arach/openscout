@@ -213,7 +213,7 @@ export async function runMeshPing(target: string): Promise<MeshPingReport> {
     if (matchedNode?.brokerUrl) {
       probeUrl = matchedNode.brokerUrl;
     } else {
-      probeUrl = `http://${target}:65535`;
+      probeUrl = `http://${target}:43110`;
     }
   }
 

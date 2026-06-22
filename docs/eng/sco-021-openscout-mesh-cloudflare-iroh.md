@@ -293,7 +293,7 @@ Cloudflare.
     },
     {
       "kind": "http",
-      "url": "https://macbook-pro.tailnet-name.ts.net:4080"
+      "url": "https://macbook-pro.tailnet-name.ts.net:43110"
     },
     {
       "kind": "cloudflare_tunnel",

@@ -28,7 +28,7 @@ The goal is not to replicate Scout's CLI or desktop UI inside pi. The goal is to
 
 A pi extension that:
 
-1. **Bridges to Scout broker** — connects to `http://127.0.0.1:65535` (or `OPENSCOUT_BROKER_URL`) on startup
+1. **Bridges to Scout broker** — connects to `http://127.0.0.1:43110` (or `OPENSCOUT_BROKER_URL`) on startup
 2. **Exposes Scout tools** — `scout_send`, `scout_ask`, `scout_who`, `scout_ps` as first-class pi tools
 3. **Adds guided UX** — agent picker with fuzzy search, message compose overlay, inline incoming message rendering
 4. **Handles SSE notifications** — real-time delivery of messages, flight completions, and other broker events
@@ -159,7 +159,7 @@ On extension startup, connect to broker. Two transport options:
 | Transport | Use case | Address |
 |---|---|---|
 | `local_socket` | Local extensions (pi-scout) | `~/.openscout/broker.sock` |
-| `http` | Mesh comms, web app | `http://127.0.0.1:65535` |
+| `http` | Mesh comms, web app | `http://127.0.0.1:43110` |
 
 **Same endpoints and semantics regardless of transport.** Only the connection path differs.
 

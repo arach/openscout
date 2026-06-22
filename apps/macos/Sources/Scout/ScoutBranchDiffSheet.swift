@@ -35,7 +35,7 @@ import AppKit
 // The embedded viewer is served by the local OpenScout web server. Reuse the
 // resolver every other macOS → web call uses (`ScoutWeb.baseURL()`: env
 // OPENSCOUT_WEB_URL / OPENSCOUT_WEB_PORT, the local config file, else the
-// 127.0.0.1:3200 fallback) so the diff sheet tracks the app's real web origin.
+// 127.0.0.1:43120 fallback) so the diff sheet tracks the app's real web origin.
 
 /// Builds the chrome-free embed URL for a worktree's diff:
 /// `<base>/embed/repo-diff?path=<percent-encoded absolute path>&theme=<dark|light>`.

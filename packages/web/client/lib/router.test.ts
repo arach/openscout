@@ -8,14 +8,14 @@ const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } 
 
 describe("agents route parsing", () => {
   test("conversations routes round-trip", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/conversations")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/conversations")).toEqual({
       view: "conversations",
     });
     expect(routePath({ view: "conversations" })).toBe("/conversations");
   });
 
   test("direct agent conversation routes default to the message tab", () => {
-    const route = routeFromUrl("http://127.0.0.1:3200/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini");
+    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini");
 
     expect(route).toEqual({
       view: "agents",
@@ -27,19 +27,19 @@ describe("agents route parsing", () => {
   });
 
   test("machine-scoped routes round-trip through URLs", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/fleet?machineId=node-b")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/fleet?machineId=node-b")).toEqual({
       view: "fleet",
       machineId: "node-b",
     });
     expect(routePath({ view: "fleet", machineId: "node-b" })).toBe("/fleet?machineId=node-b");
 
-    expect(routeFromUrl("http://127.0.0.1:3200/mesh?machineId=node-b")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/mesh?machineId=node-b")).toEqual({
       view: "mesh",
       machineId: "node-b",
     });
     expect(routePath({ view: "mesh", machineId: "node-b" })).toBe("/mesh?machineId=node-b");
 
-    expect(routeFromUrl("http://127.0.0.1:3200/work/work-1?machineId=node-b")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/work/work-1?machineId=node-b")).toEqual({
       view: "work",
       workId: "work-1",
       machineId: "node-b",
@@ -48,7 +48,7 @@ describe("agents route parsing", () => {
       "/work/work-1?machineId=node-b",
     );
 
-    expect(routeFromUrl("http://127.0.0.1:3200/harnesses?machineId=node-b")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/harnesses?machineId=node-b")).toEqual({
       view: "harnesses",
       machineId: "node-b",
     });
@@ -56,7 +56,7 @@ describe("agents route parsing", () => {
   });
 
   test("machine scope composes with existing route query params", () => {
-    const agentRoute = routeFromUrl("http://127.0.0.1:3200/agents/hudson.main?tab=observe&machineId=node-b");
+    const agentRoute = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main?tab=observe&machineId=node-b");
     expect(agentRoute).toEqual({
       view: "agents",
       agentId: "hudson.main",
@@ -65,7 +65,7 @@ describe("agents route parsing", () => {
     });
     expect(routePath(agentRoute)).toBe("/agents/hudson.main?tab=observe&machineId=node-b");
 
-    const conversationRoute = routeFromUrl("http://127.0.0.1:3200/c/dm.operator.hudson?compose=ask&machineId=node-b");
+    const conversationRoute = routeFromUrl("http://127.0.0.1:43120/c/dm.operator.hudson?compose=ask&machineId=node-b");
     expect(conversationRoute).toEqual({
       view: "conversation",
       conversationId: "dm.operator.hudson",
@@ -75,7 +75,7 @@ describe("agents route parsing", () => {
     expect(routePath(conversationRoute)).toBe("/c/dm.operator.hudson?compose=ask&machineId=node-b");
 
     const messagesRoute = routeFromUrl(
-      "http://127.0.0.1:3200/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
+      "http://127.0.0.1:43120/messages/channel.font-studio?filter=channel&sort=unread&machineId=node-b",
     );
     expect(messagesRoute).toEqual({
       view: "messages",
@@ -99,7 +99,7 @@ describe("agents route parsing", () => {
   });
 
   test("observe deep links preserve the explicit observe tab", () => {
-    const route = routeFromUrl("http://127.0.0.1:3200/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini?tab=observe");
+    const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/dm.operator.openscout-6.main.mini?tab=observe");
 
     expect(route).toEqual({
       view: "agents",
@@ -112,7 +112,7 @@ describe("agents route parsing", () => {
 
 
   test("agent-scoped session routes round-trip", () => {
-    const route = routeFromUrl("http://127.0.0.1:3200/agents/hudson.main/sessions/codex-thread-1");
+    const route = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main/sessions/codex-thread-1");
 
     expect(route).toEqual({
       view: "sessions",
@@ -124,7 +124,7 @@ describe("agents route parsing", () => {
 
   test("follow routes preserve Scout ids and preferred view", () => {
     const route = routeFromUrl(
-      "http://127.0.0.1:3200/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",
+      "http://127.0.0.1:43120/follow?view=tail&flightId=flight-1&invocationId=inv-1&conversationId=dm.operator.hudson&workId=work-1&targetAgentId=hudson.main",
     );
 
     expect(route).toEqual({
@@ -142,7 +142,7 @@ describe("agents route parsing", () => {
   });
 
   test("tail routes preserve an optional focus query", () => {
-    const route = routeFromUrl("http://127.0.0.1:3200/ops/tail?q=019ddb1b-test-thread");
+    const route = routeFromUrl("http://127.0.0.1:43120/ops/tail?q=019ddb1b-test-thread");
 
     expect(route).toEqual({
       view: "ops",
@@ -153,7 +153,7 @@ describe("agents route parsing", () => {
   });
 
   test("terminal routes tolerate trailing punctuation on mode deep links", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/terminal/hero.master?mode=takeover.")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/terminal/hero.master?mode=takeover.")).toEqual({
       view: "terminal",
       agentId: "hero.master",
       mode: "takeover",
@@ -161,7 +161,7 @@ describe("agents route parsing", () => {
   });
 
   test("terminal routes preserve registered session surface deep links", () => {
-    const route = routeFromUrl("http://127.0.0.1:3200/terminal?session=ts.123&surface=zellij%3Ascout-zj&mode=observe");
+    const route = routeFromUrl("http://127.0.0.1:43120/terminal?session=ts.123&surface=zellij%3Ascout-zj&mode=observe");
 
     expect(route).toEqual({
       view: "terminal",
@@ -174,7 +174,7 @@ describe("agents route parsing", () => {
 
   test("terminal routes support backend/session path deep links", () => {
     const route = routeFromUrl(
-      "http://127.0.0.1:3200/terminal/tmux/relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude?mode=takeover",
+      "http://127.0.0.1:43120/terminal/tmux/relay-atelier-card-w-eury8m-master-arts-mac-mini-local-claude?mode=takeover",
     );
 
     expect(route).toEqual({
@@ -188,15 +188,15 @@ describe("agents route parsing", () => {
   });
 
   test("ops issues route accepts error-oriented aliases", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/ops/plan")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/plan")).toEqual({
       view: "ops",
       mode: "plan",
     });
-    expect(routeFromUrl("http://127.0.0.1:3200/ops/issues")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/issues")).toEqual({
       view: "ops",
       mode: "issues",
     });
-    expect(routeFromUrl("http://127.0.0.1:3200/ops/errors")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/errors")).toEqual({
       view: "ops",
       mode: "issues",
     });
@@ -204,21 +204,21 @@ describe("agents route parsing", () => {
   });
 
   test("messages index route round-trips", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/messages")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/messages")).toEqual({
       view: "messages",
     });
     expect(routePath({ view: "messages" })).toBe("/messages");
   });
 
   test("search route round-trips", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/search")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/search")).toEqual({
       view: "search",
     });
     expect(routePath({ view: "search" })).toBe("/search");
-    expect(routeFromUrl("http://127.0.0.1:3200/search/knowledge")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/search/knowledge")).toEqual({
       view: "search",
     });
-    expect(routeFromUrl("http://127.0.0.1:3200/search/indexer")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/search/indexer")).toEqual({
       view: "search",
       mode: "indexer",
     });
@@ -228,7 +228,7 @@ describe("agents route parsing", () => {
 
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
-      "http://127.0.0.1:3200/messages/channel.font-studio?filter=channel&sort=unread",
+      "http://127.0.0.1:43120/messages/channel.font-studio?filter=channel&sort=unread",
     );
     expect(route).toEqual({
       view: "messages",
@@ -248,13 +248,13 @@ describe("agents route parsing", () => {
   });
 
   test("agent configuration settings routes round-trip", () => {
-    expect(routeFromUrl("http://127.0.0.1:3200/settings/agents")).toEqual({
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/agents")).toEqual({
       view: "settings",
       section: "agents",
     });
     expect(routePath({ view: "settings", section: "agents" })).toBe("/settings/agents");
 
-    const detailRoute = routeFromUrl("http://127.0.0.1:3200/settings/agents/openscout-6.main.mini");
+    const detailRoute = routeFromUrl("http://127.0.0.1:43120/settings/agents/openscout-6.main.mini");
     expect(detailRoute).toEqual({
       view: "settings",
       section: "agents",

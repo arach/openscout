@@ -39,7 +39,7 @@ describe("pairing service", () => {
         trustedPeerCount: 3,
         pairing: {
           relay: "wss://relay.test",
-          fallbackRelays: ["wss://mac.tailnet.ts.net:7889"],
+          fallbackRelays: ["wss://mac.tailnet.ts.net:43131"],
           room: "room-expired",
           publicKey: "local-public-key",
           expiresAt: expiredAt,
@@ -53,7 +53,7 @@ describe("pairing service", () => {
       resolvedPairingConfig: () => ({
         relay: "wss://relay.test",
         secure: true,
-        port: 7888,
+        port: 43130,
         workspaceRoot: "/workspace",
         sessions: [],
       }),
@@ -85,7 +85,7 @@ describe("pairing service", () => {
     }));
     expect(events[0].payload).toEqual(expect.objectContaining({
       relay: "wss://relay.test",
-      fallbackRelays: ["wss://mac.tailnet.ts.net:7889"],
+      fallbackRelays: ["wss://mac.tailnet.ts.net:43131"],
       room: "room-expired",
       publicKey: "local-public-key",
     }));

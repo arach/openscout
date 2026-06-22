@@ -377,7 +377,7 @@ struct AppSettingsView: View {
 
     /// Inspector field rows are fixed-width and put the title and value on one
     /// line — a full relay URL in a log message ("Connected via TSN wss://arachs
-    /// -mac-mini.tail1e8e67.ts.net:7889") would force the row, and the whole
+    /// -mac-mini.tail1e8e67.ts.net:43131") would force the row, and the whole
     /// panel, wider than the screen. Drop the embedded ws(s):// URL entirely (the
     /// title's route token already says how we connected; the full URL lives in
     /// the Connection log and Copy log), then cap the length as a backstop.

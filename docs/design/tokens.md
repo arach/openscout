@@ -167,7 +167,7 @@ Then the inline-style pass in `.tsx`.
 
 ## Verify
 - `npm --prefix packages/web run build:client` (vite build = the TS+CSS gate).
-- Run `npm --prefix packages/web run dev:client` → `http://127.0.0.1:5180`;
+- Run `npm --prefix packages/web run dev:client` → `http://127.0.0.1:43122`;
   check **dark and light**. Light mode is the main risk: avatar text visible,
   card shadows not too heavy, scrim present, eyebrows consistent, status bar 28px.
 

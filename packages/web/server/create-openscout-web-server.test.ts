@@ -1753,14 +1753,14 @@ describe("createOpenScoutWebServer", () => {
   test("redirects the remote pairing page to the iOS deep link", async () => {
     const qrValue = JSON.stringify({
       v: 1,
-      relay: "ws://mac.tailnet.ts.net:7889",
+      relay: "ws://mac.tailnet.ts.net:43131",
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
     });
     pairingStateResult = makePairingState({
       pairing: {
-        relay: "ws://mac.tailnet.ts.net:7889",
+        relay: "ws://mac.tailnet.ts.net:43131",
         room: "room-1",
         publicKey: "a".repeat(64),
         expiresAt: 1_780_958_228_426,
@@ -1786,16 +1786,16 @@ describe("createOpenScoutWebServer", () => {
   test("redirects route-specific pairing pages to reordered iOS deep links", async () => {
     const lanPayload = {
       v: 1,
-      relay: "ws://192.168.18.14:7889",
-      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      relay: "ws://192.168.18.14:43131",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
     };
     const tailnetPayload = {
       ...lanPayload,
-      relay: "ws://mac.tailnet.ts.net:7889",
-      fallbackRelays: ["ws://192.168.18.14:7889"],
+      relay: "ws://mac.tailnet.ts.net:43131",
+      fallbackRelays: ["ws://192.168.18.14:43131"],
     };
     const qrValue = JSON.stringify(lanPayload);
     pairingStateResult = makePairingState({
@@ -3173,7 +3173,7 @@ describe("createOpenScoutWebServer", () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "vite-proxy",
-      viteDevUrl: "http://127.0.0.1:5180",
+      viteDevUrl: "http://127.0.0.1:43122",
       staticRoot: makeStaticRoot(),
     });
 
@@ -3185,7 +3185,7 @@ describe("createOpenScoutWebServer", () => {
     expect(await response.text()).toContain("vite");
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]?.input).toBe(
-      "http://127.0.0.1:5180/agents/demo?tab=inbox",
+      "http://127.0.0.1:43122/agents/demo?tab=inbox",
     );
     expect(fetchCalls[0]?.init?.method).toBe("GET");
     expect(fetchCalls[0]?.init?.headers).toBeInstanceOf(Headers);

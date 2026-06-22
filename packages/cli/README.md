@@ -334,7 +334,7 @@ scout who
 scout latest
 scout server open
 scout server start
-scout server start --port 3200
+scout server start --port 43120
 scout server open --path /agents/arc-codex-2.master.mini
 scout server start --public-origin http://scout.local
 scout server edge --local-name m1

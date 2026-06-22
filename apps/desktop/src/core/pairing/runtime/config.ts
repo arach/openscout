@@ -84,7 +84,7 @@ export function resolvedPairingConfig(env: NodeJS.ProcessEnv = process.env) {
       ? relay.trim()
       : null,
     secure: config.secure !== false,
-    port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : 7888,
+    port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : 43130,
     workspaceRoot: typeof config.workspace?.root === "string" && config.workspace.root.trim().length > 0
       ? config.workspace.root.trim()
       : null,

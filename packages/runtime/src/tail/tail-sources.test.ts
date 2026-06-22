@@ -298,7 +298,7 @@ describe("tail transcript sources", () => {
     const sessionDir = join(projectDir, "019edd6b-shell-enrich");
     mkdirSync(sessionDir, { recursive: true });
     const transcriptPath = join(sessionDir, "events.jsonl");
-    const shellCommand = "curl -s http://127.0.0.1:5180/api/session-ref/test";
+    const shellCommand = "curl -s http://127.0.0.1:43122/api/session-ref/test";
     writeFileSync(
       join(sessionDir, "summary.json"),
       JSON.stringify({

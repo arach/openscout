@@ -64,6 +64,7 @@ import {
   type ScoutBrokerJsonRequestTrace,
 } from "@openscout/runtime/broker-api";
 import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
+import { OPENSCOUT_PORTS } from "@openscout/runtime/local-config";
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -521,7 +522,7 @@ const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
 const DEFAULT_BROKER_HOST = "127.0.0.1";
-const DEFAULT_BROKER_PORT = 65535;
+const DEFAULT_BROKER_PORT = OPENSCOUT_PORTS.broker;
 
 function buildScoutBrokerUrlFromEnv(): string {
   const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;

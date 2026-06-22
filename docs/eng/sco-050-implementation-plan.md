@@ -256,14 +256,14 @@ conversation.
 
 ### Backend-only smoke tests (Codex runs these)
 
-1. `curl http://127.0.0.1:3200/api/scoutbot/threads` returns one thread
+1. `curl http://127.0.0.1:43120/api/scoutbot/threads` returns one thread
    (the default) with a populated `transportSessionId` and
    `conversationId`.
-2. `curl -X POST http://127.0.0.1:3200/api/send -d '{"body":"hi"}'`
+2. `curl -X POST http://127.0.0.1:43120/api/send -d '{"body":"hi"}'`
    triggers a scoutbot reply within ~10s. The reply's `message.posted`
    event has `actorId: "scoutbot"`, the matching `conversationId`, and
    provenance metadata.
-3. `curl -X POST http://127.0.0.1:3200/api/send -d '{"body":"/agents"}'`
+3. `curl -X POST http://127.0.0.1:43120/api/send -d '{"body":"/agents"}'`
    gets a prefilter reply (no Codex call). Reply body includes the
    matched rule id and snapshot timestamp.
 4. `grep -r "scoutbot-runner\|ScoutbotBrain\|createRangerScoutbotBrain"

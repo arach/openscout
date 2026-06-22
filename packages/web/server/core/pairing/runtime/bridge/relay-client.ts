@@ -211,7 +211,7 @@ export function connectToRelay(
         onReady: (remotePublicKey, readyInfo) => {
           const pubHex = bytesToHex(remotePublicKey);
           peer.deviceId = pubHex.slice(0, 16);
-          peer.trustedPeer = readyInfo.wasTrustedPeer;
+          peer.trustedPeer = readyInfo.trustedPeer;
           replaceOlderPeerForSameDevice(peer);
           ensureBridgeEventSubscription();
           console.log(

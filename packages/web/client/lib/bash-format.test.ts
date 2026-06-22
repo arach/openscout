@@ -33,7 +33,7 @@ describe("bashDisplaySpans", () => {
   });
 
   test("dims command wrappers (sudo) and spotlights the wrapped program", () => {
-    expect(shape("sudo lsof -i :3030")).toBe("·sudo· [lsof] -i :3030");
+    expect(shape("sudo lsof -i :43140")).toBe("·sudo· [lsof] -i :43140");
   });
 
   test("a path-program is the program (and still recognised by basename)", () => {

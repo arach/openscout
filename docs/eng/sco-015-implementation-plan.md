@@ -340,7 +340,7 @@ async function brokerRequest(method, path, body) {
 | Env var | Purpose | Default |
 |---|---|---|
 | `OPENSCOUT_BROKER_SOCKET_PATH` | Unix socket path | `~/Library/Application Support/OpenScout/runtime/broker.sock` |
-| `OPENSCOUT_BROKER_URL` | HTTP broker URL | `http://127.0.0.1:65535` |
+| `OPENSCOUT_BROKER_URL` | HTTP broker URL | `http://127.0.0.1:43110` |
 
 ## Testing Plan
 

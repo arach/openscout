@@ -721,9 +721,8 @@ cleanup_scout_dev_fallback_ports() {
   local port=""
 
   for port in \
-    3200 3201 3202 3203 3204 3205 3206 3207 3208 3209 3210 \
-    5180 5181 5182 5183 5184 5185 5186 5187 5188 5189 5190 \
-    7888 7889 7890 7891 7892 7893 7894 7895 7896 7897 7898
+    43120 43121 43122 43123 43124 43125 43126 43127 43128 43129 43130 \
+    43131 43132 43133 43134 43135 43136 43137 43138 43139 43140
   do
     kill_port_listener_if_scout_dev "${port}" "" "${REPO_ROOT}/packages/web"
   done
@@ -847,7 +846,7 @@ stop_known_processes() {
 
   cleanup_scout_dev_state
   cleanup_scout_dev_fallback_ports
-  kill_port_listener_if_scout_dev 65535 "" "${REPO_ROOT}/packages/web"
+  kill_port_listener_if_scout_dev 43110 "" "${REPO_ROOT}/packages/web"
 }
 
 parse_args() {

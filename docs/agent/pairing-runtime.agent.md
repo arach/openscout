@@ -66,7 +66,7 @@ PairingService / CLI
       → [dns-sd Bonjour _oscout-pair._tcp] (darwin + managed relay only)
 ```
 
-Default ports when `config.port` unset: bridge `7888`, relay `7889`, file server `7890`.
+Default ports when `config.port` unset: bridge `43130`, relay `43131`, file server `43132`.
 
 ## State Machine
 
@@ -133,7 +133,7 @@ Surfaces read snapshot; they do not infer pairing health from logs alone.
 |---|---|---|
 | `relay` | null → managed relay | External relay WS URL |
 | `secure` | `true` | Noise on local bridge connections |
-| `port` | `7888` | Bridge listen port |
+| `port` | `43130` | Bridge listen port |
 | `workspace.root` | null | Workspace browse root |
 | `sessions[]` | `[]` | Auto-started bridge sessions |
 | `adapters{}` | `{}` | Named adapter overrides |

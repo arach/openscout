@@ -93,8 +93,8 @@ Written every ~2s while child alive; updated on exit/restart/shutdown.
 | Input | Typical value |
 |---|---|
 | `broker_host` | `127.0.0.1` (local) or `0.0.0.0` (mesh advertise) |
-| `broker_port` | `65535` default |
-| `broker_url` | `http://127.0.0.1:65535` |
+| `broker_port` | `43110` default |
+| `broker_url` | `http://127.0.0.1:43110` |
 | `broker_socket_path` | unix socket under support dir |
 | `support_directory` | `~/Library/Application Support/OpenScout` |
 | `runtime_directory` | support/runtime |

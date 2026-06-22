@@ -214,11 +214,11 @@ function resolveRelayEndpoint(port: number) {
   return resolveRelayEndpointForTailscaleStatus(port, readTailscaleStatus());
 }
 
-export function suggestedRelayUrl(port = 7889) {
+export function suggestedRelayUrl(port = 43131) {
   return resolveRelayEndpoint(port).relayUrl;
 }
 
-export function startManagedRelay(port = 7889): StartedManagedRelay {
+export function startManagedRelay(port = 43131): StartedManagedRelay {
   const endpoint = resolveRelayEndpoint(port);
   pairingLog.info("relay", "starting managed relay", {
     relay: endpoint.relayUrl,

@@ -24,9 +24,17 @@ import {
   projectSessionAttention,
   type SessionAttentionItem,
 } from "@openscout/runtime";
+import {
+  loadLocalConfig,
+  OPENSCOUT_PORTS,
+  resolveBrokerPort,
+  resolveHost,
+  resolveWebPort,
+} from "@openscout/runtime/local-config";
 
 import { log } from "./log.ts";
 import { resolveConfig } from "./config.ts";
+import { readPairingRuntimeSnapshot } from "../runtime-state.ts";
 import type { Bridge } from "./bridge.ts";
 import type { AgentHarness } from "@openscout/protocol";
 import {
@@ -95,6 +103,118 @@ const logged = t.middleware(async ({ path, type, next }) => {
 });
 
 const procedure = t.procedure.use(logged);
+
+// ---------------------------------------------------------------------------
+// Protected endpoint discovery
+// ---------------------------------------------------------------------------
+
+const protectedMobileProcedure = procedure.use(({ ctx, next }) => {
+  if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Endpoint discovery requires an encrypted trusted mobile transport",
+    });
+  }
+  return next({ ctx });
+});
+
+function localServiceHost(): string {
+  const rawHost = resolveHost() || loadLocalConfig().host || "127.0.0.1";
+  if (rawHost === "0.0.0.0" || rawHost === "::") {
+    return "127.0.0.1";
+  }
+  return rawHost;
+}
+
+function hostForUrl(host: string): string {
+  return host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+}
+
+function httpUrl(host: string, port: number): string {
+  return `http://${hostForUrl(host)}:${port}`;
+}
+
+function wsUrl(host: string, port: number): string {
+  return `ws://${hostForUrl(host)}:${port}`;
+}
+
+function isMobileReachableHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return Boolean(normalized)
+    && normalized !== "localhost"
+    && normalized !== "127.0.0.1"
+    && normalized !== "::1"
+    && normalized !== "0.0.0.0"
+    && normalized !== "::";
+}
+
+function dedupeUrls(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    urls.push(trimmed);
+  }
+  return urls;
+}
+
+function currentMobileRelayUrls(host: string, pairingBridgePort: number): string[] {
+  const snapshot = readPairingRuntimeSnapshot();
+  const snapshotPairing = snapshot?.pairing;
+  const configuredRelay = resolveConfig().relay;
+  return dedupeUrls([
+    snapshotPairing?.relay,
+    ...(snapshotPairing?.fallbackRelays ?? []),
+    configuredRelay,
+    isMobileReachableHost(host) ? wsUrl(host, pairingBridgePort) : null,
+  ]);
+}
+
+function buildMobileEndpointManifest(ctx: BridgeContext) {
+  const host = localServiceHost();
+  const brokerPort = resolveBrokerPort();
+  const webPort = resolveWebPort();
+  const pairingBridgePort = resolveConfig().port;
+  const pairingFileServerPort = pairingBridgePort + 2;
+  const brokerUrl = httpUrl(host, brokerPort);
+  const webUrl = httpUrl(host, webPort);
+  const pairingBridgeUrl = wsUrl(host, pairingBridgePort);
+  const pairingFileServerUrl = httpUrl(host, pairingFileServerPort);
+  const relayUrls = currentMobileRelayUrls(host, pairingBridgePort);
+
+  return {
+    version: 1,
+    observedAt: Date.now(),
+    source: "bridge-rpc",
+    protected: true,
+    transport: {
+      secure: ctx.secureTransport === true,
+      trustedPeer: ctx.trustedPeer === true,
+      deviceId: ctx.deviceId ?? null,
+    },
+    ports: {
+      broker: brokerPort,
+      web: webPort,
+      pairingBridge: pairingBridgePort,
+      pairingFileServer: pairingFileServerPort,
+      defaults: {
+        broker: OPENSCOUT_PORTS.broker,
+        web: OPENSCOUT_PORTS.web,
+        pairingBridge: OPENSCOUT_PORTS.pairingBridge,
+        pairingFileServer: OPENSCOUT_PORTS.pairingFileServer,
+      },
+    },
+    endpoints: {
+      brokerUrl,
+      webUrl,
+      pairingBridgeUrl,
+      pairingFileServerUrl,
+      relayUrls,
+    },
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers (ported from server.ts)
@@ -675,6 +795,9 @@ const sessionRouter = t.router({
 // -- Mobile -----------------------------------------------------------------
 
 const mobileRouter = t.router({
+  endpoints: protectedMobileProcedure
+    .query(({ ctx }) => buildMobileEndpointManifest(ctx)),
+
   inbox: procedure
     .query(({ ctx }) => ({
       items: queryMobileInboxItems(ctx.bridge),

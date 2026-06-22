@@ -6076,7 +6076,7 @@ export async function createOpenScoutWebServer(
         return c.json({ error: "IP is not in the Tailscale address range" }, 403);
       }
 
-      const brokerUrl = `http://${ip}:65535`;
+      const brokerUrl = `http://${ip}:43110`;
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), 8000);
       try {
@@ -7085,7 +7085,7 @@ export async function createOpenScoutWebServer(
     assetMode: options.assetMode,
     staticRoot: resolveStaticRoot(options.staticRoot),
     viteDevUrl: options.viteDevUrl,
-    defaultViteUrl: "http://127.0.0.1:5180",
+    defaultViteUrl: "http://127.0.0.1:43122",
   });
 
   const warmupCaches = () =>
