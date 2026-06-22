@@ -21,9 +21,11 @@ import {
   readScoutBrokerHome,
   openScoutPeerSession,
   registerScoutLocalAgentBinding,
+  normalizeOutgoingAttachments,
   replyToScoutMessage,
   sendScoutDirectMessage,
   sendScoutMessage,
+  type OutgoingAttachmentInput,
   type ScoutBrokerConversationRecord,
   type ScoutBrokerHomeActivityRecord,
   type ScoutBrokerSnapshot,
@@ -110,6 +112,12 @@ export type CreateScoutSessionInput = {
   branch?: string;
   model?: string;
   forceNew?: boolean;
+  seed?: {
+    instructions?: string | null;
+    fromMessageId?: string | null;
+    fromConversationId?: string | null;
+    attachments?: OutgoingAttachmentInput[];
+  } | null;
 };
 
 export type ScoutMobileSessionHandle = {
@@ -120,6 +128,8 @@ export type ScoutMobileSessionHandle = {
     title: string;
     existed: boolean;
   };
+  messageId?: string | null;
+  flightId?: string | null;
   unsupported: Array<"worktree" | "profile">;
 };
 
@@ -149,6 +159,10 @@ export type ScoutMobileSessionSnapshot = {
         status: "started" | "streaming" | "completed" | "failed";
         index: number;
         text?: string;
+        mimeType?: string;
+        name?: string;
+        data?: string;
+        url?: string;
         message?: string;
       };
       status: "streaming" | "completed";
@@ -156,6 +170,7 @@ export type ScoutMobileSessionSnapshot = {
     startedAt: number;
     endedAt?: number;
     isUserTurn?: boolean;
+    clientMessageId?: string | null;
   }>;
   currentTurnId: string | null;
 };
@@ -166,11 +181,60 @@ const DEFAULT_MOBILE_HISTORY_PAGE_LIMIT = 40;
 export type SendScoutMobileMessageInput = {
   agentId: string;
   body: string;
+  attachments?: OutgoingAttachmentInput[];
   clientMessageId?: string | null;
   replyToMessageId?: string | null;
   referenceMessageIds?: string[];
   harness?: AgentHarness;
 };
+
+export type ScoutMobileSendLifecycleState =
+  | "queued"
+  | "dispatching"
+  | "acknowledged"
+  | "working"
+  | "waiting"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "expired";
+
+export type ScoutMobileSendResult = {
+  conversationId: string;
+  messageId: string;
+  flightId?: string | null;
+  invocationId?: string | null;
+  targetAgentId?: string | null;
+  lifecycleState?: ScoutMobileSendLifecycleState | null;
+  summary?: string | null;
+  error?: string | null;
+};
+
+function mobileLifecycleStateForFlight(flight: { state?: string } | null | undefined): ScoutMobileSendLifecycleState | null {
+  switch (flight?.state) {
+    case "queued": return "queued";
+    case "waking": return "dispatching";
+    case "running": return "working";
+    case "waiting": return "waiting";
+    case "completed": return "completed";
+    case "failed": return "failed";
+    case "cancelled": return "cancelled";
+    default: return null;
+  }
+}
+
+function mobileSendResultFromDirect(result: ScoutDirectMessageResult): ScoutMobileSendResult {
+  return {
+    conversationId: result.conversationId,
+    messageId: result.messageId,
+    flightId: result.flight?.id ?? null,
+    invocationId: result.flight?.invocationId ?? null,
+    targetAgentId: result.flight?.targetAgentId ?? null,
+    lifecycleState: mobileLifecycleStateForFlight(result.flight) ?? (result.flight ? "dispatching" : null),
+    summary: result.flight?.summary ?? null,
+    error: result.flight?.error ?? null,
+  };
+}
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
   const ms = epochMs(value);
@@ -767,10 +831,23 @@ export async function getScoutMobileSessionSnapshot(
         text: message.body,
       },
       status: "completed",
-    }],
+    }, ...((message.attachments ?? []).map((attachment, index) => ({
+      block: {
+        id: `${message.id}:attachment:${attachment.id}`,
+        turnId: message.id,
+        type: "file" as const,
+        status: "completed" as const,
+        index: index + 1,
+        mimeType: attachment.mediaType,
+        name: attachment.fileName ?? attachment.url ?? attachment.id,
+        url: attachment.url,
+      },
+      status: "completed" as const,
+    })))],
     startedAt: normalizeTimestampMs(message.createdAt) ?? Date.now(),
     endedAt: normalizeTimestampMs(message.createdAt) ?? Date.now(),
     isUserTurn: message.actorId === "operator",
+    clientMessageId: metadataString(message.metadata, "clientMessageId"),
   }));
 
   if (!options.beforeTurnId && shouldShowWorkingTurn && activeFlight) {
@@ -931,14 +1008,30 @@ export async function createScoutSession(
     lastActiveAt: null,
   };
 
+  const seedInstructions = input.seed?.instructions?.trim() ?? "";
+  const seedAttachments = input.seed?.attachments;
+  const seedDelivery = seedInstructions || seedAttachments?.length
+    ? await sendScoutDirectMessage({
+        agentId: targetAgentId,
+        body: seedInstructions,
+        attachments: seedAttachments,
+        currentDirectory: currentDirectory ?? workspace.root,
+        executionHarness: input.harness,
+        source: "scout-mobile",
+        deviceId,
+      })
+    : null;
+
   return {
     workspace,
     agent: agentSummary,
     session: {
-      conversationId: directSession.conversation.id,
+      conversationId: seedDelivery?.conversationId ?? directSession.conversation.id,
       title: agentTitle,
       existed: directSession.existed,
     },
+    messageId: seedDelivery?.messageId ?? null,
+    flightId: seedDelivery?.flight?.id ?? null,
     unsupported: [
       ...(input.worktree && !worktreeCreated ? ["worktree" as const] : []),
     ],
@@ -957,6 +1050,7 @@ export async function sendScoutMobileMessage(
   return sendScoutDirectMessage({
     agentId: input.agentId,
     body: input.body,
+    attachments: input.attachments,
     currentDirectory,
     clientMessageId: input.clientMessageId,
     replyToMessageId: input.replyToMessageId,
@@ -1008,6 +1102,7 @@ async function sendScoutbotMobileThreadMessage(
     originNodeId: broker.node.id,
     class: "agent",
     body: input.body.trim(),
+    attachments: normalizeOutgoingAttachments(input.attachments),
     replyToMessageId: input.replyToMessageId ?? undefined,
     mentions: [{ actorId: SCOUTBOT_AGENT_ID, label: "@scoutbot" }],
     audience: { notify: [SCOUTBOT_AGENT_ID], reason: "direct_message" },
@@ -1250,6 +1345,14 @@ export type ScoutMobileCommsMessage = {
   createdAt: number;
   replyToMessageId: string | null;
   isOperator: boolean;
+  clientMessageId: string | null;
+  attachments: Array<{
+    id: string;
+    mediaType: string;
+    fileName?: string;
+    blobKey?: string;
+    url?: string;
+  }>;
 };
 
 function commsActorLabel(
@@ -1374,6 +1477,14 @@ export async function getScoutMobileConversationMessages(
     createdAt: m.createdAt,
     replyToMessageId: m.replyToMessageId ?? null,
     isOperator: selfIds.has(m.actorId),
+    clientMessageId: metadataString(m.metadata, "clientMessageId"),
+    attachments: (m.attachments ?? []).map((attachment) => ({
+      id: attachment.id,
+      mediaType: attachment.mediaType,
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+      ...(attachment.blobKey ? { blobKey: attachment.blobKey } : {}),
+      ...(attachment.url ? { url: attachment.url } : {}),
+    })),
   }));
 }
 
@@ -1381,12 +1492,13 @@ export async function sendScoutMobileComms(
   input: {
     conversationId: string;
     body: string;
+    attachments?: OutgoingAttachmentInput[];
     replyToMessageId?: string | null;
     clientMessageId?: string | null;
   },
   currentDirectory?: string,
   deviceId?: string,
-): Promise<{ conversationId: string; messageId: string }> {
+): Promise<ScoutMobileSendResult> {
   const broker = await loadScoutBrokerContext();
   if (!broker) throw new Error("Relay is not reachable.");
   const conv = broker.snapshot.conversations?.[input.conversationId];
@@ -1402,13 +1514,14 @@ export async function sendScoutMobileComms(
       {
         agentId: targetAgentId,
         body: input.body,
+        attachments: input.attachments,
         clientMessageId: input.clientMessageId,
         replyToMessageId: input.replyToMessageId,
       },
       currentDirectory,
       deviceId,
     );
-    return { conversationId: result.conversationId, messageId: result.messageId };
+    return mobileSendResultFromDirect(result);
   }
 
   // Groups and threads must post to THIS conversation — collapsing to a 1:1 DM
@@ -1428,14 +1541,22 @@ export async function sendScoutMobileComms(
     const result = await replyToScoutMessage({
       senderId: MOBILE_OPERATOR_ID,
       body: input.body,
+      attachments: input.attachments,
       conversationId: input.conversationId,
       replyToMessageId: anchor,
+      clientMessageId: input.clientMessageId,
       source: "scout-mobile",
       currentDirectory,
     });
     return {
       conversationId: result.conversationId ?? input.conversationId,
       messageId: result.messageId ?? `local-${Date.now().toString(36)}`,
+      flightId: null,
+      invocationId: null,
+      targetAgentId: null,
+      lifecycleState: null,
+      summary: null,
+      error: null,
     };
   }
 
@@ -1446,11 +1567,19 @@ export async function sendScoutMobileComms(
   const result = await sendScoutMessage({
     senderId: MOBILE_OPERATOR_ID,
     body: input.body,
+    attachments: input.attachments,
     channel,
+    clientMessageId: input.clientMessageId,
     currentDirectory,
   });
   return {
     conversationId: result.conversationId ?? input.conversationId,
     messageId: result.messageId ?? `local-${Date.now().toString(36)}`,
+    flightId: result.flight?.id ?? null,
+    invocationId: result.flight?.invocationId ?? null,
+    targetAgentId: result.flight?.targetAgentId ?? null,
+    lifecycleState: mobileLifecycleStateForFlight(result.flight),
+    summary: result.flight?.summary ?? null,
+    error: result.flight?.error ?? null,
   };
 }

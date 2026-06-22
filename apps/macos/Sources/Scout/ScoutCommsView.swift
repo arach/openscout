@@ -48,6 +48,10 @@ private enum ScoutCommsMetrics {
     /// vertical; Studio's `md` (8) gives the tighter list rhythm the mock has,
     /// applied to both the live and pending rows so they stay aligned.
     static let listRowVerticalPadding: CGFloat = HudSpacing.md
+    /// Message-bubble corner radius. The Proposal's softer 11pt bubble — rounder
+    /// than the 8pt `card` chrome so the turn reads as a speech surface, not a
+    /// panel.
+    static let bubbleRadius: CGFloat = 11
 }
 
 struct ScoutComposerInputFrameKey: PreferenceKey {
@@ -737,7 +741,6 @@ struct ScoutConversationRow: View {
     @State private var isHovering = false
     /// Fades 1 → 0 to wash a freshly-arrived row with accent, then settle.
     @State private var revealWash: CGFloat = 0
-    @AppStorage(ScoutDesignPreview.accents) private var accentsOn = false
 
     var body: some View {
         Button(action: action) {
@@ -792,6 +795,15 @@ struct ScoutConversationRow: View {
                                 .font(HudFont.mono(HudTextSize.xxs))
                                 .foregroundStyle(ScoutPalette.dim)
                                 .lineLimit(1)
+
+                            // Unread count as a quiet accent number (Proposal) —
+                            // the only loud accent in the row, no filled capsule.
+                            if isUnread {
+                                Text("\(channel.unreadCount)")
+                                    .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.accent)
+                                    .lineLimit(1)
+                            }
                         }
 
                         Text(channel.preview?.nilIfEmpty ?? channel.participantDisplayNames.joined(separator: " + "))
@@ -801,39 +813,12 @@ struct ScoutConversationRow: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                if channel.messageCount > 0 {
-                    countBadge
-                }
             }
             .padding(.horizontal, HudSpacing.xxl)
             .padding(.vertical, ScoutCommsMetrics.listRowVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(rowBackground)
             .background(ScoutPalette.accent.opacity(0.18 * revealWash))
-            .overlay(alignment: .leading) {
-                if revealWash > 0.01 {
-                    Rectangle()
-                        .fill(ScoutPalette.accent)
-                        .frame(width: 2)
-                        .opacity(Double(revealWash))
-                }
-                if isSelected {
-                    ZStack(alignment: .leading) {
-                        if accentsOn {
-                            // Soft bloom behind the rule so selection feels lit.
-                            Rectangle()
-                                .fill(ScoutPalette.accent)
-                                .frame(width: 3)
-                                .blur(radius: 4)
-                                .opacity(0.85)
-                        }
-                        Rectangle()
-                            .fill(ScoutPalette.accent)
-                            .frame(width: 2)
-                    }
-                }
-            }
             .overlay(alignment: .bottom) {
                 HudDivider(color: ScoutDesign.hairline)
             }
@@ -865,7 +850,7 @@ struct ScoutConversationRow: View {
         if isChannel {
             Text("#")
                 .font(HudFont.mono(HudTextSize.base, weight: .bold))
-                .foregroundStyle(ScoutPalette.muted)
+                .foregroundStyle(isSelected ? ScoutPalette.accent : ScoutPalette.muted)
                 .frame(width: 32, height: 32)
                 .background(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -873,29 +858,19 @@ struct ScoutConversationRow: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(ScoutPalette.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+                        .stroke(isSelected ? ScoutPalette.accent : ScoutPalette.hairlineStrong, lineWidth: HudStrokeWidth.thin)
                 )
         } else {
-            // DM — a deterministic sprite from the conversation title.
+            // DM — a deterministic sprite from the conversation title. Selection
+            // is carried by a thin accent ring on the node, not a left bar — the
+            // accent stays a whisper.
             SpriteAvatarView(name: channel.rowTitle, size: 32, tile: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(ScoutPalette.accent, lineWidth: HudStrokeWidth.thin)
+                        .opacity(isSelected ? 1 : 0)
+                )
         }
-    }
-
-    /// Studio `.countBadge` — a centered trailing pill (min 20×20). Unread fills
-    /// solid accent with bg-color digits; read keeps a quiet surface pill with a
-    /// hairline so the column still reads as a badge, not a bare number.
-    private var countBadge: some View {
-        Text("\(channel.messageCount)")
-            .font(HudFont.mono(HudTextSize.xxs, weight: .semibold))
-            .foregroundStyle(isUnread ? ScoutPalette.bg : ScoutPalette.muted)
-            .padding(.horizontal, HudSpacing.sm)
-            .frame(minWidth: 20, minHeight: 20)
-            .background(
-                Capsule().fill(isUnread ? ScoutPalette.accent : ScoutPalette.surface)
-            )
-            .overlay(
-                Capsule().stroke(isUnread ? ScoutPalette.accent : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
-            )
     }
 
     /// Tiny warn-tinted "pending" pill after the title — signals an open ask
@@ -917,7 +892,9 @@ struct ScoutConversationRow: View {
 
     private var rowBackground: Color {
         if isSelected {
-            return ScoutSurface.selected(ScoutPalette.accent)
+            // Neutral selection pill — the accent ring on the avatar carries the
+            // "selected" signal, so the wash itself stays grayscale.
+            return ScoutSurface.press
         }
         if isHovering {
             return ScoutSurface.hover
@@ -1164,31 +1141,30 @@ struct ScoutMessageRow: View {
             )
     }
 
-    /// The constrained reading measure (Studio `.turnText`) — long prose wraps at
-    /// a comfortable line length, not the full bubble width. Long turns collapse
-    /// behind a fade with a Show more toggle so the thread stays scannable.
+    /// The turn body, wrapped in a bubble. Long prose wraps at the reading
+    /// measure (the enclosing turn frame caps width); long turns collapse behind
+    /// a fade with a Show more toggle so the thread stays scannable. The fade
+    /// dissolves into the bubble fill, not the canvas, so the clip reads clean.
     @ViewBuilder
     private var messageBody: some View {
         if isLongTurn {
             VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
-                ScoutMarkdownView(text: message.body, baseDirectory: baseDirectory)
-                    .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
-                    .frame(maxHeight: expanded ? nil : ScoutCommsMetrics.collapsedTurnMaxHeight, alignment: .top)
-                    .clipped()
-                    .overlay(alignment: .bottom) {
-                        // Subtle bottom fade from the bubble fill, so the clipped
-                        // edge reads as "more below" rather than a hard cut. Only
-                        // while collapsed.
-                        if !expanded {
-                            LinearGradient(
-                                colors: [ScoutPalette.bg.opacity(0), ScoutPalette.bg],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                            .frame(height: 44)
-                            .allowsHitTesting(false)
+                bubble {
+                    markdown
+                        .frame(maxHeight: expanded ? nil : ScoutCommsMetrics.collapsedTurnMaxHeight, alignment: .top)
+                        .clipped()
+                        .overlay(alignment: .bottom) {
+                            if !expanded {
+                                LinearGradient(
+                                    colors: [bubbleFill.opacity(0), bubbleFill],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                .frame(height: 44)
+                                .allowsHitTesting(false)
+                            }
                         }
-                    }
+                }
 
                 Button {
                     expanded.toggle()
@@ -1201,9 +1177,52 @@ struct ScoutMessageRow: View {
                 .buttonStyle(.plain).scoutPointerCursor()
             }
         } else {
-            ScoutMarkdownView(text: message.body, baseDirectory: baseDirectory)
-                .frame(maxWidth: ScoutCommsMetrics.messageReadingMeasure, alignment: .leading)
+            bubble { markdown }
         }
+    }
+
+    /// The themed markdown for this turn — light prose on the operator's accent
+    /// fill, standard ink on an incoming surface bubble. `hug: true` lets a short
+    /// turn produce a short bubble instead of a full reading-measure slab.
+    private var markdown: some View {
+        ScoutMarkdownView(
+            text: message.body,
+            baseDirectory: baseDirectory,
+            inkColor: bubbleInk,
+            mutedColor: bubbleMuted,
+            accentColor: bubbleAccent,
+            hug: true
+        )
+    }
+
+    private var isMine: Bool { message.isOperator }
+    private var bubbleFill: Color { isMine ? ScoutPalette.accent : ScoutPalette.surface }
+    private var bubbleInk: Color { isMine ? Color.white : ScoutPalette.ink }
+    private var bubbleMuted: Color { isMine ? Color.white.opacity(0.82) : ScoutPalette.muted }
+    private var bubbleAccent: Color { isMine ? Color.white : ScoutPalette.accent }
+
+    /// Differential elevation: an incoming turn FLOATS (surface fill · hairline ·
+    /// soft drop shadow); the operator's own turn is FLAT and anchored (accent
+    /// fill, no shadow). That contrast — not a tint — is what marks "yours".
+    @ViewBuilder
+    private func bubble<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, HudSpacing.lg)
+            .padding(.vertical, HudSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: ScoutCommsMetrics.bubbleRadius, style: .continuous)
+                    .fill(bubbleFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: ScoutCommsMetrics.bubbleRadius, style: .continuous)
+                    .stroke(isMine ? Color.clear : ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+            )
+            .shadow(
+                color: isMine ? Color.clear : ScoutSurface.shadow(0.16),
+                radius: isMine ? 0 : 5,
+                x: 0,
+                y: isMine ? 0 : 2
+            )
     }
 
     /// Cheap structural heuristic — no GeometryReader / height measurement (an

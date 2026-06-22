@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
 import { discoverClaudeProcesses } from "./discover.js";
+import { formatToolCall, summarizeToolResult } from "./tool-format.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -243,18 +244,9 @@ function summarizeBlocks(content: unknown): string {
       parts.push(`[thinking] ${blockObj.thinking}`);
     } else if (blockType === "tool_use") {
       const name = typeof blockObj.name === "string" ? blockObj.name : "tool";
-      const input = blockObj.input as Record<string, unknown> | undefined;
-      const arg = input
-        ? clip(JSON.stringify(input), 80)
-        : "";
-      parts.push(`${name}(${arg})`);
+      parts.push(formatToolCall(name, blockObj.input));
     } else if (blockType === "tool_result") {
-      const result = typeof blockObj.content === "string"
-        ? blockObj.content
-        : Array.isArray(blockObj.content)
-          ? summarizeBlocks(blockObj.content)
-          : "";
-      parts.push(`→ ${result}`);
+      parts.push(`→ ${summarizeToolResult(blockObj.content)}`);
     } else if (blockType === "image") {
       parts.push("[image]");
     }

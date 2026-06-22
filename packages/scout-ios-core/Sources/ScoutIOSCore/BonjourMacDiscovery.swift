@@ -38,15 +38,13 @@ public final class BonjourMacDiscovery: NSObject, @unchecked Sendable {
         category: "BonjourMacDiscovery"
     )
 
-    private let browser = NetServiceBrowser()
+    private var browsers: [NetServiceBrowser] = []
     private var resolvingServices: [String: NetService] = [:]
     private var discovered: [String: DiscoveredScoutMac] = [:]
     private var continuation: CheckedContinuation<[DiscoveredScoutMac], Never>?
 
     public override init() {
         super.init()
-        browser.delegate = self
-        browser.includesPeerToPeer = true
     }
 
     @MainActor
@@ -62,7 +60,13 @@ public final class BonjourMacDiscovery: NSObject, @unchecked Sendable {
                     return
                 }
                 self.continuation = continuation
-                self.browser.searchForServices(ofType: Self.serviceType, inDomain: "local.")
+                for serviceType in BonjourRelayDiscovery.serviceTypes {
+                    let browser = NetServiceBrowser()
+                    browser.delegate = self
+                    browser.includesPeerToPeer = true
+                    self.browsers.append(browser)
+                    browser.searchForServices(ofType: serviceType, inDomain: "local.")
+                }
                 // Collect every responder for the full window — unlike the
                 // single-target browser, we never finish early on a resolve.
                 DispatchQueue.main.asyncAfter(deadline: .now() + max(0.3, timeoutSeconds)) { [weak self] in
@@ -75,7 +79,8 @@ public final class BonjourMacDiscovery: NSObject, @unchecked Sendable {
     private func finish() {
         guard let continuation else { return }
         self.continuation = nil
-        browser.stop()
+        browsers.forEach { $0.stop() }
+        browsers.removeAll()
         resolvingServices.removeAll()
         let macs = discovered.values.sorted { $0.hostName.localizedCaseInsensitiveCompare($1.hostName) == .orderedAscending }
         continuation.resume(returning: macs)

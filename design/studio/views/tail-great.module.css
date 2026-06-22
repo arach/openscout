@@ -1,0 +1,404 @@
+/* Tail — what great looks like. Tokens only (`--s-*`), so it themes across the
+ * real skins. Mono = JetBrains Mono (the app's data face); UI sans for chrome. */
+
+.surface {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 248px;
+  min-height: 588px;
+  font-family: var(--s-font-sans);
+  background: var(--s-bg);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 54px;
+  padding: 0 18px;
+  background: var(--s-bg);
+  border-bottom: 1px solid var(--s-hairline);
+  flex-shrink: 0;
+}
+
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.tailGlyph {
+  color: var(--s-accent);
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+
+.counts {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding-left: 16px;
+  border-left: 1px solid var(--s-hairline);
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.count b {
+  font-weight: 600;
+  color: var(--s-muted);
+}
+
+.dot {
+  color: var(--s-dim);
+  opacity: 0.6;
+}
+
+.headActions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Follow ⇄ Pause — the one and only stream state. */
+.follow {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+}
+
+.followSeg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--s-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.followSeg:hover { color: var(--s-ink); }
+
+.followOn {
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--s-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.icon:hover { color: var(--s-muted); background: var(--s-surface); }
+
+/* ── Filter rail ───────────────────────────────────────────────────── */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  background: var(--s-chrome);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 220px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--s-dim);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+}
+
+.segs {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+}
+
+.seg {
+  padding: 4px 11px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--s-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.seg:hover { color: var(--s-ink); }
+
+.segOn {
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+}
+
+/* ── The stream ────────────────────────────────────────────────────── */
+
+.stream {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  padding: 2px 0 6px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 60px 124px 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+  padding: 3px 18px;
+}
+
+/* A run from one agent breathes: the first row of a new identity gets a little
+   top space + a hairline; rows within the run sit tight beneath it. No content
+   is ever hidden — the same agent simply stacks up and takes its space. */
+.runStart {
+  margin-top: 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--s-hairline);
+}
+
+.row:first-child {
+  margin-top: 0;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--s-accent) 5%, transparent);
+}
+
+.time {
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+}
+
+/* Identity: brightness carries attribution confidence. Agent = full ink,
+   project = muted, bare process = dim. Shown on every row. */
+.id {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.id_agent { color: var(--s-ink); font-weight: 600; }
+.id_project { color: var(--s-muted); }
+.id_proc { color: var(--s-dim); }
+
+.kindCell {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.action {
+  color: var(--s-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A result reads as an outcome — recessed beneath its call. */
+.actionOut {
+  color: var(--s-dim);
+}
+
+.action code {
+  color: var(--s-ink);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+.actionOut code {
+  color: var(--s-muted);
+}
+
+.action :global(.add) { color: var(--s-ok); font-weight: 600; }
+.action :global(.del) { color: var(--s-error); font-weight: 600; }
+
+/* ── Kind = glyph + color + label ──────────────────────────────────── */
+
+.kind {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 5px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--chip-tone);
+  background: color-mix(in srgb, var(--chip-tone) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip-tone) 28%, transparent);
+}
+
+.kind svg {
+  flex-shrink: 0;
+}
+
+.kindNeutral {
+  color: var(--s-dim);
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+  border-color: var(--s-hairline);
+}
+
+/* ── Rail: a lean overview ─────────────────────────────────────────── */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--s-chrome);
+  border-left: 1px solid var(--s-border);
+}
+
+.railHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 54px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--s-hairline);
+  flex-shrink: 0;
+}
+
+.railTick {
+  width: 2px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--s-accent);
+}
+
+.railType {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--s-dim);
+}
+
+.railBody {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.groupLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  margin-bottom: 10px;
+}
+
+/* Active-now — identity over a quiet note. */
+.nowList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nowRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nowRow .id {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+}
+
+.nowNote {
+  font-family: var(--s-font-mono);
+  font-size: 9.5px;
+  color: var(--s-dim);
+}
+
+/* Kind mix — tag + share bar + count. */
+.mix {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.mixRow {
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.mixTrack {
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--s-ink) 8%, transparent);
+  overflow: hidden;
+}
+
+.mixFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.mixNum {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

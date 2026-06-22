@@ -46,6 +46,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/comms/conversations": TRPCRoute(path: "mobile.commsConversations", method: .query),
     "mobile/comms/messages":      TRPCRoute(path: "mobile.commsMessages",      method: .query),
     "mobile/comms/send":          TRPCRoute(path: "mobile.commsSend",          method: .mutation),
+    "mobile/attachments/upload":  TRPCRoute(path: "mobile.attachmentUpload",   method: .mutation),
     "mobile/comms/read":          TRPCRoute(path: "mobile.commsMarkRead",      method: .mutation),
     "mobile/terminal/provision":  TRPCRoute(path: "mobile.terminalProvision",  method: .mutation),
 ]

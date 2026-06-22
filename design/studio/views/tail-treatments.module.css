@@ -1,0 +1,348 @@
+/* Tail — treatments. Tokens only (`--s-*`). Mono = JetBrains Mono. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* ── Per-variant frame ─────────────────────────────────────────────── */
+
+.variant {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.vLabel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.vNum {
+  font-family: var(--s-font-mono, ui-monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint, #8a8a8a);
+}
+
+.vName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--studio-ink, #e8e8e8);
+}
+
+.vDesc {
+  font-size: 12px;
+  color: var(--studio-ink-muted, #9a9a9a);
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.surface {
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--s-bg);
+  font-family: var(--s-font-sans);
+}
+
+/* Slim, real header — Tail + Follow/Pause, nothing about live. */
+.surfaceHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 46px;
+  padding: 0 16px;
+  background: var(--s-bg);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tailGlyph { color: var(--s-accent); }
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+
+.counts {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.counts b { color: var(--s-muted); font-weight: 600; }
+.dot { opacity: 0.6; }
+
+.follow {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+}
+
+.followSeg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--s-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.followOn { color: var(--s-accent); background: var(--s-accent-soft); }
+
+/* ── Shared field styling ──────────────────────────────────────────── */
+
+.stream {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+}
+
+.time {
+  color: var(--s-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+}
+
+.id {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.id_agent { color: var(--s-ink); font-weight: 600; }
+.id_project { color: var(--s-muted); }
+.id_proc { color: var(--s-dim); }
+
+.action {
+  color: var(--s-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.out { color: var(--s-dim); }
+
+.action code {
+  color: var(--s-ink);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+.out code { color: var(--s-muted); }
+
+.action :global(.add) { color: var(--s-ok); font-weight: 600; }
+.action :global(.del) { color: var(--s-error); font-weight: 600; }
+
+/* ── 01 · Console ──────────────────────────────────────────────────── */
+
+.console { padding: 4px 0 6px; }
+
+.cRow {
+  display: grid;
+  grid-template-columns: 58px 16px 152px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 3px 16px;
+}
+
+.cRow:hover { background: color-mix(in srgb, var(--s-accent) 5%, transparent); }
+
+.runGap { margin-top: 6px; }
+
+.cGlyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chip-tone);
+}
+
+/* Identity = a known agent's sprite (life) + the handle. Project/proc reserve
+   the gutter but show no sprite, so presence signals a resolved agent. */
+.cId {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.cAvatar { flex-shrink: 0; }
+
+.cAvatarBlank {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* ── 02 · Ledger ───────────────────────────────────────────────────── */
+
+.ledger { padding: 0 0 4px; }
+
+.lRow {
+  display: grid;
+  grid-template-columns: 70px 18px 156px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.lRow:hover:not(.lHead) { background: color-mix(in srgb, var(--s-accent) 5%, transparent); }
+
+.lHead {
+  background: var(--s-chrome);
+  position: sticky;
+  top: 0;
+}
+
+.lHead > span {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+.lKindCell { display: inline-flex; align-items: center; }
+
+/* Shared kind glyph mark — colored shape, no word-label. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chip-tone);
+}
+
+/* ── 03 · Feed ─────────────────────────────────────────────────────── */
+
+.feed { padding: 6px 0; }
+
+.fRow {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 16px;
+}
+
+.fRow:hover { background: color-mix(in srgb, var(--s-accent) 5%, transparent); }
+
+.fNewRun { margin-top: 7px; padding-top: 9px; border-top: 1px solid var(--s-hairline); }
+.feed .fRow:first-child { margin-top: 0; padding-top: 6px; border-top: none; }
+
+.fTop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fTop .id { font-size: 12px; }
+
+.fTime {
+  margin-left: auto;
+  color: var(--s-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fAction {
+  font-size: 12.5px;
+  color: var(--s-muted);
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fAction.out { color: var(--s-dim); }
+
+.fAction code {
+  color: var(--s-ink);
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--s-ink) 7%, transparent);
+}
+
+.fAction :global(.add) { color: var(--s-ok); font-weight: 600; }
+.fAction :global(.del) { color: var(--s-error); font-weight: 600; }
+
+/* ── 04 · Timeline ─────────────────────────────────────────────────── */
+
+.timeline { padding: 8px 0; }
+
+.tRow {
+  display: grid;
+  grid-template-columns: 54px 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+  padding: 0 16px;
+}
+
+.tRow .time { padding-top: 6px; }
+
+.tSpine {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.tSpine::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--s-hairline-strong);
+  transform: translateX(-50%);
+}
+
+.tRow:first-child .tSpine::before { top: 9px; }
+.tRow:last-child .tSpine::before { bottom: auto; height: 9px; }
+
+/* The node IS the kind glyph, sitting on the spine. */
+.tNode {
+  position: relative;
+  z-index: 1;
+  margin-top: 4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--chip-tone);
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+  box-shadow: 0 0 0 3px var(--s-bg);
+}
+
+.tContent {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+  padding: 6px 0 9px;
+}
