@@ -4,6 +4,7 @@ import {
   DEFAULT_SCOUT_WEB_PORTAL_HOST,
   loadLocalConfig,
   resolveConfiguredScoutWebHostname,
+  resolveScoutWebMdnsHostname,
   resolveScoutWebNamedHostname,
   type LocalConfig,
 } from "@openscout/runtime/local-config";
@@ -63,6 +64,7 @@ export function resolveOpenScoutWebApplicationServerIdentity(
   const publicOrigin = env.OPENSCOUT_WEB_PUBLIC_ORIGIN?.trim() || undefined;
   const publicOriginHost = hostFromOrigin(publicOrigin);
   const tailnetHosts = readTailscaleSelfWebHostsSync(env);
+  const mdnsHost = resolveScoutWebMdnsHostname(_machineHostname);
 
   return {
     advertisedHost,
@@ -71,6 +73,7 @@ export function resolveOpenScoutWebApplicationServerIdentity(
     trustedHosts: uniq([
       advertisedHost,
       portalHost,
+      mdnsHost,
       publicOriginHost,
       ...tailnetHosts,
       ...splitList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),

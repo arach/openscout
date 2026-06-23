@@ -83,11 +83,19 @@ final class AppModel {
         }
     }
 
+    struct TailnetPairLogEntry: Identifiable, Equatable {
+        let id: Int
+        let tsMs: Int64
+        let level: ConnectionLogLevel
+        let message: String
+    }
+
     var tailnetPairTargets: [TailnetPairTarget] = []
     var isRefreshingTailnetPairTargets = false
     var tailnetPairError: String?
     var tailnetPairDiscoveryOrigin: String?
     var tailnetPairingTargetId: String?
+    var tailnetPairLogs: [TailnetPairLogEntry] = []
 
     /// A Scout Mac found on the local network (Bonjour `_oscout-pair._tcp`). The
     /// nicest first-run path: same Wi-Fi, one tap, no QR. Carries the Mac's
@@ -142,6 +150,7 @@ final class AppModel {
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempt = 0
     private var reconnectMachineId: String?
+    private var tailnetPairLogCounter = 0
     private var nextReconnectAt: Date?
     private var scenePhase: ScenePhase = .active
     private let networkMonitor = NWPathMonitor()
@@ -718,15 +727,21 @@ final class AppModel {
         guard !isRefreshingTailnetPairTargets else { return }
         isRefreshingTailnetPairTargets = true
         tailnetPairError = nil
+        tailnetPairLogs = []
+        logTailnetPair("Starting Tailnet discovery", level: .info)
         defer { isRefreshingTailnetPairTargets = false }
 
         do {
             let (mesh, origin) = try await loadTailnetMeshStatus()
-            let targets = tailnetTargets(from: mesh, preferredOrigin: origin)
+            let targets = tailnetTargets(from: mesh, preferredOrigin: origin.origin)
             tailnetPairTargets = targets
-            tailnetPairDiscoveryOrigin = origin.host
+            tailnetPairDiscoveryOrigin = origin.origin.host
+            logTailnetPair(
+                "Found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via \(origin.displayName)",
+                level: targets.isEmpty ? .warning : .success
+            )
             connectionLog.log(
-                "Tailnet repair found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via \(origin.host ?? "web")",
+                "Tailnet repair found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via \(origin.displayName)",
                 event: .network,
                 level: .info,
                 route: .tailnet
@@ -734,6 +749,7 @@ final class AppModel {
         } catch {
             tailnetPairTargets = []
             tailnetPairError = error.localizedDescription
+            logTailnetPair("Discovery failed: \(error.localizedDescription)", level: .error)
             connectionLog.log(
                 "Tailnet repair discovery failed: \(error.localizedDescription)",
                 event: .network,
@@ -747,10 +763,12 @@ final class AppModel {
     func pairWithTailnetTarget(_ target: TailnetPairTarget) async -> Bool {
         guard target.isOnline else {
             tailnetPairError = "\(target.displayName) is offline"
+            logTailnetPair("\(target.displayName) is offline", level: .warning)
             return false
         }
         guard !target.pairLinks.isEmpty else {
             tailnetPairError = "No pair link for \(target.displayName)"
+            logTailnetPair("No pair link for \(target.displayName)", level: .warning)
             return false
         }
 
@@ -764,13 +782,16 @@ final class AppModel {
             level: .info,
             route: .tailnet
         )
+        logTailnetPair("Pairing \(target.displayName) via \(target.dnsName)", level: .info)
         for link in target.pairLinks {
             if await pairFromLink(link) {
                 tailnetPairError = nil
+                logTailnetPair("Paired \(target.displayName)", level: .success)
                 return true
             }
         }
         tailnetPairError = "Pairing failed for \(target.displayName)"
+        logTailnetPair("Pairing failed for \(target.displayName)", level: .error)
         return false
     }
 
@@ -1062,31 +1083,70 @@ final class AppModel {
         }
     }
 
-    private func loadTailnetMeshStatus() async throws -> (TailnetMeshStatusResponse, URL) {
-        guard let host = Self.cleanTailnetHost(fleet.focusedClient.currentHost) else {
-            throw TailnetPairingError.noActiveBridgeHost
+    private func loadTailnetMeshStatus() async throws -> (TailnetMeshStatusResponse, TailnetMeshOriginCandidate) {
+        let origins = tailnetMeshOriginCandidates()
+        guard !origins.isEmpty else {
+            throw TailnetPairingError.noMeshOrigin
         }
+        logTailnetPair("Checking \(origins.count) Scout web origin(s)", level: .info)
 
         var lastError: Error?
-        for origin in scoutWebOriginCandidates(host: host) {
-            guard let url = scoutWebURL(origin: origin, path: Self.scoutWebMeshPath) else { continue }
+        for origin in origins {
+            guard let url = scoutWebURL(origin: origin.origin, path: Self.scoutWebMeshPath) else { continue }
+            logTailnetPair("GET \(origin.displayName)", level: .info)
             do {
                 var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4)
                 request.httpMethod = "GET"
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
-                    throw TailnetPairingError.invalidMeshResponse(origin: origin.absoluteString)
+                    throw TailnetPairingError.invalidMeshResponse(origin: origin.origin.absoluteString)
                 }
                 guard (200..<300).contains(http.statusCode) else {
-                    throw TailnetPairingError.meshHTTPStatus(origin: origin.absoluteString, status: http.statusCode)
+                    throw TailnetPairingError.meshHTTPStatus(origin: origin.origin.absoluteString, status: http.statusCode)
                 }
+                logTailnetPair("OK \(origin.displayName)", level: .success)
                 return (try JSONDecoder().decode(TailnetMeshStatusResponse.self, from: data), origin)
             } catch {
+                logTailnetPair("Miss \(origin.displayName): \(Self.compactError(error))", level: .warning)
                 lastError = error
             }
         }
 
-        throw lastError ?? TailnetPairingError.noMeshEndpoint(host: host)
+        throw lastError ?? TailnetPairingError.noMeshEndpoint(host: origins.map(\.host).joined(separator: ", "))
+    }
+
+    private func tailnetMeshOriginCandidates() -> [TailnetMeshOriginCandidate] {
+        var candidates: [TailnetMeshOriginCandidate] = []
+
+        func appendHost(_ rawHost: String?, source: String, route: TransportKind? = nil) {
+            guard let host = Self.cleanTailnetHost(rawHost) else { return }
+            let resolvedRoute = route ?? classifyTransport(host: host)
+            guard resolvedRoute != .oscout else { return }
+            for origin in scoutWebOriginCandidates(host: host) {
+                candidates.append(TailnetMeshOriginCandidate(origin: origin, source: source, route: resolvedRoute))
+            }
+        }
+
+        if let host = fleet.focusedClient.currentHost {
+            appendHost(host, source: "current \(fleet.focusedClient.currentRoute.label)", route: fleet.focusedClient.currentRoute)
+        }
+
+        for relayURL in savedRouteSummary.allowedRelayURLs {
+            guard let host = URLComponents(string: relayURL)?.host else { continue }
+            let route = transportKind(forRelayURL: relayURL)
+            switch route {
+            case .lan, .tailnet, .loopback:
+                appendHost(host, source: "saved \(route.label)", route: route)
+            case .oscout, .remote, .none:
+                continue
+            }
+        }
+
+        var seen = Set<String>()
+        return candidates.filter { candidate in
+            let key = candidate.origin.absoluteString.lowercased()
+            return seen.insert(key).inserted
+        }
     }
 
     private func tailnetTargets(from mesh: TailnetMeshStatusResponse, preferredOrigin: URL) -> [TailnetPairTarget] {
@@ -1124,10 +1184,10 @@ final class AppModel {
             ].compactMap { $0 })
         }
         candidates.append(contentsOf: [
-            scoutWebOrigin(scheme: "http", host: host, port: nil),
-            scoutWebOrigin(scheme: "https", host: host, port: nil),
             scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort),
             scoutWebOrigin(scheme: "https", host: host, port: Self.defaultScoutWebPort),
+            scoutWebOrigin(scheme: "http", host: host, port: nil),
+            scoutWebOrigin(scheme: "https", host: host, port: nil),
         ].compactMap { $0 })
         return dedupeURLs(candidates)
     }
@@ -1157,6 +1217,28 @@ final class AppModel {
             output.append(url)
         }
         return output
+    }
+
+    private func logTailnetPair(_ message: String, level: ConnectionLogLevel) {
+        tailnetPairLogCounter += 1
+        tailnetPairLogs.append(
+            TailnetPairLogEntry(
+                id: tailnetPairLogCounter,
+                tsMs: Int64(Date().timeIntervalSince1970 * 1000),
+                level: level,
+                message: message
+            )
+        )
+        if tailnetPairLogs.count > 24 {
+            tailnetPairLogs.removeFirst(tailnetPairLogs.count - 24)
+        }
+    }
+
+    private nonisolated static func compactError(_ error: Error) -> String {
+        if let urlError = error as? URLError {
+            return urlError.localizedDescription
+        }
+        return error.localizedDescription
     }
 
     /// The client every surface consumes.
@@ -1948,6 +2030,19 @@ private struct TailnetMeshPeer: Decodable {
     let os: String?
 }
 
+private struct TailnetMeshOriginCandidate: Equatable {
+    let origin: URL
+    let source: String
+    let route: TransportKind
+
+    var host: String { origin.host ?? origin.absoluteString }
+    var displayName: String {
+        let routeLabel = route.label.isEmpty ? "WEB" : route.label
+        let port = origin.port.map { ":\($0)" } ?? ""
+        return "\(host)\(port) · \(source) · \(routeLabel)"
+    }
+}
+
 private enum OpenScoutNetworkPairingError: LocalizedError {
     case loginRequired
     case invalidURL
@@ -1969,15 +2064,15 @@ private enum OpenScoutNetworkPairingError: LocalizedError {
 }
 
 private enum TailnetPairingError: LocalizedError {
-    case noActiveBridgeHost
+    case noMeshOrigin
     case noMeshEndpoint(host: String)
     case invalidMeshResponse(origin: String)
     case meshHTTPStatus(origin: String, status: Int)
 
     var errorDescription: String? {
         switch self {
-        case .noActiveBridgeHost:
-            return "Connect to a paired Mac before scanning Tailnet devices"
+        case .noMeshOrigin:
+            return "No saved Mac web route is available for Tailnet discovery"
         case .noMeshEndpoint(let host):
             return "No Scout web mesh endpoint responded on \(host)"
         case .invalidMeshResponse(let origin):

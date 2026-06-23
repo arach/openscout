@@ -146,6 +146,9 @@ struct AppSettingsView: View {
                 HudInspectorActionRow("Refresh devices", value: model.isRefreshingTailnetPairTargets ? "…" : "Run", tone: .accent) {
                     Task { await model.refreshTailnetPairTargets() }
                 }
+                if !model.tailnetPairLogs.isEmpty {
+                    tailnetRepairLog
+                }
                 if let error = model.tailnetPairError {
                     HudInspectorFieldRow("Last error", value: "Warn", hint: error)
                 }
@@ -326,6 +329,43 @@ struct AppSettingsView: View {
         }
     }
 
+    private var tailnetRepairLog: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(tailnetRepairLogEntries) { entry in
+                tailnetRepairLogLine(entry)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, HudSpacing.sm)
+        .padding(.horizontal, HudSpacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .fill(Color.black.opacity(0.4))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                .strokeBorder(HudHairline.standard, lineWidth: HudStrokeWidth.thin)
+        )
+        .padding(.vertical, HudSpacing.xs)
+    }
+
+    private func tailnetRepairLogLine(_ entry: AppModel.TailnetPairLogEntry) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Text(tailnetRepairLogTime(entry))
+                .foregroundStyle(ScoutInk.dim)
+            Text(tailnetRepairLogLevel(entry.level))
+                .foregroundStyle(tailnetRepairLogColor(entry.level))
+                .frame(width: 38, alignment: .leading)
+            Text(entry.message)
+                .foregroundStyle(ScoutInk.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(HudFont.mono(HudTextSize.micro))
+        .padding(.vertical, 3)
+    }
+
     /// One terminal-style log line: `12:03:38  CONNECTED  Connected via TSN`.
     /// Time is quiet, the event is color-coded by level, the message tail-truncates.
     private func logLine(_ entry: ConnectionLogEntry) -> some View {
@@ -367,6 +407,10 @@ struct AppSettingsView: View {
         Array(model.connectionLog.entries.suffix(8).reversed())
     }
 
+    private var tailnetRepairLogEntries: [AppModel.TailnetPairLogEntry] {
+        Array(model.tailnetPairLogs.suffix(8).reversed())
+    }
+
     private var latestLogMetric: String {
         guard let entry = model.connectionLog.entries.last else { return "—" }
         return entry.event.label
@@ -398,6 +442,29 @@ struct AppSettingsView: View {
     private func logTime(_ entry: ConnectionLogEntry) -> String {
         (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
             .formatted(.dateTime.hour().minute().second())
+    }
+
+    private func tailnetRepairLogTime(_ entry: AppModel.TailnetPairLogEntry) -> String {
+        (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
+            .formatted(.dateTime.hour().minute().second())
+    }
+
+    private func tailnetRepairLogLevel(_ level: ConnectionLogLevel) -> String {
+        switch level {
+        case .success: return "OK"
+        case .warning: return "WARN"
+        case .error: return "ERR"
+        case .info: return "INFO"
+        }
+    }
+
+    private func tailnetRepairLogColor(_ level: ConnectionLogLevel) -> Color {
+        switch level {
+        case .success: return HudPalette.accent
+        case .warning: return HudPalette.statusWarn
+        case .error: return HudPalette.statusError
+        case .info: return ScoutInk.dim
+        }
     }
 
     private func routeToken(_ route: TransportKind?) -> String {

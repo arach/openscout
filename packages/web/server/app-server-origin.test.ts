@@ -20,7 +20,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "hudson-mini.local"],
       trustedOrigins: [],
     });
   });
@@ -43,6 +43,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       trustedHosts: [
         "m1.scout.local",
         "scout.local",
+        "hudson-mini.local",
         "scout.backup.local",
         "192.168.1.20",
       ],
@@ -64,7 +65,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "arachs-mac-mini.local"],
       trustedOrigins: [],
     });
   });
@@ -88,7 +89,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     ).toMatchObject({
       advertisedHost: "arachs-mac-mini.scout.local",
       portalHost: "scout.local",
-      trustedHosts: ["arachs-mac-mini.scout.local", "scout.local"],
+      trustedHosts: ["arachs-mac-mini.scout.local", "scout.local", "arachs-mac-mini.local"],
     });
   });
 
@@ -120,6 +121,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
         trustedHosts: [
           "m1.scout.local",
           "scout.local",
+          "m1.local",
           "m1.tailnet.ts.net",
           "100.64.0.10",
         ],
