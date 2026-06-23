@@ -327,7 +327,7 @@ function parseComposerRoutedBody(
       throw new ScoutCliError("send route operator must target an agent label, ref, channel, or broadcast");
     }
     return {
-      targetLabel: `session:${target.sessionId}`,
+      targetLabel: target.value ?? `session:${target.sessionId}`,
       message: parsed.body,
     };
   }

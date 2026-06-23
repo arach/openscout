@@ -397,6 +397,96 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("uses harness-qualified session routes to disambiguate native session ids", () => {
+    const codex = makeAgent({ id: "talkie.codex", definitionId: "talkie" });
+    const claude = makeAgent({ id: "talkie.claude", definitionId: "talkie" });
+    const snapshot = makeSnapshot(
+      [codex, claude],
+      [
+        makeEndpoint({
+          id: "endpoint.talkie.codex",
+          agentId: codex.id,
+          harness: "codex",
+          sessionId: "relay-talkie-codex",
+          metadata: {
+            externalSessionId: "native-thread-shared",
+            threadId: "native-thread-shared",
+          },
+        }),
+        makeEndpoint({
+          id: "endpoint.talkie.claude",
+          agentId: claude.id,
+          harness: "claude",
+          sessionId: "relay-talkie-claude",
+          metadata: {
+            externalSessionId: "native-thread-shared",
+            threadId: "native-thread-shared",
+          },
+        }),
+      ],
+    );
+
+    const ambiguous = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "session_id", sessionId: "native-thread-shared" } },
+      { helpers },
+    );
+    expect(ambiguous.kind).toBe("ambiguous");
+
+    const qualified = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: {
+          kind: "session_id",
+          sessionId: "native-thread-shared",
+          harness: "codex",
+          value: "session:codex:native-thread-shared",
+        },
+      },
+      { helpers },
+    );
+    expect(qualified.kind).toBe("resolved");
+    if (qualified.kind === "resolved") {
+      expect(qualified.agent.id).toBe(codex.id);
+    }
+  });
+
+  test("uses execution harness to scope targetSessionId-only routes", () => {
+    const codex = makeAgent({ id: "openscout.codex", definitionId: "openscout" });
+    const claude = makeAgent({ id: "openscout.claude", definitionId: "openscout" });
+    const snapshot = makeSnapshot(
+      [codex, claude],
+      [
+        makeEndpoint({
+          id: "endpoint.openscout.codex",
+          agentId: codex.id,
+          harness: "codex",
+          metadata: { threadId: "native-thread-shared" },
+        }),
+        makeEndpoint({
+          id: "endpoint.openscout.claude",
+          agentId: claude.id,
+          harness: "claude",
+          metadata: { threadId: "native-thread-shared" },
+        }),
+      ],
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        targetSessionId: "native-thread-shared",
+        execution: { harness: "claude" },
+      },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe(claude.id);
+    }
+  });
+
   test("resolves binding refs from flight id suffixes", () => {
     const agent = makeAgent({ id: "openscout.main", definitionId: "openscout" });
     const snapshot = makeSnapshot([agent], [], {

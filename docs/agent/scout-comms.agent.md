@@ -47,7 +47,7 @@ transcripts.
 | message/update | durable message with broker receipt ids | `scout send`, `messages_send` |
 | ask/reply | answer/work expected, creates invocation/flight | `scout ask`, `ask` |
 | project/capability-routed ask | project known, concrete agent/session unknown | `scout ask --project --harness`, `ask({ projectPath, harness })` |
-| exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `ask({ targetSessionId })` |
+| exact session ask | continue one concrete prior harness session | `scout ask --to session:<id>`, `scout ask --to session:<harness>:<native-id>`, `ask({ targetSessionId, harness })` |
 | threaded reply | continue an existing broker conversation or ask reply context | final response or `messages_reply` depending on `replyPath` |
 | durable work | progress/waiting/review/done lifecycle | `work_update` |
 

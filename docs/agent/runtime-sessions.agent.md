@@ -51,6 +51,7 @@ scout up / session start → runtime creates or attaches session → broker regi
 |---|---|
 | `--to <label>` / `--to <agentId>` | fresh session for new ask work |
 | `--to session:<id>` | continue exact harness context |
+| `--to session:<harness>:<native-id>` | continue exact harness-native context when the id needs scope |
 | `--project <path> --harness <rt>` | broker/runtime pick or create concrete worker+session for project/capability |
 | `scout card create` | mint identity; does not start session unless commanded |
 

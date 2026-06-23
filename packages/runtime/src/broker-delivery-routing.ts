@@ -68,7 +68,12 @@ export function executionWithRouteParams(payload: ScoutDeliverRequest): Invocati
   const identity = label
     ? parseAgentIdentity(label.startsWith("@") ? label : `@${label}`)
     : null;
-  const harness = payload.execution?.harness ? undefined : supportedRouteHarness(identity?.harness);
+  const targetHarness = payload.target?.kind === "session_id"
+    ? payload.target.harness
+    : undefined;
+  const harness = payload.execution?.harness
+    ? undefined
+    : targetHarness ?? supportedRouteHarness(identity?.harness);
   const model = payload.execution?.model ? undefined : supportedRouteModel(identity?.model);
   if (!harness && !model) {
     return payload.execution;

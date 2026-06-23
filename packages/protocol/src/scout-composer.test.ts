@@ -61,6 +61,12 @@ describe("Scout composer route operator", () => {
       sessionId: "session-123",
       value: "session:session-123",
     });
+    expect(parseScoutComposerRouteTarget("session:codex:codex-native-123")).toEqual({
+      kind: "session_id",
+      sessionId: "codex-native-123",
+      harness: "codex",
+      value: "session:codex:codex-native-123",
+    });
     expect(parseScoutComposerRouteTarget("channel:ops")).toEqual({
       kind: "channel",
       channel: "ops",

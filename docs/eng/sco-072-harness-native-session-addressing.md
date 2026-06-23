@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed.
+Accepted - core parser, delivery routing, and broker resolver implemented.
 
 ## Proposal ID
 
@@ -11,6 +11,22 @@ Proposed.
 ## Date
 
 2026-06-23
+
+## Implementation
+
+Implemented in:
+
+- `packages/protocol/src/scout-dispatch.ts`
+- `packages/protocol/src/scout-composer.ts`
+- `packages/runtime/src/scout-dispatcher.ts`
+- `packages/runtime/src/broker-delivery-routing.ts`
+
+The implementation preserves the existing `targetSessionId` string path and
+adds harness-qualified session route targets. `session:codex:<native-id>` now
+parses as an exact session target with `harness: "codex"` and
+`sessionId: <native-id>`. Delivery routing carries that harness into invocation
+execution so endpoint selection scopes exact-session continuation to the right
+harness.
 
 ## Intent
 
