@@ -30,6 +30,7 @@ struct GlyphShape: Shape {
         case agent         // one figure (single agent)
         case agents        // two figures (fleet)
         case comms         // single speech bubble
+        case tail          // live event waveform
         case terminal      // window + prompt
         case plus          // rounded square + plus (new)
         case chevron       // canonical ›  (rotate for ‹ ˄ ˅)
@@ -81,6 +82,18 @@ struct GlyphShape: Shape {
             // better at tab scale than two overlapping bubbles.
             p.addRoundedRect(in: box(3.5, 4.5, 20.5, 16, 3.4), cornerSize: .init(width: 3.4 * s, height: 3.4 * s))
             p.move(to: P(8.5, 16)); p.addLine(to: P(7, 20)); p.addLine(to: P(12.5, 16))
+
+        case .tail:
+            // Compact waveform: distinct from the connection arcs, readable at
+            // tab scale, and still thin-line like the rest of the cockpit set.
+            p.move(to: P(3.5, 12))
+            p.addLine(to: P(6.2, 12))
+            p.addLine(to: P(8.0, 7.2))
+            p.addLine(to: P(10.3, 17.0))
+            p.addLine(to: P(13.0, 5.8))
+            p.addLine(to: P(15.7, 18.2))
+            p.addLine(to: P(18.0, 12))
+            p.addLine(to: P(20.5, 12))
 
         case .terminal:
             // A window with a `›_` prompt.

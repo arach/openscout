@@ -10,6 +10,7 @@ import ScoutCapabilities
 /// adapter keeps it open; a finite batch settles to idle once it's drained).
 struct TailSurface: View {
     let client: any ScoutBrokerClient
+    var reloadToken: Int = 0
 
     private static let maxRows = 200
 
@@ -53,7 +54,7 @@ struct TailSurface: View {
                 }
             }
         }
-        .task { await subscribe() }
+        .task(id: reloadToken) { await subscribe() }
     }
 
     private func row(_ event: TailEvent) -> some View {
@@ -126,7 +127,9 @@ struct TailSurface: View {
     }
 
     private func subscribe() async {
+        status = .connecting
         for await event in client.tailEvents(since: nil) {
+            if status != .live { status = .live }
             events.insert(event, at: 0)
             if events.count > Self.maxRows {
                 events.removeLast(events.count - Self.maxRows)
@@ -134,6 +137,8 @@ struct TailSurface: View {
         }
         // Stream finished: a live adapter would stay `.live`; a finite batch
         // settles to a calm, non-pulsing state once it's all in.
-        status = .stale
+        if !Task.isCancelled {
+            status = .stale
+        }
     }
 }

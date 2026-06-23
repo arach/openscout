@@ -58,7 +58,7 @@ export type AgentLaneCardModel = {
   stats: { tools: number; edits: number; reads: number; files: number };
   /** Cockpit session-context readouts. */
   context: number | null;   // % of context window used (0–100)
-  tokens: string | null;    // compact total tokens, e.g. "15.4m"
+  tokens: string | null;    // compact tokens currently in context, e.g. "249.2k"
   turns: number | null;     // current turn index / turn count
   /** Token dial grid — shown when the cockpit is stretched tall. */
   tokenUsage: {
@@ -365,9 +365,9 @@ function AgentLaneCardCockpit({
             <span className="s-lane-card-instr-label">ctx</span>
           </span>
           {model.tokens && (
-            <span className="s-lane-card-instr">
+            <span className="s-lane-card-instr" title="Tokens currently in context">
               <span className="s-lane-card-instr-val">{model.tokens}</span>
-              <span className="s-lane-card-instr-label">tokens</span>
+              <span className="s-lane-card-instr-label">ctx tokens</span>
             </span>
           )}
           {model.turns != null && (

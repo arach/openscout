@@ -6844,7 +6844,8 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/voice/health", async (c) => {
     const health = await getScoutVoiceHealth();
-    return c.json(health, health.ok ? 200 : 503);
+    const quietProbe = c.req.query("quiet") === "1";
+    return c.json(health, health.ok || quietProbe ? 200 : 503);
   });
 
   app.post("/api/voice/transcribe", async (c) => {

@@ -145,7 +145,7 @@ export class ScoutVoiceClient {
     const controller = new AbortController();
     const timer = window.setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch("/api/voice/health", { signal: controller.signal });
+      const response = await fetch("/api/voice/health?quiet=1", { signal: controller.signal });
       const body = await response.json().catch(() => ({})) as { ok?: boolean; detail?: string; error?: string };
       if (!response.ok || !body.ok) {
         this.state = "unavailable";

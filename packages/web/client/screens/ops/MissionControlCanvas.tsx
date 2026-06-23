@@ -446,8 +446,8 @@ function FocusActivityTab({
     : null;
   const ctxLabel = ctxPct !== null
     ? `${ctxPct}%`
-    : usage?.contextWindowTokens && usage?.totalTokens
-      ? `${Math.round((usage.totalTokens / usage.contextWindowTokens) * 100)}%`
+    : usage?.contextWindowTokens && usage?.contextInputTokens
+      ? `${Math.round((usage.contextInputTokens / usage.contextWindowTokens) * 100)}%`
       : "—";
 
   return (

@@ -363,6 +363,20 @@
   font-weight: 600;
   color: var(--accent);
 }
+/* Subtle "this row opens" hint — quiet by default, leans in on hover. */
+.s-dir-agent-open {
+  flex: none;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.s-dir-agentrow:hover .s-dir-agent-open,
+.s-dir-agentrow:focus-visible .s-dir-agent-open {
+  opacity: 0.65;
+  transform: translateX(2px);
+}
 .s-dir-livebars {
   display: inline-flex;
   align-items: flex-end;
@@ -458,6 +472,14 @@
 .s-dir-start:hover {
   background: var(--accent-soft);
 }
+/* Needs-you primary action — filled accent so "Respond" reads as the next move. */
+.s-dir-start--accent {
+  color: var(--bg);
+  background: var(--accent);
+}
+.s-dir-start--accent:hover {
+  background: color-mix(in oklab, var(--accent) 86%, #000);
+}
 .s-dir-expand {
   display: inline-flex;
   align-items: center;
@@ -527,8 +549,13 @@
   padding: 5px 8px 5px 6px;
   border-radius: 7px;
 }
-.s-dir-session:hover {
+.s-dir-session:hover:not(:disabled) {
   background: var(--surface);
+}
+/* Rootless rows with no conversation to open — shown, but not a dead click. */
+.s-dir-session:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .s-dir-session-dot {
   width: 5px;

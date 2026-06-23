@@ -42,8 +42,12 @@ final class BridgeBrokerClientTests: XCTestCase {
 
     func testRouteMapCoversCapabilityMethods() {
         for method in [
-            "mobile/sessions", "mobile/agents", "mobile/session/snapshot",
-            "mobile/message/send", "mobile/comms/send", "mobile/session/create",
+            "mobile/sessions", "mobile/agents", "mobile/workspaces",
+            "mobile/activity", "mobile/endpoints", "mobile/session/snapshot",
+            "mobile/message/send", "mobile/session/create",
+            "mobile/comms/conversations", "mobile/comms/messages",
+            "mobile/comms/send", "mobile/comms/read", "mobile/attachments/upload",
+            "mobile/terminal/provision",
             "question/answer", "action/decide", "turn/interrupt",
         ] {
             XCTAssertNotNil(trpcRouteMap[method], "missing route for \(method)")

@@ -270,6 +270,17 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function sumNumberValues(values: Array<number | undefined>): number | undefined {
+  let sawValue = false;
+  let total = 0;
+  for (const value of values) {
+    if (value === undefined) continue;
+    sawValue = true;
+    total += value;
+  }
+  return sawValue ? total : undefined;
+}
+
 function nestedRecord(
   record: Record<string, unknown> | null | undefined,
   key: string,
@@ -332,10 +343,19 @@ function usageFromCodexTokenEvent(event: TailEvent, model?: string): ObserveUsag
 
   const usage: ObserveUsageMeta = {};
   const inputTokens = numberValue(total?.input_tokens);
-  const contextInputTokens = numberValue(last?.input_tokens);
+  const lastInputTokens = numberValue(last?.input_tokens);
+  const lastCacheReadInputTokens = numberValue(last?.cached_input_tokens)
+    ?? numberValue(last?.cache_read_input_tokens);
+  const lastCacheCreationInputTokens = numberValue(last?.cache_creation_input_tokens);
+  const contextInputTokens = sumNumberValues([
+    lastInputTokens,
+    lastCacheReadInputTokens,
+    lastCacheCreationInputTokens,
+  ]);
   const outputTokens = numberValue(total?.output_tokens);
   const reasoningOutputTokens = numberValue(total?.reasoning_output_tokens);
-  const cacheReadInputTokens = numberValue(total?.cached_input_tokens);
+  const cacheReadInputTokens = numberValue(total?.cached_input_tokens)
+    ?? numberValue(total?.cache_read_input_tokens);
   const cacheCreationInputTokens = numberValue(total?.cache_creation_input_tokens);
   const totalTokens = numberValue(total?.total_tokens)
     ?? (

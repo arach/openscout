@@ -1596,6 +1596,7 @@ class CodexHistoryParser {
   private outputTokens = 0;
   private reasoningOutputTokens = 0;
   private cachedInputTokens = 0;
+  private cacheCreationInputTokens = 0;
   private totalTokens = 0;
   private contextInputTokens = 0;
   private previousInputTokens: number | undefined;
@@ -2012,11 +2013,9 @@ class CodexHistoryParser {
     const contextWindowTokens = observation.contextWindowTokens
       ?? observedContextWindowTokens(this.session.model)
       ?? codexContextWindowTokens(this.session.model);
-    const fallbackContextInputTokens = observation.inputTokens === undefined
+    const fallbackContextInputTokens = observation.inputTokens === undefined || this.previousInputTokens === undefined
       ? undefined
-      : this.previousInputTokens === undefined
-        ? observation.inputTokens
-        : observation.inputTokens - this.previousInputTokens;
+      : observation.inputTokens - this.previousInputTokens;
     const contextInputTokens = observation.contextInputTokens !== undefined && observation.contextInputTokens > 0
       ? observation.contextInputTokens
       : fallbackContextInputTokens;
@@ -2032,6 +2031,7 @@ class CodexHistoryParser {
     this.outputTokens = observation.outputTokens ?? this.outputTokens;
     this.reasoningOutputTokens = observation.reasoningOutputTokens ?? this.reasoningOutputTokens;
     this.cachedInputTokens = observation.cacheReadInputTokens ?? this.cachedInputTokens;
+    this.cacheCreationInputTokens = observation.cacheCreationInputTokens ?? this.cacheCreationInputTokens;
     this.totalTokens = observation.totalTokens
       ?? (
         observation.inputTokens !== undefined || observation.outputTokens !== undefined
@@ -2065,6 +2065,7 @@ class CodexHistoryParser {
     assignNumber("outputTokens", this.outputTokens);
     assignNumber("reasoningOutputTokens", this.reasoningOutputTokens);
     assignNumber("cacheReadInputTokens", this.cachedInputTokens);
+    assignNumber("cacheCreationInputTokens", this.cacheCreationInputTokens);
     assignNumber("totalTokens", this.totalTokens);
     if (this.contextWindowTokens !== undefined) assignNumber("contextWindowTokens", this.contextWindowTokens);
     assignNumber("tokenEvents", this.tokenEventCount);

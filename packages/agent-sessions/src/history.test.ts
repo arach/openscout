@@ -666,7 +666,7 @@ describe("history snapshot replay", () => {
           gitBranch: "codex/embed-vox-transcription",
         }),
         observeUsage: expect.objectContaining({
-          contextInputTokens: 100,
+          contextInputTokens: 140,
           inputTokens: 400000,
           outputTokens: 20,
           reasoningOutputTokens: 7,

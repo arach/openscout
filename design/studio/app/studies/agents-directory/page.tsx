@@ -405,31 +405,24 @@ function ThreadRow({
 
 /* ── reading pane · the opened thread ────────────────────────────────── */
 
-type Turn = { who: "you" | "agent"; text: string; live?: boolean; needs?: boolean };
+// Identity readout for the header — model name + a stable short commit hash.
+const MODEL_FOR: Record<string, string> = { claude: "opus-4.8", codex: "gpt-5.1-codex", grok: "grok-4.3" };
 
-function turnsFor(t: Thread): Turn[] {
-  const working = t.state === "working";
-  const turns: Turn[] = [
-    { who: "you", text: `Pick up ${t.task}.` },
-    { who: "agent", text: `On it — working in ${t.branch}.` },
-    working
-      ? { who: "agent", text: `❯ ${t.task}`, live: true }
-      : { who: "agent", text: `Wrapped ${t.task}. Ready for review.` },
-  ];
-  if (t.needs) turns.push({ who: "agent", text: "Need your call before I continue — confirm the direction?", needs: true });
-  return turns;
+function hash(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
-const TRACE_AGOS = ["12s", "1m", "3m", "6m", "11m"];
-function traceFor(t: Thread) {
-  const rows = [
-    { tool: "edit", arg: t.branch },
-    { tool: "read", arg: "screens/agents/model.ts" },
-    { tool: "bash", arg: "tsc --noEmit -p tsconfig.json" },
-    { tool: "edit", arg: "agents-directory.css" },
-    { tool: "read", arg: "screens/agents/library.tsx" },
-  ];
-  return rows.map((r, i) => ({ ...r, ago: TRACE_AGOS[i] }));
+function cockpitFor(t: Thread) {
+  const h = hash(t.id + t.task);
+  return {
+    model: MODEL_FOR[t.harness] ?? t.harness,
+    commit: h.toString(16).slice(0, 7),
+  };
 }
 
 function diffFor(t: Thread) {
@@ -451,10 +444,11 @@ function ReadingPane({
   onExpand: () => void;
   onCollapse: () => void;
 }) {
-  const [tab, setTab] = useState<"work" | "trace" | "chat">("work");
   if (!t) return <div className={styles.readerEmpty}>Select a thread</div>;
   const working = t.state === "working";
   const tone = t.needs ? "needs" : working ? "live" : "idle";
+  const ck = cockpitFor(t);
+
   return (
     <>
       <header className={styles.readHead}>
@@ -483,10 +477,11 @@ function ReadingPane({
           </div>
           <div className={styles.readSub}>
             <span className={styles.readBranch}>{t.branch}</span>
+            <span className={styles.readMeta}>{ck.model}</span>
+            <span className={styles.readMeta} data-dim>{ck.commit}</span>
             <span className={styles.readStatus} data-tone={tone}>
               {tone === "needs" ? "needs you" : tone === "live" ? <><span className={styles.livePip} aria-hidden /> live</> : "idle"}
             </span>
-            <span className={styles.threadAgo}>{t.ago}</span>
           </div>
         </div>
         <div className={styles.readActions}>
@@ -501,99 +496,66 @@ function ReadingPane({
         </div>
       </header>
 
-      <div className={styles.readTabs}>
-        {(["work", "trace", "chat"] as const).map((k) => (
-          <button key={k} type="button" className={styles.readTab} data-active={tab === k || undefined} onClick={() => setTab(k)}>
-            {k}
-          </button>
-        ))}
-      </div>
-
-      {tab === "work" ? (
-        <div className={styles.readBody}>
-          {/* Now — what it's doing / what it needs; the steer action lives here */}
-          <div className={styles.steerNow} data-tone={tone}>
-            <span className={styles.steerNowLabel}>
-              {t.needs ? "Waiting on you" : working ? "Working now" : "Idle"}
-            </span>
-            <span className={styles.steerNowText}>
-              {t.needs ? (
-                <>{t.task} — go ahead?</>
-              ) : working ? (
-                <>
-                  <span className={styles.nowArrow} aria-hidden>❯ </span>
-                  {t.task}
-                </>
-              ) : (
-                <>last: {t.task} · {t.ago}</>
-              )}
-            </span>
-            <div className={styles.steerNowActions}>
-              {t.needs ? (
-                <>
-                  <button type="button" className={`${styles.steerBtn} ${styles.steerBtnPrimary}`}>Approve &amp; continue</button>
-                  <button type="button" className={styles.steerBtn}>Redirect…</button>
-                </>
-              ) : working ? (
-                <button type="button" className={styles.steerBtn}>Redirect…</button>
-              ) : (
-                <button type="button" className={styles.steerBtn}>Resume · new direction</button>
-              )}
-            </div>
+      {/* GLANCE-BRIEF — only what helps you pick the right agent + steer it.
+          Profile · chat · trace · takeover are full surfaces; route OUT to them. */}
+      <div className={styles.readBody}>
+        <div className={styles.brief}>
+          <h2 className={styles.briefHeadline}>{t.task}</h2>
+          <div className={styles.briefStatus}>
+            {t.needs ? (
+              <><span className={styles.briefDot} data-tone="needs" aria-hidden /> waiting on your go-ahead</>
+            ) : working ? (
+              <><span className={styles.briefDot} data-tone="live" aria-hidden /> <span className={styles.nowArrow} aria-hidden>❯ </span> working now · {t.ago}</>
+            ) : (
+              <>wrapped {t.ago} ago · ready for review</>
+            )}
           </div>
+          <div className={styles.briefActions}>
+            {t.needs ? (
+              <>
+                <button type="button" className={`${styles.steerBtn} ${styles.steerBtnPrimary}`}>Approve &amp; continue</button>
+                <button type="button" className={styles.steerBtn}>Redirect…</button>
+              </>
+            ) : working ? (
+              <button type="button" className={styles.steerBtn}>Redirect…</button>
+            ) : (
+              <button type="button" className={styles.steerBtn}>Resume · new direction</button>
+            )}
+          </div>
+        </div>
 
-          {/* Produced — what it actually made; the thing you'd review */}
-          <div className={styles.steerSection}>
-            <div className={styles.steerSectionHead}>Produced</div>
-            {diffFor(t).map((c, i) => (
-              <div key={i} className={styles.rchange}>
-                <span className={styles.rchangeMark} style={{ background: `hsl(${HARNESS_HUE[t.harness] ?? 220} 55% 60%)` }} aria-hidden />
-                <div className={styles.rchangeBody}>
-                  <div className={styles.rchangeTop}>
-                    <span className={styles.rchangeRef}>{c.ref}</span>
-                    <span className={styles.rchangeAgo}>{c.ago}</span>
-                  </div>
-                  <div className={styles.rchangeBottom}>
-                    <span className={styles.rchangeTitle}>{c.title}</span>
-                    <span className={styles.rchangeDiff}>
-                      <span className={styles.rchangeAdd}>+{c.add}</span>
-                      <span className={styles.rchangeDel}>−{c.del}</span>
-                    </span>
-                  </div>
+        {/* produced — its output in one line, so you know what it made */}
+        <div className={styles.steerSection}>
+          <div className={styles.steerSectionHead}>Produced</div>
+          {diffFor(t).map((c, i) => (
+            <div key={i} className={styles.rchange}>
+              <span className={styles.rchangeMark} style={{ background: `hsl(${HARNESS_HUE[t.harness] ?? 220} 55% 60%)` }} aria-hidden />
+              <div className={styles.rchangeBody}>
+                <div className={styles.rchangeTop}>
+                  <span className={styles.rchangeRef}>{c.ref}</span>
+                  <span className={styles.rchangeAgo}>{c.ago}</span>
+                </div>
+                <div className={styles.rchangeBottom}>
+                  <span className={styles.rchangeTitle}>{c.title}</span>
+                  <span className={styles.rchangeDiff}>
+                    <span className={styles.rchangeAdd}>+{c.add}</span>
+                    <span className={styles.rchangeDel}>−{c.del}</span>
+                  </span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      ) : tab === "trace" ? (
-        <div className={`${styles.readBody} ${styles.readBodyTrace}`}>
-          {traceFor(t).map((r, i) => (
-            <div key={i} className={styles.traceRow}>
-              <span className={styles.traceTool}>{r.tool}</span>
-              <span className={styles.traceArg}>{r.arg}</span>
-              <span className={styles.traceAgo}>{r.ago}</span>
             </div>
           ))}
         </div>
-      ) : (
-        <div className={styles.readBody}>
-          {turnsFor(t).map((turn, i) => (
-            <div key={i} className={styles.turn} data-who={turn.who} data-live={turn.live || undefined} data-needs={turn.needs || undefined}>
-              <span className={styles.turnWho}>{turn.who === "you" ? "you" : t.harness}</span>
-              <span className={styles.turnText}>
-                {turn.text.startsWith("❯") ? (
-                  <>
-                    <span className={styles.nowArrow} aria-hidden>❯ </span>
-                    {turn.text.slice(2)}
-                  </>
-                ) : (
-                  turn.text
-                )}
-              </span>
-            </div>
+
+        {/* route-out — the deep surfaces live elsewhere; this is the dispatcher */}
+        <div className={styles.routeOut}>
+          {["Conversation", "Trace", "Profile", "Take over"].map((label) => (
+            <button key={label} type="button" className={styles.routeBtn}>
+              {label} <span className={styles.routeArrow} aria-hidden>↗</span>
+            </button>
           ))}
         </div>
-      )}
+      </div>
 
       <div className={styles.readFoot}>
         <span className={styles.readReply}>Steer {t.harness} — a directive…</span>
@@ -721,6 +683,7 @@ export default function AgentsDirectoryStudy() {
 
             <div className={styles.railBody}>
               <div className={styles.railGroup}>
+                <div className={styles.railLabel}>Views</div>
                 <FolderRow
                   name="Needs you"
                   selected={folder === "needs"}

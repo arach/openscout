@@ -23,6 +23,7 @@ import {
   sortLanesWithStableOrder,
   type AgentLane,
 } from "./agent-lanes-model.ts";
+import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 
 const NOW = 1_700_000_000_000;
 
@@ -62,6 +63,33 @@ describe("lane display labels", () => {
     expect(lanePrimaryLabel(agent, "scout")).toBe("openscout-card");
     expect(laneStatusLabel(agent, "scout")).toBe("codex");
     expect(laneContextLabel(agent, "scout")).toBe("openscout");
+  });
+});
+
+describe("agent lane card model", () => {
+  test("uses tokens in context for the compact token readout", () => {
+    const agent = stubAgent("scope");
+    const model = agentLaneToCardModel(
+      lane({
+        agent,
+        facts: {
+          touchedFiles: [],
+          usage: {
+            inputTokens: 14_687_351,
+            contextInputTokens: 249_229,
+            outputTokens: 56_686,
+            totalTokens: 14_744_037,
+            contextWindowTokens: 1_000_000,
+          },
+          turn: { phase: "complete", index: 2 },
+        },
+      }),
+      { isLive: false, nowMs: NOW },
+    );
+
+    expect(model.context).toBe(25);
+    expect(model.tokens).toBe("249.2k");
+    expect(model.tokenUsage?.total).toBe(14_744_037);
   });
 });
 
@@ -861,7 +889,7 @@ describe("isAgentLaneWorking", () => {
     expect(data.metadata?.session?.effort).toBe("xhigh");
     expect(data.metadata?.session?.originator).toBe("Codex Desktop");
     expect(data.metadata?.usage?.totalTokens).toBe(42);
-    expect(data.metadata?.usage?.contextInputTokens).toBe(12);
+    expect(data.metadata?.usage?.contextInputTokens).toBe(16);
     expect(data.metadata?.usage?.contextWindowTokens).toBe(1000);
     expect(data.metadata?.usage?.cacheReadInputTokens).toBe(4);
     expect(facts.model).toBe("gpt-5.5");

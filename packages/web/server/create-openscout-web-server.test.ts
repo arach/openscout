@@ -746,6 +746,32 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(404);
   });
 
+  test("keeps strict voice health 503 while serving quiet browser probes as handled readiness", async () => {
+    const originalVoiceAsrUrl = process.env.OPENSCOUT_VOICE_ASR_URL;
+    process.env.OPENSCOUT_VOICE_ASR_URL = "http://127.0.0.1:1";
+    try {
+      const server = await createOpenScoutWebServer({
+        currentDirectory: "/tmp/openscout",
+        assetMode: "static",
+        staticRoot: makeStaticRoot(),
+      });
+
+      const strictResponse = await server.app.request("http://localhost/api/voice/health");
+      expect(strictResponse.status).toBe(503);
+      await expect(strictResponse.json()).resolves.toMatchObject({ ok: false });
+
+      const quietResponse = await server.app.request("http://localhost/api/voice/health?quiet=1");
+      expect(quietResponse.status).toBe(200);
+      await expect(quietResponse.json()).resolves.toMatchObject({ ok: false });
+    } finally {
+      if (originalVoiceAsrUrl === undefined) {
+        delete process.env.OPENSCOUT_VOICE_ASR_URL;
+      } else {
+        process.env.OPENSCOUT_VOICE_ASR_URL = originalVoiceAsrUrl;
+      }
+    }
+  });
+
   test("serves and writes global material heuristics", async () => {
     const home = useIsolatedOpenScoutHome();
     const server = await createOpenScoutWebServer({
