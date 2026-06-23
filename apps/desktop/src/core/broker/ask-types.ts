@@ -76,6 +76,13 @@ export type ScoutAskReceipt = {
     method: "notifications/scout/reply";
     status: "scheduled" | "not_scheduled";
   };
+  routing?: {
+    state: "ambiguous";
+    candidates: Array<{
+      agentId: string;
+      label: string;
+    }>;
+  };
   next?: ScoutAskNextCall;
   error?: ScoutAskError;
 };

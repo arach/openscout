@@ -14,6 +14,7 @@ import type {
   CollaborationKind,
   ConversationDefinition,
   ConversationKind,
+  NodeDefinition,
   UnblockRequestEvent,
   UnblockRequestRecord,
 } from "@openscout/protocol";
@@ -2262,7 +2263,38 @@ function brokerAgentFlightPhase(
   return phase;
 }
 
+const STALE_BROKER_NODE_MS = 24 * 60 * 60 * 1000;
+
+function brokerNodeLastSeenAt(node: NodeDefinition | undefined): number {
+  return typeof node?.lastSeenAt === "number" && Number.isFinite(node.lastSeenAt)
+    ? node.lastSeenAt
+    : typeof node?.registeredAt === "number" && Number.isFinite(node.registeredAt)
+    ? node.registeredAt
+    : 0;
+}
+
+function isStaleRemoteBrokerNode(
+  broker: ScoutBrokerContext,
+  nodeId: string | null | undefined,
+): boolean {
+  if (!nodeId || nodeId === broker.node.id) {
+    return false;
+  }
+  const node = broker.snapshot.nodes[nodeId];
+  const lastSeenAt = brokerNodeLastSeenAt(node);
+  return lastSeenAt > 0 && Date.now() - lastSeenAt > STALE_BROKER_NODE_MS;
+}
+
+function brokerAgentHasStaleRemoteOwner(
+  broker: ScoutBrokerContext,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+): boolean {
+  return isStaleRemoteBrokerNode(broker, agent.homeNodeId)
+    || isStaleRemoteBrokerNode(broker, agent.authorityNodeId);
+}
+
 function summarizeBrokerAgentState(
+  broker: ScoutBrokerContext,
   agent: ScoutBrokerContext["snapshot"]["agents"][string],
   endpoint: AgentEndpoint | null,
   flightPhase: "in_turn" | "in_flight" | null,
@@ -2273,8 +2305,13 @@ function summarizeBrokerAgentState(
   if (flightPhase === "in_flight") {
     return "in_flight";
   }
-  void agent;
-  void endpoint;
+  if (brokerAgentHasStaleRemoteOwner(broker, agent)) {
+    return "offline";
+  }
+  const metadata = recordInput(agent.metadata);
+  if (!endpoint && !metadataStringValue(metadata, "transport")) {
+    return "offline";
+  }
   return "available";
 }
 
@@ -2431,7 +2468,7 @@ function brokerAgentCardToWebAgent(
     handle: agent.handle ?? null,
     agentClass: agent.agentClass,
     harness: endpoint?.harness ?? metadataStringValue(agentMetadata, "harness"),
-    state: summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+    state: summarizeBrokerAgentState(broker, agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
     projectRoot: compactPath(projectRoot),
     cwd: compactPath(cwd),
     updatedAt,
@@ -2454,7 +2491,7 @@ function brokerAgentCardToWebAgent(
         ...agentMetadata,
         ...endpointMetadata,
       },
-      summarizeBrokerAgentState(agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+      summarizeBrokerAgentState(broker, agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
     ),
     terminalSurface: resolveTerminalSurface({
       transport: endpoint?.transport ?? metadataStringValue(agentMetadata, "transport"),
@@ -2493,14 +2530,75 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
+type BrokerAgentLiveness = Pick<
+  WebAgent,
+  | "state"
+  | "authorityNodeId"
+  | "authorityNodeName"
+  | "homeNodeId"
+  | "homeNodeName"
+  | "staleLocalRegistration"
+  | "retiredFromFleet"
+  | "replacedByAgentId"
+>;
+
+function brokerAgentLivenessForWeb(
+  broker: ScoutBrokerContext,
+  agent: ScoutBrokerContext["snapshot"]["agents"][string],
+): BrokerAgentLiveness {
+  const endpoint = activeEndpointForAgent(broker.snapshot, agent.id);
+  const metadata = recordInput(agent.metadata);
+  return {
+    state: summarizeBrokerAgentState(broker, agent, endpoint, brokerAgentFlightPhase(broker, agent.id)),
+    authorityNodeId: agent.authorityNodeId ?? null,
+    authorityNodeName: brokerNodeName(broker, agent.authorityNodeId),
+    homeNodeId: agent.homeNodeId ?? null,
+    homeNodeName: brokerNodeName(broker, agent.homeNodeId),
+    staleLocalRegistration: metadataBooleanValue(metadata, "staleLocalRegistration"),
+    retiredFromFleet: metadataBooleanValue(metadata, "retiredFromFleet"),
+    replacedByAgentId: metadataStringValue(metadata, "replacedByAgentId"),
+  };
+}
+
+function withBrokerLiveness(agent: WebAgent, brokerAgent: BrokerAgentLiveness | undefined): WebAgent {
+  if (!brokerAgent) {
+    return agent;
+  }
+  const brokerState = brokerAgent.state?.trim() || null;
+  const state = brokerState && brokerState !== "available"
+    ? brokerState
+    : agent.state ?? brokerState;
+  return {
+    ...agent,
+    state,
+    authorityNodeId: agent.authorityNodeId ?? brokerAgent.authorityNodeId,
+    authorityNodeName: agent.authorityNodeName ?? brokerAgent.authorityNodeName,
+    homeNodeId: agent.homeNodeId ?? brokerAgent.homeNodeId,
+    homeNodeName: agent.homeNodeName ?? brokerAgent.homeNodeName,
+    staleLocalRegistration: agent.staleLocalRegistration || brokerAgent.staleLocalRegistration,
+    retiredFromFleet: agent.retiredFromFleet || brokerAgent.retiredFromFleet,
+    replacedByAgentId: agent.replacedByAgentId ?? brokerAgent.replacedByAgentId,
+  };
+}
+
 async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
-  const agents = queryAgents().map(withResolvedHarnessSessionIdentity);
+  const projectedAgents = queryAgents();
   const broker = await loadScoutBrokerContext().catch(() => null);
   if (!broker) {
-    return agents;
+    return projectedAgents.map(withResolvedHarnessSessionIdentity);
   }
-  const existingIds = new Set(agents.map((agent) => agent.id));
-  const brokerAgents = brokerCardAgentsForWeb(broker)
+  const brokerLivenessById = new Map(
+    Object.values(broker.snapshot.agents ?? {}).map((agent) => [
+      agent.id,
+      brokerAgentLivenessForWeb(broker, agent),
+    ]),
+  );
+  const brokerCards = brokerCardAgentsForWeb(broker);
+  const agents = projectedAgents
+    .map((agent) => withBrokerLiveness(agent, brokerLivenessById.get(agent.id)))
+    .map(withResolvedHarnessSessionIdentity);
+  const existingIds = new Set(projectedAgents.map((agent) => agent.id));
+  const brokerAgents = brokerCards
     .filter((agent) => !existingIds.has(agent.id))
     .map(withResolvedHarnessSessionIdentity);
   return [...agents, ...brokerAgents];
@@ -2508,17 +2606,24 @@ async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
 
 async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent | null> {
   const agent = queryAgentById(agentId);
-  if (agent) {
-    return withResolvedHarnessSessionIdentity(agent);
-  }
   const broker = await loadScoutBrokerContext().catch(() => null);
-  if (!broker) {
-    return null;
+  const brokerAgent = broker
+    ? Object.values(broker.snapshot.agents ?? {}).find(
+        (candidate) => brokerAgentIdentityMatches(candidate, agentId),
+      )
+    : null;
+  const brokerWebAgent = broker && brokerAgent
+    ? brokerAgentCardToWebAgent(broker, brokerAgent)
+    : null;
+  const brokerLiveness = broker && brokerAgent
+    ? brokerAgentLivenessForWeb(broker, brokerAgent)
+    : undefined;
+  if (agent) {
+    return withResolvedHarnessSessionIdentity(withBrokerLiveness(
+      agent,
+      brokerLiveness,
+    ));
   }
-  const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
-    (candidate) => brokerAgentIdentityMatches(candidate, agentId),
-  );
-  const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
   return brokerWebAgent ? withResolvedHarnessSessionIdentity(brokerWebAgent) : null;
 }
 
@@ -2745,13 +2850,17 @@ function inferDirectTargetAgentId(
       process.env.OPENSCOUT_OPERATOR_NAME?.trim(),
       ...configuredOperatorActorIds(),
     ].filter((candidate): candidate is string => Boolean(candidate)));
+    const isOperatorCandidate = (participantId: string): boolean =>
+      operatorCandidates.has(participantId)
+      || participantId === "workspace"
+      || participantId.startsWith("workspace.");
     if (session.agentId) {
       const participants = session.participantIds.filter(
         (participantId) => participantId.trim().length > 0,
       );
       if (
         participants.length === 0 ||
-        participants.some((participantId) => operatorCandidates.has(participantId))
+        participants.some((participantId) => isOperatorCandidate(participantId))
       ) {
         return session.agentId;
       }
@@ -2762,11 +2871,11 @@ function inferDirectTargetAgentId(
       (participantId) => participantId.trim().length > 0,
     );
     if (participants.length === 2) {
-      if (!participants.some((participantId) => operatorCandidates.has(participantId))) {
+      if (!participants.some((participantId) => isOperatorCandidate(participantId))) {
         return null;
       }
       const nonOperatorParticipants = participants.filter(
-        (participantId) => !operatorCandidates.has(participantId),
+        (participantId) => !isOperatorCandidate(participantId),
       );
       if (nonOperatorParticipants.length === 1) {
         return nonOperatorParticipants[0] ?? null;
@@ -2794,7 +2903,22 @@ function inferDirectTargetAgentId(
     return parsedDirectConversation.agentId || null;
   }
 
+  const parsedLegacyWorkspaceDirectAgentId =
+    parseLegacyWorkspaceDirectAgentId(conversationId);
+  if (parsedLegacyWorkspaceDirectAgentId) {
+    return parsedLegacyWorkspaceDirectAgentId;
+  }
+
   return null;
+}
+
+function parseLegacyWorkspaceDirectAgentId(conversationId: string | undefined): string | null {
+  const trimmed = conversationId?.trim();
+  if (!trimmed?.startsWith("dm.")) {
+    return null;
+  }
+  const match = /^dm\.(.+)\.workspace(?:\..+)?$/u.exec(trimmed);
+  return match?.[1]?.trim() || null;
 }
 
 function inferDirectSenderId(
@@ -6480,6 +6604,13 @@ export async function createOpenScoutWebServer(
     }
 
     const routeCId = cId ?? conversationId;
+    const sendErrorResponse = (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      const status = /superseded|not been seen|unavailable|not available|could not route|matches .*agents|no agent matches/i.test(message)
+        ? 409
+        : 500;
+      return c.json({ error: message }, status as 409 | 500);
+    };
 
     if (!routeCId && scoutbotRunner) {
       try {
@@ -6517,28 +6648,40 @@ export async function createOpenScoutWebServer(
         }
       }
 
-      const result = await sendScoutDirectMessage({
-        agentId: directAgentId,
-        body: body.trim(),
-        currentDirectory,
-        source: "scout-web",
-      });
-      return c.json(result);
+      try {
+        const result = await sendScoutDirectMessage({
+          agentId: directAgentId,
+          body: body.trim(),
+          currentDirectory,
+          source: "scout-web",
+        });
+        return c.json(result);
+      } catch (error) {
+        return sendErrorResponse(error);
+      }
     }
 
     if (routedConversationId) {
-      const result = await sendScoutConversationMessage({
-        conversationId: routedConversationId,
-        senderId,
-        body: body.trim(),
-        attachments,
-        currentDirectory,
-        source: "scout-web",
-      });
-      if (!result.usedBroker) {
-        return c.json({ error: "broker unreachable" }, 502);
+      try {
+        const result = await sendScoutConversationMessage({
+          conversationId: routedConversationId,
+          senderId,
+          body: body.trim(),
+          attachments,
+          currentDirectory,
+          source: "scout-web",
+        });
+        if (!result.usedBroker) {
+          return c.json({ error: "broker unreachable" }, 502);
+        }
+        return c.json(result);
+      } catch (error) {
+        return sendErrorResponse(error);
       }
-      return c.json(result);
+    }
+
+    if (routeCId && !channel) {
+      return c.json({ error: `Conversation ${routeCId} is not available for sending.` }, 404);
     }
 
     const result = await sendScoutMessage({

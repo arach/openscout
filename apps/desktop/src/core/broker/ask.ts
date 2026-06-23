@@ -166,6 +166,14 @@ function buildScoutAskReceipt(input: {
       workId: input.result.workItem?.id,
       bindingRef: input.result.bindingRef,
     }),
+    ...(input.result.targetDiagnostic?.state === "ambiguous"
+      ? {
+          routing: {
+            state: "ambiguous" as const,
+            candidates: input.result.targetDiagnostic.candidates,
+          },
+        }
+      : {}),
     ...(next ? { next } : {}),
   };
 }
@@ -270,7 +278,7 @@ export const scoutAskHandler: ScoutAskHandler = async (command) => {
   const projectAgent =
     targetProjectPath
     && !requestedTo
-    && (inferredProjectPath || command.session === "new")
+    && (inferredProjectPath || command.session === "new" || command.harness)
       ? { persistence: "one_time" as const }
       : undefined;
   if (requestedTo && commandProjectPath) {

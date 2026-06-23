@@ -916,6 +916,116 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("marks broker cards on stale remote nodes offline", async () => {
+    const now = Date.now();
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      agent: {
+        homeNodeId: "remote-node",
+        authorityNodeId: "remote-node",
+      },
+      endpoint: {
+        nodeId: "remote-node",
+      },
+      snapshot: {
+        nodes: {
+          "node-local": {
+            id: "node-local",
+            meshId: "mesh-1",
+            name: "Test node",
+            advertiseScope: "local",
+            registeredAt: now,
+            lastSeenAt: now,
+          },
+          "remote-node": {
+            id: "remote-node",
+            meshId: "mesh-1",
+            name: "Remote node",
+            advertiseScope: "tailnet",
+            registeredAt: now - 3 * 24 * 60 * 60 * 1000,
+            lastSeenAt: now - 2 * 24 * 60 * 60 * 1000,
+          },
+        },
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const listResponse = await server.app.request("http://localhost/api/agents");
+
+    expect(listResponse.status).toBe(200);
+    const agents = await listResponse.json() as Array<Record<string, unknown>>;
+    expect(agents.find((agent) => agent.id === "weather-a2a.local")).toMatchObject({
+      id: "weather-a2a.local",
+      state: "offline",
+      homeNodeId: "remote-node",
+    });
+  });
+
+  test("overlays stale broker liveness onto database agent rows", async () => {
+    const now = Date.now();
+    queryAgentsResult = [
+      {
+        id: "weather-a2a.local",
+        definitionId: "weather-a2a.local",
+        name: "Projected A2A Agent",
+        handle: "weather-a2a",
+        state: "available",
+        conversationId: "dm.operator.weather-a2a.local",
+      },
+    ];
+    scoutBrokerContextResult = makeA2aBrokerContext({
+      agent: {
+        homeNodeId: "remote-node",
+        authorityNodeId: "remote-node",
+        metadata: {
+          project: "openscout-a2a-sidecar",
+        },
+      },
+      endpoint: {
+        nodeId: "remote-node",
+      },
+      snapshot: {
+        nodes: {
+          "node-local": {
+            id: "node-local",
+            meshId: "mesh-1",
+            name: "Test node",
+            advertiseScope: "local",
+            registeredAt: now,
+            lastSeenAt: now,
+          },
+          "remote-node": {
+            id: "remote-node",
+            meshId: "mesh-1",
+            name: "Remote node",
+            advertiseScope: "tailnet",
+            registeredAt: now - 3 * 24 * 60 * 60 * 1000,
+            lastSeenAt: now - 2 * 24 * 60 * 60 * 1000,
+          },
+        },
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/agents");
+
+    expect(response.status).toBe(200);
+    const agents = await response.json() as Array<Record<string, unknown>>;
+    expect(agents.filter((agent) => agent.id === "weather-a2a.local")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "weather-a2a.local")).toMatchObject({
+      name: "Projected A2A Agent",
+      state: "offline",
+      homeNodeId: "remote-node",
+    });
+  });
+
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
     queryAgentsResult = [
       {
@@ -1531,6 +1641,70 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutDirectMessageCalls).toEqual([
       {
         agentId: "agent-1",
+        body: "Status update",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("routes legacy workspace direct DMs through direct target validation", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "scout.main.mini",
+      participantIds: ["scout.main.mini", "workspace.air-local"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Status update",
+        conversationId: "dm.scout.main.mini.workspace.air-local",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutDirectMessageCalls).toEqual([
+      {
+        agentId: "scout.main.mini",
+        body: "Status update",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("routes legacy workspace direct DM IDs when the session projection misses", async () => {
+    querySessionByIdImpl = () => null;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Status update",
+        conversationId: "dm.scout.main.mini.workspace.air-local",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutDirectMessageCalls).toEqual([
+      {
+        agentId: "scout.main.mini",
         body: "Status update",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",

@@ -251,9 +251,12 @@ final class ScoutCommsStore: ObservableObject {
                 payload["attachments"] = attachments
             }
             request.httpBody = try JSONSerialization.data(withJSONObject: payload)
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw ScoutCommsError.sendFailed
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw ScoutCommsError.invalidResponse
+            }
+            guard (200..<300).contains(http.statusCode) else {
+                throw ScoutCommsError.sendFailed(Self.serverErrorMessage(data) ?? "Scout returned HTTP \(http.statusCode).")
             }
             setIfChanged(nil, to: \.lastError)
             refresh(force: true)
@@ -276,8 +279,11 @@ final class ScoutCommsStore: ObservableObject {
             "fileName": image.fileName,
         ])
         let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw ScoutCommsError.sendFailed
+        guard let http = response as? HTTPURLResponse else {
+            throw ScoutCommsError.invalidResponse
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw ScoutCommsError.sendFailed(Self.serverErrorMessage(data) ?? "Scout returned HTTP \(http.statusCode).")
         }
         return try decoder.decode(ScoutBlobUploadResponse.self, from: data)
     }
@@ -429,12 +435,21 @@ final class ScoutCommsStore: ObservableObject {
         }
         return ScoutAppError.userFacing(error)
     }
+
+    private static func serverErrorMessage(_ data: Data) -> String? {
+        guard !data.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let error = json["error"] as? String else {
+            return nil
+        }
+        return error.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
 }
 
 enum ScoutCommsError: LocalizedError {
     case invalidResponse
     case httpStatus(Int)
-    case sendFailed
+    case sendFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -442,8 +457,8 @@ enum ScoutCommsError: LocalizedError {
             return "Scout returned an invalid response."
         case .httpStatus(let status):
             return "Scout returned HTTP \(status)."
-        case .sendFailed:
-            return "Scout send failed."
+        case .sendFailed(let message):
+            return message
         }
     }
 }

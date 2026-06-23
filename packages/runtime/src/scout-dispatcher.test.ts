@@ -505,6 +505,60 @@ describe("resolveBrokerRouteTarget", () => {
     }
   });
 
+  test("uses requested harness to break project path ties", () => {
+    const projectRoot = "/tmp/linea";
+    const claude = makeAgent({
+      id: "linea.claude",
+      definitionId: "linea-review",
+      metadata: { projectRoot },
+    });
+    const codex = makeAgent({
+      id: "linea.codex",
+      definitionId: "linea-codex",
+      metadata: { projectRoot },
+    });
+    const snapshot = makeSnapshot(
+      [claude, codex],
+      [
+        makeEndpoint({
+          id: "endpoint.claude",
+          agentId: claude.id,
+          harness: "claude",
+          projectRoot,
+          state: "idle",
+        }),
+        makeEndpoint({
+          id: "endpoint.codex",
+          agentId: codex.id,
+          harness: "codex",
+          projectRoot,
+          state: "idle",
+        }),
+      ],
+    );
+
+    const ambiguous = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "project_path", projectPath: projectRoot } },
+      { helpers },
+    );
+    expect(ambiguous.kind).toBe("ambiguous");
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      {
+        target: { kind: "project_path", projectPath: projectRoot },
+        execution: { harness: "claude" },
+      },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved");
+    if (result.kind === "resolved") {
+      expect(result.agent.id).toBe("linea.claude");
+    }
+  });
+
   test("keeps project path routing ambiguous when the broker cannot choose", () => {
     const projectRoot = "/tmp/talkie";
     const snapshot = makeSnapshot([

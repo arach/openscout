@@ -63,10 +63,10 @@ import { createRequire } from 'module';
 import { execFileSync, execSync } from 'child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join, dirname as pathDirname } from 'path';
-import type { IPty } from '@lydell/node-pty';
+import type { IPty } from 'node-pty';
 
 const require = createRequire(import.meta.url);
-const pty = require('@lydell/node-pty') as typeof import('@lydell/node-pty');
+const pty = require('node-pty') as typeof import('node-pty');
 
 // ---------------------------------------------------------------------------
 // Constants

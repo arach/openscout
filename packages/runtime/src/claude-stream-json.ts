@@ -105,11 +105,17 @@ function claudeResultErrorMessage(event: Extract<ClaudeEvent, { type: "result" }
     || event.subtype === "error_during_execution"
     || errors.length > 0
   ) {
-    return errors.join("; ")
+    const detail = errors.join("; ")
       || event.error?.message
-      || event.message
-      || event.subtype
-      || "Claude stream-json result reported an error";
+      || event.message;
+    if (detail) {
+      return detail;
+    }
+    const subtype = event.subtype?.trim();
+    if (subtype && subtype !== "success") {
+      return `Claude stream-json result reported an error (${subtype})`;
+    }
+    return "Claude stream-json result reported an error without details";
   }
 
   return null;

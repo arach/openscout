@@ -9,9 +9,11 @@ import {
   SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
+  type AgentHarness,
   type AgentIdentity,
   type AgentIdentityCandidate,
   type AgentIdentityDiagnosis,
+  type InvocationExecutionPreference,
   type ScoutDispatchCandidate,
   type ScoutDispatchEnvelope,
   type ScoutDispatchKind,
@@ -41,6 +43,7 @@ export interface BrokerRouteTargetInput {
   targetSessionId?: string | null;
   targetLabel?: string | null;
   routePolicy?: ScoutRoutePolicy | null;
+  execution?: Pick<InvocationExecutionPreference, "harness"> | null;
 }
 
 export type BrokerAgentCandidate = AgentIdentityCandidate & {
@@ -277,23 +280,49 @@ function projectCandidateRank(
   return nodeRank + endpointAvailabilityScore(endpoint);
 }
 
+function projectCandidateHarness(
+  snapshot: RuntimeSnapshot,
+  agent: AgentDefinition,
+): AgentHarness | undefined {
+  const endpoint = homeEndpointForAgent(snapshot, agent.id);
+  const value = endpoint?.harness
+    ?? metadataStringValue(endpoint?.metadata, "harness")
+    ?? metadataStringValue(agent.metadata, "harness")
+    ?? metadataStringValue(agent.metadata, "defaultHarness");
+  return value === "claude" || value === "codex" || value === "pi" ? value : undefined;
+}
+
 function resolveProjectPathTarget(
   snapshot: RuntimeSnapshot,
   projectPath: string,
-  options: { preferLocalNodeId?: string; helpers: Pick<DispatcherHelpers, "isStale"> },
+  options: {
+    preferLocalNodeId?: string;
+    requestedHarness?: AgentHarness;
+    helpers: Pick<DispatcherHelpers, "isStale">;
+  },
 ): BrokerLabelResolution {
   const normalizedProjectPath = normalizeProjectPath(projectPath);
   if (!normalizedProjectPath) {
     return { kind: "unparseable", label: projectPath };
   }
 
-  const candidates = Object.values(snapshot.agents)
+  const projectAgents = Object.values(snapshot.agents)
     .filter((agent) => !options.helpers.isStale(agent))
     .filter((agent) => normalizeProjectPath(projectRootForAgent(snapshot, agent)) === normalizedProjectPath)
     .map((agent) => ({
       agent,
       rank: projectCandidateRank(snapshot, agent, options.preferLocalNodeId),
-    }))
+    }));
+  const harnessMatchedAgents = options.requestedHarness
+    ? projectAgents.filter(({ agent }) =>
+        projectCandidateHarness(snapshot, agent) === options.requestedHarness
+      )
+    : [];
+  const candidates = (
+    options.requestedHarness && harnessMatchedAgents.length > 0
+      ? harnessMatchedAgents
+      : projectAgents
+  )
     .sort((left, right) => {
       const rankDelta = right.rank - left.rank;
       if (rankDelta !== 0) return rankDelta;
@@ -408,6 +437,7 @@ export function resolveBrokerRouteTarget(
   if (projectPath) {
     return resolveProjectPathTarget(snapshot, projectPath, {
       preferLocalNodeId,
+      requestedHarness: input.execution?.harness,
       helpers: options.helpers,
     });
   }

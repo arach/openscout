@@ -218,6 +218,38 @@ describe("invokeClaudeStreamJsonAgent", () => {
     await shutdownClaudeStreamJsonAgent(options);
   });
 
+  test("does not use success subtype as error text", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-success-error-test-"));
+    tempPaths.add(tempRoot);
+    const fakeClaude = writeFakeClaudeExecutableWithResult(tempRoot, {
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      result: "",
+    });
+    process.env.OPENSCOUT_CLAUDE_BIN = fakeClaude;
+    process.env.PATH = [tempRoot, originalPath ?? ""].filter(Boolean).join(delimiter);
+
+    const options = {
+      agentName: "hudson-success-error-result",
+      sessionId: "relay-hudson-success-error-result",
+      cwd: process.cwd(),
+      systemPrompt: "You are a test Claude relay agent.",
+      runtimeDirectory: join(tempRoot, "runtime"),
+      logsDirectory: join(tempRoot, "logs"),
+      launchArgs: [],
+    } as const;
+
+    await ensureClaudeStreamJsonAgentOnline(options);
+    await expect(invokeClaudeStreamJsonAgent({
+      ...options,
+      prompt: "trigger contradictory result",
+      timeoutMs: 5_000,
+    })).rejects.toThrow("Claude stream-json result reported an error without details");
+
+    await shutdownClaudeStreamJsonAgent(options);
+  });
+
   test("resets stale Claude resume ids and retries once", async () => {
     const tempRoot = mkdtempSync(join(tmpdir(), "openscout-claude-stale-resume-test-"));
     tempPaths.add(tempRoot);

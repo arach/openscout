@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { api } from "../../lib/api.ts";
+import { useBrokerEvents } from "../../lib/sse.ts";
 import { BrokerAttemptInspector } from "./BrokerScreen.tsx";
 import type { BrokerDiagnostics, BrokerRouteAttempt, Route } from "../../lib/types.ts";
 

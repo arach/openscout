@@ -139,6 +139,10 @@ function renderAmbiguousCandidate(label: string): string {
   return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
 }
 
+function renderAskRetryHandle(label: string): string {
+  return renderAmbiguousCandidate(label).replace(/^@/, "");
+}
+
 function renderConversationRoute(conversationId?: string): string {
   if (!conversationId) {
     return "conversation";
@@ -202,12 +206,22 @@ function renderBindingRef(bindingRef?: string | null): string | null {
 
 function formatScoutAskReceiptError(
   receipt: ScoutAskReceipt,
-  targetLabel: string | undefined,
+  target: { targetLabel?: string; projectPath?: string },
 ): string {
-  const renderedTarget = targetLabel
-    ? renderScoutTargetLabel(targetLabel)
+  const renderedTarget = target.targetLabel
+    ? renderScoutTargetLabel(target.targetLabel)
+    : target.projectPath
+    ? `project ${target.projectPath}`
     : "the requested project";
   if (receipt.state === "ambiguous") {
+    const rendered = receipt.routing?.state === "ambiguous"
+      ? receipt.routing.candidates
+          .map((candidate) => renderAmbiguousCandidate(candidate.label || candidate.agentId))
+          .filter((label) => label.length > 0)
+      : [];
+    if (rendered.length > 0) {
+      return `target ${renderedTarget} matches multiple agents: ${rendered.join(", ")}. Re-run with the fully qualified form (e.g. \`scout ask --to ${renderAskRetryHandle(rendered[0]!)} "..."\`).`;
+    }
     return `target ${renderedTarget} matches multiple agents; nothing was sent. Re-run with a fully qualified @handle to disambiguate.`;
   }
   if (receipt.error) {
@@ -322,7 +336,10 @@ export async function runAskWithOptions(
   });
 
   if (!receipt.ok || !receipt.ids.flightId) {
-    throw new Error(formatScoutAskReceiptError(receipt, options.targetLabel));
+    throw new Error(formatScoutAskReceiptError(receipt, {
+      targetLabel: options.targetLabel,
+      projectPath: options.projectPath,
+    }));
   }
 
   context.stderr(

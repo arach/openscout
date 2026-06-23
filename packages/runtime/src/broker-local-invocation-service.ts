@@ -428,7 +428,7 @@ export class BrokerLocalInvocationService {
     runningFlight: FlightRecord;
   }): Promise<void> {
     const { error, invocation, agent, runningEndpoint, runningFlight } = input;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = localExecutionErrorMessage(error, runningEndpoint);
     if (isRequesterWaitTimeoutError(error)) {
       const currentFlight = this.options.runtime.flightForInvocation(invocation.id);
       if (currentFlight && isTerminalFlightState(currentFlight.state)) {
@@ -541,6 +541,14 @@ export class BrokerLocalInvocationService {
       summary: `${agent.displayName} failed to respond.`,
       error: message,
       completedAt: this.now(),
+      metadata: {
+        ...(runningFlight.metadata ?? {}),
+        failureStage: "harness_execution",
+        failureHarness: runningEndpoint.harness ?? null,
+        failureTransport: runningEndpoint.transport,
+        failureSessionId: runningEndpoint.sessionId ?? null,
+        failureEndpointId: runningEndpoint.id,
+      },
     };
     await this.options.persistFlight(failedFlight);
 
@@ -551,6 +559,7 @@ export class BrokerLocalInvocationService {
         ...(runningEndpoint.metadata ?? {}),
         lastError: message,
         lastFailedAt: this.now(),
+        lastFailureStage: "harness_execution",
       },
     });
 
@@ -568,4 +577,15 @@ function localInvocationRouteKey(invocation: InvocationRequest): string {
     invocation.execution?.harness ?? "*",
     invocationTargetSessionId(invocation) ?? "*",
   ].join("\u0000");
+}
+
+function localExecutionErrorMessage(error: unknown, endpoint: AgentEndpoint): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.trim().toLowerCase() === "success") {
+    const transport = endpoint.harness
+      ? `${endpoint.harness} via ${endpoint.transport}`
+      : endpoint.transport;
+    return `${transport} reported a failed execution without error details (raw detail: success).`;
+  }
+  return message;
 }

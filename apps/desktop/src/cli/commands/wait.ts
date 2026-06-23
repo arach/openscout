@@ -24,6 +24,9 @@ type ScoutWaitCommandResult = {
   resolution: Extract<ScoutWaitResolution, { found: true }> | null;
   invocationId: string | null;
   flight: ScoutFlightRecord | null;
+  failureLayer: string | null;
+  failureDetail: string | null;
+  messageDelivery: string | null;
   output: string | null;
   summary: string | null;
   error: string | null;
@@ -134,6 +137,9 @@ export function renderWaitCommandResult(result: ScoutWaitCommandResult): string 
     `Invocation: ${result.invocationId}`,
     result.flight ? `Flight: ${result.flight.id}` : null,
     result.flight ? `State: ${result.flight.state}` : null,
+    result.failureLayer ? `Failure Layer: ${result.failureLayer}` : null,
+    result.failureDetail ? `Failure Detail: ${result.failureDetail}` : null,
+    result.messageDelivery ? `Message Delivery: ${result.messageDelivery}` : null,
     `Resolved: ${result.resolution.kind}`,
     result.resolution.messageId ? `Message: ${result.resolution.messageId}` : null,
     result.resolution.bindingRef ? `Ref: ref:${result.resolution.bindingRef}` : null,
@@ -153,6 +159,7 @@ function buildWaitCommandResult(input: {
   timedOut: boolean;
 }): ScoutWaitCommandResult {
   const flight = input.snapshot?.flight ?? null;
+  const failure = describeWaitFailure(input.snapshot, flight, input.resolution);
   return {
     input: input.input,
     found: true,
@@ -160,6 +167,9 @@ function buildWaitCommandResult(input: {
     resolution: input.resolution,
     invocationId: input.resolution.invocationId,
     flight,
+    failureLayer: failure?.layer ?? null,
+    failureDetail: failure?.detail ?? null,
+    messageDelivery: failure?.messageDelivery ?? null,
     output: flight?.output ?? null,
     summary: flight?.summary ?? null,
     error: flight?.error ?? null,
@@ -181,6 +191,159 @@ function renderWaitNextAction(
     return `Still ${flight?.state ?? "pending"}; run \`${command}\` again.`;
   }
   return `Run \`${command}\` to keep waiting.`;
+}
+
+type WaitFailureDescription = {
+  layer: string;
+  detail: string | null;
+  messageDelivery: string | null;
+};
+
+function describeWaitFailure(
+  snapshot: ScoutInvocationSnapshot | null,
+  flight: ScoutFlightRecord | null,
+  resolution: Extract<ScoutWaitResolution, { found: true }>,
+): WaitFailureDescription | null {
+  if (!flight) {
+    return null;
+  }
+
+  const metadata = flight.metadata ?? {};
+  const dispatchAck = metadataRecord(metadata, "dispatchAck");
+  const dispatchDetail = renderDispatchAckDetail(dispatchAck);
+  const failureStage = metadataString(metadata, "failureStage");
+  const timeoutScope = metadataString(metadata, "timeoutScope");
+  const sourceIntent = metadataString(metadata, "sourceIntent")
+    ?? metadataString(snapshot?.invocation?.metadata, "sourceIntent");
+  const messageDelivery = sourceIntent === "direct_message" && resolution.messageId
+    ? `broker accepted message ${resolution.messageId}; the direct-message wake invocation failed.`
+    : null;
+
+  if (failureStage) {
+    return {
+      layer: layerForFailureStage(failureStage),
+      detail: detailForFailureStage(failureStage, dispatchDetail, flight.error ?? flight.summary),
+      messageDelivery,
+    };
+  }
+
+  if (timeoutScope === "requester_wait") {
+    return {
+      layer: "response_timeout",
+      detail: `Scout stopped waiting for a synchronous result${dispatchDetail ? ` after ${dispatchDetail}` : ""}.`,
+      messageDelivery,
+    };
+  }
+
+  if (flight.state === "failed" || flight.state === "cancelled") {
+    if (dispatchAck) {
+      return {
+        layer: "harness_execution",
+        detail: dispatchDetail
+          ? `Failed after dispatch acknowledgement from ${dispatchDetail}.`
+          : "Failed after the target acknowledged dispatch.",
+        messageDelivery,
+      };
+    }
+    if ((snapshot?.dispatches ?? []).length > 0) {
+      const dispatch = snapshot!.dispatches[0]!;
+      return {
+        layer: `routing_${dispatch.kind}`,
+        detail: dispatch.detail,
+        messageDelivery,
+      };
+    }
+    return {
+      layer: "broker_dispatch",
+      detail: flight.error ?? flight.summary ?? null,
+      messageDelivery,
+    };
+  }
+
+  return null;
+}
+
+function layerForFailureStage(stage: string): string {
+  switch (stage) {
+    case "endpoint_resolution":
+      return "session_attach";
+    case "dispatch_stalled":
+      return "harness_dispatch";
+    case "codex_app_server_sigterm":
+    case "codex_app_server_proactive_shutdown":
+      return "worker_process_exit";
+    case "empty_reply":
+      return "response_validation";
+    case "harness_execution":
+      return "harness_execution";
+    default:
+      return stage;
+  }
+}
+
+function detailForFailureStage(
+  stage: string,
+  dispatchDetail: string | null,
+  fallback: string | null | undefined,
+): string | null {
+  switch (stage) {
+    case "endpoint_resolution":
+      return fallback ?? "Scout could not resolve or attach a compatible endpoint before execution.";
+    case "dispatch_stalled":
+      return fallback ?? "Scout submitted to the harness, but the prompt remained in the composer.";
+    case "codex_app_server_sigterm":
+      return fallback ?? "The Codex app-server worker exited before replying.";
+    case "codex_app_server_proactive_shutdown":
+      return fallback ?? "OpenScout stopped the Codex app-server worker before it replied.";
+    case "empty_reply":
+      return fallback ?? "The worker completed without broker-visible output.";
+    case "harness_execution":
+      return dispatchDetail
+        ? `Failed after dispatch acknowledgement from ${dispatchDetail}.`
+        : fallback ?? "The worker failed after dispatch acknowledgement.";
+    default:
+      return fallback ?? dispatchDetail;
+  }
+}
+
+function renderDispatchAckDetail(value: Record<string, unknown> | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const harness = metadataString(value, "harness");
+  const transport = metadataString(value, "transport");
+  const strategy = metadataString(value, "strategy");
+  const sessionId = metadataString(value, "sessionId");
+  const endpointId = metadataString(value, "endpointId");
+  const subject = harness && transport
+    ? `${harness} via ${transport}`
+    : transport ?? harness ?? endpointId ?? "target endpoint";
+  const pieces = [
+    subject,
+    strategy ? `strategy ${strategy}` : null,
+    sessionId ? `session ${sessionId}` : null,
+  ].filter((piece): piece is string => Boolean(piece));
+  return pieces.join(", ");
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): Record<string, unknown> | null {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function metadataString(
+  metadata: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : null;
 }
 
 function parseWaitTimeout(value: string): number {
