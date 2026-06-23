@@ -186,6 +186,21 @@ struct Config {
     repo_watch_interval: Option<Duration>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct BrokerNetworkSettings {
+    advertise_scope: String,
+    broker_host: String,
+    broker_url: String,
+}
+
+struct BrokerNetworkSettingsInput {
+    open_scout_network_enabled: bool,
+    broker_port: u16,
+    explicit_scope: Option<String>,
+    explicit_host: Option<String>,
+    explicit_url: Option<String>,
+}
+
 impl Config {
     fn resolve() -> Result<Self, String> {
         let home = home_dir()?;
@@ -241,22 +256,20 @@ impl Config {
                 "bun".to_string()
             }
         });
-        let open_scout_network_enabled = open_scout_network_discovery_enabled(&support_directory);
-        let advertise_scope = resolve_advertise_scope_value(
-            open_scout_network_enabled,
-            env_nonempty("OPENSCOUT_ADVERTISE_SCOPE"),
-        );
-        let broker_host =
-            resolve_broker_host_value(&advertise_scope, env_nonempty("OPENSCOUT_BROKER_HOST"));
         let broker_port = env_nonempty("OPENSCOUT_BROKER_PORT")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(DEFAULT_BROKER_PORT);
-        let broker_url = resolve_broker_url_value(
-            &advertise_scope,
-            &broker_host,
+        let BrokerNetworkSettings {
+            broker_host,
+            broker_url,
+            ..
+        } = resolve_broker_network_settings(BrokerNetworkSettingsInput {
+            open_scout_network_enabled: open_scout_network_discovery_enabled(&support_directory),
             broker_port,
-            env_nonempty("OPENSCOUT_BROKER_URL"),
-        );
+            explicit_scope: env_nonempty("OPENSCOUT_ADVERTISE_SCOPE"),
+            explicit_host: env_nonempty("OPENSCOUT_BROKER_HOST"),
+            explicit_url: env_nonempty("OPENSCOUT_BROKER_URL"),
+        });
         let broker_socket_path = PathBuf::from(
             env_nonempty("OPENSCOUT_BROKER_SOCKET_PATH").unwrap_or_else(|| {
                 runtime_directory
@@ -1642,73 +1655,76 @@ fn bool_env(name: &str) -> Option<bool> {
     }
 }
 
-fn resolve_advertise_scope_value(
-    open_scout_network_enabled: bool,
-    explicit_scope: Option<String>,
-) -> String {
-    if open_scout_network_enabled {
-        return "mesh".to_string();
-    }
-    match explicit_scope
+fn resolve_broker_network_settings(input: BrokerNetworkSettingsInput) -> BrokerNetworkSettings {
+    let explicit_scope = input
+        .explicit_scope
         .unwrap_or_default()
         .trim()
-        .to_lowercase()
-        .as_str()
-    {
-        "mesh" => "mesh".to_string(),
-        _ => "local".to_string(),
-    }
-}
-
-fn resolve_broker_host_value(advertise_scope: &str, explicit_host: Option<String>) -> String {
-    let explicit = explicit_host.unwrap_or_default().trim().to_string();
-    if !explicit.is_empty() {
-        if advertise_scope == "mesh" && is_loopback_host(&explicit) {
-            return DEFAULT_BROKER_HOST_MESH.to_string();
-        }
-        return explicit;
-    }
-    if advertise_scope == "mesh" {
+        .to_lowercase();
+    let advertise_scope = if input.open_scout_network_enabled || explicit_scope == "mesh" {
+        "mesh".to_string()
+    } else {
+        "local".to_string()
+    };
+    let default_host = if advertise_scope == "mesh" {
+        DEFAULT_BROKER_HOST_MESH
+    } else {
+        DEFAULT_BROKER_HOST
+    };
+    let explicit_host = input.explicit_host.unwrap_or_default().trim().to_string();
+    let broker_host = if explicit_host.is_empty() {
+        default_host.to_string()
+    } else if advertise_scope == "mesh" && is_loopback_host(&explicit_host) {
         DEFAULT_BROKER_HOST_MESH.to_string()
     } else {
-        DEFAULT_BROKER_HOST.to_string()
+        explicit_host
+    };
+    let explicit_url = input.explicit_url.unwrap_or_default().trim().to_string();
+    let explicit_url_unreachable = advertise_scope == "mesh"
+        && broker_url_host(&explicit_url)
+            .is_some_and(|host| is_loopback_host(host) || is_wildcard_host(host));
+    let broker_url = if explicit_url.is_empty() || explicit_url_unreachable {
+        format!("http://{}:{}", broker_host, input.broker_port)
+    } else {
+        explicit_url
+    };
+
+    BrokerNetworkSettings {
+        advertise_scope,
+        broker_host,
+        broker_url,
     }
 }
 
-fn resolve_broker_url_value(
-    advertise_scope: &str,
-    broker_host: &str,
-    broker_port: u16,
-    explicit_url: Option<String>,
-) -> String {
-    let explicit = explicit_url.unwrap_or_default().trim().to_string();
-    if !explicit.is_empty() && !(advertise_scope == "mesh" && broker_url_is_loopback(&explicit)) {
-        return explicit;
-    }
-    format!("http://{broker_host}:{broker_port}")
-}
-
-fn broker_url_is_loopback(value: &str) -> bool {
+fn broker_url_host(value: &str) -> Option<&str> {
     let Some(after_scheme) = value.split_once("://").map(|(_, rest)| rest) else {
-        return false;
+        return None;
     };
     let host_port = after_scheme
         .split_once('/')
         .map(|(host, _)| host)
         .unwrap_or(after_scheme);
-    let host = host_port
-        .trim_start_matches('[')
-        .split_once(']')
-        .map(|(host, _)| host)
-        .or_else(|| host_port.split_once(':').map(|(host, _)| host))
-        .unwrap_or(host_port);
-    is_loopback_host(host)
+    Some(
+        host_port
+            .trim_start_matches('[')
+            .split_once(']')
+            .map(|(host, _)| host)
+            .or_else(|| host_port.split_once(':').map(|(host, _)| host))
+            .unwrap_or(host_port),
+    )
 }
 
 fn is_loopback_host(value: &str) -> bool {
     matches!(
         value.trim().to_lowercase().as_str(),
         "127.0.0.1" | "::1" | "localhost"
+    )
+}
+
+fn is_wildcard_host(value: &str) -> bool {
+    matches!(
+        value.trim().to_lowercase().as_str(),
+        "0.0.0.0" | "::" | "[::]"
     )
 }
 
@@ -2181,10 +2197,11 @@ mod tests {
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
         health_body_reports_ok, parse_daemon_state_telemetry, parse_health_response,
         parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
-        resolve_advertise_scope_value, resolve_broker_host_value, resolve_broker_url_value,
-        restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
-        scoutd_owned_child_log_path, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
-        DEFAULT_BROKER_HOST_MESH, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
+        resolve_broker_network_settings, restart_telemetry_warnings, rotate_child_log_if_needed,
+        rotated_child_log_path, scoutd_owned_child_log_path, BrokerNetworkSettings,
+        BrokerNetworkSettingsInput, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
+        DEFAULT_BROKER_HOST, DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, LEGACY_DAEMON_NAME,
+        LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -2234,33 +2251,69 @@ mod tests {
     }
 
     #[test]
-    fn osn_enabled_overrides_stale_local_network_env() {
-        let scope = resolve_advertise_scope_value(true, Some("local".to_string()));
-        let host = resolve_broker_host_value(&scope, Some("127.0.0.1".to_string()));
-        let url = resolve_broker_url_value(
-            &scope,
-            &host,
-            65_535,
-            Some("http://127.0.0.1:65535".to_string()),
-        );
+    fn broker_network_settings_mesh_mode_replaces_loopback_overrides() {
+        let settings = resolve_broker_network_settings(BrokerNetworkSettingsInput {
+            open_scout_network_enabled: true,
+            broker_port: DEFAULT_BROKER_PORT,
+            explicit_scope: Some("local".to_string()),
+            explicit_host: Some(DEFAULT_BROKER_HOST.to_string()),
+            explicit_url: Some(format!(
+                "http://{}:{}",
+                DEFAULT_BROKER_HOST, DEFAULT_BROKER_PORT
+            )),
+        });
 
-        assert_eq!(scope, "mesh");
-        assert_eq!(host, DEFAULT_BROKER_HOST_MESH);
-        assert_eq!(url, "http://0.0.0.0:65535");
+        assert_eq!(
+            settings,
+            BrokerNetworkSettings {
+                advertise_scope: "mesh".to_string(),
+                broker_host: DEFAULT_BROKER_HOST_MESH.to_string(),
+                broker_url: format!(
+                    "http://{}:{}",
+                    DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT
+                ),
+            }
+        );
     }
 
     #[test]
-    fn mesh_scope_keeps_non_loopback_explicit_host_and_url() {
-        let host = resolve_broker_host_value("mesh", Some("100.64.0.10".to_string()));
-        let url = resolve_broker_url_value(
-            "mesh",
-            &host,
-            65_535,
-            Some("http://mini.tailnet.test:65535".to_string()),
-        );
+    fn broker_network_settings_mesh_mode_replaces_wildcard_url_override() {
+        let explicit_host = "broker.openscout.invalid".to_string();
+        let settings = resolve_broker_network_settings(BrokerNetworkSettingsInput {
+            open_scout_network_enabled: true,
+            broker_port: DEFAULT_BROKER_PORT,
+            explicit_scope: Some("local".to_string()),
+            explicit_host: Some(explicit_host.clone()),
+            explicit_url: Some(format!(
+                "http://{}:{}",
+                DEFAULT_BROKER_HOST_MESH,
+                DEFAULT_BROKER_PORT - 1
+            )),
+        });
 
-        assert_eq!(host, "100.64.0.10");
-        assert_eq!(url, "http://mini.tailnet.test:65535");
+        assert_eq!(settings.advertise_scope, "mesh");
+        assert_eq!(settings.broker_host, explicit_host);
+        assert_eq!(
+            settings.broker_url,
+            format!("http://{}:{}", settings.broker_host, DEFAULT_BROKER_PORT)
+        );
+    }
+
+    #[test]
+    fn broker_network_settings_mesh_mode_keeps_explicit_reachable_endpoint() {
+        let explicit_host = "broker.openscout.invalid".to_string();
+        let explicit_url = "https://broker.openscout.invalid/runtime".to_string();
+        let settings = resolve_broker_network_settings(BrokerNetworkSettingsInput {
+            open_scout_network_enabled: false,
+            broker_port: DEFAULT_BROKER_PORT,
+            explicit_scope: Some("mesh".to_string()),
+            explicit_host: Some(explicit_host.clone()),
+            explicit_url: Some(explicit_url.clone()),
+        });
+
+        assert_eq!(settings.advertise_scope, "mesh");
+        assert_eq!(settings.broker_host, explicit_host);
+        assert_eq!(settings.broker_url, explicit_url);
     }
 
     #[test]

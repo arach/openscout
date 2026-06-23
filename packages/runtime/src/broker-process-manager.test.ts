@@ -44,6 +44,10 @@ const config: BrokerServiceConfig = {
   coreAgents: [],
 };
 
+const TEST_TAILNET_HOSTNAME = "mini";
+const TEST_TAILNET_SUFFIX = "tailnet.test";
+const TEST_TAILNET_DNS_NAME = `${TEST_TAILNET_HOSTNAME}.${TEST_TAILNET_SUFFIX}`;
+
 function writeExecutable(path: string): string {
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, "#!/bin/sh\nexit 0\n", "utf8");
@@ -96,9 +100,13 @@ function restore(previous: Map<string, string | undefined>): void {
 
 describe("broker service scoutd adapter", () => {
   test("builds local broker control URLs from wildcard bind hosts", () => {
-    expect(buildLocalBrokerControlUrl("0.0.0.0", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("::", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("192.168.1.12", 65535)).toBe("http://192.168.1.12:65535");
+    const reachableHost = "broker.openscout.invalid";
+
+    expect(buildLocalBrokerControlUrl(DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT)).toBe(DEFAULT_BROKER_URL);
+    expect(buildLocalBrokerControlUrl("::", DEFAULT_BROKER_PORT)).toBe(DEFAULT_BROKER_URL);
+    expect(buildLocalBrokerControlUrl(reachableHost, DEFAULT_BROKER_PORT)).toBe(
+      buildDefaultBrokerUrl(reachableHost, DEFAULT_BROKER_PORT),
+    );
   });
 
   test("uses OSN settings over stale local launch environment", async () => {
@@ -108,40 +116,43 @@ describe("broker service scoutd adapter", () => {
       BackendState: "Running",
       Self: {
         ID: "node-1",
-        HostName: "mini",
-        DNSName: "mini.tailnet.test.",
-        TailscaleIPs: ["100.64.0.10"],
+        HostName: TEST_TAILNET_HOSTNAME,
+        DNSName: `${TEST_TAILNET_DNS_NAME}.`,
+        TailscaleIPs: [],
         Online: true,
         OS: "macOS",
       },
       CurrentTailnet: {
         Name: "test",
-        MagicDNSSuffix: "tailnet.test",
+        MagicDNSSuffix: TEST_TAILNET_SUFFIX,
       },
     }));
+    const expectedMeshBrokerUrl = buildDefaultBrokerUrl(TEST_TAILNET_DNS_NAME, DEFAULT_BROKER_PORT);
+    const loopbackBrokerUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST, DEFAULT_BROKER_PORT);
+    const wildcardBrokerUrl = buildDefaultBrokerUrl(DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT);
 
     await withEnv({
       OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
       OPENSCOUT_ADVERTISE_SCOPE: "local",
-      OPENSCOUT_BROKER_HOST: "127.0.0.1",
-      OPENSCOUT_BROKER_URL: "http://127.0.0.1:65535",
+      OPENSCOUT_BROKER_HOST: DEFAULT_BROKER_HOST,
+      OPENSCOUT_BROKER_URL: loopbackBrokerUrl,
       OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleStatus,
     }, () => {
       expect(resolveAdvertiseScope()).toBe("mesh");
       expect(resolveBrokerHost("mesh")).toBe(DEFAULT_BROKER_HOST_MESH);
-      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, 65535, "mesh")).toBe("http://mini.tailnet.test:65535");
+      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, "mesh")).toBe(expectedMeshBrokerUrl);
       const serviceConfig = resolveBrokerServiceConfig();
       expect(serviceConfig.advertiseScope).toBe("mesh");
       expect(serviceConfig.brokerHost).toBe(DEFAULT_BROKER_HOST_MESH);
-      expect(serviceConfig.brokerUrl).toBe("http://mini.tailnet.test:65535");
+      expect(serviceConfig.brokerUrl).toBe(expectedMeshBrokerUrl);
     });
 
     await withEnv({
       OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
-      OPENSCOUT_BROKER_URL: "http://0.0.0.0:65535",
+      OPENSCOUT_BROKER_URL: wildcardBrokerUrl,
       OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleStatus,
     }, () => {
-      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, 65535, "mesh")).toBe("http://mini.tailnet.test:65535");
+      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, "mesh")).toBe(expectedMeshBrokerUrl);
     });
   });
 
