@@ -31,6 +31,8 @@
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>ATSApplicationFontsPath</key>
+    <string>Fonts</string>
     <key>NSSupportsAutomaticTermination</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>

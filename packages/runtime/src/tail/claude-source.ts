@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, join, relative } from "node:path";
 
 import { discoverClaudeProcesses } from "./discover.js";
-import { formatToolCall, summarizeToolResult } from "./tool-format.js";
+import { formatToolCall, formatToolResult } from "./tool-format.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -246,7 +246,7 @@ function summarizeBlocks(content: unknown): string {
       const name = typeof blockObj.name === "string" ? blockObj.name : "tool";
       parts.push(formatToolCall(name, blockObj.input));
     } else if (blockType === "tool_result") {
-      parts.push(`→ ${summarizeToolResult(blockObj.content)}`);
+      parts.push(formatToolResult(blockObj.content));
     } else if (blockType === "image") {
       parts.push("[image]");
     }

@@ -113,6 +113,60 @@
 
 .followOn { color: var(--s-accent); background: var(--s-accent-soft); }
 
+/* ── Command-bar header (two-tier: search hero on top, vitals beneath) ─ */
+
+.head { display: flex; flex-direction: column; }
+
+.headTop {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 50px;
+  padding: 0 16px;
+  background: var(--s-bg);
+}
+
+.cmdSearch {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  color: var(--s-dim);
+  cursor: text;
+}
+
+.cmdSearch svg { color: var(--s-muted); }
+
+.headBottom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--s-hairline);
+  background: color-mix(in srgb, var(--s-ink) 3%, transparent);
+}
+
+.subline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.subline b { color: var(--s-muted); font-weight: 700; }
+.subline svg { color: var(--s-muted); }
+.mid { opacity: 0.5; }
+
 /* ── Shared field styling ──────────────────────────────────────────── */
 
 .stream {
@@ -190,10 +244,37 @@
 
 .cAvatar { flex-shrink: 0; }
 
-.cAvatarBlank {
+/* Avatar carries the harness mark as a small corner badge. */
+.avatarWrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.harnessBadge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--s-bg);
+  color: var(--s-muted);
+  box-shadow: 0 0 0 1.5px var(--s-bg);
+}
+
+/* Non-agent rows: the harness mark stands alone in the avatar gutter. */
+.cHarnessGutter {
   width: 18px;
   height: 18px;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--s-dim);
 }
 
 /* ── 02 · Ledger ───────────────────────────────────────────────────── */
@@ -202,11 +283,29 @@
 
 .lRow {
   display: grid;
-  grid-template-columns: 70px 18px 156px minmax(0, 1fr);
+  grid-template-columns: 70px minmax(150px, 240px) 24px 18px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
   padding: 5px 16px;
   border-bottom: 1px solid var(--s-hairline);
+}
+
+/* Path = project/session:pid, the canonical locator. Mono, muted, the session
+   id recedes via opacity so the project reads first. */
+.path {
+  color: var(--s-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Provider = the harness brand mark in its own column (no avatar). */
+.provider {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--s-muted);
 }
 
 .lRow:hover:not(.lHead) { background: color-mix(in srgb, var(--s-accent) 5%, transparent); }

@@ -49,12 +49,9 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    // Resolved content size for `screen`. The .compact and .medium tiers
-    // are fixed presets (panel floats and is center-anchored on resize).
-    // The .large tier is screen-relative: full width × half height of the
-    // visible frame, intended to dock to the top half of the active
-    // display. Caller (HUDController) is responsible for positioning .large
-    // at the top of the screen rather than center-anchoring.
+    // Resolved content size for `screen`. The normal HUD keeps the existing
+    // compact/workbench/top-dock tiers. Tail gets a portrait overlay geometry:
+    // narrow enough to live beside real work, tall enough to read as a stream.
     //
     // WHY this shape (S vs M vs L):
     //   S 560x520     compact single-column overlay — at-a-glance HUD
@@ -72,11 +69,102 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    public func contentSize(for view: HUDView, on screen: NSScreen? = NSScreen.main) -> NSSize {
+        contentSize(for: view, collapsed: false, on: screen)
+    }
+
+    public func contentSize(for view: HUDView, collapsed: Bool, on screen: NSScreen? = NSScreen.main) -> NSSize {
+        guard view == .tail else { return contentSize(on: screen) }
+        let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        if collapsed {
+            return NSSize(width: 42, height: frame.height)
+        }
+        switch self {
+        case .compact:
+            return NSSize(width: 460, height: floor(frame.height * tailEdgeCoverage))
+        case .medium:
+            return NSSize(width: 540, height: floor(frame.height * tailEdgeCoverage))
+        case .large:
+            let width = min(680, max(540, floor(frame.width * 0.34)))
+            return NSSize(width: width, height: frame.height)
+        }
+    }
+
+    var tailEdgeCoverage: CGFloat {
+        switch self {
+        case .compact: return 0.30
+        case .medium: return 0.60
+        case .large: return 1.0
+        }
+    }
+
     /// Whether this size requires explicit screen-relative positioning by
     /// the caller (vs. the default center-anchored resize). Today only the
     /// new .large tier does — it docks to the top half of the active screen.
     public var isScreenAnchored: Bool {
         self == .large
+    }
+
+    public func isScreenAnchored(for view: HUDView) -> Bool {
+        view == .tail || isScreenAnchored
+    }
+}
+
+public enum HUDMotionPhase: Equatable, Sendable {
+    case idle
+    case warming
+    case collapsing
+    case moving
+}
+
+@MainActor
+public final class HUDMotionState: ObservableObject {
+    public static let shared = HUDMotionState()
+
+    @Published public private(set) var phase: HUDMotionPhase = .idle
+    @Published public private(set) var modifierLift = false
+
+    private var generation = 0
+
+    public var isActive: Bool {
+        phase != .idle
+    }
+
+    private init() {}
+
+    @discardableResult
+    public func begin(_ phase: HUDMotionPhase, fallbackSettleAfter delay: TimeInterval = 0.8) -> Int {
+        generation += 1
+        self.phase = phase
+        let token = generation
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard token == generation else { return }
+            self.phase = .idle
+        }
+        return token
+    }
+
+    public func settle(after delay: TimeInterval = 0) {
+        let token = generation
+        Task { @MainActor in
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            guard token == generation else { return }
+            phase = .idle
+        }
+    }
+
+    public func finish(token: Int? = nil) {
+        if let token, token != generation { return }
+        generation += 1
+        phase = .idle
+    }
+
+    public func setModifierLift(_ lifted: Bool) {
+        guard modifierLift != lifted else { return }
+        modifierLift = lifted
     }
 }
 
@@ -84,6 +172,7 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
 public final class HUDState: ObservableObject {
     @Published public var view: HUDView = .agents
     @Published public var size: HUDSize = .compact
+    @Published public var tailCollapsed = false
 
     public static let shared = HUDState()
 
@@ -107,8 +196,23 @@ public final class HUDState: ObservableObject {
             HUDStateFile.shared.touch()
             return
         }
+        HUDMotionState.shared.begin(.moving)
         self.size = size
         HUDStateFile.shared.touch()
+    }
+
+    public func setTailCollapsed(_ collapsed: Bool) {
+        guard tailCollapsed != collapsed else {
+            HUDStateFile.shared.touch()
+            return
+        }
+        HUDMotionState.shared.begin(collapsed ? .collapsing : .moving)
+        tailCollapsed = collapsed
+        HUDStateFile.shared.touch()
+    }
+
+    public func toggleTailCollapsed() {
+        setTailCollapsed(!tailCollapsed)
     }
 
     // Step the size in `direction` (-1 = down, +1 = up). Clamps at ends —

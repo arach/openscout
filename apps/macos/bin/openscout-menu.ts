@@ -103,6 +103,7 @@ Usage:
 HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud state
   bun apps/macos/bin/openscout-menu.ts hud show|hide|toggle
+  bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]
   bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
@@ -550,6 +551,14 @@ async function runHudCommand(args: string[]): Promise<void> {
       fireHudURL(action);
       return;
     }
+    case "tail": {
+      const size = rest[0];
+      if (size && !HUD_SIZES.includes(size as typeof HUD_SIZES[number])) {
+        throw new Error(`hud tail [${HUD_SIZES.join("|")}]`);
+      }
+      fireHudURL(size ? `tail/${size}` : "tail");
+      return;
+    }
     case "tab": {
       const name = rest[0];
       if (!name || !HUD_TABS.includes(name as typeof HUD_TABS[number])) {
@@ -623,7 +632,7 @@ async function runHudCommand(args: string[]): Promise<void> {
     }
     default:
       throw new Error(
-        `Unknown hud action: ${action}. Try state, show, hide, toggle, tab, size, capture, matrix.`,
+        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, capture, matrix.`,
       );
   }
 }
