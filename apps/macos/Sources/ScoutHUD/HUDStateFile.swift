@@ -31,6 +31,9 @@ public final class HUDStateFile {
         HUDState.shared.$size
             .sink { [weak self] _ in self?.write() }
             .store(in: &cancellables)
+        HUDState.shared.$tailCollapsed
+            .sink { [weak self] _ in self?.write() }
+            .store(in: &cancellables)
 
         write()
     }
@@ -46,6 +49,7 @@ public final class HUDStateFile {
             "visible":  HUDController.shared.isVisible,
             "tab":      HUDState.shared.view.label.lowercased(),
             "size":     HUDState.shared.size.cliLabel,
+            "tailCollapsed": HUDState.shared.tailCollapsed,
             "windowId": HUDController.shared.currentWindowId ?? 0,
             "ts":       Int(Date().timeIntervalSince1970 * 1000),
         ]

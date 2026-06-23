@@ -218,6 +218,133 @@ describe("tail transcript sources", () => {
     expect(event?.summary).toBe("hello from codex");
   });
 
+  test("joins Codex tool results to their tool calls by call_id", () => {
+    const transcript = {
+      source: "codex" as const,
+      transcriptPath: "/tmp/codex/rollout-019dcf82-tool-join.jsonl",
+      sessionId: "019dcf82-tool-join",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed" as const,
+      mtimeMs: Date.now(),
+      size: 100,
+    };
+    const ctx = {
+      ...makeContext("codex", transcript),
+      state: {} as Record<string, unknown>,
+    };
+
+    const call = CodexSource.parseLine(
+      JSON.stringify({
+        timestamp: "2026-04-27T15:00:01.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call",
+          name: "exec_command",
+          arguments: JSON.stringify({
+            cmd: "sed -n '1,70p' crates/scoutd/src/main.rs",
+            workdir: "/Users/arach/dev/openscout",
+          }),
+          call_id: "call-sed-main",
+        },
+      }),
+      ctx,
+    );
+    const result = CodexSource.parseLine(
+      JSON.stringify({
+        timestamp: "2026-04-27T15:00:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-sed-main",
+          output: [
+            "Chunk ID: abc123",
+            "Wall time: 0.0100 seconds",
+            "Process exited with code 0",
+            "Output:",
+            "use std::env;",
+            "use std::fs;",
+            "fn main() {",
+            "  println!(\"scoutd\");",
+            "}",
+          ].join("\n"),
+        },
+      }),
+      { ...ctx, lineOffset: 8 },
+    );
+
+    expect(call?.summary).toBe("sed -n '1,70p' crates/scoutd/src/main.rs");
+    expect(result?.kind).toBe("tool-result");
+    expect(result?.summary).toBe(
+      "sed -n '1,70p' crates/scoutd/src/main.rs -> res: use std::env; use std::fs; fn main() { println!(\"scoutd\"); (5 lines)",
+    );
+  });
+
+  test("uses stable Codex response item ids across repeated transcript offsets", () => {
+    const transcript = {
+      source: "codex" as const,
+      transcriptPath: "/tmp/codex/rollout-019dcf82-stable-id.jsonl",
+      sessionId: "019dcf82-stable-id",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed" as const,
+      mtimeMs: Date.now(),
+      size: 100,
+    };
+    const line = JSON.stringify({
+      timestamp: "2026-04-27T15:00:01.000Z",
+      type: "response_item",
+      payload: {
+        type: "message",
+        id: "msg_same",
+        role: "assistant",
+        content: [{ type: "output_text", text: "same visible line" }],
+      },
+    });
+
+    const first = CodexSource.parseLine(line, {
+      ...makeContext("codex", transcript),
+      lineOffset: 7,
+    });
+    const second = CodexSource.parseLine(line, {
+      ...makeContext("codex", transcript),
+      lineOffset: 42,
+    });
+
+    expect(first?.id).toBe("codex:019dcf82-stable-id:response:message:msg_same");
+    expect(second?.id).toBe(first?.id);
+  });
+
+  test("falls back to a result preview when a Codex output has no matching call in the parsed window", () => {
+    const transcript = {
+      source: "codex" as const,
+      transcriptPath: "/tmp/codex/rollout-019dcf82-tool-miss.jsonl",
+      sessionId: "019dcf82-tool-miss",
+      cwd: "/Users/arach/dev/openscout",
+      project: "openscout",
+      harness: "unattributed" as const,
+      mtimeMs: Date.now(),
+      size: 100,
+    };
+    const event = CodexSource.parseLine(
+      JSON.stringify({
+        timestamp: "2026-04-27T15:00:02.000Z",
+        type: "response_item",
+        payload: {
+          type: "function_call_output",
+          call_id: "call-missing",
+          output: "alpha\nbeta\n",
+        },
+      }),
+      {
+        ...makeContext("codex", transcript),
+        state: {},
+      },
+    );
+
+    expect(event?.summary).toBe("res: alpha beta (2 lines)");
+  });
+
   test("discovers and parses Grok event logs without process discovery", () => {
     const projectDir = join(
       process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT!,

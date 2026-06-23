@@ -10,7 +10,7 @@ import {
   readCwd,
   type RawProcess,
 } from "./discover.js";
-import { formatToolCall, parseMaybeJson, summarizeToolResult } from "./tool-format.js";
+import { formatToolCall, formatToolResult, parseMaybeJson } from "./tool-format.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -23,6 +23,8 @@ import type {
 
 const SOURCE_NAME = "codex";
 const MAX_SUMMARY_LEN = 200;
+const TOOL_CALL_STATE_KEY = "codexToolCallsById";
+const TOOL_CALL_STATE_LIMIT = 512;
 const DEFAULT_HOT_DISCOVERY_WINDOW_MS = 10 * 60 * 1000;
 const DEFAULT_SHALLOW_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DEEP_DISCOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -268,6 +270,39 @@ function stringifyValue(value: unknown, max = MAX_SUMMARY_LEN): string {
   }
 }
 
+function toolCallSummaries(ctx: TailContext): Map<string, string> | null {
+  if (!ctx.state) return null;
+  const existing = ctx.state[TOOL_CALL_STATE_KEY];
+  if (existing instanceof Map) return existing as Map<string, string>;
+  const next = new Map<string, string>();
+  ctx.state[TOOL_CALL_STATE_KEY] = next;
+  return next;
+}
+
+function rememberToolCall(ctx: TailContext, payload: Record<string, unknown>, summary: string): void {
+  const callId = typeof payload.call_id === "string" && payload.call_id.trim()
+    ? payload.call_id
+    : null;
+  if (!callId) return;
+  const calls = toolCallSummaries(ctx);
+  if (!calls) return;
+  calls.delete(callId);
+  calls.set(callId, summary);
+  while (calls.size > TOOL_CALL_STATE_LIMIT) {
+    const oldest = calls.keys().next().value;
+    if (!oldest) break;
+    calls.delete(oldest);
+  }
+}
+
+function rememberedToolCall(ctx: TailContext, payload: Record<string, unknown>): string | null {
+  const callId = typeof payload.call_id === "string" && payload.call_id.trim()
+    ? payload.call_id
+    : null;
+  if (!callId) return null;
+  return toolCallSummaries(ctx)?.get(callId) ?? null;
+}
+
 function parseTimestamp(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value < 1e12 ? value * 1000 : value;
@@ -277,6 +312,24 @@ function parseTimestamp(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function stableIdPart(value: string): string {
+  return value.trim().replace(/[\s\u0000-\u001f\u007f]+/gu, "_");
+}
+
+function codexEventIdSuffix(entryType: string, payloadType: string, payload: Record<string, unknown>, lineOffset: number): string {
+  if (entryType === "response_item") {
+    const payloadId = typeof payload.id === "string" ? stableIdPart(payload.id) : "";
+    if (payloadId) return `response:${payloadType || "item"}:${payloadId}`;
+
+    const callId = typeof payload.call_id === "string" ? stableIdPart(payload.call_id) : "";
+    if (callId && (payloadType === "function_call_output" || payloadType === "custom_tool_call_output")) {
+      return `response:${payloadType}:call:${callId}`;
+    }
+  }
+
+  return `line:${lineOffset}`;
 }
 
 function textFromContent(content: unknown): string {
@@ -325,7 +378,7 @@ function codexKind(entryType: string, payloadType: string, payload: Record<strin
   return "other";
 }
 
-function summarizeCodex(entryType: string, payloadType: string, payload: Record<string, unknown>): string {
+function summarizeCodex(entryType: string, payloadType: string, payload: Record<string, unknown>, ctx: TailContext): string {
   if (entryType === "session_meta") {
     const id = typeof payload.id === "string" ? payload.id : "";
     const cwd = typeof payload.cwd === "string" ? payload.cwd : "";
@@ -363,15 +416,19 @@ function summarizeCodex(entryType: string, payloadType: string, payload: Record<
     if (payloadType === "reasoning") return reasoningText(payload) || "[reasoning]";
     if (payloadType === "function_call") {
       const name = typeof payload.name === "string" ? payload.name : "function_call";
-      return clip(formatToolCall(name, payload.arguments));
+      const summary = clip(formatToolCall(name, payload.arguments));
+      rememberToolCall(ctx, payload, summary);
+      return summary;
     }
     if (payloadType === "custom_tool_call") {
       const name = typeof payload.name === "string" ? payload.name : "custom_tool_call";
-      return clip(formatToolCall(name, payload.input));
+      const summary = clip(formatToolCall(name, payload.input));
+      rememberToolCall(ctx, payload, summary);
+      return summary;
     }
     if (payloadType === "web_search_call") return "web_search";
     if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
-      return clip(`→ ${summarizeToolResult(parseMaybeJson(payload.output))}`);
+      return clip(formatToolResult(parseMaybeJson(payload.output), rememberedToolCall(ctx, payload)));
     }
     return clip(`[${payloadType || entryType}]`);
   }
@@ -389,10 +446,11 @@ function parseCodexLine(line: string, ctx: TailContext): TailEvent | null {
     : ctx.transcript.sessionId
       ?? basename(ctx.transcriptPath).replace(/\.jsonl$/, "");
   const cwd = ctx.transcript.cwd ?? ctx.process.cwd ?? "";
-  const summary = summarizeCodex(entryType, payloadType, payload);
+  const summary = summarizeCodex(entryType, payloadType, payload, ctx);
+  const idSuffix = codexEventIdSuffix(entryType, payloadType, payload, ctx.lineOffset);
 
   return {
-    id: `${SOURCE_NAME}:${sessionId}:${ctx.lineOffset}`,
+    id: `${SOURCE_NAME}:${sessionId}:${idSuffix}`,
     ts: parseTimestamp(record.timestamp) ?? parseTimestamp(payload.timestamp) ?? Date.now(),
     source: SOURCE_NAME,
     sessionId,

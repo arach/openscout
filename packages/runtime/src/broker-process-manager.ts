@@ -12,7 +12,6 @@ import type {
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   openScoutNetworkDiscoveryEnabled,
-  openScoutNetworkServiceEnvironment,
 } from "./open-scout-network.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 import {
@@ -119,10 +118,10 @@ export const DEFAULT_BROKER_PORT = 65535;
 export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
 
 export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): BrokerAdvertiseScope {
+  if (openScoutNetworkDiscoveryEnabled(env)) return "mesh";
   const raw = (env.OPENSCOUT_ADVERTISE_SCOPE ?? "").trim().toLowerCase();
   if (raw === "mesh") return "mesh";
   if (raw === "local") return "local";
-  if (openScoutNetworkDiscoveryEnabled(env)) return "mesh";
   return DEFAULT_ADVERTISE_SCOPE;
 }
 
@@ -130,8 +129,11 @@ export function resolveBrokerHost(
   scope: BrokerAdvertiseScope = resolveAdvertiseScope(),
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const explicit = env.OPENSCOUT_BROKER_HOST;
-  if (typeof explicit === "string" && explicit.trim().length > 0) {
+  const explicit = env.OPENSCOUT_BROKER_HOST?.trim();
+  if (explicit) {
+    if (scope === "mesh" && isLoopbackHost(explicit)) {
+      return DEFAULT_BROKER_HOST_MESH;
+    }
     return explicit;
   }
   return scope === "mesh" ? DEFAULT_BROKER_HOST_MESH : DEFAULT_BROKER_HOST;
@@ -144,7 +146,7 @@ export function isLoopbackHost(host: string): boolean {
 
 function localBrokerControlHost(host: string): string {
   const trimmed = host.trim();
-  if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "[::]") {
+  if (!trimmed || isWildcardHost(trimmed)) {
     return DEFAULT_BROKER_HOST;
   }
   return trimmed;
@@ -154,14 +156,14 @@ export function buildDefaultBrokerUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT
   return `http://${host}:${port}`;
 }
 
-function resolveBrokerUrl(
+export function resolveBrokerUrl(
   host: string,
   port: number,
   scope: BrokerAdvertiseScope,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = env.OPENSCOUT_BROKER_URL?.trim();
-  if (explicit) {
+  if (explicit && !(scope === "mesh" && isUnreachableMeshBrokerUrl(explicit))) {
     return explicit;
   }
   if (scope === "mesh") {
@@ -171,6 +173,20 @@ function resolveBrokerUrl(
     }
   }
   return buildDefaultBrokerUrl(host, port);
+}
+
+function isUnreachableMeshBrokerUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname;
+    return isLoopbackHost(host) || isWildcardHost(host);
+  } catch {
+    return false;
+  }
+}
+
+function isWildcardHost(host: string): boolean {
+  const trimmed = host.trim();
+  return trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "[::]";
 }
 
 export function buildLocalBrokerControlUrl(host = DEFAULT_BROKER_HOST, port = DEFAULT_BROKER_PORT): string {
@@ -487,7 +503,6 @@ function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: strin
     OPENSCOUT_BROKER_SERVICE_LABEL: config.label,
     OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
-    ...openScoutNetworkServiceEnvironment(process.env),
   };
   if (config.coreAgents.length > 0) {
     env.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");

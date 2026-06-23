@@ -4,14 +4,18 @@ import SwiftUI
 
 // Tail tab — native port of design/studio/components/hud/HudTail.tsx.
 //
-// Compact: dense firehose mono rows, inline raw + PRV/NXT on engage.
-// Medium:  same firehose, row font bumps slightly + padded breathing room.
-// Large:   two panes — stream left (~540), focused raw + PRV/CUR/NXT right.
+// Compact: dense vertical firehose rows, inline raw + PRV/NXT on engage.
+// Medium:  the same portrait stream with a slightly roomier row rhythm.
+// Large:   tall side-overlay stream for always-on desktop scanning.
 
 private enum TailKind: String {
-    case turn = "TUR"
+    case usr = "USR"
+    case ast = "AST"
     case msg = "MSG"
     case tol = "TOL"
+    case out = "OUT"
+    case sys = "SYS"
+    case evt = "EVT"
     case edt = "EDT"
     case err = "ERR"
     case lif = "LIF"
@@ -25,10 +29,11 @@ private enum TailKind: String {
             return summaryKind
         }
         switch event.kind {
-        case .user: return .pmt
-        case .assistant: return .turn
-        case .tool, .toolResult: return .tol
-        case .system: return .lif
+        case .user: return .usr
+        case .assistant: return .ast
+        case .tool: return .tol
+        case .toolResult: return .out
+        case .system: return summaryKind == .brk || summaryKind == .lif ? summaryKind : .sys
         case .other: return summaryKind
         }
     }
@@ -43,45 +48,46 @@ private enum TailKind: String {
         if v.contains("prompt") { return .pmt }
         if v.contains("broker") || v.contains("ping") { return .brk }
         if v.contains("start") || v.contains("spawn") || v.contains("wake") || v.contains("lifecycle") { return .lif }
-        return .turn
+        return .evt
     }
 
-    // Aged-phosphor palette — distinct hue per kind so a scrolling
-    // firehose reads like a colorized terminal log. Saturation kept
-    // moderate so colors sit on the warm-dark canvas without buzzing.
-    // ASK + ERR are loudest (attention); TUR is neutral ink so a wall
-    // of turns reads as the baseline.
+    var glyph: String {
+        switch self {
+        case .usr, .pmt: return ">"
+        case .ast: return "<"
+        case .tol: return "*"
+        case .out: return "="
+        case .sys, .lif, .brk: return "~"
+        case .msg: return "·"
+        case .edt: return "+"
+        case .err: return "!"
+        case .ask: return "?"
+        case .evt: return "·"
+        }
+    }
+
+    // HUD overlay palette: mostly monochrome so the stream can sit over the
+    // desktop without feeling like dashboard chrome. Attention/error keep a
+    // restrained tint; normal tool/result rows differ by glyph + weight.
     var color: Color {
         switch self {
-        case .turn: return HUDChrome.inkMuted
-        case .msg:  return Color(red: 0.485, green: 0.780, blue: 0.420) // lime-green echo
-        case .tol:  return Color(red: 0.420, green: 0.720, blue: 0.700) // cool teal
-        case .edt:  return Color(red: 0.870, green: 0.715, blue: 0.400) // warm amber
-        case .err:  return Color(red: 0.910, green: 0.450, blue: 0.395) // muted red
-        case .lif:  return Color(red: 0.680, green: 0.575, blue: 0.840) // soft violet
-        case .pmt:  return Color(red: 0.880, green: 0.620, blue: 0.395) // soft orange
-        case .brk:  return Color(red: 0.555, green: 0.640, blue: 0.730) // cool slate
-        case .ask:  return HUDChrome.accent                              // scout lime
+        case .tol, .usr, .pmt, .edt: return HUDChrome.inkMuted
+        case .out, .ast, .msg, .sys, .lif, .brk, .evt: return HUDChrome.inkFaint
+        case .err: return Color(red: 0.910, green: 0.450, blue: 0.395).opacity(0.72)
+        case .ask: return HUDChrome.accent.opacity(0.68)
         }
     }
 }
 
-// Hash-to-hue helper so each agent's `@source` stamps in its own
-// color, mirroring studio's agentHue convention. Deterministic across
-// renders — same handle always lands on the same hue.
-private func sourceColor(for handle: String) -> Color {
-    var hash: UInt64 = 5381
-    for byte in handle.lowercased().utf8 {
-        hash = (hash &* 33) &+ UInt64(byte)
-    }
-    let hue = Double(hash % 360)
-    return HUDChrome.agentHue(hue, lightness: 0.74, saturation: 0.42)
+// Tail HUD stays intentionally low-color; identity is carried by text rather
+// than per-agent hue so the overlay can recede into the desktop.
+private func sourceColor(for _: String) -> Color {
+    HUDChrome.inkMuted
 }
 
-// Light syntax highlighting for the line — @mentions get the agent
-// hue, file paths and *.ext tokens read in cool teal, and `backticked`
-// fragments lift slightly so code-like spans pop out of prose. Kept
-// deliberately small: this is a tail row, not a syntax-aware editor.
+// Light syntax highlighting for the line. The HUD tail keeps this subdued:
+// mentions, paths, and code spans lift a little without turning the overlay
+// into a colorized dashboard.
 private func styledLine(_ text: String, base: Color, mono: Font) -> AttributedString {
     var attr = AttributedString(text)
     attr.font = mono
@@ -89,8 +95,8 @@ private func styledLine(_ text: String, base: Color, mono: Font) -> AttributedSt
 
     let ns = text as NSString
     let full = NSRange(location: 0, length: ns.length)
-    let pathColor = Color(red: 0.420, green: 0.720, blue: 0.700)
-    let codeColor = HUDChrome.ink
+    let pathColor = HUDChrome.inkFaint
+    let codeColor = HUDChrome.inkMuted
 
     func apply(pattern: String, color: Color, weight: Font.Weight? = nil) {
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
@@ -105,7 +111,7 @@ private func styledLine(_ text: String, base: Color, mono: Font) -> AttributedSt
     }
 
     // @mention — token after @ is the agent handle
-    apply(pattern: #"@[A-Za-z][\w\-]+"#, color: HUDChrome.accent)
+    apply(pattern: #"@[A-Za-z][\w\-]+"#, color: HUDChrome.inkMuted)
     // *.ext file paths and slash paths
     apply(pattern: #"[\w./\-_]+\.[a-z]{1,6}\b"#, color: pathColor)
     apply(pattern: #"\B/[\w./\-_]+"#, color: pathColor)
@@ -120,8 +126,11 @@ private struct TailRowModel: Identifiable {
     let at: String        // HH:MM:SS clock
     let kind: TailKind
     let source: String    // handle/name without "@"
+    let provider: String
+    let origin: String
     let line: String
     let sessionId: String
+    let pid: Int
     let project: String
     let cwd: String
     let agentId: String?
@@ -142,6 +151,48 @@ private extension TailRowModel {
 
     var routingLabel: String {
         clean(agentName) ?? clean(agentHandle) ?? source
+    }
+
+    var scopeLabel: String {
+        pathPrimary + expandedPathDetail
+    }
+
+    var hoverLabel: String {
+        var parts = [scopeLabel]
+        let cwd = cleanString(cwd)
+        if !cwd.isEmpty {
+            parts.append(cwd)
+        }
+        if hasSession {
+            parts.append("session \(sessionId)")
+        }
+        if pid > 0 {
+            parts.append("pid \(pid)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var pathPrimary: String {
+        let project = cleanString(project)
+        return project.isEmpty ? source : project
+    }
+
+    var compactPathDetail: String {
+        let tail = sessionTailLabel
+        return tail.isEmpty ? "" : "/\(tail)"
+    }
+
+    var expandedPathDetail: String {
+        let session = sessionShortLabel
+        return session.isEmpty ? "" : "/\(session)"
+    }
+
+    var sessionShortLabel: String {
+        String(cleanString(sessionId).prefix(8))
+    }
+
+    var sessionTailLabel: String {
+        String(cleanString(sessionId).suffix(4))
     }
 
     var sessionURL: URL {
@@ -206,11 +257,18 @@ struct HUDTailView: View {
     let agents: [HudAgent]
 
     @ObservedObject private var state = HUDState.shared
+    @ObservedObject private var motion = HUDMotionState.shared
     @StateObject private var engage = HUDEngageState()
     // `following` = j/k haven't moved off the latest; new rows auto-scroll.
     // The moment the operator moves the cursor, follow drops to false so
     // their reading position doesn't get yanked. `f` toggles it back.
     @State private var following = true
+    @State private var seenRowIds: Set<String> = []
+    @State private var freshRowIds: Set<String> = []
+    @State private var hasPrimedRows = false
+    @State private var tailInteractionsLive = false
+    @AppStorage(HUDTailAppearance.pathColumnWidthKey) private var pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
+    @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
 
     var body: some View {
         Group {
@@ -307,15 +365,23 @@ struct HUDTailView: View {
     // MARK: - Rows
 
     private func rowsBody(size: HUDSize) -> some View {
-        VStack(spacing: 0) {
-            TailLiveMeter(count: rows.count, size: size, following: following)
+        let currentRows = rows
+        let motionKey = rowMotionKey(for: currentRows)
+        let motionActive = motion.isActive
+
+        return VStack(spacing: 0) {
+            TailLiveMeter(count: currentRows.count, size: size, following: following)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(rows.enumerated()), id: \.element.id) { idx, row in
+                        ForEach(Array(currentRows.enumerated()), id: \.element.id) { idx, row in
                             TailRow(
                                 row: row,
                                 size: size,
+                                fresh: motionActive ? false : freshRowIds.contains(row.id),
+                                interactionsLive: !motionActive && tailInteractionsLive,
+                                pathWidth: resolvedPathColumnWidth(for: size),
+                                kindWidth: resolvedKindColumnWidth,
                                 cursored: engage.isCursored(row.id),
                                 engaged: engage.isEngaged(row.id),
                                 onTap: {
@@ -324,21 +390,27 @@ struct HUDTailView: View {
                                     }
                                 }
                             )
+                            .allowsHitTesting(tailInteractionsLive)
                             .id(row.id)
                             if engage.isEngaged(row.id) {
                                 TailDetailInline(
                                     row: row,
-                                    prev: idx > 0 ? rows[idx - 1] : nil,
-                                    next: idx + 1 < rows.count ? rows[idx + 1] : nil,
+                                    prev: idx > 0 ? currentRows[idx - 1] : nil,
+                                    next: idx + 1 < currentRows.count ? currentRows[idx + 1] : nil,
                                     size: size
                                 )
                                 .transition(.move(edge: .top).combined(with: .opacity))
                             }
                         }
                     }
-                    .padding(.bottom, size == .large ? 12 : 8)
+                    .padding(.bottom, size == .large ? 14 : 8)
+                    .animation(
+                        motionActive ? nil : .spring(response: 0.26, dampingFraction: 0.86, blendDuration: 0.06),
+                        value: motionKey
+                    )
                 }
                 .onChange(of: engage.cursoredId) { _, id in
+                    guard !motionActive else { return }
                     guard let id else { return }
                     withAnimation(.easeOut(duration: 0.16)) {
                         if size == .compact {
@@ -351,12 +423,33 @@ struct HUDTailView: View {
                         }
                     }
                 }
+                .onChange(of: motionKey) { _, _ in
+                    if motionActive {
+                        absorbRowsWithoutFresh(currentRows)
+                        return
+                    }
+                    markFreshRows(currentRows)
+                    guard following, let last = currentRows.last?.id else { return }
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        proxy.scrollTo(last, anchor: .bottom)
+                    }
+                }
+                .onChange(of: motion.phase) { _, phase in
+                    if phase == .idle {
+                        absorbRowsWithoutFresh(currentRows)
+                    }
+                }
             }
+        }
+        .contentShape(Rectangle())
+        .onHover { tailInteractionsLive = $0 }
+        .onAppear {
+            primeMotionState(currentRows)
         }
     }
 
     private var rows: [TailRowModel] {
-        Array(tail.filteredEvents.suffix(80)).map { event in
+        tail.displayEvents(limit: 180).map { event in
             let source = event.sourceLabel
             let kind = TailKind.from(event)
             let agent = matchedAgent(for: event)
@@ -365,8 +458,11 @@ struct HUDTailView: View {
                 at: event.clockLabel,
                 kind: kind,
                 source: source.hasPrefix("@") ? String(source.dropFirst()) : source,
+                provider: Self.provider(for: event, agent: agent),
+                origin: event.originLabel,
                 line: Self.line(for: event),
                 sessionId: event.sessionId,
+                pid: event.pid,
                 project: event.projectLabel,
                 cwd: event.cwd,
                 agentId: agent?.id,
@@ -391,6 +487,74 @@ struct HUDTailView: View {
         guard !summary.isEmpty else { return event.kind.title }
         return summary
     }
+
+    private static func provider(for event: ScoutTailEvent, agent: HudAgent?) -> String {
+        for candidate in [agent?.harness, Optional(event.source), Optional(event.harness)] {
+            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty,
+                  !isManagementOrigin(value)
+            else {
+                continue
+            }
+            return value
+        }
+        return event.sourceLabel
+    }
+
+    private static func isManagementOrigin(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "scout-managed", "hudson-managed", "unattributed":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resolvedPathColumnWidth(for size: HUDSize) -> CGFloat {
+        let defaultWidth: Double = size == .compact ? 92 : (size == .large ? HUDTailAppearance.defaultPathColumnWidth : 104)
+        let stored = pathColumnWidth == HUDTailAppearance.defaultPathColumnWidth ? defaultWidth : pathColumnWidth
+        return CGFloat(HUDTailAppearance.clamp(stored, 64...260))
+    }
+
+    private var resolvedKindColumnWidth: CGFloat {
+        CGFloat(HUDTailAppearance.clamp(kindColumnWidth, 28...64))
+    }
+
+    private func rowMotionKey(for rows: [TailRowModel]) -> String {
+        rows.map(\.id).joined(separator: "|")
+    }
+
+    private func primeMotionState(_ rows: [TailRowModel]) {
+        guard !hasPrimedRows, !rows.isEmpty else { return }
+        seenRowIds = Set(rows.map(\.id))
+        hasPrimedRows = true
+    }
+
+    private func absorbRowsWithoutFresh(_ rows: [TailRowModel]) {
+        guard !rows.isEmpty else { return }
+        seenRowIds.formUnion(rows.map(\.id))
+        hasPrimedRows = true
+        freshRowIds.removeAll()
+    }
+
+    private func markFreshRows(_ rows: [TailRowModel]) {
+        let ids = Set(rows.map(\.id))
+        guard hasPrimedRows else {
+            seenRowIds = ids
+            hasPrimedRows = true
+            return
+        }
+
+        let fresh = ids.subtracting(seenRowIds)
+        seenRowIds.formUnion(ids)
+        guard !fresh.isEmpty else { return }
+
+        freshRowIds.formUnion(fresh)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 720_000_000)
+            freshRowIds.subtract(fresh)
+        }
+    }
 }
 
 // MARK: - Live meter strip
@@ -410,22 +574,22 @@ private struct TailLiveMeter: View {
                 ZStack {
                     if following {
                         Circle()
-                            .fill(HUDChrome.accent.opacity(0.35 * (1 - phase)))
+                            .fill(HUDChrome.inkMuted.opacity(0.18 * (1 - phase)))
                             .frame(width: 9, height: 9)
                     }
                     Circle()
-                        .fill(following ? HUDChrome.accent : HUDChrome.inkFaint)
+                        .fill(following ? HUDChrome.inkMuted : HUDChrome.inkFaint)
                         .frame(width: 5, height: 5)
                 }
                 .frame(width: 9, height: 9)
 
                 Text(following ? "LIVE" : "PAUSED")
-                    .font(HUDType.mono(10, weight: .bold))
+                    .font(HUDType.mono(8.5, weight: .bold))
                     .tracking(HUDType.eyebrowTracking)
-                    .foregroundStyle(following ? HUDChrome.ink : HUDChrome.inkMuted)
+                    .foregroundStyle(following ? HUDChrome.inkMuted : HUDChrome.inkFaint)
 
                 Text("· FIREHOSE")
-                    .font(HUDType.mono(10))
+                    .font(HUDType.mono(8.5))
                     .tracking(HUDType.eyebrowTracking)
                     .foregroundStyle(HUDChrome.inkFaint)
             }
@@ -435,33 +599,28 @@ private struct TailLiveMeter: View {
             if !following {
                 HStack(spacing: 4) {
                     Text("f")
-                        .font(HUDType.mono(9, weight: .bold))
-                        .foregroundStyle(HUDChrome.accent)
+                        .font(HUDType.mono(8, weight: .bold))
+                        .foregroundStyle(HUDChrome.inkMuted)
                         .padding(.horizontal, 4)
                         .padding(.vertical, 0.5)
                         .overlay(
                             RoundedRectangle(cornerRadius: 2)
-                                .stroke(HUDChrome.accent.opacity(0.5), lineWidth: 0.5)
+                                .stroke(HUDChrome.inkFaint.opacity(0.45), lineWidth: 0.5)
                         )
                     Text("FOLLOW")
-                        .font(HUDType.mono(9, weight: .semibold))
+                        .font(HUDType.mono(8, weight: .semibold))
                         .tracking(HUDType.eyebrowMicro)
                         .foregroundStyle(HUDChrome.inkMuted)
                 }
                 .padding(.trailing, 8)
             }
             Text("\(count) evt")
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(8.5))
                 .monospacedDigit()
                 .foregroundStyle(HUDChrome.inkMuted)
         }
         .padding(.horizontal, horizontalPad)
-        .padding(.vertical, 5)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(HUDChrome.border)
-                .frame(height: 0.5)
-        }
+        .padding(.vertical, 4)
         .onAppear {
             withAnimation(.easeOut(duration: 1.4).repeatForever(autoreverses: false)) {
                 phase = 1.0
@@ -475,11 +634,17 @@ private struct TailLiveMeter: View {
 private struct TailRow: View {
     let row: TailRowModel
     let size: HUDSize
+    let fresh: Bool
+    let interactionsLive: Bool
+    let pathWidth: CGFloat
+    let kindWidth: CGFloat
     var cursored: Bool = false
     let engaged: Bool
     var onTap: () -> Void = {}
 
     @State private var hovered = false
+    @State private var scopeHovered = false
+    @State private var hasPoppedIn = false
 
     private var body1: Color {
         if engaged || cursored { return HUDChrome.ink }
@@ -491,58 +656,53 @@ private struct TailRow: View {
         return HUDChrome.inkDeep
     }
 
-    // Bigger font baseline so the firehose reads as content, not chrome.
-    // Compact: 11pt. Medium/Large: 12pt. JBM at this size is dense but
-    // breathable; previously sat at 10/11 which felt scrunched.
     private var fontSize: CGFloat {
-        size == .compact ? 11 : 12
+        size == .compact ? 8.5 : 9
     }
 
     private var padX: CGFloat {
-        size == .compact ? 12 : 14
+        size == .large ? 14 : 11
     }
 
     private var padY: CGFloat {
-        size == .compact ? 3 : 4
+        size == .compact ? 1 : 1.5
     }
 
-    // Fixed-width columns so the line column always starts at the same
-    // X — previously each row's `@source` width was different and the
-    // message text jittered horizontally as you scrolled. JBM at our
-    // size renders ~6.6pt per char, so widths are picked to fit the
-    // worst-case token + a hair of margin.
     private var timeWidth: CGFloat {
-        size == .compact ? 56 : 62
+        size == .compact ? 45 : 49
     }
 
-    private var kindWidth: CGFloat {
-        size == .compact ? 26 : 30
+    private var providerWidth: CGFloat {
+        size == .compact ? 14 : 16
     }
 
-    private var sourceWidth: CGFloat {
-        size == .compact ? 96 : 108
+    private var scopeExpanded: Bool {
+        scopeHovered || engaged || cursored
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(row.at)
                 .font(HUDType.mono(fontSize))
                 .monospacedDigit()
                 .foregroundStyle(timeColor)
                 .frame(width: timeWidth, alignment: .leading)
 
-            Text(row.kind.rawValue)
-                .font(HUDType.mono(fontSize, weight: .bold))
-                .tracking(0.5)
-                .foregroundStyle(row.kind.color)
-                .frame(width: kindWidth, alignment: .leading)
+            TailProviderMark(provider: row.provider, size: size, active: engaged || cursored)
+                .frame(width: providerWidth, alignment: .leading)
 
-            Text("@" + row.source)
-                .font(HUDType.mono(fontSize, weight: .semibold))
-                .foregroundStyle(sourceColor(for: row.source))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: sourceWidth, alignment: .leading)
+            TailPathLabel(
+                row: row,
+                size: size,
+                active: engaged || cursored,
+                expanded: scopeExpanded,
+                sessionHoverEnabled: interactionsLive && (hovered || engaged || cursored),
+                onSessionHover: { scopeHovered = $0 }
+            )
+            .frame(width: scopeExpanded ? pathWidth + 46 : pathWidth, alignment: .leading)
+
+            TailKindCode(kind: row.kind, fontSize: fontSize)
+                .frame(width: kindWidth, alignment: .leading)
 
             Text(styledLine(
                 row.line,
@@ -550,8 +710,9 @@ private struct TailRow: View {
                 mono: HUDType.mono(fontSize)
             ))
             .lineLimit(1)
-            .truncationMode(.tail)
+            .truncationMode(row.kind == .tol ? .middle : .tail)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
         }
         .padding(.horizontal, padX)
         .padding(.vertical, padY)
@@ -559,13 +720,67 @@ private struct TailRow: View {
             TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
         }
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill((engaged || cursored) ? HUDChrome.accent.opacity(0.36) : HUDChrome.borderSoft)
-                .frame(height: (engaged || cursored) ? 0.75 : 0.5)
+            if engaged || cursored {
+                Rectangle()
+                    .fill(HUDChrome.inkFaint.opacity(0.24))
+                    .frame(height: 0.5)
+            }
         }
+        .opacity(fresh && !hasPoppedIn ? 0 : 1)
+        .offset(y: fresh && !hasPoppedIn ? 5 : 0)
+        .scaleEffect(fresh && !hasPoppedIn ? 0.992 : 1, anchor: .bottom)
+        .overlay(alignment: .leading) {
+            if fresh && hasPoppedIn {
+                Rectangle()
+                    .fill(HUDChrome.inkMuted.opacity(0.22))
+                    .frame(width: 1)
+                    .transition(.opacity)
+            }
+        }
+        .transition(
+            .asymmetric(
+                insertion: .move(edge: .bottom)
+                    .combined(with: .opacity)
+                    .combined(with: .scale(scale: 0.992, anchor: .bottom)),
+                removal: .opacity
+            )
+        )
         .contentShape(Rectangle())
-        .onHover { hovered = $0 }
+        .onHover { next in
+            guard interactionsLive else {
+                hovered = false
+                scopeHovered = false
+                return
+            }
+            hovered = next
+            if !next {
+                scopeHovered = false
+            }
+        }
+        .onChange(of: interactionsLive) { _, live in
+            if !live {
+                hovered = false
+                scopeHovered = false
+            }
+        }
         .onTapGesture(perform: onTap)
+        .onAppear {
+            guard fresh else { return }
+            hasPoppedIn = false
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
+                hasPoppedIn = true
+            }
+        }
+        .onChange(of: fresh) { _, next in
+            guard next else {
+                hasPoppedIn = false
+                return
+            }
+            hasPoppedIn = false
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
+                hasPoppedIn = true
+            }
+        }
         .contextMenu {
             Button("Open session") {
                 NSWorkspace.shared.open(row.sessionURL)
@@ -600,23 +815,91 @@ private struct TailRow: View {
     }
 }
 
+private struct TailProviderMark: View {
+    let provider: String
+    let size: HUDSize
+    let active: Bool
+
+    private var markSize: CGFloat {
+        size == .compact ? 10.5 : 11.5
+    }
+
+    var body: some View {
+        HUDHarnessMark(
+            harness: provider,
+            size: markSize,
+            tint: active ? HUDChrome.ink : HUDChrome.inkMuted
+        )
+        .frame(width: markSize, height: markSize)
+        .help(provider)
+    }
+}
+
+private struct TailKindCode: View {
+    let kind: TailKind
+    let fontSize: CGFloat
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(kind.glyph)
+            Text(kind.rawValue)
+        }
+        .font(HUDType.mono(fontSize, weight: .bold))
+        .foregroundStyle(kind.color)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .help(kind.rawValue)
+    }
+}
+
+private struct TailPathLabel: View {
+    let row: TailRowModel
+    let size: HUDSize
+    let active: Bool
+    let expanded: Bool
+    let sessionHoverEnabled: Bool
+    var onSessionHover: (Bool) -> Void = { _ in }
+
+    private var fontSize: CGFloat {
+        size == .compact ? 8.5 : 9
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(row.pathPrimary)
+                .font(HUDType.mono(fontSize, weight: .semibold))
+                .foregroundStyle(active ? HUDChrome.ink : HUDChrome.inkMuted)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Text(expanded ? row.expandedPathDetail : row.compactPathDetail)
+                .font(HUDType.mono(fontSize, weight: .semibold))
+                .foregroundStyle(active ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .contentShape(Rectangle())
+                .allowsHitTesting(sessionHoverEnabled)
+                .onHover { hovering in
+                    onSessionHover(sessionHoverEnabled && hovering)
+                }
+        }
+        .help(row.hoverLabel)
+        .onChange(of: sessionHoverEnabled) { _, enabled in
+            if !enabled {
+                onSessionHover(false)
+            }
+        }
+    }
+}
+
 private struct TailRowHighlight: View {
     let cursored: Bool
     let engaged: Bool
     let hovered: Bool
 
-    private var active: Bool { cursored || engaged }
-
     private var liftOpacity: Double {
-        if engaged { return 0.82 }
-        if cursored { return 0.58 }
-        if hovered { return 0.18 }
-        return 0
-    }
-
-    private var accentOpacity: Double {
-        if engaged { return 0.19 }
-        if cursored { return 0.13 }
+        if engaged { return 0.32 }
+        if cursored { return 0.22 }
+        if hovered { return 0.10 }
         return 0
     }
 
@@ -624,17 +907,6 @@ private struct TailRowHighlight: View {
         ZStack {
             if liftOpacity > 0 {
                 HUDChrome.canvasLift.opacity(liftOpacity)
-            }
-            if active {
-                LinearGradient(
-                    colors: [
-                        HUDChrome.accent.opacity(accentOpacity),
-                        HUDChrome.accent.opacity(accentOpacity * 0.46),
-                        Color.clear,
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
             }
         }
     }
@@ -649,29 +921,30 @@ private struct TailDetailInline: View {
     var size: HUDSize = .compact
 
     private var bodyFont: CGFloat {
-        size == .compact ? 11 : 12
+        size == .compact ? 8.5 : 9
     }
 
     private var neighborFont: CGFloat {
-        size == .compact ? 10 : 11
+        size == .compact ? 8.5 : 9
     }
 
     private var padX: CGFloat {
-        size == .large ? 20 : 14
+        size == .large ? 14 : 11
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkFaint)
-            Text("[\(row.at)] [\(row.kind.rawValue)] @\(row.source) · \(row.line)")
+            Text("[\(row.at)] [\(row.provider)] [\(row.kind.glyph)\(row.kind.rawValue)] \(row.scopeLabel) · \(row.line)")
                 .font(HUDType.mono(bodyFont))
                 .foregroundStyle(HUDChrome.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .multilineTextAlignment(.leading)
-                .lineSpacing(2)
+                .lineSpacing(1.5)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 metaRow(label: "SESSION", value: row.hasSession ? row.sessionId : "—")
+                metaRow(label: "PROVIDER", value: row.provider)
                 metaRow(label: "PROJECT", value: row.project)
                 if !row.cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     metaRow(label: "CWD", value: row.cwd)
@@ -684,14 +957,14 @@ private struct TailDetailInline: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 if row.hasSession {
-                    HUDDrillLink(label: "OPEN SESSION", url: row.sessionURL)
-                    HUDDrillLink(label: "FOLLOW LIVE", url: row.followURL)
+                    HUDDrillLink(label: "OPEN SESSION", url: row.sessionURL, compact: true)
+                    HUDDrillLink(label: "FOLLOW LIVE", url: row.followURL, compact: true)
                 }
                 if let agentURL = row.agentURL {
-                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL)
+                    HUDDrillLink(label: "AGENT PROFILE", url: agentURL, compact: true)
                 }
                 if let messagesURL = row.messagesURL {
-                    HUDDrillLink(label: "MESSAGE THREAD", url: messagesURL)
+                    HUDDrillLink(label: "MESSAGE THREAD", url: messagesURL, compact: true)
                 }
             }
             .padding(.top, 2)
@@ -707,7 +980,7 @@ private struct TailDetailInline: View {
             .padding(.top, 2)
         }
         .padding(.horizontal, padX)
-        .padding(.vertical, size == .compact ? 9 : 11)
+        .padding(.vertical, size == .compact ? 6 : 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(HUDChrome.canvasAlt.opacity(0.55))
     }
@@ -715,12 +988,12 @@ private struct TailDetailInline: View {
     private func metaRow(label: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
-                .font(HUDType.mono(10, weight: .bold))
+                .font(HUDType.mono(8.5, weight: .bold))
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkDeep)
-                .frame(width: 58, alignment: .leading)
+                .frame(width: 56, alignment: .leading)
             Text(value.isEmpty ? "—" : value)
-                .font(HUDType.mono(10))
+                .font(HUDType.mono(8.5))
                 .foregroundStyle(HUDChrome.ink)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -735,7 +1008,7 @@ private struct TailDetailInline: View {
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkDeep)
                 .frame(width: 26, alignment: .leading)
-            Text("\(r.at) \(r.kind.rawValue) @\(r.source) · \(r.line)")
+            Text("\(r.at) \(r.kind.glyph)\(r.kind.rawValue) \(r.source) · \(r.line)")
                 .font(HUDType.mono(neighborFont))
                 .foregroundStyle(HUDChrome.inkFaint)
                 .lineLimit(1)

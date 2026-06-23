@@ -636,25 +636,31 @@ private struct ActivityDetailInline: View {
 struct HUDDrillLink: View {
     let label: String
     let url: URL
+    var compact: Bool = false
 
     @State private var hovered = false
+
+    private var arrowSize: CGFloat { compact ? 9 : 11 }
+    private var labelSize: CGFloat { compact ? 8.5 : 10 }
+    private var horizontalPadding: CGFloat { compact ? 4 : 6 }
+    private var verticalPadding: CGFloat { compact ? 2 : 4 }
 
     var body: some View {
         Button {
             NSWorkspace.shared.open(url)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: compact ? 5 : 8) {
                 Text("→")
-                    .font(HUDType.mono(11))
+                    .font(HUDType.mono(arrowSize))
                     .foregroundStyle(hovered ? HUDChrome.accent : HUDChrome.inkFaint)
                 Text(label)
-                    .font(HUDType.mono(10, weight: .semibold))
+                    .font(HUDType.mono(labelSize, weight: .semibold))
                     .tracking(HUDType.eyebrowTracking)
                     .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkMuted)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

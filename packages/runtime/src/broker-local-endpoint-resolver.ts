@@ -11,12 +11,14 @@ import {
   compareLocalEndpointPreference,
   endpointMatchesTargetSession,
 } from "./broker-endpoint-selection.js";
-import { isManagedLocalSessionMetadata } from "./broker-managed-session-helpers.js";
 import {
   invocationTargetSessionId,
   staleLocalEndpointReason,
 } from "./broker-local-invocation-helpers.js";
-import { isBrokerRunnableLocalAgentTransport } from "./local-agent-transports.js";
+import {
+  isBrokerRunnableLocalAgentTransport,
+  isDirectLocalAgentTransport,
+} from "./local-agent-transports.js";
 import {
   clearEndpointFailureMetadata,
   type LocalAgentBinding,
@@ -132,7 +134,7 @@ export class BrokerLocalEndpointResolver {
     if (invocation.ensureAwake && shouldUseExistingSession) {
       for (const endpoint of staleEndpoints) {
         try {
-          const revived = await this.reviveManagedLocalSessionEndpoint(endpoint);
+          const revived = await this.reviveExactSessionEndpoint(endpoint);
           if (revived) return revived;
         } catch (error) {
           await this.options.persistEndpoint({
@@ -162,6 +164,10 @@ export class BrokerLocalEndpointResolver {
       });
     }
 
+    if (targetSessionId && invocation.ensureAwake) {
+      throw new Error(`session ${targetSessionId} is not currently reachable`);
+    }
+
     if (!invocation.ensureAwake) {
       return undefined;
     }
@@ -186,8 +192,8 @@ export class BrokerLocalEndpointResolver {
     return binding.endpoint;
   }
 
-  private async reviveManagedLocalSessionEndpoint(endpoint: AgentEndpoint): Promise<AgentEndpoint | null> {
-    if (!isManagedLocalSessionMetadata(endpoint.metadata)) {
+  private async reviveExactSessionEndpoint(endpoint: AgentEndpoint): Promise<AgentEndpoint | null> {
+    if (!isDirectLocalAgentTransport(endpoint.transport)) {
       return null;
     }
 

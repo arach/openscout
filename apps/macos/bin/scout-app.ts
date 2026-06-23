@@ -136,6 +136,13 @@ function bundleApp(mode: BuildMode): void {
   chmodSync(binaryPath, 0o755);
   cpSync(infoPlistTemplate, join(bundlePath, "Contents", "Info.plist"));
 
+  // Bundled fonts (auto-registered at launch via ATSApplicationFontsPath=Fonts).
+  // Space Grotesk is the Tail/Agents/Repos title face; it isn't a system font.
+  const fontsSrc = resolve(appDir, "Resources", "Fonts");
+  if (existsSync(fontsSrc)) {
+    cpSync(fontsSrc, join(resourcesDir, "Fonts"), { recursive: true });
+  }
+
   const version = appVersion();
   execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${version}" '${join(bundlePath, "Contents", "Info.plist")}'`);
   execSync(`/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${version}" '${join(bundlePath, "Contents", "Info.plist")}'`);

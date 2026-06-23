@@ -31,7 +31,11 @@ export function ScoutStudyShell({
   blurb: ReactNode;
   children: ReactNode | ((skin: ScoutSkinId) => ReactNode);
 }) {
-  const [skin, setSkin] = useState<ScoutSkinId>("juniper-l");
+  const [skin, setSkin] = useState<ScoutSkinId>(() => {
+    if (typeof window === "undefined") return "juniper-l";
+    const q = new URLSearchParams(window.location.search).get("skin");
+    return SCOUT_SKINS.some((s) => s.id === q) ? (q as ScoutSkinId) : "juniper-l";
+  });
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">

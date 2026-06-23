@@ -87,6 +87,12 @@ export type TailContext = {
   transcript: DiscoveredTranscript;
   transcriptPath: string;
   lineOffset: number;
+  /**
+   * Per-transcript parser scratch space. Sources that need to correlate adjacent
+   * records, such as tool calls and later tool results, can store lightweight
+   * derived state here without changing the wire event shape.
+   */
+  state?: Record<string, unknown>;
 };
 
 export interface TranscriptSource {
