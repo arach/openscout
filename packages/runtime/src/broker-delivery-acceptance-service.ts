@@ -5,6 +5,7 @@ import {
   type ConversationDefinition,
   type FlightRecord,
   type InvocationRequest,
+  type MessageAttachment,
   type MessageRecord,
   type ScoutDeliverRequest,
   type ScoutDeliverResponse,
@@ -147,6 +148,33 @@ function throwIfAborted(signal?: AbortSignal): void {
   }
 }
 
+function normalizeDeliveryAttachments(
+  attachments: ScoutDeliverRequest["attachments"],
+  createId: (prefix: string) => string,
+): MessageAttachment[] | undefined {
+  if (!attachments?.length) {
+    return undefined;
+  }
+  const normalized: MessageAttachment[] = [];
+  for (const attachment of attachments) {
+    const mediaType = attachment?.mediaType?.trim();
+    const url = attachment?.url?.trim();
+    const blobKey = attachment?.blobKey?.trim();
+    if (!mediaType || (!url && !blobKey)) {
+      continue;
+    }
+    normalized.push({
+      id: attachment.id?.trim() || createId("att"),
+      mediaType,
+      fileName: attachment.fileName?.trim() || undefined,
+      url: url || undefined,
+      blobKey: blobKey || undefined,
+      metadata: attachment.metadata,
+    });
+  }
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 export class BrokerDeliveryAcceptanceService {
   constructor(private readonly options: BrokerDeliveryAcceptanceServiceOptions) {}
 
@@ -168,6 +196,7 @@ export class BrokerDeliveryAcceptanceService {
     const askedLabel = askedLabelForRouteTarget(payload);
     const execution = executionWithRouteParams(payload);
     const deliveryChannel = routeChannelForTarget(payload) ?? payload.channel?.trim();
+    const attachments = normalizeDeliveryAttachments(payload.attachments, this.options.createId);
     const targetSessionId =
       payload.target?.kind === "session_id"
         ? payload.target.sessionId.trim()
@@ -211,6 +240,7 @@ export class BrokerDeliveryAcceptanceService {
           originNodeId: requesterNodeId,
           class: conversation.kind === "system" ? "system" : "agent",
           body: payload.body.trim(),
+      ...(attachments ? { attachments } : {}),
           replyToMessageId: replyTarget.id,
           ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
           audience: {
@@ -274,6 +304,7 @@ export class BrokerDeliveryAcceptanceService {
         originNodeId: requesterNodeId,
         class: conversation.kind === "system" ? "system" : "agent",
         body: payload.body.trim(),
+      ...(attachments ? { attachments } : {}),
         ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
         mentions: [{ actorId: this.options.operatorActorId, label: "@operator" }],
         ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
@@ -338,6 +369,7 @@ export class BrokerDeliveryAcceptanceService {
         originNodeId: requesterNodeId,
         class: conversation.kind === "system" ? "system" : "agent",
         body: payload.body.trim(),
+      ...(attachments ? { attachments } : {}),
         ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
         mentions: [{ actorId: SCOUT_DISPATCHER_AGENT_ID, label: "@scout" }],
         ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
@@ -411,6 +443,7 @@ export class BrokerDeliveryAcceptanceService {
         originNodeId: requesterNodeId,
         class: conversation.kind === "system" ? "system" : "agent",
         body: payload.body.trim(),
+      ...(attachments ? { attachments } : {}),
         ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
         ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),
         audience: {
@@ -590,6 +623,7 @@ export class BrokerDeliveryAcceptanceService {
       originNodeId: requesterNodeId,
       class: conversation.kind === "system" ? "system" : "agent",
       body: payload.body.trim(),
+      ...(attachments ? { attachments } : {}),
       ...(payload.replyToMessageId?.trim() ? { replyToMessageId: payload.replyToMessageId.trim() } : {}),
       mentions: [{ actorId: target.actorId, label: targetLabel }],
       ...(payload.speechText?.trim() ? { speech: { text: payload.speechText.trim() } } : {}),

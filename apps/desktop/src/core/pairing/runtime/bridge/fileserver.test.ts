@@ -5,6 +5,10 @@ import { createServer } from "node:net";
 import type { SessionState } from "@openscout/agent-sessions";
 
 import { startFileServer, type FileServer } from "./fileserver.ts";
+import {
+  pairingFileServerOrigin,
+  storePairingAttachmentBlob,
+} from "./fileserver.ts";
 import { issueWebHandoff } from "./web-handoff.ts";
 
 const activeServers: FileServer[] = [];
@@ -64,6 +68,27 @@ test("pairing file server exposes health and allowed file reads", async () => {
   );
   expect(fileResponse.status).toBe(200);
   expect(await fileResponse.text()).toBe("hello from scout\n");
+});
+
+test("pairing file server hosts uploaded opaque attachments", async () => {
+  const port = await getFreePort();
+  const server = startFileServer({ port });
+  activeServers.push(server);
+
+  const uploaded = storePairingAttachmentBlob(
+    {
+      data: Buffer.from("hello attachment\n", "utf8").toString("base64"),
+      mediaType: "text/plain",
+      fileName: "hello.txt",
+    },
+    { origin: pairingFileServerOrigin(port) },
+  );
+
+  const response = await fetch(uploaded.url);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("text/plain");
+  expect(response.headers.get("content-disposition")).toContain("hello.txt");
+  expect(await response.text()).toBe("hello attachment\n");
 });
 
 test("pairing file server requires a scoped secure token for web handoffs", async () => {

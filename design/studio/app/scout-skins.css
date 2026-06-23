@@ -29,35 +29,35 @@
   --s-border: #cdd2db;
   --s-hairline: #dfe3e9;
   --s-hairline-strong: #bbc2cd;
-  --s-accent: #4954c4;
-  --s-accent-soft: #e8ebfa;
+  --s-accent: #3e66cc;
+  --s-accent-soft: #e4eaf9;
   --s-ok: #2f7d55;
   --s-warn: #a66112;
   --s-error: #b83845;
-  --s-info: #4954c4;
+  --s-info: #3e66cc;
 }
 
-/* Juniper · Dark — higher-contrast treatment of the juniper dark preset.
-   Surface is lifted off the canvas so cards separate, dim/muted are raised so
-   secondary text stays legible, hairlines/borders are cool-tinted and stronger,
-   and the accent is brighter. Ported to native ScoutThemeColors.juniper.dark
-   (and the Indigo dark accent in ScoutAccentPalette). */
+/* Juniper · Dark — the neutralized "Nocturne": TRUE charcoal gray (not navy),
+   so the grays are genuinely neutral (R=G=B) and royal blue is the ONLY hue in
+   the window. Surface is lifted off the canvas so cards separate; dim/muted stay
+   legible. Mirrors native ScoutThemeColors.juniper.dark + the de-purpled royal-
+   blue ScoutAccentPalette. (Was navy #0f131b/#222c3b + indigo #6d7ae8.) */
 [data-scout-skin="juniper-d"] {
-  --s-bg: #0f131b;
-  --s-chrome: #090c12;
-  --s-surface: #222c3b;
-  --s-ink: #f3f6fc;
-  --s-muted: #b2bccd;
-  --s-dim: #828da1;
-  --s-border: rgba(150, 172, 208, 0.24);
-  --s-hairline: rgba(150, 172, 208, 0.13);
-  --s-hairline-strong: rgba(150, 172, 208, 0.28);
-  --s-accent: #6d7ae8;
-  --s-accent-soft: rgba(109, 122, 232, 0.26);
+  --s-bg: #191919;
+  --s-chrome: #0f0f0f;
+  --s-surface: #292929;
+  --s-ink: #f5f5f5;
+  --s-muted: #b6b6b6;
+  --s-dim: #868686;
+  --s-border: rgba(180, 180, 180, 0.22);
+  --s-hairline: rgba(180, 180, 180, 0.12);
+  --s-hairline-strong: rgba(180, 180, 180, 0.28);
+  --s-accent: #5585e6;
+  --s-accent-soft: rgba(85, 133, 230, 0.22);
   --s-ok: #54c98e;
   --s-warn: #efa044;
   --s-error: #f15a60;
-  --s-info: #6d7ae8;
+  --s-info: #5585e6;
 }
 
 /* Graphite · Dark — higher-contrast treatment of the neutral dark preset.

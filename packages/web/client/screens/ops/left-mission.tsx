@@ -3,12 +3,12 @@ import "../../scout/slots/ctx-panel.css";
 import "../../scout/slots/mission-left.css";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
 import {
-  MISSION_RECENT_WINDOWS,
+  MISSION_ACTIVITY_WINDOWS,
   clearMissionSelection,
   requestMissionCanvasFocus,
   setMissionActivityFilter,
+  setMissionActivityWindow,
   setMissionQuery,
-  setMissionRecentWindow,
   setMissionSourceFilter,
   toggleMissionSelected,
   useMissionControlStore,
@@ -20,6 +20,7 @@ import {
   useListArrowNav,
   useSlashToFocus,
 } from "../../lib/keyboard-nav.ts";
+import { VantageHandoffButton } from "../../components/VantageHandoffButton.tsx";
 import { MissionLeftAgentRow } from "./MissionLeftAgentRow.tsx";
 
 export function OpsMissionLeft() {
@@ -34,8 +35,16 @@ export function OpsMissionLeft() {
   useSlashToFocus(useCallback(() => inputRef.current, []));
 
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const isRecent = mc.activityFilter === "recent";
+  const isActive = mc.activityFilter === "active";
   const selectedCount = mc.selectedIds.length;
+  const selectedVisibleAgents = visibleAgents.filter((agent) => mc.selectedIds.includes(agent.id));
+  const selectedScoutAgentIds = selectedVisibleAgents
+    .filter((agent) => agent.source === "scout")
+    .map((agent) => agent.id);
+  const selectedNativeSessionIds = selectedVisibleAgents
+    .filter((agent) => agent.source === "native")
+    .map((agent) => agent.id);
+  const selectedLaunchableCount = selectedScoutAgentIds.length + selectedNativeSessionIds.length;
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -92,23 +101,23 @@ export function OpsMissionLeft() {
       {/* Secondary: activity + (conditional) time window — inline, smaller */}
       <div className="ml-section ml-section--secondary">
         <div className="ml-chips ml-chips--secondary">
-          {(["all", "active", "recent"] as const).map((f) => (
+          {(["active", "live", "all"] as const).map((f) => (
             <button
               key={f}
               type="button"
               className={["ml-chip ml-chip--ghost", mc.activityFilter === f && "ml-chip--ghost-active"].filter(Boolean).join(" ")}
               onClick={() => setMissionActivityFilter(f)}
             >
-              {f === "all" ? "Any" : f === "active" ? "Active" : "Recent"}
+              {f === "active" ? "Active" : f === "live" ? "Live" : "Any"}
             </button>
           ))}
-          {isRecent && <span className="ml-divider" aria-hidden />}
-          {isRecent && MISSION_RECENT_WINDOWS.map((opt) => (
+          {isActive && <span className="ml-divider" aria-hidden />}
+          {isActive && MISSION_ACTIVITY_WINDOWS.map((opt) => (
             <button
               key={opt.value}
               type="button"
-              className={["ml-chip ml-chip--ghost", mc.recentWindowMs === opt.value && "ml-chip--ghost-active"].filter(Boolean).join(" ")}
-              onClick={() => setMissionRecentWindow(opt.value)}
+              className={["ml-chip ml-chip--ghost", mc.activityWindowMs === opt.value && "ml-chip--ghost-active"].filter(Boolean).join(" ")}
+              onClick={() => setMissionActivityWindow(opt.value)}
             >
               {opt.label}
             </button>
@@ -120,6 +129,18 @@ export function OpsMissionLeft() {
         <div className="ml-selection">
           <span className="ml-selection-label">{selectedCount} selected</span>
           <div className="ml-selection-actions">
+            <VantageHandoffButton
+              agentIds={selectedScoutAgentIds}
+              nativeSessionIds={selectedNativeSessionIds}
+              className="ml-selection-btn ml-selection-btn--primary"
+              statusClassName="ml-selection-status"
+              label="Vantage"
+              openingLabel="Opening"
+              disabled={selectedLaunchableCount === 0}
+              title={selectedLaunchableCount > 0
+                ? "Open selected sessions in the native Vantage canvas"
+                : "Select Scout agents or native sessions to open in Vantage"}
+            />
             <button type="button" className="ml-selection-btn ml-selection-btn--primary" onClick={openTailForSelection}>
               Tail ↗
             </button>

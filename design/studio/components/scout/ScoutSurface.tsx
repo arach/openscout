@@ -34,12 +34,15 @@ export type HeaderCount = { n: ReactNode; label: string; tone?: Tone };
 
 export function ScoutPageHeader({
   title,
+  glyph,
   live,
   counts,
   pill,
   actions,
 }: {
   title: string;
+  /** Optional identity mark, sits before the title (e.g. Tail's pulse glyph). */
+  glyph?: ReactNode;
   live?: boolean;
   counts?: HeaderCount[];
   pill?: ReactNode;
@@ -47,12 +50,17 @@ export function ScoutPageHeader({
 }) {
   return (
     <header className={styles.pageHead}>
-      <span className={styles.title}>{title}</span>
-      {live ? (
-        <span className={styles.live}>
-          <span className={styles.livePip} /> Live
-        </span>
-      ) : null}
+      {/* Identity cluster: glyph + title + LIVE read as one object. */}
+      <span className={styles.identity}>
+        {glyph ? <span className={styles.glyph}>{glyph}</span> : null}
+        <span className={styles.title}>{title}</span>
+        {live ? (
+          <span className={styles.live}>
+            <span className={styles.livePip} /> Live
+          </span>
+        ) : null}
+      </span>
+      {/* Inline metric read-out — quiet, ranked below the identity. */}
       {counts?.length ? (
         <span className={styles.counts}>
           {counts.map((c) => (

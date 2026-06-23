@@ -10,6 +10,7 @@ import {
   readCwd,
   type RawProcess,
 } from "./discover.js";
+import { formatToolCall, parseMaybeJson, summarizeToolResult } from "./tool-format.js";
 import type {
   DiscoveredProcess,
   DiscoveredTranscript,
@@ -350,8 +351,10 @@ function summarizeCodex(entryType: string, payloadType: string, payload: Record<
         ? payload.command.join(" ")
         : typeof payload.command === "string"
           ? payload.command
-          : payloadType;
-      return clip(`${payloadType} · ${command}`);
+          : "";
+      // Only append a command when there is a real one — otherwise the type
+      // alone (no `type · type` echo).
+      return command ? clip(`${payloadType} · ${command}`) : clip(payloadType);
     }
     return clip(payloadType || "event");
   }
@@ -360,15 +363,15 @@ function summarizeCodex(entryType: string, payloadType: string, payload: Record<
     if (payloadType === "reasoning") return reasoningText(payload) || "[reasoning]";
     if (payloadType === "function_call") {
       const name = typeof payload.name === "string" ? payload.name : "function_call";
-      return clip(`${name}(${stringifyValue(payload.arguments, 120)})`);
+      return clip(formatToolCall(name, payload.arguments));
     }
     if (payloadType === "custom_tool_call") {
       const name = typeof payload.name === "string" ? payload.name : "custom_tool_call";
-      return clip(`${name}(${stringifyValue(payload.input, 120)})`);
+      return clip(formatToolCall(name, payload.input));
     }
     if (payloadType === "web_search_call") return "web_search";
     if (payloadType === "function_call_output" || payloadType === "custom_tool_call_output") {
-      return clip(`-> ${stringifyValue(payload.output)}`);
+      return clip(`→ ${summarizeToolResult(parseMaybeJson(payload.output))}`);
     }
     return clip(`[${payloadType || entryType}]`);
   }

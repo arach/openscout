@@ -72,20 +72,21 @@ import {
   describePresence,
   displayNameForActor,
   emptyFleetState,
-  fleetAttentionIds,
   isOperatorMessage,
   keepPreviousIfJsonEqual,
-  keepPreviousSetIfEqual,
   latestAgentMessageAt,
   mapEventFlight,
   matchMentionTrigger,
   matchSlashTrigger,
   messageClassLabel,
+  parseAskReplyTag,
   pathLeaf,
   readScoutDispatch,
   resolveAgentByIdentity,
+  resolveAskReplyContext,
   resolveMessageAgent,
   selectCurrentFlight,
+  selectOperatorPendingAsk,
   selectTurnActivity,
   selectTurnAsk,
   sortMessages,
@@ -149,18 +150,20 @@ export function ConversationScreen({
     [scopedAgents, agentId],
   );
 
-  const [needsYouIds, setNeedsYouIds] = useState<Set<string>>(new Set());
+  const [pinnedAsk, setPinnedAsk] = useState<FleetAsk | null>(null);
 
   useEffect(() => {
     api<FleetState>("/api/fleet")
       .then((fleet) => {
-        const nextNeedsYouIds = fleetAttentionIds(fleet);
-        setNeedsYouIds((previous) =>
-          keepPreviousSetIfEqual(previous, nextNeedsYouIds),
+        setPinnedAsk((previous) =>
+          keepPreviousIfJsonEqual(
+            previous,
+            selectOperatorPendingAsk(fleet.activeAsks, conversationId, agentId),
+          ),
         );
       })
       .catch(() => {});
-  }, []);
+  }, [conversationId, agentId]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -244,9 +247,15 @@ export function ConversationScreen({
         keepPreviousIfJsonEqual(previous, nextTurnActivity),
       );
       setTurnAsk((previous) => keepPreviousIfJsonEqual(previous, nextTurnAsk));
-      const nextNeedsYouIds = fleetAttentionIds(fleet);
-      setNeedsYouIds((previous) =>
-        keepPreviousSetIfEqual(previous, nextNeedsYouIds),
+      setPinnedAsk((previous) =>
+        keepPreviousIfJsonEqual(
+          previous,
+          selectOperatorPendingAsk(
+            fleet.activeAsks,
+            canonicalConversationId,
+            resolvedAgentId,
+          ),
+        ),
       );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -676,11 +685,18 @@ export function ConversationScreen({
     0,
   );
 
-  const pinnedAsk = useMemo<FleetAsk | null>(() => {
-    if (!needsYouIds.has(conversationId) && !(agentId && needsYouIds.has(agentId)))
-      return null;
-    return null;
-  }, [conversationId, agentId, needsYouIds]);
+  const messagesById = useMemo(
+    () => new Map(messages.map((message) => [message.id, message])),
+    [messages],
+  );
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("s-thread-msg--flash");
+    window.setTimeout(() => el.classList.remove("s-thread-msg--flash"), 1200);
+  }, []);
 
   useBrokerEvents(
     useCallback(
@@ -705,6 +721,7 @@ export function ConversationScreen({
             class: isOperatorActor ? "operator" : message.class,
             attachments: message.attachments,
             metadata: message.metadata,
+            replyToMessageId: message.replyToMessageId ?? message.n ?? null,
           };
           if (isNoisyConversationStatusMessage(nextMessage)) return;
 
@@ -1217,6 +1234,17 @@ export function ConversationScreen({
               const actorHandle = isYou
                 ? operatorName.toLowerCase()
                 : messageAgent?.handle ?? null;
+              const askReply = parseAskReplyTag(message.body);
+              const replyContext = askReply
+                ? resolveAskReplyContext({
+                    flightId: askReply.flightId,
+                    replyToMessageId: message.replyToMessageId,
+                    messagesById,
+                    agents: scopedAgents,
+                    operatorName,
+                  })
+                : null;
+              const displayBody = askReply ? askReply.body : message.body;
 
               return (
                 <div
@@ -1364,8 +1392,37 @@ export function ConversationScreen({
                           </button>
                         </div>
 
+                        {replyContext && (
+                          <button
+                            type="button"
+                            className="s-thread-reply-ctx"
+                            title={`Open the originating ask${
+                              replyContext.flightId
+                                ? ` · ${replyContext.flightId}`
+                                : ""
+                            }`}
+                            onClick={() =>
+                              scrollToMessage(replyContext.originatingMessageId)
+                            }
+                          >
+                            <ReplyGlyph />
+                            <span className="s-thread-reply-ctx-label">
+                              reply to
+                            </span>
+                            <span className="s-thread-reply-ctx-title">
+                              {replyContext.title}
+                            </span>
+                            <span className="s-thread-reply-ctx-from">
+                              · {replyContext.from}
+                            </span>
+                            <span className="s-thread-reply-ctx-status">
+                              · done
+                            </span>
+                          </button>
+                        )}
+
                         <div className="s-thread-msg-body" title={absoluteTime}>
-                          <MessageMarkup text={message.body} />
+                          <MessageMarkup text={displayBody} />
                         </div>
 
                         <MessageEmbeds message={message} />
@@ -1544,5 +1601,24 @@ export function ConversationScreen({
       </div>
 
     </div>
+  );
+}
+
+function ReplyGlyph() {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="9 14 4 9 9 4" />
+      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+    </svg>
   );
 }

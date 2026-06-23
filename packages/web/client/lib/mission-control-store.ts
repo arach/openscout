@@ -1,17 +1,18 @@
 import { useSyncExternalStore } from "react";
 
-export type MissionActivityFilter = "all" | "active" | "recent";
+export type MissionActivityFilter = "active" | "live" | "all";
 export type MissionSourceFilter = "all" | "scout" | "native";
 export type MissionGroupMode = "activity" | "workspace";
 export type MissionActivityState = "active" | "recent" | "idle";
 
-export const MISSION_RECENT_WINDOWS = [
-  { label: "15m", value: 15 * 60_000 },
-  { label: "1h", value: 60 * 60_000 },
+export const MISSION_ACTIVITY_WINDOWS = [
+  { label: "5m", value: 5 * 60_000 },
+  { label: "30m", value: 30 * 60_000 },
+  { label: "4h", value: 4 * 60 * 60_000 },
   { label: "24h", value: 24 * 60 * 60_000 },
 ] as const;
 
-type MissionRecentWindow = (typeof MISSION_RECENT_WINDOWS)[number]["value"];
+type MissionActivityWindow = (typeof MISSION_ACTIVITY_WINDOWS)[number]["value"];
 
 export type MissionVisibleAgent = {
   id: string;
@@ -37,7 +38,7 @@ export type MissionCanvasFocusRequest = {
 type MissionControlState = {
   activityFilter: MissionActivityFilter;
   sourceFilter: MissionSourceFilter;
-  recentWindowMs: MissionRecentWindow;
+  activityWindowMs: MissionActivityWindow;
   groupMode: MissionGroupMode;
   query: string;
   focusedId: string | null;
@@ -47,9 +48,9 @@ type MissionControlState = {
 };
 
 let _state: MissionControlState = {
-  activityFilter: "all",
+  activityFilter: "active",
   sourceFilter: "all",
-  recentWindowMs: MISSION_RECENT_WINDOWS[1].value,
+  activityWindowMs: MISSION_ACTIVITY_WINDOWS[3].value,
   groupMode: "activity",
   query: "",
   focusedId: null,
@@ -77,11 +78,14 @@ export function setMissionSourceFilter(sourceFilter: MissionSourceFilter): void 
   _notify();
 }
 
-export function setMissionRecentWindow(recentWindowMs: MissionRecentWindow): void {
-  if (_state.recentWindowMs === recentWindowMs) return;
-  _state = { ..._state, recentWindowMs };
+export function setMissionActivityWindow(activityWindowMs: MissionActivityWindow): void {
+  if (_state.activityWindowMs === activityWindowMs) return;
+  _state = { ..._state, activityWindowMs };
   _notify();
 }
+
+export const MISSION_RECENT_WINDOWS = MISSION_ACTIVITY_WINDOWS;
+export const setMissionRecentWindow = setMissionActivityWindow;
 
 export function setMissionGroupMode(groupMode: MissionGroupMode): void {
   if (_state.groupMode === groupMode) return;

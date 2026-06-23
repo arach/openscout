@@ -32,7 +32,6 @@ import type {
 
 const BUFFER_LIMIT = 5_000;
 const DEFAULT_RECENT_LIMIT = 500;
-const RATE_WINDOW_MS = 5_000;
 const DISCOVERY_REFRESH_MS = 30_000;
 const DISPLAY_MODE_STORAGE_KEY = "openscout:tail-display-mode";
 
@@ -352,17 +351,14 @@ export function TailView({
   const [issueFilter, setIssueFilter] = useState<IssueFilter>("warn-plus");
   const [paused, setPaused] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
-  const [rate, setRate] = useState(0);
   const [selected, setSelected] = useState<TailEvent | null>(null);
   const [displayMode, setDisplayMode] = useState<TailDisplayMode>(readStoredDisplayMode);
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const filterInputRef = useRef<HTMLInputElement | null>(null);
   const wasAtBottomRef = useRef(true);
-  const timestampsRef = useRef<number[]>([]);
 
   const handleEvent = useCallback((event: TailEvent) => {
-    timestampsRef.current.push(Date.now());
     setEvents((prev) => {
       const next = prev.length >= BUFFER_LIMIT
         ? [...prev.slice(prev.length - BUFFER_LIMIT + 1), event]
@@ -427,18 +423,6 @@ export function TailView({
     const id = setInterval(() => void loadDiscovery(), DISCOVERY_REFRESH_MS);
     return () => clearInterval(id);
   }, [loadDiscovery]);
-
-  // Compute rate (lines per second over RATE_WINDOW_MS).
-  useEffect(() => {
-    const id = setInterval(() => {
-      const now = Date.now();
-      const cutoff = now - RATE_WINDOW_MS;
-      const fresh = timestampsRef.current.filter((t) => t >= cutoff);
-      timestampsRef.current = fresh;
-      setRate(fresh.length / (RATE_WINDOW_MS / 1000));
-    }, 1_000);
-    return () => clearInterval(id);
-  }, []);
 
   const classifiedEvents = useMemo<ClassifiedTailEvent[]>(
     () => events.map((event) => ({ event, severity: classifyTailIssue(event) })),
@@ -562,17 +546,8 @@ export function TailView({
       <div className={`s-tail-status${issueMode ? " s-tail-status--issues" : ""}`}>
         <span className="s-tail-status-cluster s-tail-status-cluster--metrics">
           <span className={`s-tail-live-dot${paused ? " s-tail-live-dot--paused" : ""}`} aria-hidden="true" />
-          <span className="s-tail-status-cell">
-            <span className="s-tail-status-key">log</span>
-            <strong>{transcriptCount}</strong>
-          </span>
-          <span className="s-tail-status-cell">
-            <span className="s-tail-status-key">proc</span>
-            <strong>{totals?.total ?? 0}</strong>
-          </span>
-          <span className="s-tail-status-cell">
-            <span className="s-tail-status-key">rate</span>
-            <strong>{rate.toFixed(1)}/s</strong>
+          <span className={`s-tail-status-state${paused ? " s-tail-status-state--paused" : ""}`}>
+            {paused ? "paused" : "live"}
           </span>
         </span>
         {!issueMode && (
@@ -659,7 +634,6 @@ export function TailView({
             q={filterLabel ?? "filtered"}
           </span>
         )}
-        {paused && <span className="s-tail-status-paused">‖ paused</span>}
       </div>
 
       {filterOpen && (

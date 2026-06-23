@@ -1,22 +1,25 @@
-import type { BrokerServiceStatus } from "@openscout/runtime/broker-process-manager";
-
-import { loadScoutAgentStatuses, type ScoutAgentStatus } from "../agents/service.ts";
-import { getRuntimeBrokerServiceStatus } from "../../app/host/runtime-service-client.ts";
 import {
-  listScoutAgents,
   loadScoutMessages,
+  readScoutBrokerHealth,
+  readScoutBrokerHome,
   resolveScoutBrokerUrl,
+  type ScoutBrokerHealthState,
+  type ScoutBrokerHomeActivityRecord,
+  type ScoutBrokerHomeAgentRecord,
   type ScoutBrokerMessageRecord,
-  type ScoutWhoEntry,
 } from "../broker/service.ts";
+
+export type ScoutMonitorAgent = ScoutBrokerHomeAgentRecord;
+export type ScoutMonitorActivity = ScoutBrokerHomeActivityRecord;
 
 export type ScoutMonitorSnapshot = {
   refreshedAt: number;
   currentDirectory: string;
   brokerUrl: string;
-  brokerStatus: BrokerServiceStatus;
-  brokerAgents: ScoutWhoEntry[];
-  localAgents: ScoutAgentStatus[];
+  brokerHealth: ScoutBrokerHealthState;
+  homeUpdatedAt: number | null;
+  agents: ScoutMonitorAgent[];
+  activity: ScoutMonitorActivity[];
   recentMessages: ScoutBrokerMessageRecord[];
   channel: string;
   errors: string[];
@@ -29,7 +32,7 @@ export type ScoutMonitorSnapshotOptions = {
 };
 
 const DEFAULT_MONITOR_CHANNEL = "shared";
-const DEFAULT_MONITOR_MESSAGE_LIMIT = 12;
+const DEFAULT_MONITOR_MESSAGE_LIMIT = 64;
 
 export async function loadScoutMonitorSnapshot(
   input: ScoutMonitorSnapshotOptions,
@@ -39,56 +42,69 @@ export async function loadScoutMonitorSnapshot(
   const brokerUrl = resolveScoutBrokerUrl();
   const errors: string[] = [];
 
-  const [brokerStatusResult, localAgentsResult] = await Promise.allSettled([
-    getRuntimeBrokerServiceStatus(),
-    loadScoutAgentStatuses({ currentDirectory: input.currentDirectory }),
+  const [healthResult, homeResult, recentMessagesResult] = await Promise.allSettled([
+    readScoutBrokerHealth(brokerUrl),
+    readScoutBrokerHome(brokerUrl),
+    loadScoutMessages({ baseUrl: brokerUrl, channel, limit }),
   ]);
 
-  const brokerStatus = brokerStatusResult.status === "fulfilled"
-    ? brokerStatusResult.value
-    : await getRuntimeBrokerServiceStatus();
+  const brokerHealth = healthResult.status === "fulfilled"
+    ? healthResult.value
+    : offlineBrokerHealth(brokerUrl, healthResult.reason);
 
-  const localAgents = localAgentsResult.status === "fulfilled"
-    ? localAgentsResult.value
-    : [];
-
-  if (localAgentsResult.status === "rejected") {
-    errors.push(localAgentsResult.reason instanceof Error ? localAgentsResult.reason.message : String(localAgentsResult.reason));
+  if (!brokerHealth.ok && brokerHealth.error) {
+    errors.push(brokerHealth.error);
+  }
+  if (healthResult.status === "rejected") {
+    errors.push(errorMessage(healthResult.reason));
   }
 
-  let brokerAgents: ScoutWhoEntry[] = [];
-  let recentMessages: ScoutBrokerMessageRecord[] = [];
+  const home = homeResult.status === "fulfilled" ? homeResult.value : null;
+  if (homeResult.status === "rejected") {
+    errors.push(errorMessage(homeResult.reason));
+  } else if (brokerHealth.reachable && brokerHealth.ok && !home) {
+    errors.push("Broker home aggregate unavailable");
+  }
 
-  if (brokerStatus.reachable && brokerStatus.health.ok) {
-    const [brokerAgentsResult, recentMessagesResult] = await Promise.allSettled([
-      listScoutAgents({ currentDirectory: input.currentDirectory }),
-      loadScoutMessages({ channel, limit }),
-    ]);
-
-    if (brokerAgentsResult.status === "fulfilled") {
-      brokerAgents = brokerAgentsResult.value;
-    } else {
-      errors.push(brokerAgentsResult.reason instanceof Error ? brokerAgentsResult.reason.message : String(brokerAgentsResult.reason));
-    }
-
-    if (recentMessagesResult.status === "fulfilled") {
-      recentMessages = recentMessagesResult.value;
-    } else {
-      errors.push(recentMessagesResult.reason instanceof Error ? recentMessagesResult.reason.message : String(recentMessagesResult.reason));
-    }
-  } else if (brokerStatus.health.error) {
-    errors.push(brokerStatus.health.error);
+  const recentMessages = recentMessagesResult.status === "fulfilled"
+    ? recentMessagesResult.value
+    : [];
+  if (recentMessagesResult.status === "rejected" && brokerHealth.reachable) {
+    errors.push(errorMessage(recentMessagesResult.reason));
   }
 
   return {
-    refreshedAt: Math.floor(Date.now() / 1000),
+    refreshedAt: Date.now(),
     currentDirectory: input.currentDirectory,
     brokerUrl,
-    brokerStatus,
-    brokerAgents,
-    localAgents,
+    brokerHealth,
+    homeUpdatedAt: home?.updatedAt ?? null,
+    agents: home?.agents ?? [],
+    activity: home?.activity ?? [],
     recentMessages,
     channel,
-    errors,
+    errors: [...new Set(errors.filter(Boolean))],
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function offlineBrokerHealth(baseUrl: string, error: unknown): ScoutBrokerHealthState {
+  return {
+    baseUrl,
+    reachable: false,
+    ok: false,
+    checkedAt: Date.now(),
+    transport: null,
+    socketPath: null,
+    socketFallbackError: null,
+    nodeId: null,
+    meshId: null,
+    build: null,
+    services: null,
+    counts: null,
+    error: errorMessage(error),
   };
 }

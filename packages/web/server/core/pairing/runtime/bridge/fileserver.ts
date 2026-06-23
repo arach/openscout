@@ -1,5 +1,6 @@
-import { existsSync } from "fs";
-import { isAbsolute } from "path";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { isAbsolute, join } from "path";
 import { homedir } from "os";
 import type {
   ActionBlock,
@@ -17,6 +18,87 @@ import {
 // Allowed roots — file requests must resolve under one of these.
 const ALLOWED_ROOTS = [homedir(), "/tmp"];
 const LOOPBACK_IPV4_HOST_PATTERN = /^127(?:\.\d{1,3}){3}$/;
+const PAIRING_ATTACHMENT_ROOT = join(homedir(), ".scout", "pairing", "attachments");
+const PAIRING_ATTACHMENT_TTL_MS = 6 * 60 * 60 * 1000;
+const PAIRING_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+const PAIRING_ATTACHMENT_PATH_PREFIX = "/attachments/";
+
+type StoredPairingAttachment = {
+  id: string;
+  path: string;
+  mediaType: string;
+  fileName?: string;
+  size: number;
+  expiresAt: number;
+};
+
+const attachmentBlobs = new Map<string, StoredPairingAttachment>();
+
+export type PairingAttachmentUploadInput = {
+  data: string;
+  mediaType: string;
+  fileName?: string | null;
+};
+
+export type PairingAttachmentUploadResult = {
+  id: string;
+  url: string;
+  mediaType: string;
+  fileName?: string;
+  size: number;
+  expiresAt: number;
+};
+
+export function pairingFileServerOrigin(port: number, host = "127.0.0.1"): string {
+  return `http://${host}:${port}`;
+}
+
+export function storePairingAttachmentBlob(
+  input: PairingAttachmentUploadInput,
+  options: { origin: string; now?: number } | { port: number; host?: string; now?: number },
+): PairingAttachmentUploadResult {
+  const mediaType = normalizeMediaType(input.mediaType);
+  if (!mediaType) {
+    throw new Error("mediaType is required");
+  }
+  const data = Buffer.from(input.data, "base64");
+  if (data.length === 0) {
+    throw new Error("attachment data is empty");
+  }
+  if (data.length > PAIRING_ATTACHMENT_MAX_BYTES) {
+    throw new Error(`attachment exceeds ${PAIRING_ATTACHMENT_MAX_BYTES} bytes`);
+  }
+
+  mkdirSync(PAIRING_ATTACHMENT_ROOT, { recursive: true, mode: 0o700 });
+  purgeExpiredPairingAttachments(options.now);
+
+  const id = `att-${randomUUID()}`;
+  const path = join(PAIRING_ATTACHMENT_ROOT, id);
+  writeFileSync(path, data, { mode: 0o600 });
+
+  const now = options.now ?? Date.now();
+  const entry: StoredPairingAttachment = {
+    id,
+    path,
+    mediaType,
+    fileName: sanitizeAttachmentFileName(input.fileName),
+    size: data.length,
+    expiresAt: now + PAIRING_ATTACHMENT_TTL_MS,
+  };
+  attachmentBlobs.set(id, entry);
+
+  const origin = "origin" in options
+    ? options.origin
+    : pairingFileServerOrigin(options.port, options.host);
+  return {
+    id,
+    url: `${origin.replace(/\/$/, "")}${PAIRING_ATTACHMENT_PATH_PREFIX}${encodeURIComponent(id)}`,
+    mediaType: entry.mediaType,
+    fileName: entry.fileName,
+    size: entry.size,
+    expiresAt: entry.expiresAt,
+  };
+}
 
 function isTrustedLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.trim().toLowerCase();
@@ -96,6 +178,9 @@ function route(req: Request, url: URL, bridge?: HandoffBridge): Response {
     return serveFile(url);
   }
   if (path === "/health") return Response.json({ ok: true });
+  if (path.startsWith(PAIRING_ATTACHMENT_PATH_PREFIX)) {
+    return servePairingAttachment(url);
+  }
   if (path.startsWith("/handoff/")) {
     return serveHandoffPage(req, url, bridge);
   }
@@ -114,6 +199,63 @@ function serveFile(url: URL): Response {
   const file = Bun.file(filePath);
   if (!file.size) return new Response("Not found", { status: 404 });
   return new Response(file);
+}
+
+function servePairingAttachment(url: URL): Response {
+  purgeExpiredPairingAttachments();
+  const id = decodeURIComponent(url.pathname.slice(PAIRING_ATTACHMENT_PATH_PREFIX.length)).trim();
+  if (!id) {
+    return new Response("Missing attachment id", { status: 400 });
+  }
+  const entry = attachmentBlobs.get(id);
+  if (!entry || entry.expiresAt <= Date.now() || !existsSync(entry.path)) {
+    if (entry) {
+      attachmentBlobs.delete(entry.id);
+    }
+    return new Response("Not found", { status: 404 });
+  }
+
+  const headers: Record<string, string> = {
+    "content-type": entry.mediaType,
+    "cache-control": "private, max-age=3600",
+    "content-length": String(entry.size),
+    "x-content-type-options": "nosniff",
+  };
+  if (entry.fileName) {
+    headers["content-disposition"] = `inline; filename="${entry.fileName.replace(/"/g, "")}"`;
+  }
+  return new Response(Bun.file(entry.path), { headers });
+}
+
+function normalizeMediaType(value: string | undefined | null): string | null {
+  const mediaType = value?.trim().toLowerCase();
+  if (!mediaType || mediaType.length > 127 || /[\r\n]/.test(mediaType)) {
+    return null;
+  }
+  return mediaType;
+}
+
+function sanitizeAttachmentFileName(value: string | undefined | null): string | undefined {
+  const sanitized = value
+    ?.trim()
+    .replace(/[\/\\:\0-\x1F\x7F]+/g, "-")
+    .replace(/^\.*/, "")
+    .slice(0, 160);
+  return sanitized || undefined;
+}
+
+function purgeExpiredPairingAttachments(now = Date.now()): void {
+  for (const entry of attachmentBlobs.values()) {
+    if (entry.expiresAt > now) {
+      continue;
+    }
+    attachmentBlobs.delete(entry.id);
+    try {
+      unlinkSync(entry.path);
+    } catch {
+      // Best effort cleanup only; the opaque id is already forgotten.
+    }
+  }
 }
 
 function serveHandoffPage(

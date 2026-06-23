@@ -253,6 +253,8 @@ export type Message = {
   class: string;
   attachments?: MessageAttachment[];
   metadata?: Record<string, unknown> | null;
+  /** Originating message this one replies to (e.g. the ask a turn answers). */
+  replyToMessageId?: string | null;
 };
 
 export type MessageAttachment = {

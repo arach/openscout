@@ -61,6 +61,10 @@ import {
   pathForWebHandoffScope,
   type WebHandoffScope,
 } from "./web-handoff.ts";
+import {
+  pairingFileServerOrigin,
+  storePairingAttachmentBlob,
+} from "./fileserver.ts";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
@@ -1043,6 +1047,25 @@ const mobileRouter = t.router({
         branch: z.string().optional(),
         model: z.string().optional(),
         forceNew: z.boolean().optional(),
+        seed: z
+          .object({
+            instructions: z.string().nullable().optional(),
+            fromMessageId: z.string().nullable().optional(),
+            fromConversationId: z.string().nullable().optional(),
+            attachments: z
+              .array(
+                z.object({
+                  id: z.string().optional(),
+                  mediaType: z.string(),
+                  fileName: z.string().optional(),
+                  blobKey: z.string().optional(),
+                  url: z.string().optional(),
+                }),
+              )
+              .optional(),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
@@ -1144,12 +1167,44 @@ const mobileRouter = t.router({
       z.object({
         conversationId: z.string(),
         body: z.string(),
+        attachments: z
+          .array(
+            z.object({
+              id: z.string().optional(),
+              mediaType: z.string(),
+              fileName: z.string().optional(),
+              blobKey: z.string().optional(),
+              url: z.string().optional(),
+            }),
+          )
+          .optional(),
         replyToMessageId: z.string().nullable().optional(),
         clientMessageId: z.string().nullable().optional(),
       }),
     )
     .mutation(async ({ input, ctx }) => {
       return sendScoutMobileComms(input, resolveMobileCurrentDirectory(), ctx.deviceId);
+    }),
+
+  attachmentUpload: procedure
+    .input(
+      z.object({
+        data: z.string(),
+        mediaType: z.string(),
+        fileName: z.string().nullable().optional(),
+      }),
+    )
+    .mutation(({ input, ctx }) => {
+      if (!ctx.secureTransport || !ctx.trustedPeer || !ctx.deviceId) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Attachment upload requires a trusted paired device over the encrypted bridge.",
+        });
+      }
+      const fileServerPort = resolveConfig().port + 2;
+      return storePairingAttachmentBlob(input, {
+        origin: pairingFileServerOrigin(fileServerPort),
+      });
     }),
 
   commsMarkRead: procedure

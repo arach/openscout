@@ -51,10 +51,12 @@ public struct SessionInitiationSpec: Codable, Sendable, Equatable {
         public var instructions: String?
         public var fromMessageId: String?
         public var fromConversationId: String?
-        public init(instructions: String? = nil, fromMessageId: String? = nil, fromConversationId: String? = nil) {
+        public var attachments: [MessageAttachment]?
+        public init(instructions: String? = nil, fromMessageId: String? = nil, fromConversationId: String? = nil, attachments: [MessageAttachment]? = nil) {
             self.instructions = instructions
             self.fromMessageId = fromMessageId
             self.fromConversationId = fromConversationId
+            self.attachments = attachments
         }
     }
 

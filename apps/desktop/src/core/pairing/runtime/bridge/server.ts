@@ -40,6 +40,10 @@ import {
 } from "../../../mobile/service.ts";
 import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import {
+  pairingFileServerOrigin,
+  storePairingAttachmentBlob,
+} from "./fileserver.ts";
+import {
   SecureTransport,
   type SocketLike,
   type KeyPair,
@@ -676,6 +680,21 @@ async function handleRPCInner(
           agentName?: string;
           worktree?: string | null;
           profile?: string | null;
+          branch?: string;
+          model?: string;
+          forceNew?: boolean;
+          seed?: {
+            instructions?: string | null;
+            fromMessageId?: string | null;
+            fromConversationId?: string | null;
+            attachments?: Array<{
+              id?: string;
+              mediaType: string;
+              fileName?: string;
+              blobKey?: string;
+              url?: string;
+            }>;
+          } | null;
         };
         return {
           id: req.id,
@@ -739,23 +758,59 @@ async function handleRPCInner(
         const p = req.params as {
           conversationId?: string;
           body?: string;
+          attachments?: Array<{
+            id?: string;
+            mediaType: string;
+            fileName?: string;
+            blobKey?: string;
+            url?: string;
+          }>;
           replyToMessageId?: string | null;
           clientMessageId?: string | null;
         };
-        if (!p?.conversationId || !p?.body) {
-          return { id: req.id, error: { code: -32602, message: "conversationId and body are required" } };
+        if (!p?.conversationId || (!p?.body && !p?.attachments?.length)) {
+          return { id: req.id, error: { code: -32602, message: "conversationId and body or attachments are required" } };
         }
         return {
           id: req.id,
           result: await sendScoutMobileComms(
             {
               conversationId: p.conversationId,
-              body: p.body,
+              body: p.body ?? "",
+              attachments: p.attachments,
               replyToMessageId: p.replyToMessageId ?? null,
               clientMessageId: p.clientMessageId ?? null,
             },
             resolveMobileCurrentDirectory(),
             rpcContext.deviceId,
+          ),
+        };
+      }
+
+      case "mobile/attachments/upload": {
+        const p = req.params as { data?: string; mediaType?: string; fileName?: string | null };
+        if (!p?.data || !p?.mediaType) {
+          return { id: req.id, error: { code: -32602, message: "data and mediaType are required" } };
+        }
+        if (!rpcContext.secureTransport || !rpcContext.trustedPeer || !rpcContext.deviceId) {
+          return {
+            id: req.id,
+            error: {
+              code: -32001,
+              message: "Attachment upload requires a trusted paired device over the encrypted bridge.",
+            },
+          };
+        }
+        const fileServerPort = resolveConfig().port + 2;
+        return {
+          id: req.id,
+          result: storePairingAttachmentBlob(
+            {
+              data: p.data,
+              mediaType: p.mediaType,
+              fileName: p.fileName ?? undefined,
+            },
+            { origin: pairingFileServerOrigin(fileServerPort) },
           ),
         };
       }

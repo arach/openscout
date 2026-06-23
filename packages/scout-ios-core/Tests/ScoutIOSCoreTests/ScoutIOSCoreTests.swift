@@ -29,6 +29,20 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertTrue(relayURLAllowedByRouteSettings("ws://mac.local:43131", userDefaults: defaults))
     }
 
+    func testOpenScoutNetworkRoutingTracksExplicitPreference() {
+        let defaults = makeDefaults()
+
+        XCTAssertFalse(BridgeRoutePreferences.hasExplicitOpenScoutNetworkRoutingPreference(userDefaults: defaults))
+        XCTAssertFalse(BridgeRoutePreferences.openScoutNetworkRoutingEnabled(userDefaults: defaults))
+        XCTAssertFalse(relayURLAllowedByRouteSettings("wss://mesh.oscout.net/v1/relay", userDefaults: defaults))
+
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true, userDefaults: defaults)
+
+        XCTAssertTrue(BridgeRoutePreferences.hasExplicitOpenScoutNetworkRoutingPreference(userDefaults: defaults))
+        XCTAssertTrue(BridgeRoutePreferences.openScoutNetworkRoutingEnabled(userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("wss://mesh.oscout.net/v1/relay", userDefaults: defaults))
+    }
+
     func testDisabledLANRoutingFiltersLANRelayUrls() {
         let defaults = makeDefaults()
         BridgeRoutePreferences.setLanRoutingEnabled(false, userDefaults: defaults)
@@ -152,6 +166,39 @@ final class ScoutIOSCoreTests: XCTestCase {
                 userDefaults: defaults
             ),
             ["ws://192.168.1.10:43131"]
+        )
+    }
+
+    func testPairingRelayCandidatesPreservePayloadRelaysWhenRoutePreferenceDisabled() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(false, userDefaults: defaults)
+
+        XCTAssertEqual(
+            orderedPairingRelayCandidates(
+                discoveredRelayURLs: ["ws://mac.local:7889"],
+                payloadRelayURLs: ["wss://mesh.oscout.net/v1/relay"],
+                userDefaults: defaults
+            ),
+            [
+                "ws://mac.local:7889",
+                "wss://mesh.oscout.net/v1/relay",
+            ]
+        )
+    }
+
+    func testDiscoveryOnlyBonjourAdvertisementIsNotARelayCandidate() {
+        XCTAssertEqual(
+            relayURLsFromBonjourAdvertisement(
+                port: 7889,
+                hostName: "mac.local.",
+                txt: [
+                    "pk": String(repeating: "a", count: 64),
+                    "mode": "discovery",
+                    "scheme": "ws",
+                ],
+                targetPublicKeyHex: String(repeating: "a", count: 64)
+            ),
+            []
         )
     }
 

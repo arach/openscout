@@ -20,6 +20,19 @@
   flex-shrink: 0;
 }
 
+/* Identity cluster: glyph + title + LIVE read as one object. */
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  color: var(--s-accent);
+}
+
 .title {
   font-size: 17px;
   font-weight: 600;

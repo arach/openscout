@@ -83,6 +83,9 @@ export type EventMessageRecord = {
   class: string;
   attachments?: Message["attachments"];
   metadata?: Record<string, unknown> | null;
+  replyToMessageId?: string | null;
+  /** Compact broker field name for the reply-to message id. */
+  n?: string | null;
 };
 
 export type EventFlightRecord = {
@@ -341,6 +344,98 @@ export function selectTurnAsk(
         (ask.status === "queued" || ask.status === "working"),
     ) ??
     null
+  );
+}
+
+// The `[ask:<flightId>]` correlation tag agents echo (and the broker matches
+// on) leaks into the stored message body. We strip it from the rendered prose
+// and, when the turn replies to a known message, lift it into a backlink.
+const ASK_REPLY_TAG_FIRST = /\[ask:([^\]]+)\]/i;
+const ASK_REPLY_TAG_ALL = /\[ask:[^\]]+\]\s*/gi;
+
+export function parseAskReplyTag(
+  body: string,
+): { flightId: string; body: string } | null {
+  const match = body.match(ASK_REPLY_TAG_FIRST);
+  if (!match) return null;
+  return {
+    flightId: match[1]?.trim() ?? "",
+    body: body.replace(ASK_REPLY_TAG_ALL, "").trim(),
+  };
+}
+
+export type AskReplyContext = {
+  flightId: string;
+  originatingMessageId: string;
+  title: string;
+  from: string;
+  status: "working" | "done";
+};
+
+function askReplyTitle(body: string): string {
+  const firstLine =
+    body
+      .replace(ASK_REPLY_TAG_ALL, "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+  const max = 72;
+  return firstLine.length > max
+    ? `${firstLine.slice(0, max - 1).trimEnd()}…`
+    : firstLine;
+}
+
+// Resolve an ask-reply turn back to its originating message via the structured
+// replyToMessageId. The `[ask:<flightId>]` id itself is an ephemeral runtime
+// correlation token (not in the flights/asks payloads), so it is the trigger,
+// not the lookup key.
+export function resolveAskReplyContext(input: {
+  flightId: string;
+  replyToMessageId: string | null | undefined;
+  messagesById: Map<string, Message>;
+  agents: Agent[];
+  operatorName: string;
+}): AskReplyContext | null {
+  const { flightId, replyToMessageId, messagesById, agents, operatorName } =
+    input;
+  if (!replyToMessageId) return null;
+  const origin = messagesById.get(replyToMessageId);
+  if (!origin) return null;
+  const title = askReplyTitle(origin.body);
+  if (!title) return null;
+  const from = isOperatorMessage(origin, operatorName)
+    ? operatorName
+    : displayNameForActor(origin.actorId, agents, operatorName);
+  return {
+    flightId,
+    originatingMessageId: replyToMessageId,
+    title,
+    from,
+    // The reply is the answer, so a resolved reply-context is settled work.
+    status: "done",
+  };
+}
+
+// The originating ask in this conversation that is now waiting on the operator
+// (operator-initiated ask the agent bounced back). Feeds the pinned-ask band.
+export function selectOperatorPendingAsk(
+  asks: FleetAsk[],
+  conversationId: string,
+  agentId: string | null,
+): FleetAsk | null {
+  return (
+    asks.find(
+      (ask) =>
+        ask.status === "needs_attention" &&
+        ask.conversationId === conversationId,
+    ) ??
+    asks.find(
+      (ask) =>
+        ask.status === "needs_attention" &&
+        !ask.conversationId &&
+        !!agentId &&
+        ask.agentId === agentId,
+    ) ?? null
   );
 }
 

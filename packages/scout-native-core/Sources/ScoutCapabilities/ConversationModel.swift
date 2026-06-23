@@ -86,6 +86,7 @@ public struct Block: Codable, Identifiable, Sendable, Equatable {
     public var mimeType: String?
     public var name: String?
     public var data: String?
+    public var url: String?
     // Error
     public var message: String?
     public var code: String?
@@ -97,7 +98,7 @@ public struct Block: Codable, Identifiable, Sendable, Equatable {
     public var questionStatus: QuestionBlockStatus?
     public var answer: [String]?
 
-    public init(id: String, turnId: String, type: BlockType, status: BlockStatus, index: Int, text: String? = nil, action: Action? = nil, mimeType: String? = nil, name: String? = nil, data: String? = nil, message: String? = nil, code: String? = nil, header: String? = nil, question: String? = nil, options: [QuestionOption]? = nil, multiSelect: Bool? = nil, questionStatus: QuestionBlockStatus? = nil, answer: [String]? = nil) {
+    public init(id: String, turnId: String, type: BlockType, status: BlockStatus, index: Int, text: String? = nil, action: Action? = nil, mimeType: String? = nil, name: String? = nil, data: String? = nil, url: String? = nil, message: String? = nil, code: String? = nil, header: String? = nil, question: String? = nil, options: [QuestionOption]? = nil, multiSelect: Bool? = nil, questionStatus: QuestionBlockStatus? = nil, answer: [String]? = nil) {
         self.id = id
         self.turnId = turnId
         self.type = type
@@ -108,6 +109,7 @@ public struct Block: Codable, Identifiable, Sendable, Equatable {
         self.mimeType = mimeType
         self.name = name
         self.data = data
+        self.url = url
         self.message = message
         self.code = code
         self.header = header
@@ -239,14 +241,18 @@ public struct TurnState: Codable, Sendable, Equatable, Identifiable {
     public let startedAt: Int
     public var endedAt: Int?
     public var isUserTurn: Bool?
+    /// Optional caller-generated id used to reconcile optimistic local sends with
+    /// the authoritative broker message once it appears in a snapshot.
+    public var clientMessageId: String?
 
-    public init(id: String, status: SnapshotTurnStatus, blocks: [BlockState] = [], startedAt: Int, endedAt: Int? = nil, isUserTurn: Bool? = nil) {
+    public init(id: String, status: SnapshotTurnStatus, blocks: [BlockState] = [], startedAt: Int, endedAt: Int? = nil, isUserTurn: Bool? = nil, clientMessageId: String? = nil) {
         self.id = id
         self.status = status
         self.blocks = blocks
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.isUserTurn = isUserTurn
+        self.clientMessageId = clientMessageId
     }
 }
 
