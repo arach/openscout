@@ -1,0 +1,353 @@
+/* Tail — header treatments. Tokens only (`--s-*`). Mono = JetBrains Mono. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* ── Per-variant frame ─────────────────────────────────────────────── */
+
+.variant {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.vLabel {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.vNum {
+  font-family: var(--s-font-mono, ui-monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--studio-ink-faint, #8a8a8a);
+}
+
+.vName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--studio-ink, #e8e8e8);
+}
+
+.vDesc {
+  font-size: 12px;
+  color: var(--studio-ink-muted, #9a9a9a);
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.frame {
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--s-bg);
+  font-family: var(--s-font-sans);
+}
+
+/* ── Base header bar — every treatment composes from this ──────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 48px;
+  padding: 0 16px;
+  background: var(--s-bg);
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ecg { color: var(--s-accent); }
+
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+
+.titleBig {
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--s-ink);
+}
+
+.spring { flex: 1; }
+
+.vrule {
+  width: 1px;
+  height: 18px;
+  background: var(--s-hairline-strong);
+}
+
+/* search + source pills (shared) */
+.search,
+.source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+  cursor: text;
+}
+
+.source { cursor: pointer; }
+.source svg { color: var(--s-muted); }
+
+/* segmented Ledger / Timeline toggle */
+.toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+}
+
+.seg {
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--s-dim);
+  cursor: pointer;
+}
+
+.segOn { color: var(--s-accent); background: var(--s-accent-soft); }
+
+/* Pause control */
+.pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border);
+  background: transparent;
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--s-muted);
+  cursor: pointer;
+}
+
+.pauseSm { width: 28px; padding: 0; justify-content: center; }
+
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 1px solid var(--s-border);
+  background: transparent;
+  color: var(--s-muted);
+  cursor: pointer;
+}
+
+/* ── 01 · Instrument — recessed gauge cluster ──────────────────────── */
+
+.instrument .search,
+.instrument .source { height: 28px; }
+
+.gauges {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--s-ink) 4%, transparent);
+  border: 1px solid var(--s-hairline);
+}
+
+.gauge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 0 12px;
+}
+
+.gNum {
+  font-family: var(--s-font-mono);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--s-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.gLabel {
+  font-family: var(--s-font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+.rule { width: 1px; background: var(--s-hairline); margin: 2px 0; }
+
+/* ── 02 · Editorial — two tier ─────────────────────────────────────── */
+
+.twoTier { display: flex; flex-direction: column; }
+
+.editorialTop {
+  height: 56px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+.statStrip { display: inline-flex; align-items: baseline; gap: 18px; }
+
+.stat { display: inline-flex; align-items: baseline; gap: 5px; }
+
+.statNum {
+  font-family: var(--s-font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--s-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+
+.editorialBottom { height: 44px; }
+
+/* ── 03 · Command bar — search is the hero ─────────────────────────── */
+
+.commandTop { height: 52px; }
+
+.cmdSearch {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 13px;
+  border-radius: 8px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  color: var(--s-dim);
+  cursor: text;
+}
+
+.commandBottom {
+  height: 36px;
+  background: color-mix(in srgb, var(--s-ink) 3%, transparent);
+}
+
+.subline {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-dim);
+}
+
+.subline b { color: var(--s-muted); font-weight: 700; }
+.mid { opacity: 0.5; }
+
+/* ── 04 · Console — dense single line ──────────────────────────────── */
+
+.console { height: 42px; gap: 10px; }
+
+.compact {
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  color: var(--s-dim);
+}
+
+.compact b { color: var(--s-muted); font-weight: 700; }
+
+.searchSm,
+.sourceSm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 6px;
+  border: 1px solid var(--s-border);
+  background: var(--s-surface);
+  font-family: var(--s-font-mono);
+  font-size: 10.5px;
+  color: var(--s-dim);
+  cursor: pointer;
+}
+
+.sourceSm svg { color: var(--s-muted); }
+
+/* ── Ghost stream rows under each header (context) ─────────────────── */
+
+.ghost {
+  padding: 6px 0;
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 58px 10px 130px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 3px 16px;
+}
+
+.rTime {
+  color: var(--s-dim);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--s-hairline-strong);
+  justify-self: center;
+}
+
+.rWho { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rAgent { color: var(--s-ink); font-weight: 600; }
+.rProj { color: var(--s-muted); }
+
+.rAct {
+  color: var(--s-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rDim { color: var(--s-dim); }

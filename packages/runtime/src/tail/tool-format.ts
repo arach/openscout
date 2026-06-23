@@ -1,14 +1,15 @@
 // Tool-call / tool-result formatting for the Tail firehose.
 //
-// Transcript lines carry raw tool payloads — full JSON argument blobs and, for
+// Transcript lines carry raw tool payloads - full JSON argument blobs and, for
 // results, the entire tool output (often a whole file). Rendered verbatim that
 // is unreadable noise: `Read({"file_path":"/Users/.../scout-tail.tsx"})` or a
 // tool result that is 200 lines of file content flattened onto one line.
 //
 // These helpers collapse each into a single clean line that reads like a shell
 // log: the salient argument only (a short path, the command, the pattern), and
-// results reduced to a compact descriptor (`→ 247 lines`, `→ 0 errors`). Both
-// Claude and Codex sources share this so the stream is uniform across harnesses.
+// results reduced to a compact preview plus scale (`res: import x ... (247
+// lines)`). Both Claude and Codex sources share this so the stream is uniform
+// across harnesses.
 
 const HOME_RE = /\/Users\/[^/\s]+\//g;
 
@@ -141,16 +142,46 @@ export function resultText(content: unknown): string {
   return "";
 }
 
+function stripCodexExecEnvelope(text: string): string {
+  const lines = text.split("\n");
+  const outputIndex = lines.findIndex((line, index) => (
+    index <= 8 && line.trim() === "Output:"
+  ));
+  if (outputIndex < 0) return text;
+
+  const prelude = lines.slice(0, outputIndex).map((line) => line.trim().toLowerCase());
+  const looksLikeCodexExec =
+    prelude.some((line) => line.startsWith("chunk id:"))
+    || prelude.some((line) => line.startsWith("wall time:"))
+    || prelude.some((line) => line.startsWith("process exited with code"))
+    || prelude.some((line) => line.startsWith("original token count:"));
+
+  return looksLikeCodexExec ? lines.slice(outputIndex + 1).join("\n") : text;
+}
+
+function previewLines(lines: string[]): string {
+  const first = lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  return oneLine(first.join(" "), 100);
+}
+
 /**
- * Compact descriptor for a tool result. Multi-line output (file reads, long
- * stdout) collapses to a line count; short output shows verbatim. The leading
- * `→` is added by the caller.
+ * Compact descriptor for a tool result. Multi-line output gets a short content
+ * preview plus scale; short output shows verbatim.
  */
 export function summarizeToolResult(content: unknown): string {
-  const text = resultText(content).replace(/\r/g, "");
+  const text = stripCodexExecEnvelope(resultText(content).replace(/\r/g, ""));
   const trimmed = text.trim();
   if (!trimmed) return "done";
   const lines = trimmed.split("\n").filter((line) => line.trim().length > 0);
-  if (lines.length > 1) return `${lines.length} lines`;
+  if (lines.length > 1) return `${previewLines(lines)} (${lines.length} lines)`;
   return oneLine(trimmed, 100);
+}
+
+export function formatToolResult(content: unknown, callSummary?: string | null): string {
+  const result = summarizeToolResult(content);
+  const call = callSummary?.trim();
+  return call ? `${oneLine(call, 90)} -> res: ${result}` : `res: ${result}`;
 }

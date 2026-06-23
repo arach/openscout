@@ -183,7 +183,6 @@ struct Config {
     broker_port: u16,
     broker_url: String,
     broker_socket_path: PathBuf,
-    advertise_scope: String,
     repo_watch_interval: Option<Duration>,
 }
 
@@ -242,22 +241,22 @@ impl Config {
                 "bun".to_string()
             }
         });
-        let advertise_scope = match env_nonempty("OPENSCOUT_ADVERTISE_SCOPE").as_deref() {
-            Some("mesh") => "mesh".to_string(),
-            _ => "local".to_string(),
-        };
-        let default_broker_host = if advertise_scope == "mesh" {
-            DEFAULT_BROKER_HOST_MESH
-        } else {
-            DEFAULT_BROKER_HOST
-        };
-        let broker_host = env_nonempty("OPENSCOUT_BROKER_HOST")
-            .unwrap_or_else(|| default_broker_host.to_string());
+        let open_scout_network_enabled = open_scout_network_discovery_enabled(&support_directory);
+        let advertise_scope = resolve_advertise_scope_value(
+            open_scout_network_enabled,
+            env_nonempty("OPENSCOUT_ADVERTISE_SCOPE"),
+        );
+        let broker_host =
+            resolve_broker_host_value(&advertise_scope, env_nonempty("OPENSCOUT_BROKER_HOST"));
         let broker_port = env_nonempty("OPENSCOUT_BROKER_PORT")
             .and_then(|value| value.parse::<u16>().ok())
             .unwrap_or(DEFAULT_BROKER_PORT);
-        let broker_url = env_nonempty("OPENSCOUT_BROKER_URL")
-            .unwrap_or_else(|| format!("http://{broker_host}:{broker_port}"));
+        let broker_url = resolve_broker_url_value(
+            &advertise_scope,
+            &broker_host,
+            broker_port,
+            env_nonempty("OPENSCOUT_BROKER_URL"),
+        );
         let broker_socket_path = PathBuf::from(
             env_nonempty("OPENSCOUT_BROKER_SOCKET_PATH").unwrap_or_else(|| {
                 runtime_directory
@@ -289,7 +288,6 @@ impl Config {
             broker_port,
             broker_url,
             broker_socket_path,
-            advertise_scope,
             repo_watch_interval,
         })
     }
@@ -532,6 +530,9 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .arg(config.runtime_entrypoint())
         .arg("base")
         .current_dir(&config.runtime_package_dir)
+        .env_remove("OPENSCOUT_BROKER_HOST")
+        .env_remove("OPENSCOUT_BROKER_URL")
+        .env_remove("OPENSCOUT_ADVERTISE_SCOPE")
         .env("OPENSCOUT_PARENT_PID", std::process::id().to_string())
         .env(
             "OPENSCOUT_SUPPORT_DIRECTORY",
@@ -541,9 +542,7 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
             "OPENSCOUT_RUNTIME_PACKAGE_DIR",
             config.runtime_package_dir.to_string_lossy().to_string(),
         )
-        .env("OPENSCOUT_BROKER_HOST", &config.broker_host)
         .env("OPENSCOUT_BROKER_PORT", config.broker_port.to_string())
-        .env("OPENSCOUT_BROKER_URL", &config.broker_url)
         .env(
             "OPENSCOUT_BROKER_SOCKET_PATH",
             config.broker_socket_path.to_string_lossy().to_string(),
@@ -555,7 +554,6 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .env("OPENSCOUT_BROKER_SERVICE_MODE", &config.service_mode)
         .env("OPENSCOUT_BROKER_SERVICE_LABEL", &config.label)
         .env("OPENSCOUT_SERVICE_LABEL", &config.label)
-        .env("OPENSCOUT_ADVERTISE_SCOPE", &config.advertise_scope)
         .stdout(Stdio::from(stdout_log))
         .stderr(Stdio::from(stderr_log));
 
@@ -1301,9 +1299,7 @@ fn ensure_daemon_directories(config: &Config) -> Result<(), String> {
 
 fn render_launch_agent_plist(config: &Config) -> String {
     let mut env_entries = vec![
-        ("OPENSCOUT_BROKER_HOST", config.broker_host.clone()),
         ("OPENSCOUT_BROKER_PORT", config.broker_port.to_string()),
-        ("OPENSCOUT_BROKER_URL", config.broker_url.clone()),
         (
             "OPENSCOUT_BROKER_SOCKET_PATH",
             config.broker_socket_path.to_string_lossy().to_string(),
@@ -1323,7 +1319,6 @@ fn render_launch_agent_plist(config: &Config) -> String {
         ("OPENSCOUT_BROKER_SERVICE_MODE", config.service_mode.clone()),
         ("OPENSCOUT_BROKER_SERVICE_LABEL", config.label.clone()),
         ("OPENSCOUT_SERVICE_LABEL", config.label.clone()),
-        ("OPENSCOUT_ADVERTISE_SCOPE", config.advertise_scope.clone()),
         (
             "HOME",
             home_dir()
@@ -1547,6 +1542,18 @@ fn parse_json_i32_field(raw: &str, key: &str) -> Option<i32> {
     }
 }
 
+fn parse_json_bool_field(raw: &str, key: &str) -> Option<bool> {
+    let after_colon = json_field_after_colon(raw, key)?;
+    let value = after_colon.trim_start();
+    if value.starts_with("true") {
+        Some(true)
+    } else if value.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 fn parse_json_string_field(raw: &str, key: &str) -> Option<String> {
     let after_colon = json_field_after_colon(raw, key)?;
     parse_json_string_value(after_colon.trim_start())
@@ -1608,6 +1615,101 @@ fn env_nonempty(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn open_scout_network_discovery_enabled(support_directory: &Path) -> bool {
+    if let Some(value) = bool_env("OPENSCOUT_NETWORK_DISCOVERY_ENABLED")
+        .or_else(|| bool_env("OPENSCOUT_OSN_DISCOVERY_ENABLED"))
+    {
+        return value;
+    }
+
+    let settings_path = support_directory.join("settings.json");
+    let Ok(raw) = fs::read_to_string(settings_path) else {
+        return false;
+    };
+    let Some((_, network_settings)) = raw.split_once("\"openScoutNetwork\"") else {
+        return false;
+    };
+    parse_json_bool_field(network_settings, "discoveryEnabled").unwrap_or(false)
+}
+
+fn bool_env(name: &str) -> Option<bool> {
+    match env_nonempty(name)?.to_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn resolve_advertise_scope_value(
+    open_scout_network_enabled: bool,
+    explicit_scope: Option<String>,
+) -> String {
+    if open_scout_network_enabled {
+        return "mesh".to_string();
+    }
+    match explicit_scope
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase()
+        .as_str()
+    {
+        "mesh" => "mesh".to_string(),
+        _ => "local".to_string(),
+    }
+}
+
+fn resolve_broker_host_value(advertise_scope: &str, explicit_host: Option<String>) -> String {
+    let explicit = explicit_host.unwrap_or_default().trim().to_string();
+    if !explicit.is_empty() {
+        if advertise_scope == "mesh" && is_loopback_host(&explicit) {
+            return DEFAULT_BROKER_HOST_MESH.to_string();
+        }
+        return explicit;
+    }
+    if advertise_scope == "mesh" {
+        DEFAULT_BROKER_HOST_MESH.to_string()
+    } else {
+        DEFAULT_BROKER_HOST.to_string()
+    }
+}
+
+fn resolve_broker_url_value(
+    advertise_scope: &str,
+    broker_host: &str,
+    broker_port: u16,
+    explicit_url: Option<String>,
+) -> String {
+    let explicit = explicit_url.unwrap_or_default().trim().to_string();
+    if !explicit.is_empty() && !(advertise_scope == "mesh" && broker_url_is_loopback(&explicit)) {
+        return explicit;
+    }
+    format!("http://{broker_host}:{broker_port}")
+}
+
+fn broker_url_is_loopback(value: &str) -> bool {
+    let Some(after_scheme) = value.split_once("://").map(|(_, rest)| rest) else {
+        return false;
+    };
+    let host_port = after_scheme
+        .split_once('/')
+        .map(|(host, _)| host)
+        .unwrap_or(after_scheme);
+    let host = host_port
+        .trim_start_matches('[')
+        .split_once(']')
+        .map(|(host, _)| host)
+        .or_else(|| host_port.split_once(':').map(|(host, _)| host))
+        .unwrap_or(host_port);
+    is_loopback_host(host)
+}
+
+fn is_loopback_host(value: &str) -> bool {
+    matches!(
+        value.trim().to_lowercase().as_str(),
+        "127.0.0.1" | "::1" | "localhost"
+    )
 }
 
 fn repo_watch_interval_from_env() -> Option<Duration> {
@@ -2079,9 +2181,10 @@ mod tests {
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
         health_body_reports_ok, parse_daemon_state_telemetry, parse_health_response,
         parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
+        resolve_advertise_scope_value, resolve_broker_host_value, resolve_broker_url_value,
         restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
         scoutd_owned_child_log_path, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
-        LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
+        DEFAULT_BROKER_HOST_MESH, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -2128,6 +2231,36 @@ mod tests {
     #[test]
     fn repo_watch_warm_path_is_a_runtime_nudge() {
         assert_eq!(REPO_WATCH_WARM_PATH, "/v1/repo-watch/warm");
+    }
+
+    #[test]
+    fn osn_enabled_overrides_stale_local_network_env() {
+        let scope = resolve_advertise_scope_value(true, Some("local".to_string()));
+        let host = resolve_broker_host_value(&scope, Some("127.0.0.1".to_string()));
+        let url = resolve_broker_url_value(
+            &scope,
+            &host,
+            65_535,
+            Some("http://127.0.0.1:65535".to_string()),
+        );
+
+        assert_eq!(scope, "mesh");
+        assert_eq!(host, DEFAULT_BROKER_HOST_MESH);
+        assert_eq!(url, "http://0.0.0.0:65535");
+    }
+
+    #[test]
+    fn mesh_scope_keeps_non_loopback_explicit_host_and_url() {
+        let host = resolve_broker_host_value("mesh", Some("100.64.0.10".to_string()));
+        let url = resolve_broker_url_value(
+            "mesh",
+            &host,
+            65_535,
+            Some("http://mini.tailnet.test:65535".to_string()),
+        );
+
+        assert_eq!(host, "100.64.0.10");
+        assert_eq!(url, "http://mini.tailnet.test:65535");
     }
 
     #[test]

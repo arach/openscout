@@ -47,37 +47,23 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
     }
 
     public var filteredEvents: [ScoutTailEvent] {
+        displayEvents()
+    }
+
+    public func displayEvents(limit: Int? = nil) -> [ScoutTailEvent] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return events.filter { event in
-            if !showMetadata, event.isLowSignalMetadata {
-                return false
-            }
-            if let selectedSource, event.sourceLabel != selectedSource {
-                return false
-            }
-            if let selectedOrigin, event.originLabel != selectedOrigin {
-                return false
-            }
-            if let selectedProject, event.projectLabel != selectedProject {
-                return false
-            }
-            if let selectedKind, event.kind != selectedKind {
-                return false
-            }
-            guard !trimmedQuery.isEmpty else { return true }
-            return [
-                event.source,
-                event.kind.rawValue,
-                event.sessionId,
-                event.project,
-                event.cwd,
-                event.harness,
-                event.summary,
-            ]
-            .joined(separator: "\n")
-            .lowercased()
-            .contains(trimmedQuery)
+        guard let limit, limit > 0 else {
+            return events.filter { matchesDisplayFilters($0, query: trimmedQuery) }
         }
+
+        var display: [ScoutTailEvent] = []
+        display.reserveCapacity(min(limit, events.count))
+        for event in events.reversed() {
+            guard matchesDisplayFilters(event, query: trimmedQuery) else { continue }
+            display.append(event)
+            if display.count >= limit { break }
+        }
+        return Array(display.reversed())
     }
 
     public var sources: [String] {
@@ -122,6 +108,37 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
         selectedOrigin = nil
         selectedProject = nil
         selectedKind = nil
+    }
+
+    private func matchesDisplayFilters(_ event: ScoutTailEvent, query trimmedQuery: String) -> Bool {
+        if !showMetadata, event.isLowSignalMetadata {
+            return false
+        }
+        if let selectedSource, event.sourceLabel != selectedSource {
+            return false
+        }
+        if let selectedOrigin, event.originLabel != selectedOrigin {
+            return false
+        }
+        if let selectedProject, event.projectLabel != selectedProject {
+            return false
+        }
+        if let selectedKind, event.kind != selectedKind {
+            return false
+        }
+        guard !trimmedQuery.isEmpty else { return true }
+        return [
+            event.source,
+            event.kind.rawValue,
+            event.sessionId,
+            event.project,
+            event.cwd,
+            event.harness,
+            event.summary,
+        ]
+        .joined(separator: "\n")
+        .lowercased()
+        .contains(trimmedQuery)
     }
 
     public var activeFilterSummary: String? {

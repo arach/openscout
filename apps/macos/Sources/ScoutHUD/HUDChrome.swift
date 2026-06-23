@@ -290,6 +290,150 @@ public struct VisualEffectBackground: NSViewRepresentable {
     }
 }
 
+// MARK: - Harness mark
+
+/// Small monochrome provider glyphs for dense HUD rows. These mirror the
+/// full macOS Tail marks without depending on the app target's private views.
+struct HUDHarnessMark: View {
+    let harness: String
+    var size: CGFloat = 12
+    var tint: Color = HUDChrome.inkMuted
+
+    var body: some View {
+        Canvas { ctx, dim in
+            let s = dim.width / 24
+            let shading = GraphicsContext.Shading.color(tint)
+            let c = CGPoint(x: 12 * s, y: 12 * s)
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+
+            switch Self.normalize(harness) {
+            case "gemini":
+                let tips: [(CGFloat, CGFloat)] = [
+                    (12, 0), (15, 9), (24, 12), (15, 15),
+                    (12, 24), (9, 15), (0, 12), (9, 9),
+                ]
+                var p = Path()
+                p.move(to: pt(tips[0].0, tips[0].1))
+                for t in tips.dropFirst() { p.addLine(to: pt(t.0, t.1)) }
+                p.closeSubpath()
+                ctx.fill(p, with: shading)
+
+            case "claude":
+                var p = Path()
+                for i in 0..<8 {
+                    let a = Double(i) * .pi / 4
+                    p.move(to: c)
+                    p.addLine(to: CGPoint(x: c.x + cos(a) * 11 * s, y: c.y + sin(a) * 11 * s))
+                }
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.2 * s, lineCap: .round))
+
+            case "codex":
+                for i in 0..<6 {
+                    let a = Double(i) * .pi / 3 - .pi / 2
+                    let outer = CGPoint(x: c.x + cos(a) * 7.4 * s, y: c.y + sin(a) * 7.4 * s)
+                    let tangent = CGPoint(x: -sin(a), y: cos(a))
+                    var p = Path()
+                    p.move(to: CGPoint(
+                        x: outer.x - tangent.x * 3.4 * s,
+                        y: outer.y - tangent.y * 3.4 * s
+                    ))
+                    p.addQuadCurve(
+                        to: CGPoint(
+                            x: outer.x + tangent.x * 3.4 * s,
+                            y: outer.y + tangent.y * 3.4 * s
+                        ),
+                        control: CGPoint(
+                            x: c.x + cos(a) * 10.2 * s,
+                            y: c.y + sin(a) * 10.2 * s
+                        )
+                    )
+                    ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.15 * s, lineCap: .round))
+                }
+                var center = Path()
+                center.addEllipse(in: CGRect(x: c.x - 2.1 * s, y: c.y - 2.1 * s, width: 4.2 * s, height: 4.2 * s))
+                ctx.fill(center, with: shading)
+
+            case "cursor":
+                var p = Path()
+                p.move(to: pt(12, 3))
+                p.addLine(to: pt(21.5, 19))
+                p.addLine(to: pt(2.5, 19))
+                p.closeSubpath()
+                ctx.fill(p, with: shading)
+
+            case "grok":
+                var p = Path()
+                p.move(to: pt(5, 18))
+                p.addLine(to: pt(15, 6))
+                p.move(to: pt(11, 20))
+                p.addLine(to: pt(21, 8))
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.4 * s, lineCap: .round))
+
+            case "opencode":
+                var p = Path()
+                p.addRoundedRect(
+                    in: CGRect(x: 2.5 * s, y: 2.5 * s, width: 19 * s, height: 19 * s),
+                    cornerSize: CGSize(width: 3 * s, height: 3 * s)
+                )
+                p.addRoundedRect(
+                    in: CGRect(x: 8 * s, y: 8 * s, width: 8 * s, height: 8 * s),
+                    cornerSize: CGSize(width: 1.5 * s, height: 1.5 * s)
+                )
+                ctx.fill(p, with: shading, style: FillStyle(eoFill: true))
+
+            case "github":
+                var line = Path()
+                line.move(to: pt(8, 5.5))
+                line.addLine(to: pt(8, 18.5))
+                line.move(to: pt(8, 11))
+                line.addQuadCurve(to: pt(16.5, 9), control: pt(8, 9))
+                ctx.stroke(line, with: shading, style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+                var dots = Path()
+                for d in [(8.0, 5.0), (8.0, 19.0), (16.5, 9.0)] {
+                    dots.addEllipse(
+                        in: CGRect(
+                            x: (CGFloat(d.0) - 2.4) * s,
+                            y: (CGFloat(d.1) - 2.4) * s,
+                            width: 4.8 * s,
+                            height: 4.8 * s
+                        )
+                    )
+                }
+                ctx.fill(dots, with: shading)
+
+            default:
+                let key = Self.normalize(harness)
+                let letter = String(key.first ?? "?").uppercased()
+                let text = Text(letter)
+                    .font(.system(size: 13 * s, weight: .semibold, design: .monospaced))
+                    .foregroundColor(tint)
+                ctx.draw(text, at: c)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+
+    static func normalize(_ harness: String) -> String {
+        let raw = harness.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !raw.isEmpty else { return "unknown" }
+        var base = raw
+        if let i = base.firstIndex(where: { $0 == " " || $0 == "(" }) {
+            base = String(base[..<i])
+        }
+        if let i = base.firstIndex(where: { $0 == "_" || $0 == "-" }) {
+            base = String(base[..<i])
+        }
+        let aliases: [String: String] = [
+            "anthropic": "claude", "claude": "claude", "claudecode": "claude", "sonnet": "claude", "opus": "claude",
+            "openai": "codex", "codex": "codex", "gpt": "codex", "chatgpt": "codex", "oai": "codex",
+            "xai": "grok", "grok": "grok",
+            "google": "gemini", "gemini": "gemini", "vertex": "gemini",
+            "cursor": "cursor", "github": "github", "opencode": "opencode", "oc": "opencode",
+        ]
+        return aliases[base] ?? aliases[raw] ?? base
+    }
+}
+
 // MARK: - Mini pulse glyph (kept; smaller role in broadsheet)
 //
 // 12-step amplitude rendered as stepped vertical bars in the agent's hue.

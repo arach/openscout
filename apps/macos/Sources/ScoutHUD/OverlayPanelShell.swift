@@ -74,11 +74,8 @@ final class OverlayPanel: NSPanel {
     }
 
     override func flagsChanged(with event: NSEvent) {
-        if let onFlagsChanged {
-            onFlagsChanged(event)
-        } else {
-            super.flagsChanged(with: event)
-        }
+        onFlagsChanged?(event)
+        super.flagsChanged(with: event)
     }
 }
 
@@ -122,6 +119,7 @@ public enum OverlayPanelShell {
         case centered(yOffsetRatio: CGFloat = 0)
         case mouseScreenCentered(yOffsetRatio: CGFloat = 0)
         case topCenter(margin: CGFloat = 40)
+        case rightCenter(margin: CGFloat = 24)
     }
 
     struct Config {
@@ -139,6 +137,7 @@ public enum OverlayPanelShell {
         ]
         var activatesOnMouseDown = false
         var onKeyDown: ((NSEvent) -> Void)? = nil
+        var onFlagsChanged: ((NSEvent) -> Void)? = nil
         var appearance: NSAppearance? = NSAppearance(named: .darkAqua)
         var resizable: Bool = false
         var minContentSize: NSSize? = nil
@@ -181,6 +180,7 @@ public enum OverlayPanelShell {
         panel.collectionBehavior = config.collectionBehavior
         panel.activatesOnMouseDown = config.activatesOnMouseDown
         panel.onKeyDown = config.onKeyDown
+        panel.onFlagsChanged = config.onFlagsChanged
         if let appearance = config.appearance {
             panel.appearance = appearance
         }
@@ -192,7 +192,7 @@ public enum OverlayPanelShell {
     public static func position(_ window: NSWindow, placement: Placement) {
         let screen: NSScreen
         switch placement {
-        case .mouseScreenCentered, .topCenter:
+        case .mouseScreenCentered, .topCenter, .rightCenter:
             screen = mouseScreen()
         case .centered:
             screen = NSScreen.main ?? mouseScreen()
@@ -212,6 +212,11 @@ public enum OverlayPanelShell {
             origin = NSPoint(
                 x: visibleFrame.midX - size.width / 2,
                 y: visibleFrame.maxY - size.height - margin
+            )
+        case .rightCenter(let margin):
+            origin = NSPoint(
+                x: visibleFrame.maxX - size.width - margin,
+                y: visibleFrame.midY - size.height / 2
             )
         }
 
