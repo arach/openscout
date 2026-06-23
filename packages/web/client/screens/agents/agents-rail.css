@@ -61,7 +61,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-lg) 0 var(--space-md);
+  /* match studio's .rail vertical rhythm (14px 8px): the rail head + rows own
+     their own horizontal/vertical spacing, so the container stays tight. */
+  padding: 14px 0;
 }
 
 .s-rail-see-all {
@@ -85,6 +87,32 @@
   padding: var(--space-sm) var(--space-md) var(--space-md);
   border-top: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
 }
+
+/* foot becomes a compact icon row — Search · New chat · Settings — so the
+   projects list owns the full height above it. */
+.s-rail-foot-icons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+.s-rail-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.s-rail-icon:hover {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  color: var(--ink);
+}
+.s-rail-icon--end { margin-left: auto; }
 
 /* ── New chat composer overlay ── */
 
@@ -251,6 +279,22 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
+  /* tight column rhythm matching studio's .rail (gap: 1px) */
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+/* section header — mirrors studio's .railHead (agents-project page.module.css) */
+.s-rail-projects::before {
+  content: "Projects";
+  display: block;
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 2px 8px 10px;
 }
 .s-rail-projects .ctx-panel-section-label {
   display: flex;
@@ -265,22 +309,34 @@
 .s-rail-proj {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 9px;
   width: 100%;
   text-align: left;
   background: none;
   border: 1px solid transparent;
   cursor: pointer;
-  padding: 8px 10px;
-  border-radius: var(--radius-lg);
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
   transition: background 0.12s ease, border-color 0.12s ease;
+}
+/* compact single-line row: avatar · name · count. The tail is a quiet
+   right-aligned count (studio .railCount): dim mono for working-only projects,
+   --accent (no pulsing halo) when the project needs you. Idle shows nothing. */
+.s-rail-proj-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--dim);
+}
+.s-rail-proj-count[data-needs] {
+  color: var(--accent);
 }
 .s-rail-proj:hover {
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 .s-rail-proj[data-selected] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .s-rail-proj-text {
   flex: 1;
@@ -297,13 +353,21 @@
 .s-rail-proj-name {
   flex: 1;
   min-width: 0;
-  font-size: var(--text-sm);
-  font-weight: 650;
+  font-size: 12.5px;
+  font-weight: 540;
+  line-height: 1.2;
   letter-spacing: -0.01em;
+  text-transform: lowercase;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* idle projects (no live processes) dim, mirroring studio's
+   .railName[data-idle] { color: var(--s-dim); font-weight: 480; } */
+.s-rail-proj-name[data-idle] {
+  color: var(--dim);
+  font-weight: 480;
 }
 .s-rail-proj[data-selected] .s-rail-proj-name,
 .s-rail-proj:hover .s-rail-proj-name {

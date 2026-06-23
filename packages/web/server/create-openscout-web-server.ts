@@ -21,6 +21,10 @@ import {
   type UnblockRequestEvent,
   type UnblockRequestRecord,
 } from "@openscout/protocol";
+import {
+  collectOccupiedDefinitionIdsFromBrokerSnapshot,
+  resolveProvisionalAgentName,
+} from "@openscout/runtime";
 
 import {
   controlScoutWebPairingService,
@@ -223,6 +227,10 @@ import {
   saveUserConfig,
   resolveOperatorName,
 } from "@openscout/runtime/user-config";
+import {
+  applyProvisionalAgentNamesFromBody,
+  provisionalAgentNamesApiFields,
+} from "@openscout/runtime/provisional-agent-names";
 import {
   localConfigPath,
 } from "@openscout/runtime/local-config";
@@ -5440,8 +5448,15 @@ export async function createOpenScoutWebServer(
     // Sticky reuse of the same agentName is what makes M3/M4 "the same agent".
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
-    const agentName =
+    let agentName =
       optionalString(body.agent?.name)?.trim() || agent?.name?.trim() || undefined;
+    if (persistence === "one_time" && !agentName) {
+      const broker = await loadScoutBrokerContext().catch(() => null);
+      const occupied = broker
+        ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
+        : new Set<string>();
+      agentName = resolveProvisionalAgentName({ occupied });
+    }
     const displayName = optionalString(body.agent?.displayName)?.trim() || undefined;
 
     const instructions = optionalString(body.seed?.instructions)?.trim();
@@ -6260,6 +6275,7 @@ export async function createOpenScoutWebServer(
       verbosity: config.verbosity ?? "terse",
       tone: config.tone ?? "direct",
       quietHours: config.quietHours ?? "22:00 – 07:00",
+      ...provisionalAgentNamesApiFields(config),
     });
   });
 
@@ -6393,6 +6409,8 @@ export async function createOpenScoutWebServer(
       config.batchWindow = body.batchWindow;
     }
 
+    applyProvisionalAgentNamesFromBody(config, body);
+
     saveUserConfig(config);
     if (typeof body.name === "string" && body.name.trim()) {
       await saveOpenScoutOnboardingIdentity({
@@ -6414,6 +6432,7 @@ export async function createOpenScoutWebServer(
       verbosity: config.verbosity ?? "terse",
       tone: config.tone ?? "direct",
       quietHours: config.quietHours ?? "22:00 – 07:00",
+      ...provisionalAgentNamesApiFields(config),
     });
   });
 

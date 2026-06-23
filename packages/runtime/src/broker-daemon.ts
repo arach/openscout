@@ -127,6 +127,10 @@ import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-s
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
 import { registerCardlessSession } from "./broker-cardless-session.js";
+import {
+  collectOccupiedDefinitionIdsFromBrokerSnapshot,
+  resolveProvisionalAgentName,
+} from "./provisional-agent-names.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
 import { createBrokerHttpRouter } from "./broker-http-router.js";
@@ -797,11 +801,14 @@ async function createCardlessProjectSessionForDelivery(input: {
   const harness = requestedHarness === "codex" ? "codex" : "claude";
   const transport = harness === "codex" ? "codex_app_server" : "claude_stream_json";
   const sessionId = createRuntimeId("session");
-  const shortSessionId = sessionId.length > 8 ? sessionId.slice(0, 8) : sessionId;
   const projectName = basename(projectRoot) || projectRoot;
+  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(runtime.snapshot());
+  const provisionalName = resolveProvisionalAgentName({
+    explicitName: input.projectAgent?.agentName,
+    occupied,
+  });
   const displayName = input.projectAgent?.displayName?.trim()
-    || input.projectAgent?.agentName?.trim()
-    || `${projectName}:${shortSessionId}`;
+    || provisionalName.charAt(0).toUpperCase() + provisionalName.slice(1);
   const registered = await registerCardlessSession({
     upsertActor: upsertActorDurably,
     upsertEndpoint: persistEndpoint,

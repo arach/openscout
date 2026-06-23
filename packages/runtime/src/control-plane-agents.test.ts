@@ -322,8 +322,7 @@ describe("createScoutAgentService", () => {
       },
     });
     const generatedName = startLocalAgent.mock.calls[0]?.[0]?.agentName;
-    expect(generatedName?.startsWith("alpha-reply-card-")).toBe(true);
-    expect(generatedName).not.toBe("alpha-reply");
+    expect(generatedName).toBe("alpha-reply");
     expect(updateLocalAgentCardLifecycle.mock.calls[0]?.[1]).toMatchObject({
       inboxConversationId: "conv-alpha-reply",
     });
@@ -335,6 +334,62 @@ describe("createScoutAgentService", () => {
     expect(retireScoutLocalAgentBinding.mock.calls).toEqual([
       [{ agentId: "alpha-reply-old.test-node", broker }],
     ]);
+  });
+
+  test("createScoutAgentCard allocates a curated provisional name when one-time and unnamed", async () => {
+    const binding = makeBinding({
+      agentId: "feynman.main.test-node",
+      definitionId: "feynman",
+    });
+    const status = makeStatus(binding);
+    const startLocalAgent = mock(async () => status);
+    const service = createScoutAgentService({
+      loadScoutBrokerContext: mock(async () => ({
+        baseUrl: "http://broker.test",
+        node: { id: "node-1" },
+        snapshot: {
+          agents: {
+            "darwin.main.test-node": {
+              id: "darwin.main.test-node",
+              definitionId: "darwin",
+            },
+          },
+        },
+      })),
+      openScoutPeerSession: mock(async () => ({
+        sourceId: "operator",
+        conversation: { id: "conv-feynman" },
+      })),
+      registerScoutLocalAgentBinding: mock(async () => ({
+        binding,
+        brokerRegistered: true,
+      })),
+      localAgents: {
+        listLocalAgents: mock(async () => []),
+        pruneOneTimeLocalAgentCards: mock(async () => ({
+          inspected: 0,
+          remaining: 0,
+          retired: [],
+        })),
+        restartAllLocalAgents: mock(async () => []),
+        startLocalAgent,
+        stopAllLocalAgents: mock(async () => []),
+        stopLocalAgent: mock(async () => null),
+        updateLocalAgentCardLifecycle: mock(async () => ({})),
+        inferLocalAgentBinding: mock(async () => null),
+      },
+    });
+
+    await service.createScoutAgentCard({
+      projectPath: "/tmp/alpha",
+      currentDirectory: "/tmp/alpha",
+      oneTimeUse: true,
+    });
+
+    const generatedName = startLocalAgent.mock.calls[0]?.[0]?.agentName;
+    expect(generatedName).toBeTruthy();
+    expect(generatedName).not.toBe("darwin");
+    expect(generatedName).not.toMatch(/-card-/);
   });
 
   test("updateScoutAgentCard updates local config, restarts, and resyncs broker", async () => {

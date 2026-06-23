@@ -10,6 +10,8 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { ConversationScreen } from "../chat/ConversationScreen.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
+import { HarnessMark } from "../../components/HarnessMark.tsx";
+import "./agents-project.css";
 import type {
   Agent,
   AgentObservePayload,
@@ -679,6 +681,351 @@ function ModularProfileCenter({
   );
 }
 
+// ── session-card profile (graphite) ───────────────────────────────────────
+// The studio session profile, ported: the agent's CURRENT session as the
+// primary LG card (real /observe log), its other sessions as SM rows, and a
+// secondary info rail. Same session material as the focus view; normal profile
+// furniture around it. Lives under `.s-aproj`, reusing the focus-card classes.
+const PROFILE_LIVE_WINDOW = 30 * 60_000;
+
+function observeLogText(e: { kind: string; text?: string; tool?: string; arg?: string }): string {
+  let s: string;
+  if (e.kind === "tool") {
+    const what = e.arg?.trim() || e.text?.trim() || "";
+    s = `${e.tool ?? "tool"}${what ? ` ${what}` : ""}`.trim();
+  } else {
+    s = e.text?.trim() || e.kind;
+  }
+  return s.length > 160 ? `${s.slice(0, 157)}…` : s;
+}
+
+function CurrentSessionCard({
+  agent,
+  session,
+  active,
+  onContinue,
+  onTakeover,
+  onOpen,
+}: {
+  agent: Agent;
+  session: SessionCatalogEntry;
+  active: boolean;
+  onContinue: () => void;
+  onTakeover: () => void;
+  onOpen: () => void;
+}) {
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const load = useCallback(async () => {
+    const o = await api<AgentObservePayload>(
+      `/api/agents/${encodeURIComponent(agent.id)}/observe`,
+    ).catch(() => null);
+    setObserve(o);
+  }, [agent.id]);
+  useEffect(() => {
+    setObserve(null);
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const events = observe?.data.events ?? [];
+  const branch = agent.branch || (session.cwd ? pathLeaf(session.cwd) : "main");
+  const model =
+    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
+      ? agent.model.slice(agent.harness.length + 1)
+      : agent.model ?? null;
+  const harness = session.harness ?? agent.harness ?? "session";
+  const title =
+    (() => {
+      for (const e of events) if ((e.kind === "message" || e.kind === "ask") && e.text?.trim()) return e.text.trim();
+      return null;
+    })() ??
+    (session.cwd ? pathLeaf(session.cwd) : null) ??
+    agent.name;
+  const usage = observe?.data.metadata?.usage ?? null;
+  const turns = usage?.assistantMessages ?? null;
+  const win = usage?.contextWindowTokens ?? 0;
+  const used = usage?.contextInputTokens ?? 0;
+  const ctxPct = win > 0 && used > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
+  const tone: "live" | "idle" = active ? "live" : "idle";
+  const eventCount = events.length;
+  const logLines = events.slice(-6).map((e) => ({
+    t: e.at ?? e.t ? timeAgo(e.at ?? e.t) : "",
+    text: observeLogText(e),
+    kind: e.kind,
+  }));
+
+  return (
+    <section className="ap-focus ap-profileCard" data-tone={tone} aria-label={title}>
+      <header className="ap-focusHead">
+        <h1 className="ap-focusTitle">{title}</h1>
+        <span className="ap-focusState" data-tone={tone}>
+          {active ? (
+            <>
+              <span className="ap-dot" data-tone="live" aria-hidden /> working
+            </>
+          ) : (
+            "idle"
+          )}
+        </span>
+        <button type="button" className="ap-focusOpen" onClick={onOpen}>
+          Open ↗
+        </button>
+      </header>
+
+      <div className="ap-focusAttr">
+        <span className="ap-focusAttrText">
+          {branch}{model ? ` · ${model}` : ""}
+        </span>
+        <span className="ap-rowMark" aria-hidden>
+          <HarnessMark harness={harness} size={11} />
+        </span>
+      </div>
+
+      <div className="ap-decision">
+        <button type="button" className="ap-decisionPrimary" onClick={onContinue}>
+          {active ? "Continue" : "Resume"}
+        </button>
+        <button type="button" className="ap-decisionGhost" onClick={onTakeover}>
+          Take over
+        </button>
+        <span className="ap-decisionMeta">
+          {ctxPct != null ? (
+            <span>
+              <span className="ap-metaKey">ctx</span>
+              {ctxPct}%
+            </span>
+          ) : null}
+          {usage && (usage.inputTokens || usage.outputTokens) ? (
+            <span>
+              <span className="ap-metaKey">tokens</span>
+              {fmtTokens(usage.inputTokens ?? 0)} in
+            </span>
+          ) : null}
+          {turns != null ? (
+            <span>
+              <span className="ap-metaKey">turns</span>
+              {turns}
+            </span>
+          ) : null}
+        </span>
+      </div>
+
+      <div className="ap-logHead">
+        <span className="ap-logHeadTitle">Session log</span>
+        <span className="ap-logHeadMeta">
+          {observe === null ? "loading…" : `${observe.source} · ${eventCount} events`}
+        </span>
+      </div>
+      <div className="ap-log">
+        {observe === null ? (
+          <div className="ap-traceLoading">Resolving the most recent session…</div>
+        ) : logLines.length === 0 ? (
+          <div className="ap-traceLoading">No activity captured for this session yet.</div>
+        ) : (
+          logLines.map((l, i) => (
+            <div key={i} className="ap-logLine" data-kind={l.kind}>
+              <span className="ap-logT">{l.t}</span>
+              <span className="ap-logText">{l.text}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SessionProfileCenter({
+  agent,
+  name,
+  sessionCatalog,
+  conversationId,
+  navigate,
+  route,
+}: {
+  agent: Agent;
+  name: string;
+  sessionCatalog: SessionCatalogWithResume | null;
+  conversationId: string | null;
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const { focusedSession, focusSession } = useScout();
+  const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
+  const sessions = useMemo(
+    () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
+    [sessionCatalog?.sessions, activeSessionId],
+  );
+  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+  const selectedSessionId = resolveSelectedSessionId(agent.id, focusedSession, activeSessionId, sessions);
+
+  const modelShort =
+    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
+      ? agent.model.slice(agent.harness.length + 1)
+      : agent.model ?? null;
+  const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
+  const hostShort = agent.homeNodeName ? agent.homeNodeName.replace(/\.local$/i, "") : null;
+
+  const openMessage = async () => {
+    try {
+      const chatId = await ensureAgentChat({ ...agent, conversationId });
+      navigate({ view: "agents", agentId: agent.id, conversationId: chatId, tab: "message" });
+    } catch {
+      /* surfaced elsewhere */
+    }
+  };
+  const startNewSession = async () => {
+    try {
+      const result = await api<SessionInitiationResult>("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify(newSessionPayloadForAgent(agent)),
+      });
+      const cid = result.conversationId?.trim();
+      navigate({
+        view: "agents",
+        agentId: result.agentId?.trim() || agent.id,
+        ...(cid ? { conversationId: cid } : {}),
+        tab: "message",
+      });
+    } catch {
+      /* noop */
+    }
+  };
+  const resumeSession = (s: SessionCatalogEntry) =>
+    openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+  const takeover = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+
+  return (
+    <div className="ap-profile">
+      <header className="ap-profileHead">
+        <AgentAvatar agent={agent} size={44} tile presence={false} />
+        <div className="ap-profileIdent">
+          <div className="ap-profileTop">
+            <h1 className="ap-profileName">{name}</h1>
+            {agent.harness ? (
+              <span className="ap-rowMark" aria-hidden>
+                <HarnessMark harness={agent.harness} size={13} />
+              </span>
+            ) : null}
+          </div>
+          <span className="ap-profileSub">
+            {cwdShort ?? "—"}
+            {agent.branch ? ` · ${agent.branch}` : ""}
+            {modelShort ? ` · ${modelShort}` : ""}
+          </span>
+        </div>
+        <div className="ap-headActions">
+          <button
+            type="button"
+            className="ap-headGhost"
+            onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+          >
+            Edit config
+          </button>
+          <button type="button" className="ap-headCta" onClick={() => void startNewSession()}>
+            ＋ New session
+          </button>
+        </div>
+      </header>
+
+      <div className="ap-profileBody">
+        <div className="ap-profileMain">
+          <div className="ap-profileSection">Current session</div>
+          {activeSession ? (
+            <CurrentSessionCard
+              agent={agent}
+              session={activeSession}
+              active={activeSession.id === activeSessionId}
+              onContinue={() => void openMessage()}
+              onTakeover={takeover}
+              onOpen={() => void openMessage()}
+            />
+          ) : (
+            <div className="ap-traceLoading">No active session for {name}.</div>
+          )}
+
+          <div className="ap-profileSection">
+            Sessions <span className="ap-profileCount">{sessions.length}</span>
+          </div>
+          {sessions.length === 0 ? (
+            <div className="ap-empty">No sessions yet — start a new session for {name}.</div>
+          ) : (
+            <div className="ap-sessTable">
+              <div className="ap-sessTableHead" aria-hidden>
+                <span />
+                <span>Session</span>
+                <span>Engine</span>
+                <span>Last</span>
+              </div>
+              {sessions.map((s) => {
+                const isActive = s.id === activeSessionId;
+                const when = isActive
+                  ? "now"
+                  : s.endedAt
+                    ? `ended · ${timeAgo(s.endedAt) || "recent"}`
+                    : timeAgo(s.startedAt) || "recent";
+                const label = s.cwd ? pathLeaf(s.cwd) : shortSessionLabel(s.id);
+                const sHarness = s.harness ?? agent.harness ?? "session";
+                const sModelRaw = s.model ?? agent.model;
+                const sModel =
+                  sModelRaw && sModelRaw.startsWith(`${sHarness}-`)
+                    ? sModelRaw.slice(sHarness.length + 1)
+                    : sModelRaw;
+                const engine = [sHarness, sModel].filter(Boolean).join(" · ");
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className="ap-sessRow"
+                    data-tone={isActive ? "live" : "idle"}
+                    data-selected={s.id === selectedSessionId || undefined}
+                    onClick={() => (isActive ? focusSession(agent.id, s.id) : resumeSession(s))}
+                  >
+                    {isActive ? (
+                      <span className="ap-dot" data-tone="live" aria-hidden />
+                    ) : (
+                      <span className="ap-sessRowDot" aria-hidden />
+                    )}
+                    <span className="ap-sessRowName" title={s.id}>{label}</span>
+                    <span className="ap-sessRowEngine">{engine}</span>
+                    <span className="ap-sessRowWhen">{when}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <aside className="ap-profileAside">
+          <div className="ap-group">
+            <div className="ap-groupHead">Place</div>
+            {cwdShort ? (
+              <div className="ap-kv"><span className="ap-kvKey">root</span><span className="ap-kvVal">{cwdShort}</span></div>
+            ) : null}
+            {hostShort ? (
+              <div className="ap-kv"><span className="ap-kvKey">host</span><span className="ap-kvVal">{hostShort}</span></div>
+            ) : null}
+            {agent.branch ? (
+              <div className="ap-kv"><span className="ap-kvKey">branch</span><span className="ap-kvVal">{agent.branch}</span></div>
+            ) : null}
+          </div>
+          <div className="ap-group">
+            <div className="ap-groupHead">Runtime</div>
+            {agent.harness ? (
+              <div className="ap-kv"><span className="ap-kvKey">harness</span><span className="ap-kvVal">{agent.harness}</span></div>
+            ) : null}
+            {modelShort ? (
+              <div className="ap-kv"><span className="ap-kvKey">model</span><span className="ap-kvVal">{modelShort}</span></div>
+            ) : null}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 export function AgentDetailWithRail({
   agent,
   allAgents,
@@ -785,14 +1132,16 @@ export function AgentDetailWithRail({
       }`}
     >
       {activeTab === "profile" && (
-        <ModularProfileCenter
-          agent={agent}
-          name={name}
-          sessionCatalog={sessionCatalog}
-          conversationId={conversationId}
-          navigate={navigate}
-          route={route}
-        />
+        <div className="s-aproj s-aproj--profile">
+          <SessionProfileCenter
+            agent={agent}
+            name={name}
+            sessionCatalog={sessionCatalog}
+            conversationId={conversationId}
+            navigate={navigate}
+            route={route}
+          />
+        </div>
       )}
 
       {activeTab === "observe" && (

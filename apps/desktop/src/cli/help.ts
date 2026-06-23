@@ -31,6 +31,7 @@ export function renderScoutHelp(version = "0.2.19"): string {
     "",
     "First run:",
     "  scout config set name \"Ada\"",
+    "  scout config agent-names init",
     "  scout setup --source-root ~/dev --default-harness codex",
     "  scout doctor",
     "  scout doctor --fix --yes                       # conservative native repairs when scoutd supports them",

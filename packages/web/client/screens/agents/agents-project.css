@@ -10,16 +10,21 @@
    source. Class names are `ap-*`-prefixed to avoid collisions with global CSS. */
 
 .s-aproj {
-  --s-bg: var(--bg);
-  --s-surface: var(--surface);
-  --s-ink: var(--ink);
-  --s-muted: var(--muted);
-  --s-dim: var(--dim);
-  --s-border: var(--border);
-  --s-hairline: color-mix(in oklab, var(--border) 60%, transparent);
-  --s-hairline-strong: var(--border);
-  --s-accent: var(--accent);
-  --s-accent-soft: var(--accent-soft);
+  /* Graphite skin — the palette the studio study was designed in
+     (design/studio/app/scout-skins.css → [data-scout-skin="graphite"]).
+     Cool near-black surfaces + a single indigo accent, spent only as the
+     precedence dot/CTA. Reproduced literally so this surface matches the
+     signed-off design rather than the web's emerald default. */
+  --s-bg: #121214;
+  --s-surface: #242428;
+  --s-ink: rgba(255, 255, 255, 0.97);
+  --s-muted: rgba(255, 255, 255, 0.69);
+  --s-dim: rgba(255, 255, 255, 0.49);
+  --s-border: rgba(255, 255, 255, 0.17);
+  --s-hairline: rgba(255, 255, 255, 0.1);
+  --s-hairline-strong: rgba(255, 255, 255, 0.22);
+  --s-accent: #6d7ae8;
+  --s-accent-soft: rgba(109, 122, 232, 0.26);
   --s-font-sans: var(--font-sans);
   --s-font-mono: var(--font-mono);
 
@@ -43,13 +48,472 @@
 .ap-dot[data-tone="needs"] { box-shadow: 0 0 0 3px var(--s-accent-soft); animation: ap-pulse 2.2s ease-in-out infinite; }
 @keyframes ap-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
 
+/* ── sparse focus view — the project collapses to its one agent + the decision ──
+   No digest, no find, no roster, no aside. A single calm column that leads with
+   the situation the directory buried, then the decision, then the real /observe
+   tail. Reads the same --s-* graphite tokens as the rest of this pane. */
+.ap-focus {
+  min-width: 0;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 32px;
+}
+.ap-focusEmpty {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 60px 32px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--s-dim);
+}
+.ap-focusHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+/* session-led: the WORK is the headline, clamped to two lines */
+.ap-focusTitle {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--s-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* attribution — the agent runs the session, demoted under the title */
+.ap-focusAttr {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-focusAttrText {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* session log — a compact changelog, not the lane/trace stream */
+.ap-logHead { display: flex; align-items: baseline; gap: 10px; padding: 16px 0 10px; }
+.ap-logHeadTitle {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.ap-logHeadMeta { margin-left: auto; font-size: 10px; font-family: var(--s-font-mono); color: var(--s-dim); }
+.ap-log { display: flex; flex-direction: column; gap: 4px; }
+.ap-logLine { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; align-items: baseline; }
+.ap-logT { font-family: var(--s-font-mono); font-size: 10px; color: var(--s-dim); text-align: right; }
+.ap-logText {
+  font-family: var(--s-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--s-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ap-logLine[data-kind="ask"] .ap-logT,
+.ap-logLine[data-kind="ask"] .ap-logText { color: var(--s-accent); }
+.ap-logLine[data-kind="message"] .ap-logText { color: var(--s-ink); }
+
+/* ── session-card profile — a normal profile page built from the focus card ── */
+.ap-profile {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 24px 28px 36px;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+}
+.ap-profileHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-profileIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ap-profileTop { display: flex; align-items: center; gap: 10px; }
+.ap-profileName { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--s-ink); text-transform: lowercase; }
+.ap-profileSub { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+
+.ap-profileBody { display: grid; grid-template-columns: minmax(0, 1fr) 248px; gap: 32px; padding-top: 22px; }
+@media (max-width: 920px) { .ap-profileBody { grid-template-columns: 1fr; } }
+.ap-profileMain { min-width: 0; display: flex; flex-direction: column; }
+.ap-profileAside { min-width: 0; display: flex; flex-direction: column; gap: 22px; }
+
+.ap-profileSection {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  padding: 0 0 12px;
+}
+.ap-profileSection:not(:first-child) { padding-top: 26px; }
+.ap-profileCount { font-family: var(--s-font-mono); font-weight: 600; color: var(--s-dim); letter-spacing: 0; }
+
+/* the current session uses the focus card, but full-width + boxed in the column */
+.ap-focus.ap-profileCard {
+  max-width: none;
+  margin: 0;
+  padding: 20px 22px;
+  background: color-mix(in srgb, var(--s-surface) 55%, transparent);
+  border: 1px solid var(--s-hairline);
+  border-radius: 14px;
+}
+
+/* the sessions list — SM session rows */
+.ap-profileSessions { display: flex; flex-direction: column; }
+.ap-profileSession {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--s-hairline);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+.ap-profileSessions .ap-profileSession:last-child { border-bottom: 1px solid var(--s-hairline); }
+.ap-profileSession:hover,
+.ap-profileSession[data-selected] { background: var(--s-surface); }
+.ap-profileSessionDot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--s-hairline-strong); }
+.ap-profileSessionTitle { font-size: 12.5px; font-weight: 560; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-profileSession[data-tone="idle"] .ap-profileSessionTitle { color: var(--s-muted); }
+.ap-profileSessionBranch,
+.ap-profileSessionWhen { flex: none; font-size: 11px; font-family: var(--s-font-mono); color: var(--s-dim); white-space: nowrap; }
+
+/* the sessions list, tabular-ish: a header row + data rows share one grid so the
+   columns line up (dot · session · engine · last). Light — not a full table. */
+.ap-sessTable { display: flex; flex-direction: column; }
+.ap-sessTableHead,
+.ap-sessRow {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) minmax(0, 168px) 84px;
+  align-items: center;
+  gap: 12px;
+}
+.ap-sessTableHead {
+  padding: 0 10px 8px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-mono);
+}
+.ap-sessTableHead > span:last-child { text-align: right; }
+.ap-sessRow {
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--s-hairline);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+.ap-sessTable .ap-sessRow:last-child { border-bottom: 1px solid var(--s-hairline); }
+.ap-sessRow:hover,
+.ap-sessRow[data-selected] { background: var(--s-surface); }
+.ap-sessRowDot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--s-hairline-strong); }
+.ap-sessRowName { font-size: 12.5px; font-weight: 540; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-sessRow[data-tone="idle"] .ap-sessRowName { color: var(--s-muted); }
+.ap-sessRowEngine { font-size: 11px; font-family: var(--s-font-mono); color: var(--s-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-sessRowWhen { font-size: 11px; font-family: var(--s-font-mono); color: var(--s-dim); text-align: right; white-space: nowrap; }
+.ap-focusIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ap-focusTop { display: flex; align-items: center; gap: 11px; }
+.ap-focusName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--s-ink);
+  text-transform: lowercase;
+}
+.ap-focusState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 540;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+}
+.ap-focusState[data-tone="needs"] { color: var(--s-accent); }
+.ap-focusState[data-tone="live"] { color: var(--s-ink); }
+.ap-focusRoot { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+.ap-focusOpen {
+  flex: none;
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.12s ease;
+}
+.ap-focusOpen:hover { color: var(--s-ink); }
+
+/* the situation — the headline the directory buried + truncated */
+.ap-situation { padding: 22px 0 20px; border-bottom: 1px solid var(--s-hairline); }
+.ap-situationLead {
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--s-ink);
+}
+.ap-situation[data-tone="idle"] .ap-situationLead { color: var(--s-dim); font-weight: 460; }
+.ap-situationLead b { font-weight: 600; font-family: var(--s-font-mono); font-size: 0.92em; }
+.ap-situationTask {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--s-muted);
+  font-family: var(--s-font-mono);
+}
+
+/* the decision — the action is the point of this screen */
+.ap-decision {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-decisionPrimary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 9px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.ap-decisionPrimary:hover { filter: brightness(1.07); }
+.ap-decisionGhost {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 4px;
+  transition: color 0.12s ease;
+}
+.ap-decisionGhost:hover { color: var(--s-ink); }
+.ap-decisionMeta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 18px;
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.ap-decisionMeta > span { display: inline-flex; align-items: baseline; gap: 6px; }
+
+.ap-focusBody { display: flex; flex-direction: column; padding-top: 18px; }
+
+/* most-recent preview — the agent's last message/question, clamped. A preview,
+   not a replay: no trace rows, no lane cards, no event stream. */
+.ap-preview { padding-top: 12px; }
+.ap-previewKind {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 660;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  margin-bottom: 8px;
+}
+.ap-preview[data-kind="ask"] .ap-previewKind { color: var(--s-accent); }
+.ap-previewText {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--s-ink);
+  white-space: pre-wrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* demoted footer — the rest of the project, quietly */
+.ap-focusFoot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+.ap-focusFootLink {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.ap-focusFootLink:hover { color: var(--s-accent); }
+.ap-focusFootDim { font-size: 11.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+
+/* focus view now shares the main+right-rail grid (.ap-view/.ap-content/.ap-aside)
+   so the sparse case fills the pane instead of floating as a centered island.
+   The rail carries Place · Runtime · Context (gauge) · Files. */
+.ap-ctxGauge {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--s-hairline);
+  overflow: hidden;
+  margin: 4px 0 9px;
+}
+.ap-ctxFill { height: 100%; background: var(--s-accent); border-radius: 999px; }
+.ap-fileRow { display: flex; align-items: baseline; gap: 9px; padding: 4px 0; }
+.ap-fileTag {
+  flex: none;
+  width: 30px;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+}
+.ap-fileTag[data-state="modified"],
+.ap-fileTag[data-state="created"] { color: var(--s-accent); }
+.ap-fileName {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* kind sigil — `/project` (a place) vs `@agent` (a handle). Same string reads
+   as two different kinds of thing, so name collisions stop looking redundant. */
+.ap-sigil {
+  color: var(--s-dim);
+  font-weight: 400;
+  margin-right: 1px;
+}
+
+/* ── SESSION-scoped blocks (live in the main column, not the agent rail) ───── */
+/* session meta — the live facts of THIS session: ctx · turns · tokens */
+.ap-sessMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 14px 0 2px;
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.ap-sessMeta > span { display: inline-flex; align-items: baseline; gap: 6px; }
+.ap-sessMetaKey {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-sans);
+}
+/* files touched in this session — under the log, not in the agent rail */
+.ap-sessFiles {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--s-hairline);
+}
+.ap-sessFilesHead { display: block; margin-bottom: 9px; }
+
+/* ── the AGENT card — the rail's home placement: identity + stable facts ───── */
+.ap-agentCard {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-agentIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ap-agentName {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--s-ink);
+}
+.ap-agentMeta {
+  font-size: 9px;
+  font-weight: 660;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+}
+.ap-caps { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 3px; }
+.ap-cap {
+  font-size: 10.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  padding: 2px 8px;
+  border: 1px solid var(--s-hairline);
+  border-radius: 999px;
+}
+
 /* The whole view is two columns: content | full-height rail. The rail's
-   border-left is the single vertical divider both columns hang off. */
+   border-left is the single vertical divider both columns hang off. Selecting
+   an agent drills IN PLACE — the right column grows 264→480 and the session
+   pane fades in over the resting Recently/Place rail, so the project frame
+   (masthead · digest · find · roster) stays put and it reads as a panel
+   opening, not a page change. Same track types both ways → the column tweens. */
 .ap-view {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 264px;
   min-height: 100%;
   align-items: stretch;
+  transition: grid-template-columns 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.ap-view[data-detail] { grid-template-columns: minmax(0, 1fr) 480px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ap-view { transition: none; }
+  .ap-detail, .ap-aside { animation: none; }
+  .ap-resume { transition: none; }
 }
 
 /* left column — a stack of evenly-ruled bands sharing one left/right edge */
@@ -85,6 +549,7 @@
   font-size: 23px;
   font-weight: 600;
   letter-spacing: -0.02em;
+  text-transform: lowercase;
   color: var(--s-ink);
 }
 .ap-headState {
@@ -97,6 +562,7 @@
   font-family: var(--s-font-mono);
 }
 .ap-headState[data-tone="needs"] { color: var(--s-accent); }
+.ap-headState[data-tone="live"] { color: var(--s-ink); }
 .ap-headRoot { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
 .ap-headActions { display: flex; align-items: center; gap: 14px; flex: none; }
 .ap-headGhost {
@@ -140,26 +606,57 @@
   text-transform: uppercase;
   color: var(--s-muted);
 }
-.ap-statMarks { margin-left: auto; display: inline-flex; gap: 7px; color: var(--s-muted); }
+.ap-statMarks {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--s-muted);
+}
+.ap-statMarks > span { display: inline-flex; }
 
 /* ── resume band — contextual, sits in the ruled rhythm ───────────────────── */
 .ap-resume {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 13px 0;
+  padding: 10px 0;
+  line-height: 1.1;
   border-bottom: 1px solid var(--s-hairline);
+  /* collapses away when a session is open — the resume line is the most
+     redundant band once you've drilled, so it folds out (height + opacity)
+     while the rest of the frame stays put. Same track types, no reflow snap. */
+  max-height: 64px;
+  overflow: hidden;
+  transition: max-height 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.28s ease, padding 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-color 0.28s ease;
+}
+.ap-view[data-detail] .ap-resume {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  border-bottom-color: transparent;
+  pointer-events: none;
 }
 .ap-resumeLbl {
   font-size: 9.5px;
   font-weight: 680;
-  letter-spacing: 0.07em;
+  line-height: 1;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--s-accent);
 }
 .ap-resume[data-tone="live"] .ap-resumeLbl { color: var(--s-muted); }
 .ap-resumeWho { font-size: 13px; font-weight: 600; color: var(--s-ink); }
-.ap-resumeMeta { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-dim); }
+.ap-resumeMeta {
+  margin-left: 3px;
+  padding-right: 6px;
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+}
 .ap-resumeActions { margin-left: auto; display: inline-flex; gap: 16px; }
 .ap-link, .ap-linkAccent {
   font-size: 12.5px;
@@ -269,6 +766,22 @@
 }
 .ap-row[data-selected] .ap-rowName { color: var(--s-ink); }
 
+/* keyboard cursor — a quieter sibling of selection: a soft wash + a muted left
+   bar, so scrubbing the roster reads before you've committed to opening a row.
+   Selection (accent bar) outranks it when the panel is actually open. */
+.ap-row[data-cursor]::before { opacity: 0.6; }
+.ap-row[data-cursor]:not([data-selected])::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--s-hairline-strong);
+}
+.ap-row:focus { outline: none; }
+.ap-row:focus-visible::before { opacity: 0.7; }
+
 /* row = avatar | body(flex) | tail(reserved lane). The tail holds ago/model
    AND actions stacked in one cell, so the lane sizes to the wider (actions)
    and never reflows or overlaps — the swap is pure opacity. */
@@ -278,21 +791,22 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
-  padding: 13px 2px;
+  padding: 11px 2px;
   cursor: pointer;
 }
-.ap-rowBody { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.ap-rowTop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ap-rowBody { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ap-rowTop { display: flex; align-items: center; gap: 8px; min-width: 0; line-height: 1.15; }
 .ap-rowName {
   font-size: 14.5px;
   font-weight: 600;
+  line-height: 1.15;
   color: var(--s-ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ap-rowName[data-idle] { color: var(--s-dim); font-weight: 540; }
-.ap-rowMark { display: inline-flex; color: var(--s-muted); flex: none; }
+.ap-rowMark { display: inline-flex; color: var(--s-muted); flex: none; margin-left: -3px; }
 .ap-needsWord {
   flex: none;
   font-size: 10px;
@@ -302,9 +816,10 @@
   color: var(--s-accent);
 }
 
-.ap-rowMeta { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ap-rowMeta { display: flex; align-items: center; gap: 9px; min-width: 0; line-height: 1.1; }
 .ap-rowBranch {
   font-size: 11.5px;
+  line-height: 1.1;
   font-family: var(--s-font-mono);
   color: var(--s-muted);
   overflow: hidden;
@@ -470,7 +985,8 @@
   cursor: pointer;
   transition: color 0.12s ease;
 }
-.ap-newAgent:hover { color: var(--s-accent); }
+.ap-newAgent:hover:not(:disabled) { color: var(--s-accent); }
+.ap-newAgent:disabled { color: var(--s-dim); opacity: 0.55; cursor: default; }
 
 /* ── aside groups — label-led, hairline-divided, no boxes ─────────────────── */
 .ap-group { display: flex; flex-direction: column; }
@@ -489,8 +1005,8 @@
 .ap-recent {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 3px 8px;
-  padding: 8px 0;
+  gap: 2px 8px;
+  padding: 7px 0;
   background: none;
   border: none;
   border-bottom: 1px solid var(--s-hairline);
@@ -498,13 +1014,13 @@
   text-align: left;
 }
 .ap-recent:last-child { border-bottom: none; }
-.ap-recentWho { font-size: 12px; font-weight: 600; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ap-recentAgo { font-size: 10px; color: var(--s-dim); font-family: var(--s-font-mono); text-align: right; }
+.ap-recentWho { font-size: 12px; font-weight: 600; line-height: 1.15; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-recentAgo { font-size: 10px; line-height: 1.15; color: var(--s-dim); font-family: var(--s-font-mono); text-align: right; }
 .ap-recentTask {
   grid-column: 1 / -1;
   font-size: 11.5px;
   color: var(--s-muted);
-  line-height: 1.4;
+  line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -526,13 +1042,160 @@
 .ap-kvBranches { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .ap-kvBranch { font-size: 11.5px; font-family: var(--s-font-mono); color: var(--s-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ── session detail (master–detail pane, drilled in place of the aside) ─────── */
+@keyframes ap-paneIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+.ap-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 26px 26px;
+  border-left: 1px solid var(--s-hairline);
+  overflow: hidden;
+  animation: ap-paneIn 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.ap-detailHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-detailBack {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.ap-detailBack:hover { color: var(--s-ink); background: var(--s-hairline); }
+.ap-detailIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ap-detailTop { display: flex; align-items: center; gap: 10px; }
+.ap-detailName { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--s-ink); }
+.ap-detailSub {
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* meta strip — the right-rail readout folded into one row */
+.ap-metaStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px 22px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.ap-metaItem { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
+.ap-metaKey {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-sans);
+}
+.ap-metaVal { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-metaChanges { margin-left: auto; font-family: var(--s-font-mono); font-size: 12px; }
+.ap-add { color: var(--s-accent); }
+.ap-del { color: var(--s-dim); }
+
+/* instance switcher — underline tabs, horizontally scrollable for busy agents */
+.ap-sessTabs {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  scrollbar-width: thin;
+}
+.ap-sessTab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  white-space: nowrap;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.ap-sessTab:hover { color: var(--s-ink); }
+.ap-sessTab[data-on] { color: var(--s-ink); border-bottom-color: var(--s-accent); }
+.ap-sessDot { flex: none; width: 5px; height: 5px; border-radius: 999px; background: var(--s-hairline-strong); }
+.ap-sessDot[data-on] { background: var(--s-accent); box-shadow: 0 0 0 2.5px var(--s-accent-soft); }
+
+.ap-traceLoading { font-size: 12px; color: var(--s-dim); padding: 24px 4px; text-align: center; }
+
+/* transcript — hosts the real SessionObserve, scrolls within the pane */
+.ap-detailBody { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 4px; }
+.ap-detailBody .ap-sectionHead { padding: 10px 0 0; }
+.ap-trace { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; margin: 0 -26px; }
+.ap-trace > * { flex: 1; min-height: 0; }
+
+/* steer box — pinned under the transcript */
+.ap-steer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--s-hairline);
+}
+.ap-steerInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+}
+.ap-steerInput::placeholder { color: var(--s-muted); }
+.ap-steerSend {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 580;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 15px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.ap-steerSend:hover { filter: brightness(1.07); }
+
 /* ── responsive — collapse the right rail ─────────────────────────────────── */
 @media (max-width: 900px) {
-  .ap-view { grid-template-columns: minmax(0, 1fr); }
+  .ap-view, .ap-view[data-detail] { grid-template-columns: minmax(0, 1fr); }
   .ap-aside {
     border-left: none;
     border-top: 1px solid var(--s-hairline);
     margin: 0 28px;
     padding: 22px 0 26px;
   }
+  .ap-detail { border-left: none; border-top: 1px solid var(--s-hairline); }
 }

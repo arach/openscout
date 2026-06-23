@@ -62,6 +62,7 @@ type FxProject = {
   liveHarnesses: string[];
   agents: FxAgentRow[];
   unassigned: FxSession[];
+  blockedReason?: string | null;
 };
 type FxRecent = {
   agentName: string;
@@ -167,10 +168,58 @@ function recentFor(p: FxProject): FxRecent[] {
   );
 }
 
-const PROJECTS = [...FX.projects].sort(
+// A synthesized SPARSE project — the case the directory layout fails on: one
+// agent, one harness, no branches, stalled 18h waiting on you. This is the
+// live-app Lattices situation, given a real blocking reason + a transcript tail
+// so the focus view has something true-shaped to lead with.
+const STALLED_LATTICES: FxProject = {
+  slug: "lattices",
+  title: "Lattices",
+  root: "~/dev/lattices",
+  harnesses: ["claude"],
+  sessionCount: 1,
+  lastActivityAt: NOW - 18 * 60 * 60_000,
+  liveProcesses: 1,
+  liveHarnesses: ["claude"],
+  blockedReason:
+    "Stopped waiting for a synchronous result after 5m (300000 ms timeout) — it is still holding the run open, waiting on you to continue or redirect it.",
+  agents: [
+    {
+      name: "Lattices",
+      harness: "claude",
+      status: "waiting",
+      stateLabel: "waiting on you",
+      branch: "main",
+      activeTask: "Refactor the lane-card resize handlers, then verify the diff against main before continuing.",
+      activeAskCount: 1,
+      lastActivityAt: NOW - 18 * 60 * 60_000,
+      model: "claude-opus-4-8",
+      sessions: [
+        {
+          kind: "agent",
+          status: "waiting",
+          harness: "claude",
+          label: "main",
+          detail: "--model claude-opus-4-8 --name lattices --allowedTools Read,Edit,Bash,Grep",
+          lastActivityAt: NOW - 18 * 60 * 60_000,
+        },
+      ],
+    },
+  ],
+  unassigned: [],
+};
+
+const PROJECTS = [STALLED_LATTICES, ...FX.projects.filter((p) => p.slug !== "lattices")].sort(
   (a, b) => b.liveProcesses - a.liveProcesses || (b.lastActivityAt ?? 0) - (a.lastActivityAt ?? 0),
 );
-const DEFAULT = PROJECTS.find((p) => p.slug === "openscout") ?? PROJECTS[0];
+// Open on the sparse case so the focus treatment is what you see first.
+const DEFAULT = STALLED_LATTICES;
+
+// A project collapses to the focus view when it has at most one real agent —
+// the directory chrome (digest, find, roster, aside) has nothing to organize.
+function isSparseFocus(p: FxProject): boolean {
+  return groupsFor(p).filter((g) => !g.ephemeral).length <= 1;
+}
 
 /* ── session drill-down ────────────────────────────────────────────────────
    The fixture has no transcript, but each session carries its launch command
@@ -787,6 +836,131 @@ function ProjectView({ p }: { p: FxProject }) {
   );
 }
 
+/* ── sparse focus view ─────────────────────────────────────────────────────
+   When a project has one real agent, the directory chrome (digest counts, a
+   harness filter over a single row, a "recently" feed that just echoes the
+   masthead) is pure scaffolding. This collapses the whole pane to the one thing
+   that matters: who it is, what it's blocked on — the message the directory
+   buried in a truncated aside line — the decision, and where it left off. */
+function FocusView({ p }: { p: FxProject }) {
+  const [reply, setReply] = useState("");
+  const groups = useMemo(() => groupsFor(p), [p]);
+  const g = groups.find((x) => !x.ephemeral) ?? groups[0];
+  const ephemeral = groups.filter((x) => x.ephemeral);
+
+  if (!g) {
+    return (
+      <div className={styles.focusEmpty}>
+        No agents on this project yet.{" "}
+        <button type="button" className={styles.focusFootLink}>＋ New agent</button>
+      </div>
+    );
+  }
+
+  const inst = g.rows[0];
+  const live = NOW - g.lastAt < LIVE_WINDOW;
+  const tone: "needs" | "live" | "idle" = g.needs ? "needs" : live ? "live" : "idle";
+  const session = inst.sessions[0] ?? null;
+  const cfg = parseLaunch(session?.detail ?? null);
+  const model = shortModel(inst.model ?? cfg?.model ?? g.model);
+  const usage = usageFor(inst, session);
+  const events = coalesce(traceFor(g, inst, session));
+  const branch = inst.branch === "—" ? "main" : inst.branch;
+
+  return (
+    <section className={styles.focus} data-tone={tone} aria-label={`${g.name} focus`}>
+      <header className={styles.focusHead}>
+        <SpriteAvatar name={p.slug} size={44} hue={HARNESS_HUE[g.harness]} tile cornerPulse={live} />
+        <div className={styles.focusIdent}>
+          <div className={styles.focusTop}>
+            <h1 className={styles.focusName}>{p.slug}</h1>
+            <span className={styles.rowMark} aria-hidden>
+              <HarnessMark harness={harnessOf(g.harness)} size={13} />
+            </span>
+            <span className={styles.focusState} data-tone={tone}>
+              <Dot tone={tone} />
+              {tone === "needs" ? `waiting on you · ${ago(g.lastAt)}` : tone === "live" ? "live" : `idle · ${ago(g.lastAt)}`}
+            </span>
+          </div>
+          <span className={styles.focusRoot}>
+            {p.root}  ·  {branch}{model ? `  ·  ${model}` : ""}
+          </span>
+        </div>
+        <button type="button" className={styles.focusOpen}>Open ↗</button>
+      </header>
+
+      {/* the situation — the headline the directory buried + truncated */}
+      <div className={styles.situation} data-tone={tone}>
+        <div className={styles.situationLead}>
+          {tone === "needs"
+            ? (p.blockedReason ?? `${g.name} is waiting on your input.`)
+            : tone === "live"
+              ? <>{g.name} is working on <b>{branch}</b>.</>
+              : <>{g.name} left off {ago(g.lastAt)} ago on <b>{branch}</b>.</>}
+        </div>
+        {inst.activeTask ? <div className={styles.situationTask}>{inst.activeTask}</div> : null}
+      </div>
+
+      {/* the decision — the action is the whole point of this screen */}
+      <div className={styles.decision}>
+        <button type="button" className={styles.decisionPrimary}>
+          {tone === "needs" ? "Approve & continue" : tone === "live" ? "Steer" : "Resume"}
+        </button>
+        {tone === "needs" ? <button type="button" className={styles.decisionGhost}>Steer instead</button> : null}
+        <button type="button" className={styles.decisionGhost}>Open ↗</button>
+        <span className={styles.decisionMeta}>
+          <span><span className={styles.metaKey}>ctx</span>{usage.ctx}%</span>
+          <span><span className={styles.metaKey}>tokens</span>{fmtK(usage.inTok)} in</span>
+          <span><span className={styles.metaKey}>conv</span>{g.sessionCount || 1}</span>
+        </span>
+      </div>
+
+      {/* where it left off — the transcript tail */}
+      <div className={styles.focusBody}>
+        <div className={styles.sectionHead}>
+          <span className={styles.sectionTitle}>Where it left off</span>
+          <span className={styles.sectionMeta}>{events.length} events</span>
+        </div>
+        <div className={styles.trace}>
+          {events.slice(-6).map((e, i) => (
+            <div key={i} className={styles.ev} data-kind={e.kind} data-tone={e.tone || undefined}>
+              <span className={styles.evGutter} aria-hidden>{EV_GLYPH[e.kind]}</span>
+              <div className={styles.evBody}>
+                {e.label ? (
+                  <span className={styles.evLabel}>
+                    {e.label}
+                    {e.count > 1 ? <span className={styles.evCount}> ×{e.count}</span> : null}
+                  </span>
+                ) : null}
+                <span className={styles.evText}>{e.text}</span>
+              </div>
+              <span className={styles.evAgo}>{e.ago}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={styles.steer}>
+        <input
+          className={styles.steerInput}
+          placeholder={`Reply to ${g.name}…`}
+          value={reply}
+          onChange={(e) => setReply(e.target.value)}
+        />
+        <button type="button" className={styles.steerSend}>Send</button>
+      </div>
+
+      {/* demoted: the rest of the project, as a quiet footer */}
+      <div className={styles.focusFoot}>
+        <button type="button" className={styles.focusFootLink}>＋ New agent on this project</button>
+        {ephemeral.length ? (
+          <span className={styles.focusFootDim}>{ephemeral.length} ephemeral · workflow &amp; clone agents</span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 /* ── Page ──────────────────────────────────────────────────────────────── */
 export default function AgentsProjectStudy() {
   const [slug, setSlug] = useState(DEFAULT.slug);
@@ -827,7 +1001,7 @@ export default function AgentsProjectStudy() {
         </nav>
 
         <div className={styles.pane}>
-          <ProjectView key={slug} p={project} />
+          {isSparseFocus(project) ? <FocusView key={slug} p={project} /> : <ProjectView key={slug} p={project} />}
         </div>
       </div>
     </ScoutStudyShell>
