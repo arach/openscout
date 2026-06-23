@@ -1095,7 +1095,7 @@ final class AppModel {
             guard let url = scoutWebURL(origin: origin.origin, path: Self.scoutWebMeshPath) else { continue }
             logTailnetPair("GET \(origin.displayName)", level: .info)
             do {
-                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4)
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 12)
                 request.httpMethod = "GET"
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
