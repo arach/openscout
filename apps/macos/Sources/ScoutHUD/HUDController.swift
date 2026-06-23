@@ -3,6 +3,124 @@ import Combine
 import ScoutSharedUI
 import SwiftUI
 
+private enum HUDTailPanelEdge {
+    case left
+    case right
+    case top
+    case bottom
+
+    var isHorizontal: Bool {
+        self == .top || self == .bottom
+    }
+}
+
+private enum HUDTailPanelAlignment {
+    case start
+    case center
+    case end
+}
+
+private struct HUDTailPanelAttachment {
+    let edge: HUDTailPanelEdge
+    let alignment: HUDTailPanelAlignment
+
+    static func nearest(to point: NSPoint, in visible: NSRect) -> HUDTailPanelAttachment {
+        let distances: [(HUDTailPanelEdge, CGFloat)] = [
+            (.left, abs(point.x - visible.minX)),
+            (.right, abs(point.x - visible.maxX)),
+            (.top, abs(point.y - visible.maxY)),
+            (.bottom, abs(point.y - visible.minY)),
+        ]
+        let edge = distances.min { $0.1 < $1.1 }?.0 ?? .right
+        return HUDTailPanelAttachment(edge: edge, alignment: alignment(for: point, edge: edge, in: visible))
+    }
+
+    func frame(size: NSSize, in visible: NSRect) -> NSRect {
+        let x: CGFloat
+        let y: CGFloat
+
+        switch edge {
+        case .left:
+            x = visible.minX
+            y = alignedOrigin(
+                availableStart: visible.minY,
+                availableLength: visible.height,
+                itemLength: size.height,
+                flipped: true
+            )
+        case .right:
+            x = visible.maxX - size.width
+            y = alignedOrigin(
+                availableStart: visible.minY,
+                availableLength: visible.height,
+                itemLength: size.height,
+                flipped: true
+            )
+        case .top:
+            x = alignedOrigin(
+                availableStart: visible.minX,
+                availableLength: visible.width,
+                itemLength: size.width,
+                flipped: false
+            )
+            y = visible.maxY - size.height
+        case .bottom:
+            x = alignedOrigin(
+                availableStart: visible.minX,
+                availableLength: visible.width,
+                itemLength: size.width,
+                flipped: false
+            )
+            y = visible.minY
+        }
+
+        return NSRect(x: x, y: y, width: size.width, height: size.height)
+    }
+
+    private static func alignment(for point: NSPoint, edge: HUDTailPanelEdge, in visible: NSRect) -> HUDTailPanelAlignment {
+        let value: CGFloat
+        if edge.isHorizontal {
+            value = (point.x - visible.minX) / max(visible.width, 1)
+        } else {
+            value = (point.y - visible.minY) / max(visible.height, 1)
+        }
+
+        if value < 1.0 / 3.0 { return edge.isHorizontal ? .start : .end }
+        if value > 2.0 / 3.0 { return edge.isHorizontal ? .end : .start }
+        return .center
+    }
+
+    private func alignedOrigin(
+        availableStart: CGFloat,
+        availableLength: CGFloat,
+        itemLength: CGFloat,
+        flipped: Bool
+    ) -> CGFloat {
+        let clampedLength = min(itemLength, availableLength)
+        switch alignment {
+        case .start:
+            return flipped ? availableStart + availableLength - clampedLength : availableStart
+        case .center:
+            return availableStart + (availableLength - clampedLength) / 2
+        case .end:
+            return flipped ? availableStart : availableStart + availableLength - clampedLength
+        }
+    }
+}
+
+private extension NSRect {
+    var hudCenter: NSPoint {
+        NSPoint(x: midX, y: midY)
+    }
+
+    func isNearlyEqual(to other: NSRect, tolerance: CGFloat = 0.5) -> Bool {
+        abs(origin.x - other.origin.x) <= tolerance
+            && abs(origin.y - other.origin.y) <= tolerance
+            && abs(size.width - other.size.width) <= tolerance
+            && abs(size.height - other.size.height) <= tolerance
+    }
+}
+
 // Singleton controller for the OpenScout HUD overlay.
 // One non-activating glass panel; summon/dismiss via Hyper+H or the
 // menu-bar item. Esc dismisses.
@@ -12,7 +130,7 @@ public final class HUDController {
     public static let shared = HUDController()
 
     private var panel: OverlayPanel?
-    private var sizeSubscription: AnyCancellable?
+    private var geometrySubscription: AnyCancellable?
 
     public var isVisible: Bool {
         guard let panel else { return false }
@@ -62,12 +180,22 @@ public final class HUDController {
     public func show() {
         // Reuse the panel if it already exists (still fading out, etc).
         if let panel {
-            OverlayPanelShell.position(panel, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
+            panel.onFlagsChanged = { [weak self] event in
+                self?.handleFlagsChanged(event)
+            }
+            OverlayPanelShell.position(
+                panel,
+                placement: placement(
+                    for: HUDState.shared.view,
+                    size: HUDState.shared.size,
+                    tailCollapsed: HUDState.shared.tailCollapsed
+                )
+            )
             panel.alphaValue = 0
             OverlayPanelShell.present(panel, activate: false, makeKey: true, orderFrontRegardless: true)
-            fadeIn(panel)
+            warmAndFadeIn(panel)
             installMonitors()
-            installSizeObserver()
+            installGeometryObserver()
             HUDStateFile.shared.touch()
             return
         }
@@ -77,10 +205,18 @@ public final class HUDController {
         })
         .preferredColorScheme(.dark)
 
-        var config = OverlayPanelShell.Config(size: HUDState.shared.size.contentSize())
+        var config = OverlayPanelShell.Config(
+            size: HUDState.shared.size.contentSize(
+                for: HUDState.shared.view,
+                collapsed: HUDState.shared.tailCollapsed
+            )
+        )
         config.isMovableByWindowBackground = true
         config.resizable = true
-        config.minContentSize = NSSize(width: 360, height: 380)
+        config.minContentSize = minContentSize(
+            for: HUDState.shared.view,
+            tailCollapsed: HUDState.shared.tailCollapsed
+        )
         // Max is screen-bounded. The large tier docks to top half of the
         // active screen, which on a 4K/5K display can exceed an old fixed
         // ceiling — clamp to the visible frame's full size as the upper
@@ -97,14 +233,24 @@ public final class HUDController {
         // modifiers on the root view get clipped to the hosting view's
         // rectangular bounds and produce a faint rectangular silhouette
         // behind the rounded shape; we don't add any on HUDStatusView.
-        config.hasShadow = true
+        config.hasShadow = HUDState.shared.view != .tail
         config.onKeyDown = { [weak self] event in
             guard let self else { return }
             self.handleKeyDown(event)
         }
+        config.onFlagsChanged = { [weak self] event in
+            self?.handleFlagsChanged(event)
+        }
 
         let p = OverlayPanelShell.makePanel(config: config, rootView: view)
-        OverlayPanelShell.position(p, placement: .mouseScreenCentered(yOffsetRatio: 0.04))
+        OverlayPanelShell.position(
+            p,
+            placement: placement(
+                for: HUDState.shared.view,
+                size: HUDState.shared.size,
+                tailCollapsed: HUDState.shared.tailCollapsed
+            )
+        )
 
         p.alphaValue = 0
         OverlayPanelShell.present(p, activate: false, makeKey: true, orderFrontRegardless: true)
@@ -119,17 +265,21 @@ public final class HUDController {
             encoding: .utf8
         )
 
-        fadeIn(p)
+        warmAndFadeIn(p)
         installMonitors()
-        installSizeObserver()
+        installGeometryObserver()
         HUDStateFile.shared.touch()
     }
 
     public func dismiss() {
         guard let p = panel else { return }
+        if HUDMotionState.shared.phase == .idle {
+            HUDMotionState.shared.begin(.moving)
+        }
+        preparePanelForMotion(p)
         removeMonitors()
-        sizeSubscription?.cancel()
-        sizeSubscription = nil
+        geometrySubscription?.cancel()
+        geometrySubscription = nil
 
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.14
@@ -139,6 +289,7 @@ public final class HUDController {
             Task { @MainActor [weak self] in
                 p.orderOut(nil)
                 self?.panel = nil
+                HUDMotionState.shared.settle()
                 HUDStateFile.shared.touch()
             }
         }
@@ -153,24 +304,41 @@ public final class HUDController {
         return true
     }
 
-    // Drive the panel frame from HUDState.size. The window resize is
-    // anchored on its current center so the panel grows/shrinks in
-    // place — feels like a tier swap, not a jump.
-    private func installSizeObserver() {
-        sizeSubscription?.cancel()
-        sizeSubscription = HUDState.shared.$size
-            .dropFirst() // ignore the initial value — already at that size
-            .sink { [weak self] newSize in
+    // Drive the panel frame from HUDState.size + view. Tail uses its own
+    // portrait overlay geometry, so tab changes can legitimately resize and
+    // re-anchor the same panel even when the S/M/L tier is unchanged.
+    private func installGeometryObserver() {
+        geometrySubscription?.cancel()
+        geometrySubscription = Publishers.CombineLatest3(
+            HUDState.shared.$size,
+            HUDState.shared.$view,
+            HUDState.shared.$tailCollapsed
+        )
+            .dropFirst() // ignore the initial value — already at that geometry
+            .sink { [weak self] size, view, tailCollapsed in
                 Task { @MainActor [weak self] in
-                    self?.applySize(newSize)
+                    self?.applyGeometry(size: size, view: view, tailCollapsed: tailCollapsed)
                 }
             }
     }
 
-    private func applySize(_ size: HUDSize) {
+    private func applyGeometry(size: HUDSize, view: HUDView, tailCollapsed: Bool) {
         guard let p = panel else { return }
         let screen = p.screen ?? NSScreen.main
-        let target = size.contentSize(on: screen)
+        let collapsed = view == .tail && tailCollapsed
+        let tailAttachment = view == .tail ? tailAttachment(for: p, on: screen) : nil
+        let target = tailAttachment.map { attachment in
+            tailContentSize(size: size, collapsed: collapsed, attachment: attachment, on: screen)
+        } ?? size.contentSize(for: view, collapsed: collapsed, on: screen)
+        let targetMinContentSize = minContentSize(for: view, tailCollapsed: collapsed)
+        p.contentMinSize = motionMinContentSize(for: view, target: targetMinContentSize)
+        p.hasShadow = view != .tail
+        let isTailCollapseMotion = view == .tail && collapsed
+        if isTailCollapseMotion {
+            preparePanelForTailCollapse(p)
+        } else {
+            restorePanelContentSurface(p)
+        }
 
         // Convert content size → frame size. For .borderless panels the
         // title-bar contribution is zero, so frame == content; keep the
@@ -178,7 +346,9 @@ public final class HUDController {
         let frameSize = p.frameRect(forContentRect: NSRect(origin: .zero, size: target)).size
 
         let newFrame: NSRect
-        if size.isScreenAnchored, let visible = screen?.visibleFrame {
+        if let tailAttachment, let visible = screen?.visibleFrame {
+            newFrame = tailAttachment.frame(size: frameSize, in: visible)
+        } else if size.isScreenAnchored(for: view), let visible = screen?.visibleFrame {
             // Dock to top half of the active screen. macOS coordinate
             // space has origin at bottom-left, so "top half" means y
             // starts at visible.midY and extends to visible.maxY.
@@ -200,25 +370,172 @@ public final class HUDController {
             )
         }
 
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.22
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        if p.frame.isNearlyEqual(to: newFrame) {
+            p.contentMinSize = targetMinContentSize
+            p.setFrame(newFrame, display: true)
+            HUDMotionState.shared.finish()
+            restorePanelContentSurface(p)
+            return
+        }
+
+        let motionToken = HUDMotionState.shared.isActive ? nil : HUDMotionState.shared.begin(.moving)
+        preparePanelForMotion(p)
+        let animationStyle = frameAnimationStyle(for: view, tailCollapsed: collapsed)
+
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = animationStyle.duration
+            ctx.timingFunction = animationStyle.timing
             ctx.allowsImplicitAnimation = true
             p.animator().setFrame(newFrame, display: true)
+        }) {
+            Task { @MainActor in
+                p.contentMinSize = targetMinContentSize
+                HUDMotionState.shared.finish(token: motionToken)
+                self.restorePanelContentSurface(p)
+            }
         }
+    }
+
+    private func tailAttachment(for panel: OverlayPanel, on screen: NSScreen?) -> HUDTailPanelAttachment? {
+        guard let visible = screen?.visibleFrame else { return nil }
+        return HUDTailPanelAttachment.nearest(to: panel.frame.hudCenter, in: visible)
+    }
+
+    private func tailContentSize(
+        size: HUDSize,
+        collapsed: Bool,
+        attachment: HUDTailPanelAttachment,
+        on screen: NSScreen?
+    ) -> NSSize {
+        let visible = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        if collapsed {
+            return HUDTailCollapsedGeometry.size(isHorizontal: attachment.edge.isHorizontal, in: visible)
+        }
+
+        let edgeLength = attachment.edge.isHorizontal ? visible.width : visible.height
+        let alongEdge = floor(edgeLength * size.tailEdgeCoverage)
+        let crossEdge = tailCrossEdgeSize(size: size, attachment: attachment, visible: visible)
+
+        if attachment.edge.isHorizontal {
+            return NSSize(width: alongEdge, height: crossEdge)
+        }
+        return NSSize(width: crossEdge, height: alongEdge)
+    }
+
+    private func tailCrossEdgeSize(
+        size: HUDSize,
+        attachment: HUDTailPanelAttachment,
+        visible: NSRect
+    ) -> CGFloat {
+        if attachment.edge.isHorizontal {
+            switch size {
+            case .compact:
+                return min(360, max(300, floor(visible.height * 0.32)))
+            case .medium:
+                return min(460, max(380, floor(visible.height * 0.40)))
+            case .large:
+                return min(620, max(440, floor(visible.height * 0.42)))
+            }
+        }
+
+        switch size {
+        case .compact:
+            return 460
+        case .medium:
+            return 540
+        case .large:
+            return min(680, max(540, floor(visible.width * 0.34)))
+        }
+    }
+
+    private func placement(for view: HUDView, size: HUDSize, tailCollapsed: Bool) -> OverlayPanelShell.Placement {
+        if view == .tail {
+            return .rightCenter(margin: 0)
+        }
+        return .mouseScreenCentered(yOffsetRatio: 0.04)
+    }
+
+    private func minContentSize(for view: HUDView, tailCollapsed: Bool) -> NSSize {
+        guard view == .tail else {
+            return NSSize(width: 360, height: 380)
+        }
+        if tailCollapsed {
+            return NSSize(
+                width: HUDTailCollapsedGeometry.verticalThickness,
+                height: HUDTailCollapsedGeometry.horizontalThickness
+            )
+        }
+        return NSSize(width: 240, height: 160)
+    }
+
+    private func motionMinContentSize(for view: HUDView, target: NSSize) -> NSSize {
+        guard view == .tail else { return target }
+        return NSSize(width: min(target.width, 42), height: min(target.height, 26))
+    }
+
+    private func preparePanelForTailCollapse(_ p: NSPanel) {
+        p.contentView?.isHidden = true
+        p.contentView?.alphaValue = 0
+        p.backgroundColor = NSColor(srgbRed: 0.105, green: 0.108, blue: 0.108, alpha: 0.94)
+        p.displayIfNeeded()
+    }
+
+    private func restorePanelContentSurface(_ p: NSPanel) {
+        p.backgroundColor = .clear
+        p.contentView?.alphaValue = 1
+        p.contentView?.isHidden = false
+        p.contentView?.layoutSubtreeIfNeeded()
+        p.displayIfNeeded()
+    }
+
+    private func frameAnimationStyle(
+        for view: HUDView,
+        tailCollapsed: Bool
+    ) -> (duration: TimeInterval, timing: CAMediaTimingFunction) {
+        guard view == .tail else {
+            return (0.18, CAMediaTimingFunction(name: .easeInEaseOut))
+        }
+        if tailCollapsed {
+            return (
+                0.135,
+                CAMediaTimingFunction(controlPoints: 0.34, 0.00, 0.16, 1.00)
+            )
+        }
+        return (
+            0.215,
+            CAMediaTimingFunction(controlPoints: 0.14, 0.82, 0.18, 1.00)
+        )
     }
 
     private func fadeIn(_ p: NSPanel) {
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.12
+            ctx.duration = 0.10
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
             p.animator().alphaValue = 1.0
         }
     }
 
+    private func warmAndFadeIn(_ p: OverlayPanel) {
+        HUDMotionState.shared.begin(.warming)
+        preparePanelForMotion(p)
+        Task { @MainActor [weak self, weak p] in
+            try? await Task.sleep(nanoseconds: 45_000_000)
+            guard let self, let p, self.panel === p else { return }
+            self.fadeIn(p)
+            HUDMotionState.shared.settle(after: 0.16)
+        }
+    }
+
+    private func preparePanelForMotion(_ p: NSPanel) {
+        p.contentView?.wantsLayer = true
+        p.contentView?.layoutSubtreeIfNeeded()
+        p.displayIfNeeded()
+    }
+
     // MARK: - Event monitors
 
     private var globalKeyMonitor: Any?
+    private var globalFlagsMonitor: Any?
     private var globalMouseUpMonitor: Any?
     private var outsideDismissTask: Task<Void, Never>?
 
@@ -233,6 +550,15 @@ public final class HUDController {
             guard let self else { return }
             guard self.shouldHandleGlobalKey(event) else { return }
             self.handleKeyDown(event)
+        }
+
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: .flagsChanged
+        ) { event in
+            let optionPressed = event.modifierFlags.contains(.option)
+            Task { @MainActor in
+                HUDMotionState.shared.setModifierLift(optionPressed)
+            }
         }
 
         globalMouseUpMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -250,6 +576,10 @@ public final class HUDController {
         }
         guard let panel, panel.isVisible else { return false }
         return panel.isKeyWindow || NSApp.isActive
+    }
+
+    private func handleFlagsChanged(_ event: NSEvent) {
+        HUDMotionState.shared.setModifierLift(event.modifierFlags.contains(.option))
     }
 
     private func shouldClaimHostKey(_ event: NSEvent) -> Bool {
@@ -378,6 +708,7 @@ public final class HUDController {
 
     private func scheduleOutsideClickDismiss() {
         guard let panel, panel.isVisible else { return }
+        guard HUDState.shared.view != .tail else { return }
         guard !panel.frame.contains(NSEvent.mouseLocation) else { return }
 
         outsideDismissTask?.cancel()
@@ -463,9 +794,14 @@ public final class HUDController {
             NSEvent.removeMonitor(m)
             globalKeyMonitor = nil
         }
+        if let m = globalFlagsMonitor {
+            NSEvent.removeMonitor(m)
+            globalFlagsMonitor = nil
+        }
         if let m = globalMouseUpMonitor {
             NSEvent.removeMonitor(m)
             globalMouseUpMonitor = nil
         }
+        HUDMotionState.shared.setModifierLift(false)
     }
 }

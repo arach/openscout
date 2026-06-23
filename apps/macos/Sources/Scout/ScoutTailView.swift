@@ -15,6 +15,25 @@ enum ScoutTailFont {
             ? .custom("JetBrains Mono", size: size).weight(weight)
             : .system(size: size, weight: weight, design: .monospaced)
     }
+
+    /// Title face — Space Grotesk, bundled in the app (Contents/Resources/Fonts,
+    /// auto-registered via ATSApplicationFontsPath). A grotesk gives the screen
+    /// titles a designed character the system face can't. Falls back to the
+    /// system face when the bundled font isn't registered (e.g. SwiftUI preview).
+    /// Resolves whichever name the variable font registers under.
+    private static let groteskName: String? = {
+        for name in ["Space Grotesk", "SpaceGrotesk-Regular", "Space Grotesk Light", "SpaceGrotesk-Light"] {
+            if NSFont(name: name, size: 12) != nil { return name }
+        }
+        return nil
+    }()
+
+    static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        if let groteskName {
+            return .custom(groteskName, size: size).weight(weight)
+        }
+        return .system(size: size, weight: weight, design: .default)
+    }
 }
 
 private enum ScoutTailViewMode: String, CaseIterable, Identifiable {
@@ -72,19 +91,19 @@ struct ScoutTailContent: View {
         tail.filteredEvents
     }
 
+    private var visibleRows: [ScoutTailRowContext] {
+        let agentsBySessionId = agentsBySessionId
+        return visibleEvents.map {
+            ScoutTailContextBuilder.context(for: $0, agentsBySessionId: agentsBySessionId)
+        }
+    }
+
     private var latestEvent: ScoutTailEvent? {
         visibleEvents.last
     }
 
     private var agentsBySessionId: [String: ScoutAgent] {
-        var result: [String: ScoutAgent] = [:]
-        for agent in agents {
-            guard let key = scoutTailCopyable(agent.harnessSessionId) else { continue }
-            if result[key] == nil || agent.state == .working {
-                result[key] = agent
-            }
-        }
-        return result
+        ScoutTailContextBuilder.agentsBySessionId(agents)
     }
 
     var body: some View {
@@ -102,29 +121,26 @@ struct ScoutTailContent: View {
         .background(ScoutDesign.bg)
     }
 
+    /// One minimal header band, shared in spirit across Tail/Agents/Repos:
+    /// a grotesk title (no glyph, no lead dot), a quiet status line, then a
+    /// single row of controls. No two-tier stack — the stream gets the rest.
     private var header: some View {
         ScoutColumnHeader(horizontalPadding: ScoutTailMetrics.pageGutter) {
-            titleCluster
+            titleRow
         } secondary: {
-            filterToolbar
+            EmptyView()
         } trailing: {
             commandStrip
         }
     }
 
-    private var titleCluster: some View {
-        HStack(spacing: HudSpacing.sm) {
-            // The Tail identity mark — a steady ECG line (matches the sidebar
-            // icon). One quiet accent glyph, not a blinking "live" gimmick.
-            ScoutTailGlyph()
-
+    private var titleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
             Text("Tail")
-                .font(HudFont.ui(HudTextSize.xl, weight: .semibold))
+                .font(ScoutTailFont.display(HudTextSize.xl, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
 
-            ScoutTailHeaderDivider()
-
-            headerMetrics
+            statusLine
 
             if tail.isLoading {
                 ScoutBrailleSpinner(size: HudTextSize.sm, tint: ScoutPalette.dim)
@@ -133,51 +149,18 @@ struct ScoutTailContent: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    /// Quiet inventory read-out beside the title: tabular figures carry the count,
-    /// lowercase units recede, hairline middots tie them together. No throughput
-    /// or "live" rate — the stream itself is the liveness.
-    private var headerMetrics: some View {
-        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-            tailCountCluster(tail.discovery?.totals.transcripts ?? tail.sessionCount, "logs")
-            metricDot
-            tailCountCluster(tail.discovery?.totals.total ?? 0, "procs")
-            metricDot
-            tailCountCluster(tail.sessionCount, "sessions")
-        }
-    }
-
-    private var metricDot: some View {
-        Text("·")
-            .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
-            .foregroundStyle(ScoutPalette.dim.opacity(0.55))
-    }
-
-    private func tailCountCluster(_ value: Int, _ label: String) -> some View {
-        tailMetricCluster("\(value)", label)
-    }
-
-    private func tailMetricCluster(_ value: String, _ label: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: HudSpacing.xxs) {
-            Text(value)
-                .font(ScoutTailFont.mono(HudTextSize.base, weight: .semibold))
-                .foregroundStyle(ScoutPalette.ink)
-                .monospacedDigit()
-            Text(label)
-                .font(HudFont.ui(HudTextSize.xs, weight: .medium))
-                .foregroundStyle(ScoutPalette.dim)
-        }
-    }
-
-    private var filterToolbar: some View {
-        HStack(spacing: HudSpacing.sm) {
-            ScoutTailSearchField(text: $tail.query)
-                .frame(width: 220)
-
-            sourceMenu
-
-            Spacer(minLength: HudSpacing.sm)
-        }
-        .layoutPriority(2)
+    /// Quiet inventory read-out beside the title: tabular figures, lowercase
+    /// units, hairline middots — a status line that recedes behind the title,
+    /// not a banner. No throughput or "live" rate; the stream is the liveness.
+    private var statusLine: some View {
+        let logs = tail.discovery?.totals.transcripts ?? tail.sessionCount
+        let procs = tail.discovery?.totals.total ?? 0
+        let sessions = tail.sessionCount
+        return Text("\(logs) logs · \(procs) procs · \(sessions) sessions")
+            .font(ScoutTailFont.mono(HudTextSize.xs, weight: .medium))
+            .foregroundStyle(ScoutPalette.dim)
+            .monospacedDigit()
+            .lineLimit(1)
     }
 
     private func activeFilterBanner(_ summary: String) -> some View {
@@ -235,11 +218,19 @@ struct ScoutTailContent: View {
         .help("Filter by source")
     }
 
+    /// One row of controls, right-aligned: search, the source filter, then the
+    /// view + follow toggles and the icon actions. Everything the old two-tier
+    /// header spread across two rows, kept on a single line.
     private var commandStrip: some View {
         HStack(spacing: HudSpacing.sm) {
-            ScoutTailModeToggle(mode: viewModeBinding)
+            ScoutTailSearchField(text: $tail.query)
+                .frame(width: 210)
+
+            sourceMenu
 
             ScoutTailHeaderDivider()
+
+            ScoutTailModeToggle(mode: viewModeBinding)
 
             ScoutTailGhostButton(
                 title: tail.isFollowing ? "Pause" : "Follow",
@@ -350,6 +341,7 @@ struct ScoutTailContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(ScoutTailMetrics.pageGutter)
         } else {
+            let rows = visibleRows
             VStack(spacing: 0) {
                 if viewMode == .ledger {
                     ScoutTailHeaderRow(
@@ -362,39 +354,39 @@ struct ScoutTailContent: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            ForEach(visibleEvents) { event in
+                            ForEach(rows) { row in
                                 Group {
                                     if viewMode == .ledger {
                                         ScoutTailRow(
-                                            event: event,
+                                            row: row,
                                             columns: columnLayout,
-                                            activeAgent: activeAgent(for: event),
-                                            isSelected: selectedEventId == event.id,
-                                            onOpenSession: { onOpenSession(event) },
+                                            activeAgent: activeAgent(for: row),
+                                            isSelected: selectedEventId == row.id,
+                                            onOpenSession: { onOpenSession(row.event) },
                                             onOpenAgent: { agent in onOpenAgent(agent) }
                                         ) {
-                                            selectedEventId = selectedEventId == event.id ? nil : event.id
+                                            selectedEventId = selectedEventId == row.id ? nil : row.id
                                         }
                                     } else {
                                         ScoutTailTimelineRow(
-                                            event: event,
-                                            activeAgent: activeAgent(for: event),
-                                            isSelected: selectedEventId == event.id,
-                                            isFirst: event.id == visibleEvents.first?.id,
-                                            onOpenSession: { onOpenSession(event) },
+                                            row: row,
+                                            activeAgent: activeAgent(for: row),
+                                            isSelected: selectedEventId == row.id,
+                                            isFirst: row.id == rows.first?.id,
+                                            onOpenSession: { onOpenSession(row.event) },
                                             onOpenAgent: { agent in onOpenAgent(agent) }
                                         ) {
-                                            selectedEventId = selectedEventId == event.id ? nil : event.id
+                                            selectedEventId = selectedEventId == row.id ? nil : row.id
                                         }
                                     }
                                 }
-                                .id(event.id)
+                                .id(row.id)
 
-                                if selectedEventId == event.id {
+                                if selectedEventId == row.id {
                                     ScoutTailDetail(
-                                        event: event,
-                                        activeAgent: activeAgent(for: event),
-                                        onOpenSession: { onOpenSession(event) },
+                                        row: row,
+                                        activeAgent: activeAgent(for: row),
+                                        onOpenSession: { onOpenSession(row.event) },
                                         onOpenAgent: { agent in onOpenAgent(agent) }
                                     )
                                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -407,13 +399,13 @@ struct ScoutTailContent: View {
                     }
                     .scrollIndicators(.visible)
                     .onChange(of: visibleEvents.count) { _, _ in
-                        guard tail.isFollowing, let last = visibleEvents.last else { return }
+                        guard tail.isFollowing, let last = rows.last else { return }
                         withAnimation(.easeOut(duration: 0.16)) {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
                     .onAppear {
-                        guard tail.isFollowing, let last = visibleEvents.last else { return }
+                        guard tail.isFollowing, let last = rows.last else { return }
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
                 }
@@ -439,8 +431,8 @@ struct ScoutTailContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func activeAgent(for event: ScoutTailEvent) -> ScoutAgent? {
-        scoutTailCopyable(event.sessionId).flatMap { agentsBySessionId[$0] }
+    private func activeAgent(for row: ScoutTailRowContext) -> ScoutAgent? {
+        ScoutTailContextBuilder.activeAgent(for: row.event, in: agentsBySessionId)
     }
 }
 
@@ -760,7 +752,7 @@ private struct ScoutTailHeaderRow: View {
 /// everything else is neutral ink graded by emphasis. A hairline rules each row
 /// (the approved Ledger rhythm — no zebra, no left accent bar).
 private struct ScoutTailRow: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let columns: ScoutTailColumnLayout
     let activeAgent: ScoutAgent?
     let isSelected: Bool
@@ -773,16 +765,16 @@ private struct ScoutTailRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: ScoutTailMetrics.columnGap) {
-            ScoutTailTimeCell(event: event, emphasized: emphasized)
+            ScoutTailTimeCell(row: row, emphasized: emphasized)
                 .frame(width: columns.time, alignment: .leading)
 
-            ScoutTailKindGlyph(kind: event.kind)
+            ScoutTailKindGlyph(kind: row.kind)
                 .frame(width: columns.kind, alignment: .leading)
 
-            ScoutTailIdentityCell(event: event, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
+            ScoutTailIdentityCell(row: row, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
                 .frame(width: columns.identity, alignment: .leading)
 
-            ScoutTailActionText(event: event, emphasized: emphasized)
+            ScoutTailActionText(row: row, emphasized: emphasized)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
@@ -793,7 +785,7 @@ private struct ScoutTailRow: View {
         .onTapGesture(perform: action)
         .scoutPointerCursor()
         .onHover { isHovering = $0 }
-        .scoutTailRowMenu(event: event, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
+        .scoutTailRowMenu(row: row, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
     }
 
     @ViewBuilder
@@ -811,7 +803,7 @@ private struct ScoutTailRow: View {
 /// One Timeline row: a chronological spine where each node IS the kind glyph,
 /// time on the axis's left, avatar + identity + action to its right.
 private struct ScoutTailTimelineRow: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let activeAgent: ScoutAgent?
     let isSelected: Bool
     let isFirst: Bool
@@ -824,16 +816,16 @@ private struct ScoutTailTimelineRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: ScoutTailMetrics.columnGap) {
-            ScoutTailTimeCell(event: event, emphasized: emphasized)
+            ScoutTailTimeCell(row: row, emphasized: emphasized)
                 .frame(width: 52, alignment: .leading)
                 .padding(.top, 8)
 
             spine.frame(width: 18)
 
             HStack(alignment: .center, spacing: HudSpacing.sm) {
-                ScoutTailIdentityCell(event: event, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
+                ScoutTailIdentityCell(row: row, activeAgent: activeAgent, emphasized: emphasized, onOpenAgent: onOpenAgent)
                     .fixedSize(horizontal: true, vertical: false)
-                ScoutTailActionText(event: event, emphasized: emphasized)
+                ScoutTailActionText(row: row, emphasized: emphasized)
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 7)
@@ -844,7 +836,7 @@ private struct ScoutTailTimelineRow: View {
         .onTapGesture(perform: action)
         .scoutPointerCursor()
         .onHover { isHovering = $0 }
-        .scoutTailRowMenu(event: event, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
+        .scoutTailRowMenu(row: row, activeAgent: activeAgent, onOpenSession: onOpenSession, onOpenAgent: onOpenAgent)
     }
 
     /// A continuous vertical axis with the kind-glyph node riding on it. The
@@ -866,7 +858,7 @@ private struct ScoutTailTimelineRow: View {
         ZStack {
             Circle().fill(ScoutPalette.surface)
             Circle().strokeBorder(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
-            ScoutTailKindGlyph(kind: event.kind, size: 10)
+            ScoutTailKindGlyph(kind: row.kind, size: 10)
         }
         .frame(width: 18, height: 18)
     }
@@ -886,11 +878,11 @@ private struct ScoutTailTimelineRow: View {
 /// The clock split into a brighter HH:mm and a recessive :ss so the timestamp
 /// reads as a designed numeral. Tabular figures keep every colon aligned.
 private struct ScoutTailTimeCell: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let emphasized: Bool
 
     var body: some View {
-        let clock = event.clockLabel
+        let clock = row.at
         let cut = clock.index(clock.startIndex, offsetBy: min(5, clock.count))
         let color = emphasized ? ScoutPalette.muted : ScoutPalette.dim
         return HStack(spacing: 0) {
@@ -908,73 +900,64 @@ private struct ScoutTailTimeCell: View {
 /// process drops to `source·pid` in dim mono. The sprite's *presence* — not a
 /// second column — signals a resolved agent.
 private struct ScoutTailIdentityCell: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let activeAgent: ScoutAgent?
     let emphasized: Bool
     let onOpenAgent: (ScoutAgent) -> Void
 
     var body: some View {
-        HStack(spacing: HudSpacing.xs) {
-            // Every row gets a deterministic sprite, keyed to whatever identity
-            // it resolves to — so the column is never a blank gutter and the same
-            // agent/project reads as the same mark down the stream.
-            SpriteAvatarView(name: spriteName, size: 18, tile: true)
+        HStack(spacing: HudSpacing.sm) {
+            // The model/runtime as a standalone little icon — the hand-drawn
+            // harness mark leading the row, per the locked Tail design. (It was a
+            // corner badge on a sprite avatar; promoted to its own glyph so the
+            // runtime reads at a glance: Claude, Codex, Gemini, Cursor, …)
+            ScoutHarnessMark(harness: row.provider, size: 16, tint: modelTint)
+                .frame(width: 16, height: 16)
+                .help(row.provider)
             label
         }
     }
 
-    /// The name the sprite is generated from: resolved agent → project → proc.
-    private var spriteName: String {
-        if let activeAgent { return activeAgent.displayName }
-        if scoutTailCopyable(event.projectLabel) != nil { return event.projectLabel }
-        return procFallbackLabel
+    /// The model icon brightens with the row so it tracks selection/hover, but
+    /// stays neutral otherwise — the silhouette differentiates runtimes, not hue.
+    private var modelTint: Color {
+        emphasized ? ScoutPalette.ink.opacity(0.85) : ScoutPalette.muted
     }
 
-    @ViewBuilder
+    /// The identity rendered as the `project/session:pid` path the studio locked:
+    /// the project reads, the session ref recedes. Click opens the resolved
+    /// agent's observe surface, or reveals the project in Finder.
     private var label: some View {
-        if let activeAgent {
-            // Resolved agent: an @handle at full ink — the thing you scan for.
-            ScoutTailHoverAction(
-                title: atHandle(activeAgent.displayName),
-                actionHelp: "Open agent observe",
-                tint: agentInk,
-                activeTint: ScoutPalette.accent,
-                font: ScoutTailFont.mono(HudTextSize.sm, weight: .medium),
-                truncationMode: .tail,
-                action: { onOpenAgent(activeAgent) }
-            )
-        } else if scoutTailCopyable(event.projectLabel) != nil {
-            // Unresolved: the project, muted (no @, lower confidence).
-            ScoutTailHoverAction(
-                title: event.projectLabel,
-                actionHelp: "Reveal project in Finder",
-                tint: ScoutPalette.muted,
-                activeTint: ScoutPalette.ink,
-                font: ScoutTailFont.mono(HudTextSize.sm, weight: .regular),
-                truncationMode: .middle,
-                action: scoutTailCopyable(event.cwd) == nil ? nil : { scoutTailRevealPath(event.cwd) }
-            )
-        } else {
-            Text(procFallbackLabel)
-                .font(ScoutTailFont.mono(HudTextSize.xs, weight: .regular))
-                .foregroundStyle(ScoutPalette.dim)
-                .lineLimit(1)
-                .truncationMode(.tail)
+        Button {
+            if let activeAgent {
+                onOpenAgent(activeAgent)
+            } else if scoutTailCopyable(row.cwd) != nil {
+                scoutTailRevealPath(row.cwd)
+            }
+        } label: {
+            HStack(spacing: 0) {
+                Text(row.pathPrimary)
+                    .foregroundStyle(projectTint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(row.identityDetail)
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+            }
+            .font(ScoutTailFont.mono(HudTextSize.sm, weight: .regular))
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .scoutPointerCursor()
+        .help(activeAgent != nil ? "Open agent observe" : "Reveal project in Finder")
     }
 
-    private func atHandle(_ name: String) -> String {
-        name.hasPrefix("@") ? name : "@\(name)"
-    }
-
-    private var agentInk: Color {
-        emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.92)
-    }
-
-    /// Last-resort identity (`codex·4894`) so even a bare process is named.
-    private var procFallbackLabel: String {
-        let src = event.sourceLabel
-        return event.pid > 0 ? "\(src)·\(event.pid)" : src
+    private var projectTint: Color {
+        if activeAgent != nil {
+            return emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.92)
+        }
+        return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
     }
 }
 
@@ -983,12 +966,12 @@ private struct ScoutTailIdentityCell: View {
 /// treatment: a touch smaller, ink, on a faint inset chip, so they read as the
 /// shell lines they are. Results/system recede; user/assistant prose stays full.
 private struct ScoutTailActionText: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let emphasized: Bool
 
     var body: some View {
-        if event.kind == .tool {
-            Text(event.summary)
+        if row.kind == .tool {
+            Text(row.line)
                 .font(ScoutTailFont.mono(HudTextSize.xxs, weight: .regular))
                 .foregroundStyle(emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.86))
                 .lineLimit(1)
@@ -1000,7 +983,7 @@ private struct ScoutTailActionText: View {
                         .fill(ScoutSurface.inset)
                 )
         } else {
-            Text(event.summary)
+            Text(row.line)
                 .font(font)
                 .foregroundStyle(color)
                 .lineLimit(1)
@@ -1009,19 +992,22 @@ private struct ScoutTailActionText: View {
     }
 
     private var font: Font {
-        switch event.kind {
-        case .user: return ScoutTailFont.mono(HudTextSize.xs, weight: .semibold)
+        switch row.kind {
+        case .user, .prompt: return ScoutTailFont.mono(HudTextSize.xs, weight: .semibold)
         case .assistant: return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
-        case .tool, .toolResult, .system, .other: return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
+        case .message, .tool, .output, .system, .event, .edit, .error, .lifecycle, .broker, .ask:
+            return ScoutTailFont.mono(HudTextSize.xs, weight: .regular)
         }
     }
 
     private var color: Color {
-        switch event.kind {
+        switch row.kind {
         case .user: return ScoutPalette.ink
         case .assistant: return emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.88)
-        case .tool, .toolResult: return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
-        case .system, .other: return emphasized ? ScoutPalette.muted : ScoutPalette.dim
+        case .tool, .output, .edit, .prompt: return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
+        case .message, .system, .event, .lifecycle, .broker: return emphasized ? ScoutPalette.muted : ScoutPalette.dim
+        case .error: return emphasized ? ScoutPalette.ink.opacity(0.92) : ScoutPalette.muted
+        case .ask: return ScoutPalette.ink
         }
     }
 }
@@ -1029,37 +1015,37 @@ private struct ScoutTailActionText: View {
 /// The shared row context menu (reveal / copy / open), used by both treatments.
 private extension View {
     func scoutTailRowMenu(
-        event: ScoutTailEvent,
+        row: ScoutTailRowContext,
         activeAgent: ScoutAgent?,
         onOpenSession: @escaping () -> Void,
         onOpenAgent: @escaping (ScoutAgent) -> Void
     ) -> some View {
         contextMenu {
-            Button("Reveal project in Finder") { scoutTailRevealPath(event.cwd) }
-                .disabled(scoutTailCopyable(event.cwd) == nil)
-            Button("Copy project path") { scoutTailCopy(event.cwd) }
-                .disabled(scoutTailCopyable(event.cwd) == nil)
+            Button("Reveal project in Finder") { scoutTailRevealPath(row.cwd) }
+                .disabled(scoutTailCopyable(row.cwd) == nil)
+            Button("Copy project path") { scoutTailCopy(row.cwd) }
+                .disabled(scoutTailCopyable(row.cwd) == nil)
             Divider()
             Button("Open session") { onOpenSession() }
-                .disabled(event.sessionId.isEmpty)
-            Button("Copy session ID") { scoutTailCopy(event.sessionId) }
-                .disabled(scoutTailCopyable(event.sessionId) == nil)
+                .disabled(!row.hasSession)
+            Button("Copy session ID") { scoutTailCopy(row.sessionId) }
+                .disabled(scoutTailCopyable(row.sessionId) == nil)
             if let activeAgent {
                 Divider()
                 Button("Open agent observe") { onOpenAgent(activeAgent) }
                 Button("Copy agent ID") { scoutTailCopy(activeAgent.id) }
             }
             Divider()
-            Button("Copy PID") { scoutTailCopy("\(event.pid)") }
-                .disabled(event.pid <= 0)
-            Button("Copy event ID") { scoutTailCopy(event.id) }
-            Button("Copy summary") { scoutTailCopy(event.summary) }
+            Button("Copy PID") { scoutTailCopy("\(row.pid)") }
+                .disabled(row.pid <= 0)
+            Button("Copy event ID") { scoutTailCopy(row.id) }
+            Button("Copy summary") { scoutTailCopy(row.line) }
         }
     }
 }
 
 private struct ScoutTailKindGlyph: View {
-    let kind: ScoutTailEventKind
+    let kind: ScoutTailDisplayKind
     var size: CGFloat = 12
 
     var body: some View {
@@ -1079,21 +1065,23 @@ enum ScoutTailKindTone {
     /// Signal kinds earn a hue; machine output stays neutral. OUT (the highest-
     /// volume kind) is deliberately *not* blue — that blue belongs to the
     /// accent identity, and a firehose full of blue OUT chips would drown it.
-    static func color(for kind: ScoutTailEventKind) -> Color {
+    static func color(for kind: ScoutTailDisplayKind) -> Color {
         switch kind {
         case .user: return ScoutPalette.accent
         case .assistant: return ScoutPalette.statusOk
         case .tool: return ScoutPalette.statusWarn
-        case .toolResult: return ScoutPalette.muted
-        case .system, .other: return ScoutPalette.dim
+        case .ask: return ScoutPalette.statusInfo
+        case .error: return ScoutPalette.statusWarn
+        case .output, .message, .edit, .prompt: return ScoutPalette.muted
+        case .system, .event, .lifecycle, .broker: return ScoutPalette.dim
         }
     }
 
     /// The human/action kinds that carry a hue; the rest are neutral chrome.
-    static func isSignal(_ kind: ScoutTailEventKind) -> Bool {
+    static func isSignal(_ kind: ScoutTailDisplayKind) -> Bool {
         switch kind {
-        case .user, .assistant, .tool: return true
-        case .toolResult, .system, .other: return false
+        case .user, .assistant, .tool, .ask, .error: return true
+        case .output, .message, .system, .event, .edit, .lifecycle, .prompt, .broker: return false
         }
     }
 }
@@ -1131,8 +1119,150 @@ private struct ScoutTailEcgShape: Shape {
     }
 }
 
+/// The identity sprite with the runtime's harness mark riding the bottom-right
+/// corner as a small badge — so every line shows *who* (the deterministic
+/// sprite) and *what runtime* (the harness) in a single glance.
+private struct ScoutTailIdentityAvatar: View {
+    let name: String
+    let harness: String
+    var size: CGFloat = 18
+
+    var body: some View {
+        SpriteAvatarView(name: name, size: size, tile: true)
+            .overlay(alignment: .bottomTrailing) {
+                ScoutHarnessMark(harness: harness, size: size * 0.5, tint: ScoutPalette.muted)
+                    .padding(1.5)
+                    .background(Circle().fill(ScoutDesign.bg))
+                    .overlay(Circle().stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
+                    .offset(x: 2.5, y: 2.5)
+            }
+    }
+}
+
+/// A small monochrome harness brand glyph (the runtime a session runs on),
+/// hand-drawn as SwiftUI paths in the cockpit glyph language — recognisable by
+/// silhouette at badge size, never an SF Symbol or a third-party icon. Each mark
+/// is authored in a 24×24 space and scaled to `size`, tinted with `tint`.
+private struct ScoutHarnessMark: View {
+    let harness: String
+    var size: CGFloat = 12
+    var tint: Color = ScoutPalette.muted
+
+    var body: some View {
+        Canvas { ctx, dim in
+            let s = dim.width / 24
+            let shading = GraphicsContext.Shading.color(tint)
+            let c = CGPoint(x: 12 * s, y: 12 * s)
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+
+            switch ScoutHarnessMark.normalize(harness) {
+            case "gemini":
+                // Four-point sparkle (concave star).
+                let tips: [(CGFloat, CGFloat)] = [
+                    (12, 0), (15, 9), (24, 12), (15, 15), (12, 24), (9, 15), (0, 12), (9, 9),
+                ]
+                var p = Path()
+                p.move(to: pt(tips[0].0, tips[0].1))
+                for t in tips.dropFirst() { p.addLine(to: pt(t.0, t.1)) }
+                p.closeSubpath()
+                ctx.fill(p, with: shading)
+
+            case "claude":
+                // Sunburst — eight rays from the centre (the Anthropic burst).
+                var p = Path()
+                for i in 0..<8 {
+                    let a = Double(i) * .pi / 4
+                    p.move(to: c)
+                    p.addLine(to: CGPoint(x: c.x + cos(a) * 11 * s, y: c.y + sin(a) * 11 * s))
+                }
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.2 * s, lineCap: .round))
+
+            case "codex":
+                // Hexagon ring — the OpenAI / Codex runtime.
+                var p = Path()
+                for i in 0..<6 {
+                    let a = Double(i) * .pi / 3 - .pi / 2
+                    let q = CGPoint(x: c.x + cos(a) * 10 * s, y: c.y + sin(a) * 10 * s)
+                    if i == 0 { p.move(to: q) } else { p.addLine(to: q) }
+                }
+                p.closeSubpath()
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2 * s, lineJoin: .round))
+
+            case "cursor":
+                // Upward prism — Cursor.
+                var p = Path()
+                p.move(to: pt(12, 3))
+                p.addLine(to: pt(21.5, 19))
+                p.addLine(to: pt(2.5, 19))
+                p.closeSubpath()
+                ctx.fill(p, with: shading)
+
+            case "grok":
+                // Twin diagonal slashes — the xAI cut.
+                var p = Path()
+                p.move(to: pt(5, 18)); p.addLine(to: pt(15, 6))
+                p.move(to: pt(11, 20)); p.addLine(to: pt(21, 8))
+                ctx.stroke(p, with: shading, style: StrokeStyle(lineWidth: 2.4 * s, lineCap: .round))
+
+            case "opencode":
+                // Square ring — OpenCode.
+                var p = Path()
+                p.addRoundedRect(
+                    in: CGRect(x: 2.5 * s, y: 2.5 * s, width: 19 * s, height: 19 * s),
+                    cornerSize: CGSize(width: 3 * s, height: 3 * s)
+                )
+                p.addRoundedRect(
+                    in: CGRect(x: 8 * s, y: 8 * s, width: 8 * s, height: 8 * s),
+                    cornerSize: CGSize(width: 1.5 * s, height: 1.5 * s)
+                )
+                ctx.fill(p, with: shading, style: FillStyle(eoFill: true))
+
+            case "github":
+                // Commit graph — a branch off the trunk (Git / GitHub).
+                var line = Path()
+                line.move(to: pt(8, 5.5)); line.addLine(to: pt(8, 18.5))
+                line.move(to: pt(8, 11)); line.addQuadCurve(to: pt(16.5, 9), control: pt(8, 9))
+                ctx.stroke(line, with: shading, style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+                var dots = Path()
+                for d in [(8.0, 5.0), (8.0, 19.0), (16.5, 9.0)] {
+                    dots.addEllipse(in: CGRect(x: (CGFloat(d.0) - 2.4) * s, y: (CGFloat(d.1) - 2.4) * s, width: 4.8 * s, height: 4.8 * s))
+                }
+                ctx.fill(dots, with: shading)
+
+            default:
+                // Unknown runtime → a lettered chip, like the web fallback.
+                let key = ScoutHarnessMark.normalize(harness)
+                let letter = String(key.first ?? "?").uppercased()
+                let text = Text(letter)
+                    .font(.system(size: 13 * s, weight: .semibold, design: .monospaced))
+                    .foregroundColor(tint)
+                ctx.draw(text, at: c)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+
+    /// Fold harness aliases to a canonical key (anthropic → claude, openai →
+    /// codex, …) — mirrors the studio HarnessMark so the app and web agree.
+    static func normalize(_ harness: String) -> String {
+        let raw = harness.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !raw.isEmpty else { return "unknown" }
+        var base = raw
+        if let i = base.firstIndex(where: { $0 == " " || $0 == "(" }) { base = String(base[..<i]) }
+        if let i = base.firstIndex(where: { $0 == "_" || $0 == "-" }) { base = String(base[..<i]) }
+        let aliases: [String: String] = [
+            "anthropic": "claude", "claude": "claude", "claudecode": "claude", "sonnet": "claude", "opus": "claude",
+            "openai": "codex", "codex": "codex", "gpt": "codex", "chatgpt": "codex", "oai": "codex",
+            "xai": "grok", "grok": "grok",
+            "google": "gemini", "gemini": "gemini", "vertex": "gemini",
+            "cursor": "cursor", "github": "github", "opencode": "opencode", "oc": "opencode",
+        ]
+        return aliases[base] ?? aliases[raw] ?? base
+    }
+}
+
 private struct ScoutTailDetail: View {
-    let event: ScoutTailEvent
+    let row: ScoutTailRowContext
     let activeAgent: ScoutAgent?
     let onOpenSession: () -> Void
     let onOpenAgent: (ScoutAgent) -> Void
@@ -1140,10 +1270,10 @@ private struct ScoutTailDetail: View {
     var body: some View {
         VStack(alignment: .leading, spacing: HudSpacing.xs) {
             HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
-                Text("\(event.kind.glyph)\(event.kind.label)")
+                Text("\(row.kind.glyph)\(row.kind.label)")
                     .font(ScoutTailFont.mono(HudTextSize.micro, weight: .bold))
                     .foregroundStyle(ScoutPalette.dim)
-                Text(event.summary)
+                Text(row.line)
                     .font(ScoutTailFont.mono(HudTextSize.xs))
                     .foregroundStyle(ScoutPalette.ink)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1152,20 +1282,9 @@ private struct ScoutTailDetail: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                detailLine("id", event.id)
-                if !event.sessionId.isEmpty {
-                    detailAction("session", event.sessionId, action: onOpenSession)
+                ForEach(row.detailRows) { item in
+                    detailRow(item)
                 }
-                if let activeAgent {
-                    detailAction("agent", activeAgent.displayName) { onOpenAgent(activeAgent) }
-                }
-                detailLine("project", event.projectLabel)
-                if !event.cwd.isEmpty {
-                    detailLine("cwd", event.cwd)
-                }
-                detailLine("harness", "\(event.sourceLabel) · \(event.originLabel)")
-                detailLine("proc", event.parentPid.map { "\(event.pid)<-\($0)" } ?? event.pidLabel)
-                detailLine("age", event.ageLabel)
             }
         }
         .padding(.horizontal, ScoutTailMetrics.pageGutter)
@@ -1174,6 +1293,22 @@ private struct ScoutTailDetail: View {
         .background(ScoutSurface.inset.opacity(0.45))
         .overlay(alignment: .bottom) {
             HudDivider(color: ScoutDesign.hairline)
+        }
+    }
+
+    @ViewBuilder
+    private func detailRow(_ row: ScoutTailDetailRow) -> some View {
+        switch row.action {
+        case .openSession:
+            detailAction(row.key, row.value, action: onOpenSession)
+        case .openAgent:
+            if let activeAgent {
+                detailAction(row.key, row.value) { onOpenAgent(activeAgent) }
+            } else {
+                detailLine(row.key, row.value)
+            }
+        case nil:
+            detailLine(row.key, row.value)
         }
     }
 

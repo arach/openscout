@@ -19,13 +19,29 @@ public enum ScoutHUDRouter {
     public static func handle(command: String, value: String? = nil) -> Bool {
         switch command.lowercased() {
         case "show":
+            prepareGenericHUD()
             HUDController.shared.show()
             return true
         case "hide":
             HUDController.shared.dismiss()
             return true
         case "toggle":
-            HUDController.shared.toggle()
+            if HUDController.shared.isVisible {
+                HUDController.shared.dismiss()
+            } else {
+                prepareGenericHUD()
+                HUDController.shared.show()
+            }
+            return true
+        case "tail":
+            HUDState.shared.select(.tail)
+            if let value, let size = parseSize(value) {
+                HUDState.shared.setSize(size)
+            } else {
+                HUDState.shared.setSize(.large)
+            }
+            HUDState.shared.setTailCollapsed(false)
+            HUDController.shared.show()
             return true
         case "tab":
             guard let value, let view = parseView(value) else { return false }
@@ -57,6 +73,13 @@ public enum ScoutHUDRouter {
         let parts = url.pathComponents.filter { $0 != "/" }
         guard let command = parts.first?.lowercased() else { return nil }
         return distributedUserInfo(command: command, value: parts.dropFirst().first)
+    }
+
+    private static func prepareGenericHUD() {
+        if HUDState.shared.view == .tail {
+            HUDState.shared.select(.agents)
+        }
+        HUDState.shared.setTailCollapsed(false)
     }
 
     private static func parseView(_ raw: String) -> HUDView? {
