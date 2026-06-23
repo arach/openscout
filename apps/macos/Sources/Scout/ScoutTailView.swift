@@ -919,15 +919,26 @@ private struct ScoutTailIdentityCell: View {
                 scoutTailRevealPath(event.cwd)
             }
         } label: {
-            HStack(spacing: 0) {
-                Text(projectName)
-                    .foregroundStyle(projectTint)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(sessionRef)
-                    .foregroundStyle(ScoutPalette.dim)
-                    .lineLimit(1)
-                    .layoutPriority(1)
+            HStack(spacing: HudSpacing.xs) {
+                if showsSourceToken {
+                    Text(event.sourceLabel)
+                        .foregroundStyle(sourceTint)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+                HStack(spacing: 0) {
+                    Text(projectName)
+                        .foregroundStyle(projectTint)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(2)
+                    Text(sessionRef)
+                        .foregroundStyle(ScoutPalette.dim)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(0)
+                }
+                .layoutPriority(1)
             }
             .font(ScoutTailFont.mono(HudTextSize.sm, weight: .regular))
             .contentShape(Rectangle())
@@ -941,6 +952,10 @@ private struct ScoutTailIdentityCell: View {
     /// itself rather than showing a blank gutter.
     private var projectName: String {
         scoutTailCopyable(event.projectLabel) ?? event.sourceLabel
+    }
+
+    private var showsSourceToken: Bool {
+        event.sourceLabel != projectName
     }
 
     /// The recessive half: `/<session-prefix>:<pid>` — short session hash so it
@@ -961,6 +976,10 @@ private struct ScoutTailIdentityCell: View {
             return emphasized ? ScoutPalette.ink : ScoutPalette.ink.opacity(0.92)
         }
         return emphasized ? ScoutPalette.ink.opacity(0.9) : ScoutPalette.muted
+    }
+
+    private var sourceTint: Color {
+        emphasized ? ScoutPalette.ink.opacity(0.72) : ScoutPalette.muted.opacity(0.78)
     }
 }
 
