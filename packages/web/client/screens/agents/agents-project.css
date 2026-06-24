@@ -392,9 +392,7 @@
 .ap-focusFootLink:hover { color: var(--s-accent); }
 .ap-focusFootDim { font-size: 11.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
 
-/* focus view now shares the main+right-rail grid (.ap-view/.ap-content/.ap-aside)
-   so the sparse case fills the pane instead of floating as a centered island.
-   The rail carries Place · Runtime · Context (gauge) · Files. */
+/* context gauge + file rows — used by the profile/focus cards (profile.tsx). */
 .ap-ctxGauge {
   height: 5px;
   border-radius: 999px;
@@ -495,43 +493,24 @@
   border-radius: 999px;
 }
 
-/* The whole view is two columns: content | full-height rail. The rail's
-   border-left is the single vertical divider both columns hang off. Selecting
-   an agent drills IN PLACE — the right column grows 264→480 and the session
-   pane fades in over the resting Recently/Place rail, so the project frame
-   (masthead · digest · find · roster) stays put and it reads as a panel
-   opening, not a page change. Same track types both ways → the column tweens. */
+/* The view is a single center column now — the master in a master-detail. The
+   session detail lives in the REAL shell inspector (driven by route.agentId),
+   not a page-local rail, so there is no second column to grid against. */
 .ap-view {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 264px;
+  display: block;
   min-height: 100%;
-  align-items: stretch;
-  transition: grid-template-columns 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.ap-view[data-detail] { grid-template-columns: minmax(0, 1fr) 480px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ap-view { transition: none; }
-  .ap-detail, .ap-aside { animation: none; }
   .ap-resume { transition: none; }
 }
 
-/* left column — a stack of evenly-ruled bands sharing one left/right edge */
+/* the center column — a stack of evenly-ruled bands sharing one left/right edge */
 .ap-content {
   min-width: 0;
   display: flex;
   flex-direction: column;
   padding: 22px 28px 26px;
-}
-
-/* right column — continuous rail, divided by a single hairline */
-.ap-aside {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  padding: 22px 26px 26px;
-  border-left: 1px solid var(--s-hairline);
 }
 
 /* ── masthead band ───────────────────────────────────────────────────────── */
@@ -623,22 +602,6 @@
   padding: 10px 0;
   line-height: 1.1;
   border-bottom: 1px solid var(--s-hairline);
-  /* collapses away when a session is open — the resume line is the most
-     redundant band once you've drilled, so it folds out (height + opacity)
-     while the rest of the frame stays put. Same track types, no reflow snap. */
-  max-height: 64px;
-  overflow: hidden;
-  transition: max-height 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
-    opacity 0.28s ease, padding 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
-    border-color 0.28s ease;
-}
-.ap-view[data-detail] .ap-resume {
-  max-height: 0;
-  padding-top: 0;
-  padding-bottom: 0;
-  opacity: 0;
-  border-bottom-color: transparent;
-  pointer-events: none;
 }
 .ap-resumeLbl {
   font-size: 9.5px;
@@ -875,41 +838,6 @@
   cursor: pointer;
 }
 .ap-actIcon:hover { color: var(--s-ink); background: var(--s-hairline); }
-
-/* instances (expand) — indented under the avatar column */
-.ap-instances {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  margin: 0 0 8px 43px;
-  border-left: 1px solid var(--s-hairline);
-}
-.ap-inst {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-}
-.ap-inst:hover { background: var(--s-hairline); }
-.ap-inst[data-active] .ap-instBranch { color: var(--s-ink); }
-.ap-instBranch {
-  flex: none;
-  min-width: 0;
-  max-width: 45%;
-  font-size: 11.5px;
-  font-family: var(--s-font-mono);
-  color: var(--s-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ap-instWhat { flex: 1; min-width: 0; font-size: 11.5px; color: var(--s-dim); }
-.ap-instAgo { flex: none; font-size: 10.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
-.ap-instOpen { flex: none; color: var(--s-muted); display: inline-flex; }
 
 .ap-empty {
   font-size: 12px;
@@ -1187,15 +1115,3 @@
   transition: filter 0.12s ease;
 }
 .ap-steerSend:hover { filter: brightness(1.07); }
-
-/* ── responsive — collapse the right rail ─────────────────────────────────── */
-@media (max-width: 900px) {
-  .ap-view, .ap-view[data-detail] { grid-template-columns: minmax(0, 1fr); }
-  .ap-aside {
-    border-left: none;
-    border-top: 1px solid var(--s-hairline);
-    margin: 0 28px;
-    padding: 22px 0 26px;
-  }
-  .ap-detail { border-left: none; border-top: 1px solid var(--s-hairline); }
-}

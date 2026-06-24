@@ -74,6 +74,13 @@ export function AgentsScreen({
     selectedAgentId && selectedAgent && selectedAgent.id !== selectedAgentId,
   );
 
+  // Directory-selection (master-detail): the project is still the route's
+  // primary object (projectSlug) and no tab is engaged, so the center stays the
+  // directory even with an agent picked — that agent only drives the REAL right
+  // inspector. A tab (profile/message/observe) means the agent owns the center.
+  const routeProjectSlug = route.view === "agents" ? route.projectSlug : undefined;
+  const directorySelection = Boolean(routeProjectSlug && !activeTab);
+
   const { conversationByAgentId, sessionByAgentId } =
     directSessionMaps(sessions);
 
@@ -82,12 +89,15 @@ export function AgentsScreen({
     navigate({
       view: "agents",
       agentId: selectedAgent.id,
+      // Preserve the directory-selection route through the alias rewrite so the
+      // master-detail stays put instead of jumping to the full profile.
+      ...(directorySelection && routeProjectSlug ? { projectSlug: routeProjectSlug } : {}),
       ...(activeConversationId ? { conversationId: activeConversationId } : {}),
       ...(activeTab ? { tab: activeTab } : {}),
     });
-  }, [activeConversationId, activeTab, navigate, selectedAgent, selectedAgentId, selectedAgentWasAliased]);
+  }, [activeConversationId, activeTab, directorySelection, navigate, routeProjectSlug, selectedAgent, selectedAgentId, selectedAgentWasAliased]);
 
-  if (selectedAgent) {
+  if (selectedAgent && !directorySelection) {
     const resolvedConversationId =
       activeConversationId
       ?? conversationByAgentId.get(selectedAgent.id)
@@ -131,6 +141,7 @@ export function AgentsScreen({
           discovery={discovery}
           topologySnapshot={topologySnapshot}
           navigate={navigate}
+          selectedAgentId={selectedAgent?.id ?? selectedAgentId}
         />
       </AgentDirectoryStudioInjection>
     </AgentsRouteFrame>

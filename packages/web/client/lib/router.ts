@@ -219,13 +219,16 @@ export function routeFromUrl(urlLike: string | URL): Route {
       tab: agentTab ?? "message",
     });
   }
-  // /agents/{agentId} → agents view with selected agent
+  // /agents/{agentId} → agents view with selected agent. With ?project=… and no
+  // tab it is a directory-selection (master-detail): the project stays the
+  // primary object and the agent only drives the right inspector.
   if (parts[0] === "agents" && parts[1]) {
     const agentId = decodeURIComponent(parts[1]);
     return scoped({
       view: "agents",
       agentId,
       ...(agentTab ? { tab: agentTab } : {}),
+      ...(!agentTab && agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
     });
   }
   if (parts[0] === "agents") {
@@ -422,7 +425,10 @@ export function routePath(r: Route): string {
       if (r.tab && r.tab !== defaultTab) {
         params.set("tab", r.tab);
       }
-      if (!r.agentId && r.projectSlug) {
+      // The project rides the URL whenever no tab is engaged — both the bare
+      // directory (no agent) and a directory-selection (agent in the inspector,
+      // center still the directory). A tab means the agent owns the center.
+      if (r.projectSlug && !r.tab) {
         params.set("project", r.projectSlug);
       }
       appendMachineScope(params, r);
@@ -554,12 +560,15 @@ function routeKey(r: Route): string {
         ? `settings:agents:${r.agentId ?? ""}`
         : "settings";
     case "agents":
+      // Directory-selection (projectSlug, no tab) shares the directory's scroll
+      // key whether or not an agent is picked, so selecting agents into the
+      // inspector never jumps the master list's scroll.
       return r.conversationId
         ? `agent-conv:${r.conversationId}:${r.tab ?? "message"}${scope}`
-        : r.agentId
-          ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
-          : r.projectSlug
-            ? `agents-project:${r.projectSlug}${scope}`
+        : r.projectSlug && !r.tab
+          ? `agents-project:${r.projectSlug}${scope}`
+          : r.agentId
+            ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
             : `agents${scope}`;
     case "sessions":
       return r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
