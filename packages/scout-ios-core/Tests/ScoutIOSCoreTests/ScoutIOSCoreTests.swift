@@ -202,6 +202,16 @@ final class ScoutIOSCoreTests: XCTestCase {
         )
     }
 
+    func testBonjourWebPortParserAcceptsOnlyValidTcpPorts() {
+        XCTAssertEqual(webPortFromBonjourAdvertisement("3301"), 3301)
+        XCTAssertEqual(webPortFromBonjourAdvertisement(" 43120 "), 43120)
+        XCTAssertNil(webPortFromBonjourAdvertisement(nil))
+        XCTAssertNil(webPortFromBonjourAdvertisement(""))
+        XCTAssertNil(webPortFromBonjourAdvertisement("0"))
+        XCTAssertNil(webPortFromBonjourAdvertisement("65536"))
+        XCTAssertNil(webPortFromBonjourAdvertisement("43120.5"))
+    }
+
     func testRouteSummaryReportsSavedAndAllowedTailnetRoutes() {
         let defaults = makeDefaults()
         let relays = [

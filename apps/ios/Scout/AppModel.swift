@@ -99,6 +99,7 @@ final class AppModel {
         let fingerprint: String
         let hostName: String      // resolved, e.g. "arts-mac-mini.local"
         let relayPort: Int
+        let webPort: Int?
 
         var displayName: String { AppModel.prettyMachineName(hostName) }
         var detail: String { "on your network · \(hostName)" }
@@ -792,7 +793,8 @@ final class AppModel {
                 publicKeyHex: $0.publicKeyHex,
                 fingerprint: $0.fingerprint,
                 hostName: $0.hostName,
-                relayPort: $0.relayPort
+                relayPort: $0.relayPort,
+                webPort: $0.webPort
             )
         }
         connectionLog.log(
@@ -823,8 +825,9 @@ final class AppModel {
         // connecting → connected with no transient failure flicker; fall back to
         // the bare-port / https variants only if that misses.
         let host = Self.cleanTailnetHost(target.hostName) ?? target.hostName
+        let advertised = target.webPort.flatMap { scoutWebOrigin(scheme: "http", host: host, port: $0) }
         let preferred = scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort)
-        let candidates = ([preferred].compactMap { $0 }) + scoutWebOriginCandidates(host: host)
+        let candidates = ([advertised, preferred].compactMap { $0 }) + scoutWebOriginCandidates(host: host)
         for origin in dedupeURLs(candidates) {
             guard let url = scoutWebURL(
                 origin: origin,
