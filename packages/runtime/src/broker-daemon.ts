@@ -798,8 +798,16 @@ async function createCardlessProjectSessionForDelivery(input: {
   void input.createdAt;
   const projectRoot = resolve(expandHomePath(input.projectPath));
   const requestedHarness = input.execution?.harness;
-  const harness = requestedHarness === "codex" ? "codex" : "claude";
-  const transport = harness === "codex" ? "codex_app_server" : "claude_stream_json";
+  const harness = requestedHarness === "codex"
+    ? "codex"
+    : requestedHarness === "grok-acp"
+      ? "grok-acp"
+      : "claude";
+  const transport = harness === "codex"
+    ? "codex_app_server"
+    : harness === "grok-acp"
+      ? "grok_acp"
+      : "claude_stream_json";
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;
   const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(runtime.snapshot());

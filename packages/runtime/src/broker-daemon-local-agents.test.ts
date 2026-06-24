@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -77,6 +77,167 @@ describe("broker daemon local agent routing", () => {
         }),
       }),
     ]));
+  }, 15_000);
+
+  test("starts and invokes a Grok ACP cardless session for project routing", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "grok-acp-project");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+    const fakeBin = mkdtempSync(join(tmpdir(), "openscout-fake-grok-"));
+    broker.temporaryDirectories.add(fakeBin);
+    const fakeGrokPath = join(fakeBin, "grok");
+    writeFileSync(fakeGrokPath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: 1,
+        agentCapabilities: {
+          promptCapabilities: { image: false },
+          sessionCapabilities: { close: {} }
+        },
+        agentInfo: { name: "grok-acp", title: "Grok ACP", version: "test" },
+        authMethods: [{ id: "xai.api_key" }]
+      }
+    }));
+    continue;
+  }
+
+  if (method === "authenticate") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+    continue;
+  }
+
+  if (method === "session/new") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { sessionId: "fake-grok-acp-session" } }));
+    continue;
+  }
+
+  if (method === "session/prompt") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "grok-acp-ok" }
+        }
+      }
+    }));
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } }));
+    continue;
+  }
+
+  if (method === "session/close") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+    continue;
+  }
+}
+`, "utf8");
+    chmodSync(fakeGrokPath, 0o755);
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        SCOUT_XAI_API_KEY: "test-key",
+      },
+    });
+
+    const response = await broker.postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      flight?: { id: string; targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-grok-acp",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Reply with exactly grok-acp-ok.",
+      intent: "consult",
+      execution: {
+        harness: "grok-acp",
+        session: "new",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+
+    const completed = await broker.waitFor(
+      () => broker.getJson<{
+        endpoints: Record<string, {
+        agentId: string;
+        harness?: string;
+        transport?: string;
+        sessionId?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+        flights: Record<string, { state: string; summary?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => Object.values(snapshot.endpoints).some((endpoint) =>
+        endpoint.agentId === response.targetAgentId
+        && endpoint.harness === "grok-acp"
+        && endpoint.transport === "grok_acp"
+        && endpoint.metadata?.pendingExternalSession === false
+      ) && Boolean(response.flight?.id && snapshot.flights[response.flight.id]?.state === "completed"),
+    );
+
+    const endpoint = Object.values(completed.endpoints).find((candidate) =>
+      candidate.agentId === response.targetAgentId
+      && candidate.harness === "grok-acp"
+      && candidate.transport === "grok_acp"
+    );
+    expect(endpoint).toEqual(expect.objectContaining({
+      sessionId: response.targetAgentId,
+      metadata: expect.objectContaining({
+        cardless: true,
+        pendingExternalSession: false,
+        externalSessionId: response.targetAgentId,
+        adapterType: "grok-acp",
+      }),
+    }));
+
+    expect(completed.flights[response.flight!.id]).toEqual(expect.objectContaining({
+      state: "completed",
+      output: expect.stringContaining("grok-acp-ok"),
+      metadata: expect.objectContaining({
+        dispatchAck: expect.objectContaining({
+          transport: "grok_acp",
+        }),
+      }),
+    }));
   }, 15_000);
 
   test("starts a cardless project session instead of using a registered card when one-time was requested", async () => {

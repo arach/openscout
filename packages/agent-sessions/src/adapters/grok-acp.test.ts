@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { PairingEvent } from "../protocol/primitives.js";
-import { createAdapter } from "./grok-build.js";
+import { createAdapter } from "./grok-acp.js";
 
 const tempPaths = new Set<string>();
 
@@ -60,9 +60,9 @@ function createEventCollector() {
   };
 }
 
-describe("GrokBuildAdapter", () => {
-  test("launches Grok ACP with auth defaults and reports a grok-build session", async () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-grok-build-adapter-"));
+describe("GrokAcpAdapter", () => {
+  test("launches Grok ACP with auth defaults and reports a grok-acp session", async () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), "openscout-grok-acp-adapter-"));
     tempPaths.add(tempRoot);
     const methodLogPath = join(tempRoot, "methods.log");
 
@@ -95,7 +95,7 @@ for await (const line of rl) {
           promptCapabilities: { image: false },
           sessionCapabilities: { close: {} }
         },
-        agentInfo: { name: "grok-build", title: "Grok Build", version: "test" },
+        agentInfo: { name: "grok-acp", title: "Grok ACP", version: "test" },
         authMethods: [{ id: "xai.api_key" }, { id: "cached_token" }]
       }
     }));
@@ -141,7 +141,7 @@ for await (const line of rl) {
     const sessionId = `grok-test-${crypto.randomUUID()}`;
     const adapter = createAdapter({
       sessionId,
-      name: "Grok Build",
+      name: "Grok ACP",
       cwd: tempRoot,
       env: {
         METHOD_LOG: methodLogPath,
@@ -174,7 +174,7 @@ for await (const line of rl) {
 
     expect(sessionUpdate).toBeDefined();
     if (sessionUpdate?.event === "session:update") {
-      expect(sessionUpdate.session.adapterType).toBe("grok-build");
+      expect(sessionUpdate.session.adapterType).toBe("grok-acp");
       expect(sessionUpdate.session.providerMeta?.acp).toMatchObject({
         acpSessionId: "grok-session-1",
         authMethodId: "xai.api_key",

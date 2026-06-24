@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { ActionBlock, Session, SessionState, TurnState } from "@openscout/agent-sessions";
 import type { InvocationRequest } from "@openscout/protocol";
@@ -7,6 +10,7 @@ import {
   buildManagedPairingEndpointBinding,
   buildPairingSessionCandidate,
   invokePairingSessionEndpoint,
+  listPairingSessions,
   type PairingBridgeClient,
 } from "./pairing-session-agents.js";
 
@@ -162,6 +166,43 @@ describe("pairing session agents", () => {
     expect(endpoint.sessionId).toBe(session.id);
     expect(endpoint.metadata?.managedByScout).toBe(true);
     expect(endpoint.metadata?.externalSessionId).toBe(session.id);
+  });
+
+  test("uses the bridge default port when pairing config omits one", async () => {
+    const originalHome = process.env.HOME;
+    const tempHome = mkdtempSync(join(tmpdir(), "openscout-pairing-home-"));
+    try {
+      const pairingRoot = join(tempHome, ".scout", "pairing");
+      mkdirSync(pairingRoot, { recursive: true });
+      writeFileSync(join(pairingRoot, "config.json"), JSON.stringify({ workspace: { root: "/tmp" } }), "utf8");
+      writeFileSync(join(pairingRoot, "runtime.json"), JSON.stringify({ status: "paired" }), "utf8");
+      process.env.HOME = tempHome;
+
+      let observedPort = 0;
+      await listPairingSessions({
+        createClient: async (port) => {
+          observedPort = port;
+          return {
+            async query<T>() {
+              return [] as T;
+            },
+            async mutation<T>() {
+              return {} as T;
+            },
+            close() {},
+          };
+        },
+      });
+
+      expect(observedPort).toBe(43_130);
+    } finally {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      rmSync(tempHome, { recursive: true, force: true });
+    }
   });
 
   test("invokes a pairing session and returns the completed turn text", async () => {

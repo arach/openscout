@@ -3,6 +3,7 @@ import { basename, resolve } from "node:path";
 import type {
   ActorIdentity,
   AgentEndpoint,
+  AgentHarness,
 } from "@openscout/protocol";
 
 import type { ManagedLocalSessionTransport } from "./broker-managed-session-helpers.js";
@@ -26,13 +27,14 @@ export const CARDLESS_SESSION_SOURCE = "scout-cardless-session";
 export interface CardlessSessionInput {
   /** Scout's broker-local session marker. Provider ids are attached later. */
   sessionId: string;
-  transport: ManagedLocalSessionTransport;
-  harness: "codex" | "claude";
+  transport: ManagedLocalSessionTransport | "pairing_bridge" | "grok_acp";
+  harness: AgentHarness;
   cwd: string;
   projectRoot?: string;
   nodeId: string;
   displayName?: string;
   externalSessionId?: string;
+  pairingSessionId?: string;
   model?: string;
   launchArgs?: string[];
   /** Provenance only: the preset/card a cardless session was stamped with, if any. */
@@ -71,6 +73,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const cwd = resolveCardlessSessionPath(input.cwd);
   const projectName = basename(projectRoot) || projectRoot;
   const externalSessionId = input.externalSessionId?.trim();
+  const endpointSessionId = input.pairingSessionId?.trim() || input.sessionId;
   const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
   return {
     id: `endpoint.${input.sessionId}.${input.nodeId}.${input.transport}`,
@@ -81,7 +84,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
     state: "idle",
     cwd,
     projectRoot,
-    sessionId: input.sessionId,
+    sessionId: endpointSessionId,
     metadata: {
       source: CARDLESS_SESSION_SOURCE,
       sessionBacked: true,
@@ -93,6 +96,10 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
       ...(externalSessionId ? {
         externalSessionId,
         ...(input.transport === "codex_app_server" ? { threadId: externalSessionId } : {}),
+      } : {}),
+      ...(input.pairingSessionId?.trim() ? {
+        pairingSessionId: input.pairingSessionId.trim(),
+        pairingAdapterType: input.harness,
       } : {}),
       ...(input.model?.trim() ? { model: input.model.trim() } : {}),
       ...(launchArgs && launchArgs.length > 0 ? { launchArgs } : {}),

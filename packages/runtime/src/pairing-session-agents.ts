@@ -11,7 +11,7 @@ import { normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import { buildLocalAgentDirectInvocationPrompt } from "./local-agents.js";
 
-const DEFAULT_PAIRING_PORT = 7_888;
+const DEFAULT_PAIRING_PORT = 43_130;
 const PAIRING_CONNECT_TIMEOUT_MS = 1_500;
 const PAIRING_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_PAIRING_POLL_INTERVAL_MS = 350;
@@ -228,6 +228,13 @@ export type EnsurePairingSessionForCodexThreadInput = {
   systemPrompt?: string;
 };
 
+export type EnsurePairingSessionForAdapterInput = {
+  adapterType: string;
+  cwd?: string;
+  name?: string;
+  options?: Record<string, unknown>;
+};
+
 type PairingSessionDiscoveryOptions = {
   createClient?: PairingBridgeClientFactory;
   port?: number;
@@ -243,7 +250,8 @@ function pairingPaths(): {
   configPath: string;
   runtimeStatePath: string;
 } {
-  const rootDir = join(homedir(), ".scout", "pairing");
+  const home = process.env.HOME?.trim() || homedir();
+  const rootDir = join(home, ".scout", "pairing");
   return {
     configPath: join(rootDir, "config.json"),
     runtimeStatePath: join(rootDir, "runtime.json"),
@@ -505,6 +513,9 @@ function pairingHarness(adapterType: string): AgentHarness {
   if (normalized.includes("pi")) {
     return "native";
   }
+  if (normalized === "grok-acp" || (normalized.includes("grok") && normalized.includes("acp"))) {
+    return "grok-acp";
+  }
   return "bridge";
 }
 
@@ -688,6 +699,25 @@ export async function ensurePairingSessionForCodexThread(
       },
     });
   });
+}
+
+export async function ensurePairingSessionForAdapter(
+  input: EnsurePairingSessionForAdapterInput,
+  options: PairingSessionDiscoveryOptions = {},
+): Promise<PairingSession> {
+  const adapterType = input.adapterType.trim();
+  if (!adapterType) {
+    throw new Error("adapterType is required");
+  }
+
+  return withPairingBridgeClient(options, async (client) =>
+    client.mutation<PairingSession>("session.create", {
+      adapterType,
+      name: input.name,
+      cwd: input.cwd,
+      ...(input.options ? { options: input.options } : {}),
+    })
+  );
 }
 
 function truncateSyntheticOutput(value: string): string {

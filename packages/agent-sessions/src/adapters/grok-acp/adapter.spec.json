@@ -1,16 +1,16 @@
 {
   "$schema": "../spec/adapter-spec.v1.schema.json",
   "specVersion": "1.0.0",
-  "adapterId": "grok-build",
-  "displayName": "Grok Build",
+  "adapterId": "grok-acp",
+  "displayName": "Grok ACP",
   "implementation": {
     "package": "@openscout/agent-sessions",
-    "entrypoint": "src/adapters/grok-build.ts",
+    "entrypoint": "src/adapters/grok-acp.ts",
     "factoryExport": "createAdapter"
   },
   "upstream": {
     "kind": "mixed",
-    "name": "Grok Build ACP",
+    "name": "Grok ACP",
     "transport": "jsonrpc-stdio-jsonl",
     "sources": [
       {
@@ -27,7 +27,7 @@
       },
       {
         "kind": "file",
-        "ref": "src/adapters/grok-build.ts"
+        "ref": "src/adapters/grok-acp.ts"
       },
       {
         "kind": "file",
@@ -132,7 +132,7 @@
     ]
   },
   "limitations": [
-    "This adapter drives the Grok Build CLI through its ACP stdio mode; it does not implement xAI Responses API calls directly.",
+    "This adapter drives the Grok CLI through its ACP stdio mode; it does not implement xAI Responses API calls directly.",
     "The default launch requires a locally installed grok binary and either cached Grok login state or XAI_API_KEY.",
     "Tool calls are normalized as generic tool_call action blocks by the shared ACP adapter.",
     "Historical Grok transcript discovery is not implemented in this adapter."

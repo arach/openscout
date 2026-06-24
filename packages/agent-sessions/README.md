@@ -14,7 +14,7 @@ plane.
 ## What This Package Owns
 
 - protocol primitives and adapter types
-- adapter implementations for ACP stdio agents, Grok Build, Codex, Claude Code,
+- adapter implementations for ACP stdio agents, Grok ACP, Codex, Claude Code,
   pi, opencode, OpenAI-compatible processes, and the echo test harness
 - in-memory session state and replay helpers
 - `SessionRegistry`

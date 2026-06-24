@@ -30,6 +30,7 @@ export type AgentHarness =
   | "codex"
   | "claude"
   | "grok"
+  | "grok-acp"
   | "flue"
   | "cursor"
   | "native"
@@ -78,7 +79,7 @@ export interface AgentEndpoint {
   agentId: ScoutId;
   nodeId: ScoutId;
   harness: AgentHarness;
-  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_channel" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "pi_rpc" | "tmux" | "cursor_exec" | "cursor_cli_text" | "cursor_cli_stream_json" | "cursor_sdk_local";
+  transport: "local_socket" | "http" | "websocket" | "pairing_bridge" | "claude_channel" | "claude_stream_json" | "codex_app_server" | "codex_exec" | "claude_resume" | "pi_rpc" | "grok_acp" | "tmux" | "cursor_exec" | "cursor_cli_text" | "cursor_cli_stream_json" | "cursor_sdk_local";
   state: AgentState;
   preferred?: boolean;
   address?: string;

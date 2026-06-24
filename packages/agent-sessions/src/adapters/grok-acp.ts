@@ -2,7 +2,7 @@ import type { AdapterConfig } from "../protocol/adapter.js";
 import { AcpAdapter } from "./acp.js";
 
 const DEFAULT_GROK_ARGS = ["--no-auto-update", "agent", "stdio"];
-const GROK_BUILD_ADAPTER_TYPE = "grok-build";
+const GROK_ACP_ADAPTER_TYPE = "grok-acp";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -74,7 +74,7 @@ export const createAdapter = (config: AdapterConfig) => {
       clientName: "openscout",
       clientTitle: "OpenScout",
       ...rawOptions,
-      adapterType: GROK_BUILD_ADAPTER_TYPE,
+      adapterType: GROK_ACP_ADAPTER_TYPE,
       command,
       args,
       requireAuth: typeof rawOptions.requireAuth === "boolean" ? rawOptions.requireAuth : true,

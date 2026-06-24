@@ -78,6 +78,7 @@ export type DeliveryTransport =
   | "codex_exec"
   | "claude_resume"
   | "pi_rpc"
+  | "grok_acp"
   | "tmux"
   | "cursor_exec"
   | "cursor_cli_text"

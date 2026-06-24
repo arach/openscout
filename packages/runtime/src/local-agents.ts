@@ -20,6 +20,7 @@ import type {
 import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import { DispatchStalledError } from "./dispatch-stalled.js";
+import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -438,6 +439,7 @@ function titleCaseLocalAgentName(value: string): string {
 export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
+  "grok-acp",
   "flue",
 ];
 
@@ -2541,6 +2543,10 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
 
   if (endpoint.transport === "pi_rpc") {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "grok_acp") {
+    return endpoint.state !== "offline";
   }
 
   const sessionId =
@@ -4709,6 +4715,24 @@ export async function invokeLocalAgentEndpoint(
     const result = await invokePiRpcAgent({
       ...buildPiEndpointSessionOptions(endpoint),
       prompt,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "grok_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const result = await invokeGrokAcpAgent({
+      sessionId,
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
+      timeoutMs: invocation.timeoutMs,
     });
 
     return {
