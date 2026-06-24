@@ -101,6 +101,7 @@ function snapshot(input: {
 function createHarness(input: {
   snapshot?: RuntimeSnapshot;
   bindings?: LocalAgentBinding[];
+  bindingBatches?: LocalAgentBinding[][];
   coreBindings?: LocalAgentBinding[];
   overrides?: RelayAgentOverrides;
   signatures?: Array<string | null>;
@@ -125,6 +126,7 @@ function createHarness(input: {
   const aliveEndpointIds = new Set(input.aliveEndpointIds ?? []);
   const aliveSessionIds = new Set(input.aliveSessionIds ?? []);
   const disabledSyntheticEndpointIds = new Set(input.disabledSyntheticEndpointIds ?? []);
+  let bindingBatchIndex = 0;
   const service = new BrokerLocalAgentSyncService({
     nodeId: "node-1",
     configuredCoreAgentIds: input.configuredCoreAgentIds ?? [],
@@ -143,7 +145,13 @@ function createHarness(input: {
     },
     async loadRegisteredLocalAgentBindings(nodeId, options = {}) {
       loadCalls.push({ nodeId, ...options });
-      return options.ensureOnline ? input.coreBindings ?? [] : input.bindings ?? [];
+      if (options.ensureOnline) {
+        return input.coreBindings ?? [];
+      }
+      if (input.bindingBatches) {
+        return input.bindingBatches[Math.min(bindingBatchIndex++, input.bindingBatches.length - 1)] ?? [];
+      }
+      return input.bindings ?? [];
     },
     clearGitBranchCache: () => {
       clearGitBranchCacheCount++;
@@ -361,6 +369,23 @@ describe("BrokerLocalAgentSyncService", () => {
     expect(harness.clearGitBranchCacheCount).toBe(1);
     expect(harness.loadCalls.filter((call) => !call.ensureOnline)).toHaveLength(1);
     expect(harness.logs).toContain("[openscout-runtime] local agent registry changed (test); refreshing registered agents");
+  });
+
+  test("sync retries when the registry changes during a refresh", async () => {
+    const ranger = binding({
+      agent: agent({ id: "ranger.test-node", definitionId: "ranger", displayName: "Ranger" }),
+      endpoint: endpoint({ id: "endpoint-ranger", agentId: "ranger.test-node" }),
+    });
+    const harness = createHarness({
+      signatures: ["sig-empty", "sig-updated", "sig-updated"],
+      bindingBatches: [[], [ranger]],
+    });
+
+    await harness.service.sync();
+
+    expect(harness.loadCalls.filter((call) => !call.ensureOnline)).toHaveLength(2);
+    expect(harness.upsertedAgents).toContainEqual(expect.objectContaining({ id: "ranger.test-node" }));
+    expect(harness.logs).toContain("[openscout-runtime] local agent registry changed during sync; refreshing registered agents again");
   });
 
   test("bootstrap migrates registry keys, reconciles managed pairing, and warms configured core agents", async () => {
