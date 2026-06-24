@@ -86,7 +86,7 @@ function createEventCollector() {
 describe("ClaudeCodeAdapter", () => {
   test("infers the owning project cwd for a resume id", async () => {
     const resumeId = crypto.randomUUID();
-    const projectRoot = join("/private/tmp", `openscoutclaude${crypto.randomUUID().replace(/-/g, "")}`);
+    const projectRoot = join(tmpdir(), `openscoutclaude${crypto.randomUUID().replace(/-/g, "")}`);
     const slug = `-${projectRoot.replace(/^\//u, "").replace(/\//g, "-")}`;
     const sessionDir = join(homedir(), ".claude", "projects", slug);
     const sessionPath = join(sessionDir, `${resumeId}.jsonl`);
