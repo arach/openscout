@@ -16,6 +16,7 @@ describe("Codex usage observation", () => {
         },
         last_token_usage: {
           input_tokens: 12345,
+          cached_input_tokens: 100,
           output_tokens: 50,
           total_tokens: 12395,
         },
@@ -24,7 +25,7 @@ describe("Codex usage observation", () => {
 
     expect(observation).toEqual(expect.objectContaining({
       inputTokens: 900000,
-      contextInputTokens: 12345,
+      contextInputTokens: 12445,
       outputTokens: 50,
       totalTokens: 900050,
       cacheReadInputTokens: 800000,

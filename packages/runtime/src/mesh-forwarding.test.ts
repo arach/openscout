@@ -82,7 +82,7 @@ function makeBundle(): MeshMessageBundle {
     meshId: "openscout",
     name: "Origin",
     advertiseScope: "mesh",
-    brokerUrl: "http://127.0.0.1:65535",
+    brokerUrl: "http://127.0.0.1:43110",
     capabilities: ["broker"],
     registeredAt: 0,
     lastSeenAt: 0,

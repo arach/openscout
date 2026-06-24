@@ -283,6 +283,27 @@ private struct RelayConnectionAttempt: Sendable {
     let remoteKey: Data
 }
 
+private struct MobileEndpointManifest: Decodable, Sendable {
+    let version: Int
+    let endpoints: Endpoints
+
+    struct Endpoints: Decodable, Sendable {
+        let relayURLs: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case relayURLs = "relayUrls"
+        }
+    }
+
+    var orderedRelayURLs: [String] {
+        guard let relayURLs = endpoints.relayURLs,
+              let primary = relayURLs.first else {
+            return []
+        }
+        return deduplicatedRelayURLs(primary: primary, fallbacks: Array(relayURLs.dropFirst()))
+    }
+}
+
 // MARK: - Pending RPC tracking
 
 private struct PendingRequest {
@@ -500,6 +521,11 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         startMessageLoop(generation: generation)
+        refreshEndpointManifestInBackground(
+            baseInfo: updated,
+            successfulRelayURL: attempt.relayURL,
+            generation: generation
+        )
     }
 
     /// First-time pair to a bridge via a scanned QR payload (Noise XX handshake).
@@ -600,6 +626,11 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         startMessageLoop(generation: generation)
+        refreshEndpointManifestInBackground(
+            baseInfo: info,
+            successfulRelayURL: attempt.relayURL,
+            generation: generation
+        )
     }
 
     /// Tear down the connection and all streams.
@@ -673,6 +704,70 @@ public final class BridgeConnection: @unchecked Sendable {
             publicKeyHex: bridge.publicKeyHex,
             fallbackRelayURLs: Array(relayURLs.dropFirst())
         )
+    }
+
+    private func refreshEndpointManifestInBackground(
+        baseInfo: BridgeConnectionInfo,
+        successfulRelayURL: String,
+        generation: Int
+    ) {
+        Task { [weak self] in
+            await self?.refreshEndpointManifest(
+                baseInfo: baseInfo,
+                successfulRelayURL: successfulRelayURL,
+                generation: generation
+            )
+        }
+    }
+
+    private func refreshEndpointManifest(
+        baseInfo: BridgeConnectionInfo,
+        successfulRelayURL: String,
+        generation: Int
+    ) async {
+        do {
+            let manifest: MobileEndpointManifest = try await rpc("mobile/endpoints", params: nil)
+            let manifestRelayURLs = manifest.orderedRelayURLs
+            guard !manifestRelayURLs.isEmpty else {
+                return
+            }
+
+            let relayURLs = relayURLsPromotingSuccessfulRelay(
+                successfulRelayURL,
+                within: manifestRelayURLs + baseInfo.relayURLs
+            )
+            guard let primaryRelayURL = relayURLs.first else {
+                return
+            }
+
+            let refreshed = BridgeConnectionInfo(
+                relayURL: primaryRelayURL,
+                roomId: baseInfo.roomId,
+                publicKeyHex: baseInfo.publicKeyHex,
+                fallbackRelayURLs: Array(relayURLs.dropFirst())
+            )
+            refreshed.save(userDefaults: userDefaults, promoteActive: target == nil)
+
+            lock.withLockVoid {
+                guard connectionGeneration == generation,
+                      connectionInfo?.publicKeyHex.lowercased() == refreshed.publicKeyHex.lowercased() else {
+                    return
+                }
+                connectionInfo = refreshed
+            }
+
+            await connectionLogHandle.log(
+                "Refreshed endpoint manifest with \(relayURLs.count) relay route(s)",
+                event: .resolve,
+                route: relayURLs.first.map(transportKind(forRelayURL:))
+            )
+        } catch {
+            await connectionLogHandle.log(
+                "Endpoint manifest refresh skipped: \(detailedErrorDescription(error))",
+                event: .resolve,
+                level: .warning
+            )
+        }
     }
 
     private func currentTrustedBridge() -> TrustedBridge? {

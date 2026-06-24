@@ -68,7 +68,7 @@ Stage-set for v0 pilots:
 - Avoid blanket `scout restart` when debugging lanes — it previously spawned a new Codex thread per configured relay
 - Retire stale configured cards: `scout card retire <id>` (no bulk CLI yet)
 - Prune one-time cards: `scout card cleanup --all`
-- Refresh tail: `curl 'http://127.0.0.1:65535/v1/tail/discover?force=1'`
+- Refresh tail: `curl 'http://127.0.0.1:43110/v1/tail/discover?force=1'`
 - Hard-refresh `/ops/lanes` after client changes (`Cmd+Shift+R`)
 
 ## Deferred (post-v0)

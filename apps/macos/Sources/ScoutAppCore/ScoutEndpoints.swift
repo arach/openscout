@@ -29,7 +29,7 @@ public enum ScoutAppError {
 }
 
 public enum ScoutWeb {
-    private static let fallbackURL = URL(string: "http://127.0.0.1:3200")!
+    private static let fallbackURL = URL(string: "http://127.0.0.1:43120")!
 
     public static func baseURL() -> URL {
         if let url = ScoutEndpointResolver.webURLFromEnvironment() {
@@ -58,7 +58,7 @@ public enum ScoutWeb {
 }
 
 public enum ScoutBroker {
-    private static let fallbackURL = URL(string: "http://127.0.0.1:65535")!
+    private static let fallbackURL = URL(string: "http://127.0.0.1:43110")!
 
     public static func baseURL() -> URL {
         if let url = ScoutEndpointResolver.brokerURLFromEnvironment() {

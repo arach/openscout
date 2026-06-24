@@ -17,7 +17,19 @@ import {
 import { extractScoutbotUiActions, normalizeScoutbotUiAction, stripScoutbotUiFences } from "../../lib/scoutbot.ts";
 import { parseScoutbotReminderIntent } from "../../lib/scoutbot-reminder-intent.ts";
 import { toSpokenScoutText } from "../../lib/spoken-text.ts";
-import { isVoxSpeechStopped, playPreparedVoxSpeechWithEffects, prepareVoxSpeech, shouldAutoProbeVoxBridge, startVoxSpeechWithEffects, VoxBrowserClient, type VoxLiveHandle, type VoxSessionState, type VoxSpeakHandle, type VoxSpeakResult, type VoxSpeechTimingCueRequest } from "../../lib/vox.ts";
+import {
+  isScoutSpeechStopped,
+  playPreparedScoutSpeechWithEffects,
+  prepareScoutSpeech,
+  shouldAutoProbeScoutVoice,
+  startScoutSpeechWithEffects,
+  ScoutVoiceClient,
+  type ScoutVoiceLiveHandle,
+  type ScoutVoiceSessionState,
+  type ScoutSpeechHandle,
+  type ScoutSpeechResult,
+  type ScoutSpeechTimingCueRequest,
+} from "../../lib/scout-voice.ts";
 import { useScout } from "../Provider.tsx";
 import {
   useScoutbotStatePublisher,
@@ -26,7 +38,7 @@ import {
   type ScoutbotPublicState,
 } from "./ScoutbotStateContext.tsx";
 import { ChatHistory, ChatInput } from "./ScoutbotChat.tsx";
-import { ScoutbotIconButton, VoxSetupPanel } from "./ScoutbotControls.tsx";
+import { ScoutbotIconButton, ScoutVoiceSetupPanel } from "./ScoutbotControls.tsx";
 import { ScoutbotSettingsPanel } from "./ScoutbotSettingsPanel.tsx";
 import {
   DEFAULT_SCOUTBOT_VOICE_PRESET_ID,
@@ -34,14 +46,14 @@ import {
   SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS,
   SCOUTBOT_VOICE_SPEEDS,
   STATE_PROMPT,
-  VOX_LIVE_STOP_TIMEOUT_MS,
+  SCOUT_VOICE_STOP_TIMEOUT_MS,
   buildScoutbotBriefSpeechPlan,
   estimateBriefDuration,
   extractAbsoluteFilePaths,
   formatReminderDueAt,
-  isVoxLiveCancellation,
+  isScoutVoiceCancellation,
   makeScoutAudioLaunchContext,
-  releaseVoxLive,
+  releaseScoutVoiceLive,
   resolveScoutbotBriefCueSchedule,
   resolveScoutbotFxParams,
   shortenForMenu,
@@ -62,7 +74,7 @@ import {
   type ScoutbotReminderState,
   type ScoutbotVoiceDefaults,
   type VoiceProbeState,
-  type VoxLiveCancelReason,
+  type ScoutVoiceCancelReason,
 } from "./scoutbot-model.ts";
 
 export function ScoutbotPanel({ height }: { height?: number } = {}) {
@@ -87,7 +99,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const [brief, setBrief] = useState<ScoutbotBrief | null>(null);
   const [briefStepIndex, setBriefStepIndex] = useState<number | null>(null);
   const [recording, setRecording] = useState(false);
-  const [voiceState, setVoiceState] = useState<VoxSessionState | null>(null);
+  const [voiceState, setVoiceState] = useState<ScoutVoiceSessionState | null>(null);
   const [partial, setPartial] = useState("");
   const [speaking, setSpeaking] = useState(false);
   const [lastAsk, setLastAsk] = useState<string | null>(null);
@@ -108,10 +120,10 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const [chatExpanded, setChatExpanded] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
-  const clientRef = useRef<VoxBrowserClient | null>(null);
-  const liveRef = useRef<VoxLiveHandle | null>(null);
-  const liveCancelReasonRef = useRef<VoxLiveCancelReason | null>(null);
-  const speechRef = useRef<VoxSpeakHandle | null>(null);
+  const clientRef = useRef<ScoutVoiceClient | null>(null);
+  const liveRef = useRef<ScoutVoiceLiveHandle | null>(null);
+  const liveCancelReasonRef = useRef<ScoutVoiceCancelReason | null>(null);
+  const speechRef = useRef<ScoutSpeechHandle | null>(null);
   const speechPrepareAbortRef = useRef<AbortController | null>(null);
   const briefRunRef = useRef<string | null>(null);
   const initializedDueReminderIdsRef = useRef(false);
@@ -130,7 +142,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const runSpeech = useCallback((text: string) => {
     if (!text) return;
     stopSpeech();
-    const speech = startVoxSpeechWithEffects(toSpokenScoutText(text), {
+    const speech = startScoutSpeechWithEffects(toSpokenScoutText(text), {
       speed: voiceSpeed,
       presetId: voicePresetId,
       params: resolveScoutbotFxParams(voicePresetId, onlineCount),
@@ -139,8 +151,8 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     setSpeaking(true);
     void speech.promise
       .catch((err) => {
-        if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        if (!isScoutSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Scout voice speech failed.");
         }
       })
       .finally(() => {
@@ -434,19 +446,19 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   }, [archivingSessionId, stopSpeech, syncLastMessages]);
 
   const probeVoice = useCallback(async () => {
-    const client = clientRef.current ?? new VoxBrowserClient();
+    const client = clientRef.current ?? new ScoutVoiceClient();
     clientRef.current = client;
     setVoiceProbeState("probing");
 
     const ok = await client.probe();
     setVoiceAvailable(ok);
-    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Vox Companion is not reachable.");
+    setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Scout voice service is not reachable.");
     setVoiceProbeState("idle");
     return ok;
   }, []);
 
   useEffect(() => {
-    if (!shouldAutoProbeVoxBridge()) {
+    if (!shouldAutoProbeScoutVoice()) {
       setVoiceProbeState("idle");
       return;
     }
@@ -464,22 +476,16 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     };
   }, [probeVoice]);
 
-  const launchVox = useCallback(() => {
-    const client = clientRef.current ?? new VoxBrowserClient();
+  const launchScoutVoice = useCallback(() => {
+    const client = clientRef.current ?? new ScoutVoiceClient();
     clientRef.current = client;
     setError(null);
     setVoiceProbeState("launching");
-    client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
+    void client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
     window.setTimeout(() => {
       void probeVoice();
     }, 2400);
   }, [probeVoice]);
-
-  const openVoxSettings = useCallback(() => {
-    const client = clientRef.current ?? new VoxBrowserClient();
-    clientRef.current = client;
-    client.openSettings({ source: "openscout", context: makeScoutAudioLaunchContext() });
-  }, []);
 
   const handleScoutbotReply = useCallback((body: string) => {
     const replyText = stripScoutbotUiFences(body);
@@ -560,7 +566,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
   const prepareBriefSpeech = useCallback((
     text: string,
-    cues: VoxSpeechTimingCueRequest[],
+    cues: ScoutSpeechTimingCueRequest[],
     runId: string,
   ): PreparedBriefSpeech => {
     if (!voiceRepliesRef.current) {
@@ -578,7 +584,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         speechPrepareAbortRef.current = null;
       }
     };
-    const promise = prepareVoxSpeech(text, {
+    const promise = prepareScoutSpeech(text, {
       speed: voiceSpeed,
       instructions: SCOUTBOT_BRIEF_SPEECH_INSTRUCTIONS,
       signal: controller.signal,
@@ -587,8 +593,8 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       ...(cues.length > 0 ? { speechTiming: { enabled: true, cues } } : {}),
     })
       .catch((err) => {
-        if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        if (!isScoutSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Scout voice speech failed.");
         }
         return null;
       })
@@ -601,7 +607,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   }, [voiceSpeed]);
 
   const playBriefSpeech = useCallback(async (
-    prepared: Promise<VoxSpeakResult | null>,
+    prepared: Promise<ScoutSpeechResult | null>,
     runId: string,
     options: {
       cueSchedule?: ScoutbotBriefCueSchedule[];
@@ -636,13 +642,13 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         }, delayMs));
       }
     };
-    const promise = playPreparedVoxSpeechWithEffects(audio, {
+    const promise = playPreparedScoutSpeechWithEffects(audio, {
       signal: controller.signal,
       presetId: voicePresetId,
       params: fxParams,
       onPlaybackStart: scheduleCueTimers,
     });
-    const speech: VoxSpeakHandle = {
+    const speech: ScoutSpeechHandle = {
       promise,
       stop: () => {
         clearCueTimers();
@@ -655,7 +661,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     try {
       await promise;
     } catch (err) {
-      if (!isVoxSpeechStopped(err)) {
+      if (!isScoutSpeechStopped(err)) {
         throw err;
       }
     } finally {
@@ -690,7 +696,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     const spokenLines: string[] = [];
     const speechPlan = buildScoutbotBriefSpeechPlan(segments);
     let preparedBriefSpeech: PreparedBriefSpeech | null = null;
-    let preparedAudio: VoxSpeakResult | null = null;
+    let preparedAudio: ScoutSpeechResult | null = null;
 
     const activateSegment = (segment: ScoutbotBriefSegment, index: number) => {
       setBriefStepIndex(Math.min(index, nextBrief.steps.length - 1));
@@ -754,8 +760,8 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           await runEstimatedSequence();
         }
       } catch (err) {
-        if (!isVoxSpeechStopped(err)) {
-          setError(err instanceof Error ? err.message : "Vox speech failed.");
+        if (!isScoutSpeechStopped(err)) {
+          setError(err instanceof Error ? err.message : "Scout voice speech failed.");
         }
       }
     } else {
@@ -767,8 +773,8 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
         try {
           await playback;
         } catch (err) {
-          if (!isVoxSpeechStopped(err)) {
-            setError(err instanceof Error ? err.message : "Vox speech failed.");
+          if (!isScoutSpeechStopped(err)) {
+            setError(err instanceof Error ? err.message : "Scout voice speech failed.");
           }
         }
       }
@@ -871,7 +877,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
   const startVoice = useCallback(async () => {
     if (recording) return;
-    const client = clientRef.current ?? new VoxBrowserClient();
+    const client = clientRef.current ?? new ScoutVoiceClient();
     clientRef.current = client;
     liveCancelReasonRef.current = null;
     setError(null);
@@ -886,12 +892,12 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       }
     }
 
-    let live: VoxLiveHandle | null = null;
+    let live: ScoutVoiceLiveHandle | null = null;
     let released = false;
     const cleanupLive = async () => {
       if (!live || released) return;
       released = true;
-      await releaseVoxLive(live, { allowCurrentSession: liveRef.current === live });
+      await releaseScoutVoiceLive(live, { allowCurrentSession: liveRef.current === live });
       if (liveRef.current === live) {
         liveRef.current = null;
       }
@@ -917,7 +923,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       }
     } catch (err) {
       const cancelReason = liveCancelReasonRef.current;
-      const wasCancellation = Boolean(cancelReason) || isVoxLiveCancellation(err);
+      const wasCancellation = Boolean(cancelReason) || isScoutVoiceCancellation(err);
       await cleanupLive();
       setRecording(false);
       setPartial("");
@@ -926,7 +932,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
       }
       setVoiceState(wasCancellation ? null : "error");
       if (!wasCancellation) {
-        setError(err instanceof Error ? err.message : "Vox recording failed.");
+        setError(err instanceof Error ? err.message : "Scout voice recording failed.");
       }
     } finally {
       await cleanupLive();
@@ -941,19 +947,19 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     try {
       await withTimeout(
         live.stop(),
-        VOX_LIVE_STOP_TIMEOUT_MS,
-        "Vox did not finish processing the recording.",
+        SCOUT_VOICE_STOP_TIMEOUT_MS,
+        "Scout voice did not finish processing the recording.",
       );
     } catch (err) {
       liveCancelReasonRef.current = "stop-failed";
-      await releaseVoxLive(live, { allowCurrentSession: true });
+      await releaseScoutVoiceLive(live, { allowCurrentSession: true });
       if (liveRef.current === live) {
         liveRef.current = null;
         setRecording(false);
         setPartial("");
         setVoiceState("error");
       }
-      setError(err instanceof Error ? `Vox recording did not finish: ${err.message}` : "Vox recording did not finish.");
+      setError(err instanceof Error ? `Scout voice recording did not finish: ${err.message}` : "Scout voice recording did not finish.");
     }
   }, []);
 
@@ -1161,8 +1167,8 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const voiceLabel = recording
     ? voiceState === "processing" ? "Sending" : "Stop"
     : voiceProbeState === "probing" ? "Checking Voice"
-    : voiceProbeState === "launching" ? "Opening Voice"
-    : voiceAvailable === false ? "Open Voice" : "Start Talking";
+    : voiceProbeState === "launching" ? "Opening Scout"
+    : voiceAvailable === false ? "Open Scout" : "Start Talking";
   if (collapsed) {
     return (
       <div className="flex shrink-0 items-center border-t border-[var(--scout-chrome-border-soft)] px-3 py-1.5">
@@ -1286,12 +1292,12 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-[var(--scout-chrome-border-soft)] bg-black/10 px-3 pt-2 pb-2.5">
         {voiceAvailable === false && (
-          <VoxSetupPanel
+          <ScoutVoiceSetupPanel
             issue={voiceIssue}
             probeState={voiceProbeState}
-            onLaunch={launchVox}
+            onLaunch={launchScoutVoice}
             onRetry={() => void probeVoice()}
-            onSettings={openVoxSettings}
+            onSettings={() => setSettingsOpen(true)}
           />
         )}
 
@@ -1328,7 +1334,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
           voiceUnavailable={voiceAvailable === false}
           onMicClick={() => {
             if (voiceAvailable === false) {
-              launchVox();
+              launchScoutVoice();
               return;
             }
             void (recording ? stopVoice() : startVoice());

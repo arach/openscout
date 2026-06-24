@@ -10,7 +10,9 @@ import {
 } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
+import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import type { Agent, Route } from "../../lib/types.ts";
+import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
@@ -159,6 +161,7 @@ export function AgentLanesView({
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
   const [summaryHeight, setSummaryHeight] = useState<number | null>(readStoredLaneSummaryHeight);
+  const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
   const { beginResize, resetSummaryHeight, resizing: summaryResizing } = useLaneSummaryResize(setSummaryHeight);
   const handleSummaryResizeStart = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => beginResize(event, summaryHeight),
@@ -181,6 +184,24 @@ export function AgentLanesView({
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const sessions = await fetchTerminalSessions({ includeDiscovered: false });
+        if (!cancelled) setTerminalSessions(sessions);
+      } catch {
+        if (!cancelled) setTerminalSessions([]);
+      }
+    };
+    void load();
+    const timer = setInterval(() => void load(), 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -213,6 +234,7 @@ export function AgentLanesView({
       tailEvents,
       processes: discovery?.processes ?? [],
       scoutAgents,
+      terminalSessions,
       observeCache,
       now,
       workingOnly: true,
@@ -228,7 +250,7 @@ export function AgentLanesView({
       issues: rosterIssues,
       freshLaneIds: result.newLaneIds,
     };
-  }, [discovery, tailEvents, scoutAgents, observeCache, now, horizon]);
+  }, [discovery, tailEvents, scoutAgents, terminalSessions, observeCache, now, horizon]);
 
   useEffect(() => {
     if (issues.length === 0) return;
@@ -293,7 +315,7 @@ export function AgentLanesView({
         <div className="s-agent-lanes-empty">
           {tailLoading
             ? "Loading tail stream…"
-            : `No agents with recent work in the last ${horizonLabel}. Lanes follow the tail stream — they appear when harness transcripts update or emit tool calls inside the selected window.`}
+            : `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`}
         </div>
       ) : (
         <div className="s-agent-lanes-scroll">

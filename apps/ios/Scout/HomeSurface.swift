@@ -98,7 +98,7 @@ struct HomeSurface: View {
         }
         // Activity's "All" pushes the full live firehose — Home only previews it.
         .navigationDestination(isPresented: $showAllActivity) {
-            TailSurface(client: client)
+            TailSurface(client: client, reloadToken: reloadToken)
         }
     }
 

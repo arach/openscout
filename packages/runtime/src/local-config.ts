@@ -11,6 +11,22 @@ import { dirname, join } from "node:path";
 export const LOCAL_CONFIG_VERSION = 1;
 export const DEFAULT_SCOUT_WEB_PORTAL_HOST = "scout.local";
 export const DEFAULT_SCOUT_WEB_LOCAL_NAME = DEFAULT_SCOUT_WEB_PORTAL_HOST;
+export const OPENSCOUT_PORTS = {
+  broker: 43110,
+  web: 43120,
+  webTerminalRelay: 43121,
+  vite: 43122,
+  pairingBridge: 43130,
+  pairingRelay: 43131,
+  pairingFileServer: 43132,
+  studio: 43140,
+} as const;
+export const OPENSCOUT_WORKTREE_PORT_BASES = {
+  web: 43200,
+  vite: 43900,
+  pairing: 44600,
+} as const;
+export const OPENSCOUT_WORKTREE_PORT_RANGE = 700;
 
 export type LocalPortsConfig = {
   broker?: number;
@@ -30,9 +46,9 @@ export const DEFAULT_LOCAL_CONFIG = {
   host: "127.0.0.1",
   webLocalName: undefined,
   ports: {
-    broker: 65535,
-    web: 3200,
-    pairing: 7888,
+    broker: OPENSCOUT_PORTS.broker,
+    web: OPENSCOUT_PORTS.web,
+    pairing: OPENSCOUT_PORTS.pairingBridge,
   },
 } as const;
 

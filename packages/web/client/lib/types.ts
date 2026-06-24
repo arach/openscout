@@ -857,6 +857,14 @@ export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never
 export type CommsChannel = "here" | "mobile" | "here+mobile";
 export type CommsVerbosity = "terse" | "normal" | "detailed";
 export type CommsTone = "direct" | "warm" | "formal";
+export type ProvisionalAgentNamesMode = "replace" | "extend";
+export type ProvisionalAgentNamePoolSource =
+  | "default"
+  | "user-settings-replace"
+  | "user-settings-extend"
+  | "env-file"
+  | "user-config-file"
+  | "home-json";
 
 export type OperatorProfile = {
   name: string;
@@ -872,6 +880,11 @@ export type OperatorProfile = {
   verbosity: CommsVerbosity;
   tone: CommsTone;
   quietHours: string;
+  provisionalAgentNames: string[];
+  provisionalAgentNamesMode: ProvisionalAgentNamesMode;
+  provisionalAgentNamesResolvedCount: number;
+  provisionalAgentNamesPreview: string[];
+  provisionalAgentNamesSource: ProvisionalAgentNamePoolSource;
 };
 
 /** Mesh status report from the broker. */
@@ -1206,7 +1219,7 @@ export type Route =
       agentId?: string;
       conversationId?: string;
       tab?: AgentTab;
-      projectKey?: string;
+      projectSlug?: string;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)
   | ({ view: "conversations" } & MachineScopedRoute)

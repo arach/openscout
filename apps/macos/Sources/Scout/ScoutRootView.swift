@@ -134,6 +134,7 @@ struct ScoutRootView: View {
     @State private var observeRestoresInspectorCollapsed = false
     @State private var agentPreviewPanelAgent: ScoutAgent?
     @State private var agentPreviewRestoresInspectorCollapsed = false
+    @State private var compactInspectorPresented = false
     /// Non-nil while the new-session composer is presented. Configured by each
     /// entry point (list "+", message context menu, agent inspector).
     @State private var sessionDraft: ScoutSessionDraft?
@@ -188,7 +189,19 @@ struct ScoutRootView: View {
     }
 
     var body: some View {
-        HudChromeShell(titlebarStyle: .systemToolbar, titlebarActions: chromeTitlebarActions) {
+        GeometryReader { proxy in
+            let layout = ScoutShellLayout(windowWidth: proxy.size.width)
+            rootShell(layout: layout)
+                .onChange(of: layout.mode) { _, mode in
+                    if mode != .compact {
+                        compactInspectorPresented = false
+                    }
+                }
+        }
+    }
+
+    private func rootShell(layout: ScoutShellLayout) -> some View {
+        HudChromeShell(titlebarStyle: .systemToolbar, titlebarActions: chromeTitlebarActions(layout: layout)) {
             HudResizableNavigationSidebar(
                 selection: Binding(
                     get: { section },
@@ -199,7 +212,7 @@ struct ScoutRootView: View {
                     }
                 ),
                 entries: sidebarEntries,
-                isCompact: $railCompact,
+                isCompact: navigationCompactBinding(layout: layout),
                 labelWidth: navigationSidebarLabelWidthBinding,
                 accent: manifest.accent,
                 minLabelWidth: 76,
@@ -216,7 +229,7 @@ struct ScoutRootView: View {
                 },
                 footer: {
                     ScoutSidebarSettingsButton(
-                        isCompact: railCompact,
+                        isCompact: effectiveRailCompact(layout: layout),
                         labelWidth: CGFloat(navigationSidebarLabelWidth),
                         isSelected: section == .settings
                     ) {
@@ -225,9 +238,9 @@ struct ScoutRootView: View {
                 }
             )
         } trailing: {
-            trailingPanel
+            trailingPanel(layout: layout)
         } content: {
-            content
+            content(layout: layout)
         } statusBar: {
             statusBar
         }
@@ -997,16 +1010,20 @@ struct ScoutRootView: View {
         ]
     }
 
-    private var chromeTitlebarActions: [HudChromeTitlebarAction] {
+    private func chromeTitlebarActions(layout: ScoutShellLayout) -> [HudChromeTitlebarAction] {
         var actions = [
             HudChromeTitlebarAction(
                 id: "scout.navigation",
                 placement: .leading,
-                label: railCompact ? "Expand navigation" : "Collapse navigation",
+                label: layout.forcesNavigationCompact
+                    ? "Navigation compact at this width"
+                    : (railCompact ? "Expand navigation" : "Collapse navigation"),
                 systemImage: "sidebar.left"
             ) {
-                withAnimation(HudSidebarMotion.expandCollapse) {
-                    railCompact.toggle()
+                if !layout.forcesNavigationCompact {
+                    withAnimation(HudSidebarMotion.expandCollapse) {
+                        railCompact.toggle()
+                    }
                 }
             }
         ]
@@ -1014,7 +1031,7 @@ struct ScoutRootView: View {
             actions.append(HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
-                label: trailingPanelActionLabel,
+                label: trailingPanelActionLabel(layout: layout),
                 systemImage: "sidebar.right"
             ) {
                 withAnimation(.easeOut(duration: 0.14)) {
@@ -1022,7 +1039,13 @@ struct ScoutRootView: View {
                         closeObserveSidecar()
                     } else if agentPreviewPanelAgent != nil {
                         closeAgentPreviewPanel()
+                    } else if layout.autoHidesInspector {
+                        compactInspectorPresented.toggle()
+                        if compactInspectorPresented {
+                            inspectorCollapsed = false
+                        }
                     } else {
+                        compactInspectorPresented = false
                         inspectorCollapsed.toggle()
                     }
                 }
@@ -1032,10 +1055,10 @@ struct ScoutRootView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(layout: ScoutShellLayout) -> some View {
         switch section {
         case .comms:
-            commsContent
+            commsContent(layout: layout)
         case .agents:
             agentsContent
         case .repos:
@@ -1051,7 +1074,7 @@ struct ScoutRootView: View {
         ScoutSettingsView(appearance: appearance)
     }
 
-    private var commsContent: some View {
+    private func commsContent(layout: ScoutShellLayout) -> some View {
         HStack(spacing: 0) {
             ScoutConversationListBar(
                 isLoading: store.isLoading,
@@ -1062,7 +1085,7 @@ struct ScoutRootView: View {
                 selectedCId: store.selectedCId,
                 newChannelIds: store.newChannelIds,
                 hasActivity: store.workingAgentCount > 0,
-                width: conversationListResizePreviewWidth ?? CGFloat(conversationListWidth),
+                width: effectiveConversationListWidth(layout: layout),
                 searchFocused: $searchFocused,
                 onNewConversation: { startNewConversation() },
                 onRefresh: { store.refresh(force: true) },
@@ -1072,14 +1095,16 @@ struct ScoutRootView: View {
                 store.selectChannel(channel.cId)
             }
             .overlay(alignment: .trailing) {
-                ZStack(alignment: .trailing) {
-                    ScoutConversationResizeHandle(
-                        width: conversationListWidthBinding,
-                        previewWidth: $conversationListResizePreviewWidth,
-                        range: ScoutDesign.conversationListWidthRange
-                    )
-                    .frame(width: ScoutDesign.conversationResizeHandleWidth)
-                    .offset(x: ScoutDesign.conversationResizeHandleWidth / 2)
+                if layout.allowsConversationListResize {
+                    ZStack(alignment: .trailing) {
+                        ScoutConversationResizeHandle(
+                            width: conversationListWidthBinding(layout: layout),
+                            previewWidth: $conversationListResizePreviewWidth,
+                            range: layout.conversationListWidthRange
+                        )
+                        .frame(width: ScoutDesign.conversationResizeHandleWidth)
+                        .offset(x: ScoutDesign.conversationResizeHandleWidth / 2)
+                    }
                 }
             }
 
@@ -2165,14 +2190,17 @@ struct ScoutRootView: View {
         return store.agents.first { $0.id == agentPreviewPanelAgent.id } ?? agentPreviewPanelAgent
     }
 
-    private var trailingPanelActionLabel: String {
+    private func trailingPanelActionLabel(layout: ScoutShellLayout) -> String {
         if observeSidecarAgent != nil { return "Close observe" }
         if agentPreviewPanelAgent != nil { return "Close agent preview" }
+        if layout.autoHidesInspector {
+            return compactInspectorPresented ? "Hide context" : "Show context"
+        }
         return inspectorCollapsed ? "Show context" : "Hide context"
     }
 
     @ViewBuilder
-    private var trailingPanel: some View {
+    private func trailingPanel(layout: ScoutShellLayout) -> some View {
         Group {
             if section == .settings {
                 EmptyView()
@@ -2238,11 +2266,11 @@ struct ScoutRootView: View {
                 )
                 .id("preview-\(agent.id)")
                 .transition(.move(edge: .trailing).combined(with: .opacity))
-            } else if !inspectorCollapsed {
+            } else if showsDefaultInspector(layout: layout) {
                 ScoutThemedSidebarPanel(
-                    width: inspectorWidthBinding,
+                    width: inspectorWidthBinding(layout: layout),
                     edge: .trailing,
-                    widthRange: ScoutDesign.inspectorWidthRange
+                    widthRange: layout.inspectorWidthRange
                 ) {
                     ScoutResizableInspectorPanel {
                         inspectorHeader
@@ -2256,6 +2284,11 @@ struct ScoutRootView: View {
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: observeSidecarResolvedAgent?.id)
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: agentPreviewResolvedAgent?.id)
         .animation(.interpolatingSpring(stiffness: 260, damping: 28), value: fileViewer.target)
+    }
+
+    private func showsDefaultInspector(layout: ScoutShellLayout) -> Bool {
+        guard !inspectorCollapsed else { return false }
+        return !layout.autoHidesInspector || compactInspectorPresented
     }
 
     /// Chats attached to an agent, most-recent first — feeds the
@@ -2408,11 +2441,36 @@ struct ScoutRootView: View {
         }
     }
 
+    private func conversationListWidthBinding(layout: ScoutShellLayout) -> Binding<CGFloat> {
+        Binding {
+            effectiveConversationListWidth(layout: layout)
+        } set: { nextWidth in
+            let range = layout.conversationListWidthRange
+            conversationListWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
+        }
+    }
+
+    private func effectiveConversationListWidth(layout: ScoutShellLayout) -> CGFloat {
+        layout.effectiveConversationListWidth(
+            stored: CGFloat(conversationListWidth),
+            preview: conversationListResizePreviewWidth
+        )
+    }
+
     private var inspectorWidthBinding: Binding<CGFloat> {
         Binding {
             CGFloat(inspectorWidth)
         } set: { nextWidth in
             let range = ScoutDesign.inspectorWidthRange
+            inspectorWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
+        }
+    }
+
+    private func inspectorWidthBinding(layout: ScoutShellLayout) -> Binding<CGFloat> {
+        Binding {
+            layout.effectiveInspectorWidth(stored: CGFloat(inspectorWidth))
+        } set: { nextWidth in
+            let range = layout.inspectorWidthRange
             inspectorWidth = Double(min(max(nextWidth, range.lowerBound), range.upperBound))
         }
     }
@@ -2441,6 +2499,20 @@ struct ScoutRootView: View {
         } set: { nextWidth in
             navigationSidebarLabelWidth = Double(min(max(nextWidth, 76), 260))
         }
+    }
+
+    private func navigationCompactBinding(layout: ScoutShellLayout) -> Binding<Bool> {
+        Binding {
+            effectiveRailCompact(layout: layout)
+        } set: { nextCompact in
+            if !layout.forcesNavigationCompact {
+                railCompact = nextCompact
+            }
+        }
+    }
+
+    private func effectiveRailCompact(layout: ScoutShellLayout) -> Bool {
+        layout.forcesNavigationCompact || railCompact
     }
 
     private var selectedChannelMembers: [ScoutMemberIdentity] {
@@ -2637,6 +2709,72 @@ struct ScoutRootView: View {
         .padding(.horizontal, HudSpacing.xxl)
         .frame(height: 24)
         .background(ScoutDesign.chrome)
+    }
+}
+
+private struct ScoutShellLayout: Equatable {
+    enum Mode: Equatable {
+        case compact
+        case balanced
+        case wide
+    }
+
+    let windowWidth: CGFloat
+
+    var mode: Mode {
+        if windowWidth < 1120 {
+            return .compact
+        }
+        if windowWidth < 1320 {
+            return .balanced
+        }
+        return .wide
+    }
+
+    var forcesNavigationCompact: Bool {
+        mode == .compact
+    }
+
+    var autoHidesInspector: Bool {
+        mode == .compact
+    }
+
+    var allowsConversationListResize: Bool {
+        mode != .compact
+    }
+
+    var conversationListWidthRange: ClosedRange<CGFloat> {
+        switch mode {
+        case .compact:
+            return 196...212
+        case .balanced:
+            return 204...260
+        case .wide:
+            return ScoutDesign.conversationListWidthRange
+        }
+    }
+
+    var inspectorWidthRange: ClosedRange<CGFloat> {
+        switch mode {
+        case .compact:
+            return 240...280
+        case .balanced:
+            return 260...320
+        case .wide:
+            return ScoutDesign.inspectorWidthRange
+        }
+    }
+
+    func effectiveConversationListWidth(stored: CGFloat, preview: CGFloat?) -> CGFloat {
+        clamp(preview ?? stored, to: conversationListWidthRange)
+    }
+
+    func effectiveInspectorWidth(stored: CGFloat) -> CGFloat {
+        clamp(stored, to: inspectorWidthRange)
+    }
+
+    private func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }
 

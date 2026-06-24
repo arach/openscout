@@ -10,18 +10,18 @@ describe("OpenScout local edge", () => {
     expect(
       resolveOpenScoutLocalEdgeConfig({
         nodeHost: "m1.scout.local",
-        brokerPort: 65535,
-        webPort: 3200,
+        brokerPort: 43110,
+        webPort: 43120,
       }),
     ).toEqual({
       portalHost: "scout.local",
       nodeHost: "m1.scout.local",
       wildcardHost: "*.scout.local",
       scheme: "http",
-      brokerUpstream: "127.0.0.1:65535",
+      brokerUpstream: "127.0.0.1:43110",
       routes: [
-        { host: "scout.local", upstream: "127.0.0.1:3200" },
-        { host: "*.scout.local", upstream: "127.0.0.1:3200" },
+        { host: "scout.local", upstream: "127.0.0.1:43120" },
+        { host: "*.scout.local", upstream: "127.0.0.1:43120" },
       ],
     });
   });
@@ -30,32 +30,32 @@ describe("OpenScout local edge", () => {
     const caddyfile = renderOpenScoutCaddyfile(
       resolveOpenScoutLocalEdgeConfig({
         nodeHost: "m1.scout.local",
-        brokerPort: 65535,
-        webPort: 3200,
+        brokerPort: 43110,
+        webPort: 43120,
       }),
     );
 
     expect(caddyfile).toContain("http://*.scout.local {");
-    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:3200 {");
+    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43120 {");
     expect(caddyfile).not.toContain("tls internal");
     expect(caddyfile).toContain("Start Scout");
-    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:65535");
+    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43110");
     expect(caddyfile).toContain("new URL(config.startPath, window.location.origin)");
   });
 
   test("registers additional tailnet hosts as edge routes", () => {
     const config = resolveOpenScoutLocalEdgeConfig({
       nodeHost: "m1.scout.local",
-      brokerPort: 65535,
-      webPort: 3200,
+      brokerPort: 43110,
+      webPort: 43120,
       extraHosts: ["m1.tailnet.ts.net.", "100.64.0.10", "m1.tailnet.ts.net"],
     });
 
     expect(config.routes).toEqual([
-      { host: "scout.local", upstream: "127.0.0.1:3200" },
-      { host: "*.scout.local", upstream: "127.0.0.1:3200" },
-      { host: "m1.tailnet.ts.net", upstream: "127.0.0.1:3200" },
-      { host: "100.64.0.10", upstream: "127.0.0.1:3200" },
+      { host: "scout.local", upstream: "127.0.0.1:43120" },
+      { host: "*.scout.local", upstream: "127.0.0.1:43120" },
+      { host: "m1.tailnet.ts.net", upstream: "127.0.0.1:43120" },
+      { host: "100.64.0.10", upstream: "127.0.0.1:43120" },
     ]);
 
     const caddyfile = renderOpenScoutCaddyfile(config);
@@ -67,9 +67,9 @@ describe("OpenScout local edge", () => {
     const caddyfile = renderOpenScoutCaddyfile(
       resolveOpenScoutLocalEdgeConfig({
         nodeHost: "m1.scout.local",
-        brokerPort: 65535,
+        brokerPort: 43110,
         scheme: "both",
-        webPort: 3200,
+        webPort: 43120,
       }),
     );
 
@@ -82,7 +82,7 @@ describe("OpenScout local edge", () => {
       renderOpenScoutCaddyfile(
         resolveOpenScoutLocalEdgeConfig({
           nodeHost: "m1.scout.local",
-          brokerPort: 65535,
+          brokerPort: 43110,
           scheme: "http",
           webPort: 4311,
         }),
@@ -92,7 +92,7 @@ describe("OpenScout local edge", () => {
       renderOpenScoutCaddyfile(
         resolveOpenScoutLocalEdgeConfig({
           nodeHost: "m1.scout.local",
-          brokerPort: 65535,
+          brokerPort: 43110,
           scheme: "http",
           webPort: 4311,
         }),

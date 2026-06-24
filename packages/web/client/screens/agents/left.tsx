@@ -1,23 +1,19 @@
 import { useMemo, useState } from "react";
 import "../../scout/slots/ctx-panel.css";
 import "./agents-rail.css";
-import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
-import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { openAgent } from "../../scout/slots/openAgent.ts";
-import { RailRow } from "../../scout/slots/RailRow.tsx";
+import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { NewChatComposer } from "./NewChatComposer.tsx";
-import type { Agent } from "../../lib/types.ts";
-
-const RECENT_LIMIT = 8;
+import { useAgentDirectory } from "./useAgentDirectory.ts";
+import { dirProjectNeeds, dirProjectWorking } from "./model.ts";
 
 /**
- * Agents rail — an actions column. The list (projects/agents) is the main pane's
- * job now, so the rail stops re-listing the roster and instead launches things:
- * Search opens the lookup view, New chat opens the composer, and the agents you
- * last touched sit below for quick re-entry. Settings rides the foot.
+ * Agents rail — the project navigator. Search / New chat sit on top as actions,
+ * then the projects list (live-first): a pip, harness-hue dots, and a working /
+ * needs / count readout. Selecting a project drives the detail via the route's
+ * `projectSlug`. The roster lives inside a project now, not in this lane.
  */
 export function AgentsLeft() {
   const { agents, route, navigate } = useScout();
@@ -27,75 +23,71 @@ export function AgentsLeft() {
     () => filterAgentsByMachineScope(agents, machineId),
     [agents, machineId],
   );
-  const recent = useMemo(
-    () =>
-      [...scopedAgents]
-        .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
-        .slice(0, RECENT_LIMIT),
-    [scopedAgents],
-  );
+  const { projects } = useAgentDirectory();
+  const selectedProjectSlug = route.view === "agents" ? route.projectSlug : undefined;
   const selectedAgentId = route.view === "agents" ? route.agentId : undefined;
+  // The detail pane falls back to the first project when the route carries no
+  // slug; mirror that here so the rail highlights whatever the content shows.
+  const effectiveSlug = selectedProjectSlug ?? projects[0]?.slice.slug;
 
   return (
     <div className="ctx-panel s-agents-rail">
-      <div className="s-agents-actions">
-        <button type="button" className="s-rail-action" onClick={() => navigate({ view: "search" })}>
-          <span className="s-rail-action-icon">
-            <IcoSearch />
-          </span>
-          <span className="s-rail-action-label">Search</span>
-        </button>
-        <button
-          type="button"
-          className="s-rail-action s-rail-action--primary"
-          onClick={() => setComposerOpen(true)}
-        >
-          <span className="s-rail-action-icon">
-            <IcoPlus />
-          </span>
-          <span className="s-rail-action-label">New chat</span>
-        </button>
-      </div>
-
-      <div className="s-agents-recent">
-        <div className="ctx-panel-section-label">
-          <span>Recent</span>
-          {scopedAgents.length > 0 && (
-            <button
-              type="button"
-              className="s-rail-see-all"
-              onClick={() => navigate({ view: "agents" })}
-            >
-              all
-            </button>
-          )}
-        </div>
-        {recent.length === 0 ? (
-          <div className="ctx-panel-empty">No agents yet</div>
+      <div className="s-agents-recent s-rail-projects">
+        {projects.length === 0 ? (
+          <div className="ctx-panel-empty">No projects yet</div>
         ) : (
-          recent.map((agent) => (
-            <RailRow
-              key={agent.id}
-              name={agent.name || agent.id}
-              meta={agent.updatedAt ? timeAgo(agent.updatedAt) : undefined}
-              tone={normalizeAgentState(agent.state)}
-              avatarName={agent.name}
-              active={agent.id === selectedAgentId}
-              title={agentRowTooltip(agent)}
-              onClick={() =>
-                openAgent(navigate, agent, { from: "agents-rail", returnTo: { view: "agents" } })
-              }
-            />
-          ))
+          projects.map((project) => {
+            const working = dirProjectWorking(project);
+            const needs = dirProjectNeeds(project);
+            const selected = project.slice.slug === effectiveSlug && !selectedAgentId;
+            return (
+              <button
+                key={project.slice.key}
+                type="button"
+                className="s-rail-proj"
+                data-selected={selected || undefined}
+                data-live={working > 0 || undefined}
+                data-needs={needs || undefined}
+                title={project.slice.root ?? undefined}
+                onClick={() => navigate({ view: "agents", projectSlug: project.slice.slug })}
+              >
+                <AgentAvatar name={project.slice.title} size={22} tile presence={false} />
+                <span className="s-rail-proj-name" data-idle={working === 0 || undefined}>
+                  <span aria-hidden style={{ opacity: 0.4 }}>/</span>{project.slice.title}
+                </span>
+                {/* tail — a quiet right-aligned count (studio .railCount). Dim mono
+                    for working-only projects; rendered in --accent (no pulsing
+                    halo) when the project needs you. Idle shows nothing. */}
+                {working > 0 ? (
+                  <span
+                    className="s-rail-proj-count"
+                    data-needs={needs || undefined}
+                    title={needs ? "needs you" : undefined}
+                  >
+                    {working}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })
         )}
       </div>
 
-      <div className="s-agents-foot">
-        <button type="button" className="s-rail-action" onClick={() => navigate({ view: "settings" })}>
-          <span className="s-rail-action-icon">
-            <IcoGear />
-          </span>
-          <span className="s-rail-action-label">Settings</span>
+      <div className="s-agents-foot s-rail-foot-icons">
+        <button type="button" className="s-rail-icon" title="Search" aria-label="Search" onClick={() => navigate({ view: "search" })}>
+          <IcoSearch />
+        </button>
+        <button type="button" className="s-rail-icon" title="New chat" aria-label="New chat" onClick={() => setComposerOpen(true)}>
+          <IcoPlus />
+        </button>
+        <button
+          type="button"
+          className="s-rail-icon s-rail-icon--end"
+          title="Settings"
+          aria-label="Settings"
+          onClick={() => navigate({ view: "settings" })}
+        >
+          <IcoGear />
         </button>
       </div>
 
@@ -109,14 +101,6 @@ export function AgentsLeft() {
       )}
     </div>
   );
-}
-
-function agentRowTooltip(agent: Agent): string | undefined {
-  const parts: string[] = [];
-  if (agent.project) parts.push(`project: ${agent.project}`);
-  if (agent.branch) parts.push(`branch: ${agent.branch}`);
-  if (agent.harness) parts.push(`harness: ${agent.harness}`);
-  return parts.length > 0 ? parts.join("\n") : undefined;
 }
 
 function IcoSearch() {

@@ -108,7 +108,7 @@ describe("loadResolvedRelayAgents (dev-like fixtures)", () => {
     expect(patch?.source).toBe("inferred");
     expect(patch?.registrationKind).toBe("discovered");
     expect(patch?.defaultHarness).toBe("codex");
-    expect(patch?.harnesses.map((h) => h.harness)).toEqual(["codex"]);
+    expect(patch?.harnesses.map((h) => h.harness).sort()).toEqual(["codex", "grok"]);
 
     expect(setup.projectInventory.some((p) => p.relativePath === "ts-monorepo/packages/ui")).toBe(false);
   });

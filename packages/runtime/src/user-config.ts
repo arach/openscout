@@ -7,6 +7,7 @@ export type InterruptThreshold = "always" | "blocking-only" | "batched" | "never
 export type CommsChannel = "here" | "mobile" | "here+mobile";
 export type CommsVerbosity = "terse" | "normal" | "detailed";
 export type CommsTone = "direct" | "warm" | "formal";
+export type ProvisionalAgentNamesMode = "replace" | "extend";
 
 export type OpenScoutUserConfig = {
   name?: string;
@@ -22,6 +23,12 @@ export type OpenScoutUserConfig = {
   verbosity?: CommsVerbosity;
   tone?: CommsTone;
   quietHours?: string;
+  /** Custom rotation pool for ephemeral agent names (one entry per name). */
+  provisionalAgentNames?: string[];
+  /** `replace` uses only your list; `extend` prepends yours then Scout defaults. */
+  provisionalAgentNamesMode?: ProvisionalAgentNamesMode;
+  /** Advanced: path to a JSON name pool (`{ "names": [...] }` or a string array). */
+  provisionalAgentNamesFile?: string;
 };
 
 function userConfigPath(): string {

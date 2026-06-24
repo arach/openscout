@@ -7,6 +7,7 @@ import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
+import { resolveScoutBrokerUrl } from "./core/broker/service.ts";
 import { resolveOpenScoutWebApplicationServerIdentity } from "./app-server-origin.ts";
 import {
   createRelayWebSocketProxy,
@@ -177,6 +178,8 @@ try {
           if (!upstreamUrl) {
             return new Response("Terminal relay unavailable", { status: 503 });
           }
+        } else if (url.pathname === routes.tailStreamPath || url.pathname === routes.eventsStreamPath) {
+          upstreamUrl = toWebSocketUrl(resolveScoutBrokerUrl(), "/trpc", url.search);
         } else if (viteDevUrl && url.pathname === routes.viteHmrPath) {
           upstreamUrl = toWebSocketUrl(viteDevUrl, url.pathname, url.search);
         } else {

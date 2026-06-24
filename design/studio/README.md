@@ -20,7 +20,7 @@ Three buckets:
 ```sh
 cd design/studio
 bun install
-bun run dev        # → http://localhost:3030
+bun run dev        # → http://localhost:43140
 ```
 
 `?focus=1` on any page strips the sidebar + page strip for screenshots /

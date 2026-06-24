@@ -373,6 +373,64 @@ export const STUDIO_PAGES: StudioPage[] = [
       "Flip the body IA: the project is the primary object, not the agent. The page is a calm list of projects; under each, a few recent sessions listed directly — regardless of which agent owns them (harness/agent reduced to a faint attribution). Sortable by recency or project; attention (`needs you`) badges but doesn't override the chosen sort. The left rail stops re-listing projects and becomes attention/activity lenses. Premise: the agent-card directory is secondary — more for agents to find each other than for the operator to think about the world.",
   },
   {
+    href: "/studies/agents-directory",
+    label: "Agents · Directory",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/agents-directory/page.tsx",
+      "packages/web/client/screens/agents/library.tsx",
+      "packages/web/client/screens/agents/AgentsScreen.tsx",
+    ],
+    blurb:
+      "Clean-sheet rebuild of the Agents starting place after the shipped projects-first table read as a dark, bland inventory. Same primary object (project) reborn as cards: project → agent cards → session map. Assumes many sessions per agent, so the session layer is an always-visible map (recency tiles, active in accent) with a focus caption + `+ start session`, not a collapsed list. A concise live-lanes peek opens full Lanes on engage. Tuned for Graphite Dark with sprite identity; one accent as a precedence ladder (needs-you ▸ working ▸ idle), never categorical status color.",
+  },
+  {
+    href: "/studies/agents-project",
+    label: "Agents · Project view",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/app/studies/agents-project/page.tsx",
+      "design/studio/app/studies/agents-directory/page.tsx",
+      "packages/web/client/screens/agents/library.tsx",
+      "packages/web/client/screens/agents/model.ts",
+    ],
+    blurb:
+      "The wide pane when you focus ONE project — the fix for the near-blank project detail. Synthesis of three explored lenses: a command-center's density + resolve-in-place steering, a project-home's calm digest (harnesses · branches-in-flight · conversations · last-active) so an idle project reads full not blank, and a work-stream's produced changes as the review aside. Spine = the contributor roster (agent = project·harness rollup, sessions expand inline). A conditional `Now` band steers the highest-precedence agent without opening a thread. One accent as a precedence ladder (needs-you ▸ working ▸ idle), coherent with the gmail Directory study.",
+  },
+  {
+    href: "/studies/agents-roster-detailed",
+    label: "Agents · Detailed Roster",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-roster-detailed/page.tsx",
+      "design/studio/app/studies/session-summary-card/page.tsx",
+      "design/studio/app/studies/agents-project/page.tsx",
+    ],
+    blurb:
+      "The project directory roster, but each row is a session-summary MD card instead of a terse one-line directory row. The live roster shows name · branch · `6 instances · 12 conv` · ago — metadata, not work. Here each agent is a card: the WORK is the headline, the agent demotes to a small attribution line, and the body is a compact LOG of recent activity (a few timestamped lines, almost a changelog). More detail per agent, inline, no drill required. Frame above (masthead · digest · find) lifted from the project view; card material from the session-summary card. One accent dot: waiting ▸ working ▸ idle.",
+  },
+  {
+    href: "/studies/agents-roster-tabular",
+    label: "Agents · Tabular + rail",
+    bucket: "studies",
+    surface: "web",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/agents-roster-tabular/page.tsx",
+      "design/studio/app/studies/session-profile-full/page.tsx",
+      "design/studio/app/studies/session-summary-card/page.tsx",
+      "design/studio/app/studies/agents-project/page.tsx",
+    ],
+    blurb:
+      "The roster split the difference between terse one-liners (too little) and fat cards (too much): a DENSE TABLE — one line per agent, but with context columns (one-line work summary · ctx% · last-turn · files · turns) so you can scan many agents and compare them. The column-header row and every data row share one CSS-grid template so columns truly align. Clicking a row doesn't expand in place — it loads 'a bit more' into the RIGHT RAIL (the master–detail pane): attribution · a context gauge · touched files · the session log · a decision row by state. One selection always live (default a working agent). One accent: precedence dot · selected-row left edge · ctx fill · primary CTA.",
+  },
+  {
     href: "/studies/agents-rail-actions",
     label: "Agents · Rail Actions",
     bucket: "studies",

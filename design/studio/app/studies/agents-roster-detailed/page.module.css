@@ -1,0 +1,305 @@
+/* Agents · detailed roster — the project directory frame (masthead · digest ·
+   find) over a roster where each row is a session-summary MD card instead of a
+   terse one-line directory row. Frame bands lifted from the agents-project
+   study; card material from the session-summary-card study. Reads only the
+   --s-* graphite skin tokens. One accent dot: waiting(needs) ▸ working(live) ▸
+   idle. Hierarchy from type weight, spacing, and thin hairlines. */
+
+.surface {
+  max-width: 920px;
+  margin: 0 auto;
+  background: var(--s-bg);
+  color: var(--s-ink);
+  border: 1px solid var(--s-border);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: var(--s-font-sans);
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  padding: 22px 28px 26px;
+  min-width: 0;
+}
+
+/* ── precedence dot (the only colored mark in the UI) ────────────────────── */
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--s-accent);
+}
+.dot[data-tone="live"] { box-shadow: 0 0 0 3px var(--s-accent-soft); }
+.dot[data-tone="needs"] { box-shadow: 0 0 0 3px var(--s-accent-soft); animation: pulse 2.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ── masthead band ───────────────────────────────────────────────────────── */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.headIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.headTop { display: flex; align-items: center; gap: 12px; }
+.headName {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--s-ink);
+}
+.headState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+}
+.headRoot { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+.headActions { display: flex; align-items: center; gap: 14px; flex: none; }
+.headGhost {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.12s ease;
+}
+.headGhost:hover { color: var(--s-ink); }
+.headCta {
+  font-size: 12.5px;
+  font-weight: 580;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.headCta:hover { filter: brightness(1.07); }
+
+/* ── digest band ─────────────────────────────────────────────────────────── */
+.digest {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.stat { display: inline-flex; align-items: baseline; gap: 7px; }
+.statNum { font-size: 17px; font-weight: 600; color: var(--s-ink); letter-spacing: -0.01em; }
+.statLbl {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.statMarks { margin-left: auto; display: inline-flex; gap: 7px; color: var(--s-muted); }
+
+/* ── find band ───────────────────────────────────────────────────────────── */
+.find {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  transition: border-color 0.14s ease;
+}
+.find:focus-within { border-bottom-color: var(--s-accent); }
+.findIco { display: inline-flex; color: var(--s-muted); flex: none; }
+.findInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+}
+.findInput::placeholder { color: var(--s-muted); }
+.findFilters { display: inline-flex; gap: 14px; flex: none; }
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 520;
+  text-transform: capitalize;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.filter:hover { color: var(--s-ink); }
+.filter[data-on] { color: var(--s-ink); border-bottom-color: var(--s-accent); }
+
+/* ── roster band ─────────────────────────────────────────────────────────── */
+.main { display: flex; flex-direction: column; padding-top: 16px; }
+.sectionHead { display: flex; align-items: baseline; gap: 10px; padding: 0 0 12px; }
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.sectionMeta { font-size: 11px; color: var(--s-dim); font-family: var(--s-font-mono); }
+
+/* the cards are stacked with a small gap — they are cards now, not flush rows */
+.roster { display: flex; flex-direction: column; gap: 10px; }
+
+/* ── the card (one agent, the session-summary MD treatment) ──────────────── */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 15px 16px;
+  text-align: left;
+  background: color-mix(in srgb, var(--s-surface) 55%, transparent);
+  border: 1px solid var(--s-hairline);
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: var(--s-font-sans);
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.card:hover { border-color: var(--s-hairline-strong); }
+/* the agent that needs you carries a faint accent edge — the precedence cue */
+.card[data-tone="needs"] { border-color: color-mix(in srgb, var(--s-accent) 48%, var(--s-hairline)); }
+/* idle agents recede so working/waiting lead the ladder — the title dims, the
+   fill drops; the card stays scannable but stops competing for the eye. */
+.card[data-tone="idle"] { background: color-mix(in srgb, var(--s-surface) 30%, transparent); }
+.card[data-tone="idle"] .title { color: var(--s-dim); font-weight: 560; }
+
+.cardHead { display: flex; align-items: flex-start; gap: 12px; }
+.title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--s-ink);
+}
+.state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 540;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  white-space: nowrap;
+}
+.state[data-tone="needs"] { color: var(--s-accent); }
+.state[data-tone="live"] { color: var(--s-ink); }
+
+/* attribution — the demoted agent line */
+.attr { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.attrText {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the log — the body, almost a changelog */
+.log { display: flex; flex-direction: column; gap: 3px; }
+.logLine {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: baseline;
+}
+.logT { font-family: var(--s-font-mono); font-size: 10px; color: var(--s-dim); text-align: right; }
+.logText {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logLine[data-kind="ask"] .logT { color: var(--s-accent); }
+.logLine[data-kind="ask"] .logText { color: var(--s-accent); }
+
+/* compact meta strip */
+.metaRow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.metaRow > span { display: inline-flex; align-items: baseline; gap: 5px; }
+.metaKey {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-sans);
+}
+.metaDim { margin-left: auto; color: var(--s-dim); }
+
+.empty { font-size: 12px; color: var(--s-dim); padding: 22px 4px; text-align: center; }
+
+/* ── ephemeral disclosure — quiet text toggle ─────────────────────────────── */
+.ephBlock { margin-top: 16px; }
+.ephToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.12s ease;
+}
+.ephToggle:hover { color: var(--s-ink); }
+.ephCount { font-size: 11px; font-weight: 660; font-family: var(--s-font-mono); color: var(--s-dim); }
+.ephCaret { margin-left: auto; color: var(--s-muted); }
+
+.newAgent {
+  margin-top: 14px;
+  align-self: flex-start;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.newAgent:hover { color: var(--s-accent); }
+
+@media (max-width: 680px) {
+  .find { flex-wrap: wrap; }
+  .findFilters { width: 100%; }
+}

@@ -50,7 +50,7 @@ function resolveHudsonSdkSource(): string | null {
 
 const hudsonSdk = resolveHudsonSdkSource();
 const webNodeModules = resolve(__dirname, "node_modules");
-const bunTarget = process.env.OPENSCOUT_WEB_BUN_URL?.trim() || "http://127.0.0.1:3200";
+const bunTarget = process.env.OPENSCOUT_WEB_BUN_URL?.trim() || "http://127.0.0.1:43120";
 const routes = resolveOpenScoutWebRoutes(process.env);
 const viteHmrProtocol = process.env.OPENSCOUT_WEB_VITE_HMR_PROTOCOL?.trim() || undefined;
 const viteHmrHost = process.env.OPENSCOUT_WEB_VITE_HMR_HOST?.trim() || undefined;
@@ -87,6 +87,8 @@ export default defineConfig({
       "/api": { target: bunTarget, changeOrigin: false, ws: true },
       [routes.terminalRelayPath]: { target: bunTarget, changeOrigin: false, ws: true },
       [routes.terminalRelayHealthPath]: { target: bunTarget, changeOrigin: false, ws: false },
+      [routes.tailStreamPath]: { target: bunTarget, changeOrigin: false, ws: true },
+      [routes.eventsStreamPath]: { target: bunTarget, changeOrigin: false, ws: true },
     },
   },
   resolve: {

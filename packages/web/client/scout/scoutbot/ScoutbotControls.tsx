@@ -68,7 +68,7 @@ export function ScoutbotActionButton({
   );
 }
 
-export function VoxSetupPanel({
+export function ScoutVoiceSetupPanel({
   issue,
   probeState,
   onLaunch,
@@ -88,9 +88,9 @@ export function VoxSetupPanel({
       <div className="flex items-start gap-2">
         <Rocket size={14} className="mt-0.5 shrink-0 text-lime-300" />
         <div className="min-w-0">
-          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Voice</div>
+          <div className="uppercase tracking-[0.14em] text-lime-200">Connect Scout Voice</div>
           <p className="mt-1 leading-relaxed text-[var(--scout-chrome-ink-faint)]">
-            Enable local voice, then retry once the menu bar icon is visible.
+            Start Scout services, then retry once the menu bar icon is visible.
           </p>
           {issue && (
             <p className="mt-2 break-words leading-relaxed text-[var(--scout-chrome-ink-ghost)]">
@@ -101,33 +101,33 @@ export function VoxSetupPanel({
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
-        <VoxSetupButton
+        <ScoutVoiceSetupButton
           icon={probeState === "launching" ? <Loader2 size={12} className="animate-spin" /> : <Rocket size={12} />}
-          label={probeState === "launching" ? "Opening" : "Open Voice"}
+          label={probeState === "launching" ? "Opening" : "Open Scout"}
           onClick={onLaunch}
           disabled={probeState === "probing"}
-          title="Open voice controls"
+          title="Open Scout services"
         />
-        <VoxSetupButton
+        <ScoutVoiceSetupButton
           icon={probeState === "probing" ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
           label="Retry"
           onClick={onRetry}
           disabled={isBusy}
-          title="Check voice again"
+          title="Check Scout voice again"
         />
-        <VoxSetupButton
+        <ScoutVoiceSetupButton
           icon={<Settings size={12} />}
           label="Settings"
           onClick={onSettings}
           disabled={probeState === "probing"}
-          title="Open voice settings"
+          title="Open Scoutbot voice settings"
         />
       </div>
     </div>
   );
 }
 
-function VoxSetupButton({
+function ScoutVoiceSetupButton({
   icon,
   label,
   onClick,

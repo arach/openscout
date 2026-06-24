@@ -1490,11 +1490,9 @@ export function buildCodexRolloutSessionSnapshot(
         const observedUsage = readCodexRolloutUsageObservation(payload, timestamp);
         if (observedUsage) {
           const usage = ensureCodexProviderMetaRecord(snapshot, "observeUsage");
-          const fallbackContextInputTokens = observedUsage.inputTokens === undefined
+          const fallbackContextInputTokens = observedUsage.inputTokens === undefined || previousInputTokens === undefined
             ? undefined
-            : previousInputTokens === undefined
-              ? observedUsage.inputTokens
-              : observedUsage.inputTokens - previousInputTokens;
+            : observedUsage.inputTokens - previousInputTokens;
           const contextInputTokens = observedUsage.contextInputTokens !== undefined && observedUsage.contextInputTokens > 0
             ? observedUsage.contextInputTokens
             : fallbackContextInputTokens;
@@ -1508,6 +1506,7 @@ export function buildCodexRolloutSessionSnapshot(
           previousInputTokens = observedUsage.inputTokens ?? previousInputTokens;
           setObserveNumber(usage, "inputTokens", observedUsage.inputTokens);
           setObserveNumber(usage, "cacheReadInputTokens", observedUsage.cacheReadInputTokens);
+          setObserveNumber(usage, "cacheCreationInputTokens", observedUsage.cacheCreationInputTokens);
           setObserveNumber(usage, "outputTokens", observedUsage.outputTokens);
           setObserveNumber(usage, "reasoningOutputTokens", observedUsage.reasoningOutputTokens);
           setObserveNumber(usage, "totalTokens", observedUsage.totalTokens);

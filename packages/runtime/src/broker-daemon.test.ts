@@ -98,7 +98,7 @@ describe("broker daemon core routes", () => {
       harness: "http",
       transport: "http",
       state: "active",
-      address: "http://127.0.0.1:65535/a2a",
+      address: "http://127.0.0.1:43110/a2a",
       metadata: { source: "test" },
     });
 

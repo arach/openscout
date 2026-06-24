@@ -21,6 +21,10 @@ import {
   type UnblockRequestEvent,
   type UnblockRequestRecord,
 } from "@openscout/protocol";
+import {
+  collectOccupiedDefinitionIdsFromBrokerSnapshot,
+  resolveProvisionalAgentName,
+} from "@openscout/runtime";
 
 import {
   controlScoutWebPairingService,
@@ -201,7 +205,14 @@ import {
   readFilePreview,
   resolveTrustedPath,
 } from "./file-preview.ts";
-import { ensureOpenScoutVoxOrigins, resolveVoxSpeechDefaults, synthesizeVoxSpeech, type VoxSpeechTimingRequest } from "./vox.ts";
+import {
+  ensureScoutVoiceOrigins,
+  getScoutVoiceHealth,
+  resolveScoutSpeechDefaults,
+  synthesizeScoutSpeech,
+  transcribeScoutVoiceAudio,
+  type ScoutSpeechTimingRequest,
+} from "./scout-voice.ts";
 import {
   createOpenScoutVantageHandoff,
   type OpenScoutVantageHandoff,
@@ -216,6 +227,10 @@ import {
   saveUserConfig,
   resolveOperatorName,
 } from "@openscout/runtime/user-config";
+import {
+  applyProvisionalAgentNamesFromBody,
+  provisionalAgentNamesApiFields,
+} from "@openscout/runtime/provisional-agent-names";
 import {
   localConfigPath,
 } from "@openscout/runtime/local-config";
@@ -2720,7 +2735,7 @@ function defaultCaptureTmuxPane(request: TmuxPanePeekRequest): TmuxPanePeekCaptu
   }
 }
 
-function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | null | undefined {
+function parseScoutSpeechTimingRequest(value: unknown): ScoutSpeechTimingRequest | null | undefined {
   if (value === undefined) {
     return undefined;
   }
@@ -2763,8 +2778,23 @@ function parseVoxSpeechTimingRequest(value: unknown): VoxSpeechTimingRequest | n
     enabled: true,
     ...(modelId ? { modelId } : {}),
     ...(typeof record.strict === "boolean" ? { strict: record.strict } : {}),
-    ...(cues ? { cues: cues as NonNullable<VoxSpeechTimingRequest["cues"]> } : {}),
+    ...(cues ? { cues: cues as NonNullable<ScoutSpeechTimingRequest["cues"]> } : {}),
   };
+}
+
+function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | "aac" | "opus" | "pcm16" | null | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  switch (normalized) {
+    case "mp3":
+    case "wav":
+    case "aac":
+    case "opus":
+    case "pcm16":
+      return normalized;
+    default:
+      return null;
+  }
 }
 
 function inferDirectTargetAgentId(
@@ -4417,7 +4447,7 @@ export async function createOpenScoutWebServer(
     }
   }, { webPort: options.webPort });
   const routes = resolveOpenScoutWebRoutes(process.env);
-  ensureOpenScoutVoxOrigins();
+  ensureScoutVoiceOrigins();
   startGlobalHeuristicsWatcher();
   const app = new Hono();
   installHttpsEdgeSecurityHeaders(app, options.publicOrigin);
@@ -5130,6 +5160,32 @@ export async function createOpenScoutWebServer(
           202,
         );
   });
+  app.get("/api/notifications", (c) => {
+    const rawType = c.req.query("type") ?? "";
+    const requestedTypes = new Set(
+      rawType
+        .split(",")
+        .map((type) => type.trim())
+        .filter(Boolean),
+    );
+    const includePairingRequests =
+      requestedTypes.size === 0 || requestedTypes.has("pairing_request");
+    const notifications = includePairingRequests
+      ? pendingPairRequests.list()
+        .filter((request) => request.status === "pending")
+        .map((request) => ({
+          id: `pairing_request:${request.token}`,
+          type: "pairing_request",
+          title: `${request.requesterLabel?.trim() || "A device"} wants to pair`,
+          body: `On your network${request.requesterIp ? ` · ${request.requesterIp}` : ""}.`,
+          createdAt: request.createdAt,
+          updatedAt: request.updatedAt,
+          expiresAt: request.expiresAt,
+          data: { request },
+        }))
+      : [];
+    return c.json({ notifications });
+  });
   app.get("/api/pairing/requests", (c) =>
     c.json({ requests: pendingPairRequests.list() }),
   );
@@ -5419,8 +5475,15 @@ export async function createOpenScoutWebServer(
     // Sticky reuse of the same agentName is what makes M3/M4 "the same agent".
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
-    const agentName =
+    let agentName =
       optionalString(body.agent?.name)?.trim() || agent?.name?.trim() || undefined;
+    if (persistence === "one_time" && !agentName) {
+      const broker = await loadScoutBrokerContext().catch(() => null);
+      const occupied = broker
+        ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
+        : new Set<string>();
+      agentName = resolveProvisionalAgentName({ occupied });
+    }
     const displayName = optionalString(body.agent?.displayName)?.trim() || undefined;
 
     const instructions = optionalString(body.seed?.instructions)?.trim();
@@ -6200,7 +6263,7 @@ export async function createOpenScoutWebServer(
         return c.json({ error: "IP is not in the Tailscale address range" }, 403);
       }
 
-      const brokerUrl = `http://${ip}:65535`;
+      const brokerUrl = `http://${ip}:43110`;
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), 8000);
       try {
@@ -6239,6 +6302,7 @@ export async function createOpenScoutWebServer(
       verbosity: config.verbosity ?? "terse",
       tone: config.tone ?? "direct",
       quietHours: config.quietHours ?? "22:00 – 07:00",
+      ...provisionalAgentNamesApiFields(config),
     });
   });
 
@@ -6372,6 +6436,8 @@ export async function createOpenScoutWebServer(
       config.batchWindow = body.batchWindow;
     }
 
+    applyProvisionalAgentNamesFromBody(config, body);
+
     saveUserConfig(config);
     if (typeof body.name === "string" && body.name.trim()) {
       await saveOpenScoutOnboardingIdentity({
@@ -6393,6 +6459,7 @@ export async function createOpenScoutWebServer(
       verbosity: config.verbosity ?? "terse",
       tone: config.tone ?? "direct",
       quietHours: config.quietHours ?? "22:00 – 07:00",
+      ...provisionalAgentNamesApiFields(config),
     });
   });
 
@@ -6821,6 +6888,36 @@ export async function createOpenScoutWebServer(
     return c.json(result);
   });
 
+  app.get("/api/voice/health", async (c) => {
+    const health = await getScoutVoiceHealth();
+    const quietProbe = c.req.query("quiet") === "1";
+    return c.json(health, health.ok || quietProbe ? 200 : 503);
+  });
+
+  app.post("/api/voice/transcribe", async (c) => {
+    const form = await c.req.formData().catch(() => null);
+    const audio = form?.get("audio");
+    if (!(audio instanceof Blob)) {
+      return c.json({ error: "audio file is required" }, 400);
+    }
+    const format = parseScoutVoiceAudioFormat(optionalString(form?.get("format")));
+    if (format === null) {
+      return c.json({ error: "audio format is invalid" }, 400);
+    }
+
+    try {
+      return c.json(await transcribeScoutVoiceAudio({
+        audio,
+        ...(format ? { format } : {}),
+        language: optionalString(form?.get("language")),
+        modelId: optionalString(form?.get("modelId")),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Scout voice transcription failed";
+      return c.json({ error: message }, 503);
+    }
+  });
+
   app.post("/api/voice/speak", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       text?: string;
@@ -6836,13 +6933,13 @@ export async function createOpenScoutWebServer(
     if (!text) {
       return c.json({ error: "text is required" }, 400);
     }
-    const speechTiming = parseVoxSpeechTimingRequest(body.speechTiming);
+    const speechTiming = parseScoutSpeechTimingRequest(body.speechTiming);
     if (speechTiming === null) {
       return c.json({ error: "speechTiming is invalid" }, 400);
     }
 
     try {
-      return c.json(await synthesizeVoxSpeech({
+      return c.json(await synthesizeScoutSpeech({
         text,
         modelId: body.modelId,
         voiceId: body.voiceId,
@@ -6860,7 +6957,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/voice/defaults", (c) => {
-    return c.json(resolveVoxSpeechDefaults());
+    return c.json(resolveScoutSpeechDefaults());
   });
 
   // Dev-only: serve generated Scoutbot FX fixtures for /dev/scoutbot-fx lab.
@@ -7222,7 +7319,7 @@ export async function createOpenScoutWebServer(
     assetMode: options.assetMode,
     staticRoot: resolveStaticRoot(options.staticRoot),
     viteDevUrl: options.viteDevUrl,
-    defaultViteUrl: "http://127.0.0.1:5180",
+    defaultViteUrl: "http://127.0.0.1:43122",
   });
 
   const warmupCaches = () =>

@@ -51,7 +51,7 @@ type TailEvent = {
 };
 ```
 
-### WS protocol — `ws://127.0.0.1:65535/v1/tail/stream`
+### WS protocol — `ws://127.0.0.1:43110/v1/tail/stream`
 
 ```
 S→C: { type: 'event', event: TailEvent }

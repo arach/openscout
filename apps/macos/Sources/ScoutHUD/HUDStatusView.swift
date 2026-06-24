@@ -489,7 +489,7 @@ struct HUDStatusView: View {
     }
 
     private var tailCollapsedVerticalRail: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 7) {
             TailCollapseButton(expanded: false) {
                 HUDState.shared.setTailCollapsed(false)
             }
@@ -498,7 +498,7 @@ struct HUDStatusView: View {
                 onDismiss()
             }
 
-            HUDMastheadMark(size: 13)
+            HUDMastheadMark(size: 12)
 
             VStack(spacing: 2) {
                 ForEach(Array("TAIL"), id: \.self) { char in
@@ -518,17 +518,17 @@ struct HUDStatusView: View {
                 .fixedSize()
                 .frame(width: 18, height: 28)
 
-            Spacer(minLength: 0)
-
             if brokerOffline {
-                BrokerOfflinePip()
+                Circle()
+                    .fill(Color(red: 0.92, green: 0.42, blue: 0.38))
+                    .frame(width: 5, height: 5)
             } else if attentionCount > 0 {
                 AttentionPip()
+                    .scaleEffect(0.82)
             }
         }
-        .padding(.top, 8)
-        .padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     // MARK: - Content router

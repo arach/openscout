@@ -96,22 +96,22 @@ describe("collapseObserveDisplayRows", () => {
         t: 1,
         kind: "tool",
         tool: "Shell",
-        arg: "curl -s http://127.0.0.1:5180/api/session-ref/test",
-        text: "Shell · curl -s http://127.0.0.1:5180/api/session-ref/test",
+        arg: "curl -s http://127.0.0.1:43122/api/session-ref/test",
+        text: "Shell · curl -s http://127.0.0.1:43122/api/session-ref/test",
       }),
       observe({
         id: "b",
         t: 2,
         kind: "tool",
         tool: "Shell",
-        arg: "curl -s http://127.0.0.1:5180/api/session-ref/test",
-        text: "Shell · curl -s http://127.0.0.1:5180/api/session-ref/test · success",
+        arg: "curl -s http://127.0.0.1:43122/api/session-ref/test",
+        text: "Shell · curl -s http://127.0.0.1:43122/api/session-ref/test · success",
         result: { outcome: "success" },
       }),
     ]);
 
     expect(rows).toHaveLength(1);
-    expect(rows[0]?.event.arg).toBe("curl -s http://127.0.0.1:5180/api/session-ref/test");
+    expect(rows[0]?.event.arg).toBe("curl -s http://127.0.0.1:43122/api/session-ref/test");
     expect(rows[0]?.event.result).toEqual({ outcome: "success" });
   });
 

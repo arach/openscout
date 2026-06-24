@@ -254,8 +254,8 @@ describe("terminal relay config", () => {
 
     expect(useTerminalRelayMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        healthUrl: "http://localhost:3200/ws/terminal/health",
-        url: "ws://localhost:3200/ws/terminal",
+        healthUrl: "http://localhost:43120/ws/terminal/health",
+        url: "ws://localhost:43120/ws/terminal",
       }),
     );
   });

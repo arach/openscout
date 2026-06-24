@@ -14,6 +14,7 @@ import {
   openScoutNetworkDiscoveryEnabled,
 } from "./open-scout-network.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
+import { OPENSCOUT_PORTS } from "./local-config.js";
 import {
   expandHomePath,
   isExecutablePath,
@@ -114,7 +115,7 @@ export type BrokerServiceCommand = "install" | "start" | "stop" | "restart" | "u
 
 export const DEFAULT_BROKER_HOST = "127.0.0.1";
 export const DEFAULT_BROKER_HOST_MESH = "0.0.0.0";
-export const DEFAULT_BROKER_PORT = 65535;
+export const DEFAULT_BROKER_PORT: number = OPENSCOUT_PORTS.broker;
 export const DEFAULT_ADVERTISE_SCOPE: BrokerAdvertiseScope = "local";
 
 export function resolveAdvertiseScope(env: NodeJS.ProcessEnv = process.env): BrokerAdvertiseScope {

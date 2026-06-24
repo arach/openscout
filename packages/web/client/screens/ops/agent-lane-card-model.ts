@@ -73,7 +73,7 @@ const TOKEN_COMPACT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
 });
 
-/** Compact token count for the cockpit readout — "15403083" → "15.4m". */
+/** Compact token count for cockpit readouts — "15403083" → "15.4m". */
 function fmtCompactTokens(value: number | null | undefined): string | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
   return TOKEN_COMPACT.format(value).toLowerCase();
@@ -133,15 +133,15 @@ export function agentLaneToCardModel(
     files: fileGroup(meaningfulFiles),
   };
 
-  // Cockpit session-context instruments — context-window %, total tokens, turn.
+  // Cockpit session-context instruments — context-window %, context token count, turn.
   const usage = facts?.usage ?? observe?.metadata?.usage ?? null;
   const ctxWindow = usage?.contextWindowTokens ?? null;
-  const ctxUsed = usage?.contextInputTokens ?? usage?.inputTokens ?? null;
+  const ctxUsed = usage?.contextInputTokens ?? null;
   const context =
     ctxWindow && ctxWindow > 0 && typeof ctxUsed === "number"
       ? Math.min(100, Math.max(0, Math.round((ctxUsed / ctxWindow) * 100)))
       : null;
-  const tokens = fmtCompactTokens(usage?.totalTokens);
+  const tokens = fmtCompactTokens(ctxUsed);
   const turns = facts?.turn?.index ?? session?.turnCount ?? null;
 
   const tokenDials = usage

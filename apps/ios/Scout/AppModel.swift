@@ -165,7 +165,7 @@ final class AppModel {
     // packages/runtime/src/local-config.ts DEFAULT_LOCAL_CONFIG.ports.web.
     private static let scoutWebMeshPath = "/api/mesh"
     private static let scoutWebPairPath = "/pair"
-    private static let defaultScoutWebPort = 3200
+    private static let defaultScoutWebPort = 43120
     private static let openScoutNetworkFrontDoorBaseURL = defaultOpenScoutNetworkFrontDoorBaseURL
     private static let openScoutNetworkAuthStartPath = "/v1/auth/github/start"
     private static let openScoutNetworkAppleNativePath = "/v1/auth/apple/native"

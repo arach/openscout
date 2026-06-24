@@ -389,7 +389,7 @@ async function startPairingRuntimeController(options) {
 
 async function waitForPairingHealth(timeoutMs) {
   const config = readJsonFile(pairingPaths().configPath, {});
-  const port = Number.isFinite(config.port) && config.port > 0 ? Number(config.port) : 7888;
+  const port = Number.isFinite(config.port) && config.port > 0 ? Number(config.port) : 43130;
   const url = `http://127.0.0.1:${port}/health`;
   const deadline = Date.now() + timeoutMs;
   let lastError = "";

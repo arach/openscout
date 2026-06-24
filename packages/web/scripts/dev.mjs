@@ -12,16 +12,16 @@ import { fileURLToPath } from "node:url";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
 
 const DEFAULT_PORTS = {
-  broker: 65535,
-  web: 3200,
-  vite: 5180,
-  pairing: 7888,
+  broker: 43110,
+  web: 43120,
+  vite: 43122,
+  pairing: 43130,
 };
 const DEFAULT_SCOUT_WEB_DOMAIN = "scout.local";
 const WORKTREE_PORT_BASES = {
-  web: 3300,
-  vite: 5300,
-  pairing: 7900,
+  web: 43200,
+  vite: 43900,
+  pairing: 44600,
 };
 const WORKTREE_PORT_RANGE = 700;
 
@@ -625,7 +625,7 @@ Options:
   -h, --help           Show this help
 
 Notes:
-  Main checkout prefers 3200/5180/7888.
+  Main checkout prefers 43120/43122/43130.
   Extra git worktrees prefer isolated port bands automatically.
   If a preferred port is busy, dev mode increments until it finds an open one.
   Local edge mode requires Caddy and macOS dns-sd.
@@ -633,8 +633,8 @@ Notes:
 Examples:
   bun dev
   bun dev --edge --local-name m1
-  bun dev --port 3300
-  bun dev --port 3300 --vite-port 5181 --pairing-port 7981
+  bun dev --port 43200
+  bun dev --port 43200 --vite-port 43900 --pairing-port 44600
 `);
   process.exit(0);
 }

@@ -184,6 +184,45 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
   },
   {
+    name: "grok",
+    harness: "grok",
+    label: "Grok CLI",
+    description: "xAI's interactive CLI coding agent (Grok Build TUI)",
+    homepage: "https://grok.com",
+    tags: ["coding", "cli", "xai", "grok"],
+    featured: true,
+    order: 2,
+    support: {
+      ...DEFAULT_SUPPORT,
+      workspace: true,
+      collaboration: true,
+    },
+    install: {
+      binary: "grok",
+      requires: ["curl"],
+      macos: "curl -fsSL https://grok.com/install.sh | bash",
+      linux: "curl -fsSL https://grok.com/install.sh | bash",
+    },
+    readiness: {
+      anyOf: [
+        { kind: "env", key: "XAI_API_KEY" },
+        { kind: "env", key: "SCOUT_XAI_API_KEY" },
+        { kind: "file", path: "~/.grok/auth.json", label: "~/.grok/auth.json", fileType: "file" },
+        { kind: "file", path: "~/.grok/sessions", label: "~/.grok/sessions", fileType: "directory" },
+      ],
+      loginCommand: "grok login",
+      notReadyMessage: "Grok is installed but not authenticated yet.",
+    },
+    resume: {
+      command: "grok",
+      sessionFlag: "--resume",
+    },
+    capabilities: ["chat", "invoke", "deliver", "summarize", "review"],
+    metadata: {
+      invocationModel: "tmux_interactive",
+    },
+  },
+  {
     name: "codex",
     harness: "codex",
     label: "Codex",
@@ -191,7 +230,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     homepage: "https://github.com/openai/codex",
     tags: ["coding", "cli", "openai"],
     featured: true,
-    order: 2,
+    order: 3,
     support: {
       ...DEFAULT_SUPPORT,
       workspace: true,
@@ -227,7 +266,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     homepage: "https://cursor.com",
     tags: ["coding", "sdk", "cursor"],
     featured: true,
-    order: 3,
+    order: 4,
     support: {
       ...DEFAULT_SUPPORT,
       workspace: true,
@@ -260,7 +299,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     description: "Agentic runtime and execution harness from the Astro ecosystem",
     tags: ["agent-runtime", "cli", "orchestration"],
     featured: true,
-    order: 4,
+    order: 5,
     support: {
       ...DEFAULT_SUPPORT,
       workspace: true,
@@ -293,7 +332,7 @@ const BUILT_IN_HARNESS_CATALOG: HarnessCatalogEntry[] = [
     homepage: "https://pi.dev/docs/latest/quickstart",
     tags: ["coding", "cli", "pi"],
     featured: true,
-    order: 5,
+    order: 6,
     support: {
       ...DEFAULT_SUPPORT,
       workspace: true,

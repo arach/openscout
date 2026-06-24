@@ -409,9 +409,7 @@ public final class HUDController {
     ) -> NSSize {
         let visible = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         if collapsed {
-            return attachment.edge.isHorizontal
-                ? NSSize(width: min(190, max(148, floor(visible.width * 0.055))), height: 26)
-                : NSSize(width: 42, height: visible.height)
+            return HUDTailCollapsedGeometry.size(isHorizontal: attachment.edge.isHorizontal, in: visible)
         }
 
         let edgeLength = attachment.edge.isHorizontal ? visible.width : visible.height
@@ -462,7 +460,10 @@ public final class HUDController {
             return NSSize(width: 360, height: 380)
         }
         if tailCollapsed {
-            return NSSize(width: 42, height: 26)
+            return NSSize(
+                width: HUDTailCollapsedGeometry.verticalThickness,
+                height: HUDTailCollapsedGeometry.horizontalThickness
+            )
         }
         return NSSize(width: 240, height: 160)
     }

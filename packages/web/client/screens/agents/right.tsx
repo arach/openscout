@@ -191,8 +191,11 @@ export function AgentsInspector() {
     );
   }
 
-  // A focused agent always gets the context card (no identity replay) on every
-  // tab — the center owns identity, the rail owns the organized context facts.
+  // Directory-selection (master-detail): the center is still the directory, not
+  // this agent's profile, so the inspector owns identity — it renders the agent
+  // CARD (header + sessions). A tab means the center profile owns identity, so
+  // the rail narrows to the live instrument (no identity replay).
+  const directorySelection = Boolean(route.projectSlug && !route.tab);
   return (
     <AgentContextPanel
       agent={agent}
@@ -200,7 +203,7 @@ export function AgentsInspector() {
       navigate={navigate}
       route={route}
       observeMode={route.tab === "observe"}
-      showStaticIdentity={false}
+      showStaticIdentity={directorySelection}
     />
   );
 }

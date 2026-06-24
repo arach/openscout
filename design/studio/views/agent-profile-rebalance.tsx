@@ -1513,7 +1513,7 @@ export default function AgentProfileRebalancePage() {
       {view === "current" ? <CurrentFrame /> : <Frame railMode={railMode} headerTreatment={headerTreatment} />}
       <div className="mt-2 font-mono text-[9px] uppercase tracking-[0.12em] text-studio-ink-faint">
         {view === "current"
-          ? "Recreated from the live :5180 Hudson capture — center half-empty, rail packed"
+          ? "Recreated from the live :43122 Hudson capture — center half-empty, rail packed"
           : `${
               headerTreatment === "dotted"
                 ? "Header: dotted — label-less, dot-separated"

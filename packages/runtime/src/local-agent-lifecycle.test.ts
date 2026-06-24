@@ -447,6 +447,42 @@ describe("local agent lifecycle", () => {
     expect(override?.harnessProfiles?.claude?.sessionId).not.toContain(".");
   });
 
+  test("starts a new Grok local agent with tmux as the default transport", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const workspaceRoot = join(home, "dev");
+    const projectRoot = join(workspaceRoot, "gamma");
+
+    mkdirSync(join(projectRoot, ".git"), { recursive: true });
+
+    const status = await startLocalAgent({
+      projectPath: projectRoot,
+      agentName: "gamma-grok",
+      harness: "grok",
+      model: "grok-4.3",
+      ensureOnline: false,
+    });
+    const overrides = await readRelayAgentOverrides();
+    const override = overrides[status.agentId];
+
+    expect(status).toMatchObject({
+      definitionId: "gamma-grok",
+      harness: "grok",
+      transport: "tmux",
+      isOnline: false,
+    });
+    expect(override?.runtime).toMatchObject({
+      harness: "grok",
+      transport: "tmux",
+    });
+    expect(override?.harnessProfiles?.grok?.transport).toBe("tmux");
+    expect(override?.harnessProfiles?.grok?.launchArgs).toEqual([
+      "--allowedTools",
+      expect.stringContaining("mcp__scout__ask"),
+      "--model",
+      "grok-4.3",
+    ]);
+  });
+
   test("starts a new Pi local agent with RPC as the default transport", async () => {
     const home = useIsolatedOpenScoutHome();
     const workspaceRoot = join(home, "dev");

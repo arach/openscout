@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Internal design + planning studio for OpenScout. Renders the plans/ tree, hosts inline UI studies, and exposes a live atom gallery.",
   "scripts": {
-    "dev": "next dev --port 3030",
+    "dev": "next dev --port 43140",
     "build": "next build",
-    "start": "next start --port 3030"
+    "start": "next start --port 43140"
   },
   "dependencies": {
     "@codemirror/lang-css": "^6.3.1",

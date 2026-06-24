@@ -93,10 +93,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("resolveScoutBrokerUrl", () => {
   test("prefers the same-machine internal broker URL when present", () => {
     useIsolatedOpenScoutHome();
-    process.env.OPENSCOUT_BROKER_URL = "http://mesh.example.test:65535";
-    process.env.OPENSCOUT_BROKER_INTERNAL_URL = "http://127.0.0.1:65535";
+    process.env.OPENSCOUT_BROKER_URL = "http://mesh.example.test:43110";
+    process.env.OPENSCOUT_BROKER_INTERNAL_URL = "http://127.0.0.1:43110";
 
-    expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:65535");
+    expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:43110");
   });
 });
 
@@ -122,8 +122,8 @@ describe("readScoutBrokerHealth", () => {
               managedBy: "broker",
               state: "running",
               pid: 4321,
-              port: 3200,
-              url: "http://127.0.0.1:3200",
+              port: 43120,
+              url: "http://127.0.0.1:43120",
               healthy: null,
             },
             localEdge: {

@@ -8,72 +8,17 @@ import SwiftUI
 // Medium:  the same portrait stream with a slightly roomier row rhythm.
 // Large:   tall side-overlay stream for always-on desktop scanning.
 
-private enum TailKind: String {
-    case usr = "USR"
-    case ast = "AST"
-    case msg = "MSG"
-    case tol = "TOL"
-    case out = "OUT"
-    case sys = "SYS"
-    case evt = "EVT"
-    case edt = "EDT"
-    case err = "ERR"
-    case lif = "LIF"
-    case pmt = "PMT"
-    case brk = "BRK"
-    case ask = "ASK"
+private typealias TailRowModel = ScoutTailRowContext
 
-    static func from(_ event: ScoutTailEvent) -> TailKind {
-        let summaryKind = from(event.summary)
-        if summaryKind == .err || summaryKind == .ask {
-            return summaryKind
-        }
-        switch event.kind {
-        case .user: return .usr
-        case .assistant: return .ast
-        case .tool: return .tol
-        case .toolResult: return .out
-        case .system: return summaryKind == .brk || summaryKind == .lif ? summaryKind : .sys
-        case .other: return summaryKind
-        }
-    }
-
-    static func from(_ raw: String) -> TailKind {
-        let v = raw.lowercased()
-        if v.contains("fail") || v.contains("error") || v.contains("dead") { return .err }
-        if v.contains("ask") || v.contains("attention") || v.contains("wait") { return .ask }
-        if v.contains("message") || v.contains("reply") || v.contains("sent") || v.contains("wire") { return .msg }
-        if v.contains("tool") { return .tol }
-        if v.contains("edit") || v.contains("file") { return .edt }
-        if v.contains("prompt") { return .pmt }
-        if v.contains("broker") || v.contains("ping") { return .brk }
-        if v.contains("start") || v.contains("spawn") || v.contains("wake") || v.contains("lifecycle") { return .lif }
-        return .evt
-    }
-
-    var glyph: String {
-        switch self {
-        case .usr, .pmt: return ">"
-        case .ast: return "<"
-        case .tol: return "*"
-        case .out: return "="
-        case .sys, .lif, .brk: return "~"
-        case .msg: return "·"
-        case .edt: return "+"
-        case .err: return "!"
-        case .ask: return "?"
-        case .evt: return "·"
-        }
-    }
-
+private extension ScoutTailDisplayKind {
     // HUD overlay palette: mostly monochrome so the stream can sit over the
     // desktop without feeling like dashboard chrome. Attention/error keep a
     // restrained tint; normal tool/result rows differ by glyph + weight.
-    var color: Color {
+    var hudColor: Color {
         switch self {
-        case .tol, .usr, .pmt, .edt: return HUDChrome.inkMuted
-        case .out, .ast, .msg, .sys, .lif, .brk, .evt: return HUDChrome.inkFaint
-        case .err: return Color(red: 0.910, green: 0.450, blue: 0.395).opacity(0.72)
+        case .tool, .user, .prompt, .edit: return HUDChrome.inkMuted
+        case .output, .assistant, .message, .system, .lifecycle, .broker, .event: return HUDChrome.inkFaint
+        case .error: return Color(red: 0.910, green: 0.450, blue: 0.395).opacity(0.72)
         case .ask: return HUDChrome.accent.opacity(0.68)
         }
     }
@@ -119,132 +64,6 @@ private func styledLine(_ text: String, base: Color, mono: Font) -> AttributedSt
     apply(pattern: #"`[^`]+`"#, color: codeColor, weight: .medium)
 
     return attr
-}
-
-private struct TailRowModel: Identifiable {
-    let id: String
-    let at: String        // HH:MM:SS clock
-    let kind: TailKind
-    let source: String    // handle/name without "@"
-    let provider: String
-    let origin: String
-    let line: String
-    let sessionId: String
-    let pid: Int
-    let project: String
-    let cwd: String
-    let agentId: String?
-    let agentName: String?
-    let agentHandle: String?
-    let conversationId: String?
-    let emphasized: Bool
-}
-
-private extension TailRowModel {
-    var hasSession: Bool {
-        !cleanString(sessionId).isEmpty
-    }
-
-    var routingHandle: String {
-        clean(agentHandle) ?? clean(agentName) ?? source
-    }
-
-    var routingLabel: String {
-        clean(agentName) ?? clean(agentHandle) ?? source
-    }
-
-    var scopeLabel: String {
-        pathPrimary + expandedPathDetail
-    }
-
-    var hoverLabel: String {
-        var parts = [scopeLabel]
-        let cwd = cleanString(cwd)
-        if !cwd.isEmpty {
-            parts.append(cwd)
-        }
-        if hasSession {
-            parts.append("session \(sessionId)")
-        }
-        if pid > 0 {
-            parts.append("pid \(pid)")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    var pathPrimary: String {
-        let project = cleanString(project)
-        return project.isEmpty ? source : project
-    }
-
-    var compactPathDetail: String {
-        let tail = sessionTailLabel
-        return tail.isEmpty ? "" : "/\(tail)"
-    }
-
-    var expandedPathDetail: String {
-        let session = sessionShortLabel
-        return session.isEmpty ? "" : "/\(session)"
-    }
-
-    var sessionShortLabel: String {
-        String(cleanString(sessionId).prefix(8))
-    }
-
-    var sessionTailLabel: String {
-        String(cleanString(sessionId).suffix(4))
-    }
-
-    var sessionURL: URL {
-        guard hasSession else { return tailRelativeURL("/sessions") }
-        return tailRelativeURL("/sessions/\(tailPercentPath(cleanString(sessionId)))")
-    }
-
-    var followURL: URL {
-        var components = URLComponents(
-            url: ScoutWeb.baseURL().appending(path: "follow"),
-            resolvingAgainstBaseURL: false
-        )
-        var queryItems = [URLQueryItem(name: "view", value: "tail")]
-        if hasSession {
-            queryItems.append(URLQueryItem(name: "sessionId", value: cleanString(sessionId)))
-        }
-        if let agentId = clean(agentId) {
-            queryItems.append(URLQueryItem(name: "targetAgentId", value: agentId))
-        }
-        components?.queryItems = queryItems
-        return components?.url ?? tailRelativeURL("/follow")
-    }
-
-    var agentURL: URL? {
-        guard let agentId = clean(agentId) else { return nil }
-        return tailRelativeURL("/agents/\(tailPercentPath(agentId))?tab=profile")
-    }
-
-    var messagesURL: URL? {
-        if let conversationId = clean(conversationId) {
-            return tailRelativeURL("/c/\(tailPercentPath(conversationId))")
-        }
-        guard let agentId = clean(agentId) else { return nil }
-        return tailRelativeURL("/agents/\(tailPercentPath(agentId))?tab=message")
-    }
-
-    private func clean(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    private func cleanString(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}
-
-private func tailRelativeURL(_ path: String) -> URL {
-    URL(string: path, relativeTo: ScoutWeb.baseURL())?.absoluteURL ?? ScoutWeb.baseURL()
-}
-
-private func tailPercentPath(_ value: String) -> String {
-    value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
 }
 
 private func copyToPasteboard(_ value: String) {
@@ -449,65 +268,7 @@ struct HUDTailView: View {
     }
 
     private var rows: [TailRowModel] {
-        tail.displayEvents(limit: 180).map { event in
-            let source = event.sourceLabel
-            let kind = TailKind.from(event)
-            let agent = matchedAgent(for: event)
-            return TailRowModel(
-                id: event.id,
-                at: event.clockLabel,
-                kind: kind,
-                source: source.hasPrefix("@") ? String(source.dropFirst()) : source,
-                provider: Self.provider(for: event, agent: agent),
-                origin: event.originLabel,
-                line: Self.line(for: event),
-                sessionId: event.sessionId,
-                pid: event.pid,
-                project: event.projectLabel,
-                cwd: event.cwd,
-                agentId: agent?.id,
-                agentName: agent?.name,
-                agentHandle: agent?.handle,
-                conversationId: agent?.conversationId,
-                emphasized: kind == .ask || kind == .err
-            )
-        }
-    }
-
-    private func matchedAgent(for event: ScoutTailEvent) -> HudAgent? {
-        let sessionId = event.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !sessionId.isEmpty else { return nil }
-        return agents.first { agent in
-            agent.harnessSessionId?.trimmingCharacters(in: .whitespacesAndNewlines) == sessionId
-        }
-    }
-
-    private static func line(for event: ScoutTailEvent) -> String {
-        let summary = event.summary.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !summary.isEmpty else { return event.kind.title }
-        return summary
-    }
-
-    private static func provider(for event: ScoutTailEvent, agent: HudAgent?) -> String {
-        for candidate in [agent?.harness, Optional(event.source), Optional(event.harness)] {
-            guard let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !value.isEmpty,
-                  !isManagementOrigin(value)
-            else {
-                continue
-            }
-            return value
-        }
-        return event.sourceLabel
-    }
-
-    private static func isManagementOrigin(_ value: String) -> Bool {
-        switch value.lowercased() {
-        case "scout-managed", "hudson-managed", "unattributed":
-            return true
-        default:
-            return false
-        }
+        ScoutTailContextBuilder.rows(events: tail.displayEvents(limit: 180), agents: agents)
     }
 
     private func resolvedPathColumnWidth(for size: HUDSize) -> CGFloat {
@@ -680,7 +441,80 @@ private struct TailRow: View {
         scopeHovered || engaged || cursored
     }
 
+    private var active: Bool {
+        engaged || cursored
+    }
+
+    private var lineTruncation: Text.TruncationMode {
+        row.kind == .tool ? .middle : .tail
+    }
+
     var body: some View {
+        rowContent
+            .padding(.horizontal, padX)
+            .padding(.vertical, padY)
+            .background {
+                TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+            }
+            .overlay(alignment: .bottom) {
+                selectedDivider
+            }
+            .opacity(fresh && !hasPoppedIn ? 0 : 1)
+            .offset(y: fresh && !hasPoppedIn ? 5 : 0)
+            .scaleEffect(fresh && !hasPoppedIn ? 0.992 : 1, anchor: .bottom)
+            .overlay(alignment: .leading) {
+                freshMarker
+            }
+            .transition(
+                .asymmetric(
+                    insertion: .move(edge: .bottom)
+                        .combined(with: .opacity)
+                        .combined(with: .scale(scale: 0.992, anchor: .bottom)),
+                    removal: .opacity
+                )
+            )
+            .contentShape(Rectangle())
+            .onHover { next in
+                guard interactionsLive else {
+                    hovered = false
+                    scopeHovered = false
+                    return
+                }
+                hovered = next
+                if !next {
+                    scopeHovered = false
+                }
+            }
+            .onChange(of: interactionsLive) { _, live in
+                if !live {
+                    hovered = false
+                    scopeHovered = false
+                }
+            }
+            .onTapGesture(perform: onTap)
+            .onAppear {
+                guard fresh else { return }
+                hasPoppedIn = false
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
+                    hasPoppedIn = true
+                }
+            }
+            .onChange(of: fresh) { _, next in
+                guard next else {
+                    hasPoppedIn = false
+                    return
+                }
+                hasPoppedIn = false
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
+                    hasPoppedIn = true
+                }
+            }
+            .contextMenu {
+                rowContextMenu
+            }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(row.at)
                 .font(HUDType.mono(fontSize))
@@ -688,15 +522,15 @@ private struct TailRow: View {
                 .foregroundStyle(timeColor)
                 .frame(width: timeWidth, alignment: .leading)
 
-            TailProviderMark(provider: row.provider, size: size, active: engaged || cursored)
+            TailProviderMark(provider: row.provider, size: size, active: active)
                 .frame(width: providerWidth, alignment: .leading)
 
             TailPathLabel(
                 row: row,
                 size: size,
-                active: engaged || cursored,
+                active: active,
                 expanded: scopeExpanded,
-                sessionHoverEnabled: interactionsLive && (hovered || engaged || cursored),
+                sessionHoverEnabled: interactionsLive && (hovered || active),
                 onSessionHover: { scopeHovered = $0 }
             )
             .frame(width: scopeExpanded ? pathWidth + 46 : pathWidth, alignment: .leading)
@@ -704,113 +538,67 @@ private struct TailRow: View {
             TailKindCode(kind: row.kind, fontSize: fontSize)
                 .frame(width: kindWidth, alignment: .leading)
 
-            Text(styledLine(
-                row.line,
-                base: body1,
-                mono: HUDType.mono(fontSize)
-            ))
+            lineText
+        }
+    }
+
+    private var lineText: some View {
+        Text(styledLine(row.line, base: body1, mono: HUDType.mono(fontSize)))
             .lineLimit(1)
-            .truncationMode(row.kind == .tol ? .middle : .tail)
+            .truncationMode(lineTruncation)
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
+    }
+
+    @ViewBuilder
+    private var selectedDivider: some View {
+        if active {
+            Rectangle()
+                .fill(HUDChrome.inkFaint.opacity(0.24))
+                .frame(height: 0.5)
         }
-        .padding(.horizontal, padX)
-        .padding(.vertical, padY)
-        .background {
-            TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+    }
+
+    @ViewBuilder
+    private var freshMarker: some View {
+        if fresh && hasPoppedIn {
+            Rectangle()
+                .fill(HUDChrome.inkMuted.opacity(0.22))
+                .frame(width: 1)
+                .transition(.opacity)
         }
-        .overlay(alignment: .bottom) {
-            if engaged || cursored {
-                Rectangle()
-                    .fill(HUDChrome.inkFaint.opacity(0.24))
-                    .frame(height: 0.5)
-            }
+    }
+
+    @ViewBuilder
+    private var rowContextMenu: some View {
+        Button("Open session") {
+            NSWorkspace.shared.open(row.sessionURL)
         }
-        .opacity(fresh && !hasPoppedIn ? 0 : 1)
-        .offset(y: fresh && !hasPoppedIn ? 5 : 0)
-        .scaleEffect(fresh && !hasPoppedIn ? 0.992 : 1, anchor: .bottom)
-        .overlay(alignment: .leading) {
-            if fresh && hasPoppedIn {
-                Rectangle()
-                    .fill(HUDChrome.inkMuted.opacity(0.22))
-                    .frame(width: 1)
-                    .transition(.opacity)
-            }
+        .disabled(!row.hasSession)
+        Button("Follow live tail") {
+            NSWorkspace.shared.open(row.followURL)
         }
-        .transition(
-            .asymmetric(
-                insertion: .move(edge: .bottom)
-                    .combined(with: .opacity)
-                    .combined(with: .scale(scale: 0.992, anchor: .bottom)),
-                removal: .opacity
-            )
-        )
-        .contentShape(Rectangle())
-        .onHover { next in
-            guard interactionsLive else {
-                hovered = false
-                scopeHovered = false
-                return
-            }
-            hovered = next
-            if !next {
-                scopeHovered = false
+        .disabled(!row.hasSession)
+        if let agentURL = row.agentURL {
+            Button("Agent profile") {
+                NSWorkspace.shared.open(agentURL)
             }
         }
-        .onChange(of: interactionsLive) { _, live in
-            if !live {
-                hovered = false
-                scopeHovered = false
+        if let messagesURL = row.messagesURL {
+            Button("Message thread") {
+                NSWorkspace.shared.open(messagesURL)
             }
         }
-        .onTapGesture(perform: onTap)
-        .onAppear {
-            guard fresh else { return }
-            hasPoppedIn = false
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
-                hasPoppedIn = true
-            }
+        Divider()
+        Button("Copy session ID") {
+            copyToPasteboard(row.sessionId)
         }
-        .onChange(of: fresh) { _, next in
-            guard next else {
-                hasPoppedIn = false
-                return
-            }
-            hasPoppedIn = false
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.78, blendDuration: 0.04)) {
-                hasPoppedIn = true
-            }
+        .disabled(!row.hasSession)
+        Button("Copy event ID") {
+            copyToPasteboard(row.id)
         }
-        .contextMenu {
-            Button("Open session") {
-                NSWorkspace.shared.open(row.sessionURL)
-            }
-            .disabled(!row.hasSession)
-            Button("Follow live tail") {
-                NSWorkspace.shared.open(row.followURL)
-            }
-            .disabled(!row.hasSession)
-            if let agentURL = row.agentURL {
-                Button("Agent profile") {
-                    NSWorkspace.shared.open(agentURL)
-                }
-            }
-            if let messagesURL = row.messagesURL {
-                Button("Message thread") {
-                    NSWorkspace.shared.open(messagesURL)
-                }
-            }
-            Divider()
-            Button("Copy session ID") {
-                copyToPasteboard(row.sessionId)
-            }
-            .disabled(!row.hasSession)
-            Button("Copy event ID") {
-                copyToPasteboard(row.id)
-            }
-            Button("Copy line") {
-                copyToPasteboard(row.line)
-            }
+        Button("Copy line") {
+            copyToPasteboard(row.line)
         }
     }
 }
@@ -836,7 +624,7 @@ private struct TailProviderMark: View {
 }
 
 private struct TailKindCode: View {
-    let kind: TailKind
+    let kind: ScoutTailDisplayKind
     let fontSize: CGFloat
 
     var body: some View {
@@ -845,7 +633,7 @@ private struct TailKindCode: View {
             Text(kind.rawValue)
         }
         .font(HUDType.mono(fontSize, weight: .bold))
-        .foregroundStyle(kind.color)
+        .foregroundStyle(kind.hudColor)
         .lineLimit(1)
         .fixedSize(horizontal: true, vertical: false)
         .help(kind.rawValue)
@@ -935,7 +723,7 @@ private struct TailDetailInline: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HUDEyebrow(text: "EVENT DETAIL", color: HUDChrome.inkFaint)
-            Text("[\(row.at)] [\(row.provider)] [\(row.kind.glyph)\(row.kind.rawValue)] \(row.scopeLabel) · \(row.line)")
+            Text(row.detailSummary)
                 .font(HUDType.mono(bodyFont))
                 .foregroundStyle(HUDChrome.ink)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1008,7 +796,7 @@ private struct TailDetailInline: View {
                 .tracking(HUDType.eyebrowTracking)
                 .foregroundStyle(HUDChrome.inkDeep)
                 .frame(width: 26, alignment: .leading)
-            Text("\(r.at) \(r.kind.glyph)\(r.kind.rawValue) \(r.source) · \(r.line)")
+            Text(r.neighborSummary)
                 .font(HUDType.mono(neighborFont))
                 .foregroundStyle(HUDChrome.inkFaint)
                 .lineLimit(1)

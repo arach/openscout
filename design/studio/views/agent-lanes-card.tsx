@@ -416,7 +416,7 @@ const BASH_SAMPLES: { tag: string; ev: TraceEv }[] = [
   { tag: "env-prefix", ev: { kind: "tool", tool: "Bash", arg: "FORCE=1 NODE_ENV=prod node build.js --watch" } },
   { tag: "ripgrep", ev: { kind: "tool", tool: "Bash", arg: 'rg "useObservePolling" packages/web --type ts -n', result: "9 matches" } },
   { tag: "pipeline", ev: { kind: "tool", tool: "Bash", arg: "git log --oneline | grep fix | head -20" } },
-  { tag: "wrapper", ev: { kind: "tool", tool: "Bash", arg: "sudo lsof -i :3030" } },
+  { tag: "wrapper", ev: { kind: "tool", tool: "Bash", arg: "sudo lsof -i :43140" } },
   { tag: "xargs", ev: { kind: "tool", tool: "Bash", arg: "rg -l TODO src | xargs sed -i '' 's/TODO/DONE/'" } },
   { tag: "find", ev: { kind: "tool", tool: "Bash", arg: 'find . -name "*.tmp" -delete' } },
   { tag: "path-prog", ev: { kind: "tool", tool: "Bash", arg: "./node_modules/.bin/tsc --noEmit -p tsconfig.json" } },

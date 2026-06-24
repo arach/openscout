@@ -61,12 +61,20 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
   };
 }
 
-export function relayAgentRuntimeDirectory(agentId: string): string {
+export function localAgentRuntimeDirectory(agentId: string): string {
   return join(resolveOpenScoutSupportPaths().relayAgentsDirectory, agentId);
 }
 
+export function localAgentLogsDirectory(agentId: string): string {
+  return join(localAgentRuntimeDirectory(agentId), "logs");
+}
+
+export function relayAgentRuntimeDirectory(agentId: string): string {
+  return localAgentRuntimeDirectory(agentId);
+}
+
 export function relayAgentLogsDirectory(agentId: string): string {
-  return join(relayAgentRuntimeDirectory(agentId), "logs");
+  return localAgentLogsDirectory(agentId);
 }
 
 export function ensureOpenScoutCleanSlateSync(): void {

@@ -77,7 +77,7 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         guard view == .tail else { return contentSize(on: screen) }
         let frame = screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         if collapsed {
-            return NSSize(width: 42, height: frame.height)
+            return HUDTailCollapsedGeometry.verticalSize(in: frame)
         }
         switch self {
         case .compact:
@@ -107,6 +107,33 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
 
     public func isScreenAnchored(for view: HUDView) -> Bool {
         view == .tail || isScreenAnchored
+    }
+}
+
+enum HUDTailCollapsedGeometry {
+    static let verticalThickness: CGFloat = 42
+    static let horizontalThickness: CGFloat = 26
+
+    private static let minimumLength: CGFloat = 156
+    private static let maximumLength: CGFloat = 220
+
+    static func size(isHorizontal: Bool, in visible: NSRect) -> NSSize {
+        if isHorizontal {
+            return NSSize(width: horizontalLength(in: visible), height: horizontalThickness)
+        }
+        return verticalSize(in: visible)
+    }
+
+    static func verticalSize(in visible: NSRect) -> NSSize {
+        NSSize(width: verticalThickness, height: verticalLength(in: visible))
+    }
+
+    private static func horizontalLength(in visible: NSRect) -> CGFloat {
+        min(maximumLength, max(minimumLength, floor(visible.width * 0.055)))
+    }
+
+    private static func verticalLength(in visible: NSRect) -> CGFloat {
+        min(maximumLength, max(minimumLength, floor(visible.height * 0.14)))
     }
 }
 

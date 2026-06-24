@@ -16,8 +16,8 @@ const HELP_FLAGS = new Set(["help", "--help", "-h"]);
 export function renderCardCommandHelp(): string {
   return [
     "Usage:",
-    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|pi>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
-    `  scout card update <agent> [--harness <claude|codex|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
+    "  scout card create [path] [--name <alias>] [--display-name <name>] [--harness <claude|codex|grok|pi>] [--provider <provider>] [--model <model>] [--reasoning-effort <effort>] [--permission-profile <profile>] [--as <requester>] [--one-time] [--no-input] [--path <path>]",
+    `  scout card update <agent> [--harness <claude|codex|grok|pi>] [--model <model>|--clear-model] [--reasoning-effort <effort>|--clear-reasoning-effort] [--permission-profile <${formatScoutPermissionProfiles()}>|--clear-permission-profile] [--restart]`,
     "  scout card cleanup [--all]",
     "  scout card retire <agent>",
     "",

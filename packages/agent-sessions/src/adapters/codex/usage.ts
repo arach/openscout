@@ -20,6 +20,7 @@ export type CodexUsageObservation = {
   inputTokens?: number;
   contextInputTokens?: number;
   cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
   totalTokens?: number;
@@ -91,6 +92,17 @@ function readObservedString(
     }
   }
   return undefined;
+}
+
+function sumObservedNumbers(values: Array<number | undefined>): number | undefined {
+  let sawValue = false;
+  let total = 0;
+  for (const value of values) {
+    if (value === undefined) continue;
+    sawValue = true;
+    total += value;
+  }
+  return sawValue ? total : undefined;
 }
 
 function prefixedRateLimitKeys(prefixes: string[], keys: string[]): string[] {
@@ -357,11 +369,35 @@ export function readCodexRolloutUsageObservation(
   const lastTokenUsage = observedRecord(info?.last_token_usage);
   const rateLimits = observedRecord(record.rate_limits);
   const inputTokens = observedNumber(totalTokenUsage?.input_tokens);
+  const lastInputTokens = observedNumber(lastTokenUsage?.input_tokens);
+  const lastCacheReadInputTokens = readObservedNumber(lastTokenUsage, [
+    "cached_input_tokens",
+    "cache_read_input_tokens",
+    "cacheReadInputTokens",
+  ]);
+  const lastCacheCreationInputTokens = readObservedNumber(lastTokenUsage, [
+    "cache_creation_input_tokens",
+    "cacheCreationInputTokens",
+  ]);
+  const cacheReadInputTokens = readObservedNumber(totalTokenUsage, [
+    "cached_input_tokens",
+    "cache_read_input_tokens",
+    "cacheReadInputTokens",
+  ]);
+  const cacheCreationInputTokens = readObservedNumber(totalTokenUsage, [
+    "cache_creation_input_tokens",
+    "cacheCreationInputTokens",
+  ]);
   const outputTokens = observedNumber(totalTokenUsage?.output_tokens);
   const observation: CodexUsageObservation = {
     inputTokens,
-    contextInputTokens: observedNumber(lastTokenUsage?.input_tokens),
-    cacheReadInputTokens: observedNumber(totalTokenUsage?.cached_input_tokens),
+    contextInputTokens: sumObservedNumbers([
+      lastInputTokens,
+      lastCacheReadInputTokens,
+      lastCacheCreationInputTokens,
+    ]),
+    cacheReadInputTokens,
+    cacheCreationInputTokens,
     outputTokens,
     reasoningOutputTokens: observedNumber(totalTokenUsage?.reasoning_output_tokens),
     totalTokens: observedNumber(totalTokenUsage?.total_tokens)
@@ -380,6 +416,7 @@ export function readCodexRolloutUsageObservation(
     observation.inputTokens,
     observation.contextInputTokens,
     observation.cacheReadInputTokens,
+    observation.cacheCreationInputTokens,
     observation.outputTokens,
     observation.reasoningOutputTokens,
     observation.totalTokens,

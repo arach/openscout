@@ -42,7 +42,7 @@ export const SCOUT_COMMANDS: ScoutCommandRegistration[] = [
   { name: "install", summary: "Download and install the OpenScout macOS app" },
   { name: "update", summary: "Update the installed OpenScout macOS app", canonicalName: "install" },
   { name: "vantage", summary: "Build a Hudson Vantage terminal canvas plan" },
-  { name: "config", summary: "View or set user config (name, handle, etc.)" },
+  { name: "config", summary: "View or set user config (name, handle, agent name pool, etc.)" },
   { name: "mesh", summary: "Mesh status and diagnostics" },
   { name: "pair", summary: "Pair a companion device via QR" },
   { name: "server", summary: "Run the Scout web UI (Bun; see: scout server start/open)" },

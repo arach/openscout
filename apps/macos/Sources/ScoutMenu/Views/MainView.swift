@@ -449,7 +449,7 @@ struct MainView: View {
 
     private var webValue: String {
         if controller.webActionPending { return "BOOT" }
-        return controller.webReachable ? ":3200" : "START"
+        return controller.webReachable ? ":43120" : "START"
     }
 
     private var webTint: Color {

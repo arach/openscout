@@ -83,7 +83,7 @@ adopt the local-runtime operational ideas.
 
 `local_socket` means the same broker-owned HTTP-shaped API over a Unix domain
 socket, not a separate file inbox protocol. Local callers should prefer the
-socket path when it is available and fall back to `http://127.0.0.1:65535`.
+socket path when it is available and fall back to `http://127.0.0.1:43110`.
 The broker remains the single durable writer for messages, invocations,
 flights, deliveries, and activity projections.
 

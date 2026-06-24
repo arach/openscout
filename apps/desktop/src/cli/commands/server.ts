@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  OPENSCOUT_PORTS,
   resolveConfiguredScoutWebHostname,
   resolveScoutWebNamedHostname,
   resolveWebPort,
@@ -75,7 +76,7 @@ export function renderServerCommandHelp(): string {
     "Options:",
     "  --host <h>        Bind host (default 0.0.0.0 for LAN/mDNS access)",
     "  --local-name NAME Node hostname or short alias to advertise (default <machine>.scout.local)",
-    "  --port <n>        Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)",
+    `  --port <n>        Listen port (default ${OPENSCOUT_PORTS.web}; optional override OPENSCOUT_WEB_PORT)`,
     "  --static          Serve built UI from disk",
     "  --static-root DIR Static client root (optional override OPENSCOUT_WEB_STATIC_ROOT)",
     "  --vite-url URL    Dev proxy target for non-API routes (optional override OPENSCOUT_WEB_VITE_URL)",
