@@ -262,6 +262,7 @@ function encodeClaudeProjectsSlug(absolutePath: string): string {
 function resolveClaudeHistoryPath(
   cwd: string | null | undefined,
   sessionId: string | null | undefined,
+  options: { allowMostRecentFallback?: boolean } = {},
 ): string | null {
   const normalizedCwd = expandHome(cwd)?.trim();
   if (!normalizedCwd) {
@@ -279,6 +280,9 @@ function resolveClaudeHistoryPath(
     if (existsSync(exactPath)) {
       return exactPath;
     }
+  }
+  if (options.allowMostRecentFallback === false) {
+    return null;
   }
   // Fallback: find the most recently modified .jsonl in the project dir
   return findMostRecentJsonl(projectDir);
@@ -615,6 +619,21 @@ function firstString(
   return null;
 }
 
+function directRuntimeEndpointRequiresSessionMatch(
+  endpoint: AgentEndpoint | null | undefined,
+): boolean {
+  if (!endpoint) {
+    return false;
+  }
+  const endpointMeta = endpointMetadataRecord(endpoint);
+  const runtimeMode = metadataString(endpointMeta, "runtimeMode")?.toLowerCase();
+  const transport = normalizedComparableString(endpoint.transport);
+  return runtimeMode === "direct_session"
+    || transport === "codex_app_server"
+    || transport === "claude_stream_json"
+    || transport === "pi_rpc";
+}
+
 function historyPathSessionId(path: string): string | null {
   const name = basename(path).trim();
   if (!name) {
@@ -648,6 +667,7 @@ function resolveHistoryCandidate(
   const agentAdapter = historyAdapterForAgent(agent);
   const providerMeta = snapshot ? snapshotProviderMeta(snapshot) : {};
   const endpointMeta = endpointMetadataRecord(endpoint);
+  const requireSessionMatch = directRuntimeEndpointRequiresSessionMatch(endpoint);
 
   const directPath = firstString(
     providerMeta.resumeSessionPath,
@@ -663,6 +683,16 @@ function resolveHistoryCandidate(
 
   const claudeSessionId = firstString(
     providerMeta.transportSessionId,
+    providerMeta.externalSessionId,
+    providerMeta.threadId,
+    providerMeta.nativeSessionId,
+    endpoint?.sessionId,
+    endpointMeta.sessionId,
+    endpointMeta.runtimeSessionId,
+    endpointMeta.runtimeInstanceId,
+    endpointMeta.threadId,
+    endpointMeta.externalSessionId,
+    endpointMeta.nativeSessionId,
     agent.harnessSessionId,
   );
   const claudeCwd = firstString(
@@ -671,7 +701,9 @@ function resolveHistoryCandidate(
     agent.projectRoot,
   );
   if ((snapshotAdapter ?? endpointAdapter ?? agentAdapter) === "claude-code") {
-    const path = resolveClaudeHistoryPath(claudeCwd, claudeSessionId);
+    const path = resolveClaudeHistoryPath(claudeCwd, claudeSessionId, {
+      allowMostRecentFallback: !requireSessionMatch,
+    });
     if (path) {
       return { path, adapterType: "claude-code" };
     }
@@ -732,6 +764,7 @@ async function resolveDiscoveredHistoryCandidate(
   const sessionRefs = collectSessionRefs(agent, snapshot, endpoint);
   const cwdRefs = collectAgentCwdRefs(agent, snapshot, endpoint);
   const agentProject = normalizedComparableString(agent.project);
+  const requireSessionMatch = directRuntimeEndpointRequiresSessionMatch(endpoint);
   const candidates = discovery.transcripts
     .filter((transcript) => adapterTypeFromTailSource(transcript.source) === adapterType)
     .map((transcript) => {
@@ -750,7 +783,9 @@ async function resolveDiscoveredHistoryCandidate(
         projectMatch,
       };
     })
-    .filter(({ sessionMatch, cwdMatch, projectMatch }) => sessionMatch || cwdMatch || projectMatch)
+    .filter(({ sessionMatch, cwdMatch, projectMatch }) => (
+      sessionMatch || (!requireSessionMatch && (cwdMatch || projectMatch))
+    ))
     .sort((left, right) => {
       const leftTuple = [
         left.sessionMatch ? 0 : 1,
