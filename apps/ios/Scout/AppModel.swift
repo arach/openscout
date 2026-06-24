@@ -126,9 +126,24 @@ final class AppModel {
 
         var id: String { candidate.id }
         var displayName: String { AppModel.prettyMachineName(candidate.nodeName) }
+        var routePlan: OpenScoutNetworkPairingRoutePlan {
+            openScoutNetworkPairingRoutePlan(for: candidate)
+        }
+        var preferredPairingPayload: QRPayload {
+            openScoutNetworkPairingPayload(for: candidate)
+        }
+        var preferredRoute: TransportKind {
+            routePlan.preferredRoute
+        }
         var detail: String {
-            let host = URLComponents(string: candidate.entrypoint.relay)?.host ?? "mesh.oscout.net"
-            return "OSN · \(host)"
+            let relayURL = routePlan.preferredRelayURL ?? candidate.entrypoint.relay
+            let host = URLComponents(string: relayURL)?.host ?? "mesh.oscout.net"
+            let preferred = preferredRoute.label.isEmpty ? "WAN" : preferredRoute.label
+            let fallbacks = routePlan.routeLabels.filter { $0 != preferred }
+            if let fallback = fallbacks.first {
+                return "\(preferred) · \(host) · \(fallback) fallback"
+            }
+            return "\(preferred) · \(host)"
         }
     }
 
@@ -751,11 +766,11 @@ final class AppModel {
                 return
             } catch {
                 logTailnetPair(
-                    "Connected Mac mesh read failed: \(Self.compactError(error)); trying web origins",
+                    "Connected Mac Tailnet read failed: \(Self.compactError(error)); trying web origins",
                     level: .warning
                 )
                 connectionLog.log(
-                    "Tailnet repair bridge mesh read failed; trying direct web origins: \(error.localizedDescription)",
+                    "Tailnet repair bridge status read failed; trying direct web origins: \(error.localizedDescription)",
                     event: .network,
                     level: .warning,
                     route: .tailnet
@@ -1052,6 +1067,14 @@ final class AppModel {
                 OpenScoutNetworkPairTarget(candidate: $0)
             }
             openScoutNetworkPairTargets = targets
+            for target in targets {
+                connectionLog.log(
+                    "OpenScout Network target \(target.displayName): routes \(target.routePlan.routeLabels.joined(separator: " -> ")) preferred \(target.preferredRoute.label)",
+                    event: .discover,
+                    level: .info,
+                    route: target.preferredRoute
+                )
+            }
             connectionLog.log(
                 "OpenScout Network found \(targets.count) mobile pairing target(s)",
                 event: .discover,
@@ -1078,8 +1101,15 @@ final class AppModel {
 
         openScoutNetworkRoutingEnabled = true
         BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+        let payload = target.preferredPairingPayload
+        connectionLog.log(
+            "OpenScout Network pairing \(target.displayName) via \(target.preferredRoute.label) \(payload.relay)",
+            event: .pairing,
+            level: .info,
+            route: target.preferredRoute
+        )
         return await completePair(source: "OpenScout Network") {
-            target.candidate.qrPayload
+            payload
         }
     }
 
@@ -1155,7 +1185,7 @@ final class AppModel {
         }
 
         logTailnetPair(
-            "Reading mesh status from connected Mac over \(fleet.focusedClient.currentRoute.label)",
+            "Reading Tailnet status from connected Mac over \(fleet.focusedClient.currentRoute.label)",
             level: .info
         )
         return try await fleet.focusedClient.mobileMeshStatus()
@@ -2172,11 +2202,11 @@ private enum TailnetPairingError: LocalizedError {
         case .noMeshOrigin:
             return "No saved Mac web route is available for Tailnet discovery"
         case .noMeshEndpoint(let host):
-            return "No Scout web mesh endpoint responded on \(host)"
+            return "No Scout web Tailnet endpoint responded on \(host)"
         case .invalidMeshResponse(let origin):
-            return "Invalid mesh response from \(origin)"
+            return "Invalid Tailnet response from \(origin)"
         case .meshHTTPStatus(let origin, let status):
-            return "Mesh endpoint \(origin) returned HTTP \(status)"
+            return "Tailnet endpoint \(origin) returned HTTP \(status)"
         }
     }
 }

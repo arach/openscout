@@ -554,7 +554,7 @@ struct AppSettingsView: View {
         if model.isRefreshingTailnetPairTargets { return "scanning" }
         if let origin = model.tailnetPairDiscoveryOrigin { return origin }
         if model.tailnetPairError != nil { return "discovery failed" }
-        return "mesh peers"
+        return "tailnet peers"
     }
 }
 
