@@ -11,10 +11,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { isLoopbackHost } from "./broker-process-manager.js";
-import {
-  readOpenScoutNetworkSessionTokenFromKeychain,
-  readOpenScoutNetworkSettingsSync,
-} from "./open-scout-network.js";
+import { readOpenScoutNetworkSettingsSync } from "./open-scout-network.js";
 
 export interface MeshRendezvousPublishConfig {
   url: string;
@@ -54,8 +51,7 @@ export function resolveMeshRendezvousPublishConfig(
   }
 
   const token = env.OPENSCOUT_MESH_RENDEZVOUS_TOKEN?.trim() || undefined;
-  const sessionToken = env.OPENSCOUT_MESH_RENDEZVOUS_SESSION?.trim()
-    || (token ? undefined : readOpenScoutNetworkSessionTokenFromKeychain());
+  const sessionToken = env.OPENSCOUT_MESH_RENDEZVOUS_SESSION?.trim() || undefined;
 
   return {
     url: rawUrl.replace(/\/$/, ""),
