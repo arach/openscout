@@ -125,3 +125,10 @@ apps/ios/build/
 # tracked env examples
 !.env.example
 !landing/.env.example
+
+# design-sync sync artifacts (staged scripts, build output, machine state)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules

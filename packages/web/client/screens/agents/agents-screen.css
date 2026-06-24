@@ -304,7 +304,7 @@
 .s-sess-id-copy {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   min-width: 0;
 }
 
@@ -319,37 +319,33 @@
 
 .s-sess-name {
   font-family: var(--font-accent-title);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 400;
   line-height: var(--leading-none);
   letter-spacing: -0.01em;
   color: var(--ink);
 }
 
-/* Essentials as a 2×2 glyph grid (Tiered+): left column = location (path / host),
-   right column = work (branch / harness·model). A faint line-glyph leads each
-   value; format carries meaning, so no word labels. Mirrors the studio rebalance
-   treatment. Wraps to stacked columns when the header is narrow. */
+/* Essentials as a 2×2 glyph grid (Tiered+): path · branch / host · harness·model.
+   A faint line-glyph leads each value; format carries meaning, so no word labels.
+   Mirrors the studio rebalance treatment (agent-profile-rebalance). */
 .s-sess-glyph {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-5xl);
-}
-
-.s-sess-glyph-col {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: var(--space-5xl);
+  row-gap: var(--space-2xs);
+  width: fit-content;
+  max-width: 100%;
+  margin-top: var(--space-xs);
 }
 
 .s-sess-glyph-cell {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 6px;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: 10px;
   color: var(--muted);
 }
 
@@ -427,13 +423,13 @@
 }
 
 .s-sess-head-actions {
-  flex: 0 0 100%;
+  flex: none;
   display: flex;
-  justify-content: flex-start;
-  justify-items: start;
+  flex-direction: column;
+  align-items: flex-end;
   gap: var(--space-xs);
   max-width: none;
-  margin-left: calc(54px + var(--space-lg));
+  margin-left: auto;
 }
 
 .s-sess-action:hover {
@@ -449,6 +445,26 @@
 .s-sess-action:disabled:hover {
   background: transparent;
   color: var(--muted);
+}
+
+.s-sess-action--accent {
+  color: var(--canvas, var(--bg));
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.s-sess-action--accent:hover {
+  color: var(--canvas, var(--bg));
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.s-sess-action--accent:disabled {
+  opacity: 0.55;
+}
+
+.s-sess-action--accent:disabled:hover {
+  background: var(--accent);
+  color: var(--canvas, var(--bg));
 }
 
 .s-sess-action-error {
@@ -470,7 +486,7 @@
 .s-sess-handle {
   flex: none;
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: 11px;
   letter-spacing: var(--tracking-sm);
   /* sober — the handle is identity, not a status; no arbitrary color */
   color: var(--dim);
@@ -478,18 +494,21 @@
 
 @media (max-width: 720px) {
   .s-sess-head {
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 
   .s-sess-id {
     align-items: flex-start;
+    flex: 1 1 100%;
   }
 
   .s-sess-head-actions {
-    display: flex;
-    justify-items: start;
-    margin-left: 0;
-    max-width: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    margin-left: calc(46px + var(--space-lg));
+    width: 100%;
   }
 }
 

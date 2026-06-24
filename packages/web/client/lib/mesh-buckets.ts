@@ -23,6 +23,12 @@ function machineLabelFor(node: { name?: string; hostName?: string } | undefined 
   return host || node.name || "this host";
 }
 
+export function localMachineLabel(mesh: MeshStatus | null | undefined): string {
+  if (!mesh) return "Host";
+  const label = machineLabelFor(mesh.localNode);
+  return label === "this host" ? "Host" : label;
+}
+
 function tailnetPeerLabel(peer: { hostName?: string | null; name?: string | null }): string {
   return shortHost(peer.hostName) || peer.name || "tailnet peer";
 }

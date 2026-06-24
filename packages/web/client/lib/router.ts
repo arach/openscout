@@ -17,6 +17,9 @@ import type {
 function parseAgentTab(value: string | null): AgentTab | undefined {
   switch (value) {
     case "profile":
+    case "config":
+    case "definitions":
+      return value === "definitions" ? "config" : value;
     case "observe":
     case "message":
       return value;
@@ -115,6 +118,7 @@ const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
   "inbox",
   "conversation",
   "agents",
+  "agents-v2",
   "fleet",
   "conversations",
   "messages",
@@ -201,6 +205,68 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const agentProjectSlug = url.searchParams.get("project")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
+  }
+  const agentsV2Project = url.searchParams.get("project")?.trim() || undefined;
+  const agentsV2Harness = url.searchParams.get("harness")?.trim() || undefined;
+  const agentsV2Node = url.searchParams.get("node")?.trim() || undefined;
+  const agentsV2SetRaw = url.searchParams.get("set")?.trim();
+  const agentsV2Set =
+    agentsV2SetRaw === "live" || agentsV2SetRaw === "ephemeral" || agentsV2SetRaw === "archived"
+      ? agentsV2SetRaw
+      : undefined;
+  const agentsV2IndexRaw = url.searchParams.get("view")?.trim();
+  const agentsV2IndexView =
+    agentsV2IndexRaw === "sessions" ? "sessions" : agentsV2IndexRaw === "agents" ? "agents" : undefined;
+  const agentsV2StateRaw = url.searchParams.get("state")?.trim();
+  const agentsV2StateFilter =
+    agentsV2StateRaw === "needs" || agentsV2StateRaw === "live" || agentsV2StateRaw === "idle"
+      ? agentsV2StateRaw
+      : undefined;
+  const agentsV2ShowEphemeral = url.searchParams.get("ephemeral") === "1";
+  const agentsV2SessionParam = url.searchParams.get("session")?.trim() || undefined;
+  const agentsV2Select = url.searchParams.get("select")?.trim() || undefined;
+  if (parts[0] === "agents-v2" && parts[1] === "sessions" && parts[2]) {
+    return scoped({
+      view: "agents-v2",
+      sessionId: decodeURIComponent(parts[2]),
+      ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+      ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
+      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
+      ...(agentsV2Node ? { node: agentsV2Node } : {}),
+      ...(agentsV2Set ? { set: agentsV2Set } : {}),
+      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
+      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
+      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+    });
+  }
+  if (parts[0] === "agents-v2" && parts[1]) {
+    const agentId = decodeURIComponent(parts[1]);
+    return scoped({
+      view: "agents-v2",
+      agentId,
+      ...(agentTab ? { tab: agentTab } : {}),
+      ...(agentsV2SessionParam ? { sessionId: agentsV2SessionParam } : {}),
+      ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
+      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
+      ...(agentsV2Node ? { node: agentsV2Node } : {}),
+      ...(agentsV2Set ? { set: agentsV2Set } : {}),
+      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
+      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
+      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+    });
+  }
+  if (parts[0] === "agents-v2") {
+    return scoped({
+      view: "agents-v2",
+      ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+      ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
+      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
+      ...(agentsV2Node ? { node: agentsV2Node } : {}),
+      ...(agentsV2Set ? { set: agentsV2Set } : {}),
+      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
+      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
+      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+    });
   }
   // /agents/{agentId}/sessions/{sessionId} → session observe scoped to an exact agent/session pair.
   if (parts[0] === "agents" && parts[1] && parts[2] === "sessions" && parts[3]) {
@@ -439,6 +505,26 @@ export function routePath(r: Route): string {
         : "/agents";
       return `${path}${searchSuffix(params)}`;
     }
+    case "agents-v2": {
+      const params = new URLSearchParams();
+      if (r.projectSlug) params.set("project", r.projectSlug);
+      if (r.harness) params.set("harness", r.harness);
+      if (r.node) params.set("node", r.node);
+      if (r.set) params.set("set", r.set);
+      if (r.indexView && r.indexView !== "agents") params.set("view", r.indexView);
+      if (r.stateFilter) params.set("state", r.stateFilter);
+      if (r.showEphemeral) params.set("ephemeral", "1");
+      if (r.selectedAgentId && !r.agentId) params.set("select", r.selectedAgentId);
+      if (r.agentId && r.sessionId) params.set("session", r.sessionId);
+      if (r.agentId && r.tab && r.tab !== "profile") params.set("tab", r.tab);
+      appendMachineScope(params, r);
+      const path = r.sessionId && !r.agentId
+        ? `/agents-v2/sessions/${encodeURIComponent(r.sessionId)}`
+        : r.agentId
+          ? `/agents-v2/${encodeURIComponent(r.agentId)}`
+          : "/agents-v2";
+      return `${path}${searchSuffix(params)}`;
+    }
     case "fleet":
       return pathWithMachineScope("/fleet", r);
     case "conversations":
@@ -570,6 +656,20 @@ function routeKey(r: Route): string {
           : r.agentId
             ? `agent:${r.agentId}:${r.tab ?? "profile"}${scope}`
             : `agents${scope}`;
+    case "agents-v2":
+      return [
+        "agents-v2",
+        r.projectSlug ?? "",
+        r.harness ?? "",
+        r.node ?? "",
+        r.set ?? "",
+        r.indexView ?? "agents",
+        r.stateFilter ?? "",
+        r.showEphemeral ? "eph" : "",
+        r.agentId ?? "",
+        r.sessionId ?? "",
+        scope,
+      ].join(":");
     case "sessions":
       return r.sessionId ? `session:${r.agentId ?? ""}:${r.sessionId}${scope}` : `sessions${scope}`;
     case "messages":

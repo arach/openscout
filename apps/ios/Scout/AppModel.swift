@@ -836,7 +836,7 @@ final class AppModel {
             case .payload(let payload):
                 // Reached the Mac and have a live payload — finish the handshake.
                 // Don't fall through to other candidates regardless of outcome.
-                if await completePair(source: "LAN", inputLength: nil, { payload }) {
+                if await completePair(source: "LAN", machineName: target.displayName, { payload }) {
                     lanPairError = nil
                     return true
                 }
@@ -1023,7 +1023,7 @@ final class AppModel {
 
         openScoutNetworkRoutingEnabled = true
         BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
-        return await completePair(source: "OpenScout Network") {
+        return await completePair(source: "OpenScout Network", machineName: target.displayName) {
             target.candidate.qrPayload
         }
     }
@@ -1407,7 +1407,12 @@ final class AppModel {
     /// the shell on success. The `makePayload` closure is the only difference
     /// between the QR and link entry points.
     @discardableResult
-    private func completePair(source channel: String, inputLength: Int? = nil, _ makePayload: () async throws -> QRPayload) async -> Bool {
+    private func completePair(
+        source channel: String,
+        inputLength: Int? = nil,
+        machineName: String? = nil,
+        _ makePayload: () async throws -> QRPayload
+    ) async -> Bool {
         resetReconnectState()
         backgroundFleetConnectTask?.cancel()
         connectionState = .connecting
@@ -1431,7 +1436,7 @@ final class AppModel {
                 )
                 throw error
             }
-            try await pairingBridge.pair(qrPayload: payload, primaryName: deviceName)
+            try await pairingBridge.pair(qrPayload: payload, primaryName: machineName ?? deviceName)
             let route = pairingBridge.currentRoute
             if route == .oscout {
                 openScoutNetworkRoutingEnabled = true
@@ -2149,6 +2154,9 @@ private final class FleetConnectionManager: @unchecked Sendable {
         let key = machineId.lowercased()
         client.setUnexpectedDisconnectHandler { [weak self] event in
             self?.handleUnexpectedDisconnect(machineId: key, event: event)
+        }
+        client.setMachineIdentityUpdatedHandler { [weak self] _ in
+            self?.onChange?(key)
         }
     }
 

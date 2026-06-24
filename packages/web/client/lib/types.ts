@@ -1201,6 +1201,9 @@ export type PlanDocumentsResponse = {
 export type MessagesFilter = "all" | "dm" | "channel";
 export type MessagesSort = "recent" | "name" | "unread";
 export type SearchMode = "knowledge" | "indexer";
+export type AgentsV2Set = "live" | "ephemeral" | "archived";
+export type AgentsV2IndexView = "agents" | "sessions";
+export type AgentsV2StateFilter = "needs" | "live" | "idle";
 export type MachineScopedRoute = {
   machineId?: string;
 };
@@ -1220,6 +1223,23 @@ export type Route =
       conversationId?: string;
       tab?: AgentTab;
       projectSlug?: string;
+    } & MachineScopedRoute)
+  | ({
+      view: "agents-v2";
+      /** Path engagement — opens the full profile in the center pane. */
+      agentId?: string;
+      /** Index selection — inspector peek on the right without leaving the registry. */
+      selectedAgentId?: string;
+      sessionId?: string;
+      conversationId?: string;
+      tab?: AgentTab;
+      projectSlug?: string;
+      harness?: string;
+      node?: string;
+      set?: AgentsV2Set;
+      indexView?: AgentsV2IndexView;
+      stateFilter?: AgentsV2StateFilter;
+      showEphemeral?: boolean;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)
   | ({ view: "conversations" } & MachineScopedRoute)
@@ -1282,7 +1302,7 @@ export type Route =
       terminalSurfaceKey?: string;
     };
 
-export type AgentTab = "profile" | "observe" | "message";
+export type AgentTab = "profile" | "config" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";
 export type FollowPreferredView = "tail" | "session" | "chat" | "work";
 

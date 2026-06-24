@@ -21,6 +21,8 @@ import type {
   SessionCatalogEntry,
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
+import { AgentDefinitionsWorkspace } from "./AgentDefinitionsWorkspace.tsx";
+import { AgentEssentialsGlyph } from "./agent-essentials.tsx";
 import {
   agentLabel,
   newSessionPayloadForAgent,
@@ -61,72 +63,6 @@ function compactSurfaceSessionLabel(id: string): string {
   return id
     .replace(/^relay-/u, "")
     .replace(/-arts-mac-mini-local-(claude|codex)$/u, "");
-}
-
-// Tiny monochrome line-glyphs (geometric, not emoji) for the essentials grid —
-// folder · branch · host · chip. Kept bit-for-bit with the studio rebalance
-// treatment (design/studio/.../agent-profile-rebalance) so the ports don't drift.
-function IcoFolder() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <path d="M2 4h4l1.4 1.6H14v6.4H2z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-function IcoBranch() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <circle cx="4.5" cy="3.5" r="1.5" />
-      <circle cx="4.5" cy="12.5" r="1.5" />
-      <circle cx="11.5" cy="5.5" r="1.5" />
-      <path d="M4.5 5v6M4.5 11c0-3 7-1.4 7-4" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IcoChip() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <rect x="4.5" y="4.5" width="7" height="7" rx="1" />
-      <path d="M6.5 2v2M9.5 2v2M6.5 12v2M9.5 12v2M2 6.5h2M2 9.5h2M12 6.5h2M12 9.5h2" strokeLinecap="round" />
-    </svg>
-  );
-}
-function IcoHost() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" aria-hidden>
-      <rect x="2.5" y="3.5" width="11" height="7" rx="1" />
-      <path d="M6 13h4M8 10.5V13" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-// One essentials cell: a faint line-glyph + its value, truncating. Grouped into
-// two columns (location: path / host · work: branch / harness·model) so the
-// composition reads without word labels.
-function EssentialCell({ ico, v }: { ico: ReactNode; v: string }) {
-  return (
-    <span className="s-sess-glyph-cell" title={v}>
-      <span className="s-sess-glyph-ico">{ico}</span>
-      <span className="s-sess-glyph-v">{v}</span>
-    </span>
-  );
-}
-
-function HeaderFact({
-  label,
-  value,
-  title,
-}: {
-  label: string;
-  value: string;
-  title?: string;
-}) {
-  return (
-    <span className="s-sess-fact" title={title ?? value}>
-      <span className="s-sess-fact-label">{label}</span>
-      <span className="s-sess-fact-value">{value}</span>
-    </span>
-  );
 }
 
 function fmtTokens(n: number): string {
@@ -411,13 +347,14 @@ function SessionSummary({
 // into the conversation) or Resume — inline, right where the eye is. The
 // secondary ways to engage (Observe / Take over / Trace) live in the rail, which
 // follows the same selection. Selecting never jumps straight into a terminal.
-function ModularProfileCenter({
+export function AgentProfileSessionsCenter({
   agent,
   name,
   sessionCatalog,
   conversationId,
   navigate,
   route,
+  homeView = "agents",
 }: {
   agent: Agent;
   name: string;
@@ -425,39 +362,22 @@ function ModularProfileCenter({
   conversationId: string | null;
   navigate: (r: Route) => void;
   route: Route;
+  /** Registry surface that owns this profile — drives Message / New session navigation. */
+  homeView?: Extract<Route, { view: "agents" } | { view: "agents-v2" }>["view"];
 }) {
   const { focusedSession, focusSession } = useScout();
   const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
-
-  // Essentials as a 2×2 glyph grid (Tiered+): left column is location (path /
-  // host), right column is work (branch / harness·model), one faint line-glyph
-  // per cell. Format carries meaning, so no word labels. Model drops a redundant
-  // harness prefix (claude-opus-4-8 → opus-4-8).
-  const modelShort =
-    agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
-      ? agent.model.slice(agent.harness.length + 1)
-      : agent.model ?? null;
-  const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
-  const hostShort = agent.homeNodeName
-    ? agent.homeNodeName.replace(/\.local$/i, "")
-    : null;
-  const chip =
-    [agent.harness, modelShort]
-      .filter((v): v is string => Boolean(v))
-      .join(" · ") || null;
-  const hasEssentials = Boolean(cwdShort || agent.branch || hostShort || chip);
 
   const sessions = useMemo(
     () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
     [sessionCatalog?.sessions, activeSessionId],
   );
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
-  const handleLabel = agent.handle ? `@${agent.handle.replace(/^@+/, "")}` : null;
-  const selectorLabel = agent.selector ?? agent.defaultSelector ?? null;
-  const cwdFull = agent.cwd ?? agent.projectRoot ?? null;
-  const cwdFact = cwdFull;
   const liveSessionModel = activeSession?.model ?? null;
   const hasDistinctSessionModel = Boolean(liveSessionModel && liveSessionModel !== agent.model);
+  const chipTitle = hasDistinctSessionModel && liveSessionModel
+    ? `Session model: ${liveSessionModel}`
+    : null;
   const [startState, setStartState] = useState<"idle" | "starting">("idle");
   const [startError, setStartError] = useState<string | null>(null);
   const [chatState, setChatState] = useState<"idle" | "opening">("idle");
@@ -486,7 +406,7 @@ function ModularProfileCenter({
     try {
       const chatId = await ensureAgentChat({ ...agent, conversationId });
       navigate({
-        view: "agents",
+        view: homeView,
         agentId: agent.id,
         conversationId: chatId,
         tab: "message",
@@ -511,7 +431,7 @@ function ModularProfileCenter({
         throw new Error("Session started, but no conversation was returned.");
       }
       navigate({
-        view: "agents",
+        view: homeView,
         agentId: result.agentId?.trim() || agent.id,
         conversationId,
         tab: "message",
@@ -530,7 +450,7 @@ function ModularProfileCenter({
       <header className="s-sess-head">
         <div className="s-sess-id">
           <span className="s-sess-avatar">
-            <AgentAvatar agent={agent} size={54} tile presence={false} />
+            <AgentAvatar agent={agent} size={46} tile presence={false} />
           </span>
           <div className="s-sess-id-copy">
             <div className="s-sess-name-row">
@@ -539,32 +459,7 @@ function ModularProfileCenter({
                 <span className="s-sess-handle">@{agent.handle.replace(/^@+/, "")}</span>
               )}
             </div>
-            {hasEssentials && (
-              <div className="s-sess-glyph">
-                <div className="s-sess-glyph-col">
-                  {cwdShort && <EssentialCell ico={<IcoFolder />} v={cwdShort} />}
-                  {hostShort && <EssentialCell ico={<IcoHost />} v={hostShort} />}
-                </div>
-                <div className="s-sess-glyph-col">
-                  {agent.branch && <EssentialCell ico={<IcoBranch />} v={agent.branch} />}
-                  {chip && <EssentialCell ico={<IcoChip />} v={chip} />}
-                </div>
-              </div>
-            )}
-            <div className="s-sess-facts" aria-label="Agent identity and runtime facts">
-              {handleLabel && <HeaderFact label="Handle" value={handleLabel} />}
-              {cwdFact && <HeaderFact label="Path" value={cwdFact} title={cwdFull ?? cwdFact} />}
-              {hasDistinctSessionModel && liveSessionModel && (
-                <HeaderFact label="Session model" value={liveSessionModel} />
-              )}
-              {(agent.harness || agent.model) && (
-                <HeaderFact
-                  label="Model"
-                  value={agent.model ?? `${agent.harness ?? "harness"} default`}
-                />
-              )}
-              {selectorLabel && <HeaderFact label="Selector" value={selectorLabel} />}
-            </div>
+            <AgentEssentialsGlyph agent={agent} chipTitle={chipTitle} />
           </div>
         </div>
         {/* Header CTA mirrors the studio: "+ New session" (start fresh) — a
@@ -574,13 +469,19 @@ function ModularProfileCenter({
           <button
             type="button"
             className="s-sess-action"
-            onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+            onClick={() =>
+              navigate({
+                view: homeView,
+                agentId: agent.id,
+                tab: "config",
+              })
+            }
           >
             Edit config
           </button>
           <button
             type="button"
-            className="s-sess-action"
+            className="s-sess-action s-sess-action--accent"
             disabled={startState === "starting"}
             onClick={startNewSession}
           >
@@ -699,7 +600,7 @@ function observeLogText(e: { kind: string; text?: string; tool?: string; arg?: s
   return s.length > 160 ? `${s.slice(0, 157)}…` : s;
 }
 
-function CurrentSessionCard({
+export function CurrentSessionCard({
   agent,
   session,
   active,
@@ -866,11 +767,22 @@ function SessionProfileCenter({
       : agent.model ?? null;
   const cwdShort = agent.cwd ? (shortCwd(agent.cwd) ?? agent.cwd) : null;
   const hostShort = agent.homeNodeName ? agent.homeNodeName.replace(/\.local$/i, "") : null;
+  const handle = agent.handle?.trim().replace(/^@+/, "") || null;
+  const profileTitle = handle ? `@${handle}` : name;
+  const profileSubtitle =
+    handle && name.toLowerCase() !== handle.toLowerCase()
+      ? name
+      : [agent.project ? `/${agent.project}` : null, agent.branch, modelShort].filter(Boolean).join(" · ");
+
+  const agentRoute = (patch: Partial<Extract<Route, { view: "agents" } | { view: "agents-v2" }>>): Route =>
+    route.view === "agents-v2"
+      ? { ...route, ...patch, view: "agents-v2" }
+      : { view: "agents", agentId: agent.id, ...patch };
 
   const openMessage = async () => {
     try {
       const chatId = await ensureAgentChat({ ...agent, conversationId });
-      navigate({ view: "agents", agentId: agent.id, conversationId: chatId, tab: "message" });
+      navigate(agentRoute({ agentId: agent.id, conversationId: chatId, tab: "message" }));
     } catch {
       /* surfaced elsewhere */
     }
@@ -882,12 +794,13 @@ function SessionProfileCenter({
         body: JSON.stringify(newSessionPayloadForAgent(agent)),
       });
       const cid = result.conversationId?.trim();
-      navigate({
-        view: "agents",
-        agentId: result.agentId?.trim() || agent.id,
-        ...(cid ? { conversationId: cid } : {}),
-        tab: "message",
-      });
+      navigate(
+        agentRoute({
+          agentId: result.agentId?.trim() || agent.id,
+          ...(cid ? { conversationId: cid } : {}),
+          tab: "message",
+        }),
+      );
     } catch {
       /* noop */
     }
@@ -900,27 +813,32 @@ function SessionProfileCenter({
   return (
     <div className="ap-profile">
       <header className="ap-profileHead">
-        <AgentAvatar agent={agent} size={44} tile presence={false} />
+        <AgentAvatar agent={agent} size={48} tile presence={false} />
         <div className="ap-profileIdent">
           <div className="ap-profileTop">
-            <h1 className="ap-profileName">{name}</h1>
+            <h1 className="ap-profileName" title={profileTitle}>
+              {profileTitle}
+            </h1>
             {agent.harness ? (
               <span className="ap-rowMark" aria-hidden>
                 <HarnessMark harness={agent.harness} size={13} />
               </span>
             ) : null}
           </div>
-          <span className="ap-profileSub">
-            {cwdShort ?? "—"}
-            {agent.branch ? ` · ${agent.branch}` : ""}
-            {modelShort ? ` · ${modelShort}` : ""}
+          <span className="ap-profileSub" title={profileSubtitle}>
+            {profileSubtitle || cwdShort || "—"}
           </span>
+          {handle && name.toLowerCase() !== handle.toLowerCase() ? (
+            <span className="ap-profileId" title={agent.id}>
+              {name}
+            </span>
+          ) : null}
         </div>
         <div className="ap-headActions">
           <button
             type="button"
             className="ap-headGhost"
-            onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+            onClick={() => navigate(agentRoute({ agentId: agent.id, tab: "config" }))}
           >
             Edit config
           </button>
@@ -1032,12 +950,20 @@ export function AgentDetailWithRail({
   conversationId,
   navigate,
   activeTab,
+  renderProfile,
 }: {
   agent: Agent;
   allAgents: Agent[];
   conversationId: string | null;
   navigate: (r: Route) => void;
   activeTab: AgentTab;
+  renderProfile?: (ctx: {
+    agent: Agent;
+    sessionCatalog: SessionCatalogWithResume | null;
+    conversationId: string | null;
+    navigate: (r: Route) => void;
+    route: Route;
+  }) => ReactNode;
 }) {
   const { name } = agentLabel(agent, allAgents);
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
@@ -1132,16 +1058,28 @@ export function AgentDetailWithRail({
       }`}
     >
       {activeTab === "profile" && (
-        <div className="s-aproj s-aproj--profile">
-          <SessionProfileCenter
-            agent={agent}
-            name={name}
-            sessionCatalog={sessionCatalog}
-            conversationId={conversationId}
-            navigate={navigate}
-            route={route}
-          />
-        </div>
+        renderProfile ? (
+          renderProfile({ agent, sessionCatalog, conversationId, navigate, route })
+        ) : (
+          <div className="s-aproj s-aproj--profile">
+            <SessionProfileCenter
+              agent={agent}
+              name={name}
+              sessionCatalog={sessionCatalog}
+              conversationId={conversationId}
+              navigate={navigate}
+              route={route}
+            />
+          </div>
+        )
+      )}
+
+      {activeTab === "config" && (
+        <AgentDefinitionsWorkspace
+          agent={agent}
+          navigate={navigate}
+          homeView={route.view === "agents-v2" ? "agents-v2" : "agents"}
+        />
       )}
 
       {activeTab === "observe" && (
@@ -1191,6 +1129,7 @@ function StartAgentChatPane({
   agent: Agent;
   navigate: (r: Route) => void;
 }) {
+  const { route } = useScout();
   const [state, setState] = useState<"idle" | "opening">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -1200,12 +1139,11 @@ function StartAgentChatPane({
     setError(null);
     try {
       const conversationId = await ensureAgentChat(agent);
-      navigate({
-        view: "agents",
-        agentId: agent.id,
-        conversationId,
-        tab: "message",
-      });
+      navigate(
+        route.view === "agents-v2"
+          ? { ...route, view: "agents-v2", agentId: agent.id, conversationId, tab: "message" }
+          : { view: "agents", agentId: agent.id, conversationId, tab: "message" },
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not open chat.");
     } finally {
@@ -1246,10 +1184,8 @@ export function AgentProfileBar({
   navigate: (r: Route) => void;
 }) {
   const tabs: { key: AgentTab; label: string; disabled?: boolean }[] = [
-    { key: "profile", label: "Profile" },
-    // "Trace" = the parsed turn/tool feed (route stays `observe`). "Observe" is
-    // reserved for watching the live terminal (the rail's Terminal action), so
-    // the two surfaces no longer share a word.
+    { key: "profile", label: "Sessions" },
+    { key: "config", label: "Config" },
     { key: "observe", label: "Trace" },
     { key: "message", label: "Message" },
   ];

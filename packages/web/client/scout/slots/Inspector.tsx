@@ -106,7 +106,7 @@ export function ScoutInspector() {
       );
       break;
     default:
-      content = resolveRightPane(route);
+      content = resolveRightPane(route, navigate);
   }
 
   const clampedScoutbotHeight = inspectorHeight > 0

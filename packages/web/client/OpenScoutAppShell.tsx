@@ -38,6 +38,8 @@ const SIDE_PANEL_MAX_WIDTH_HARD_CAP = 900;
 const SIDE_PANEL_MAX_WIDTH_VIEWPORT_RATIO = 0.45;
 const SIDE_PANEL_MAX_WIDTH_FLOOR = 500;
 const SEARCH_RIGHT_PANEL_MIN_WIDTH = 420;
+// Agent + session detail is a core flow; give it a wider pane when it slides in.
+const AGENTS_RIGHT_PANEL_MIN_WIDTH = 480;
 const CENTER_CONTENT_MIN_WIDTH = 560;
 
 interface ScoutNavigationBarProps {
@@ -272,6 +274,21 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     if (!isSearchRoute || rightCollapsed || rightOverlay) return;
     setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, SEARCH_RIGHT_PANEL_MIN_WIDTH)));
   }, [isSearchRoute, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
+
+  // Widen the inspector when an agent's detail slides in — sessions + agent
+  // detail are a core flow here and want room to be parsed, not a 280px sliver.
+  const agentsV2Peek =
+    route.view === "agents-v2"
+    && !route.agentId
+    && Boolean(route.selectedAgentId);
+  const agentDetailOpen =
+    (route.view === "agents" && Boolean(route.agentId))
+    || agentsV2Peek
+    || (route.view === "agents-v2" && Boolean(route.agentId));
+  useEffect(() => {
+    if (!agentDetailOpen || rightCollapsed || rightOverlay) return;
+    setRightWidth((current) => Math.max(current, Math.min(sidePanelMaxWidth, AGENTS_RIGHT_PANEL_MIN_WIDTH)));
+  }, [agentDetailOpen, rightCollapsed, rightOverlay, setRightWidth, sidePanelMaxWidth]);
 
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -544,7 +561,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   // agent into context. This only overrides the rendered collapse — the stored
   // `rightCollapsed` preference is untouched, so engaged views keep their state.
   const inspectorHasNothingInContext = route.view === "agents" && !route.agentId;
-  const effectiveRightCollapsed = rightCollapsed || inspectorHasNothingInContext;
+  const agentsV2Route = route.view === "agents-v2";
+  const agentsV2Registry = route.view === "agents-v2" && !route.agentId;
+  const effectiveRightCollapsed = agentsV2Registry
+    ? rightCollapsed
+    : rightCollapsed || inspectorHasNothingInContext;
 
   const leftPushInset = leftCollapsed ? 0 : leftWidth;
   const rightPushInset = effectiveRightCollapsed || rightOverlay ? 0 : rightWidth;
@@ -611,9 +632,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
               <SidePanel
                 side="left"
                 title={
-                  route.view === "agents" || route.view === "agent-info"
-                    ? "Projects"
-                    : app.leftPanel?.title ?? "Navigation"
+                  agentsV2Route
+                    ? "Browse"
+                    : route.view === "agents" || route.view === "agent-info"
+                      ? "Projects"
+                      : app.leftPanel?.title ?? "Navigation"
                 }
                 icon={app.leftPanel?.icon}
                 isCollapsed={leftCollapsed}
@@ -633,7 +656,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
               <SidePanel
                 side="right"
-                title={app.rightPanel?.title ?? "Inspector"}
+                title={agentsV2Route ? "Detail" : app.rightPanel?.title ?? "Inspector"}
                 icon={app.rightPanel?.icon}
                 isCollapsed={effectiveRightCollapsed}
                 onToggleCollapse={() => {

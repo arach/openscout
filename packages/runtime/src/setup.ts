@@ -237,6 +237,10 @@ export type RelayAgentOverride = {
   agentId: string;
   definitionId?: string;
   displayName?: string;
+  // Set when the agent is archived (hidden from the directory). Lives on the
+  // persisted override so it survives config edits (the override converter
+  // spreads existing fields) and the local→broker sync.
+  archivedAt?: number;
   projectName?: string;
   projectRoot: string;
   projectConfigPath?: string | null;

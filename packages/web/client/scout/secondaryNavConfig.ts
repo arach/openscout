@@ -10,6 +10,12 @@ export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
         active: (route) => route.view === "agents" || route.view === "agent-info",
       },
       {
+        id: "registry-v2",
+        label: "Registry",
+        route: { view: "agents-v2" },
+        active: (route) => route.view === "agents-v2",
+      },
+      {
         id: "sessions",
         label: "Sessions",
         route: { view: "sessions" },

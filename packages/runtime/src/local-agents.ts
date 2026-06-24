@@ -2009,6 +2009,35 @@ export async function updateLocalAgentConfig(
   return buildLocalAgentConfigState(agentId, nextRecord);
 }
 
+/**
+ * Archive (or un-archive) a local agent. The flag lives directly on the
+ * persisted relay-agent override, so it survives config edits without touching
+ * the record-normalize / sync path. The web directory filters on it.
+ */
+export async function setLocalAgentArchived(
+  agentId: string,
+  archived: boolean,
+): Promise<boolean> {
+  const overrides = await readRelayAgentOverrides();
+  const existing = overrides[agentId];
+  if (!existing) {
+    return false;
+  }
+  overrides[agentId] = archived
+    ? { ...existing, archivedAt: existing.archivedAt ?? Date.now() }
+    : { ...existing, archivedAt: undefined };
+  await writeRelayAgentOverrides(overrides);
+  return true;
+}
+
+/** Ids of agents currently archived — the directory uses this to hide them. */
+export async function listArchivedLocalAgentIds(): Promise<string[]> {
+  const overrides = await readRelayAgentOverrides();
+  return Object.entries(overrides)
+    .filter(([, override]) => typeof override.archivedAt === "number")
+    .map(([agentId]) => agentId);
+}
+
 export async function updateLocalAgentCardLifecycle(
   agentId: string,
   input: LocalAgentCardLifecycleInput,

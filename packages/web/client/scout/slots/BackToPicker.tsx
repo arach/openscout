@@ -26,6 +26,8 @@ function defaultLabel(route: Route): string {
       return "Back to ops";
     case "agents":
       return route.agentId ? "Back to agent" : "All agents";
+    case "agents-v2":
+      return route.agentId ? "Registry" : "All agents";
     case "messages":
       return "Back to conversations";
     case "conversation":

@@ -535,36 +535,106 @@ function startsWithQuote(value: string): boolean {
   return value.startsWith("\"") || value.startsWith("'") || value.startsWith("`");
 }
 
+// Inline grammar — sticky (`y`) so each rule only matches at the cursor. Tried
+// in precedence order: code (literal) → link → ***bi*** → **b** / __b__ →
+// ~~strike~~ → *i* / _i_. Emphasis content is rendered recursively so nesting
+// (a bold span containing a link or italic) renders correctly. `__`/`_` only
+// open at a word boundary, so snake_case / file_paths stay literal.
+const INLINE_CODE = /`([^`]+)`/y;
+const INLINE_LINK = /\[([^\]]+)\]\(([^)\s]+)\)/y;
+const INLINE_BOLD_ITALIC = /\*\*\*(.+?)\*\*\*/y;
+const INLINE_BOLD = /\*\*(.+?)\*\*/y;
+const INLINE_BOLD_ALT = /__(.+?)__(?!\w)/y;
+const INLINE_STRIKE = /~~(.+?)~~/y;
+const INLINE_ITALIC = /\*(?!\s)([^*]+?)\*/y;
+const INLINE_ITALIC_ALT = /_(?!\s)([^_]+?)_(?!\w)/y;
+
+function matchInlineAt(pattern: RegExp, value: string, index: number): RegExpExecArray | null {
+  pattern.lastIndex = index;
+  const match = pattern.exec(value);
+  return match && match.index === index ? match : null;
+}
+
 function renderInlineMarkdown(value: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const pattern = /(`[^`]+`|\[([^\]]+)\]\(([^)\s]+)\))/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  let text = "";
+  let i = 0;
+  let key = 0;
 
-  while ((match = pattern.exec(value)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(value.slice(lastIndex, match.index));
+  const flush = () => {
+    if (text) {
+      nodes.push(text);
+      text = "";
+    }
+  };
+
+  while (i < value.length) {
+    const atBoundary = i === 0 || /[^\w]/.test(value[i - 1] ?? "");
+
+    const code = matchInlineAt(INLINE_CODE, value, i);
+    if (code) {
+      flush();
+      nodes.push(<code key={key++}>{code[1]}</code>);
+      i += code[0].length;
+      continue;
     }
 
-    const token = match[0];
-    if (token.startsWith("`")) {
-      nodes.push(<code key={nodes.length}>{token.slice(1, -1)}</code>);
-    } else {
-      const href = safeMarkdownHref(match[3]);
+    const link = matchInlineAt(INLINE_LINK, value, i);
+    if (link) {
+      flush();
+      const href = safeMarkdownHref(link[2]);
       nodes.push(href
         ? (
-            <a key={nodes.length} href={href} target="_blank" rel="noreferrer">
-              {match[2]}
+            <a key={key++} href={href} target="_blank" rel="noreferrer">
+              {renderInlineMarkdown(link[1])}
             </a>
           )
-        : match[2]);
+        : <span key={key++}>{renderInlineMarkdown(link[1])}</span>);
+      i += link[0].length;
+      continue;
     }
-    lastIndex = pattern.lastIndex;
+
+    const boldItalic = matchInlineAt(INLINE_BOLD_ITALIC, value, i);
+    if (boldItalic) {
+      flush();
+      nodes.push(
+        <strong key={key++}>
+          <em>{renderInlineMarkdown(boldItalic[1])}</em>
+        </strong>,
+      );
+      i += boldItalic[0].length;
+      continue;
+    }
+
+    const bold = matchInlineAt(INLINE_BOLD, value, i) ?? (atBoundary ? matchInlineAt(INLINE_BOLD_ALT, value, i) : null);
+    if (bold) {
+      flush();
+      nodes.push(<strong key={key++}>{renderInlineMarkdown(bold[1])}</strong>);
+      i += bold[0].length;
+      continue;
+    }
+
+    const strike = matchInlineAt(INLINE_STRIKE, value, i);
+    if (strike) {
+      flush();
+      nodes.push(<del key={key++}>{renderInlineMarkdown(strike[1])}</del>);
+      i += strike[0].length;
+      continue;
+    }
+
+    const italic = matchInlineAt(INLINE_ITALIC, value, i) ?? (atBoundary ? matchInlineAt(INLINE_ITALIC_ALT, value, i) : null);
+    if (italic) {
+      flush();
+      nodes.push(<em key={key++}>{renderInlineMarkdown(italic[1])}</em>);
+      i += italic[0].length;
+      continue;
+    }
+
+    text += value[i];
+    i += 1;
   }
 
-  if (lastIndex < value.length) {
-    nodes.push(value.slice(lastIndex));
-  }
+  flush();
   return nodes;
 }
 

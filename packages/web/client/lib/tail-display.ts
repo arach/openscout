@@ -182,6 +182,34 @@ function codexFriendlyToolName(name: string): string {
   return CODEX_FRIENDLY_TOOL_NAMES[name] ?? name;
 }
 
+/** Claude's built-in tool names (lowercased). `formatToolCall` (runtime) prefixes
+ *  these to the salient argument as `"<Tool> <arg>"`; shell execs are emitted as
+ *  a bare command with no tool name at all. */
+const CLAUDE_TOOL_NAMES = new Set([
+  "read", "write", "edit", "multiedit", "notebookedit",
+  "glob", "grep", "ls", "task", "agent",
+  "webfetch", "websearch", "todowrite", "todoread",
+  "bashoutput", "killshell", "killbash", "slashcommand",
+  "exitplanmode", "bash",
+]);
+
+/** Does the first token of a Claude summary name a tool (vs. open a shell
+ *  command)? Built-in tools are CapitalCase; MCP/custom tools surface as
+ *  `mcp__server__tool`. A leading lowercase word is a shell program, so it falls
+ *  through to bash. */
+function isClaudeToolName(name: string): boolean {
+  const lower = name.toLowerCase();
+  if (CLAUDE_TOOL_NAMES.has(lower)) return true;
+  if (name.startsWith("mcp__")) return true;
+  return /^[A-Z][A-Za-z0-9]*$/.test(name);
+}
+
+const CLAUDE_RESULT_PREFIX = /^res:\s*([\s\S]*)$/;
+const CLAUDE_TOOL_CALL = /^([A-Za-z][\w-]*)(?:\s+([\s\S]+))?$/;
+// Conservative failure signals only — a free-text preview like "0 errors" or
+// "no errors" is a SUCCESS, so we never flag the bare word "error(s)".
+const CLAUDE_RESULT_ERROR = /\b(?:failed|failure|exception|fatal|denied|traceback)\b|error:/i;
+
 export function observeKindFromTailEvent(event: TailEvent): ObserveEvent["kind"] {
   if (event.source === "codex") {
     if (event.kind === "system") {
@@ -255,6 +283,32 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
       if (completed[2]) fields.result = { outcome: completed[2] };
       return fields;
     }
+  }
+
+  // Claude's `formatToolCall`/`formatToolResult` (runtime tool-format.ts) emit a
+  // clean shell-log line — `Read views/scout-tail.tsx`, a bare command for shell
+  // execs, and `res: <preview>` for results — rather than codex's `Tool(args)`.
+  // Re-extract the tool + salient arg so lane/mission rows show the snippet, not
+  // just the bare tool name.
+  if (event.source === "claude") {
+    const result = summary.match(CLAUDE_RESULT_PREFIX);
+    if (result) {
+      const preview = result[1].trim();
+      const fields: TailObserveToolFields = {
+        tool: "res",
+        result: { outcome: CLAUDE_RESULT_ERROR.test(preview) ? "error" : "success" },
+      };
+      if (preview) fields.arg = preview;
+      return fields;
+    }
+    const call = summary.match(CLAUDE_TOOL_CALL);
+    if (call && isClaudeToolName(call[1])) {
+      const arg = call[2]?.trim();
+      return arg ? { tool: call[1], arg } : { tool: call[1] };
+    }
+    // No recognizable tool name → a bare shell command (Bash/exec). Classify as
+    // bash so the lane renders it as a terminal line, command intact.
+    return { tool: "bash", arg: summary };
   }
 
   if (event.source === "codex") {

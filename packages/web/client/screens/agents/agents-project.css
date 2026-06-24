@@ -10,23 +10,25 @@
    source. Class names are `ap-*`-prefixed to avoid collisions with global CSS. */
 
 .s-aproj {
-  /* Graphite skin — the palette the studio study was designed in
-     (design/studio/app/scout-skins.css → [data-scout-skin="graphite"]).
-     Cool near-black surfaces + a single indigo accent, spent only as the
-     precedence dot/CTA. Reproduced literally so this surface matches the
-     signed-off design rather than the web's emerald default. */
-  --s-bg: #121214;
-  --s-surface: #242428;
-  --s-ink: rgba(255, 255, 255, 0.97);
-  --s-muted: rgba(255, 255, 255, 0.69);
-  --s-dim: rgba(255, 255, 255, 0.49);
-  --s-border: rgba(255, 255, 255, 0.17);
-  --s-hairline: rgba(255, 255, 255, 0.1);
-  --s-hairline-strong: rgba(255, 255, 255, 0.22);
-  --s-accent: #6d7ae8;
-  --s-accent-soft: rgba(109, 122, 232, 0.26);
-  --s-font-sans: var(--font-sans);
-  --s-font-mono: var(--font-mono);
+  /* Theme-aware: the studio's --s-* skin tokens now ALIAS the web's live theme
+     tokens (--scout-chrome-* / --accent, derived from the per-theme --hud-*
+     primitives in Provider.tsx). So the whole surface — masthead, rows, and the
+     expand-in-place sessions — follows theme switches and the single app accent,
+     instead of the hardcoded graphite + indigo the studio was designed in. The
+     hairline ramp is matched to the original opacities via --hud-ink mixes so the
+     ruled band structure stays legible on any theme. */
+  --s-bg: var(--hud-bg);
+  --s-surface: var(--hud-surface);
+  --s-ink: var(--scout-chrome-ink-strong);
+  --s-muted: var(--scout-chrome-ink-soft);
+  --s-dim: var(--scout-chrome-ink-faint);
+  --s-border: color-mix(in srgb, var(--hud-ink) 17%, transparent);
+  --s-hairline: color-mix(in srgb, var(--hud-ink) 9%, transparent);
+  --s-hairline-strong: color-mix(in srgb, var(--hud-ink) 20%, transparent);
+  --s-accent: var(--accent);
+  --s-accent-soft: var(--hud-accent-soft);
+  --s-font-sans: var(--hud-font-sans);
+  --s-font-mono: var(--hud-font-mono);
 
   height: 100%;
   min-height: 0;
@@ -154,8 +156,34 @@
 }
 .ap-profileIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .ap-profileTop { display: flex; align-items: center; gap: 10px; }
-.ap-profileName { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--s-ink); text-transform: lowercase; }
-.ap-profileSub { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+.ap-profileName {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--s-ink);
+  text-transform: lowercase;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-profileSub {
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-profileId {
+  font-size: 10px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .ap-profileBody { display: grid; grid-template-columns: minmax(0, 1fr) 248px; gap: 32px; padding-top: 22px; }
 @media (max-width: 920px) { .ap-profileBody { grid-template-columns: 1fr; } }
@@ -572,12 +600,19 @@
 .ap-digest {
   display: flex;
   align-items: center;
-  gap: 30px;
-  padding: 15px 0;
+  gap: 14px;
+  padding: 9px 0;
   border-bottom: 1px solid var(--s-hairline);
 }
-.ap-stat { display: inline-flex; align-items: baseline; gap: 7px; }
-.ap-statNum { font-size: 17px; font-weight: 600; color: var(--s-ink); letter-spacing: -0.01em; }
+/* demoted: reads as a quiet inline line (12 conversations · 3 in flight), with
+   middot separators, not a row of big KPI numbers. */
+.ap-stat { display: inline-flex; align-items: baseline; gap: 5px; }
+.ap-stat + .ap-stat::before {
+  content: "·";
+  margin-right: 14px;
+  color: var(--s-dim);
+}
+.ap-statNum { font-size: 12px; font-weight: 600; color: var(--s-ink); letter-spacing: 0; }
 .ap-statLbl {
   font-size: 10px;
   font-weight: 500;
@@ -751,7 +786,7 @@
 .ap-rowMain {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 13px;
   padding: 11px 2px;
@@ -777,6 +812,15 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--s-accent);
+}
+/* live activity word — muted, never the reserved accent (that belongs to needs-you) */
+.ap-rowState {
+  flex: none;
+  font-size: 10px;
+  font-weight: 580;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--s-dim);
 }
 
 .ap-rowMeta { display: flex; align-items: center; gap: 9px; min-width: 0; line-height: 1.1; }
@@ -812,6 +856,346 @@
 .ap-rowActions { align-items: center; gap: 4px; opacity: 0; pointer-events: none; }
 .ap-row:hover .ap-tailMeta, .ap-row[data-tone="needs"] .ap-tailMeta { opacity: 0; }
 .ap-row:hover .ap-rowActions, .ap-row[data-tone="needs"] .ap-rowActions { opacity: 1; pointer-events: auto; }
+
+/* ⋯ actions trigger — outside the hover-swap so it's always present (the agent
+   is actionable), but quiet until the row is hovered so it never shouts. */
+.ap-rowTailWrap { display: flex; align-items: center; gap: 6px; }
+.ap-rowMore {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--s-dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.ap-row:hover .ap-rowMore, .ap-row[data-selected] .ap-rowMore { opacity: 0.9; }
+.ap-rowMore:hover { background: var(--s-surface); color: var(--s-ink); opacity: 1; }
+
+/* ── inline sessions — the work under each agent, surfaced in the main flow so
+   sessions are discoverable here, not only in the side pane. Agent is the
+   header; these are its recent work-led, clickable sessions. ──────────────── */
+.ap-rowSessions {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 1px 0 11px;
+  padding-left: 16px;
+}
+/* faint containment guide — turns a flat list into "header + bracketed children";
+   inset (left:6px) so it never collides with the data-selected accent bar at 0. */
+.ap-rowSessions::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  bottom: 9px;
+  width: 1px;
+  background: var(--s-hairline);
+}
+.ap-rowSession {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 9px 5px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.ap-rowSession:hover { background: var(--s-surface); }
+.ap-rowSession:disabled { cursor: default; }
+.ap-rowSessionDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--s-dim);
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+/* per-session precedence carried down to the session itself, not just the agent */
+.ap-rowSessionDot[data-tone="live"] {
+  background: var(--s-accent);
+  box-shadow: 0 0 0 3px var(--s-accent-soft);
+}
+.ap-rowSession:hover .ap-rowSessionDot { background: var(--s-accent); }
+.ap-rowSessionText {
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-rowSession:hover .ap-rowSessionText { color: var(--s-ink); }
+.ap-rowSessionAgo {
+  flex: none;
+  font-size: 10px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+}
+/* long-idle session — reads as reference, not a resume candidate (contrast only) */
+.ap-rowSession[data-stale] .ap-rowSessionText { color: var(--s-dim); }
+.ap-rowSession[data-stale] .ap-rowSessionDot { background: var(--s-hairline-strong); }
+.ap-rowSession[data-stale] .ap-rowSessionAgo { color: var(--s-hairline-strong); }
+/* "+N more" — the overflow the silent slice(0,2) used to hide */
+.ap-rowSessionMore {
+  align-self: flex-start;
+  margin: 1px 0 0 5px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-size: 10.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.ap-rowSessionMore:hover { color: var(--s-muted); background: var(--s-surface); }
+
+/* ── expand-in-place sessions (AgentSessions.tsx) ───────────────────────────
+   The agent's work, expanded in place: a collapsed row stays scannable
+   (branch · #id · turns); opening one reveals the full instrument. Single
+   --s-accent, carried down to the SESSION (running dot, gauge, changed files). */
+.ap-sx-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 1px 0 11px;
+  padding-left: 16px;
+}
+.ap-sx-list::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  bottom: 9px;
+  width: 1px;
+  background: var(--s-hairline);
+}
+.ap-sx-session { border-radius: 8px; }
+.ap-sx-session[data-open] {
+  background: var(--scout-chrome-hover);
+  border: 1px solid var(--s-hairline-strong);
+  margin: 3px 0;
+}
+.ap-sx-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px 7px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ap-sx-row > .ap-sx-tri,
+.ap-sx-row > .ap-sx-dot { margin-top: 4px; }
+.ap-sx-session:not([data-open]) .ap-sx-row:hover { background: var(--s-surface); }
+.ap-sx-tri {
+  flex: none;
+  width: 9px;
+  font-size: 8px;
+  color: var(--s-dim);
+  transition: transform 0.14s ease;
+}
+.ap-sx-tri[data-open] { transform: rotate(90deg); }
+.ap-sx-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--s-dim);
+}
+.ap-sx-dot[data-tone="running"] { background: var(--s-accent); box-shadow: 0 0 0 3px var(--s-accent-soft); }
+.ap-sx-rowBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ap-sx-line { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.ap-sx-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--scout-chrome-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-sx-session[data-open] .ap-sx-title { color: var(--s-ink); font-weight: 550; }
+.ap-sx-rowMeta { flex: none; display: inline-flex; align-items: center; gap: 11px; font-family: var(--s-font-mono); }
+.ap-sx-badge { font-size: 9px; font-weight: 600; letter-spacing: 0.1em; color: var(--s-dim); }
+.ap-sx-badge[data-tone="running"] { color: var(--s-accent); }
+.ap-sx-age { font-size: 10px; color: var(--s-dim); min-width: 24px; text-align: right; }
+.ap-sx-sub { display: flex; align-items: center; gap: 7px; font-family: var(--s-font-mono); font-size: 11px; color: var(--s-muted); }
+.ap-sx-subBranch { color: var(--s-ink); }
+.ap-sx-subId { color: var(--s-muted); }
+.ap-sx-subSep { color: var(--s-dim); }
+
+.ap-sx-card { padding: 2px 12px 12px 14px; display: flex; flex-direction: column; gap: 14px; }
+.ap-sx-loading {
+  padding: 14px 2px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--s-dim);
+}
+.ap-sx-statGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 11px 0 12px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.ap-sx-stat { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ap-sx-statKey { font-family: var(--s-font-mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--s-dim); }
+.ap-sx-statVal { font-size: 12.5px; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-sx-statVal[data-mono] { font-family: var(--s-font-mono); font-size: 11.5px; }
+
+/* copy chip — any id rendered as one obvious click-to-copy; the glyph flips to
+   a check and the chip tints to accent on success (theme-aware via --s-*). */
+.ap-sx-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ap-sx-copyText { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-sx-copyIco {
+  flex: none;
+  color: var(--s-dim);
+  opacity: 0.7;
+  transition: color 0.12s ease, opacity 0.12s ease;
+}
+.ap-sx-copy:hover .ap-sx-copyIco { color: var(--s-muted); opacity: 1; }
+.ap-sx-copy[data-copied] { color: var(--s-accent); }
+.ap-sx-copy[data-copied] .ap-sx-copyIco { color: var(--s-accent); opacity: 1; }
+.ap-sx-copyStat { font-family: var(--s-font-mono); font-size: 11.5px; color: var(--s-ink); }
+
+.ap-sx-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.ap-sx-block { min-width: 0; }
+.ap-sx-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.ap-sx-lbl { font-family: var(--s-font-mono); font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--s-muted); }
+.ap-sx-meta { font-family: var(--s-font-mono); font-size: 10px; color: var(--s-dim); }
+.ap-sx-read { margin-left: auto; font-family: var(--s-font-mono); font-size: 10.5px; }
+.ap-sx-num { color: var(--s-accent); }
+.ap-sx-dim { color: var(--s-dim); }
+.ap-sx-sep { color: var(--s-dim); margin: 0 5px; }
+.ap-sx-gauge { height: 5px; border-radius: 3px; background: var(--s-surface); overflow: hidden; }
+.ap-sx-gaugeFill { display: block; height: 100%; border-radius: 3px; background: var(--s-accent); }
+.ap-sx-flow { display: flex; gap: 14px; margin-top: 7px; font-family: var(--s-font-mono); font-size: 10.5px; color: var(--s-muted); }
+.ap-sx-faint { color: var(--s-dim); }
+.ap-sx-empty { font-family: var(--s-font-mono); font-size: 10.5px; color: var(--s-dim); }
+.ap-sx-noTrace { padding: 1px 0 2px; }
+
+.ap-sx-tools { display: flex; flex-wrap: wrap; gap: 5px; }
+.ap-sx-tool {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--s-surface);
+  border: 1px solid var(--s-hairline);
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+}
+.ap-sx-toolName { color: var(--s-ink); }
+.ap-sx-toolN { color: var(--s-dim); }
+
+.ap-sx-files { display: flex; flex-direction: column; gap: 3px; }
+.ap-sx-fileRow { display: grid; grid-template-columns: 10px minmax(0, 1.3fr) minmax(0, 1fr) auto; align-items: baseline; gap: 8px; }
+.ap-sx-fileMark { font-family: var(--s-font-mono); font-size: 11px; text-align: center; color: var(--s-dim); }
+.ap-sx-fileMark[data-state="modified"],
+.ap-sx-fileMark[data-state="created"] { color: var(--s-accent); }
+.ap-sx-fileName {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-sx-fileRow[data-changed] .ap-sx-fileName { color: var(--s-ink); }
+.ap-sx-fileDir {
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-sx-fileN { font-family: var(--s-font-mono); font-size: 10px; color: var(--s-dim); }
+
+.ap-sx-actions { display: flex; gap: 8px; padding-top: 2px; }
+.ap-sx-open,
+.ap-sx-resume {
+  padding: 5px 13px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.ap-sx-open { border: 1px solid var(--s-hairline-strong); background: none; color: var(--s-muted); }
+.ap-sx-open:hover { background: var(--s-surface); color: var(--s-ink); }
+.ap-sx-resume {
+  border: 1px solid color-mix(in srgb, var(--s-accent) 55%, transparent);
+  background: var(--s-accent-soft);
+  color: var(--s-accent);
+}
+.ap-sx-resume:hover { background: color-mix(in srgb, var(--s-accent) 22%, transparent); }
+/* copy the whole instrument as a paste-ready block; tertiary, pushed right */
+.ap-sx-copyAll {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--s-hairline);
+  border-radius: 6px;
+  background: none;
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ap-sx-copyAll:hover { background: var(--s-surface); color: var(--s-muted); border-color: var(--s-hairline-strong); }
+.ap-sx-copyAll[data-copied] {
+  color: var(--s-accent);
+  border-color: color-mix(in srgb, var(--s-accent) 45%, transparent);
+}
+.ap-sx-copyAll .ap-sx-copyIco { color: currentColor; opacity: 1; }
 .ap-act {
   font-size: 11.5px;
   font-weight: 540;

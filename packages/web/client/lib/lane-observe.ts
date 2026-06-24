@@ -360,6 +360,9 @@ export function filesFromObserveEvents(events: ObserveEvent[]): ObserveFile[] {
 
   for (const event of events) {
     if (event.kind !== "tool") continue;
+    // Tool-result rows ("res:") carry an output preview, not a file touch —
+    // mining them for paths would pollute the inventory with echoed content.
+    if (event.tool === "res") continue;
     const paths = [
       ...pathsFromToolArg(event.tool, event.arg ?? event.text),
       ...pathsFromToolArg(event.tool, event.detail),
