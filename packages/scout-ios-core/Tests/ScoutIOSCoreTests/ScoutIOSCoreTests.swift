@@ -18,15 +18,15 @@ final class ScoutIOSCoreTests: XCTestCase {
         let defaults = makeDefaults()
 
         XCTAssertTrue(BridgeRoutePreferences.tailnetRoutingEnabled(userDefaults: defaults))
-        XCTAssertTrue(relayURLAllowedByRouteSettings("wss://mac.tailnet.ts.net:7889", userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("wss://mac.tailnet.ts.net:43131", userDefaults: defaults))
     }
 
     func testLANRoutingDefaultsEnabledWhenUnset() {
         let defaults = makeDefaults()
 
         XCTAssertTrue(BridgeRoutePreferences.lanRoutingEnabled(userDefaults: defaults))
-        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://192.168.1.10:7889", userDefaults: defaults))
-        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://mac.local:7889", userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://192.168.1.10:43131", userDefaults: defaults))
+        XCTAssertTrue(relayURLAllowedByRouteSettings("ws://mac.local:43131", userDefaults: defaults))
     }
 
     func testOpenScoutNetworkRoutingTracksExplicitPreference() {
@@ -50,13 +50,13 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(
             relayURLsAllowedByRouteSettings(
                 [
-                    "ws://192.168.1.10:7889",
-                    "ws://mac.local:7889",
-                    "wss://mac.tailnet.ts.net:7889",
+                    "ws://192.168.1.10:43131",
+                    "ws://mac.local:43131",
+                    "wss://mac.tailnet.ts.net:43131",
                 ],
                 userDefaults: defaults
             ),
-            ["wss://mac.tailnet.ts.net:7889"]
+            ["wss://mac.tailnet.ts.net:43131"]
         )
     }
 
@@ -67,13 +67,13 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(
             relayURLsAllowedByRouteSettings(
                 [
-                    "ws://192.168.1.10:7889",
-                    "wss://mac.tailnet.ts.net:7889",
-                    "ws://100.96.12.4:7889",
+                    "ws://192.168.1.10:43131",
+                    "wss://mac.tailnet.ts.net:43131",
+                    "ws://100.96.12.4:43131",
                 ],
                 userDefaults: defaults
             ),
-            ["ws://192.168.1.10:7889"]
+            ["ws://192.168.1.10:43131"]
         )
     }
 
@@ -84,19 +84,19 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(
             orderedRelayCandidates(
                 discoveredRelayURLs: [
-                    "ws://mac.local:7889",
-                    "ws://mac.local:7889",
+                    "ws://mac.local:43131",
+                    "ws://mac.local:43131",
                 ],
                 storedRelayURLs: [
-                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mac.tailnet.ts.net:43131",
                     "wss://mesh.oscout.net",
                 ],
                 userDefaults: defaults
             ),
             [
-                "ws://mac.local:7889",
-                "wss://mac.tailnet.ts.net:7889",
-                "ws://mac.tailnet.ts.net:7889",
+                "ws://mac.local:43131",
+                "wss://mac.tailnet.ts.net:43131",
+                "ws://mac.tailnet.ts.net:43131",
                 "wss://mesh.oscout.net",
             ]
         )
@@ -110,18 +110,18 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(
             orderedRelayCandidates(
                 discoveredRelayURLs: [
-                    "ws://mac.local:7889",
-                    "ws://192.168.1.10:7889",
+                    "ws://mac.local:43131",
+                    "ws://192.168.1.10:43131",
                 ],
                 storedRelayURLs: [
-                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mac.tailnet.ts.net:43131",
                     "wss://mesh.oscout.net",
                 ],
                 userDefaults: defaults
             ),
             [
-                "wss://mac.tailnet.ts.net:7889",
-                "ws://mac.tailnet.ts.net:7889",
+                "wss://mac.tailnet.ts.net:43131",
+                "ws://mac.tailnet.ts.net:43131",
                 "wss://mesh.oscout.net",
             ]
         )
@@ -134,18 +134,18 @@ final class ScoutIOSCoreTests: XCTestCase {
             orderedRelayCandidates(
                 discoveredRelayURLs: [],
                 storedRelayURLs: [
-                    "wss://192.168.1.10:7889",
-                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://192.168.1.10:43131",
+                    "wss://mac.tailnet.ts.net:43131",
                     "wss://mesh.oscout.net",
                     "wss://example.com",
                 ],
                 userDefaults: defaults
             ),
             [
-                "wss://192.168.1.10:7889",
-                "ws://192.168.1.10:7889",
-                "wss://mac.tailnet.ts.net:7889",
-                "ws://mac.tailnet.ts.net:7889",
+                "wss://192.168.1.10:43131",
+                "ws://192.168.1.10:43131",
+                "wss://mac.tailnet.ts.net:43131",
+                "ws://mac.tailnet.ts.net:43131",
                 "wss://example.com",
             ]
         )
@@ -158,14 +158,14 @@ final class ScoutIOSCoreTests: XCTestCase {
 
         XCTAssertEqual(
             orderedRelayCandidates(
-                discoveredRelayURLs: ["ws://192.168.1.10:7889"],
+                discoveredRelayURLs: ["ws://192.168.1.10:43131"],
                 storedRelayURLs: [
-                    "wss://mac.tailnet.ts.net:7889",
+                    "wss://mac.tailnet.ts.net:43131",
                     "wss://mesh.oscout.net",
                 ],
                 userDefaults: defaults
             ),
-            ["ws://192.168.1.10:7889"]
+            ["ws://192.168.1.10:43131"]
         )
     }
 
@@ -205,8 +205,8 @@ final class ScoutIOSCoreTests: XCTestCase {
     func testRouteSummaryReportsSavedAndAllowedTailnetRoutes() {
         let defaults = makeDefaults()
         let relays = [
-            "ws://192.168.1.10:7889",
-            "wss://mac.tailnet.ts.net:7889",
+            "ws://192.168.1.10:43131",
+            "wss://mac.tailnet.ts.net:43131",
             "wss://mesh.oscout.net",
         ]
 
@@ -246,12 +246,12 @@ final class ScoutIOSCoreTests: XCTestCase {
         let keyA = String(repeating: "a", count: 64)
         let keyB = String(repeating: "b", count: 64)
         BridgeConnectionInfo(
-            relayURL: "wss://mac-a.tailnet.ts.net:7889",
+            relayURL: "wss://mac-a.tailnet.ts.net:43131",
             roomId: "room-a",
             publicKeyHex: keyA
         ).save(userDefaults: defaults, promoteActive: true)
         BridgeConnectionInfo(
-            relayURL: "ws://192.168.55.10:7889",
+            relayURL: "ws://192.168.55.10:43131",
             roomId: "room-b",
             publicKeyHex: keyB
         ).save(userDefaults: defaults, promoteActive: false)
@@ -303,7 +303,7 @@ final class ScoutIOSCoreTests: XCTestCase {
                 {
                   "kind": "mobile_pairing",
                   "relay": "wss://mesh.oscout.net/v1/relay",
-                  "fallbackRelays": ["wss://mac.tailnet.ts.net:7889"],
+                  "fallbackRelays": ["wss://mac.tailnet.ts.net:43131"],
                   "room": "room-a",
                   "publicKey": "\(String(repeating: "a", count: 64))",
                   "expiresAt": 70000,
@@ -343,7 +343,7 @@ final class ScoutIOSCoreTests: XCTestCase {
 
         XCTAssertEqual(candidates.map(\.nodeId), ["mac-a"])
         XCTAssertEqual(candidates[0].qrPayload.relay, "wss://mesh.oscout.net/v1/relay")
-        XCTAssertEqual(candidates[0].qrPayload.fallbackRelays, ["wss://mac.tailnet.ts.net:7889"])
+        XCTAssertEqual(candidates[0].qrPayload.fallbackRelays, ["wss://mac.tailnet.ts.net:43131"])
         XCTAssertEqual(candidates[0].qrPayload.room, "room-a")
     }
 
@@ -351,7 +351,7 @@ final class ScoutIOSCoreTests: XCTestCase {
         let defaults = makeDefaults()
         let key = String(repeating: "a", count: 64)
         BridgeConnectionInfo(
-            relayURL: "ws://192.168.1.10:7889",
+            relayURL: "ws://192.168.1.10:43131",
             roomId: "old-room",
             publicKeyHex: key
         ).save(userDefaults: defaults, promoteActive: true)
@@ -360,7 +360,7 @@ final class ScoutIOSCoreTests: XCTestCase {
             qrPayload: QRPayload(
                 v: 1,
                 relay: "wss://mesh.oscout.net/v1/relay",
-                fallbackRelays: ["wss://mac.tailnet.ts.net:7889"],
+                fallbackRelays: ["wss://mac.tailnet.ts.net:43131"],
                 room: "osn-room",
                 publicKey: key,
                 expiresAt: 70_000
@@ -372,7 +372,7 @@ final class ScoutIOSCoreTests: XCTestCase {
         let refreshed = BridgeConnectionInfo.load(publicKeyHex: key, userDefaults: defaults)
         XCTAssertEqual(refreshed?.relayURL, "wss://mesh.oscout.net/v1/relay")
         XCTAssertEqual(refreshed?.roomId, "osn-room")
-        XCTAssertEqual(refreshed?.fallbackRelayURLs, ["wss://mac.tailnet.ts.net:7889"])
+        XCTAssertEqual(refreshed?.fallbackRelayURLs, ["wss://mac.tailnet.ts.net:43131"])
         XCTAssertEqual(BridgeConnectionInfo.activePublicKeyHex(userDefaults: defaults), key)
     }
 

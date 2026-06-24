@@ -40,7 +40,7 @@ import { collectUserLevelProjectRootHints, encodeClaudeProjectsSlug } from "./us
 export type RelayRuntimeTransport = "claude_stream_json" | "codex_app_server" | "pi_rpc" | "tmux" | "cursor_exec";
 export type TelegramBridgeMode = "auto" | "webhook" | "polling";
 export const SCOUT_AGENT_ID = "scout";
-export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "pi"] as const;
+export const MANAGED_AGENT_HARNESSES = ["claude", "codex", "cursor", "grok", "pi"] as const;
 export type ManagedAgentHarness = typeof MANAGED_AGENT_HARNESSES[number];
 
 export type RelayHarnessProfile = {
@@ -509,6 +509,11 @@ const PROJECT_HARNESS_MARKERS: Record<ManagedAgentHarness, readonly string[]> = 
     ".cursor",
     ".cursorrules",
   ],
+  grok: [
+    "AGENTS.md",
+    "Grok.md",
+    ".grok",
+  ],
   pi: [
     "PI.md",
     ".pi",
@@ -599,6 +604,9 @@ function normalizeManagedHarness(
   }
   if (value === "cursor") {
     return "cursor";
+  }
+  if (value === "grok") {
+    return "grok";
   }
   if (value === "pi") {
     return "pi";
@@ -898,7 +906,7 @@ function normalizeTransport(
     return "tmux";
   }
 
-  return harness === "claude" ? "tmux" : fallback;
+  return harness === "claude" || harness === "grok" ? "tmux" : fallback;
 }
 
 function normalizeHarnessProfile(
@@ -1548,6 +1556,7 @@ async function detectHarnessMarkers(projectRoot: string): Promise<Record<Managed
     claude: [],
     codex: [],
     cursor: [],
+    grok: [],
     pi: [],
   };
 
@@ -1894,6 +1903,7 @@ const SCOUT_SKILL_REPO_ROOT = resolve(SETUP_MODULE_DIRECTORY, "..", "..", "..");
 const SCOUT_SKILL_INSTALL_PATHS: Partial<Record<ManagedAgentHarness, string>> = {
   claude: join(homedir(), ".claude", "skills", "scout", SCOUT_SKILL_FILE_NAME),
   codex: join(homedir(), ".agents", "skills", "scout", SCOUT_SKILL_FILE_NAME),
+  grok: join(homedir(), ".grok", "skills", "scout", SCOUT_SKILL_FILE_NAME),
   pi: join(homedir(), ".pi", "agent", "skills", "scout", SCOUT_SKILL_FILE_NAME),
 };
 

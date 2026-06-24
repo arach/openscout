@@ -610,7 +610,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
 
               <SidePanel
                 side="left"
-                title={app.leftPanel?.title ?? "Navigation"}
+                title={
+                  route.view === "agents" || route.view === "agent-info"
+                    ? "Projects"
+                    : app.leftPanel?.title ?? "Navigation"
+                }
                 icon={app.leftPanel?.icon}
                 isCollapsed={leftCollapsed}
                 onToggleCollapse={() => setLeftCollapsed(!leftCollapsed)}

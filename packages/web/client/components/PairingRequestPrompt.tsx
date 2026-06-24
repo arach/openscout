@@ -14,39 +14,88 @@ interface PairRequest {
   expiresAt: number;
 }
 
-const POLL_MS = 2500;
+interface PairingRequestNotification {
+  type: "pairing_request";
+  data?: {
+    request?: PairRequest;
+  };
+}
+
+const NOTIFICATION_POLL_MS = 15_000;
+const ERROR_POLL_MS = 30_000;
 
 /**
  * Surfaces incoming LAN pairing requests on the Mac. A phone that taps an idle
  * Mac in "On your network" registers an approval-gated request; initial pairing
  * is trust-on-first-use, so a human here must allow it before pair mode starts
- * and the device is trusted. Polls `/api/pairing/requests` and prompts.
+ * and the device is trusted. Reads pairing prompts from the shared
+ * notification inbox instead of polling pairing-specific state.
  */
 export function PairingRequestPrompt() {
   const [requests, setRequests] = useState<PairRequest[]>([]);
   const [busyToken, setBusyToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
+  const pollTimer = useRef<number | null>(null);
 
-  const poll = useCallback(async () => {
+  const refreshNotifications = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await api<{ requests: PairRequest[] }>("/api/pairing/requests");
-      if (!mounted.current) return;
-      setRequests(res.requests.filter((request) => request.status === "pending"));
+      const res = await api<{ notifications: PairingRequestNotification[] }>(
+        "/api/notifications?type=pairing_request",
+      );
+      if (!mounted.current) return true;
+      const pending = res.notifications
+        .map((notification) => notification.data?.request)
+        .filter((request): request is PairRequest => request?.status === "pending");
+      setRequests(pending);
+      return true;
     } catch {
       // Transient — keep the last known set and try again next tick.
+      return false;
     }
   }, []);
 
   useEffect(() => {
     mounted.current = true;
-    void poll();
-    const id = window.setInterval(() => void poll(), POLL_MS);
-    return () => {
-      mounted.current = false;
-      window.clearInterval(id);
+    let disposed = false;
+
+    const clearPollTimer = () => {
+      if (pollTimer.current === null) return;
+      window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
     };
-  }, [poll]);
+
+    const scheduleNextPoll = (delayMs: number) => {
+      clearPollTimer();
+      pollTimer.current = window.setTimeout(() => {
+        void runPoll();
+      }, delayMs);
+    };
+
+    const runPoll = async () => {
+      clearPollTimer();
+      const ok = await refreshNotifications();
+      if (disposed || !mounted.current) return;
+      scheduleNextPoll(ok ? NOTIFICATION_POLL_MS : ERROR_POLL_MS);
+    };
+
+    const refreshVisibleWindow = () => {
+      if (document.visibilityState === "hidden") return;
+      void runPoll();
+    };
+
+    void runPoll();
+    window.addEventListener("focus", refreshVisibleWindow);
+    document.addEventListener("visibilitychange", refreshVisibleWindow);
+
+    return () => {
+      disposed = true;
+      mounted.current = false;
+      clearPollTimer();
+      window.removeEventListener("focus", refreshVisibleWindow);
+      document.removeEventListener("visibilitychange", refreshVisibleWindow);
+    };
+  }, [refreshNotifications]);
 
   const decide = useCallback(
     async (token: string, decision: "approve" | "deny") => {
@@ -59,14 +108,14 @@ export function PairingRequestPrompt() {
           body: JSON.stringify({ decision }),
         });
         setRequests((prev) => prev.filter((request) => request.token !== token));
-        void poll();
+        void refreshNotifications();
       } catch (decideError) {
         setError(decideError instanceof Error ? decideError.message : String(decideError));
       } finally {
         setBusyToken(null);
       }
     },
-    [poll],
+    [refreshNotifications],
   );
 
   if (requests.length === 0) return null;

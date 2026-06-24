@@ -1,5 +1,38 @@
 import { agentStateLabel, normalizeAgentState, type AgentInventoryStatus } from "../../lib/agent-state.ts";
 import { formatLabel } from "../../lib/text.ts";
+import {
+  basename,
+  canonicalProjectRoot,
+  dirname,
+  disambiguateProjectSlugs,
+  isTemporaryProjectRoot,
+  normalizeProjectRoot,
+  projectIdentity,
+  projectKeyFrom,
+  projectSlug,
+  readableProjectTitle,
+  reconcileRootlessSlices,
+  workspaceRootFromObservedPath,
+  worktreeFamilyFromRoot,
+  type ProjectIdentity,
+} from "./project-identity.ts";
+
+// Re-export the identity layer so existing `from "./model.ts"` import sites keep working.
+export {
+  basename,
+  canonicalProjectRoot,
+  dirname,
+  isTemporaryProjectRoot,
+  normalizeProjectRoot,
+  projectIdentity,
+  projectKeyFrom,
+  projectSlug,
+  readableProjectTitle,
+  reconcileRootlessSlices,
+  workspaceRootFromObservedPath,
+  worktreeFamilyFromRoot,
+};
+export type { ProjectIdentity };
 import type {
   Agent,
   FleetAsk,
@@ -110,12 +143,6 @@ export type NativeSessionRow = {
   lastActivityAt: number | null;
 };
 
-export type ProjectIdentity = {
-  key: string;
-  title: string;
-  root: string | null;
-};
-
 export type ProjectSlice = ProjectIdentity & {
   agents: AgentInventoryRow[];
   scoutSessions: SessionEntry[];
@@ -207,68 +234,6 @@ export function agentInventoryStatusLabel(status: AgentInventoryStatus): string 
 
 const NATIVE_SESSION_ACTIVE_WINDOW_MS = 60_000;
 
-export function basename(path: string | null | undefined): string | null {
-  if (!path) return null;
-  const cleaned = path.replace(/\/+$/, "");
-  const idx = cleaned.lastIndexOf("/");
-  return idx >= 0 ? cleaned.slice(idx + 1) : cleaned;
-}
-
-export function normalizeProjectRoot(path: string | null | undefined): string | null {
-  const trimmed = path?.trim();
-  if (!trimmed) return null;
-  return trimmed.replace(/\/+$/, "") || null;
-}
-
-export function dirname(path: string): string | null {
-  const cleaned = path.replace(/\/+$/, "");
-  const idx = cleaned.lastIndexOf("/");
-  return idx >= 0 ? cleaned.slice(0, idx) || "/" : null;
-}
-
-export function readableProjectTitle(value: string): string {
-  return value
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-export function worktreeFamilyFromRoot(root: string | null): { title: string; root: string | null } | null {
-  const leaf = basename(root)?.trim().toLowerCase();
-  if (!root || !leaf || leaf === "~") return null;
-  const match = leaf.match(/^(.+?)(?:-(?:parity|codex))?-c\d+$/);
-  const family = match?.[1];
-  if (!family) return null;
-  const parent = dirname(root);
-  return {
-    title: readableProjectTitle(family),
-    root: parent ? `${parent}/${family}` : family,
-  };
-}
-
-export function projectKeyFrom(root: string | null, title: string): string {
-  const normalizedTitle = title.trim().toLowerCase();
-  if (normalizedTitle && normalizedTitle !== "unscoped" && normalizedTitle !== "unknown") {
-    return `project:${normalizedTitle}`;
-  }
-  return root ? `root:${root}` : `project:${normalizedTitle || "unscoped"}`;
-}
-
-export function isTemporaryProjectRoot(root: string | null): boolean {
-  return Boolean(root?.startsWith("/tmp/"));
-}
-
-export function projectIdentity(title: string | null | undefined, root: string | null | undefined): ProjectIdentity {
-  const normalizedRoot = normalizeProjectRoot(root);
-  const resolvedTitle = title?.trim() || basename(normalizedRoot) || "Unscoped";
-  return {
-    key: projectKeyFrom(normalizedRoot, resolvedTitle),
-    title: resolvedTitle,
-    root: normalizedRoot,
-  };
-}
-
 export function projectIdentityForRooted(title: string | null | undefined, root: string | null | undefined): ProjectIdentity {
   const normalizedRoot = normalizeProjectRoot(root);
   const family = worktreeFamilyFromRoot(normalizedRoot);
@@ -293,25 +258,6 @@ export function topologySourceLabel(source: string): string {
   if (source.includes("claude")) return "claude";
   if (source.includes("codex")) return "codex";
   return formatLabel(source) ?? "workflow";
-}
-
-export function workspaceRootFromObservedPath(path: string | null | undefined): string | null {
-  const value = path?.trim();
-  if (!value) return null;
-
-  const localDevMatch = value.match(/^(\/Users\/[^/]+\/dev\/[^/]+)/);
-  if (localDevMatch?.[1]) return localDevMatch[1];
-
-  const homeDevMatch = value.match(/^(~\/dev\/[^/]+)/);
-  if (homeDevMatch?.[1]) return homeDevMatch[1];
-
-  const claudeProjectMatch = value.match(/\.claude\/projects\/-Users-([^-]+)-dev-([^/]+)/);
-  if (claudeProjectMatch?.[1] && claudeProjectMatch[2]) {
-    const projectName = claudeProjectMatch[2].split("-packages-")[0] ?? claudeProjectMatch[2];
-    return `/Users/${claudeProjectMatch[1]}/dev/${projectName}`;
-  }
-
-  return null;
 }
 
 export function stringMeta(meta: Record<string, unknown> | undefined, key: string): string | null {
@@ -667,9 +613,11 @@ export function buildProjectSlices(
   const seenSessionIdsByProject = new Map<string, Set<string>>();
   for (const session of scoutSessions) {
     const agentKey = session.agentId ? projectKeyByAgentId.get(session.agentId) : undefined;
+    // A workspaceRoot that doesn't canonicalize to a real repo (a bare home dir,
+    // a null cwd) must not mint its own project — that's the phantom "Art" tile.
     const identity = agentKey
       ? map.get(agentKey) ?? null
-      : session.workspaceRoot
+      : canonicalProjectRoot(session.workspaceRoot)
         ? ensureProjectSlice(map, projectIdentityForScoutSession(session))
         : null;
     if (!identity) continue;
@@ -681,6 +629,9 @@ export function buildProjectSlices(
     seenSessionIdsByProject.set(project.key, seen);
     project.scoutSessions.push(session);
   }
+
+  // Fold rootless records into their rooted project; drop unattributable junk.
+  reconcileRootlessSlices(map);
 
   for (const project of map.values()) {
     project.agents.sort((left, right) => {
@@ -704,7 +655,11 @@ export function buildProjectSlices(
     updateProjectSliceSummary(project);
   }
 
-  return [...map.values()].sort((left, right) => {
+  const slices = [...map.values()];
+  // Make the URL slug injective before the slices leave the builder: clean
+  // one-word slugs stay, only same-basename collisions get a hash discriminator.
+  disambiguateProjectSlugs(slices);
+  return slices.sort((left, right) => {
     const statusDelta = AGENT_STATUS_RANK[left.status] - AGENT_STATUS_RANK[right.status];
     if (statusDelta !== 0) return statusDelta;
     return (right.lastActivityAt ?? 0) - (left.lastActivityAt ?? 0)
@@ -854,6 +809,77 @@ export function buildProjectTree(project: ProjectSlice): ProjectTree {
   ]);
 
   return { agents, unassignedSessions };
+}
+
+/* ── Directory model — projects as the primary object, shared by the left-lane
+   navigator (AgentsLeft) and the detail content (AgentsLibrary). An "agent" in
+   the directory is the (project · harness) rollup; the leaf is a session. ── */
+
+export type DirProject = {
+  slice: ProjectSlice;
+  agents: ProjectTreeAgentNode[];
+  unassigned: ProjectTreeSessionNode[];
+  lastActivityAt: number;
+};
+
+export const isAgentRowWorking = (row: AgentInventoryRow) =>
+  row.status === "in_turn" || row.status === "in_flight";
+
+function dirNodeRecency(node: ProjectTreeAgentNode): number {
+  let m = node.row.lastActivityAt ?? 0;
+  for (const s of node.sessions) m = Math.max(m, s.lastActivityAt ?? 0);
+  return m;
+}
+
+export function dirProjectWorking(p: DirProject): number {
+  return p.agents.filter((n) => isAgentRowWorking(n.row)).length;
+}
+export function dirProjectNeeds(p: DirProject): boolean {
+  return p.agents.some((n) => n.row.activeAskCount > 0);
+}
+export function dirProjectHarnesses(p: DirProject): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const node of p.agents) {
+    const h = (node.row.harness || "agent").toLowerCase();
+    if (!seen.has(h)) {
+      seen.add(h);
+      out.push(h);
+    }
+  }
+  return out;
+}
+export function dirProjectSessionCount(p: DirProject): number {
+  return (
+    p.agents.reduce((n, node) => n + Math.max(node.sessions.length, 1), 0) + p.unassigned.length
+  );
+}
+
+/** Build the live-first directory of projects, each with its agent tree. */
+export function buildDirProjects(
+  rows: AgentInventoryRow[],
+  scoutSessions: SessionEntry[],
+  nativeSessions: NativeSessionRow[],
+): DirProject[] {
+  const slices = buildProjectSlices(rows, scoutSessions, nativeSessions, []);
+  const built = slices.map((slice) => {
+    const tree = buildProjectTree(slice);
+    let lastActivityAt = 0;
+    for (const node of tree.agents) lastActivityAt = Math.max(lastActivityAt, dirNodeRecency(node));
+    for (const s of tree.unassignedSessions)
+      lastActivityAt = Math.max(lastActivityAt, s.lastActivityAt ?? 0);
+    return { slice, agents: tree.agents, unassigned: tree.unassignedSessions, lastActivityAt };
+  });
+  built.sort((a, b) => {
+    const an = dirProjectNeeds(a) ? 1 : 0;
+    const bn = dirProjectNeeds(b) ? 1 : 0;
+    if (an !== bn) return bn - an;
+    const aw = dirProjectWorking(a);
+    const bw = dirProjectWorking(b);
+    if (aw !== bw) return bw - aw;
+    return b.lastActivityAt - a.lastActivityAt;
+  });
+  return built;
 }
 
 export function readCollapsedProjectTreeRows(storageKey: string): Set<string> {

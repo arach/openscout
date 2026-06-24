@@ -1,0 +1,240 @@
+/* Session summary card — one primitive, three sizes (SM/MD/LG), session-led.
+   The work is the headline; the agent is a small attribution line; the body is
+   a compact LOG. Reads the studio's --s-* graphite skin tokens. Restrained card
+   material: a faint surface fill + one hairline + soft radius for MD/LG; SM is a
+   flat ruled row. One accent dot: waiting(needs) ▸ working(live) ▸ idle. */
+
+.surface {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 36px;
+  padding: 8px 0 48px;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+}
+
+.sizeBlock { display: flex; flex-direction: column; gap: 14px; }
+.sizeHead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.sizeLabel { font-size: 14px; font-weight: 640; color: var(--s-ink); }
+.sizeKey {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--s-accent);
+  font-family: var(--s-font-mono);
+}
+.sizeNote { font-size: 12px; color: var(--s-dim); }
+
+/* layout per size */
+.cardGrid[data-size="sm"] { display: flex; flex-direction: column; max-width: 620px; }
+.cardGrid[data-size="md"] { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.cardGrid[data-size="lg"] { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) {
+  .cardGrid[data-size="md"], .cardGrid[data-size="lg"] { grid-template-columns: 1fr; }
+}
+
+/* ── shared marks ─────────────────────────────────────────────────────────── */
+.dot { flex: none; width: 6px; height: 6px; border-radius: 999px; background: var(--s-accent); }
+.dot[data-tone="live"] { box-shadow: 0 0 0 3px var(--s-accent-soft); }
+.dot[data-tone="needs"] { box-shadow: 0 0 0 3px var(--s-accent-soft); animation: ssc-pulse 2.2s ease-in-out infinite; }
+@keyframes ssc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+.ago { flex: none; font-size: 11px; font-family: var(--s-font-mono); color: var(--s-dim); }
+.state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 540;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  white-space: nowrap;
+}
+.state[data-tone="needs"] { color: var(--s-accent); }
+.state[data-tone="live"] { color: var(--s-ink); }
+
+.metaRow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.metaRow > span { display: inline-flex; align-items: baseline; gap: 5px; }
+.metaKey {
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-sans);
+}
+
+/* ── title + attribution (session-led) ────────────────────────────────────── */
+.title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--s-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.titleLg {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--s-ink);
+}
+.cardHead { display: flex; align-items: flex-start; gap: 12px; }
+
+.attr { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.attrText {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── the log (the body — almost a changelog) ──────────────────────────────── */
+.log { display: flex; flex-direction: column; gap: 3px; }
+.logLine {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  align-items: baseline;
+}
+.logT { font-family: var(--s-font-mono); font-size: 10px; color: var(--s-dim); text-align: right; }
+.logText {
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logLine[data-kind="ask"] .logT { color: var(--s-accent); }
+.logLine[data-kind="ask"] .logText { color: var(--s-accent); }
+.card[data-size="lg"] .logText { white-space: normal; }
+
+.card { text-align: left; font-family: var(--s-font-sans); }
+.card[data-size="sm"], .card[data-size="md"] { cursor: pointer; }
+
+/* ── SM — flat ruled session row ──────────────────────────────────────────── */
+.card[data-size="sm"] {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--s-hairline);
+  transition: background 0.12s ease;
+}
+.card[data-size="sm"]:last-child { border-bottom: 1px solid var(--s-hairline); }
+.card[data-size="sm"]:hover { background: var(--s-surface); }
+.smTitle { font-size: 12.5px; font-weight: 560; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smAttr { font-size: 11px; font-family: var(--s-font-mono); color: var(--s-dim); white-space: nowrap; }
+
+/* ── MD — tile ────────────────────────────────────────────────────────────── */
+.card[data-size="md"] {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 15px 16px;
+  background: color-mix(in srgb, var(--s-surface) 55%, transparent);
+  border: 1px solid var(--s-hairline);
+  border-radius: 12px;
+  transition: border-color 0.14s ease;
+}
+.card[data-size="md"]:hover { border-color: var(--s-hairline-strong); }
+
+/* ── LG — the focus pane ──────────────────────────────────────────────────── */
+.card[data-size="lg"] {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 22px;
+  background: color-mix(in srgb, var(--s-surface) 55%, transparent);
+  border: 1px solid var(--s-hairline);
+  border-radius: 14px;
+}
+.ghostLink {
+  flex: none;
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  transition: color 0.12s ease;
+}
+.ghostLink:hover { color: var(--s-ink); }
+
+.decision {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--s-hairline);
+  border-bottom: 1px solid var(--s-hairline);
+}
+.primary {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 9px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.primary:hover { filter: brightness(1.07); }
+.ghost {
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.12s ease;
+}
+.ghost:hover { color: var(--s-ink); }
+.decision .metaRow { margin-left: auto; }
+
+.logHead { display: flex; align-items: baseline; gap: 10px; }
+.logHeadTitle {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.logHeadMeta { margin-left: auto; font-size: 10px; font-family: var(--s-font-mono); color: var(--s-dim); }

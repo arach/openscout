@@ -19,6 +19,7 @@ import type {
   InterruptThreshold,
   OperatorProfile,
   PairingState,
+  ProvisionalAgentNamesMode,
 } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import "./settings-drawer.css";
@@ -179,6 +180,41 @@ function OperatorSection({
           <TextInput value={profile.workingHours} onChange={(v) => update({ workingHours: v })} mono />
         </Field>
       </div>
+
+      <SectionRule label="Ephemeral agent names" right="rotation pool for one-off agents" />
+      <Field
+        label="Name pool"
+        hint={
+          profile.provisionalAgentNames.length > 0
+            ? `${profile.provisionalAgentNamesResolvedCount} names active (${profile.provisionalAgentNamesSource}). Preview: ${profile.provisionalAgentNamesPreview.join(", ")}${profile.provisionalAgentNamesResolvedCount > profile.provisionalAgentNamesPreview.length ? ", …" : ""}`
+            : "Leave empty to use Scout's built-in rotation. One short name per line."
+        }
+      >
+        <TextArea
+          value={profile.provisionalAgentNames.join("\n")}
+          onChange={(v) => update({
+            provisionalAgentNames: v
+              .split(/\r?\n/u)
+              .map((line) => line.trim())
+              .filter(Boolean),
+          })}
+          rows={6}
+        />
+      </Field>
+      <Field
+        label="Pool mode"
+        hint="Replace uses only your list. Add to defaults prepends yours, then Scout's built-in names."
+      >
+        <OptionRow<ProvisionalAgentNamesMode>
+          value={profile.provisionalAgentNamesMode}
+          onChange={(v) => update({ provisionalAgentNamesMode: v })}
+          options={[
+            { id: "replace", label: "Replace", sub: "your list only" },
+            { id: "extend", label: "Add to defaults", sub: "yours first, then Scout" },
+          ]}
+          columns={2}
+        />
+      </Field>
     </div>
   );
 }
@@ -508,6 +544,11 @@ const DEFAULT_PROFILE: OperatorProfile = {
   verbosity: "terse",
   tone: "direct",
   quietHours: "22:00 – 07:00",
+  provisionalAgentNames: [],
+  provisionalAgentNamesMode: "replace",
+  provisionalAgentNamesResolvedCount: 0,
+  provisionalAgentNamesPreview: [],
+  provisionalAgentNamesSource: "default",
 };
 
 export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {

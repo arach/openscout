@@ -116,7 +116,7 @@ This keeps Scoutbot's UI control explicit and auditable: natural-language replie
 
 Scoutbot can prepare a short control-plane brief for voice or text. The web server gathers a fresh Scout snapshot, asks Scoutbot for a structured route-and-narration plan, and returns a TTL-bound brief packet. The first implementation uses a two-minute TTL, with a three-minute hard maximum accepted by the API.
 
-The client owns the guided walk. It moves through the brief's safe routes, shows freshness state, and narrates each segment when voice replies are enabled. While one segment is playing, the client pre-renders the next Vox TTS segment so the tour can feel continuous without generating the whole audio track up front.
+The client owns the guided walk. It moves through the brief's safe routes, shows freshness state, and narrates each segment when voice replies are enabled. While one segment is playing, the client pre-renders the next Scout voice segment so the tour can feel continuous without generating the whole audio track up front.
 
 Briefs remain read-side by default. The final recommendation can expose follow-up chips, but Scout-owned writes still require an explicit operator action.
 
@@ -132,12 +132,22 @@ The broker durable-action substrate has a `checkback` kind for that graduation p
 
 ## Voice Mode
 
-OpenScout voice mode uses Vox:
+OpenScout voice mode uses a Scout-owned web contract:
 
-- browser STT calls Vox Companion's local HTTP bridge at `127.0.0.1:43115`
-- web TTS calls the OpenScout server, which talks to Vox's local JSON-RPC runtime and returns playable audio
-- if Vox is unavailable, the UI degrades to launch/settings guidance instead of blocking Scoutbot
+- browser capture records locally with `MediaRecorder` and uploads to `POST /api/voice/transcribe`
+- web TTS calls `POST /api/voice/speak`, and the OpenScout server returns playable audio
+- `GET /api/voice/health` is the web-facing readiness check
+- if Scout voice is unavailable, the UI degrades to Scout service restart/retry guidance instead of blocking Scoutbot
 
-The voice path is Scoutbot-direct: speech is transcribed into the in-app assistant loop, and optional spoken replies synthesize Scoutbot's direct response through Vox. Durable agent coordination remains a separate Scout broker action.
+The voice path is Scoutbot-direct: speech is transcribed into the in-app assistant loop, and optional spoken replies synthesize Scoutbot's direct response through Scout voice. Durable agent coordination remains a separate Scout broker action.
 
-Scoutbot controls spoken-reply speed from the web client. The client sends a `speed` multiplier to the local `/api/voice/speak` endpoint, which forwards it to Vox synthesis.
+Implementation detail: the current Scout web service still adapts to the existing local ASR/TTS runtime behind `packages/web/server/scout-voice.ts`. Web UI code should depend on `packages/web/client/lib/scout-voice.ts` and `/api/voice/*`, not on the adapter. The intended native direction is Scout-owned hosting backed by HudsonKit/HudsonVoice, with Vox/Parakeet hidden behind that boundary where used.
+
+Scoutbot controls spoken-reply speed from the web client. The client sends a `speed` multiplier to `/api/voice/speak`, which forwards it through the Scout voice service.
+
+Native live dictation should extend this boundary, not replace it. Preferred
+shape: `POST /api/voice/session` to start capture, `GET
+/api/voice/session/:id/events` for SSE state/partial/final/error events, and
+`POST /api/voice/session/:id/{stop,cancel}` for lifecycle control. That lets a
+Scout-owned macOS host restore live partials from `HudDictation` without
+exposing engine-specific contracts to web UI code.

@@ -27,9 +27,9 @@ describe("installScoutApiMiddleware", () => {
 
   test("allows same-origin API requests through the unspecified bind address", async () => {
     const app = createApp();
-    const response = await app.request("http://0.0.0.0:5180/api/ping", {
+    const response = await app.request("http://0.0.0.0:43122/api/ping", {
       headers: {
-        origin: "http://0.0.0.0:5180",
+        origin: "http://0.0.0.0:43122",
       },
     });
 
@@ -74,7 +74,7 @@ describe("installScoutApiMiddleware", () => {
       trustedHosts: ["scout.hudson-mini.local"],
       trustedOrigins: ["https://scout.hudson-mini.local"],
     });
-    const response = await app.request("http://127.0.0.1:3200/api/ping", {
+    const response = await app.request("http://127.0.0.1:43120/api/ping", {
       headers: {
         origin: "https://scout.hudson-mini.local",
       },

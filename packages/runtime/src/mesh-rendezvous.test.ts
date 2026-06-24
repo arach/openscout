@@ -126,13 +126,13 @@ describe("mesh rendezvous publisher", () => {
         publicKey: "a".repeat(64),
         expiresAt: 70_000,
         qrValue: JSON.stringify({
-          fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+          fallbackRelays: ["wss://relay.tailnet.ts.net:43131"],
         }),
       },
     }, 10_000)).toEqual({
       kind: "mobile_pairing",
       relay: "wss://relay.oscout.net",
-      fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+      fallbackRelays: ["wss://relay.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 70_000,

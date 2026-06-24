@@ -52,7 +52,7 @@ describe("mesh entrypoint contract", () => {
     const entrypoint: NodeMeshEntrypoint = {
       kind: "mobile_pairing",
       relay: "wss://relay.oscout.net",
-      fallbackRelays: ["wss://relay.tailnet.ts.net:7889"],
+      fallbackRelays: ["wss://relay.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 60_000,

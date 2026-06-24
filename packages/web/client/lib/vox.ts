@@ -1,3 +1,5 @@
+// Legacy browser-side Vox adapter. Product UI should use `scout-voice.ts`
+// and `/api/voice/*` so Scout owns the web voice contract.
 import {
   createVoxdClient,
   VoxDError,

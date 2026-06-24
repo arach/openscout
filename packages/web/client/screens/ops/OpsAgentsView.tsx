@@ -1,7 +1,7 @@
 import "./ops-agents.css";
 
 import { Search, SlidersHorizontal } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { isAgentBusy, isAgentOnline, normalizeAgentState } from "../../lib/agent-state.ts";
 import { stateColor } from "../../lib/colors.ts";
 import { api } from "../../lib/api.ts";
@@ -23,6 +23,8 @@ import type {
   Route,
   SessionEntry,
 } from "../../lib/types.ts";
+
+const BROKER_EVENT_REFRESH_DELAY_MS = 1500;
 
 type AgentOpsRow = {
   agent: Agent;
@@ -431,6 +433,7 @@ export function OpsAgentsView({
   const [observePayloads, setObservePayloads] = useState<AgentObservePayload[]>([]);
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  const brokerRefreshTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     const ids = agents.map((agent) => agent.id).join(",");
@@ -451,9 +454,22 @@ export function OpsAgentsView({
   useEffect(() => {
     void load();
   }, [load]);
-  useBrokerEvents(() => {
-    void load();
-  });
+  const scheduleBrokerRefresh = useCallback(() => {
+    if (brokerRefreshTimer.current) return;
+    brokerRefreshTimer.current = window.setTimeout(() => {
+      brokerRefreshTimer.current = null;
+      void load();
+    }, BROKER_EVENT_REFRESH_DELAY_MS);
+  }, [load]);
+  useBrokerEvents(scheduleBrokerRefresh);
+  useEffect(() => {
+    return () => {
+      if (brokerRefreshTimer.current) {
+        window.clearTimeout(brokerRefreshTimer.current);
+        brokerRefreshTimer.current = null;
+      }
+    };
+  }, []);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);

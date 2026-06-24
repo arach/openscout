@@ -207,7 +207,7 @@ Brokers find peers two ways: by probing Tailscale's peer list (`tailscale status
 scout mesh discover
 
 # Manual — seed a broker URL directly
-OPENSCOUT_MESH_SEEDS=http://workstation-2:4080 scout mesh discover
+OPENSCOUT_MESH_SEEDS=http://workstation-2:43110 scout mesh discover
 ```
 
 Once a peer is found, the broker fetches its agent registry via `/v1/snapshot` and merges remote agents into its local database. Each agent carries an `authorityNodeId` — the node that owns it. Messages and invocations for remote agents get forwarded to the authority broker over HTTP.

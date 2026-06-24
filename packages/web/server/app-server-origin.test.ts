@@ -31,7 +31,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
         {
           OPENSCOUT_WEB_PUBLIC_ORIGIN: "https://scout.local",
           OPENSCOUT_WEB_TRUSTED_HOSTS: "scout.backup.local, 192.168.1.20",
-          OPENSCOUT_WEB_TRUSTED_ORIGINS: "http://scout.backup.local:3200",
+          OPENSCOUT_WEB_TRUSTED_ORIGINS: "http://scout.backup.local:43120",
         },
         "hudson-mini",
         { webLocalName: "m1.scout.local" },
@@ -48,7 +48,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       ],
       trustedOrigins: [
         "https://scout.local",
-        "http://scout.backup.local:3200",
+        "http://scout.backup.local:43120",
       ],
     });
   });

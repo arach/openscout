@@ -1026,7 +1026,7 @@ function NowCard({
   const branchLabel = card.branch ?? "no branch";
   const runtimeLabel = card.harness ?? null;
   // Model + the real harness session id come from the live observe summary;
-  // the bulk agent record only carries the relay descriptor in harnessSessionId.
+  // the bulk agent record may only carry a runtime descriptor in harnessSessionId.
   const modelLabel = shortModelLabel(context?.model ?? card.model);
   const sessionLabel = compactSessionId(context?.sessionId ?? agent.harnessSessionId);
   const contextPct = context?.contextPct ?? null;

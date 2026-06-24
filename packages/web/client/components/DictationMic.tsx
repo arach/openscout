@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Square } from "lucide-react";
 
-import { shouldAutoProbeVoxBridge, VoxBrowserClient, type VoxLiveHandle } from "../lib/vox.ts";
+import { ScoutVoiceClient, shouldAutoProbeScoutVoice, type ScoutVoiceLiveHandle } from "../lib/scout-voice.ts";
 
 import "./dictation-mic.css";
 
@@ -16,16 +16,16 @@ export function DictationMic({
   disabled?: boolean;
   className?: string;
 }) {
-  const clientRef = useRef<VoxBrowserClient | null>(null);
-  const liveRef = useRef<VoxLiveHandle | null>(null);
-  const [state, setState] = useState<MicState>(() => shouldAutoProbeVoxBridge() ? "probing" : "idle");
+  const clientRef = useRef<ScoutVoiceClient | null>(null);
+  const liveRef = useRef<ScoutVoiceLiveHandle | null>(null);
+  const [state, setState] = useState<MicState>(() => shouldAutoProbeScoutVoice() ? "probing" : "idle");
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const client = new VoxBrowserClient();
+    const client = new ScoutVoiceClient();
     clientRef.current = client;
-    if (!shouldAutoProbeVoxBridge()) {
+    if (!shouldAutoProbeScoutVoice()) {
       return () => {
         cancelled = true;
         const live = liveRef.current;
@@ -43,7 +43,7 @@ export function DictationMic({
         setUnavailableReason(null);
       } else {
         setState("unavailable");
-        setUnavailableReason(client.lastUnavailableReason ?? "Voice unavailable — open Ranger to launch Vox.");
+        setUnavailableReason(client.lastUnavailableReason ?? "Scout voice is unavailable.");
       }
     });
     return () => {
@@ -60,7 +60,7 @@ export function DictationMic({
     const client = clientRef.current;
     if (!client) return;
     setState("starting");
-    let live: VoxLiveHandle | null = null;
+    let live: ScoutVoiceLiveHandle | null = null;
     try {
       live = await client.startLive({
         onState: () => undefined,

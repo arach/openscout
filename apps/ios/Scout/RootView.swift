@@ -8,8 +8,8 @@ import UIKit
 
 /// Top-level navigation for Scout. Wraps the active surface in the
 /// `HudPhoneAppShell` (which supplies the NavigationStack + dark Hudson
-/// background) and switches between Home, Agents, Comms, Terminal, and New via
-/// the docked tab bar. (Tail's firehose folds into Home's activity preview.)
+/// background) and switches between Home, Agents, Tail, Comms, Terminal, and New
+/// via the docked tab bar.
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var showConnection = false
@@ -30,6 +30,7 @@ struct RootView: View {
     enum Surface: String, CaseIterable, Identifiable {
         case home = "Home"
         case agents = "Agents"
+        case tail = "Tail"
         case comms = "Comms"
         case terminal = "Terminal"
         case new = "New"
@@ -44,6 +45,7 @@ struct RootView: View {
             // and two-bubble marks turn to mud at this size. (The multi-figure
             // `.agents` still earns its keep inline in Home's project counts.)
             case .agents: return .agent
+            case .tail: return .tail
             case .comms: return .comms
             case .terminal: return .terminal
             case .new: return .plus
@@ -96,6 +98,8 @@ struct RootView: View {
                                     model: model,
                                     onConversationStatusContext: { sessionStatusContext = $0 }
                                 )
+                            case .tail:
+                                TailSurface(client: client, reloadToken: model.dataReadyToken)
                             case .comms:    CommsSurface(client: client, reloadToken: model.dataReadyToken)
                             case .terminal: TerminalSurface(
                                 client: client,

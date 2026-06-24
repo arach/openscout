@@ -9,8 +9,10 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
 const DEFAULT_PORTS = {
-  broker: 65535,
-  web: 3200,
+  broker: 43110,
+  web: 43120,
+  vite: 43122,
+  pairing: 43130,
 };
 const VALUE_FLAGS = new Set(["--port", "--web-port", "--vite-port", "--pairing-port"]);
 

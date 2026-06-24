@@ -11,7 +11,7 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
   const tls = { cert: "/tmp/scout-test.crt", key: "/tmp/scout-test.key" };
 
   test("uses the tailscale hostname when trusted TLS is available", () => {
-    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(43131, {
       backendState: "Running",
       dnsName: "relay.example.ts.net",
       online: true,
@@ -21,14 +21,14 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
       tls,
     });
 
-    expect(endpoint.relayUrl).toBe("wss://relay.example.ts.net:7889");
-    expect(endpoint.connectUrl).toBe("wss://127.0.0.1:7889");
+    expect(endpoint.relayUrl).toBe("wss://relay.example.ts.net:43131");
+    expect(endpoint.connectUrl).toBe("wss://127.0.0.1:43131");
     expect(endpoint.fallbackRelayUrls).toEqual([]);
     expect(endpoint.options).toEqual({ tls });
   });
 
   test("uses tailscale hostname when no local address is available", () => {
-    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(43131, {
       backendState: "Running",
       dnsName: "relay.example.ts.net",
       online: true,
@@ -38,13 +38,13 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
       tls,
     });
 
-    expect(endpoint.relayUrl).toBe("wss://relay.example.ts.net:7889");
-    expect(endpoint.connectUrl).toBe("wss://127.0.0.1:7889");
+    expect(endpoint.relayUrl).toBe("wss://relay.example.ts.net:43131");
+    expect(endpoint.connectUrl).toBe("wss://127.0.0.1:43131");
     expect(endpoint.fallbackRelayUrls).toEqual([]);
   });
 
   test("uses insecure websocket tailnet fallback when tailscale TLS is unavailable", () => {
-    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(43131, {
       backendState: "Running",
       dnsName: "relay.example.ts.net",
       online: true,
@@ -54,14 +54,14 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
       tls: null,
     });
 
-    expect(endpoint.relayUrl).toBe("ws://192.168.1.25:7889");
-    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:7889");
-    expect(endpoint.fallbackRelayUrls).toEqual(["ws://relay.example.ts.net:7889"]);
+    expect(endpoint.relayUrl).toBe("ws://192.168.1.25:43131");
+    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:43131");
+    expect(endpoint.fallbackRelayUrls).toEqual(["ws://relay.example.ts.net:43131"]);
     expect(endpoint.options).toEqual({});
   });
 
   test("uses local network address when tailscale is stopped", () => {
-    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(43131, {
       backendState: "Stopped",
       dnsName: "relay.example.ts.net",
       online: false,
@@ -70,18 +70,18 @@ describe("resolveRelayEndpointForTailscaleStatus", () => {
       localAddress: "10.0.0.42",
     });
 
-    expect(endpoint.relayUrl).toBe("ws://10.0.0.42:7889");
-    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:7889");
+    expect(endpoint.relayUrl).toBe("ws://10.0.0.42:43131");
+    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:43131");
     expect(endpoint.fallbackRelayUrls).toEqual([]);
   });
 
   test("falls back to loopback when no reachable network address is available", () => {
-    const endpoint = resolveRelayEndpointForTailscaleStatus(7889, null, {
+    const endpoint = resolveRelayEndpointForTailscaleStatus(43131, null, {
       localAddress: null,
     });
 
-    expect(endpoint.relayUrl).toBe("ws://127.0.0.1:7889");
-    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:7889");
+    expect(endpoint.relayUrl).toBe("ws://127.0.0.1:43131");
+    expect(endpoint.connectUrl).toBe("ws://127.0.0.1:43131");
     expect(endpoint.fallbackRelayUrls).toEqual([]);
   });
 
@@ -106,7 +106,7 @@ exit 1
       ).href;
       const result = spawnSync(
         "bun",
-        ["--silent", "-e", `const mod = await import(${JSON.stringify(moduleUrl)}); mod.suggestedRelayUrl(7889);`],
+        ["--silent", "-e", `const mod = await import(${JSON.stringify(moduleUrl)}); mod.suggestedRelayUrl(43131);`],
         {
           encoding: "utf8",
           env: {

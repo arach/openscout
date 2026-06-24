@@ -236,7 +236,7 @@ to it. `OPENSCOUT_ASC_APP_ID` can override the default App Store app id.
 - **Restart the local broker** so it picks up the newly bundled runtime:
   ```bash
   launchctl kickstart -k gui/$(id -u)/dev.openscout
-  curl -s http://localhost:65535/health | jq
+  curl -s http://localhost:43110/health | jq
   ```
 
 ## Semver conventions

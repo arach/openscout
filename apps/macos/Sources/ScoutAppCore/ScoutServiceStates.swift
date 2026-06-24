@@ -18,7 +18,7 @@ public struct BrokerState: Sendable {
 
     public init(
         label: String = "OpenScout Broker",
-        brokerURL: String = "http://127.0.0.1:65535",
+        brokerURL: String = "http://127.0.0.1:43110",
         launchAgentPath: String = "",
         installed: Bool = false,
         loaded: Bool = false,

@@ -178,4 +178,4 @@ scout whoami
 scout send --to <agent-from-who> "broker-smoke"
 ```
 
-Live broker (example): `http://127.0.0.1:65535`.
+Live broker (example): `http://127.0.0.1:43110`.

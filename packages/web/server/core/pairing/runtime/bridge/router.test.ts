@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import type { Bridge } from "./bridge.ts";
 import { bridgeRouter } from "./router.ts";
 
@@ -58,15 +62,62 @@ function createBridgeStub() {
   };
 }
 
-function createCaller(bridge: Bridge) {
+function createCaller(
+  bridge: Bridge,
+  context: {
+    deviceId?: string;
+    secureTransport?: boolean;
+    trustedPeer?: boolean;
+  } = {},
+) {
   return bridgeRouter.createCaller({
     bridge,
     cwd: "/tmp/openscout",
-    deviceId: undefined,
+    deviceId: context.deviceId,
+    secureTransport: context.secureTransport,
+    trustedPeer: context.trustedPeer,
   });
 }
 
 describe("bridgeRouter sync compatibility", () => {
+  test("mobile.endpoints requires the protected encrypted trusted mobile transport", async () => {
+    const stub = createBridgeStub();
+
+    await expect(createCaller(stub.bridge).mobile.endpoints()).rejects.toThrow(
+      "Endpoint discovery requires an encrypted trusted mobile transport",
+    );
+  });
+
+  test("mobile.endpoints returns current service coordinates on the protected transport", async () => {
+    const previousHome = process.env.OPENSCOUT_HOME;
+    process.env.OPENSCOUT_HOME = mkdtempSync(join(tmpdir(), "openscout-router-test-"));
+    try {
+      const stub = createBridgeStub();
+
+      const result = await createCaller(stub.bridge, {
+        deviceId: "device-1",
+        secureTransport: true,
+        trustedPeer: true,
+      }).mobile.endpoints();
+
+      expect(result.version).toBe(1);
+      expect(result.protected).toBe(true);
+      expect(result.transport.deviceId).toBe("device-1");
+      expect(result.ports.broker).toBe(43110);
+      expect(result.ports.web).toBe(43120);
+      expect(result.ports.pairingBridge).toBe(43130);
+      expect(result.endpoints.brokerUrl).toBe("http://127.0.0.1:43110");
+      expect(result.endpoints.webUrl).toBe("http://127.0.0.1:43120");
+      expect(result.endpoints.pairingBridgeUrl).toBe("ws://127.0.0.1:43130");
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.OPENSCOUT_HOME;
+      } else {
+        process.env.OPENSCOUT_HOME = previousHome;
+      }
+    }
+  });
+
   test("sync.status falls back to the most recent session when sessionId is omitted", async () => {
     const stub = createBridgeStub();
 

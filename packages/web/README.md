@@ -15,7 +15,7 @@ bun --cwd packages/web dev:edge
 bun --cwd packages/web dev:server
 ```
 
-Then open the URL printed in the terminal (default port `3200`).
+Then open the URL printed in the terminal (default port `43120`).
 
 The Bun/Hono application server binds to `0.0.0.0` by default, treats `scout.local` as the local portal name, and derives the node URL as `<machine>.scout.local` unless the user configures a short alias such as `m1`. The Scout local edge flow is name resolution first, then Caddy, then the application host handler: `scout server edge` publishes/resolves `scout.local` and `<node>.scout.local`, runs Caddy against the active web port, and serves HTTP on port `80` for zero-cert local browsing. HTTPS is available only when explicitly requested with `--edge-scheme https` or `--edge-scheme both` plus `scout server trust`.
 
@@ -70,7 +70,7 @@ If you need to run them separately:
 
 ```bash
 bun --cwd packages/web dev:client
-OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:5180 bun --cwd packages/web dev:server
+OPENSCOUT_WEB_VITE_URL=http://127.0.0.1:43122 bun --cwd packages/web dev:server
 ```
 
 ### Dev routing
@@ -119,11 +119,11 @@ http://*.scout.local {
 }
 ```
 
-Use the port number the Bun app server is listening on. The default is `3200`, or the value passed with `--port` / `OPENSCOUT_WEB_PORT`.
+Use the port number the Bun app server is listening on. The default is `43120`, or the value passed with `--port` / `OPENSCOUT_WEB_PORT`.
 
 ### Cleanup
 
-`bun dev` records each run under `.openscout/dev/web`, and cleanup uses that state first before falling back to a small Scout-only port sweep around the standard dev ports.
+`bun dev` records each run under `.openscout/dev/web`, and cleanup uses that state first before falling back to a small Scout-only sweep around the local Scout port block.
 
 To clear stale Scout dev listeners:
 

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_BROKER_HOST: &str = "127.0.0.1";
 const DEFAULT_BROKER_HOST_MESH: &str = "0.0.0.0";
-const DEFAULT_BROKER_PORT: u16 = 65_535;
+const DEFAULT_BROKER_PORT: u16 = 43_110;
 const RESTART_MIN_DELAY: Duration = Duration::from_secs(1);
 const RESTART_MAX_DELAY: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(15);

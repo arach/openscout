@@ -746,6 +746,32 @@ describe("createOpenScoutWebServer", () => {
     expect(response.status).toBe(404);
   });
 
+  test("keeps strict voice health 503 while serving quiet browser probes as handled readiness", async () => {
+    const originalVoiceAsrUrl = process.env.OPENSCOUT_VOICE_ASR_URL;
+    process.env.OPENSCOUT_VOICE_ASR_URL = "http://127.0.0.1:1";
+    try {
+      const server = await createOpenScoutWebServer({
+        currentDirectory: "/tmp/openscout",
+        assetMode: "static",
+        staticRoot: makeStaticRoot(),
+      });
+
+      const strictResponse = await server.app.request("http://localhost/api/voice/health");
+      expect(strictResponse.status).toBe(503);
+      await expect(strictResponse.json()).resolves.toMatchObject({ ok: false });
+
+      const quietResponse = await server.app.request("http://localhost/api/voice/health?quiet=1");
+      expect(quietResponse.status).toBe(200);
+      await expect(quietResponse.json()).resolves.toMatchObject({ ok: false });
+    } finally {
+      if (originalVoiceAsrUrl === undefined) {
+        delete process.env.OPENSCOUT_VOICE_ASR_URL;
+      } else {
+        process.env.OPENSCOUT_VOICE_ASR_URL = originalVoiceAsrUrl;
+      }
+    }
+  });
+
   test("serves and writes global material heuristics", async () => {
     const home = useIsolatedOpenScoutHome();
     const server = await createOpenScoutWebServer({
@@ -1798,6 +1824,8 @@ describe("createOpenScoutWebServer", () => {
     const body = await response.text();
     expect(body).toContain('"terminalRelayPath":"/ws/terminal"');
     expect(body).toContain('"terminalRelayHealthPath":"/ws/terminal/health"');
+    expect(body).toContain('"tailStreamPath":"/ws/tail"');
+    expect(body).toContain('"eventsStreamPath":"/ws/events"');
     expect(body).toContain('"terminalRunPath":"/api/terminal/run"');
     expect(body).toContain('"vantageOpenPath":"/api/vantage/open"');
   });
@@ -1871,14 +1899,14 @@ describe("createOpenScoutWebServer", () => {
   test("redirects the remote pairing page to the iOS deep link", async () => {
     const qrValue = JSON.stringify({
       v: 1,
-      relay: "ws://mac.tailnet.ts.net:7889",
+      relay: "ws://mac.tailnet.ts.net:43131",
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
     });
     pairingStateResult = makePairingState({
       pairing: {
-        relay: "ws://mac.tailnet.ts.net:7889",
+        relay: "ws://mac.tailnet.ts.net:43131",
         room: "room-1",
         publicKey: "a".repeat(64),
         expiresAt: 1_780_958_228_426,
@@ -1904,16 +1932,16 @@ describe("createOpenScoutWebServer", () => {
   test("redirects route-specific pairing pages to reordered iOS deep links", async () => {
     const lanPayload = {
       v: 1,
-      relay: "ws://192.168.18.14:7889",
-      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      relay: "ws://192.168.18.14:43131",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:43131"],
       room: "room-1",
       publicKey: "a".repeat(64),
       expiresAt: 1_780_958_228_426,
     };
     const tailnetPayload = {
       ...lanPayload,
-      relay: "ws://mac.tailnet.ts.net:7889",
-      fallbackRelays: ["ws://192.168.18.14:7889"],
+      relay: "ws://mac.tailnet.ts.net:43131",
+      fallbackRelays: ["ws://192.168.18.14:43131"],
     };
     const qrValue = JSON.stringify(lanPayload);
     pairingStateResult = makePairingState({
@@ -2312,6 +2340,8 @@ describe("createOpenScoutWebServer", () => {
       const body = await response.text();
       expect(body).toContain('"terminalRelayPath":"/ws/relay"');
       expect(body).toContain('"terminalRelayHealthPath":"/ws/relay/health"');
+      expect(body).toContain('"tailStreamPath":"/ws/tail"');
+      expect(body).toContain('"eventsStreamPath":"/ws/events"');
     } finally {
       if (originalRelayPath === undefined) {
         delete process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PATH;
@@ -3331,7 +3361,7 @@ describe("createOpenScoutWebServer", () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
       assetMode: "vite-proxy",
-      viteDevUrl: "http://127.0.0.1:5180",
+      viteDevUrl: "http://127.0.0.1:43122",
       staticRoot: makeStaticRoot(),
     });
 
@@ -3343,7 +3373,7 @@ describe("createOpenScoutWebServer", () => {
     expect(await response.text()).toContain("vite");
     expect(fetchCalls).toHaveLength(1);
     expect(fetchCalls[0]?.input).toBe(
-      "http://127.0.0.1:5180/agents/demo?tab=inbox",
+      "http://127.0.0.1:43122/agents/demo?tab=inbox",
     );
     expect(fetchCalls[0]?.init?.method).toBe("GET");
     expect(fetchCalls[0]?.init?.headers).toBeInstanceOf(Headers);

@@ -1924,7 +1924,7 @@ function parseStartTargetLabel(
   }
 
   const label = rawLabel.replace(/^@+/, "");
-  const harnessMatch = label.match(/(?:#|harness:)(claude|codex|pi)\b/i);
+  const harnessMatch = label.match(/(?:#|harness:)(claude|codex|grok|pi)\b/i);
   const shorthandModelMatch = label.match(/\?([^#\s.]+)/);
   const qualifiedModelMatch = label.match(/(?:^|\.)model:([^#?\s.]+)/i);
   const base = label

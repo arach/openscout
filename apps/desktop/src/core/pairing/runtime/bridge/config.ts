@@ -35,7 +35,7 @@ export interface WorkspaceConfig {
 }
 
 export interface PairingConfig {
-  /** Relay WebSocket URL (e.g. "ws://relay.example.com:7889"). */
+  /** Relay WebSocket URL (e.g. "ws://relay.example.com:43131"). */
   relay?: string;
   /** Enable Noise encryption on local WebSocket connections. */
   secure?: boolean;
@@ -54,7 +54,7 @@ export interface PairingConfig {
 // ---------------------------------------------------------------------------
 
 const DEFAULTS: PairingConfig = {
-  port: 7888,
+  port: 43130,
   secure: true,
 };
 

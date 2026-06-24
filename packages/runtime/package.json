@@ -118,6 +118,11 @@
       "bun": "./src/user-config.ts",
       "default": "./dist/user-config.js"
     },
+    "./provisional-agent-names": {
+      "types": "./src/provisional-agent-names.ts",
+      "bun": "./src/provisional-agent-names.ts",
+      "default": "./dist/provisional-agent-names.js"
+    },
     "./local-config": {
       "types": "./src/local-config.ts",
       "bun": "./src/local-config.ts",

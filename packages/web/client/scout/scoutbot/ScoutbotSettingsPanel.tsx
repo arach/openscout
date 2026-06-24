@@ -53,7 +53,7 @@ export function ScoutbotSettingsPanel({
           </span>
         </label>
         <div className="flex flex-col gap-1 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
-          Vox Voice
+          Scout Voice
           <div className="rounded border border-[var(--scout-chrome-border-soft)] bg-black/20 px-2 py-1.5 font-mono text-[11px] normal-case tracking-normal text-[var(--scout-chrome-ink)]">
             {voiceDefaults
               ? `${voiceDefaults.modelId}${voiceDefaults.voiceId ? ` / ${voiceDefaults.voiceId}` : ""}`

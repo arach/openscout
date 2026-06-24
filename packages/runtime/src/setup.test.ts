@@ -101,7 +101,7 @@ describe("setup inventory", () => {
 
     const installs = await readManagedInstalls();
     const skillInstalls = installs.filter((entry) => entry.name === "scout-skill");
-    expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "pi"]);
+    expect(skillInstalls.map((entry) => entry.harness).sort()).toEqual(["claude", "codex", "grok", "pi"]);
     expect(skillInstalls.every((entry) => entry.kind === "skill" && entry.owner === "openscout")).toBe(true);
     expect(skillInstalls.every((entry) => entry.status === "active" && entry.targetPath)).toBe(true);
   });
@@ -327,7 +327,7 @@ describe("setup inventory", () => {
 
     const alpha = setup.projectInventory.find((project) => project.relativePath === "alpha");
     expect(alpha?.registrationKind).toBe("configured");
-    expect(alpha?.harnesses.map((harness) => harness.harness).sort()).toEqual(["claude", "codex"]);
+    expect(alpha?.harnesses.map((harness) => harness.harness).sort()).toEqual(["claude", "codex", "grok"]);
     const alphaManifest = JSON.parse(readFileSync(join(repoAlpha, ".openscout", "project.json"), "utf8")) as {
       project: { name: string };
       agent?: {
@@ -363,7 +363,7 @@ describe("setup inventory", () => {
 
     const beta = setup.projectInventory.find((project) => project.relativePath === "group/beta");
     expect(beta?.defaultHarness).toBe("codex");
-    expect(beta?.harnesses.map((harness) => harness.harness)).toEqual(["codex"]);
+    expect(beta?.harnesses.map((harness) => harness.harness).sort()).toEqual(["codex", "grok"]);
 
     const mono = setup.projectInventory.find((project) => project.relativePath === "mono");
     expect(mono).toBeTruthy();

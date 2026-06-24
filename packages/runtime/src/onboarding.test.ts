@@ -75,7 +75,7 @@ function fakeBroker(reachable: boolean): BrokerServiceStatus {
     mode: "dev",
     launchAgentPath: "/tmp/test.plist",
     bootoutCommand: "launchctl bootout test",
-    brokerUrl: "http://127.0.0.1:65535/",
+    brokerUrl: "http://127.0.0.1:43110/",
     brokerSocketPath: "/tmp/test.sock",
     supportDirectory: "/tmp/support",
     runtimeDirectory: "/tmp/runtime",

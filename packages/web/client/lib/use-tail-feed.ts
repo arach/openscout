@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { api } from "./api.ts";
 import { useTailEvents } from "./tail-events.ts";
+import { appendLiveTailEvent, mergeHydratedTailEvents } from "./tail-event-merge.ts";
 import type { TailDiscoverySnapshot, TailEvent } from "./types.ts";
 
 const DEFAULT_RECENT_LIMIT = 500;
@@ -24,12 +25,7 @@ export function useTailFeed(options?: {
   const [events, setEvents] = useState<TailEvent[]>([]);
 
   useTailEvents((event) => {
-    setEvents((previous) => {
-      const next = previous.length >= recentLimit
-        ? [...previous.slice(previous.length - recentLimit + 1), event]
-        : [...previous, event];
-      return next;
-    });
+    setEvents((previous) => appendLiveTailEvent(previous, event, recentLimit));
   });
 
   const refreshDiscovery = useCallback(async () => {
@@ -59,7 +55,10 @@ export function useTailFeed(options?: {
           `/api/tail/recent?${params.toString()}`,
         );
         if (!cancelled) {
-          setEvents(result.events ?? []);
+          // One-shot hydration of history. Merge (not replace) so any live event
+          // that streamed in during the fetch survives, and dedupe the overlap.
+          const hydrated = result.events ?? [];
+          setEvents((previous) => mergeHydratedTailEvents(previous, hydrated, recentLimit));
         }
       } catch {
         if (!cancelled) setEvents([]);

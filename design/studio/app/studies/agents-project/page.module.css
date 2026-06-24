@@ -1,0 +1,972 @@
+/* Agents · Project view — structured pass.
+   One continuous two-column grid governs the whole view: a left content column
+   ruled into even bands, and a full-height right rail split off by a single
+   hairline. Every band shares the same two vertical guides — no full-bleed vs.
+   gutter mismatch, no floating sections. Decorations stay stripped; hierarchy
+   from type weight, spacing, and hairlines. One accent, spent only as the
+   precedence dot: needs-you ▸ live ▸ idle. Reads only --s-* skin tokens. */
+
+.surface {
+  /* realistic desktop-app window proportions — the shell allows up to ~1624px
+     (max-w-page 1680 − px-7 gutters), so the frame reads as a real window with
+     room for the roster to breathe rather than a narrow study strip. */
+  max-width: 1440px;
+  margin: 0 auto;
+  min-height: 840px;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  background: var(--s-bg);
+  color: var(--s-ink);
+  border: 1px solid var(--s-border);
+  border-radius: 12px;
+  overflow: hidden;
+  font-family: var(--s-font-sans);
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
+}
+
+/* ── precedence dot (the only colored mark in the UI) ────────────────────── */
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--s-accent);
+}
+.dot[data-tone="live"] { box-shadow: 0 0 0 3px var(--s-accent-soft); }
+.dot[data-tone="needs"] { box-shadow: 0 0 0 3px var(--s-accent-soft); animation: pulse 2.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+/* ── projects rail ───────────────────────────────────────────────────────── */
+.rail {
+  border-right: 1px solid var(--s-hairline);
+  padding: 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+.railHead {
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  padding: 2px 8px 10px;
+}
+.railRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+.railRow:hover { background: var(--s-hairline); }
+.railRow[data-selected] { background: var(--s-surface); }
+.railName {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.railName[data-idle] { color: var(--s-dim); font-weight: 480; }
+.railRow[data-selected] .railName { color: var(--s-ink); font-weight: 580; }
+.railCount {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-accent);
+  font-family: var(--s-font-mono);
+}
+
+/* ── pane + the one governing grid ───────────────────────────────────────── */
+.pane { min-width: 0; overflow-y: auto; }
+
+/* The whole view is two columns: content | full-height rail. The rail's
+   border-left is the single vertical divider both columns hang off. */
+.view {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 264px;
+  min-height: 100%;
+  align-items: stretch;
+  /* both modes keep column 1 = minmax(0,1fr); only column 2 changes px → px,
+     so the track tween interpolates and the right column grows smoothly. */
+  transition: grid-template-columns 0.42s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+/* drilled — the project frame (masthead · digest · search · roster) stays put;
+   the right rail just grows and the session pane fades in over it, so it reads
+   as a panel opening, not a page change. */
+.view[data-detail] { grid-template-columns: minmax(0, 1fr) 480px; }
+
+/* left column — a stack of evenly-ruled bands sharing one left/right edge */
+.content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 28px 26px;
+}
+
+/* right column — continuous rail, divided by a single hairline */
+.aside {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 22px 26px 26px;
+  border-left: 1px solid var(--s-hairline);
+  animation: paneFade 0.32s ease both;
+}
+
+@keyframes paneFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes paneIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .view { transition: none; }
+  .detail, .aside { animation: none; }
+  .resume { transition: none; }
+}
+
+/* ── masthead band ───────────────────────────────────────────────────────── */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.headIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.headTop { display: flex; align-items: center; gap: 12px; }
+.headName {
+  margin: 0;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--s-ink);
+}
+.headState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+}
+.headRoot { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+.headActions { display: flex; align-items: center; gap: 14px; flex: none; }
+.headGhost {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.12s ease;
+}
+.headGhost:hover { color: var(--s-ink); }
+.headCta {
+  font-size: 12.5px;
+  font-weight: 580;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 13px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.headCta:hover { filter: brightness(1.07); }
+
+/* ── digest band ─────────────────────────────────────────────────────────── */
+.digest {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.stat { display: inline-flex; align-items: baseline; gap: 7px; }
+.statNum { font-size: 17px; font-weight: 600; color: var(--s-ink); letter-spacing: -0.01em; }
+.statLbl {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.statMarks { margin-left: auto; display: inline-flex; gap: 7px; color: var(--s-muted); }
+
+/* ── resume band — contextual, sits in the ruled rhythm ───────────────────── */
+.resume {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  /* collapses away when a session is open — the resume line is the most
+     redundant band once you've drilled, so it folds out (height + opacity)
+     while the rest of the frame stays put. Same track types, no reflow snap. */
+  max-height: 64px;
+  overflow: hidden;
+  transition: max-height 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.28s ease, padding 0.42s cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-color 0.28s ease;
+}
+.view[data-detail] .resume {
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  opacity: 0;
+  border-bottom-color: transparent;
+  pointer-events: none;
+}
+.resumeLbl {
+  font-size: 9.5px;
+  font-weight: 680;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--s-accent);
+}
+.resume[data-tone="live"] .resumeLbl { color: var(--s-muted); }
+.resumeWho { font-size: 13px; font-weight: 600; color: var(--s-ink); }
+.resumeMeta { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-dim); }
+.resumeActions { margin-left: auto; display: inline-flex; gap: 16px; }
+.link, .linkAccent {
+  font-size: 12.5px;
+  font-weight: 560;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s ease;
+}
+.link { color: var(--s-muted); }
+.link:hover { color: var(--s-ink); }
+.linkAccent { color: var(--s-accent); }
+.linkAccent:hover { filter: brightness(1.1); }
+
+/* ── find band ───────────────────────────────────────────────────────────── */
+.find {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  transition: border-color 0.14s ease;
+}
+.find:focus-within { border-bottom-color: var(--s-accent); }
+.findIco { display: inline-flex; color: var(--s-muted); flex: none; }
+.findInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+}
+.findInput::placeholder { color: var(--s-muted); }
+.findFilters { display: inline-flex; gap: 14px; flex: none; }
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 520;
+  text-transform: capitalize;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.filter:hover { color: var(--s-ink); }
+.filter[data-on] { color: var(--s-ink); border-bottom-color: var(--s-accent); }
+
+/* ── roster band ─────────────────────────────────────────────────────────── */
+.main { display: flex; flex-direction: column; padding-top: 16px; }
+
+.sectionHead { display: flex; align-items: baseline; gap: 10px; padding: 0 0 4px; }
+.sectionTitle {
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.sectionMeta { font-size: 11px; color: var(--s-dim); font-family: var(--s-font-mono); }
+.kbdHint {
+  margin-left: auto;
+  font-size: 10px;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  opacity: 0.7;
+}
+
+/* Full-bleed list: the roster breaks out of the content column's 28px side
+   padding so each row's hairline + hover/selection background run edge-to-edge.
+   The 28px is added back as row padding, so the row *content* stays on the
+   same guide while only the background bleeds. */
+.roster { display: flex; flex-direction: column; margin: 0 -28px; }
+.row {
+  position: relative;
+  padding: 0 28px;
+  border-top: 1px solid var(--s-hairline);
+}
+.row:last-child { border-bottom: 1px solid var(--s-hairline); }
+.row::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--s-surface);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.row:hover::before, .row[data-open]::before { opacity: 0.6; }
+.row[data-selected]::before { opacity: 0.85; }
+.row[data-selected]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--s-accent);
+}
+.row[data-selected] .rowName { color: var(--s-ink); }
+
+/* keyboard cursor — a quieter sibling of selection: a soft wash + a muted left
+   bar, so scrubbing the roster reads before you've committed to opening a row.
+   Selection (accent bar) outranks it when the panel is actually open. */
+.row[data-cursor]::before { opacity: 0.6; }
+.row[data-cursor]:not([data-selected])::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--s-hairline-strong);
+}
+.row:focus { outline: none; }
+.row:focus-visible::before { opacity: 0.7; }
+
+/* row = avatar | body(flex) | tail(reserved lane). The tail holds ago/model
+   AND actions stacked in one cell, so the lane sizes to the wider (actions)
+   and never reflows or overlaps — the swap is pure opacity. */
+.rowMain {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 2px;
+  cursor: pointer;
+}
+.rowBody { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rowTop { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rowName {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--s-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowName[data-idle] { color: var(--s-dim); font-weight: 540; }
+.rowMark { display: inline-flex; color: var(--s-muted); flex: none; }
+.needsWord {
+  flex: none;
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--s-accent);
+}
+
+.rowMeta { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.rowBranch {
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rowBranch[data-dim] { color: var(--s-dim); }
+.rowDim { font-size: 11px; color: var(--s-dim); font-family: var(--s-font-mono); flex: none; }
+.rowDivider { flex: none; width: 1px; height: 10px; background: var(--s-hairline-strong); }
+
+/* tail lane — both children share grid cell 1/1; lane width = wider child */
+.rowTail {
+  position: relative;
+  display: grid;
+  align-items: center;
+  justify-items: end;
+}
+.tailMeta, .rowActions { grid-area: 1 / 1; display: flex; transition: opacity 0.12s ease; }
+.tailMeta {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  text-align: right;
+}
+.rowAgo { font-size: 11px; color: var(--s-dim); font-family: var(--s-font-mono); }
+.rowModel { font-size: 10.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+.rowActions { align-items: center; gap: 4px; opacity: 0; pointer-events: none; }
+.row:hover .tailMeta, .row[data-tone="needs"] .tailMeta { opacity: 0; }
+.row:hover .rowActions, .row[data-tone="needs"] .rowActions { opacity: 1; pointer-events: auto; }
+.act {
+  font-size: 11.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.act:hover { color: var(--s-ink); background: var(--s-hairline); }
+.actPrimary { color: var(--s-accent); }
+.actPrimary:hover { color: var(--s-accent); background: var(--s-accent-soft); }
+.actIcon {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 7px;
+  cursor: pointer;
+}
+.actIcon:hover { color: var(--s-ink); background: var(--s-hairline); }
+
+/* instances (expand) — indented under the avatar column */
+.instances {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 8px 43px;
+  border-left: 1px solid var(--s-hairline);
+}
+.inst {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.inst:hover { background: var(--s-hairline); }
+.inst[data-active] .instBranch { color: var(--s-ink); }
+.instBranch {
+  flex: none;
+  min-width: 0;
+  max-width: 45%;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instWhat { flex: 1; min-width: 0; font-size: 11.5px; color: var(--s-dim); }
+.instAgo { flex: none; font-size: 10.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+.instOpen { flex: none; color: var(--s-muted); display: inline-flex; }
+
+.empty {
+  font-size: 12px;
+  color: var(--s-dim);
+  padding: 22px 4px;
+  text-align: center;
+}
+
+/* ── ephemeral disclosure — quiet text toggle ─────────────────────────────── */
+.ephBlock { margin-top: 14px; }
+.ephToggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.12s ease;
+}
+.ephToggle:hover { color: var(--s-ink); }
+.ephCount { font-size: 11px; font-weight: 660; font-family: var(--s-font-mono); color: var(--s-dim); }
+.ephCaret { margin-left: auto; color: var(--s-muted); }
+.ephList { display: flex; flex-direction: column; padding: 2px 0 0; }
+.ephRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 2px 5px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ephRow:hover { background: var(--s-hairline); }
+.ephMark { flex: none; display: inline-flex; color: var(--s-muted); opacity: 0.7; }
+.ephName {
+  flex: none;
+  min-width: 0;
+  max-width: 42%;
+  font-size: 12px;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ephBranch {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ephAgo { flex: none; font-size: 10.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+
+.newAgent {
+  margin-top: 16px;
+  align-self: flex-start;
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 4px 2px;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.newAgent:hover { color: var(--s-accent); }
+
+/* ── aside groups — label-led, hairline-divided, no boxes ─────────────────── */
+.group { display: flex; flex-direction: column; }
+.groupHead {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  padding-bottom: 9px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.groupDim { font-size: 12px; color: var(--s-dim); padding: 2px 0; }
+
+.recent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--s-hairline);
+  cursor: pointer;
+  text-align: left;
+}
+.recent:last-child { border-bottom: none; }
+.recentWho { font-size: 12px; font-weight: 600; color: var(--s-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recentAgo { font-size: 10px; color: var(--s-dim); font-family: var(--s-font-mono); text-align: right; }
+.recentTask {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--s-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kv { display: flex; gap: 12px; align-items: baseline; padding: 5px 0; }
+.kvKey {
+  flex: none;
+  width: 54px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+}
+.kvVal { flex: 1; min-width: 0; font-size: 12px; color: var(--s-ink); font-family: var(--s-font-mono); }
+.kvDim { color: var(--s-dim); }
+.kvBranches { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.kvBranch { font-size: 11.5px; font-family: var(--s-font-mono); color: var(--s-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── session detail (master–detail pane) ───────────────────────────────────── */
+.detail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 26px 26px;
+  border-left: 1px solid var(--s-hairline);
+  overflow: hidden;
+  animation: paneIn 0.4s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+.detailHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.detailBack {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.detailBack:hover { color: var(--s-ink); background: var(--s-hairline); }
+.detailIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.detailTop { display: flex; align-items: center; gap: 10px; }
+.detailName { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; color: var(--s-ink); }
+.detailSub {
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* meta strip — the old right-rail readout folded into one row */
+.metaStrip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 7px 22px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.metaItem { display: inline-flex; align-items: baseline; gap: 7px; }
+.metaKey {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--s-muted);
+  font-family: var(--s-font-sans);
+}
+.metaChanges { margin-left: auto; font-family: var(--s-font-mono); font-size: 12px; }
+
+.detailBody { display: flex; flex-direction: column; padding-top: 14px; }
+
+.headState[data-tone="needs"] { color: var(--s-accent); }
+.headState[data-tone="live"] { color: var(--s-ink); }
+
+/* session switcher — underline tabs, horizontally scrollable for busy instances */
+.sessTabs {
+  display: flex;
+  gap: 18px;
+  overflow-x: auto;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--s-hairline);
+  scrollbar-width: thin;
+}
+.sessTab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 11.5px;
+  font-family: var(--s-font-mono);
+  color: var(--s-muted);
+  white-space: nowrap;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.sessTab:hover { color: var(--s-ink); }
+.sessTab[data-on] { color: var(--s-ink); border-bottom-color: var(--s-accent); }
+.sessDot { flex: none; width: 5px; height: 5px; border-radius: 999px; background: var(--s-hairline-strong); }
+.sessDot[data-on] { background: var(--s-accent); box-shadow: 0 0 0 2.5px var(--s-accent-soft); }
+
+/* transcript — dot-led event rows, hairline-separated, tool bursts coalesced */
+.trace { display: flex; flex-direction: column; }
+.ev {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-top: 1px solid var(--s-hairline);
+}
+.ev:first-child { border-top: none; }
+.evGutter {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--s-muted);
+  text-align: center;
+}
+.ev[data-kind="you"] .evGutter { color: var(--s-ink); }
+.ev[data-kind="notify"] .evGutter,
+.ev[data-tone="needs"] .evGutter,
+.ev[data-tone="live"] .evGutter { color: var(--s-accent); }
+.evBody { min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.evLabel {
+  flex: none;
+  font-size: 11px;
+  font-weight: 560;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+  text-transform: lowercase;
+}
+.evCount { color: var(--s-accent); font-weight: 640; }
+.evText {
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--s-ink);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+.ev[data-kind="you"] .evText { color: var(--s-ink); font-weight: 540; }
+.ev[data-kind="thinking"] .evText { color: var(--s-dim); font-style: italic; }
+.ev[data-kind="tool"] .evText { color: var(--s-muted); font-family: var(--s-font-mono); font-size: 11.5px; }
+.ev[data-tone="needs"] .evText { color: var(--s-accent); }
+.evAgo { flex: none; font-size: 10.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+
+/* steer box — pinned under the transcript */
+.steer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--s-hairline);
+}
+.steerInput {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--s-ink);
+  font-family: var(--s-font-sans);
+  font-size: 13px;
+}
+.steerInput::placeholder { color: var(--s-muted); }
+.steerSend {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 580;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 15px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.steerSend:hover { filter: brightness(1.07); }
+
+.add { color: var(--s-accent); }
+.del { color: var(--s-dim); }
+
+/* ── sparse focus view — the project collapses to its one agent + the decision ──
+   No digest, no find, no roster, no aside. A single calm column that leads with
+   the situation the directory buried, then the decision, then where it left off. */
+.focus {
+  min-width: 0;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 32px 32px;
+  animation: paneFade 0.32s ease both;
+}
+.focusHead {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.focusIdent { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.focusTop { display: flex; align-items: center; gap: 11px; }
+.focusName { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--s-ink); }
+.focusState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 540;
+  font-family: var(--s-font-mono);
+  color: var(--s-dim);
+}
+.focusState[data-tone="needs"] { color: var(--s-accent); }
+.focusState[data-tone="live"] { color: var(--s-ink); }
+.focusRoot { font-size: 12px; font-family: var(--s-font-mono); color: var(--s-muted); }
+.focusOpen {
+  flex: none;
+  font-size: 12px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  transition: color 0.12s ease;
+}
+.focusOpen:hover { color: var(--s-ink); }
+
+/* the situation — the headline that used to be a truncated aside line */
+.situation { padding: 22px 0 20px; border-bottom: 1px solid var(--s-hairline); }
+.situationLead {
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--s-ink);
+}
+.situation[data-tone="idle"] .situationLead { color: var(--s-dim); font-weight: 460; }
+.situationLead b { font-weight: 600; font-family: var(--s-font-mono); font-size: 0.92em; }
+.situationTask {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--s-muted);
+  font-family: var(--s-font-mono);
+}
+
+/* the decision — the action is the point of this screen */
+.decision {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.decisionPrimary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--s-bg);
+  background: var(--s-accent);
+  border: none;
+  border-radius: 9px;
+  padding: 9px 18px;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.decisionPrimary:hover { filter: brightness(1.07); }
+.decisionGhost {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 4px;
+  transition: color 0.12s ease;
+}
+.decisionGhost:hover { color: var(--s-ink); }
+.decisionMeta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 18px;
+  font-size: 12px;
+  font-family: var(--s-font-mono);
+  color: var(--s-ink);
+}
+.decisionMeta > span { display: inline-flex; align-items: baseline; gap: 6px; }
+
+.focusBody { display: flex; flex-direction: column; padding-top: 18px; }
+
+/* demoted footer — the rest of the project, quietly */
+.focusFoot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--s-hairline);
+}
+.focusFootLink {
+  font-size: 12.5px;
+  font-weight: 540;
+  color: var(--s-muted);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+.focusFootLink:hover { color: var(--s-accent); }
+.focusFootDim { font-size: 11.5px; color: var(--s-dim); font-family: var(--s-font-mono); }
+
+.focusEmpty { padding: 60px 32px; text-align: center; font-size: 13px; color: var(--s-dim); }
+
+/* ── responsive — collapse the right rail, then the projects rail ─────────── */
+@media (max-width: 900px) {
+  .view, .view[data-detail] { grid-template-columns: minmax(0, 1fr); }
+  .aside {
+    border-left: none;
+    border-top: 1px solid var(--s-hairline);
+    margin: 0 28px;
+    padding: 22px 0 26px;
+  }
+  .detail {
+    border-left: none;
+    border-top: 1px solid var(--s-hairline);
+  }
+}
+@media (max-width: 680px) {
+  .surface { grid-template-columns: minmax(0, 1fr); }
+  .rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 2px;
+    border-right: none;
+    border-bottom: 1px solid var(--s-hairline);
+  }
+  .railHead { width: 100%; }
+  .find { flex-wrap: wrap; }
+  .findFilters { width: 100%; }
+}

@@ -4,8 +4,8 @@ import { api } from "./api.ts";
 import { isAgentBusy } from "./agent-state.ts";
 import type { Agent, AgentObservePayload, ObserveEvent } from "./types.ts";
 
-const ACTIVE_POLL_INTERVAL_MS = 2500;
-const IDLE_POLL_INTERVAL_MS = 10000;
+const ACTIVE_POLL_INTERVAL_MS = 10_000;
+const IDLE_POLL_INTERVAL_MS = 60_000;
 
 export type ObserveCacheEntry = Omit<AgentObservePayload, "agentId">;
 export type ObserveCache = Record<string, ObserveCacheEntry>;

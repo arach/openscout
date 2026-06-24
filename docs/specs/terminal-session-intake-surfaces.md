@@ -2,7 +2,7 @@
 
 Date: 2026-06-17
 Workspace: `/Users/art/dev/openscout`
-Studio study: `http://127.0.0.1:3030/studies/terminal-sessions`
+Studio study: `http://127.0.0.1:43140/studies/terminal-sessions`
 
 ## Purpose
 
@@ -105,7 +105,7 @@ for it."
 The current Studio page is:
 
 ```text
-http://127.0.0.1:3030/studies/terminal-sessions
+http://127.0.0.1:43140/studies/terminal-sessions
 ```
 
 The page should be shaped around known sessions and materialized surfaces.

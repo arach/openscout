@@ -964,7 +964,7 @@ describe("broker daemon delivery routing", () => {
       meshId: "openscout",
       name: "Mini Peer",
       advertiseScope: "mesh",
-      brokerUrl: "http://100.64.0.2:65535",
+      brokerUrl: "http://100.64.0.2:43110",
       registeredAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
       lastSeenAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
     });

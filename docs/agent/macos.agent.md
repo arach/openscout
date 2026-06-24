@@ -28,10 +28,10 @@ External: `packages/scout-native-core` (`ScoutNativeCore` + `ScoutCapabilities`)
 
 | Endpoint | Resolution order | Fallback |
 |---|---|---|
-| `ScoutWeb.baseURL()` | `OPENSCOUT_WEB_URL` / `_WEB_BUN_URL` / `_WEB_PUBLIC_ORIGIN` / `_WEB_PORT` env → config `ports.web` | `http://127.0.0.1:3200` |
-| `ScoutBroker.baseURL()` | `OPENSCOUT_BROKER_URL` / `_BROKER_PORT` env → config `ports.broker` | `http://127.0.0.1:65535` |
+| `ScoutWeb.baseURL()` | `OPENSCOUT_WEB_URL` / `_WEB_BUN_URL` / `_WEB_PUBLIC_ORIGIN` / `_WEB_PORT` env → config `ports.web` | `http://127.0.0.1:43120` |
+| `ScoutBroker.baseURL()` | `OPENSCOUT_BROKER_URL` / `_BROKER_PORT` env → config `ports.broker` | `http://127.0.0.1:43110` |
 
-Hosts `0.0.0.0`/`::` normalize to `127.0.0.1` client-side. `65535` is the real default broker port, not a sentinel. scoutd never reads the config file — the helper forwards `OPENSCOUT_BROKER_*` env (from `ScoutBroker.configuredEndpoint()`) when invoking it, unless the environment already pins a target.
+Hosts `0.0.0.0`/`::` normalize to `127.0.0.1` client-side. `43110` is the real default broker port, not a sentinel. scoutd never reads the config file — the helper forwards `OPENSCOUT_BROKER_*` env (from `ScoutBroker.configuredEndpoint()`) when invoking it, unless the environment already pins a target.
 
 Clients: comms/agents/activity/compose/runner hit web `api/*`; tail hits broker `v1/tail/*`.
 

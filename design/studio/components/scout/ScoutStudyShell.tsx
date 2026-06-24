@@ -24,17 +24,23 @@ export function ScoutStudyShell({
   pageId,
   title,
   blurb,
+  initialSkin = "juniper-l",
   children,
 }: {
   pageId: string;
   title: string;
   blurb: ReactNode;
+  initialSkin?: ScoutSkinId;
   children: ReactNode | ((skin: ScoutSkinId) => ReactNode);
 }) {
   const [skin, setSkin] = useState<ScoutSkinId>(() => {
-    if (typeof window === "undefined") return "juniper-l";
-    const q = new URLSearchParams(window.location.search).get("skin");
-    return SCOUT_SKINS.some((s) => s.id === q) ? (q as ScoutSkinId) : "juniper-l";
+    if (typeof window !== "undefined") {
+      const q = new URLSearchParams(window.location.search).get("skin");
+      if (q && SCOUT_SKINS.some((s) => s.id === q)) {
+        return q as ScoutSkinId;
+      }
+    }
+    return initialSkin;
   });
 
   return (

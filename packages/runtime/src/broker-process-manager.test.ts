@@ -96,9 +96,9 @@ function restore(previous: Map<string, string | undefined>): void {
 
 describe("broker service scoutd adapter", () => {
   test("builds local broker control URLs from wildcard bind hosts", () => {
-    expect(buildLocalBrokerControlUrl("0.0.0.0", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("::", 65535)).toBe("http://127.0.0.1:65535");
-    expect(buildLocalBrokerControlUrl("192.168.1.12", 65535)).toBe("http://192.168.1.12:65535");
+    expect(buildLocalBrokerControlUrl("0.0.0.0", 43110)).toBe("http://127.0.0.1:43110");
+    expect(buildLocalBrokerControlUrl("::", 43110)).toBe("http://127.0.0.1:43110");
+    expect(buildLocalBrokerControlUrl("192.168.1.12", 43110)).toBe("http://192.168.1.12:43110");
   });
 
   test("uses OSN settings over stale local launch environment", async () => {
@@ -133,7 +133,7 @@ describe("broker service scoutd adapter", () => {
       const serviceConfig = resolveBrokerServiceConfig();
       expect(serviceConfig.advertiseScope).toBe("mesh");
       expect(serviceConfig.brokerHost).toBe(DEFAULT_BROKER_HOST_MESH);
-      expect(serviceConfig.brokerUrl).toBe("http://mini.tailnet.test:65535");
+      expect(serviceConfig.brokerUrl).toBe(`http://mini.tailnet.test:${DEFAULT_BROKER_PORT}`);
     });
 
     await withEnv({

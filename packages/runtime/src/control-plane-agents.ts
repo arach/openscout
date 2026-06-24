@@ -1,7 +1,11 @@
 import { normalizeAgentSelectorSegment } from "@openscout/protocol";
 import type { AgentHarness, ScoutAgentCard, ScoutPermissionProfile } from "@openscout/protocol";
-import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
+
+import {
+  collectOccupiedDefinitionIds,
+  resolveProvisionalAgentName,
+} from "./provisional-agent-names.js";
 
 import {
   inferLocalAgentBinding,
@@ -68,6 +72,13 @@ export type ScoutAgentServiceBrokerContext = {
   node: {
     id: string;
   };
+  snapshot?: {
+    agents: Record<string, {
+      id: string;
+      definitionId?: string;
+      handle?: string;
+    }>;
+  };
 };
 
 export type ScoutLocalAgentBindingSyncResult = {
@@ -114,9 +125,39 @@ export type ScoutAgentServiceDeps<TBroker extends ScoutAgentServiceBrokerContext
 
 const DEFAULT_ONE_TIME_SCOUT_AGENT_CARD_TTL_MS = 24 * 60 * 60 * 1000;
 
-function oneTimeAgentName(input: { agentName?: string; projectPath: string }): string {
-  const base = normalizeAgentSelectorSegment(input.agentName || basename(input.projectPath)) || "agent";
-  return `${base}-card-${randomUUID().slice(0, 8)}`;
+async function resolveOneTimeAgentName<TBroker extends ScoutAgentServiceBrokerContext>(
+  deps: ScoutAgentServiceDeps<TBroker>,
+  input: {
+    agentName?: string;
+    projectPath: string;
+    currentDirectory?: string;
+  },
+): Promise<string> {
+  if (input.agentName?.trim()) {
+    return resolveProvisionalAgentName({
+      explicitName: input.agentName,
+      occupied: new Set<string>(),
+    });
+  }
+
+  const references: string[] = [];
+  const broker = await deps.loadScoutBrokerContext().catch(() => null);
+  if (broker?.snapshot) {
+    for (const agent of Object.values(broker.snapshot.agents)) {
+      references.push(agent.id);
+      if (agent.definitionId) references.push(agent.definitionId);
+      if (agent.handle) references.push(agent.handle);
+    }
+  }
+  const localStatuses = await (deps.localAgents?.listLocalAgents ?? listLocalAgents)({
+    currentDirectory: input.currentDirectory ?? input.projectPath,
+  }).catch(() => []);
+  for (const status of localStatuses) {
+    references.push(status.agentId);
+  }
+  return resolveProvisionalAgentName({
+    occupied: collectOccupiedDefinitionIds(references),
+  });
 }
 
 export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerContext>(
@@ -207,9 +248,10 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
       const oneTimeUse = input.oneTimeUse === true;
       const createdById = input.createdById?.trim() || undefined;
       const agentName = oneTimeUse
-        ? oneTimeAgentName({
+        ? await resolveOneTimeAgentName(deps, {
           agentName: input.agentName,
           projectPath: input.projectPath,
+          currentDirectory: input.currentDirectory,
         })
         : input.agentName;
       const lifecycle = oneTimeUse

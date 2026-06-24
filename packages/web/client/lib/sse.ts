@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { createTRPCClient, createWSClient, wsLink } from "@trpc/client";
 import type { ControlEvent } from "@openscout/protocol";
 import type { BrokerRouter } from "@openscout/runtime/broker-trpc-router";
+import { resolveScoutEventsStreamUrl } from "./runtime-config.ts";
 
 export type BrokerEvent = ControlEvent | {
   kind: "unknown";
@@ -17,12 +18,6 @@ let wsClient: ReturnType<typeof createWSClient> | null = null;
 let trpc: ReturnType<typeof createTRPCClient<BrokerRouter>> | null = null;
 let activeSub: { unsubscribe: () => void } | null = null;
 let retryTimeout: ReturnType<typeof setTimeout> | null = null;
-
-function brokerWsUrl(): string {
-  const host = typeof window !== "undefined" ? window.location.hostname : "127.0.0.1";
-  const port = 65535;
-  return `ws://${host}:${port}/trpc`;
-}
 
 function dispatchBrokerEvent(event: BrokerEvent): void {
   for (const subscriber of [...subscribers]) {
@@ -46,7 +41,7 @@ function ensureSubscribed(): void {
   }
 
   if (!wsClient) {
-    wsClient = createWSClient({ url: brokerWsUrl() });
+    wsClient = createWSClient({ url: resolveScoutEventsStreamUrl() });
     trpc = createTRPCClient<BrokerRouter>({ links: [wsLink({ client: wsClient })] });
   }
 

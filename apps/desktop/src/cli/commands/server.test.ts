@@ -40,17 +40,17 @@ describe("server command helpers", () => {
     expect(
       resolveServerBrowserUrl(
         { OPENSCOUT_WEB_ADVERTISED_HOST: "hudson-mini.local" },
-        3200,
+        43120,
         "/agents",
       ),
-    ).toBe("http://scout.local:3200/agents");
+    ).toBe("http://scout.local:43120/agents");
   });
 
   test("opens public origin when configured", () => {
     expect(
       resolveServerBrowserUrl(
         { OPENSCOUT_WEB_PUBLIC_ORIGIN: "https://scout.local/" },
-        3200,
+        43120,
         "agents",
       ),
     ).toBe("https://scout.local/agents");
@@ -60,10 +60,10 @@ describe("server command helpers", () => {
     expect(
       resolveServerBrowserUrl(
         { OPENSCOUT_WEB_PORTAL_HOST: "local.scout" },
-        3200,
+        43120,
         "agents",
       ),
-    ).toBe("http://local.scout:3200/agents");
+    ).toBe("http://local.scout:43120/agents");
   });
 
   test("resolves bun from explicit environment overrides", () => {

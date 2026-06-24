@@ -37,7 +37,7 @@ Usage:
 Options:
   --host <h>         Bind host (default 0.0.0.0 for LAN/mDNS access)
   --local-name <n>   Node hostname or short alias to advertise (default <machine>.scout.local)
-  --port <n>         Listen port (default 3200; optional override OPENSCOUT_WEB_PORT)
+  --port <n>         Listen port (default 43120; optional override OPENSCOUT_WEB_PORT)
   --cwd <dir>        Workspace root (optional override OPENSCOUT_SETUP_CWD)
   --vite-url <url>   Proxy non-API requests to a Vite dev server
   --static-root <d>  Override the static client directory

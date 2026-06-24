@@ -29,7 +29,7 @@ final class OpenScoutAppController: ObservableObject {
 
     struct BrokerState: Sendable {
         var label: String = "OpenScout Broker"
-        var brokerURL: String = "http://127.0.0.1:65535"
+        var brokerURL: String = "http://127.0.0.1:43110"
         var launchAgentPath: String = ""
         var installed: Bool = false
         var loaded: Bool = false

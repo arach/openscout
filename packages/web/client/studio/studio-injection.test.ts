@@ -6,7 +6,7 @@ describe("resolveStudioInjectionState", () => {
   test("stays disabled by default in dev", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
-      href: "http://localhost:3200/agents",
+      href: "http://localhost:43120/agents",
       dev: true,
     })).toEqual({ enabled: false, mode: "after" });
   });
@@ -15,7 +15,7 @@ describe("resolveStudioInjectionState", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
       aliases: ["agents"],
-      href: "http://localhost:3200/agents?studio=agents",
+      href: "http://localhost:43120/agents?studio=agents",
       dev: true,
     })).toEqual({ enabled: true, mode: "after" });
   });
@@ -23,7 +23,7 @@ describe("resolveStudioInjectionState", () => {
   test("uses URL mode ahead of stored mode", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
-      href: "http://localhost:3200/agents?studio=agent-directory&studioMode=before",
+      href: "http://localhost:43120/agents?studio=agent-directory&studioMode=before",
       storedMode: "after",
       dev: true,
     })).toEqual({ enabled: true, mode: "before" });
@@ -32,7 +32,7 @@ describe("resolveStudioInjectionState", () => {
   test("restores stored enablement and mode", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
-      href: "http://localhost:3200/agents",
+      href: "http://localhost:43120/agents",
       storedEnabled: "1",
       storedMode: "before",
       dev: true,
@@ -43,7 +43,7 @@ describe("resolveStudioInjectionState", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
       aliases: ["agents"],
-      href: "http://localhost:3200/agents?studio=agents",
+      href: "http://localhost:43120/agents?studio=agents",
       dev: false,
     })).toEqual({ enabled: true, mode: "after" });
   });
@@ -51,7 +51,7 @@ describe("resolveStudioInjectionState", () => {
   test("allows explicit IPv6 loopback injection from the built app", () => {
     expect(resolveStudioInjectionState({
       studyId: "agent-directory",
-      href: "http://[::1]:3200/agents?studio=agent-directory",
+      href: "http://[::1]:43120/agents?studio=agent-directory",
       dev: false,
     })).toEqual({ enabled: true, mode: "after" });
   });
@@ -59,7 +59,7 @@ describe("resolveStudioInjectionState", () => {
   test("keeps study-specific aliases out of the generic resolver", () => {
     expect(resolveStudioInjectionState({
       studyId: "other-study",
-      href: "http://localhost:3200/agents?studio=agents",
+      href: "http://localhost:43120/agents?studio=agents",
       dev: true,
     })).toEqual({ enabled: false, mode: "after" });
   });
@@ -67,7 +67,7 @@ describe("resolveStudioInjectionState", () => {
   test("does not keep agent-directory-specific params in the generic resolver", () => {
     expect(resolveStudioInjectionState({
       studyId: "other-study",
-      href: "http://localhost:3200/agents?studioAgentDirectory=1",
+      href: "http://localhost:43120/agents?studioAgentDirectory=1",
       dev: true,
     })).toEqual({ enabled: false, mode: "after" });
   });

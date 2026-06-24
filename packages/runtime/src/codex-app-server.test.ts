@@ -1084,7 +1084,7 @@ describe("buildCodexAppServerSessionSnapshot", () => {
 
     expect(snapshot).not.toBeNull();
     expect(snapshot?.session.providerMeta?.observeUsage).toEqual(expect.objectContaining({
-      contextInputTokens: 1000,
+      contextInputTokens: 1250,
       inputTokens: 501000,
       cacheReadInputTokens: 250,
       outputTokens: 80,

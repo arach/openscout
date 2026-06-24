@@ -48,6 +48,7 @@ After that, choose the role-specific next read:
 - [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout
 - [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) explains the question vs work-item model
 - [`scout-agent-delegation.md`](./scout-agent-delegation.md) explains the correct one-to-one agent delegation workflow
+- [`local-ports.md`](./local-ports.md) lists the Scout-owned local TCP port range and exceptions
 - [`user-config.md`](./user-config.md) covers operator identity and local config
 
 ## Deeper Product Docs
@@ -86,6 +87,7 @@ After that, choose the role-specific next read:
 - "What is `@scoutbot`?" Read [`scoutbot.md`](./scoutbot.md).
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
 - "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
+- "Which local ports does Scout own?" Read [`local-ports.md`](./local-ports.md).
 - "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).
 - "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
 - "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).
