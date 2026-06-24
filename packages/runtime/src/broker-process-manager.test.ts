@@ -133,7 +133,7 @@ describe("broker service scoutd adapter", () => {
       const serviceConfig = resolveBrokerServiceConfig();
       expect(serviceConfig.advertiseScope).toBe("mesh");
       expect(serviceConfig.brokerHost).toBe(DEFAULT_BROKER_HOST_MESH);
-      expect(serviceConfig.brokerUrl).toBe("http://mini.tailnet.test:65535");
+      expect(serviceConfig.brokerUrl).toBe(`http://mini.tailnet.test:${DEFAULT_BROKER_PORT}`);
     });
 
     await withEnv({

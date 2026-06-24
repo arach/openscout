@@ -16,9 +16,9 @@ describe("harness catalog", () => {
   test("built-in catalog contains the current supported external harnesses", () => {
     const entries = createBuiltInHarnessCatalog();
 
-    expect(entries.map((entry) => entry.name)).toEqual(["claude", "codex", "cursor", "flue", "pi"]);
-    expect(entries[0]?.support.collaboration).toBe(true);
-    expect(entries[1]?.support.workspace).toBe(true);
+    expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "cursor", "flue", "pi"]);
+    expect(entries.find((entry) => entry.name === "claude")?.support.collaboration).toBe(true);
+    expect(entries.find((entry) => entry.name === "codex")?.support.workspace).toBe(true);
     expect(entries.find((entry) => entry.name === "pi")?.install?.macos).toBe(
       "npm install -g @earendil-works/pi-coding-agent",
     );
