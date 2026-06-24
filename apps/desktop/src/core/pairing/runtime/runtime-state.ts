@@ -32,6 +32,7 @@ export type PairingRuntimeSnapshot = {
   connectedPeerFingerprint: string | null;
   relay: string | null;
   secure: boolean;
+  lanDiscoveryAdvertised: boolean;
   workspaceRoot: string | null;
   sessionCount: number;
   identityFingerprint: string | null;
@@ -55,20 +56,26 @@ export function readPairingRuntimeSnapshot(): PairingRuntimeSnapshot | null {
 
   try {
     const parsed = JSON.parse(readFileSync(runtimeStatePath, "utf8")) as PairingRuntimeSnapshot;
-    return parsed?.version === 1 ? parsed : null;
+    return parsed?.version === 1
+      ? { ...parsed, lanDiscoveryAdvertised: parsed.lanDiscoveryAdvertised === true }
+      : null;
   } catch {
     return null;
   }
 }
 
 export function writePairingRuntimeSnapshot(
-  snapshot: Omit<PairingRuntimeSnapshot, "version"> | PairingRuntimeSnapshot,
+  snapshot:
+    | (Omit<PairingRuntimeSnapshot, "version" | "lanDiscoveryAdvertised">
+      & Partial<Pick<PairingRuntimeSnapshot, "lanDiscoveryAdvertised">>)
+    | PairingRuntimeSnapshot,
 ): PairingRuntimeSnapshot {
   const { rootDir, runtimeStatePath } = pairingPaths();
   mkdirSync(rootDir, { recursive: true });
   const fullSnapshot: PairingRuntimeSnapshot = {
     version: 1,
     ...snapshot,
+    lanDiscoveryAdvertised: snapshot.lanDiscoveryAdvertised === true,
   };
   writeJsonAtomically(runtimeStatePath, fullSnapshot);
   return fullSnapshot;
@@ -162,6 +169,7 @@ export function createPairingRuntimeSnapshot(
     connectedPeerFingerprint: patch.connectedPeerFingerprint,
     relay: patch.relay,
     secure: config.secure,
+    lanDiscoveryAdvertised: false,
     workspaceRoot: config.workspaceRoot,
     sessionCount: config.sessions.length,
     identityFingerprint: bytesToHex(identity.publicKey).slice(0, 16),

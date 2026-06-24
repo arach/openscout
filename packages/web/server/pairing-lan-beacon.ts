@@ -1,19 +1,12 @@
 // Always-on LAN discovery beacon.
 //
-// A Scout Mac only advertises `_oscout-pair._tcp` while pair mode is actively
-// running (the pairing runtime controller owns that advert, carrying the live
-// relay port + fallbacks). That means a Mac sitting idle is invisible to the
-// iOS "On your network" list, so the only way to pair is to first start pair
-// mode by hand on the Mac.
-//
-// This beacon closes that gap: whenever the web server is up and an identity
-// exists, it advertises the same `_oscout-pair._tcp` service carrying the Mac's
-// public key, so every Scout Mac shows up for discovery. Tapping it hits the
-// `/pair` endpoint, which now registers an approval-gated request rather than
-// 404ing. To avoid two advertisers fighting over the same service instance, the
-// beacon stands down whenever pair mode is running (the controller's advert,
-// which also carries reconnection fallbacks, takes over) and resumes when it
-// stops.
+// Whenever the web server is up and an identity exists, it advertises
+// `_oscout-pair._tcp` with the Mac's public key and web port so iOS can show
+// the Mac in "On your network" and call `/pair` for the approval-gated flow.
+// The pairing runtime controller may also advertise while it owns a local
+// managed relay; in that one case this beacon stands down to avoid duplicate
+// service instances. Remote relay / OSN pair mode still needs this beacon
+// because the controller has no LAN relay service to advertise.
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { resolvedPairingConfig } from "./core/pairing/runtime/config.ts";
@@ -29,11 +22,12 @@ export interface ScoutPairLanBeacon {
  * Start the discovery beacon. Returns null when it can't run (non-darwin, no
  * `dns-sd`, or no identity yet) — callers treat that as a no-op.
  *
- * @param isPairModeRunning  Cheap predicate the beacon polls to decide whether
- *   to stand down in favour of the controller's own advert.
+ * @param shouldSuppressBeacon  Cheap predicate the beacon polls to decide
+ *   whether another local LAN advert already represents this Mac.
  */
 export function startScoutPairLanBeacon(
-  isPairModeRunning: () => boolean | Promise<boolean>,
+  shouldSuppressBeacon: () => boolean | Promise<boolean>,
+  options: { webPort?: number } = {},
 ): ScoutPairLanBeacon | null {
   if (process.platform !== "darwin") return null;
   if (process.env.OPENSCOUT_LAN_BEACON_ENABLED === "0") return null;
@@ -43,6 +37,7 @@ export function startScoutPairLanBeacon(
 
   const fingerprint = publicKeyHex.slice(0, 16);
   const relayPort = resolvedPairingConfig().port + 1;
+  const webPort = normalizeWebPort(options.webPort);
 
   let advert: ChildProcess | null = null;
   let stopped = false;
@@ -67,6 +62,7 @@ export function startScoutPairLanBeacon(
         `fp=${fingerprint}`,
         "scheme=ws",
         "mode=discovery",
+        ...(webPort === null ? [] : [`webPort=${webPort}`]),
       ],
       { stdio: "ignore" },
     );
@@ -89,8 +85,7 @@ export function startScoutPairLanBeacon(
     if (stopped || reconciling) return;
     reconciling = true;
     try {
-      const running = await isPairModeRunning();
-      if (running) {
+      if (await shouldSuppressBeacon()) {
         stopAdvert();
       } else {
         startAdvert();
@@ -114,4 +109,10 @@ export function startScoutPairLanBeacon(
       stopAdvert();
     },
   };
+}
+
+function normalizeWebPort(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65_535
+    ? value
+    : null;
 }

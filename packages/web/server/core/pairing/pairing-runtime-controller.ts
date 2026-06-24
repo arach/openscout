@@ -428,6 +428,7 @@ function writeCurrent(
     ...overrides,
     pid: process.pid,
     childPid: patch.childPid ?? state.current.childPid ?? null,
+    lanDiscoveryAdvertised: state.bonjour !== null,
     updatedAt: Date.now(),
   });
 }
