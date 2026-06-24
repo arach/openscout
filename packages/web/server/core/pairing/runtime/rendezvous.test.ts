@@ -53,6 +53,7 @@ function makeSnapshot(): PairingRuntimeSnapshot {
     connectedPeerFingerprint: null,
     relay: "wss://mesh.oscout.net/v1/relay",
     secure: true,
+    lanDiscoveryAdvertised: false,
     workspaceRoot: null,
     sessionCount: 0,
     identityFingerprint: "aaaaaaaaaaaaaaaa",

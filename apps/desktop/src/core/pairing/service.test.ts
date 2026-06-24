@@ -33,6 +33,7 @@ describe("pairing service", () => {
         connectedPeerFingerprint: "abcd1234",
         relay: "wss://relay.test",
         secure: true,
+        lanDiscoveryAdvertised: false,
         workspaceRoot: "/workspace",
         sessionCount: 2,
         identityFingerprint: "localfprint1234",

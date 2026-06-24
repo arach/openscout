@@ -120,6 +120,7 @@ export type ScoutPairingRuntimeSnapshot = {
   connectedPeerFingerprint: string | null;
   relay: string | null;
   secure: boolean;
+  lanDiscoveryAdvertised?: boolean;
   workspaceRoot: string | null;
   sessionCount: number;
   identityFingerprint: string | null;
@@ -143,6 +144,7 @@ export type ScoutPairingState = {
   relay: string | null;
   configuredRelay: string | null;
   secure: boolean;
+  lanDiscoveryAdvertised: boolean;
   workspaceRoot: string | null;
   sessionCount: number;
   identityFingerprint: string | null;
@@ -714,6 +716,7 @@ function pairingStateFromRuntime(
     relay,
     configuredRelay: resolvedConfig.relay,
     secure: snapshot.secure,
+    lanDiscoveryAdvertised: snapshot.lanDiscoveryAdvertised === true,
     workspaceRoot: effectiveWorkspaceRoot,
     sessionCount: snapshot.sessionCount,
     identityFingerprint: snapshot.identityFingerprint,
@@ -755,6 +758,7 @@ function pairingStateFromConfig(
     relay: resolvedConfig.relay,
     configuredRelay: resolvedConfig.relay,
     secure: resolvedConfig.secure,
+    lanDiscoveryAdvertised: false,
     workspaceRoot: effectiveWorkspaceRoot,
     sessionCount: resolvedConfig.sessions.length,
     identityFingerprint: readScoutPairingIdentityFingerprint(paths.identityPath),
