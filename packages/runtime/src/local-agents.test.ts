@@ -19,6 +19,7 @@ import {
   brokerSnapshotMessages,
   loadRegisteredLocalAgentBindings,
   normalizeClaudeRuntimeLaunchArgs,
+  normalizeGrokRuntimeLaunchArgs,
   normalizeLocalAgentSystemPrompt,
   renderLocalAgentSystemPromptTemplate,
   resolveLocalAgentContextWindowUsage,
@@ -209,6 +210,7 @@ describe("local agent prompts", () => {
     expect(SUPPORTED_SCOUT_HARNESSES).toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).not.toContain("flue");
     expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("pi");
+    expect(SUPPORTED_LOCAL_AGENT_HARNESSES).toContain("grok");
   });
 
   test("hydrates persisted Codex thread ids onto local endpoint metadata", async () => {
@@ -673,6 +675,33 @@ describe("local agent prompts", () => {
       "Read,Grep",
       "--model",
       "sonnet",
+    ]);
+  });
+
+  test("grok runtime launch args preapprove Scout MCP coordination tools", () => {
+    const args = normalizeGrokRuntimeLaunchArgs(["--model", "grok-4.3"]);
+
+    expect(args).toEqual([
+      "--model",
+      "grok-4.3",
+      "--allowedTools",
+      DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+    ]);
+  });
+
+  test("grok runtime launch args preserve explicit allow rules", () => {
+    const args = normalizeGrokRuntimeLaunchArgs([
+      "--allow",
+      "Read",
+      "--model",
+      "grok-4.3",
+    ]);
+
+    expect(args).toEqual([
+      "--allow",
+      "Read",
+      "--model",
+      "grok-4.3",
     ]);
   });
 });

@@ -29,6 +29,7 @@ export type AgentCapability =
 export type AgentHarness =
   | "codex"
   | "claude"
+  | "grok"
   | "flue"
   | "cursor"
   | "native"

@@ -59,6 +59,7 @@ import {
   ensureRelayAgentConfigured,
   findNearestProjectRoot,
   loadResolvedRelayAgents,
+  MANAGED_AGENT_HARNESSES,
   type ManagedAgentHarness,
   type OpenScoutProjectConfig,
   readProjectConfig,
@@ -434,7 +435,7 @@ function titleCaseLocalAgentName(value: string): string {
     .join(" ");
 }
 
-export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "pi"];
+export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
   "flue",
@@ -898,7 +899,7 @@ function normalizeTmuxSessionName(value: string | undefined, agentId: string): s
 }
 
 function normalizeLocalAgentHarness(value: string | undefined): AgentHarness {
-  if (value === "codex" || value === "claude" || value === "pi") {
+  if (value === "codex" || value === "claude" || value === "grok" || value === "pi") {
     return value;
   }
   return DEFAULT_LOCAL_AGENT_HARNESS;
@@ -984,9 +985,33 @@ function hasClaudeAllowedToolsArg(launchArgs: string[]): boolean {
   );
 }
 
+function hasGrokAllowedToolsArg(launchArgs: string[]): boolean {
+  return launchArgs.some((arg) =>
+    arg === "--allow"
+    || arg === "--allowedTools"
+    || arg === "--allowed-tools"
+    || arg.startsWith("--allow=")
+    || arg.startsWith("--allowedTools=")
+    || arg.startsWith("--allowed-tools=")
+  );
+}
+
 export function normalizeClaudeRuntimeLaunchArgs(value: unknown): string[] {
   const launchArgs = normalizeLocalAgentLaunchArgs(value);
   if (hasClaudeAllowedToolsArg(launchArgs)) {
+    return launchArgs;
+  }
+
+  return [
+    ...launchArgs,
+    "--allowedTools",
+    DEFAULT_CLAUDE_SCOUT_ALLOWED_TOOLS.join(","),
+  ];
+}
+
+export function normalizeGrokRuntimeLaunchArgs(value: unknown): string[] {
+  const launchArgs = normalizeLocalAgentLaunchArgs(value);
+  if (hasGrokAllowedToolsArg(launchArgs)) {
     return launchArgs;
   }
 
@@ -1005,7 +1030,7 @@ function normalizeRequestedModel(value: string | undefined): string | undefined 
 function readClaudeLaunchModel(launchArgs: string[]): string | undefined {
   for (let index = 0; index < launchArgs.length; index += 1) {
     const current = launchArgs[index] ?? "";
-    if (current === "--model") {
+    if (current === "--model" || current === "-m") {
       const next = launchArgs[index + 1]?.trim();
       return next || undefined;
     }
@@ -1039,6 +1064,12 @@ function normalizeLaunchArgsForHarness(harness: AgentHarness, value: unknown): s
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(normalized);
   }
+  if (harness === "claude") {
+    return normalizeClaudeRuntimeLaunchArgs(normalized);
+  }
+  if (harness === "grok") {
+    return normalizeGrokRuntimeLaunchArgs(normalized);
+  }
   return normalized;
 }
 
@@ -1046,7 +1077,7 @@ function readLaunchModelForHarness(harness: AgentHarness, launchArgs: string[] |
   if (harness === "codex") {
     return readCodexAppServerModelFromLaunchArgs(launchArgs) ?? undefined;
   }
-  if (harness === "claude") {
+  if (harness === "claude" || harness === "grok") {
     return readClaudeLaunchModel(launchArgs ?? []);
   }
   if (harness === "pi") {
@@ -1091,12 +1122,12 @@ function stripLaunchModelForHarness(harness: AgentHarness, launchArgs: string[])
     return next;
   }
 
-  if (harness === "claude" || harness === "pi") {
+  if (harness === "claude" || harness === "grok" || harness === "pi") {
     const next: string[] = [];
     const normalized = normalizeLocalAgentLaunchArgs(launchArgs);
     for (let index = 0; index < normalized.length; index += 1) {
       const current = normalized[index] ?? "";
-      if (current === "--model") {
+      if (current === "--model" || current === "-m") {
         index += 1;
         continue;
       }
@@ -1136,7 +1167,7 @@ function buildLaunchArgsForRequestedModel(harness: AgentHarness, model: string):
   if (harness === "codex") {
     return normalizeCodexAppServerLaunchArgs(["--model", model]);
   }
-  if (harness === "claude") {
+  if (harness === "claude" || harness === "grok") {
     return ["--model", model];
   }
   if (harness === "pi") {
@@ -1225,6 +1256,9 @@ function buildLaunchArgsForRequestedReasoningEffort(harness: AgentHarness, reaso
   }
   if (harness === "pi") {
     return ["--thinking", reasoningEffort.trim().toLowerCase() === "none" ? "off" : reasoningEffort];
+  }
+  if (harness === "grok") {
+    return ["--reasoning-effort", reasoningEffort];
   }
   return [];
 }
@@ -1338,9 +1372,11 @@ function normalizeManagedHarness(value: string | undefined, fallback: ManagedAge
       ? "claude"
       : value === "cursor"
         ? "cursor"
-        : value === "pi"
-          ? "pi"
-          : fallback;
+        : value === "grok"
+          ? "grok"
+          : value === "pi"
+            ? "pi"
+            : fallback;
 }
 
 function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord): RelayHarnessProfiles {
@@ -1349,7 +1385,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
     "claude",
   );
   const nextProfiles: RelayHarnessProfiles = {};
-  for (const harness of ["claude", "codex", "cursor", "pi"] as const) {
+  for (const harness of MANAGED_AGENT_HARNESSES) {
     const profile = record.harnessProfiles?.[harness];
     if (!profile) {
       continue;
@@ -1384,7 +1420,7 @@ function normalizeLocalHarnessProfiles(agentId: string, record: LocalAgentRecord
     };
   }
 
-  for (const harness of ["claude", "codex", "cursor", "pi"] as const) {
+  for (const harness of MANAGED_AGENT_HARNESSES) {
     const profile = nextProfiles[harness];
     if (!profile) {
       continue;
@@ -2862,7 +2898,7 @@ export function buildTmuxDispatchStrategy(harness: AgentHarness, prompt: string)
   const promptAbsentFromTail = (paneTail: string) =>
     !tmuxPaneTailContainsPromptFragment(paneTail, prompt);
 
-  if (harness === "pi") {
+  if (harness === "pi" || harness === "grok") {
     return { submit: ["Enter"], verify: promptAbsentFromTail };
   }
   // Claude (and any future TUI harness without an explicit override). C-[ was
@@ -2971,15 +3007,16 @@ function captureTmuxPaneTail(sessionName: string, lines: number): string {
 }
 
 async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarness): Promise<void> {
-  if (harness !== "claude") {
+  if (harness !== "claude" && harness !== "grok") {
     return;
   }
 
+  const harnessLabel = harness === "grok" ? "Grok CLI" : "Claude Code";
   const deadline = Date.now() + TMUX_READY_TIMEOUT_MS;
   let paneTail = "";
   while (Date.now() < deadline) {
     if (!isLocalAgentSessionAlive(sessionName)) {
-      throw new Error(`tmux session ${sessionName} exited before Claude Code was ready.`);
+      throw new Error(`tmux session ${sessionName} exited before ${harnessLabel} was ready.`);
     }
 
     paneTail = captureTmuxPaneTail(sessionName, TMUX_READY_TAIL_LINES);
@@ -2992,7 +3029,7 @@ async function waitForTmuxHarnessReady(sessionName: string, harness: AgentHarnes
 
   const tail = stripTerminalControlSequences(paneTail).trim().split(/\r?\n/).slice(-20).join("\n").trim();
   throw new Error(
-    `tmux session ${sessionName} did not show a ready Claude Code composer within ${TMUX_READY_TIMEOUT_MS}ms.`
+    `tmux session ${sessionName} did not show a ready ${harnessLabel} composer within ${TMUX_READY_TIMEOUT_MS}ms.`
       + (tail ? `\nRecent pane tail:\n${tail}` : ""),
   );
 }
@@ -3128,7 +3165,7 @@ function isTmuxComposerBoundary(line: string): boolean {
     return true;
   }
   return /^--\s*(?:INSERT|NORMAL)\s*--/.test(trimmed)
-    || /^(?:Opus|Sonnet|Haiku|Claude|Codex|GPT)\b/.test(trimmed);
+    || /^(?:Opus|Sonnet|Haiku|Claude|Codex|GPT|Grok)\b/.test(trimmed);
 }
 
 function tmuxPaneTailShowsHarnessActivity(paneTail: string): boolean {
@@ -3154,7 +3191,9 @@ function buildLocalAgentLaunchCommand(
   const extraArgs = shellQuoteArguments(
     harness === "claude"
       ? normalizeClaudeRuntimeLaunchArgs(record.launchArgs)
-      : normalizeLaunchArgsForHarness(harness, record.launchArgs),
+      : harness === "grok"
+        ? normalizeGrokRuntimeLaunchArgs(record.launchArgs)
+        : normalizeLaunchArgsForHarness(harness, record.launchArgs),
   );
   if (harness === "codex") {
     return `exec bash ${JSON.stringify(workerScript ?? join(relayAgentRuntimeDirectory(agentName), "codex-worker.sh"))}`;
@@ -3167,6 +3206,18 @@ function buildLocalAgentLaunchCommand(
       `--append-system-prompt "$(cat ${JSON.stringify(promptFile)})"`,
       "--session-dir",
       JSON.stringify(sessionDir),
+      extraArgs,
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+
+  if (harness === "grok") {
+    return [
+      "grok",
+      `--system-prompt-override "$(cat ${JSON.stringify(promptFile)})"`,
+      "--agent",
+      JSON.stringify(`${agentName}-relay-agent`),
       extraArgs,
     ]
       .filter(Boolean)
@@ -3342,6 +3393,10 @@ export function areHarnessBinariesAvailable(record: Pick<LocalAgentRecord, "harn
 
   if (record.transport === "claude_stream_json" || (record.transport === "tmux" && harness === "claude")) {
     binaries.add("claude");
+  }
+
+  if (record.transport === "tmux" && harness === "grok") {
+    binaries.add("grok");
   }
 
   if (record.transport === "pi_rpc" || (record.transport === "tmux" && harness === "pi")) {

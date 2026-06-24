@@ -382,7 +382,7 @@ export function parseSetupCommandOptions(
     }
     if (current === "--default-harness" || current.startsWith("--default-harness=")) {
       const value = parseFlagValue(parsed.args, index, "--default-harness");
-      if (!["claude", "codex", "cursor", "pi"].includes(value.value)) {
+      if (!["claude", "codex", "cursor", "grok", "pi"].includes(value.value)) {
         throw new ScoutCliError(`invalid default harness: ${value.value}`);
       }
       defaultHarness = value.value;
