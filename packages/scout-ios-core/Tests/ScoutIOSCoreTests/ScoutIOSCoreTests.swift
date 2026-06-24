@@ -240,6 +240,28 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertFalse(isTailscaleRouteNetworkFailure(URLError(.badServerResponse)))
     }
 
+    func testQRPayloadCarriesScoutWebPort() throws {
+        let key = String(repeating: "a", count: 64)
+        let json = """
+        {
+          "v": 1,
+          "relay": "ws://mac.tailnet.ts.net:7889",
+          "room": "room-a",
+          "publicKey": "\(key)",
+          "expiresAt": 70000,
+          "webPort": 4311
+        }
+        """
+
+        let payload = try QRPayload.parse(from: json)
+        let linkPayload = try QRPayload.parse(
+            fromLink: "scout://pair?relay=ws://mac.tailnet.ts.net:7889&room=room-a&publicKey=\(key)&expiresAt=70000&webPort=4311"
+        )
+
+        XCTAssertEqual(payload.webPort, 4311)
+        XCTAssertEqual(linkPayload.webPort, 4311)
+    }
+
     @MainActor
     func testPinnedConnectionReadsOnlyItsBridgeConnectionInfo() {
         let defaults = makeDefaults()
@@ -363,7 +385,8 @@ final class ScoutIOSCoreTests: XCTestCase {
                 fallbackRelays: ["wss://mac.tailnet.ts.net:7889"],
                 room: "osn-room",
                 publicKey: key,
-                expiresAt: 70_000
+                expiresAt: 70_000,
+                webPort: 4311
             ),
             promoteActive: true,
             userDefaults: defaults
@@ -373,6 +396,7 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(refreshed?.relayURL, "wss://mesh.oscout.net/v1/relay")
         XCTAssertEqual(refreshed?.roomId, "osn-room")
         XCTAssertEqual(refreshed?.fallbackRelayURLs, ["wss://mac.tailnet.ts.net:7889"])
+        XCTAssertEqual(refreshed?.webPort, 4311)
         XCTAssertEqual(BridgeConnectionInfo.activePublicKeyHex(userDefaults: defaults), key)
     }
 

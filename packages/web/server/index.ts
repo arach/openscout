@@ -118,6 +118,7 @@ const web = await createOpenScoutWebServer({
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,
   staticRoot,
+  webPort: port,
   advertisedHost: applicationServerIdentity.advertisedHost,
   portalHost: applicationServerIdentity.portalHost,
   publicOrigin: applicationServerIdentity.publicOrigin,

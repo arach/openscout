@@ -34,6 +34,9 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
     /// route preferences. This is a settings/status summary, not a reachability probe.
     public var savedRouteSummary: BridgeRouteSummary { connection.savedRouteSummary() }
 
+    /// Scout web HTTP port learned from the active trusted bridge pairing payload.
+    public var savedWebPort: Int? { connection.savedWebPort() }
+
     public var isConnected: Bool { connection.isConnected }
 
     /// Public-key hex this client is pinned to, if any.
@@ -84,7 +87,8 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             relayURL: qrPayload.relay,
             roomId: qrPayload.room,
             publicKeyHex: qrPayload.publicKey,
-            fallbackRelayURLs: qrPayload.fallbackRelays ?? []
+            fallbackRelayURLs: qrPayload.fallbackRelays ?? [],
+            webPort: qrPayload.webPort
         )
         info.save(userDefaults: userDefaults, promoteActive: promoteActive)
     }
@@ -344,6 +348,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             hostKeyFingerprint: wire.hostKeyFingerprint
         )
     }
+
+    public func mobileMeshStatus() async throws -> MobileMeshStatusResponse {
+        try await connection.rpc("mobile/mesh/status", params: nil)
+    }
 }
 
 func mobilePromptSendParams(_ prompt: PromptSpec, clientMessageId: String? = nil) -> MobileCommsSendParams {
@@ -471,6 +479,24 @@ struct MobileTerminalProvisionResult: Codable, Sendable {
     let port: Int
     let username: String
     let hostKeyFingerprint: String?
+}
+
+public struct MobileMeshStatusResponse: Codable, Sendable {
+    public let tailscale: MobileMeshTailscale?
+}
+
+public struct MobileMeshTailscale: Codable, Sendable {
+    public let peers: [MobileMeshTailnetPeer]
+}
+
+public struct MobileMeshTailnetPeer: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let dnsName: String?
+    public let hostName: String?
+    public let addresses: [String]
+    public let online: Bool
+    public let os: String?
 }
 
 // MARK: - Listing wire shapes → contract summaries (best-effort mapping)

@@ -107,6 +107,7 @@ final class AppModel {
         let fingerprint: String
         let hostName: String      // resolved, e.g. "arts-mac-mini.local"
         let relayPort: Int
+        let webPort: Int?
 
         var displayName: String { AppModel.prettyMachineName(hostName) }
         var detail: String { "on your network · \(hostName)" }
@@ -731,6 +732,37 @@ final class AppModel {
         logTailnetPair("Starting Tailnet discovery", level: .info)
         defer { isRefreshingTailnetPairTargets = false }
 
+        if fleet.focusedClient.isConnected {
+            do {
+                let mesh = try await loadTailnetMeshStatusFromConnectedBridge()
+                let targets = tailnetTargets(from: mesh)
+                tailnetPairTargets = targets
+                tailnetPairDiscoveryOrigin = "connected Mac"
+                logTailnetPair(
+                    "Found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via connected Mac",
+                    level: targets.isEmpty ? .warning : .success
+                )
+                connectionLog.log(
+                    "Tailnet repair found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via connected Mac over \(fleet.focusedClient.currentRoute.label)",
+                    event: .network,
+                    level: .info,
+                    route: .tailnet
+                )
+                return
+            } catch {
+                logTailnetPair(
+                    "Connected Mac mesh read failed: \(Self.compactError(error)); trying web origins",
+                    level: .warning
+                )
+                connectionLog.log(
+                    "Tailnet repair bridge mesh read failed; trying direct web origins: \(error.localizedDescription)",
+                    event: .network,
+                    level: .warning,
+                    route: .tailnet
+                )
+            }
+        }
+
         do {
             let (mesh, origin) = try await loadTailnetMeshStatus()
             let targets = tailnetTargets(from: mesh, preferredOrigin: origin.origin)
@@ -813,7 +845,8 @@ final class AppModel {
                 publicKeyHex: $0.publicKeyHex,
                 fingerprint: $0.fingerprint,
                 hostName: $0.hostName,
-                relayPort: $0.relayPort
+                relayPort: $0.relayPort,
+                webPort: $0.webPort
             )
         }
         connectionLog.log(
@@ -844,8 +877,9 @@ final class AppModel {
         // connecting → connected with no transient failure flicker; fall back to
         // the bare-port / https variants only if that misses.
         let host = Self.cleanTailnetHost(target.hostName) ?? target.hostName
-        let preferred = scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort)
-        let candidates = ([preferred].compactMap { $0 }) + scoutWebOriginCandidates(host: host)
+        let preferredPort = Self.normalizedScoutWebPort(target.webPort)
+        let preferred = scoutWebOrigin(scheme: "http", host: host, port: preferredPort)
+        let candidates = ([preferred].compactMap { $0 }) + scoutWebOriginCandidates(host: host, webPort: target.webPort)
         for origin in dedupeURLs(candidates) {
             guard let url = scoutWebURL(
                 origin: origin,
@@ -1115,14 +1149,27 @@ final class AppModel {
         throw lastError ?? TailnetPairingError.noMeshEndpoint(host: origins.map(\.host).joined(separator: ", "))
     }
 
+    private func loadTailnetMeshStatusFromConnectedBridge() async throws -> MobileMeshStatusResponse {
+        guard fleet.focusedClient.isConnected else {
+            throw TailnetPairingError.noMeshOrigin
+        }
+
+        logTailnetPair(
+            "Reading mesh status from connected Mac over \(fleet.focusedClient.currentRoute.label)",
+            level: .info
+        )
+        return try await fleet.focusedClient.mobileMeshStatus()
+    }
+
     private func tailnetMeshOriginCandidates() -> [TailnetMeshOriginCandidate] {
         var candidates: [TailnetMeshOriginCandidate] = []
+        let webPort = fleet.focusedClient.savedWebPort
 
         func appendHost(_ rawHost: String?, source: String, route: TransportKind? = nil) {
             guard let host = Self.cleanTailnetHost(rawHost) else { return }
             let resolvedRoute = route ?? classifyTransport(host: host)
             guard resolvedRoute != .oscout else { return }
-            for origin in scoutWebOriginCandidates(host: host) {
+            for origin in scoutWebOriginCandidates(host: host, webPort: webPort) {
                 candidates.append(TailnetMeshOriginCandidate(origin: origin, source: source, route: resolvedRoute))
             }
         }
@@ -1152,20 +1199,16 @@ final class AppModel {
     private func tailnetTargets(from mesh: TailnetMeshStatusResponse, preferredOrigin: URL) -> [TailnetPairTarget] {
         (mesh.tailscale?.peers ?? [])
             .compactMap { peer -> TailnetPairTarget? in
-                guard let dnsName = Self.cleanTailnetHost(peer.dnsName) else { return nil }
-                let pairLinks = scoutWebOriginCandidates(host: dnsName, preferredOrigin: preferredOrigin)
-                    .compactMap { scoutWebURL(origin: $0, path: Self.scoutWebPairPath, queryItems: [
-                        URLQueryItem(name: "route", value: "tsn")
-                    ])?.absoluteString }
-                return TailnetPairTarget(
+                tailnetTarget(
                     id: peer.id,
                     name: peer.name,
-                    dnsName: dnsName,
+                    dnsName: peer.dnsName,
                     hostName: peer.hostName,
                     addresses: peer.addresses,
                     isOnline: peer.online,
                     os: peer.os,
-                    pairLinks: pairLinks
+                    preferredOrigin: preferredOrigin,
+                    webPort: fleet.focusedClient.savedWebPort
                 )
             }
             .sorted { a, b in
@@ -1174,22 +1217,77 @@ final class AppModel {
             }
     }
 
-    private func scoutWebOriginCandidates(host: String, preferredOrigin: URL? = nil) -> [URL] {
+    private func tailnetTargets(from mesh: MobileMeshStatusResponse) -> [TailnetPairTarget] {
+        (mesh.tailscale?.peers ?? [])
+            .compactMap { peer -> TailnetPairTarget? in
+                tailnetTarget(
+                    id: peer.id,
+                    name: peer.name,
+                    dnsName: peer.dnsName,
+                    hostName: peer.hostName,
+                    addresses: peer.addresses,
+                    isOnline: peer.online,
+                    os: peer.os,
+                    preferredOrigin: nil,
+                    webPort: fleet.focusedClient.savedWebPort
+                )
+            }
+            .sorted { a, b in
+                if a.isOnline != b.isOnline { return a.isOnline && !b.isOnline }
+                return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+    }
+
+    private func tailnetTarget(
+        id: String,
+        name: String,
+        dnsName rawDNSName: String?,
+        hostName: String?,
+        addresses: [String],
+        isOnline: Bool,
+        os: String?,
+        preferredOrigin: URL?,
+        webPort: Int?
+    ) -> TailnetPairTarget? {
+        guard let dnsName = Self.cleanTailnetHost(rawDNSName) else { return nil }
+        let pairLinks = scoutWebOriginCandidates(host: dnsName, preferredOrigin: preferredOrigin, webPort: webPort)
+            .compactMap { scoutWebURL(origin: $0, path: Self.scoutWebPairPath, queryItems: [
+                URLQueryItem(name: "route", value: "tsn")
+            ])?.absoluteString }
+        return TailnetPairTarget(
+            id: id,
+            name: name,
+            dnsName: dnsName,
+            hostName: hostName,
+            addresses: addresses,
+            isOnline: isOnline,
+            os: os,
+            pairLinks: pairLinks
+        )
+    }
+
+    private func scoutWebOriginCandidates(host: String, preferredOrigin: URL? = nil, webPort: Int? = nil) -> [URL] {
         var candidates: [URL] = []
+        let resolvedWebPort = Self.normalizedScoutWebPort(webPort)
         if let preferredOrigin,
            let scheme = preferredOrigin.scheme {
             candidates.append(contentsOf: [
                 scoutWebOrigin(scheme: scheme, host: host, port: preferredOrigin.port),
-                scoutWebOrigin(scheme: scheme, host: host, port: Self.defaultScoutWebPort),
+                scoutWebOrigin(scheme: scheme, host: host, port: resolvedWebPort),
             ].compactMap { $0 })
         }
         candidates.append(contentsOf: [
-            scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort),
-            scoutWebOrigin(scheme: "https", host: host, port: Self.defaultScoutWebPort),
+            scoutWebOrigin(scheme: "http", host: host, port: resolvedWebPort),
+            scoutWebOrigin(scheme: "https", host: host, port: resolvedWebPort),
             scoutWebOrigin(scheme: "http", host: host, port: nil),
             scoutWebOrigin(scheme: "https", host: host, port: nil),
         ].compactMap { $0 })
         return dedupeURLs(candidates)
+    }
+
+    private static func normalizedScoutWebPort(_ port: Int?) -> Int {
+        guard let port, (1...65_535).contains(port) else { return defaultScoutWebPort }
+        return port
     }
 
     private func scoutWebOrigin(scheme: String, host: String, port: Int?) -> URL? {

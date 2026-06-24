@@ -389,6 +389,7 @@ export type CreateOpenScoutWebServerOptions = {
   assetMode: ScoutWebAssetMode;
   viteDevUrl?: string;
   staticRoot?: string;
+  webPort?: number;
   publicOrigin?: string;
   portalHost?: string;
   advertisedHost?: string;
@@ -412,6 +413,32 @@ export type CreateOpenScoutWebServerOptions = {
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
   repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
 };
+
+function pairingQrValueWithWebPort(
+  qrValue: string | null | undefined,
+  webPort: number | undefined,
+): string | undefined {
+  const payload = typeof qrValue === "string" ? qrValue.trim() : "";
+  if (!payload) return undefined;
+  const normalizedWebPort = normalizePairingWebPort(webPort);
+  if (normalizedWebPort === null) return qrValue ?? undefined;
+
+  try {
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return qrValue ?? undefined;
+    }
+    return JSON.stringify({ ...parsed, webPort: normalizedWebPort });
+  } catch {
+    return qrValue ?? undefined;
+  }
+}
+
+function normalizePairingWebPort(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65_535
+    ? value
+    : null;
+}
 
 const REPO_DIFF_VIEWER_LIMITS: NonNullable<RepoDiffSnapshotOptions["limits"]> = {
   timeoutMs: 15_000,
@@ -4388,7 +4415,7 @@ export async function createOpenScoutWebServer(
     } catch {
       return false;
     }
-  });
+  }, { webPort: options.webPort });
   const routes = resolveOpenScoutWebRoutes(process.env);
   ensureOpenScoutVoxOrigins();
   startGlobalHeuristicsWatcher();
@@ -5040,7 +5067,7 @@ export async function createOpenScoutWebServer(
     state: ScoutPairingState,
     route: string | null,
   ): string | null => {
-    const links = pairingDeepLinks(state.pairing?.qrValue);
+    const links = pairingDeepLinks(pairingQrValueWithWebPort(state.pairing?.qrValue, options.webPort));
     return route === "lan"
       ? links.lan ?? links.default
       : route === "ts" || route === "tsn" || route === "tailnet"

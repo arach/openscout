@@ -43,6 +43,7 @@ final class BridgeBrokerClientTests: XCTestCase {
     func testRouteMapCoversCapabilityMethods() {
         for method in [
             "mobile/sessions", "mobile/agents", "mobile/session/snapshot",
+            "mobile/mesh/status",
             "mobile/message/send", "mobile/comms/send", "mobile/session/create",
             "question/answer", "action/decide", "turn/interrupt",
         ] {

@@ -34,6 +34,7 @@ export interface ScoutPairLanBeacon {
  */
 export function startScoutPairLanBeacon(
   isPairModeRunning: () => boolean | Promise<boolean>,
+  options: { webPort?: number } = {},
 ): ScoutPairLanBeacon | null {
   if (process.platform !== "darwin") return null;
   if (process.env.OPENSCOUT_LAN_BEACON_ENABLED === "0") return null;
@@ -43,6 +44,7 @@ export function startScoutPairLanBeacon(
 
   const fingerprint = publicKeyHex.slice(0, 16);
   const relayPort = resolvedPairingConfig().port + 1;
+  const webPort = normalizeWebPort(options.webPort);
 
   let advert: ChildProcess | null = null;
   let stopped = false;
@@ -67,6 +69,7 @@ export function startScoutPairLanBeacon(
         `fp=${fingerprint}`,
         "scheme=ws",
         "mode=discovery",
+        ...(webPort === null ? [] : [`webPort=${webPort}`]),
       ],
       { stdio: "ignore" },
     );
@@ -114,4 +117,10 @@ export function startScoutPairLanBeacon(
       stopAdvert();
     },
   };
+}
+
+function normalizeWebPort(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 65_535
+    ? value
+    : null;
 }

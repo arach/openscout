@@ -12,15 +12,17 @@ public struct DiscoveredScoutMac: Sendable, Equatable, Identifiable {
     public let fingerprint: String
     public let hostName: String
     public let relayPort: Int
+    public let webPort: Int?
     public let scheme: String
 
     public var id: String { publicKeyHex }
 
-    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, scheme: String) {
+    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, webPort: Int? = nil, scheme: String) {
         self.publicKeyHex = publicKeyHex
         self.fingerprint = fingerprint
         self.hostName = hostName
         self.relayPort = relayPort
+        self.webPort = webPort
         self.scheme = scheme
     }
 }
@@ -114,11 +116,13 @@ extension BonjourMacDiscovery: NetServiceBrowserDelegate, NetServiceDelegate {
 
         let fingerprint = txt["fp"]?.trimmedNonEmpty ?? String(publicKey.prefix(16))
         let scheme = txt["scheme"] == "wss" ? "wss" : "ws"
+        let webPort = txt["webPort"].flatMap(Int.init)
         let mac = DiscoveredScoutMac(
             publicKeyHex: publicKey,
             fingerprint: fingerprint,
             hostName: Self.normalizedHostName(host),
             relayPort: sender.port,
+            webPort: webPort,
             scheme: scheme
         )
         // Key by public key so a Mac advertised on multiple interfaces collapses

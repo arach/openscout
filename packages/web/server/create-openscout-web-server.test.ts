@@ -1946,6 +1946,46 @@ describe("createOpenScoutWebServer", () => {
     expect(tailnet.headers.get("location")).toBe(`scout://pair?payload=${encodeURIComponent(JSON.stringify(tailnetPayload))}`);
   });
 
+  test("adds the actual web port to pairing deep-link payloads", async () => {
+    const lanPayload = {
+      v: 1,
+      relay: "ws://192.168.18.14:7889",
+      fallbackRelays: ["ws://mac.tailnet.ts.net:7889"],
+      room: "room-1",
+      publicKey: "a".repeat(64),
+      expiresAt: 1_780_958_228_426,
+    };
+    pairingStateResult = makePairingState({
+      pairing: {
+        relay: lanPayload.relay,
+        fallbackRelays: lanPayload.fallbackRelays,
+        room: lanPayload.room,
+        publicKey: lanPayload.publicKey,
+        expiresAt: lanPayload.expiresAt,
+        qrArt: "",
+        qrValue: JSON.stringify(lanPayload),
+      },
+    });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      webPort: 4311,
+    });
+
+    const response = await server.app.request("http://localhost/pair?route=tsn", {
+      redirect: "manual",
+    });
+    const location = response.headers.get("location");
+    const payload = JSON.parse(new URL(location ?? "").searchParams.get("payload") ?? "{}");
+
+    expect(response.status).toBe(302);
+    expect(payload).toMatchObject({
+      relay: "ws://mac.tailnet.ts.net:7889",
+      webPort: 4311,
+    });
+  });
+
   test("registers an approval request when remote pairing has no active payload", async () => {
     pairingStateResult = makePairingState({ pairing: null });
     const server = await createOpenScoutWebServer({
