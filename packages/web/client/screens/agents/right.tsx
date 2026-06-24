@@ -26,6 +26,7 @@ import type {
   FleetAsk,
   FleetState,
   ObserveData,
+  ObserveEvent,
   Route,
   SessionCatalogEntry,
   SessionCatalogWithResume,
@@ -192,10 +193,15 @@ export function AgentsInspector() {
   }
 
   // Directory-selection (master-detail): the center is still the directory, not
-  // this agent's profile, so the inspector owns identity — it renders the agent
-  // CARD (header + sessions). A tab means the center profile owns identity, so
-  // the rail narrows to the live instrument (no identity replay).
+  // this agent's profile, so the rail is the agent's SESSION card — a focused
+  // header + meta + session log + files touched, not the heavy identity panel.
   const directorySelection = Boolean(route.projectSlug && !route.tab);
+  if (directorySelection) {
+    return <AgentSessionInspector agent={agent} navigate={navigate} route={route} />;
+  }
+
+  // A tab means the center profile owns identity, so the rail narrows to the
+  // live instrument (no identity replay).
   return (
     <AgentContextPanel
       agent={agent}
@@ -203,8 +209,334 @@ export function AgentsInspector() {
       navigate={navigate}
       route={route}
       observeMode={route.tab === "observe"}
-      showStaticIdentity={directorySelection}
+      showStaticIdentity={false}
     />
+  );
+}
+
+// The session study leads each row with the WORK. Real sessions carry no crafted
+// work-title (title is just the agent name), so the closest real headline is the
+// last message — its preview, stripped of the [ask:…] routing prefix.
+function sessionHeadline(s: SessionEntry): string {
+  const preview = (s.preview ?? "")
+    .replace(/^\[ask:[^\]]+\]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (preview) return preview;
+  return s.title?.trim() || "Untitled session";
+}
+
+function observeLineText(e: ObserveEvent): string {
+  if (e.kind === "tool" && e.tool) {
+    const detail = (e.arg || e.text || "").trim();
+    return detail ? `${e.tool} ${detail}` : e.tool;
+  }
+  return (e.text || e.kind || "").trim();
+}
+
+/* Directory-selection rail — the agent's SESSION card. The center is still the
+   directory, so the name + state live here: a focused header, a context gauge +
+   meta strip, the recent session log, and the files it touched. Reads the live
+   /observe stream; no presence-mesh / capabilities dump. */
+function AgentSessionInspector({
+  agent,
+  navigate,
+  route,
+}: {
+  agent: Agent;
+  navigate: (r: Route) => void;
+  route: Route;
+}) {
+  const online = isAgentOnline(agent.state);
+  const [observe, setObserve] = useState<AgentObservePayload | null>(null);
+  const [catalog, setCatalog] = useState<SessionCatalogWithResume | null>(null);
+  const [conversations, setConversations] = useState<SessionEntry[] | null>(null);
+  const load = useCallback(async () => {
+    const [obs, cat, convos] = await Promise.all([
+      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agent.id)}/observe`).catch(() => null),
+      api<SessionCatalogWithResume>(
+        `/api/agents/${encodeURIComponent(agent.id)}/session-catalog`,
+      ).catch(() => null),
+      api<SessionEntry[]>(`/api/sessions`).catch(() => null),
+    ]);
+    setObserve(obs);
+    setCatalog(cat);
+    setConversations(convos);
+  }, [agent.id]);
+  useEffect(() => {
+    setObserve(null);
+    setCatalog(null);
+    setConversations(null);
+    void load();
+  }, [load]);
+  useBrokerEvents(() => {
+    void load();
+  });
+
+  const activeSessionId = resolveActiveSessionId(agent, catalog);
+  const sessions = sortSessionsByRecency(catalog?.sessions ?? [], activeSessionId);
+  // The titled work-units for this agent (the session study's "session" — a unit
+  // of work with a headline). These join to the harness runtime sessions above
+  // via harnessSessionId; the work title is what leads the row.
+  const agentSessions = (conversations ?? [])
+    .filter((s) => s.agentId === agent.id)
+    .slice()
+    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+  const usage = observe?.data.metadata?.usage ?? null;
+  const events = observe?.data.events ?? [];
+  const files = observe?.data.files ?? [];
+  const ctxPct = (() => {
+    const win = usage?.contextWindowTokens ?? 0;
+    const used = usage?.contextInputTokens ?? 0;
+    if (!win || win <= 0 || used <= 0) return null;
+    return Math.min(100, Math.max(0, Math.round((used / win) * 100)));
+  })();
+  const toolCount = (() => {
+    const kinds = new Set<string>();
+    for (const e of events) if (e.kind === "tool" && e.tool) kinds.add(e.tool.toLowerCase());
+    return kinds.size;
+  })();
+  const logLines = events.slice(-7).map((e) => ({
+    t: e.at ? timeAgo(e.at) : "",
+    text: observeLineText(e),
+    kind: e.kind,
+  }));
+
+  const handle = agent.handle?.trim();
+  const branch = agent.branch?.trim();
+  const model = agent.model?.trim();
+
+  const openProfile = () => openAgent(navigate, agent, { from: "inspector", returnTo: route });
+  const takeover = () =>
+    openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto frame-scrollbar p-4 gap-4 text-[11px]">
+      {/* header — the agent card: name + state live here (center is the directory) */}
+      <div className="flex items-start gap-3 border-b border-[var(--scout-chrome-border-soft)] pb-3.5">
+        <AgentAvatar agent={agent} placement="inspector" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-[13px] text-[var(--scout-chrome-ink-strong)]">{agent.name}</span>
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ background: stateColor(agent.state), opacity: online ? 1 : 0.4 }}
+            />
+            <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--scout-chrome-ink-faint)]">
+              {agentStateLabel(agent.state)}{agent.updatedAt ? ` · ${timeAgo(agent.updatedAt)}` : ""}
+            </span>
+          </div>
+          {(handle || branch) && (
+            <span className="truncate font-mono text-[9.5px] text-[var(--scout-chrome-ink-ghost)]">
+              {handle ? `@${handle}` : ""}{handle && branch ? " · " : ""}{branch ?? ""}{model ? ` · ${model}` : ""}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* primary actions */}
+      <div className="flex gap-1.5">
+        <button
+          type="button"
+          onClick={openProfile}
+          className="rounded-[5px] border border-[color-mix(in_srgb,var(--accent)_55%,transparent)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.1em] text-[var(--accent)] transition-colors hover:bg-[color-mix(in_srgb,var(--accent)_10%,transparent)]"
+        >
+          Open ↗
+        </button>
+        <button
+          type="button"
+          onClick={takeover}
+          className="rounded-[5px] border border-[var(--scout-chrome-border-soft)] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--scout-chrome-ink-soft)] transition-colors hover:bg-[var(--scout-chrome-active)] hover:text-[var(--scout-chrome-ink)]"
+        >
+          Take over
+        </button>
+      </div>
+
+      {/* context gauge + meta — the gauge owns ctx, so the stats stay In/Out/Tools */}
+      <div className="flex flex-col gap-2.5">
+        {ctxPct != null && (
+          <div className="flex flex-col gap-1">
+            <div className="h-[5px] w-full overflow-hidden rounded-full bg-[var(--scout-chrome-hover)]">
+              <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${ctxPct}%` }} />
+            </div>
+            <span className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-[var(--scout-chrome-ink-faint)]">
+              ctx {ctxPct}% of window
+            </span>
+          </div>
+        )}
+        <StatRow
+          stats={[
+            { label: "In", value: fmtCompactNumber(usage?.inputTokens) },
+            { label: "Out", value: fmtCompactNumber(usage?.outputTokens) },
+            { label: "Tools", value: toolCount ? `${toolCount}` : "-" },
+          ]}
+        />
+      </div>
+
+      {/* session log — recent changelog lines, not a transcript replay */}
+      <div className="border-t border-[var(--scout-chrome-border-soft)] pt-3.5">
+      <Section label={`Session log${observe ? ` · ${events.length}` : ""}`}>
+        {observe === null ? (
+          <EmptyLine>Resolving session.</EmptyLine>
+        ) : logLines.length === 0 ? (
+          <EmptyLine>No activity captured yet.</EmptyLine>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {logLines.map((l, i) => (
+              <div key={i} className="grid grid-cols-[34px_minmax(0,1fr)] items-baseline gap-2.5">
+                <span
+                  className="text-right font-mono text-[9px] tabular-nums"
+                  style={{ color: l.kind === "ask" ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+                >
+                  {l.t}
+                </span>
+                <span
+                  className="truncate font-mono text-[10px] leading-snug"
+                  style={{
+                    color:
+                      l.kind === "ask"
+                        ? "var(--accent)"
+                        : l.kind === "message"
+                          ? "var(--scout-chrome-ink)"
+                          : "var(--scout-chrome-ink-soft)",
+                  }}
+                  title={l.text}
+                >
+                  {l.text}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+      </div>
+
+      {/* files touched — created/modified marked accent, read dimmed */}
+      {files.length > 0 && (
+        <Section label={`Files touched · ${files.length}`}>
+          <div className="flex flex-col gap-1">
+            {files.slice(0, 8).map((f) => {
+              const name = f.path.replace(/\/+$/, "").split("/").pop() ?? f.path;
+              const changed = f.state !== "read";
+              return (
+                <div
+                  key={f.path}
+                  className="flex items-baseline gap-2 font-mono text-[10px]"
+                  title={`${f.path} · ${f.state}`}
+                >
+                  <span
+                    className="w-[52px] shrink-0 text-[8px] uppercase tracking-[0.06em]"
+                    style={{ color: changed ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+                  >
+                    {f.state}
+                  </span>
+                  <span
+                    className="truncate"
+                    style={{ color: changed ? "var(--scout-chrome-ink-soft)" : "var(--scout-chrome-ink-faint)" }}
+                  >
+                    {name}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* sessions — the session study's SM row: the WORK is the headline, not the
+          id. Each row is a titled work-unit (title · branch · ago); clicking opens
+          it. Falls back to raw harness sessions for agents with no titled work. */}
+      {agentSessions.length > 0 ? (
+        <div className="border-t border-[var(--scout-chrome-border-soft)] pt-3.5">
+          <Section label={`Sessions · ${agentSessions.length}`}>
+            <div className="flex flex-col">
+              {agentSessions.slice(0, 6).map((s) => {
+                const active = Boolean(s.harnessSessionId && s.harnessSessionId === activeSessionId);
+                const age = timeAgo(s.lastMessageAt ?? undefined) || "recent";
+                const title = sessionHeadline(s);
+                const branch = s.currentBranch?.trim();
+                const turns = s.messageCount > 0 ? `${s.messageCount} msg` : "";
+                const meta = [branch, turns].filter(Boolean).join(" · ");
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() =>
+                      openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route })
+                    }
+                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2.5 border-t border-[var(--scout-chrome-border-soft)] py-2 text-left transition-colors first:border-t-0 hover:bg-[var(--scout-chrome-hover)]"
+                  >
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 translate-y-[3px] rounded-full"
+                      style={{ background: active ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate text-[11px] text-[var(--scout-chrome-ink)]" title={title}>
+                        {title}
+                      </span>
+                      {meta && (
+                        <span className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                          {meta}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em]"
+                      style={{ color: active ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+                    >
+                      {active ? "active" : age}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+        </div>
+      ) : sessions.length > 0 ? (
+        <div className="border-t border-[var(--scout-chrome-border-soft)] pt-3.5">
+          <Section label={`Sessions · ${sessions.length}`}>
+            <div className="flex flex-col">
+              {sessions.slice(0, 6).map((s) => {
+                const active = s.id === activeSessionId;
+                const age = timeAgo(s.endedAt ?? s.startedAt) || "recent";
+                const meta = [s.harness, s.model].filter(Boolean).join(" · ");
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() =>
+                      openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route })
+                    }
+                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-baseline gap-2.5 border-t border-[var(--scout-chrome-border-soft)] py-2 text-left transition-colors first:border-t-0 hover:bg-[var(--scout-chrome-hover)]"
+                  >
+                    <span
+                      className="h-1.5 w-1.5 shrink-0 translate-y-[3px] rounded-full"
+                      style={{ background: active ? "var(--accent)" : "var(--scout-chrome-ink-ghost)" }}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="truncate font-mono text-[11px] text-[var(--scout-chrome-ink)]">
+                        {shortSessionId(s.id)}
+                      </span>
+                      {meta && (
+                        <span className="truncate font-mono text-[9px] text-[var(--scout-chrome-ink-ghost)]">
+                          {meta}
+                        </span>
+                      )}
+                    </span>
+                    <span
+                      className="shrink-0 font-mono text-[9px] uppercase tracking-[0.1em]"
+                      style={{ color: active ? "var(--accent)" : "var(--scout-chrome-ink-faint)" }}
+                    >
+                      {active ? "active" : age}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -402,6 +402,20 @@ export const STUDIO_PAGES: StudioPage[] = [
       "The wide pane when you focus ONE project — the fix for the near-blank project detail. Synthesis of three explored lenses: a command-center's density + resolve-in-place steering, a project-home's calm digest (harnesses · branches-in-flight · conversations · last-active) so an idle project reads full not blank, and a work-stream's produced changes as the review aside. Spine = the contributor roster (agent = project·harness rollup, sessions expand inline). A conditional `Now` band steers the highest-precedence agent without opening a thread. One accent as a precedence ladder (needs-you ▸ working ▸ idle), coherent with the gmail Directory study.",
   },
   {
+    href: "/studies/agents-session-expand",
+    label: "Agents · Session expand",
+    bucket: "studies",
+    surface: "web",
+    status: "draft",
+    source: [
+      "design/studio/views/agents-session-expand.tsx",
+      "packages/web/client/screens/agents/library.tsx",
+      "packages/web/client/screens/agents/right.tsx",
+    ],
+    blurb:
+      "The directory as a project → agent → session spine where SESSIONS are the core, discoverable flow. The agent is a header; its sessions are work-led rows (the work is the headline, vocative stripped to read as a topic), and opening one EXPANDS IN PLACE into the full detail — stat grid · context-window gauge · tools-used · subagents · transcript · resume — so agent+session detail is elevated into the main flow, not a narrow side pane. Two rationed tones: emerald = identity / done / healthy, amber = active / running / attention (context gauge, the open session's spine, Resume). Precedence reads on the SESSION dot, not just the agent. Target for the web agents port.",
+  },
+  {
     href: "/studies/agents-roster-detailed",
     label: "Agents · Detailed Roster",
     bucket: "studies",
