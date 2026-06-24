@@ -4,23 +4,25 @@ import os
 
 /// A Scout Mac discovered on the local network via its `_oscout-pair._tcp`
 /// Bonjour advertisement. Unlike a QR payload, this carries only the Mac's
-/// stable identity + relay coordinates (the per-session pairing `room` is not in
-/// the TXT record); the app fetches the live payload from the Mac's `/pair`
-/// endpoint once the operator taps a target.
+/// stable identity and local web endpoint hints (the per-session pairing `room`
+/// is not in the TXT record); the app fetches the live payload from the Mac's
+/// `/pair` endpoint once the operator taps a target.
 public struct DiscoveredScoutMac: Sendable, Equatable, Identifiable {
     public let publicKeyHex: String
     public let fingerprint: String
     public let hostName: String
     public let relayPort: Int
+    public let webPort: Int?
     public let scheme: String
 
     public var id: String { publicKeyHex }
 
-    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, scheme: String) {
+    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, webPort: Int?, scheme: String) {
         self.publicKeyHex = publicKeyHex
         self.fingerprint = fingerprint
         self.hostName = hostName
         self.relayPort = relayPort
+        self.webPort = webPort
         self.scheme = scheme
     }
 }
@@ -119,6 +121,7 @@ extension BonjourMacDiscovery: NetServiceBrowserDelegate, NetServiceDelegate {
             fingerprint: fingerprint,
             hostName: Self.normalizedHostName(host),
             relayPort: sender.port,
+            webPort: webPortFromBonjourAdvertisement(txt["webPort"]),
             scheme: scheme
         )
         // Key by public key so a Mac advertised on multiple interfaces collapses
@@ -141,4 +144,13 @@ extension BonjourMacDiscovery: NetServiceBrowserDelegate, NetServiceDelegate {
     private static func normalizedHostName(_ hostName: String) -> String {
         hostName.hasSuffix(".") ? String(hostName.dropLast()) : hostName
     }
+}
+
+func webPortFromBonjourAdvertisement(_ rawValue: String?) -> Int? {
+    guard let rawValue else { return nil }
+    let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let port = Int(value), port > 0, port <= 65_535 else {
+        return nil
+    }
+    return port
 }

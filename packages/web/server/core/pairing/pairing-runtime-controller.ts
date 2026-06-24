@@ -136,14 +136,22 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
       throw new Error("Scout pairing relay URL is not configured.");
     }
 
-    state.bonjour = managedRelay
+    let bonjour: BonjourAdvertisement | null = null;
+    bonjour = managedRelay
       ? startBonjourRelayAdvertisement({
           port: relayPort,
           relayUrl: activeRelayUrl,
           fallbackRelayUrls: managedRelay.fallbackRelayUrls,
           publicKeyHex,
+          onUnavailable: () => {
+            if (state.bonjour === bonjour) {
+              state.bonjour = null;
+              writeCurrent(state, {});
+            }
+          },
         })
       : null;
+    state.bonjour = bonjour;
 
     state.runtime = await startPairingRuntime({
       relayUrl: connectRelayUrl,
@@ -342,6 +350,7 @@ function startBonjourRelayAdvertisement(input: {
   relayUrl: string;
   fallbackRelayUrls?: string[];
   publicKeyHex: string;
+  onUnavailable?: () => void;
 }): BonjourAdvertisement | null {
   if (process.platform !== "darwin") {
     return null;
@@ -367,15 +376,27 @@ function startBonjourRelayAdvertisement(input: {
   }
 
   let processRef: ChildProcess | null = null;
+  let stopping = false;
+  let notifiedUnavailable = false;
+  const markUnavailable = () => {
+    if (notifiedUnavailable || stopping) {
+      return;
+    }
+    notifiedUnavailable = true;
+    input.onUnavailable?.();
+  };
   try {
     processRef = spawn("/usr/bin/dns-sd", args, { stdio: "ignore" });
     processRef.on("error", (error) => {
       console.warn(`[pairing] bonjour advertisement failed: ${error.message}`);
+      markUnavailable();
     });
     processRef.on("exit", (code, signal) => {
+      processRef = null;
       if (code !== 0 && signal !== "SIGTERM") {
         console.warn(`[pairing] bonjour advertisement exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
       }
+      markUnavailable();
     });
     console.log(`[pairing] bonjour advertising ${serviceName} on ${BONJOUR_SERVICE_TYPE} port ${input.port}`);
   } catch (error) {
@@ -386,6 +407,7 @@ function startBonjourRelayAdvertisement(input: {
 
   return {
     stop() {
+      stopping = true;
       processRef?.kill("SIGTERM");
       processRef = null;
     },
