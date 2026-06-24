@@ -1,6 +1,30 @@
 import ScoutAppCore
 import SwiftUI
 
+enum HUDTailAppearance {
+    static let blurOpacityKey = "scout.hud.tail.blurOpacity.v1"
+    static let passiveBlurOpacityKey = "scout.hud.tail.passiveBlurOpacity.v1"
+    static let passiveOpacityKey = "scout.hud.tail.passiveOpacity.v1"
+    static let activeOpacityKey = "scout.hud.tail.activeOpacity.v1"
+    static let tintOpacityKey = "scout.hud.tail.tintOpacity.v1"
+    static let rowOpacityKey = "scout.hud.tail.rowOpacity.v1"
+    static let pathColumnWidthKey = "scout.hud.tail.pathColumnWidth.v1"
+    static let kindColumnWidthKey = "scout.hud.tail.kindColumnWidth.v1"
+
+    static let defaultBlurOpacity = 0.86
+    static let defaultPassiveBlurOpacity = 0.78
+    static let defaultPassiveOpacity = 0.86
+    static let defaultActiveOpacity = 1.0
+    static let defaultTintOpacity = 0.34
+    static let defaultRowOpacity = 1.0
+    static let defaultPathColumnWidth = 88.0
+    static let defaultKindColumnWidth = 36.0
+
+    static func clamp(_ value: Double, _ range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+}
+
 // HUD shell — broadsheet edition.
 //
 // The thesis: this is a printed brief, filed by the broker every time
@@ -26,13 +50,94 @@ struct HUDStatusView: View {
     var onDismiss: () -> Void
 
     @ObservedObject private var state = HUDState.shared
+    @ObservedObject private var motion = HUDMotionState.shared
     @StateObject private var agentsStore = ScoutAgentsStore()
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
+    @State private var tailHovered = false
+    @AppStorage(HUDTailAppearance.blurOpacityKey) private var tailBlurOpacity = HUDTailAppearance.defaultBlurOpacity
+    @AppStorage(HUDTailAppearance.passiveBlurOpacityKey) private var tailPassiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
+    @AppStorage(HUDTailAppearance.passiveOpacityKey) private var tailPassiveOpacity = HUDTailAppearance.defaultPassiveOpacity
+    @AppStorage(HUDTailAppearance.activeOpacityKey) private var tailActiveOpacity = HUDTailAppearance.defaultActiveOpacity
+    @AppStorage(HUDTailAppearance.tintOpacityKey) private var tailTintOpacity = HUDTailAppearance.defaultTintOpacity
+    @AppStorage(HUDTailAppearance.rowOpacityKey) private var tailRowOpacity = HUDTailAppearance.defaultRowOpacity
+    @AppStorage(HUDTailAppearance.pathColumnWidthKey) private var tailPathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
+    @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var tailKindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
 
     private let minPanelW: CGFloat = 360
     private let minPanelH: CGFloat = 380
     private let cornerRadius: CGFloat = 12
+
+    private var isTailOverlay: Bool {
+        state.view == .tail
+    }
+
+    private var isTailFullHeight: Bool {
+        isTailOverlay && state.size == .large && !state.tailCollapsed
+    }
+
+    private var isTailCollapsing: Bool {
+        isTailOverlay && motion.phase == .collapsing
+    }
+
+    private var tailPresenceLifted: Bool {
+        tailHovered || motion.modifierLift || motion.isActive
+    }
+
+    private var tailPresenceOpacity: Double {
+        guard isTailOverlay else { return 1.0 }
+        if isTailCollapsing { return 1.0 }
+        return tailPresenceLifted ? resolvedTailActiveOpacity : resolvedTailPassiveOpacity
+    }
+
+    private var activeCornerRadius: CGFloat {
+        if isTailCollapsing { return 7 }
+        if isTailOverlay && state.tailCollapsed { return 8 }
+        if isTailFullHeight { return 0 }
+        return isTailOverlay ? 10 : cornerRadius
+    }
+
+    private var resolvedTailBlurOpacity: Double {
+        HUDTailAppearance.clamp(tailBlurOpacity, 0...1)
+    }
+
+    private var resolvedTailPassiveBlurOpacity: Double {
+        HUDTailAppearance.clamp(tailPassiveBlurOpacity, 0.30...1)
+    }
+
+    private var resolvedTailPassiveOpacity: Double {
+        HUDTailAppearance.clamp(tailPassiveOpacity, 0.35...1)
+    }
+
+    private var resolvedTailActiveOpacity: Double {
+        HUDTailAppearance.clamp(tailActiveOpacity, 0.35...1)
+    }
+
+    private var resolvedTailTintOpacity: Double {
+        HUDTailAppearance.clamp(tailTintOpacity, 0...0.85)
+    }
+
+    private var resolvedTailRowOpacity: Double {
+        HUDTailAppearance.clamp(tailRowOpacity, 0.55...1)
+    }
+
+    private var activeMinPanelW: CGFloat {
+        guard isTailOverlay else { return minPanelW }
+        return state.tailCollapsed ? 42 : 320
+    }
+
+    private var activeMinPanelH: CGFloat {
+        guard isTailOverlay else { return minPanelH }
+        return state.tailCollapsed ? 26 : 380
+    }
+
+    private var tailMaterialOpacity: Double {
+        tailPresenceLifted ? resolvedTailBlurOpacity : resolvedTailPassiveBlurOpacity
+    }
+
+    private var tailVeilOpacity: Double {
+        0.12 + (resolvedTailTintOpacity * 0.42)
+    }
 
     private var agents: [HudAgent] {
         agentsStore.agents ?? []
@@ -56,47 +161,73 @@ struct HUDStatusView: View {
 
     var body: some View {
         ZStack {
-            // ── Substrate: one solid warm-dark fill (no live blur) ──
-            // Text sitting over a partially-transparent fill above
-            // NSVisualEffectView reads as soft because every glyph
-            // composites through the live-blurred desktop. A fully
-            // opaque canvas removes the leakage — the panel reads as
-            // printed ink on paper, not glass.
-            HUDChrome.canvas
+            // ── Substrate ───────────────────────────────────────────
+            // The normal HUD stays on a solid printed canvas. Tail is
+            // intentionally closer to desktop glass: a light material blur
+            // underneath a faint warm tint, so large mode can read as part of
+            // the display rather than a floating card.
+            if isTailCollapsing {
+                tailCollapseSlab
+            } else if isTailOverlay {
+                VisualEffectBackground(
+                    material: .hudWindow,
+                    blendingMode: .behindWindow,
+                    state: .active,
+                    cornerRadius: activeCornerRadius
+                )
+                .opacity(tailMaterialOpacity)
+                tailReadabilityVeil
+            } else {
+                HUDChrome.canvas
+            }
 
             // ── Content stack ───────────────────────────────────────
             // No .drawingGroup / .compositingGroup — both pre-rasterize
             // glyphs at layer scale and lose the subpixel positioning
             // SwiftUI's text renderer normally hands to the display.
-            VStack(spacing: 0) {
-                masthead
-                // Force the content area to fill remaining height with
-                // child aligned to top. This pins the flash row + dock
-                // to the bottom of the panel regardless of whether the
-                // active tab's content is intrinsic-short (agents list)
-                // or has its own greedy Spacers (assistant empty state).
-                // A naked Spacer here would compete with the latter and
-                // land the flash row in the middle of the panel.
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .layoutPriority(1)
-                HUDFlashRow()
-                HudMessageDock(agents: agents)
+            if isTailCollapsing {
+                EmptyView()
+            } else if isTailOverlay && state.tailCollapsed {
+                tailCollapsedRail
+                    .transition(tailCollapsedTransition)
+            } else {
+                VStack(spacing: 0) {
+                    masthead
+                    // Force the content area to fill remaining height with
+                    // child aligned to top. This pins the flash row + dock
+                    // to the bottom of the panel regardless of whether the
+                    // active tab's content is intrinsic-short (agents list)
+                    // or has its own greedy Spacers (assistant empty state).
+                    // A naked Spacer here would compete with the latter and
+                    // land the flash row in the middle of the panel.
+                    content
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .layoutPriority(1)
+                    HUDFlashRow()
+                    if !isTailOverlay {
+                        HudMessageDock(agents: agents)
+                    }
+                }
+                .transition(tailExpandedTransition)
             }
 
             // `?` cheatsheet — drawn on top of the panel body, masthead
             // and dock stay visible underneath. Toggled from HUDController.
-            HUDCheatsheetOverlay()
+            if !isTailCollapsing {
+                HUDCheatsheetOverlay()
+            }
 
             // Runner draft — a HUD-local composer for broker-owned project
             // asks. Swift gathers helpful inputs; TS owns routing.
-            HUDRunnerOverlay()
+            if !isTailCollapsing {
+                HUDRunnerOverlay()
+            }
         }
         .frame(
-            minWidth: minPanelW, maxWidth: .infinity,
-            minHeight: minPanelH, maxHeight: .infinity
+            minWidth: activeMinPanelW, maxWidth: .infinity,
+            minHeight: activeMinPanelH, maxHeight: .infinity
         )
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous))
         // Crisp warm-cream hairline at the panel edge. One restrained
         // thin line cuts the rectangle out of the desktop the way
         // Lattices' voice panel does — no brackets, no glow on the
@@ -105,10 +236,27 @@ struct HUDStatusView: View {
         // rounded content and casts a proper rounded halo; SwiftUI
         // `.shadow` modifiers here would get clipped to the hosting
         // view's rectangle and read as a faint rectangle behind us.
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(HUDChrome.borderRim, lineWidth: 1)
+        .overlay {
+            if !isTailFullHeight && !isTailCollapsing {
+                RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
+                    .strokeBorder(
+                        HUDChrome.borderRim.opacity(isTailOverlay ? 0.14 : 1.0),
+                        lineWidth: isTailOverlay ? 0.5 : 1
+                    )
+            }
+        }
+        .opacity(tailPresenceOpacity)
+        .animation(
+            .timingCurve(0.18, 0.88, 0.22, 1.0, duration: tailPresenceLifted ? 0.10 : 0.18),
+            value: tailPresenceOpacity
         )
+        .onHover { hovering in
+            guard isTailOverlay else { return }
+            tailHovered = hovering
+        }
+        .onChange(of: isTailOverlay) { _, active in
+            if !active { tailHovered = false }
+        }
         .onAppear {
             agentsStore.start()
             activityStore.start()
@@ -123,13 +271,65 @@ struct HUDStatusView: View {
         }
     }
 
+    private var tailCollapsedTransition: AnyTransition {
+        isTailOverlay ? .identity : .opacity.combined(with: .move(edge: .trailing))
+    }
+
+    private var tailExpandedTransition: AnyTransition {
+        isTailOverlay ? .identity : .opacity.combined(with: .move(edge: .leading))
+    }
+
+    private var tailCollapseSlab: some View {
+        RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
+            .fill(Color(red: 0.105, green: 0.108, blue: 0.108).opacity(0.88))
+            .overlay {
+                RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.055), lineWidth: 0.5)
+            }
+            .allowsHitTesting(false)
+    }
+
+    private var tailReadabilityVeil: some View {
+        ZStack {
+            HUDChrome.canvas.opacity(tailVeilOpacity)
+            LinearGradient(
+                colors: [
+                    HUDChrome.canvas.opacity(tailVeilOpacity + 0.10),
+                    HUDChrome.canvas.opacity(tailVeilOpacity * 0.70),
+                    HUDChrome.canvas.opacity(tailVeilOpacity + (state.tailCollapsed ? 0.08 : 0.02)),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.030),
+                    Color.clear,
+                    Color.black.opacity(0.055),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
+    }
+
     // MARK: - Masthead
     //
     // One row: tiny mark + nav tabs. No wordmark, no live meter, no
     // hotkey chip. Attention surfaces as a single lime pip at the right
     // *only* when there's actually attention. Hotkey moves to footer.
 
+    @ViewBuilder
     private var masthead: some View {
+        if isTailOverlay {
+            tailMasthead
+        } else {
+            defaultMasthead
+        }
+    }
+
+    private var defaultMasthead: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             HUDMastheadMark(size: 12)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
@@ -172,6 +372,165 @@ struct HUDStatusView: View {
         }
     }
 
+    private var tailMasthead: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            TailCollapseButton(expanded: true) {
+                HUDState.shared.setTailCollapsed(true)
+            }
+            .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+
+            HUDMastheadMark(size: 12)
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+
+            Text("TAIL")
+                .font(HUDType.mono(11, weight: .bold))
+                .tracking(HUDType.eyebrowTracking)
+                .foregroundStyle(HUDChrome.ink)
+
+            Text("\(tail.filteredEvents.count)")
+                .font(HUDType.mono(10, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkMuted)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 8) {
+                if brokerOffline {
+                    BrokerOfflinePip()
+                } else if attentionCount > 0 {
+                    AttentionPip()
+                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
+                }
+                DismissedFlashPip()
+                HUDTailAppearanceButton(
+                    blurOpacity: $tailBlurOpacity,
+                    passiveBlurOpacity: $tailPassiveBlurOpacity,
+                    passiveOpacity: $tailPassiveOpacity,
+                    activeOpacity: $tailActiveOpacity,
+                    tintOpacity: $tailTintOpacity,
+                    rowOpacity: $tailRowOpacity,
+                    pathColumnWidth: $tailPathColumnWidth,
+                    kindColumnWidth: $tailKindColumnWidth
+                )
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                HUDSizeToggle()
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                CheatsheetChip()
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+                TailDismissButton {
+                    onDismiss()
+                }
+                .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.top, 8)
+        .padding(.bottom, 7)
+    }
+
+    private var tailCollapsedRail: some View {
+        GeometryReader { proxy in
+            let horizontal = proxy.size.width > proxy.size.height * 2.2
+
+            Group {
+                if horizontal {
+                    tailCollapsedHorizontalHandle
+                } else {
+                    tailCollapsedVerticalRail
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                HUDState.shared.setTailCollapsed(false)
+            }
+            .help("Expand Tail")
+        }
+    }
+
+    private var tailCollapsedHorizontalHandle: some View {
+        HStack(spacing: 6) {
+            TailCollapseButton(expanded: false, collapsedSystemName: "chevron.down") {
+                HUDState.shared.setTailCollapsed(false)
+            }
+
+            HUDMastheadMark(size: 11)
+
+            Text("TAIL")
+                .font(HUDType.mono(8.5, weight: .bold))
+                .tracking(HUDType.eyebrowMicro)
+                .foregroundStyle(HUDChrome.inkMuted)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Text("\(tail.filteredEvents.count)")
+                .font(HUDType.mono(8.5, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkFaint)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 0)
+
+            if brokerOffline {
+                BrokerOfflinePip()
+                    .scaleEffect(0.78)
+            } else if attentionCount > 0 {
+                AttentionPip()
+                    .scaleEffect(0.78)
+            }
+
+            TailDismissButton(compact: true) {
+                onDismiss()
+            }
+        }
+        .padding(.horizontal, 7)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private var tailCollapsedVerticalRail: some View {
+        VStack(spacing: 7) {
+            TailCollapseButton(expanded: false) {
+                HUDState.shared.setTailCollapsed(false)
+            }
+
+            TailDismissButton(compact: true) {
+                onDismiss()
+            }
+
+            HUDMastheadMark(size: 12)
+
+            VStack(spacing: 2) {
+                ForEach(Array("TAIL"), id: \.self) { char in
+                    Text(String(char))
+                        .font(HUDType.mono(8, weight: .bold))
+                        .foregroundStyle(HUDChrome.inkMuted)
+                }
+            }
+            .padding(.top, 2)
+
+            Text("\(tail.filteredEvents.count)")
+                .font(HUDType.mono(8.5, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(HUDChrome.inkFaint)
+                .lineLimit(1)
+                .rotationEffect(.degrees(90))
+                .fixedSize()
+                .frame(width: 18, height: 28)
+
+            if brokerOffline {
+                Circle()
+                    .fill(Color(red: 0.92, green: 0.42, blue: 0.38))
+                    .frame(width: 5, height: 5)
+            } else if attentionCount > 0 {
+                AttentionPip()
+                    .scaleEffect(0.82)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
     // MARK: - Content router
 
     @ViewBuilder
@@ -192,8 +551,9 @@ struct HUDStatusView: View {
                 .transition(.opacity)
             case .tail:
                 HUDTailView(tail: tail, agents: agents)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .transition(.opacity)
+                    .opacity(resolvedTailRowOpacity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.opacity)
             case .sessions:
                 HUDSessionsView(agents: agents)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -414,6 +774,221 @@ private struct CheatsheetChip: View {
         }
         .buttonStyle(.plain)
         .help("Show keymap")
+    }
+}
+
+private struct TailCollapseButton: View {
+    let expanded: Bool
+    var collapsedSystemName = "chevron.left"
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: expanded ? "chevron.right" : collapsedSystemName)
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkFaint)
+                .frame(width: 16, height: 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.34) : HUDChrome.canvas.opacity(0.16))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(hovered ? HUDChrome.inkMuted.opacity(0.50) : HUDChrome.border.opacity(0.70), lineWidth: 0.5)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help(expanded ? "Collapse Tail" : "Expand Tail")
+    }
+}
+
+private struct TailDismissButton: View {
+    var compact = false
+    let action: () -> Void
+
+    @State private var hovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: compact ? 8 : 9, weight: .bold))
+                .foregroundStyle(hovered ? HUDChrome.ink : HUDChrome.inkFaint)
+                .frame(width: compact ? 15 : 16, height: compact ? 15 : 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.34) : HUDChrome.canvas.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(hovered ? HUDChrome.inkMuted.opacity(0.50) : HUDChrome.border.opacity(0.58), lineWidth: 0.5)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+        .help("Dismiss Tail")
+    }
+}
+
+private struct HUDTailAppearanceButton: View {
+    @Binding var blurOpacity: Double
+    @Binding var passiveBlurOpacity: Double
+    @Binding var passiveOpacity: Double
+    @Binding var activeOpacity: Double
+    @Binding var tintOpacity: Double
+    @Binding var rowOpacity: Double
+    @Binding var pathColumnWidth: Double
+    @Binding var kindColumnWidth: Double
+    @State private var showing = false
+
+    var body: some View {
+        Button(action: { showing.toggle() }) {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(showing ? HUDChrome.ink : HUDChrome.inkFaint)
+                .frame(width: 14, height: 14)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .stroke(showing ? HUDChrome.inkMuted.opacity(0.7) : HUDChrome.border, lineWidth: 0.5)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Tail appearance")
+        .popover(isPresented: $showing, arrowEdge: .top) {
+            HUDTailAppearancePopover(
+                blurOpacity: $blurOpacity,
+                passiveBlurOpacity: $passiveBlurOpacity,
+                passiveOpacity: $passiveOpacity,
+                activeOpacity: $activeOpacity,
+                tintOpacity: $tintOpacity,
+                rowOpacity: $rowOpacity,
+                pathColumnWidth: $pathColumnWidth,
+                kindColumnWidth: $kindColumnWidth
+            )
+        }
+    }
+}
+
+private struct HUDTailAppearancePopover: View {
+    @Binding var blurOpacity: Double
+    @Binding var passiveBlurOpacity: Double
+    @Binding var passiveOpacity: Double
+    @Binding var activeOpacity: Double
+    @Binding var tintOpacity: Double
+    @Binding var rowOpacity: Double
+    @Binding var pathColumnWidth: Double
+    @Binding var kindColumnWidth: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HUDTailAppearanceSlider(
+                label: "ACTIVE OP",
+                value: $activeOpacity,
+                range: 0.35...1
+            )
+            HUDTailAppearanceSlider(
+                label: "PASSIVE OP",
+                value: $passiveOpacity,
+                range: 0.35...1
+            )
+            HUDTailAppearanceSlider(
+                label: "ACTIVE BLUR",
+                value: $blurOpacity,
+                range: 0.30...1
+            )
+            HUDTailAppearanceSlider(
+                label: "PASSIVE BLUR",
+                value: $passiveBlurOpacity,
+                range: 0.30...1
+            )
+            HUDTailAppearanceSlider(
+                label: "TINT",
+                value: $tintOpacity,
+                range: 0...0.85
+            )
+            HUDTailAppearanceSlider(
+                label: "ROWS",
+                value: $rowOpacity,
+                range: 0.55...1
+            )
+            HUDTailAppearanceSlider(
+                label: "PATH",
+                value: $pathColumnWidth,
+                range: 64...240,
+                step: 1,
+                valueStyle: .points
+            )
+            HUDTailAppearanceSlider(
+                label: "KIND",
+                value: $kindColumnWidth,
+                range: 28...64,
+                step: 1,
+                valueStyle: .points
+            )
+
+            Button("Reset") {
+                blurOpacity = HUDTailAppearance.defaultBlurOpacity
+                passiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
+                passiveOpacity = HUDTailAppearance.defaultPassiveOpacity
+                activeOpacity = HUDTailAppearance.defaultActiveOpacity
+                tintOpacity = HUDTailAppearance.defaultTintOpacity
+                rowOpacity = HUDTailAppearance.defaultRowOpacity
+                pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
+                kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
+            }
+            .font(HUDType.mono(9, weight: .semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(HUDChrome.inkMuted)
+            .padding(.top, 2)
+        }
+        .padding(12)
+        .frame(width: 238)
+        .background(HUDChrome.canvas)
+    }
+}
+
+private enum HUDTailAppearanceValueStyle {
+    case percent
+    case points
+}
+
+private struct HUDTailAppearanceSlider: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var step: Double = 0.01
+    var valueStyle: HUDTailAppearanceValueStyle = .percent
+
+    private var valueLabel: String {
+        switch valueStyle {
+        case .percent:
+            return "\(Int((value * 100).rounded()))"
+        case .points:
+            return "\(Int(value.rounded()))"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(HUDType.mono(9, weight: .bold))
+                    .tracking(HUDType.eyebrowMicro)
+                    .foregroundStyle(HUDChrome.inkMuted)
+                Spacer(minLength: 0)
+                Text(valueLabel)
+                    .font(HUDType.mono(9))
+                    .monospacedDigit()
+                    .foregroundStyle(HUDChrome.inkFaint)
+            }
+            Slider(value: $value, in: range, step: step)
+                .controlSize(.mini)
+        }
     }
 }
 

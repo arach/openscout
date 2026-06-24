@@ -42,9 +42,9 @@ describe("formatToolCall", () => {
 });
 
 describe("summarizeToolResult", () => {
-  test("multi-line output collapses to a line count", () => {
+  test("multi-line output shows a preview plus line count", () => {
     expect(summarizeToolResult("1\tuse client\n2\timport x\n3\timport y\n4\texport default"))
-      .toBe("4 lines");
+      .toBe("1 use client 2 import x 3 import y 4 export default (4 lines)");
   });
 
   test("short single-line output is shown verbatim", () => {
@@ -57,6 +57,21 @@ describe("summarizeToolResult", () => {
 
   test("Codex output blob: pulls .output, then summarizes", () => {
     const output = parseMaybeJson(JSON.stringify({ output: "warn deprecated\nbuilt in 4.2s\n", metadata: { exit_code: 0 } }));
-    expect(summarizeToolResult(output)).toBe("2 lines");
+    expect(summarizeToolResult(output)).toBe("warn deprecated built in 4.2s (2 lines)");
+  });
+
+  test("Codex exec output: drops the execution envelope before previewing stdout", () => {
+    const output = [
+      "Chunk ID: abc123",
+      "Wall time: 0.0100 seconds",
+      "Process exited with code 0",
+      "Original token count: 12",
+      "Output:",
+      "{",
+      "  \"name\": \"openscout\",",
+      "  \"version\": \"0.2.72\"",
+      "}",
+    ].join("\n");
+    expect(summarizeToolResult(output)).toBe("{ \"name\": \"openscout\", \"version\": \"0.2.72\" } (4 lines)");
   });
 });

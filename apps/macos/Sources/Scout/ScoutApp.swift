@@ -229,8 +229,12 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
                 HUDController.shared.dismiss()
                 return
             }
-            HUDController.shared.show()
-            if command != "show", command != "toggle" {
+            if command == "tail" {
+                _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
+            } else if command == "show" || command == "toggle" {
+                _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
+            } else {
+                _ = ScoutHUDRouter.handle(command: "show")
                 _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
             }
         }

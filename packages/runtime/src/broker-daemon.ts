@@ -87,13 +87,13 @@ import {
 } from "./broker-api.js";
 import { createBrokerCoreService } from "./broker-core-service.js";
 import {
-  buildDefaultBrokerUrl,
   buildLocalBrokerControlUrl,
   DEFAULT_BROKER_PORT,
   isLoopbackHost,
   resolveBrokerServiceConfig,
   resolveAdvertiseScope,
   resolveBrokerHost,
+  resolveBrokerUrl,
 } from "./broker-process-manager.js";
 import {
   readMobilePairingMeshEntrypoint,
@@ -202,7 +202,7 @@ const host = resolveBrokerHost(advertiseScope);
 const meshId = process.env.OPENSCOUT_MESH_ID ?? "openscout";
 const nodeName = process.env.OPENSCOUT_NODE_NAME ?? hostname();
 const tailnetName = process.env.TAILSCALE_TAILNET ?? undefined;
-const brokerUrl = process.env.OPENSCOUT_BROKER_URL ?? buildDefaultBrokerUrl(host, port);
+const brokerUrl = resolveBrokerUrl(host, port, advertiseScope);
 const brokerControlUrl = buildLocalBrokerControlUrl(host, port);
 const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
   ?? resolveBrokerServiceConfig().brokerSocketPath;

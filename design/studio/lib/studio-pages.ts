@@ -662,6 +662,33 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "The group-conversation surface in the sprite identity language — every participant, agents AND the operator 'you', is a deterministic creature. Channel list rows lead with a stacked sprite cluster of their cast (+N for the rest); the thread gives the operator an accent-ringed sprite; a participant rail sits above the composer. Hue is the harness, shape is the name; the single red accent stays reserved for you-ring / unread / selection.",
   },
   {
+    href: "/studies/screen-headers",
+    label: "Screen Headers · One Treatment",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/views/screen-headers.tsx",
+      "apps/macos/Sources/Scout/ScoutRootView.swift",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+    ],
+    blurb: "One header language across Tail, Agents, and Repos so the app reads as one surface: a grotesk title (no glyph), counts as a flat mono eyebrow (no rounded pills), a breathing controls band (never two tight rows), and a shared mono column-header band. Typography is the lattices pairing — Inter Tight + JetBrains Mono.",
+  },
+  {
+    href: "/studies/tail-header",
+    label: "Tail · Header Treatments",
+    bucket: "studies",
+    surface: "macos",
+    family: "scout-surfaces",
+    status: "concept",
+    source: [
+      "design/studio/views/tail-header.tsx",
+      "apps/macos/Sources/Scout/ScoutTailView.swift",
+    ],
+    blurb: "Four header bars for the firehose, same payload (identity, inventory, search, source filter, Ledger/Timeline toggle, Follow/Pause), different structure + relief: an Instrument gauge cluster, a two-tier Editorial split, a search-hero Command bar, and a dense single-line Console. Pick one to port to ScoutTailView's header.",
+  },
+  {
     href: "/studies/tail-treatments",
     label: "Tail · Treatments",
     bucket: "studies",

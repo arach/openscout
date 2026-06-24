@@ -162,6 +162,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         hudItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(hudItem)
 
+        let tailItem = NSMenuItem(title: "Show Tail Mode", action: #selector(showTailMode), keyEquivalent: "t")
+        tailItem.target = self
+        tailItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
+        menu.addItem(tailItem)
+
         menu.addItem(.separator())
 
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
@@ -284,6 +289,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func toggleHUD() {
         ScoutAppBridge.openHUD(command: "toggle")
+    }
+
+    @objc
+    private func showTailMode() {
+        ScoutAppBridge.openHUD(command: "tail")
     }
 
     @objc

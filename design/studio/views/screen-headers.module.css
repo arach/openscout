@@ -1,0 +1,298 @@
+/* Screen headers — one treatment, shown in a real window. Tokens only (`--s-*`).
+   Title = Space Grotesk (grotesk, the lattices face), chrome = JetBrains Mono.
+   Goal: native-feeling, quiet, editorial — no boxy web controls, no loud caps. */
+
+/* ── Left nav rail (the app sidebar) ─────────────────────────────────── */
+.nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 56px;
+  flex: none;
+  padding: 12px 0;
+  background: color-mix(in srgb, var(--s-chrome) 70%, var(--s-bg));
+  border-right: 1px solid var(--s-hairline);
+}
+.navItem {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--s-dim);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.navItem:hover { color: var(--s-ink); background: var(--s-surface); }
+.navOn {
+  color: var(--s-accent);
+  background: var(--s-accent-soft);
+  border-color: color-mix(in srgb, var(--s-accent) 30%, transparent);
+}
+.navOn:hover { color: var(--s-accent); background: var(--s-accent-soft); }
+.navInert { cursor: default; opacity: 0.85; }
+.navInert:hover { color: var(--s-dim); background: transparent; }
+.navSpring { flex: 1; }
+
+/* ── Main screen column ──────────────────────────────────────────────── */
+.screen {
+  display: flex;
+  flex-direction: column;
+  background: var(--s-bg);
+}
+.spring { flex: 1; }
+
+/* ── Header: shared title cluster ─────────────────────────────────────── */
+.titleCluster { display: inline-flex; align-items: center; gap: 10px; }
+.title {
+  margin: 0;
+  font-family: "Space Grotesk", var(--s-font-sans);
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1;
+  color: var(--s-ink);
+}
+/* live indicator — RESERVED for genuinely showcasing live state, used very
+   sparingly. NOT a default title decoration (deliberately not in the header). */
+.liveDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--s-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 16%, transparent);
+}
+/* quiet status — sentence case, not a banner; recedes behind the title */
+.status {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--s-dim);
+  white-space: nowrap;
+}
+
+/* ── Header layouts ───────────────────────────────────────────────────── */
+/* A · Editorial — two calm bands */
+.identityBand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 56px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+.filterBand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+/* B/C · single toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--s-hairline);
+}
+
+/* ── Refined controls — quiet, native, no boxes-within-boxes ──────────── */
+/* search: one soft filled field */
+.search {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  min-width: 264px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--s-ink) 5%, transparent);
+  border: 1px solid var(--s-hairline);
+  color: var(--s-dim);
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  cursor: text;
+}
+.search svg { color: var(--s-muted); flex: none; }
+.searchText { color: var(--s-dim); }
+.searchCompact { min-width: 208px; }
+
+/* ghost button: borderless text + caret, hover reveals a soft pad */
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--s-muted);
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.ghostBtn:hover { color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 5%, transparent); }
+
+/* icon button (variant C) */
+.iconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--s-muted);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.iconBtn:hover { color: var(--s-ink); background: color-mix(in srgb, var(--s-ink) 5%, transparent); }
+
+/* segmented control: macOS-style — recessed track, the active segment lifts.
+   No pale accent fill; the active segment is a neutral raised chip.
+   Follow, when live, takes the one whisper of accent on its text + icon. */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--s-ink) 4%, transparent);
+}
+.segItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--s-dim);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s;
+}
+.segItem:not(.segOn):hover { color: var(--s-muted); }
+.segItem svg { opacity: 0.9; }
+.segOn {
+  color: var(--s-ink);
+  background: color-mix(in srgb, var(--s-ink) 9%, transparent);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.10);
+}
+.segLive.segOn { color: var(--s-accent); }
+.segLive.segOn svg { color: var(--s-accent); }
+
+/* hairline separator inside a toolbar */
+.vrule {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 5px;
+  background: var(--s-hairline-strong);
+}
+
+/* ── Column header band: mono, uppercase, columns aligned to rows ─────── */
+.colhead {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  height: 26px;
+  padding: 0 22px;
+  background: var(--s-chrome);
+  border-bottom: 1px solid var(--s-hairline-strong);
+}
+.colhead > span {
+  font-family: var(--s-font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--s-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Rows ────────────────────────────────────────────────────────────── */
+.rows { padding: 3px 0 8px; }
+.row {
+  display: grid;
+  gap: 12px;
+  align-items: center;
+  height: 26px;
+  padding: 0 22px;
+  font-family: var(--s-font-mono);
+  font-size: 11.5px;
+  color: var(--s-muted);
+}
+.row:hover { background: color-mix(in srgb, var(--s-accent) 6%, transparent); }
+.rowDim { opacity: 0.62; }
+.cell {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.end { text-align: right; }
+
+/* ── Tail cell treatments ────────────────────────────────────────────── */
+.time {
+  color: var(--s-dim);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+/* PATH cluster: provider logo (leading badge) + two-tone repo/ref */
+.pathCell { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.providerMark {
+  flex: none;
+  display: inline-flex;
+  color: color-mix(in srgb, var(--s-ink) 82%, transparent);
+}
+.path { display: inline-flex; align-items: baseline; min-width: 0; }
+.repo { color: var(--s-muted); }
+.ref { color: var(--s-dim); opacity: 0.78; }
+/* EVENT cluster: kind glyph (leading) + message; glyph carries the accent */
+.eventCell { display: inline-flex; align-items: center; gap: 9px; min-width: 0; }
+.kindGlyph { flex: none; display: inline-flex; color: var(--s-dim); }
+.kindOn { color: var(--s-accent); }
+.msg {
+  color: var(--s-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.msgLive { color: var(--s-ink); }
+.rowDim .msg { color: var(--s-muted); }
+/* harness name beside the mark on the Agents list */
+.provider { display: inline-flex; align-items: center; gap: 7px; color: color-mix(in srgb, var(--s-ink) 82%, transparent); }
+.harnessName {
+  font-family: var(--s-font-mono);
+  font-size: 11px;
+  color: var(--s-muted);
+  text-transform: capitalize;
+}
+
+/* ── Per-screen column grids (shared by colhead + rows) ───────────────── */
+.gTail {
+  grid-template-columns: 74px 256px minmax(0, 1fr);
+}
+.gAgents {
+  grid-template-columns: minmax(150px, 1.2fr) minmax(0, 1.6fr) 110px 88px;
+}
+.gRepos {
+  grid-template-columns: minmax(0, 1fr) 110px 64px 110px;
+}

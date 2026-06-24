@@ -7,9 +7,14 @@ import {
   buildDefaultBrokerUrl,
   buildLocalBrokerControlUrl,
   DEFAULT_BROKER_HOST,
+  DEFAULT_BROKER_HOST_MESH,
   DEFAULT_BROKER_PORT,
   DEFAULT_BROKER_URL,
   resolveBundledRuntimeDirFromModuleDir,
+  resolveBrokerServiceConfig,
+  resolveBrokerHost,
+  resolveBrokerUrl,
+  resolveAdvertiseScope,
   resolveScoutdCommand,
   runScoutdServiceCommand,
   selectLastRelevantLogLine,
@@ -94,6 +99,50 @@ describe("broker service scoutd adapter", () => {
     expect(buildLocalBrokerControlUrl("0.0.0.0", 43110)).toBe("http://127.0.0.1:43110");
     expect(buildLocalBrokerControlUrl("::", 43110)).toBe("http://127.0.0.1:43110");
     expect(buildLocalBrokerControlUrl("192.168.1.12", 43110)).toBe("http://192.168.1.12:43110");
+  });
+
+  test("uses OSN settings over stale local launch environment", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-osn-service-config-"));
+    const tailscaleStatus = join(root, "tailscale-status.json");
+    writeFileSync(tailscaleStatus, JSON.stringify({
+      BackendState: "Running",
+      Self: {
+        ID: "node-1",
+        HostName: "mini",
+        DNSName: "mini.tailnet.test.",
+        TailscaleIPs: ["100.64.0.10"],
+        Online: true,
+        OS: "macOS",
+      },
+      CurrentTailnet: {
+        Name: "test",
+        MagicDNSSuffix: "tailnet.test",
+      },
+    }));
+
+    await withEnv({
+      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
+      OPENSCOUT_ADVERTISE_SCOPE: "local",
+      OPENSCOUT_BROKER_HOST: "127.0.0.1",
+      OPENSCOUT_BROKER_URL: "http://127.0.0.1:65535",
+      OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleStatus,
+    }, () => {
+      expect(resolveAdvertiseScope()).toBe("mesh");
+      expect(resolveBrokerHost("mesh")).toBe(DEFAULT_BROKER_HOST_MESH);
+      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, 65535, "mesh")).toBe("http://mini.tailnet.test:65535");
+      const serviceConfig = resolveBrokerServiceConfig();
+      expect(serviceConfig.advertiseScope).toBe("mesh");
+      expect(serviceConfig.brokerHost).toBe(DEFAULT_BROKER_HOST_MESH);
+      expect(serviceConfig.brokerUrl).toBe("http://mini.tailnet.test:65535");
+    });
+
+    await withEnv({
+      OPENSCOUT_NETWORK_DISCOVERY_ENABLED: "1",
+      OPENSCOUT_BROKER_URL: "http://0.0.0.0:65535",
+      OPENSCOUT_TAILSCALE_STATUS_JSON: tailscaleStatus,
+    }, () => {
+      expect(resolveBrokerUrl(DEFAULT_BROKER_HOST_MESH, 65535, "mesh")).toBe("http://mini.tailnet.test:65535");
+    });
   });
 
   test("resolves the package root from a bundled scout dist runtime module", () => {

@@ -52,7 +52,7 @@ export default function RootLayout({
          *  JetBrains Mono (chrome). Scout proper now also ships Play via
          *  packages/web/client/scout/Provider.tsx (--hud-font-serif). */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Play:wght@400;700&family=Inter+Tight:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </head>

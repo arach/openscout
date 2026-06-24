@@ -55,6 +55,7 @@ type Watcher = {
   lineCounter: number;
   carry: string;
   emittedEventIds: Set<string>;
+  state: Record<string, unknown>;
 };
 
 const sources: TranscriptSource[] = [GrokSource, ClaudeSource, CodexSource, CursorSource, OpenCodeSource];
@@ -316,6 +317,7 @@ async function pumpWatcher(watcher: Watcher): Promise<void> {
         transcript: watcher.transcript,
         transcriptPath: watcher.transcriptPath,
         lineOffset: watcher.lineCounter,
+        state: watcher.state,
       }));
       watcher.lineCounter += Math.max(1, events.length);
       for (const event of events) {
@@ -339,9 +341,14 @@ async function pumpWatcher(watcher: Watcher): Promise<void> {
         transcript: watcher.transcript,
         transcriptPath: watcher.transcriptPath,
         lineOffset: watcher.lineCounter,
+        state: watcher.state,
       });
       watcher.lineCounter++;
-      if (event) pushEvent(event);
+      if (event) {
+        if (watcher.emittedEventIds.has(event.id)) continue;
+        watcher.emittedEventIds.add(event.id);
+        pushEvent(event);
+      }
     }
   } catch {
     // File may be missing momentarily — skip this tick.
@@ -360,6 +367,18 @@ async function seedTail(watcher: Watcher): Promise<void> {
   try {
     const stats = await stat(watcher.transcriptPath);
     watcher.offset = watcher.source.parseFile ? 0 : stats.size;
+    if (!watcher.source.parseFile && watcher.source.name === "codex") {
+      const lines = await readRecentTranscriptLines(watcher.transcriptPath, RECENT_TRANSCRIPT_LINES_PER_FILE);
+      lines.forEach((line, index) => {
+        watcher.source.parseLine(line, {
+          process: watcher.process,
+          transcript: watcher.transcript,
+          transcriptPath: watcher.transcriptPath,
+          lineOffset: index,
+          state: watcher.state,
+        });
+      });
+    }
   } catch {
     watcher.offset = 0;
   }
@@ -434,6 +453,7 @@ async function refreshDiscovery(
           lineCounter: 0,
           carry: "",
           emittedEventIds: new Set(),
+          state: {},
         };
         await seedTail(watcher);
         watchers.set(sessionKey, watcher);
@@ -445,6 +465,7 @@ async function refreshDiscovery(
         watcher.lineCounter = 0;
         watcher.carry = "";
         watcher.emittedEventIds = new Set();
+        watcher.state = {};
         await seedTail(watcher);
       }
       watcher.process = primary;
@@ -648,6 +669,7 @@ export async function readRecentTranscriptEvents(
         transcript,
         transcriptPath,
         lineOffset: 0,
+        state: {},
       }));
       for (const event of parsed) {
         const compacted = compactEvent(event);
@@ -662,12 +684,14 @@ export async function readRecentTranscriptEvents(
       transcriptPath,
       options?.perTranscriptLineLimit,
     );
+    const parseState: Record<string, unknown> = {};
     lines.forEach((line, index) => {
       const event = source.parseLine(line, {
         process,
         transcript,
         transcriptPath,
         lineOffset: index,
+        state: parseState,
       });
       if (event) {
         const compacted = compactEvent(event);
@@ -732,6 +756,7 @@ async function parseTranscriptSessionEvents(
     transcript,
     transcriptPath: transcript.transcriptPath,
     lineOffset: 0,
+    state: {} as Record<string, unknown>,
   };
 
   if (source.parseFile) {

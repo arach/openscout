@@ -230,6 +230,81 @@ describe("BrokerLocalEndpointResolver", () => {
     expect(harness.persistedEndpoints).toHaveLength(1);
   });
 
+  test("revives registry-backed Codex endpoints for exact-session wake requests", async () => {
+    const harness = createResolver({
+      onlineSession: {
+        externalSessionId: "thread-current",
+      },
+      now: 13_000,
+    });
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "registry-codex",
+      transport: "codex_app_server",
+      state: "waiting",
+      sessionId: "relay-agent-codex",
+      metadata: {
+        source: "relay-agent-registry",
+        runtimeInstanceId: "relay-agent-codex",
+        externalSessionId: "thread-current",
+        threadId: "thread-current",
+        lastError: "codex_app_server session unavailable: relay-agent-codex",
+        lastFailedAt: 9_000,
+      },
+    }));
+
+    const endpoint = await harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: { session: "existing", targetSessionId: "relay-agent-codex" },
+      ensureAwake: true,
+    }));
+
+    expect(endpoint).toEqual(expect.objectContaining({
+      id: "registry-codex",
+      state: "idle",
+      sessionId: "relay-agent-codex",
+      metadata: expect.objectContaining({
+        source: "relay-agent-registry",
+        runtimeInstanceId: "relay-agent-codex",
+        externalSessionId: "thread-current",
+        threadId: "thread-current",
+        lastResumedAt: 13_000,
+      }),
+    }));
+    expect(endpoint?.metadata?.lastError).toBeUndefined();
+    expect(endpoint?.metadata?.lastFailedAt).toBeUndefined();
+    expect(harness.ensuredSessionEndpoints.map((candidate) => candidate.id)).toEqual(["registry-codex"]);
+    expect(harness.persistedEndpoints).toHaveLength(1);
+  });
+
+  test("fails exact-session wake requests when the matching endpoint cannot be resumed", async () => {
+    const harness = createResolver({ now: 14_000 });
+    await harness.runtime.upsertEndpoint(testEndpoint({
+      id: "missing-tmux",
+      transport: "tmux",
+      state: "waiting",
+      sessionId: "relay-agent-claude",
+      metadata: {
+        source: "relay-agent-registry",
+        tmuxSession: "relay-agent-claude",
+      },
+    }));
+
+    await expect(harness.resolver.resolveLocalEndpointForInvocation(testInvocation({
+      execution: { session: "existing", targetSessionId: "relay-agent-claude" },
+      ensureAwake: true,
+    }))).rejects.toThrow("session relay-agent-claude is not currently reachable");
+    expect(harness.ensuredSessionEndpoints).toEqual([]);
+    expect(harness.persistedEndpoints).toEqual([
+      expect.objectContaining({
+        id: "missing-tmux",
+        state: "offline",
+        metadata: expect.objectContaining({
+          lastError: "tmux session missing: relay-agent-claude",
+          lastFailedAt: 14_000,
+        }),
+      }),
+    ]);
+  });
+
   test("selects a wakeable session-backed endpoint only when wake is requested", async () => {
     const harness = createResolver();
     const endpoint = testEndpoint({
