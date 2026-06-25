@@ -2791,7 +2791,6 @@ function buildScoutReplyContextPrompt(context: ScoutReplyContext | null): string
 export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocation: InvocationRequest): string {
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
-  const collaborationContract = buildCollaborationContractPrompt(agentName);
   const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
@@ -2809,7 +2808,6 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     ...replyContextPrompt,
     "",
     actionRules,
-    collaborationContract,
     invocation.action === "wake" ? undefined : "Return only the broker-visible reply for the requester.",
     "",
     collaborationContext,
