@@ -141,6 +141,30 @@ describe("SCO-070 cardless sessions", () => {
     expect(endpoint.metadata?.projectRoot).toBe(projectRoot);
   });
 
+  test("stores pairing bridge session ids separately from the Scout route owner", () => {
+    const endpoint = buildCardlessSessionEndpoint({
+      sessionId: "sess-grok-acp",
+      transport: "pairing_bridge",
+      harness: "grok-acp",
+      cwd: PROJECT,
+      nodeId: "node-1",
+      pairingSessionId: "pairing-grok-acp-1",
+      externalSessionId: "pairing-grok-acp-1",
+    });
+
+    expect(endpoint.agentId).toBe("sess-grok-acp");
+    expect(endpoint.sessionId).toBe("pairing-grok-acp-1");
+    expect(endpoint.harness).toBe("grok-acp");
+    expect(endpoint.transport).toBe("pairing_bridge");
+    expect(endpoint.metadata).toEqual(expect.objectContaining({
+      cardless: true,
+      pendingExternalSession: false,
+      externalSessionId: "pairing-grok-acp-1",
+      pairingSessionId: "pairing-grok-acp-1",
+      pairingAdapterType: "grok-acp",
+    }));
+  });
+
   test("a stale cardless endpoint drops from routing and grouping", () => {
     const live = buildCardlessSessionEndpoint({
       sessionId: "sess-live",

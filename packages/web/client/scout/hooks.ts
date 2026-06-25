@@ -5,6 +5,7 @@ import { useOptionalFlag } from "hudsonkit/flags";
 import { api } from "../lib/api.ts";
 import { ensureAgentChat } from "../lib/agent-chat.ts";
 import { useScout } from "./Provider.tsx";
+import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import {
@@ -253,20 +254,21 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
       count: onlineCount,
     },
     mesh: (() => {
+      const label = localMachineLabel(mesh);
       if (mesh === null) {
-        return { label: "Mesh", value: "checking", color: "neutral" as StatusColor };
+        return { label, value: "checking", color: "neutral" as StatusColor };
       }
       if (!mesh.health.reachable) {
-        return { label: "Mesh", value: "offline", color: "neutral" as StatusColor };
+        return { label, value: "offline", color: "neutral" as StatusColor };
       }
       const remoteNodes = Object.values(mesh.nodes).filter((node) => node.id !== mesh.localNode?.id);
       if (remoteNodes.length > 0) {
-        return { label: "Mesh", value: "connected", color: "neutral" as StatusColor };
+        return { label, value: "connected", color: "neutral" as StatusColor };
       }
       if (mesh.identity.discoverable) {
-        return { label: "Mesh", value: "discoverable", color: "neutral" as StatusColor };
+        return { label, value: "discoverable", color: "neutral" as StatusColor };
       }
-      return { label: "Mesh", value: "local", color: "amber" as StatusColor };
+      return { label, value: "local", color: "amber" as StatusColor };
     })(),
     build: buildLabel,
   };

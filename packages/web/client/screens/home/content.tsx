@@ -395,13 +395,6 @@ type HeartrateBucketView = {
 
 type LoadMode = "initial" | "background" | "manual";
 
-function greetingFor(hour: number): string {
-  if (hour < 5) return "Still up";
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
-}
-
 function settledError(result: PromiseSettledResult<unknown>): string | null {
   if (result.status === "fulfilled") return null;
   return friendlySyncError(result.reason instanceof Error ? result.reason.message : String(result.reason));
@@ -616,15 +609,6 @@ export function HomeContent({
     return () => clearInterval(id);
   }, []);
 
-  const waiting = useMemo(
-    () =>
-      agents.filter((a) => {
-        const s = normalizeAgentState(a.state);
-        return s === "callable";
-      }),
-    [agents],
-  );
-
   const movingAsks = useMemo(
     () =>
       (scopedFleet?.activeAsks ?? []).filter(
@@ -743,7 +727,6 @@ export function HomeContent({
   }, [lookbackMs]);
 
   const now = new Date();
-  const greeting = greetingFor(now.getHours());
   const opsEnabled = useOptionalFlag("ops.control", true);
   const operatorName =
     onboarding?.operatorName?.trim()
@@ -791,18 +774,6 @@ export function HomeContent({
     );
   }, [scopedFleet?.activity, nowMs, agents, operatorName]);
 
-  const narrativeParts = useMemo(() => {
-    const parts: string[] = [];
-    if (workingAgents.length > 0)
-      parts.push(`${workingAgents.length} agent${workingAgents.length === 1 ? " is" : "s are"} working now`);
-    if (waiting.length > 0)
-      parts.push(`${waiting.length} agent${waiting.length === 1 ? " is" : "s are"} ready`);
-    if (parts.length === 0 && agents.length > 0)
-      parts.push(`${agents.length} agent${agents.length === 1 ? " is" : "s are"} registered`);
-    if (parts.length === 0)
-      parts.push("no agents are connected yet");
-    return parts;
-  }, [workingAgents, waiting, agents]);
   const syncLabel = loading
     ? "syncing"
     : error
@@ -819,14 +790,12 @@ export function HomeContent({
 
   const heroProps = {
     now,
-    greeting,
     operatorName,
     syncLabel,
     error,
     loading,
     refreshing,
     onRefresh: handleRefresh,
-    narrativeParts,
     navigate,
     opsEnabled,
     heartrate: combinedHeartrate,
@@ -853,7 +822,7 @@ export function HomeContent({
   return (
     <div className="s-fleet-home">
       <div className="s-fleet-home-inner">
-        {/* ── Home status ─────────────────────────────────────────── */}
+        {/* ── Home header ─────────────────────────────────────────── */}
         <HomeHero {...heroProps} />
 
         {/* ── What's moving ──────────────────────────────────────── */}

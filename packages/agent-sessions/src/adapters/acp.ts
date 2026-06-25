@@ -133,6 +133,7 @@ type PendingPermission = {
 };
 
 type AcpAdapterOptions = {
+  adapterType: string;
   command: string;
   args: string[];
   cwd: string;
@@ -143,6 +144,8 @@ type AcpAdapterOptions = {
   sessionId: string | null;
   sessionMode: "new" | "load" | "resume" | "auto";
   authMethodId: string | null;
+  authMethodPreference: string[];
+  requireAuth: boolean;
   mcpServers: unknown[];
   additionalDirectories: string[];
   readTextFile: boolean;
@@ -196,6 +199,7 @@ function parseOptions(config: AdapterConfig): AcpAdapterOptions {
     : "auto";
 
   return {
+    adapterType: stringValue(raw.adapterType) ?? "acp",
     command,
     args: stringArray(raw.args),
     cwd,
@@ -208,6 +212,8 @@ function parseOptions(config: AdapterConfig): AcpAdapterOptions {
     sessionId: stringValue(raw.sessionId),
     sessionMode,
     authMethodId: stringValue(raw.authMethodId),
+    authMethodPreference: stringArray(raw.authMethodPreference),
+    requireAuth: booleanValue(raw.requireAuth, false),
     mcpServers: Array.isArray(raw.mcpServers) ? raw.mcpServers : [],
     additionalDirectories: stringArray(raw.additionalDirectories),
     readTextFile: booleanValue(raw.readTextFile, true),
@@ -256,6 +262,47 @@ function isNotification(message: unknown): message is JsonRpcNotification {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function authMethodId(method: { id?: string; methodId?: string; name?: string }): string | null {
+  return stringValue(method.id) ?? stringValue(method.methodId);
+}
+
+function resolveAuthMethodId(
+  options: AcpAdapterOptions,
+  authMethods: AcpInitializeResponse["authMethods"],
+): string | null {
+  const available = (authMethods ?? [])
+    .map(authMethodId)
+    .filter((entry): entry is string => entry !== null);
+  const availableSet = new Set(available);
+
+  if (options.authMethodId) {
+    if (available.length > 0 && !availableSet.has(options.authMethodId)) {
+      throw new Error(
+        `ACP auth method "${options.authMethodId}" is not available. Available methods: ${available.join(", ") || "none"}.`,
+      );
+    }
+    return options.authMethodId;
+  }
+
+  for (const preferred of options.authMethodPreference) {
+    if (availableSet.has(preferred)) {
+      return preferred;
+    }
+  }
+
+  if (options.requireAuth) {
+    const requested = options.authMethodPreference.length > 0
+      ? ` Requested methods: ${options.authMethodPreference.join(", ")}.`
+      : "";
+    throw new Error(
+      `ACP agent requires authentication, but no compatible auth method is available.`
+      + ` Available methods: ${available.join(", ") || "none"}.${requested}`,
+    );
+  }
+
+  return null;
 }
 
 function mapSessionStatus(status: string | null | undefined): SessionStatus {
@@ -415,7 +462,7 @@ function isPathInside(root: string, filePath: string): boolean {
 }
 
 export class AcpAdapter extends BaseAdapter {
-  readonly type = "acp";
+  readonly type: string;
 
   private readonly acpOptions: AcpAdapterOptions;
   private process: ChildProcessWithoutNullStreams | null = null;
@@ -431,6 +478,7 @@ export class AcpAdapter extends BaseAdapter {
   constructor(config: AdapterConfig) {
     super(config);
     this.acpOptions = parseOptions(config);
+    this.type = this.acpOptions.adapterType;
     (this.session as { adapterType: string }).adapterType = this.type;
   }
 
@@ -566,8 +614,10 @@ export class AcpAdapter extends BaseAdapter {
       command: [options.command, ...options.args].join(" "),
     });
 
-    if (options.authMethodId) {
-      await this.request("authenticate", { methodId: options.authMethodId }, options.startupTimeoutMs);
+    const selectedAuthMethodId = resolveAuthMethodId(options, initialized.authMethods);
+    if (selectedAuthMethodId) {
+      await this.request("authenticate", { methodId: selectedAuthMethodId }, options.startupTimeoutMs);
+      this.updateProviderMeta({ authMethodId: selectedAuthMethodId });
     }
 
     await this.openSession();

@@ -122,7 +122,10 @@ struct ScoutSettingsView: View {
             }
             .padding(.horizontal, HudSpacing.huge)
             .padding(.vertical, HudSpacing.xxxl)
-            .frame(width: contentWidth, alignment: .topLeading)
+            // Cap the readable width but let it shrink so the panel never
+            // overflows its viewport — a hard `width:` clipped the theme grid's
+            // right edge when the window was narrower than `contentWidth`.
+            .frame(maxWidth: contentWidth, alignment: .topLeading)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .scrollContentBackground(.hidden)
@@ -154,7 +157,7 @@ struct ScoutSettingsView: View {
     }
 
     private var appearancePage: some View {
-        VStack(alignment: .leading, spacing: HudSpacing.huge) {
+        VStack(alignment: .leading, spacing: HudSpacing.xxxl) {
             settingsBlock(title: "Theme") {
                 VStack(alignment: .leading, spacing: HudSpacing.md) {
                     Text("The preset sets the surfaces; mode and accent layer on top.")

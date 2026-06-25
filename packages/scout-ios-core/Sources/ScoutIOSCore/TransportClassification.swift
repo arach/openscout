@@ -160,6 +160,20 @@ public func transportKind(forRelayURL rawValue: String) -> TransportKind {
     return classifyTransport(host: host)
 }
 
+/// Machine hostname suitable for UI labels — skips shared relay front doors like
+/// `mesh.oscout.net` that would otherwise collapse to the word "mesh".
+public func bridgeMachineHost(from relayURL: String) -> String? {
+    guard let host = URLComponents(string: relayURL)?.host?.trimmedNonEmpty else {
+        return nil
+    }
+    switch classifyTransport(host: host) {
+    case .oscout, .loopback, .none:
+        return nil
+    default:
+        return host
+    }
+}
+
 // MARK: - Route helpers
 
 func relayURLIndicatesLocalOnlyTailscaleRoute(_ rawValue: String) -> Bool {

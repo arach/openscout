@@ -93,8 +93,12 @@ describe("mesh rendezvous publisher", () => {
       },
     });
 
-    expect(resolveMeshRendezvousPublishConfig({})).toMatchObject({
+    expect(resolveMeshRendezvousPublishConfig({})).toEqual({
       url: "https://mesh.example.test",
+      token: undefined,
+      sessionToken: undefined,
+      ttlMs: 60_000,
+      intervalMs: 30_000,
     });
   });
 

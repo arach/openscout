@@ -326,7 +326,13 @@ function branchFromPayload(payload: Record<string, unknown> | null): string | un
   );
 }
 
-function usageFromCodexTokenEvent(event: TailEvent, model?: string): ObserveUsageMeta | null {
+type UsageScope = "session" | "turn";
+
+function usageFromCodexTokenEvent(
+  event: TailEvent,
+  model?: string,
+  scope: UsageScope = "session",
+): ObserveUsageMeta | null {
   if (event.source !== "codex") return null;
   if (rawRecordType(event) !== "event_msg" || payloadType(event) !== "token_count") {
     const summaryTotal = event.summary.match(/^tokens? · ([0-9,]+)/i)?.[1]?.replace(/,/g, "");
@@ -340,9 +346,10 @@ function usageFromCodexTokenEvent(event: TailEvent, model?: string): ObserveUsag
   const last = nestedRecord(info, "last_token_usage");
   const rateLimits = nestedRecord(payload, "rate_limits");
   if (!total && !info && !rateLimits) return null;
+  const counted = scope === "turn" ? (last ?? total) : (total ?? last);
 
   const usage: ObserveUsageMeta = {};
-  const inputTokens = numberValue(total?.input_tokens);
+  const inputTokens = numberValue(counted?.input_tokens);
   const lastInputTokens = numberValue(last?.input_tokens);
   const lastCacheReadInputTokens = numberValue(last?.cached_input_tokens)
     ?? numberValue(last?.cache_read_input_tokens);
@@ -352,12 +359,12 @@ function usageFromCodexTokenEvent(event: TailEvent, model?: string): ObserveUsag
     lastCacheReadInputTokens,
     lastCacheCreationInputTokens,
   ]);
-  const outputTokens = numberValue(total?.output_tokens);
-  const reasoningOutputTokens = numberValue(total?.reasoning_output_tokens);
-  const cacheReadInputTokens = numberValue(total?.cached_input_tokens)
-    ?? numberValue(total?.cache_read_input_tokens);
-  const cacheCreationInputTokens = numberValue(total?.cache_creation_input_tokens);
-  const totalTokens = numberValue(total?.total_tokens)
+  const outputTokens = numberValue(counted?.output_tokens);
+  const reasoningOutputTokens = numberValue(counted?.reasoning_output_tokens);
+  const cacheReadInputTokens = numberValue(counted?.cached_input_tokens)
+    ?? numberValue(counted?.cache_read_input_tokens);
+  const cacheCreationInputTokens = numberValue(counted?.cache_creation_input_tokens);
+  const totalTokens = numberValue(counted?.total_tokens)
     ?? (
       inputTokens !== undefined || outputTokens !== undefined
         ? (inputTokens ?? 0) + (outputTokens ?? 0)
@@ -430,13 +437,17 @@ function usageFromClaudeAssistantEvent(event: TailEvent): ObserveUsageMeta | nul
   return Object.keys(usage).length > 0 ? usage : null;
 }
 
-function usageFromTailEvents(events: TailEvent[]): ObserveUsageMeta | undefined {
+function usageFromTailEvents(
+  events: TailEvent[],
+  options?: { scope?: UsageScope },
+): ObserveUsageMeta | undefined {
   let latest: { ts: number; usage: ObserveUsageMeta } | null = null;
   const turnContext = latestTurnContext(events);
   const model = stringValue(
     turnContext?.model,
     nestedRecord(nestedRecord(turnContext, "collaboration_mode"), "settings")?.model,
   );
+  const scope = options?.scope ?? "session";
   for (const event of events) {
     if (event.source !== "codex" && event.source !== "claude") continue;
     if (
@@ -447,7 +458,7 @@ function usageFromTailEvents(events: TailEvent[]): ObserveUsageMeta | undefined 
       continue;
     }
     const usage = event.source === "codex"
-      ? usageFromCodexTokenEvent(event, model)
+      ? usageFromCodexTokenEvent(event, model, scope)
       : usageFromClaudeAssistantEvent(event);
     if (!usage) continue;
     if (!latest || event.ts >= latest.ts) latest = { ts: event.ts, usage };
@@ -695,15 +706,23 @@ function toolDetailFromTailEvent(event: TailEvent): string | undefined {
   return codexPatchTextFromTailEvent(event);
 }
 
-function tailEventsForHorizon(
+function rawTailEventsForHorizon(
   events: TailEvent[],
   now: number,
   windowMs: number | undefined,
 ): TailEvent[] {
   const sorted = [...events].sort((left, right) => left.ts - right.ts);
-  const inWindow = typeof windowMs === "number" && windowMs > 0
+  return typeof windowMs === "number" && windowMs > 0
     ? sorted.filter((event) => event.ts >= now - windowMs)
     : sorted;
+}
+
+function tailEventsForHorizon(
+  events: TailEvent[],
+  now: number,
+  windowMs: number | undefined,
+): TailEvent[] {
+  const inWindow = rawTailEventsForHorizon(events, now, windowMs);
   const displayed = filterTailEventsForDisplay(inWindow, "work");
   return displayed.length > MAX_LANE_TRACE_EVENTS
     ? displayed.slice(-MAX_LANE_TRACE_EVENTS)
@@ -718,7 +737,8 @@ export function observeDataFromTail(
   options?: { now?: number; windowMs?: number },
 ): ObserveData {
   const now = options?.now ?? Date.now();
-  const tail = tailEventsForHorizon(events, now, options?.windowMs);
+  const rawTail = rawTailEventsForHorizon(events, now, options?.windowMs);
+  const tail = tailEventsForHorizon(rawTail, now, undefined);
   const sessionStart = tail[0]?.ts ?? transcript.mtimeMs;
 
   const observeEvents = tail.map((event): ObserveEvent => {
@@ -752,7 +772,9 @@ export function observeDataFromTail(
         }]
         : []);
   const files = filesFromObserveEvents(observeEvents);
-  const usage = usageFromTailEvents(events);
+  const usage = usageFromTailEvents(rawTail, {
+    scope: typeof options?.windowMs === "number" && options.windowMs > 0 ? "turn" : "session",
+  });
 
   return {
     events: placeholderEvents,

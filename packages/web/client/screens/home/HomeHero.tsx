@@ -47,14 +47,12 @@ export type ServiceGauge =
 
 export type HomeHeroProps = {
   now: Date;
-  greeting: string;
   operatorName: string;
   syncLabel: string;
   error: string | null;
   loading: boolean;
   refreshing: boolean;
   onRefresh: () => void;
-  narrativeParts: string[];
   navigate: (route: Route) => void;
   opsEnabled: boolean;
   heartrate: HeartrateBucketView[];
@@ -399,7 +397,6 @@ export default function HomeHero(props: HomeHeroProps) {
     loading,
     refreshing,
     onRefresh,
-    narrativeParts,
     navigate,
     opsEnabled,
     heartrate,
@@ -410,20 +407,6 @@ export default function HomeHero(props: HomeHeroProps) {
   } = props;
   const [showAllGauges, setShowAllGauges] = useState(false);
 
-  // "N agents are ready" duplicates the CONTEXT rail's "READY · N" — drop it
-  // from both the lede and the subline. When that's the only thing to say
-  // (everything idle, nothing needs you), the card rests on "Nothing needs you."
-  const meaningfulParts = narrativeParts.filter((p) => !/\bready\b/.test(p));
-  const ledePart =
-    meaningfulParts.find((p) => p.includes("need")) ?? meaningfulParts[0] ?? "";
-  const displayLede = ledePart
-    ? `${ledePart}.`
-    : narrativeParts.length > 0
-      ? "Nothing needs you."
-      : "Scout is waiting for a fresh snapshot.";
-  const otherParts = meaningfulParts.filter((p) => p !== ledePart);
-  const leadsNeedsYou = ledePart.includes("need");
-  const subline = otherParts.join(" · ");
   const syncTone = error ? "err" : "ok";
   const sortedGauges = sortedServiceGauges(serviceGauges);
   const compactGauges = topServiceGauges(serviceGauges);
@@ -448,6 +431,25 @@ export default function HomeHero(props: HomeHeroProps) {
           <span className="hd-meta">{formatClock(now)}</span>
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
+          <span className="hd-topbar-actions">
+            {opsEnabled && (
+              <button
+                type="button"
+                className="hd-btn"
+                onClick={() => navigate({ view: "ops" })}
+              >
+                [open ops]
+              </button>
+            )}
+            <button
+              type="button"
+              className="hd-btn"
+              disabled={loading || refreshing}
+              onClick={onRefresh}
+            >
+              [{refreshing ? "refreshing" : "r refresh"}]
+            </button>
+          </span>
         </div>
         {gauges.length > 0 && (
           <div className="hd-topbar-c" aria-label="service usage">
@@ -482,46 +484,8 @@ export default function HomeHero(props: HomeHeroProps) {
         )}
       </div>
 
-      <div className={`hd-grid${showHeartrate ? "" : " hd-grid--single"}`}>
-        <div className="hd-panel hd-panel--lede">
-          <div className="hd-panel-title">
-            <span>STATUS</span>
-          </div>
-
-          <p className={`hd-status-line${leadsNeedsYou ? " hd-status-line--warn" : ""}`}>
-            {displayLede}
-          </p>
-
-          {subline.length > 0 && (
-            <p className="hd-sub">{subline}.</p>
-          )}
-
-          {error && (
-            <p className="hd-sub hd-sub--err">sync: {error}</p>
-          )}
-
-          <div className="hd-actions">
-            {opsEnabled && (
-              <button
-                type="button"
-                className="hd-btn"
-                onClick={() => navigate({ view: "ops" })}
-              >
-                [open ops]
-              </button>
-            )}
-            <button
-              type="button"
-              className="hd-btn"
-              disabled={loading || refreshing}
-              onClick={onRefresh}
-            >
-              [{refreshing ? "refreshing" : "r refresh"}]
-            </button>
-          </div>
-        </div>
-
-        {showHeartrate && (
+      {showHeartrate && (
+        <div className="hd-grid hd-grid--single">
           <div className="hd-panel hd-panel--hr">
             <div className="hd-panel-title">
               <span>HEART-RATE</span>
@@ -536,8 +500,8 @@ export default function HomeHero(props: HomeHeroProps) {
             </div>
             <HeartrateGraph buckets={heartrate} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </section>
   );
 }

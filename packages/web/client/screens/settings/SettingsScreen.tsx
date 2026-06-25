@@ -67,6 +67,19 @@ function PairRouteLink({ label, value }: { label: string; value: string }) {
   );
 }
 
+function AgentConfigRedirect({
+  agentId,
+  navigate,
+}: {
+  agentId: string;
+  navigate: (r: Route) => void;
+}) {
+  useEffect(() => {
+    navigate({ view: "agents-v2", agentId, tab: "config" });
+  }, [agentId, navigate]);
+  return null;
+}
+
 export function SettingsScreen({
   navigate,
   section,
@@ -76,6 +89,9 @@ export function SettingsScreen({
   section?: "agents";
   agentId?: string;
 }) {
+  if (section === "agents" && agentId) {
+    return <AgentConfigRedirect agentId={agentId} navigate={navigate} />;
+  }
   if (section === "agents") {
     return <AgentConfigurationScreen navigate={navigate} selectedAgentId={agentId} />;
   }

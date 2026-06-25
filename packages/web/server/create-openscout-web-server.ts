@@ -2547,14 +2547,18 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
 }
 
 async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
-  const agents = queryAgents().map(withResolvedHarnessSessionIdentity);
+  const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
+  const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
+  const agents = queryAgents()
+    .map(withResolvedHarnessSessionIdentity)
+    .filter((agent) => !archivedIds.has(agent.id));
   const broker = await loadScoutBrokerContext().catch(() => null);
   if (!broker) {
     return agents;
   }
   const existingIds = new Set(agents.map((agent) => agent.id));
   const brokerAgents = brokerCardAgentsForWeb(broker)
-    .filter((agent) => !existingIds.has(agent.id))
+    .filter((agent) => !existingIds.has(agent.id) && !archivedIds.has(agent.id))
     .map(withResolvedHarnessSessionIdentity);
   return [...agents, ...brokerAgents];
 }
@@ -4958,6 +4962,22 @@ export async function createOpenScoutWebServer(
     return c.json({ roots });
   });
 
+  app.get("/api/projects/overview", async (c) => {
+    const projectRoot = c.req.query("root")?.trim();
+    if (!projectRoot) {
+      return c.json({ error: "missing root" }, 400);
+    }
+    const { buildProjectOverview } = await import("./project-overview.ts");
+    const result = await buildProjectOverview({
+      projectRoot,
+      currentDirectory,
+    });
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status as 400 | 403 | 404);
+    }
+    return c.json(result.payload);
+  });
+
   app.get("/api/file/preview", (c) => {
     const requestedPath = c.req.query("path");
     if (!requestedPath) {
@@ -5405,6 +5425,27 @@ export async function createOpenScoutWebServer(
   app.get("/api/agents/:id", async (c) => {
     const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
     return agent ? c.json(agent) : c.json({ error: "agent not found" }, 404);
+  });
+  app.get("/api/agents/:id/definitions", async (c) => {
+    const agent = await queryAgentIncludingBrokerCard(c.req.param("id"));
+    if (!agent) {
+      return c.json({ error: "agent not found" }, 404);
+    }
+    const projectRoot = agent.projectRoot ?? agent.cwd;
+    if (!projectRoot) {
+      return c.json({ error: "agent has no project root" }, 404);
+    }
+    const { buildAgentDefinitions } = await import("./agent-definitions.ts");
+    const result = await buildAgentDefinitions({
+      projectRoot,
+      agentHandle: agent.handle,
+      agentName: agent.name,
+      currentDirectory,
+    });
+    if (!result.ok) {
+      return c.json({ error: result.error }, result.status as 400 | 403 | 404);
+    }
+    return c.json(result.payload);
   });
   // Flexible session initiation. A single payload expresses every modality —
   // start fresh in a project, start "the same agent" fresh, continue an
@@ -6578,6 +6619,21 @@ export async function createOpenScoutWebServer(
     if (!result.ok)
       return c.json({ error: "Agent not found or not interruptible" }, 404);
     return c.json({ ok: true });
+  });
+
+  // Archive (or restore) an agent — hides it from the web directory. The flag
+  // lives on the persisted relay-agent override (survives config edits + sync).
+  app.post("/api/agents/:agentId/archive", async (c) => {
+    const agentId = c.req.param("agentId");
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const archived = body.archived !== false; // default: archive
+    const { setLocalAgentArchived } = await import("@openscout/runtime/local-agents");
+    const ok = await setLocalAgentArchived(agentId, archived);
+    if (!ok) {
+      return c.json({ error: "agent config not found" }, 404);
+    }
+    shellStateCache.invalidate();
+    return c.json({ ok: true, agentId, archived });
   });
 
   app.post("/api/agents/:agentId/session/reset", async (c) => {

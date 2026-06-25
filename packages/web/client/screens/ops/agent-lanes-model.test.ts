@@ -744,6 +744,123 @@ describe("isAgentLaneWorking", () => {
     expect(data.events.every((event) => (event.at ?? 0) >= NOW - 30 * 60_000)).toBe(true);
   });
 
+  test("uses latest-turn usage from raw token events inside the selected horizon", () => {
+    const transcript = {
+      source: "codex",
+      transcriptPath: "/tmp/rollout.jsonl",
+      sessionId: "sess-usage-horizon",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const data = observeDataFromTail(transcript, [
+      stubTailEvent("sess-usage-horizon", NOW - 20 * 60_000, "system", {
+        summary: "tokens · 1000000",
+        raw: {
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 900_000,
+                cached_input_tokens: 800_000,
+                output_tokens: 100_000,
+                total_tokens: 1_000_000,
+              },
+              last_token_usage: {
+                input_tokens: 90_000,
+                cached_input_tokens: 80_000,
+                output_tokens: 10_000,
+                total_tokens: 100_000,
+              },
+            },
+          },
+        },
+      }),
+      stubTailEvent("sess-usage-horizon", NOW - 2 * 60_000, "system", {
+        summary: "tokens · 500000",
+        raw: {
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 499_000,
+                cached_input_tokens: 450_000,
+                output_tokens: 1_000,
+                reasoning_output_tokens: 250,
+                total_tokens: 500_000,
+              },
+              last_token_usage: {
+                input_tokens: 50_000,
+                cached_input_tokens: 30_000,
+                output_tokens: 800,
+                reasoning_output_tokens: 125,
+                total_tokens: 50_800,
+              },
+              model_context_window: 200_000,
+            },
+            rate_limits: { plan_type: "pro" },
+          },
+        },
+      }),
+      stubTailEvent("sess-usage-horizon", NOW - 1_000, "tool", { summary: "grep foo" }),
+    ], true, {
+      now: NOW,
+      windowMs: 5 * 60_000,
+    });
+
+    expect(data.events.map((event) => event.text)).toEqual(["grep"]);
+    expect(data.metadata?.usage?.inputTokens).toBe(50_000);
+    expect(data.metadata?.usage?.cacheReadInputTokens).toBe(30_000);
+    expect(data.metadata?.usage?.outputTokens).toBe(800);
+    expect(data.metadata?.usage?.reasoningOutputTokens).toBe(125);
+    expect(data.metadata?.usage?.totalTokens).toBe(50_800);
+    expect(data.metadata?.usage?.contextInputTokens).toBe(80_000);
+    expect(data.metadata?.usage?.contextWindowTokens).toBe(200_000);
+    expect(data.metadata?.usage?.planType).toBe("pro");
+  });
+
+  test("does not leak stale token totals into a lane horizon with no recent token event", () => {
+    const transcript = {
+      source: "codex",
+      transcriptPath: "/tmp/rollout.jsonl",
+      sessionId: "sess-stale-usage",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const data = observeDataFromTail(transcript, [
+      stubTailEvent("sess-stale-usage", NOW - 20 * 60_000, "system", {
+        summary: "tokens · 1000000",
+        raw: {
+          type: "event_msg",
+          payload: {
+            type: "token_count",
+            info: {
+              total_token_usage: {
+                input_tokens: 900_000,
+                output_tokens: 100_000,
+                total_tokens: 1_000_000,
+              },
+            },
+          },
+        },
+      }),
+      stubTailEvent("sess-stale-usage", NOW - 1_000, "tool", { summary: "grep foo" }),
+    ], true, {
+      now: NOW,
+      windowMs: 5 * 60_000,
+    });
+
+    expect(data.events.map((event) => event.text)).toEqual(["grep"]);
+    expect(data.metadata?.usage).toBeUndefined();
+  });
+
   test("maps tail event timestamps into lane observe metadata", () => {
     const transcript = {
       source: "codex",

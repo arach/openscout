@@ -6,6 +6,8 @@
 // Usage:
 //   import { bridgeRouter, type BridgeRouter } from "./router.ts";
 
+import { hostname as osHostname } from "node:os";
+
 import { initTRPC, tracked, TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
@@ -188,11 +190,18 @@ function buildMobileEndpointManifest(ctx: BridgeContext) {
   const pairingFileServerUrl = httpUrl(host, pairingFileServerPort);
   const relayUrls = currentMobileRelayUrls(host, pairingBridgePort);
 
+  const nodeName = process.env.OPENSCOUT_NODE_NAME?.trim() || osHostname();
+  const hostName = osHostname();
+
   return {
     version: 1,
     observedAt: Date.now(),
     source: "bridge-rpc",
     protected: true,
+    node: {
+      name: nodeName,
+      hostName,
+    },
     transport: {
       secure: ctx.secureTransport === true,
       trustedPeer: ctx.trustedPeer === true,

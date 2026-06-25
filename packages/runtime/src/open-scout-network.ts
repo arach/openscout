@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
@@ -74,29 +73,6 @@ export function openScoutNetworkServiceEnvironment(env: NodeJS.ProcessEnv = proc
     next.OPENSCOUT_PAIRING_RELAY_URL = settings.pairingRelayUrl;
   }
   return next;
-}
-
-export function readOpenScoutNetworkSessionTokenFromKeychain(): string | undefined {
-  if (process.platform !== "darwin") {
-    return undefined;
-  }
-  try {
-    const output = execFileSync("security", [
-      "find-generic-password",
-      "-s",
-      "net.oscout.session",
-      "-a",
-      "session",
-      "-w",
-    ], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2_000,
-    });
-    return output.trim() || undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 function normalizeUrlString(value: unknown, fallback: string): string {

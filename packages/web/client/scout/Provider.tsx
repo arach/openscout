@@ -97,7 +97,10 @@ export interface ScoutContextValue {
   closeFilePreview: () => void;
 }
 
-const ScoutContext = createContext<ScoutContextValue | null>(null);
+// Exported so the design-sync preview provider (client/_ds/) can supply a mock
+// ScoutContext to context-coupled components (e.g. AgentsLibrary) without the
+// full ScoutProvider chrome. No behavior change for the app.
+export const ScoutContext = createContext<ScoutContextValue | null>(null);
 
 const AGENT_REFRESH_EVENT_KINDS = [
   "hello",
@@ -123,7 +126,9 @@ function keepPreviousIfJsonEqual<T>(previous: T, next: T): T {
   }
 }
 
-const DARK_THEME_VARS: ThemeVars = {
+// Exported for the design-sync lightweight preview provider (client/_ds/) — it
+// reuses these vars so cards render on the real dark theme. No behavior change.
+export const DARK_THEME_VARS: ThemeVars = {
   "--hud-bg": "oklch(0.14 0.008 80)",
   "--hud-surface": "oklch(0.18 0.009 80)",
   "--hud-ink": "oklch(0.96 0.008 80)",

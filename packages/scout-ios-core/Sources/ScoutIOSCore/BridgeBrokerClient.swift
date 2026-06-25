@@ -93,6 +93,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         connection.setUnexpectedDisconnectHandler(handler)
     }
 
+    public func setMachineIdentityUpdatedHandler(_ handler: ((String) -> Void)?) {
+        connection.setMachineIdentityUpdatedHandler(handler)
+    }
+
     /// Establish the encrypted connection (load identity + trusted bridge,
     /// assemble + iterate relay candidates, Noise IK handshake, start streams).
     public func connect() async throws {

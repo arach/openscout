@@ -46,4 +46,5 @@ describe("local web hostnames", () => {
     expect(normalizeLocalHostname("Scout M1.local")).toBe("scout-m1.local");
     expect(normalizeLocalHostname("Scout.M1.local")).toBe("scout.m1.local");
   });
+
 });

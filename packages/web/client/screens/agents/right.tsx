@@ -175,6 +175,22 @@ export function AgentsInspector() {
     );
   }
 
+  if (route.view === "agents-v2") {
+    if (!route.agentId) return null;
+    const agent = agents.find((a) => a.id === route.agentId) ?? null;
+    if (!agent) return null;
+    return (
+      <AgentContextPanel
+        agent={agent}
+        agents={agents}
+        navigate={navigate}
+        route={route}
+        observeMode={route.tab === "observe"}
+        showStaticIdentity={false}
+      />
+    );
+  }
+
   if (route.view !== "agents") return null;
 
   const agent = route.agentId
@@ -678,6 +694,7 @@ function AgentContextPanel({
             agentId={agent.id}
             navigate={navigate}
             cwd={selectedSession.cwd ?? agent.cwd}
+            route={route}
           />
         )}
 
@@ -1236,14 +1253,23 @@ function ObserveStats({
 // this side is the detail.) Changed-first (created/modified marked accent, read
 // dimmed), parent/filename, and an "Open full diff" bridge to the repo-diff view.
 // Reuses the /observe payload; renders nothing until it resolves.
+function observeTabRoute(route: Route | undefined, agentId: string): Route {
+  if (route?.view === "agents-v2") {
+    return { ...route, view: "agents-v2", agentId, tab: "observe" };
+  }
+  return { view: "agents", agentId, tab: "observe" };
+}
+
 function SessionActivity({
   agentId,
   navigate,
   cwd,
+  route,
 }: {
   agentId: string;
   navigate: (r: Route) => void;
   cwd?: string | null;
+  route?: Route;
 }) {
   const [observe, setObserve] = useState<AgentObservePayload | null>(null);
   const load = useCallback(async () => {
@@ -1286,11 +1312,11 @@ function SessionActivity({
           include: "changed",
           ...(sessionId ? { sessionId } : {}),
         })
-      : navigate({ view: "agents", agentId, tab: "observe" });
+      : navigate(observeTabRoute(route, agentId));
   const openWorktreeDiff = () =>
     diffPath
       ? navigate({ view: "repo-diff", path: diffPath })
-      : navigate({ view: "agents", agentId, tab: "observe" });
+      : navigate(observeTabRoute(route, agentId));
 
   return (
     <Section label="Files changed">

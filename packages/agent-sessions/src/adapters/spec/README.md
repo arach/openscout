@@ -19,6 +19,8 @@ Each adapter can ship an `adapter.spec.json` in its support directory:
   [../codex/adapter.spec.json](../codex/adapter.spec.json)
 - Claude Code:
   [../claude-code/adapter.spec.json](../claude-code/adapter.spec.json)
+- Grok ACP:
+  [../grok-acp/adapter.spec.json](../grok-acp/adapter.spec.json)
 
 ## How To Use It
 

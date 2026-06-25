@@ -34,4 +34,26 @@ describe("TextDocumentSurface", () => {
     expect(html).toContain("s-syntax-string");
     expect(html).toContain("http://localhost:3500/talkie-marks");
   });
+
+  test("renders inline markdown emphasis in preview mode", () => {
+    const document = createTextDocument({
+      id: "agent-md",
+      filename: "AGENT.md",
+      mediaType: "text/markdown",
+      value: "Use **bold**, *italic*, `code`, ~~old~~ and a [link](https://example.com). Keep file_name literal.",
+      kind: "markdown",
+      readOnly: true,
+    });
+
+    const html = renderToStaticMarkup(createElement(TextDocumentSurface, { document, mode: "preview" }));
+
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("<code>code</code>");
+    expect(html).toContain("<del>old</del>");
+    expect(html).toContain("href=\"https://example.com\"");
+    // snake_case must not be italicized (underscore opens only at a word boundary)
+    expect(html).toContain("file_name");
+    expect(html).not.toContain("<em>name</em>");
+  });
 });

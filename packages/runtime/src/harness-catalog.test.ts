@@ -16,9 +16,10 @@ describe("harness catalog", () => {
   test("built-in catalog contains the current supported external harnesses", () => {
     const entries = createBuiltInHarnessCatalog();
 
-    expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "cursor", "flue", "pi"]);
+    expect(entries.map((entry) => entry.name)).toEqual(["claude", "grok", "codex", "grok-acp", "cursor", "flue", "pi"]);
     expect(entries.find((entry) => entry.name === "claude")?.support.collaboration).toBe(true);
     expect(entries.find((entry) => entry.name === "codex")?.support.workspace).toBe(true);
+    expect(entries.find((entry) => entry.name === "grok-acp")?.metadata?.adapterType).toBe("grok-acp");
     expect(entries.find((entry) => entry.name === "pi")?.install?.macos).toBe(
       "npm install -g @earendil-works/pi-coding-agent",
     );
@@ -101,6 +102,24 @@ describe("harness catalog", () => {
         SCOUT_XAI_API_KEY: "test-key",
       },
       whichBinary: () => "/usr/local/bin/pi",
+      requirementExists: () => false,
+    });
+
+    expect(report.state).toBe("ready");
+    expect(report.installed).toBe(true);
+    expect(report.configured).toBe(true);
+    expect(report.ready).toBe(true);
+  });
+
+  test("readiness reports Grok ACP ready with Scout xAI credentials", () => {
+    const grokAcp = createBuiltInHarnessCatalog().find((entry) => entry.name === "grok-acp");
+    expect(grokAcp).toBeTruthy();
+
+    const report = evaluateHarnessReadiness(grokAcp!, {
+      env: {
+        SCOUT_XAI_API_KEY: "test-key",
+      },
+      whichBinary: () => "/usr/local/bin/grok",
       requirementExists: () => false,
     });
 

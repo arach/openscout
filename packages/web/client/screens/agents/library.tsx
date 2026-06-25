@@ -5,6 +5,9 @@ import { useScout } from "../../scout/Provider.tsx";
 import { SpriteAvatar } from "../../components/SpriteAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { NewChatComposer } from "./NewChatComposer.tsx";
+import { AgentSessions } from "./AgentSessions.tsx";
+import { api } from "../../lib/api.ts";
+import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
 import {
   branchesInFlightForProject,
   groupsForProject,
@@ -23,7 +26,6 @@ import type {
 import {
   buildDirProjects,
   buildNativeSessionRows,
-  dirProjectSessionCount,
   dirProjectWorking,
   rowForAgentInventory,
   type AgentInventoryRow,
@@ -50,16 +52,6 @@ import {
 
 const LIVE_WINDOW = 30 * 60_000;
 
-const HARNESS_HUE: Record<string, number> = {
-  claude: 28,
-  codex: 210,
-  grok: 280,
-  pi: 280,
-  gemini: 150,
-  cursor: 330,
-  openai: 200,
-  general: 220,
-};
 
 const harnessOf = (h: string) => (h === "pi" ? "grok" : h);
 const shortModel = (m: string | null) =>
@@ -86,7 +78,7 @@ export function AgentsLibrary({
   // the REAL inspector renders its card + sessions.
   selectedAgentId?: string;
 }) {
-  const { route } = useScout();
+  const { route, reload } = useScout();
   const selectedSlug = route.view === "agents" ? route.projectSlug : undefined;
 
   const activeAsksByAgent = useMemo(() => {
@@ -140,6 +132,30 @@ export function AgentsLibrary({
     openAgentPage: (row) =>
       navigate({ view: "agents", agentId: row.agent.id, tab: "profile" }),
     startSession: (row) => setComposerAgentId(row.agent.id),
+    openSession: (sessionRoute) => navigate(sessionRoute),
+    // Retarget reuses the existing agent config editor (model/cwd/harness/…).
+    configureAgent: (row) =>
+      navigate({ view: "agents", agentId: row.agent.id, tab: "config" }),
+    restartAgent: (row) => {
+      void api(`/api/agents/${encodeURIComponent(row.agent.id)}/config`, {
+        method: "POST",
+        body: JSON.stringify({ restart: true }),
+      }).catch(() => {});
+    },
+    stopAgent: (row) => {
+      void api(`/api/agents/${encodeURIComponent(row.agent.id)}/interrupt`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }).catch(() => {});
+    },
+    archiveAgent: (row) => {
+      void api(`/api/agents/${encodeURIComponent(row.agent.id)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ archived: true }),
+      })
+        .then(() => reload())
+        .catch(() => {});
+    },
   };
 
   if (!selected) {
@@ -158,6 +174,7 @@ export function AgentsLibrary({
         project={selected}
         selectedAgentId={selectedAgentId}
         gestures={gestures}
+        sessions={sessions}
       />
       {composerAgentId ? (
         <NewChatComposer
@@ -177,6 +194,13 @@ type Gestures = {
   // Open ↗ — the agent's full profile page.
   openAgentPage: (row: AgentInventoryRow) => void;
   startSession: (row: AgentInventoryRow) => void;
+  // Open a session straight from the directory (sessions are a core flow here).
+  openSession: (route: Route) => void;
+  // Agents aren't immutable nameplates — these mutate the running agent.
+  configureAgent: (row: AgentInventoryRow) => void; // retarget model/cwd/harness
+  restartAgent: (row: AgentInventoryRow) => void;
+  stopAgent: (row: AgentInventoryRow) => void;
+  archiveAgent: (row: AgentInventoryRow) => void; // hide from the directory
 };
 
 /* ── icons (kept to two, hairline weight) ──────────────────────────────── */
@@ -202,21 +226,44 @@ function Dot({ tone }: { tone: "needs" | "live" | "idle" }) {
 function AgentRow({
   g,
   gestures,
+  sessions,
   selected,
   cursor,
   rowRef,
 }: {
   g: ProjectAgentGroup;
   gestures: Gestures;
+  sessions: SessionEntry[];
   selected: boolean;
   cursor: boolean;
   rowRef: (el: HTMLDivElement | null) => void;
 }) {
+  const openMenu = useContextMenu();
   const live = Date.now() - g.lastActivityAt < LIVE_WINDOW;
   const tone: "needs" | "live" | "idle" = g.needs ? "needs" : live ? "live" : "idle";
-  const branch = g.branches[0] ?? "main";
   const lead = g.nodes[0];
   if (!lead) return null;
+  // The @ wants a real handle, not a spaced display name — so `@pages-tail`
+  // reads as the parallel of `/openscout`, not "@Pages Tail".
+  const handle = lead.row.agent.handle?.trim() || g.name;
+  // Honest state — an agent runs across several branches/models; surface the
+  // spread instead of flattening to branches[0]/model.
+  const branches = g.branches.length > 0 ? g.branches : ["main"];
+  const multiBranch = branches.length > 1;
+  const branchLabel = multiBranch ? `${branches.length} branches` : branches[0];
+  const models = [
+    ...new Set(g.nodes.map((n) => n.row.agent.model).filter((m): m is string => Boolean(m))),
+  ];
+  const multiModel = models.length > 1;
+  // The agent is mutable, not a frozen nameplate — retarget/restart/stop live
+  // behind ⋯. (Rename/archive have no backend yet, so they're not offered.)
+  const actions: MenuItem[] = [
+    { kind: "action", label: "Configure…", onSelect: () => gestures.configureAgent(lead.row) },
+    { kind: "action", label: "Restart", onSelect: () => gestures.restartAgent(lead.row) },
+    { kind: "separator" },
+    { kind: "action", label: "Stop", onSelect: () => gestures.stopAgent(lead.row) },
+    { kind: "action", label: "Archive", onSelect: () => gestures.archiveAgent(lead.row) },
+  ];
 
   return (
     <div
@@ -228,20 +275,37 @@ function AgentRow({
       data-cursor={cursor || undefined}
     >
       <div className="ap-rowMain" onClick={() => gestures.selectAgent(lead.row)}>
-        <SpriteAvatar name={g.name} size={26} hue={HARNESS_HUE[g.harness]} tile cornerPulse={live} />
         <div className="ap-rowBody">
           <div className="ap-rowTop">
             <Dot tone={tone} />
             <span className="ap-rowName" data-idle={tone === "idle" || undefined}>
-              <span className="ap-sigil" aria-hidden>@</span>{g.name}
+              <span className="ap-sigil" aria-hidden>@</span>{handle}
             </span>
             <span className="ap-rowMark" aria-hidden>
               <HarnessMark harness={harnessOf(g.harness)} size={11} />
             </span>
-            {g.needs ? <span className="ap-needsWord">needs you</span> : null}
+            {g.needs ? (
+              <span className="ap-needsWord">needs you</span>
+            ) : tone === "live" ? (
+              <span className="ap-rowState">working</span>
+            ) : null}
           </div>
           <div className="ap-rowMeta">
-            <span className="ap-rowBranch" data-dim={branch === "main" || undefined}>{branch}</span>
+            <span
+              className="ap-rowBranch"
+              data-dim
+              title={multiBranch ? branches.join(" · ") : undefined}
+            >
+              {branchLabel}
+            </span>
+            {multiModel ? (
+              <>
+                <span className="ap-rowDivider" aria-hidden />
+                <span className="ap-rowDim" title={models.join(" · ")}>
+                  {models.length} models
+                </span>
+              </>
+            ) : null}
             {g.sessionCount ? (
               <>
                 <span className="ap-rowDivider" aria-hidden />
@@ -253,36 +317,56 @@ function AgentRow({
           </div>
         </div>
 
-        {/* tail lane — reserved width; ago/model by default, actions on hover/needs */}
-        <div className="ap-rowTail">
-          <div className="ap-tailMeta" aria-hidden={tone === "needs" || undefined}>
-            <span className="ap-rowAgo">{g.lastActivityAt ? timeAgo(g.lastActivityAt) : "—"}</span>
-            {shortModel(g.model) ? <span className="ap-rowModel">{shortModel(g.model)}</span> : null}
+        {/* tail lane — reserved width; ago/model by default, actions on hover/needs.
+            ⋯ sits outside the hover-swap so the agent always reads as actionable. */}
+        <div className="ap-rowTailWrap">
+          <div className="ap-rowTail">
+            <div className="ap-tailMeta" aria-hidden={tone === "needs" || undefined}>
+              <span className="ap-rowAgo">{g.lastActivityAt ? timeAgo(g.lastActivityAt) : "—"}</span>
+              {!multiModel && shortModel(g.model) ? (
+                <span className="ap-rowModel">{shortModel(g.model)}</span>
+              ) : null}
+            </div>
+            <div className="ap-rowActions">
+              <button
+                type="button"
+                className="ap-act ap-actPrimary"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  gestures.openAgentPage(lead.row);
+                }}
+              >
+                Open ↗
+              </button>
+              <button
+                type="button"
+                className="ap-act"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  gestures.startSession(lead.row);
+                }}
+              >
+                ＋ Session
+              </button>
+            </div>
           </div>
-          <div className="ap-rowActions">
-            <button
-              type="button"
-              className="ap-act ap-actPrimary"
-              onClick={(e) => {
-                e.stopPropagation();
-                gestures.openAgentPage(lead.row);
-              }}
-            >
-              Open ↗
-            </button>
-            <button
-              type="button"
-              className="ap-act"
-              onClick={(e) => {
-                e.stopPropagation();
-                gestures.startSession(lead.row);
-              }}
-            >
-              ＋ Session
-            </button>
-          </div>
+          <button
+            type="button"
+            className="ap-rowMore"
+            aria-label="Agent actions"
+            title="Configure · restart · stop"
+            onClick={(e) => {
+              e.stopPropagation();
+              openMenu(e, actions);
+            }}
+          >
+            ⋯
+          </button>
         </div>
       </div>
+      {/* the agent's sessions — work-led rows that expand IN PLACE into the full
+          instrument (session id · branch · context · tools · files touched). */}
+      <AgentSessions agentIds={g.nodes.map((n) => n.row.agent.id)} sessions={sessions} />
     </div>
   );
 }
@@ -294,10 +378,12 @@ function ProjectDetail({
   project,
   selectedAgentId,
   gestures,
+  sessions,
 }: {
   project: DirProject;
   selectedAgentId?: string;
   gestures: Gestures;
+  sessions: SessionEntry[];
 }) {
   const [q, setQ] = useState("");
   const [harness, setHarness] = useState<string | null>(null);
@@ -336,7 +422,9 @@ function ProjectDetail({
   const sparse = primaryGroups.length <= 1;
 
   const working = dirProjectWorking(project);
-  const sessionCount = dirProjectSessionCount(project);
+  // Count the SAME population the rows show (sum of per-agent sessions), so the
+  // digest agrees with the "N sessions" on each agent row — one noun, one number.
+  const sessionCount = groups.reduce((total, group) => total + group.sessionCount, 0);
 
   const isSelected = (g: ProjectAgentGroup) =>
     Boolean(selectedAgentId && g.nodes.some((n) => n.row.agent.id === selectedAgentId));
@@ -406,19 +494,10 @@ function ProjectDetail({
       <div className="ap-content">
         {/* masthead */}
         <header className="ap-head">
-          <SpriteAvatar name={project.slice.title} size={40} tile />
+          <SpriteAvatar name={project.slice.title} size={56} tile />
           <div className="ap-headIdent">
             <div className="ap-headTop">
               <h1 className="ap-headName"><span className="ap-sigil" aria-hidden>/</span>{project.slice.title}</h1>
-              <span className="ap-headState" data-tone={working > 0 ? "live" : undefined}>
-                {working > 0 ? (
-                  <>
-                    <span className="ap-dot" data-tone="live" aria-hidden /> {working} live
-                  </>
-                ) : (
-                  <>idle · {project.lastActivityAt ? timeAgo(project.lastActivityAt) : "—"}</>
-                )}
-              </span>
             </div>
             {project.slice.root ? <span className="ap-headRoot">{project.slice.root}</span> : null}
           </div>
@@ -434,24 +513,27 @@ function ProjectDetail({
           </div>
         </header>
 
-        {/* digest — one quiet stat line, no box */}
+        {/* digest — one quiet inline line, demoted (the agent + session content
+            below is what's elevated). Zero-value stats stay out of the line. */}
         <div className="ap-digest">
           <span className="ap-stat">
             <span className="ap-statNum">{primaryGroups.length}</span>
-            <span className="ap-statLbl">agents</span>
+            <span className="ap-statLbl">{primaryGroups.length === 1 ? "agent" : "agents"}</span>
           </span>
           <span className="ap-stat">
             <span className="ap-statNum">{sessionCount}</span>
-            <span className="ap-statLbl">conversations</span>
+            <span className="ap-statLbl">{sessionCount === 1 ? "session" : "sessions"}</span>
           </span>
-          <span className="ap-stat">
-            <span className="ap-statNum">{flight.length}</span>
-            <span className="ap-statLbl">branches in flight</span>
-          </span>
+          {flight.length > 0 ? (
+            <span className="ap-stat">
+              <span className="ap-statNum">{flight.length}</span>
+              <span className="ap-statLbl">in flight</span>
+            </span>
+          ) : null}
           <span className="ap-statMarks">
             {harnesses.map((h) => (
               <span key={h} title={h} aria-hidden>
-                <HarnessMark harness={h} size={13} />
+                <HarnessMark harness={h} size={12} />
               </span>
             ))}
           </span>
@@ -462,7 +544,10 @@ function ProjectDetail({
           <div className="ap-resume" data-tone={lead.needs ? "needs" : "live"} aria-live="polite">
             <span className="ap-dot" data-tone={lead.needs ? "needs" : "live"} aria-hidden />
             <span className="ap-resumeLbl">{lead.needs ? "Waiting on you" : "Most recent"}</span>
-            <span className="ap-resumeWho">{lead.name}</span>
+            <span className="ap-resumeWho">
+              <span className="ap-sigil" aria-hidden>@</span>
+              {lead.nodes[0].row.agent.handle?.trim() || lead.name}
+            </span>
             <span className="ap-resumeMeta">
               {lead.branches[0] ?? "main"} · {lead.lastActivityAt ? timeAgo(lead.lastActivityAt) : "—"}
             </span>
@@ -472,7 +557,7 @@ function ProjectDetail({
                 className="ap-linkAccent"
                 onClick={() => gestures.selectAgent(lead.nodes[0].row)}
               >
-                {lead.needs ? "Approve & continue" : "Resume"}
+                {lead.needs ? "Continue" : "Resume"}
               </button>
               <button type="button" className="ap-link" onClick={() => gestures.openAgentPage(lead.nodes[0].row)}>
                 Open ↗
@@ -530,6 +615,7 @@ function ProjectDetail({
                 key={g.name}
                 g={g}
                 gestures={gestures}
+                sessions={sessions}
                 selected={isSelected(g)}
                 cursor={cursor === idx}
                 rowRef={(el) => {

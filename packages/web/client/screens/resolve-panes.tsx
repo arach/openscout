@@ -3,6 +3,7 @@ import type { Route } from "../lib/types.ts";
 import type { useScout } from "../scout/Provider.tsx";
 import { ActivityContent } from "./activity/index.ts";
 import { AgentsContent, AgentsLeft, AgentsRight } from "./agents/index.ts";
+import { AgentsV2Browse, AgentsV2Detail, AgentsV2Screen } from "./agents-v2/index.ts";
 import { BriefingsContent } from "./briefings/index.ts";
 import { BrokerContent } from "./broker/index.ts";
 import { ChatContent, ChatLeft, ChatRight } from "./chat/index.ts";
@@ -21,10 +22,12 @@ import { WorkContent, WorkRight } from "./work/index.ts";
 type Navigate = ReturnType<typeof useScout>["navigate"];
 
 /** Left pane for the current route. Falls back to HomeLeft when a surface has no custom left. */
-export function resolveLeftPane(route: Route): ReactNode {
+export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
   switch (route.view) {
     case "ops":
       return <OpsLeft />;
+    case "agents-v2":
+      return <AgentsV2Browse route={route} navigate={navigate} />;
     case "agents":
     case "agent-info":
       return <AgentsLeft />;
@@ -51,6 +54,8 @@ export function resolveContentPane(route: Route, navigate: Navigate): ReactNode 
     case "channels":
     case "conversations":
       return <ChatContent route={route} navigate={navigate} />;
+    case "agents-v2":
+      return <AgentsV2Screen route={route} navigate={navigate} />;
     case "agent-info":
     case "agents":
       return <AgentsContent route={route} navigate={navigate} />;
@@ -90,11 +95,19 @@ export function resolveContentPane(route: Route, navigate: Navigate): ReactNode 
 }
 
 /** Right pane for the current route, or null when the surface has no inspector. */
-export function resolveRightPane(route: Route): ReactNode {
+export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
   switch (route.view) {
     case "inbox":
     case "fleet":
       return <HomeRight />;
+    case "agents-v2": {
+      if (!route.agentId) {
+        return <AgentsV2Detail route={route} navigate={navigate} />;
+      }
+      // Hybrid (agent-profile-rebalance): center = sessions spine + inline summary;
+      // right rail = session snapshot, files, transcript tail, Observe/Take over.
+      return <AgentsRight />;
+    }
     case "agents":
       // Inspector only when an agent is engaged — the directory/list view has no
       // one specific thing to inspect, so the panel stays empty there.

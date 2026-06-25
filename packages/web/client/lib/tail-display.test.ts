@@ -147,6 +147,72 @@ describe("observeToolFieldsFromTailEvent", () => {
     expect(observeToolIsEdit("Write")).toBe(true);
     expect(observeToolIsEdit("read")).toBe(false);
   });
+
+  test("recovers the snippet from Claude's space-separated tool summaries", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "Read views/scout-tail.tsx",
+      kind: "tool",
+    }))).toEqual({ tool: "Read", arg: "views/scout-tail.tsx" });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "Edit broker/service.ts",
+      kind: "tool",
+    }))).toEqual({ tool: "Edit", arg: "broker/service.ts" });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "Grep data-scout-skin",
+      kind: "tool",
+    }))).toEqual({ tool: "Grep", arg: "data-scout-skin" });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "Task explore the codebase",
+      kind: "tool",
+    }))).toEqual({ tool: "Task", arg: "explore the codebase" });
+  });
+
+  test("treats a bare Claude tool name (no arg) as just the tool", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "TodoWrite",
+      kind: "tool",
+    }))).toEqual({ tool: "TodoWrite" });
+  });
+
+  test("classifies a bare Claude shell command as bash", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "./node_modules/.bin/tsc --noEmit",
+      kind: "tool",
+    }))).toEqual({ tool: "bash", arg: "./node_modules/.bin/tsc --noEmit" });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "git status --short",
+      kind: "tool",
+    }))).toEqual({ tool: "bash", arg: "git status --short" });
+  });
+
+  test("surfaces the Claude tool-result preview and outcome", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "res: 0 errors",
+      kind: "tool-result",
+    }))).toEqual({ tool: "res", arg: "0 errors", result: { outcome: "success" } });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "res: error: cannot find module 'foo'",
+      kind: "tool-result",
+    }))).toEqual({
+      tool: "res",
+      arg: "error: cannot find module 'foo'",
+      result: { outcome: "error" },
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "claude",
+      summary: "res: done",
+      kind: "tool-result",
+    }))).toEqual({ tool: "res", arg: "done", result: { outcome: "success" } });
+  });
 });
 
 describe("tailObserveEventDetail", () => {

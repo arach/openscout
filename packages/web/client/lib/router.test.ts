@@ -251,6 +251,68 @@ describe("agents route parsing", () => {
     ).toBe("/messages/c.foo");
   });
 
+  test("agents-v2 registry routes round-trip", () => {
+    expect(routeFromUrl("http://127.0.0.1:43120/agents-v2")).toEqual({
+      view: "agents-v2",
+    });
+    expect(routePath({ view: "agents-v2" })).toBe("/agents-v2");
+
+    const scoped = routeFromUrl(
+      "http://127.0.0.1:43120/agents-v2?project=lattices&state=needs&view=sessions",
+    );
+    expect(scoped).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      stateFilter: "needs",
+      indexView: "sessions",
+    });
+    expect(routeFromUrl(`http://127.0.0.1:43120${routePath(scoped)}`)).toEqual(scoped);
+
+    const agent = routeFromUrl("http://127.0.0.1:43120/agents-v2/lattices.main?project=lattices&session=c.foo");
+    expect(agent).toEqual({
+      view: "agents-v2",
+      agentId: "lattices.main",
+      projectSlug: "lattices",
+      sessionId: "c.foo",
+    });
+    expect(routePath(agent)).toBe("/agents-v2/lattices.main?project=lattices&session=c.foo");
+
+    const session = routeFromUrl("http://127.0.0.1:43120/agents-v2/sessions/c.foo");
+    expect(session).toEqual({
+      view: "agents-v2",
+      sessionId: "c.foo",
+    });
+    expect(routePath(session)).toBe("/agents-v2/sessions/c.foo");
+
+    const selected = routeFromUrl(
+      "http://127.0.0.1:43120/agents-v2?project=hudson&select=grok.main",
+    );
+    expect(selected).toEqual({
+      view: "agents-v2",
+      projectSlug: "hudson",
+      selectedAgentId: "grok.main",
+    });
+    expect(routePath(selected)).toBe("/agents-v2?project=hudson&select=grok.main");
+  });
+
+  test("agent config tab routes round-trip and legacy definitions alias", () => {
+    const configRoute = routeFromUrl("http://127.0.0.1:43120/agents-v2/codex.main?tab=config");
+    expect(configRoute).toEqual({
+      view: "agents-v2",
+      agentId: "codex.main",
+      tab: "config",
+    });
+    expect(routePath(configRoute)).toBe("/agents-v2/codex.main?tab=config");
+
+    const legacyRoute = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main?tab=definitions");
+    expect(legacyRoute).toEqual({
+      view: "agents",
+      agentId: "hudson.main",
+      tab: "config",
+    });
+    expect(routePath(legacyRoute)).toBe("/agents/hudson.main?tab=config");
+  });
+
   test("agent configuration settings routes round-trip", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/settings/agents")).toEqual({
       view: "settings",

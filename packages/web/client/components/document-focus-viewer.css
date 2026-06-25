@@ -336,6 +336,7 @@
 .s-text-document-markdown {
   padding: clamp(18px, 2.5vw, 34px);
   color: color-mix(in srgb, var(--ink) 76%, transparent);
+  font-family: var(--font-sans);
   font-size: var(--text-lg);
   line-height: var(--leading-normal);
 }
@@ -403,6 +404,20 @@
   color: color-mix(in srgb, var(--doc-focus-accent) 82%, var(--ink));
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.s-text-document-markdown strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.s-text-document-markdown em {
+  font-style: italic;
+}
+
+.s-text-document-markdown del {
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+  text-decoration-thickness: 1px;
 }
 
 .s-text-document-markdown code {

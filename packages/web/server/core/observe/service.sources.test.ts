@@ -202,6 +202,56 @@ function writeActiveClaudeHistory(path: string, assistantText: string): void {
   writeFileSync(path, `${content}\n`, "utf8");
 }
 
+function writeCodexHistory(path: string, input: {
+  sessionId: string;
+  cwd: string;
+  assistantText: string;
+}): void {
+  const content = [
+    JSON.stringify({
+      timestamp: "2026-04-22T12:00:00.000Z",
+      type: "session_meta",
+      payload: {
+        id: input.sessionId,
+        cwd: input.cwd,
+        originator: "Codex Desktop",
+        cli_version: "0.142.0",
+        source: "vscode",
+        model_provider: "openai",
+      },
+    }),
+    JSON.stringify({
+      timestamp: "2026-04-22T12:00:01.000Z",
+      type: "event_msg",
+      payload: {
+        type: "task_started",
+        turn_id: "turn-codex-1",
+        started_at: 1776862801,
+      },
+    }),
+    JSON.stringify({
+      timestamp: "2026-04-22T12:00:02.000Z",
+      type: "turn_context",
+      payload: {
+        cwd: input.cwd,
+        model: "gpt-5.5",
+        approval_policy: "never",
+        sandbox_policy: { type: "danger-full-access" },
+      },
+    }),
+    JSON.stringify({
+      timestamp: "2026-04-22T12:00:03.000Z",
+      type: "event_msg",
+      payload: {
+        type: "agent_message",
+        message: input.assistantText,
+        phase: "final",
+      },
+    }),
+  ].join("\n");
+  writeFileSync(path, `${content}\n`, "utf8");
+}
+
 beforeEach(() => {
   queryAgentsResult = [];
   brokerContextResult = null;
@@ -556,6 +606,154 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.historyPath).toBe(historyPath);
     expect(payload?.sessionId).toBe("claude-upstream-session");
     expect(payload?.data.events.some((event) => event.text.includes("hello from discovered Claude history"))).toBe(true);
+  });
+
+  test("does not attach cwd-discovered Codex history to direct relay sessions without a session match", async () => {
+    const tempRoot = makeTempDir("openscout-observe-codex-direct-mismatch-");
+    const historyPath = join(tempRoot, "wrong-codex-session.jsonl");
+    writeCodexHistory(historyPath, {
+      sessionId: "wrong-codex-session",
+      cwd: "/Users/arach/dev/scope",
+      assistantText: "wrong raw codex history",
+    });
+
+    queryAgentsResult = [
+      makeAgent({
+        id: "scope.main.arts-mac-mini-local",
+        harness: "codex",
+        transport: "codex_app_server",
+        cwd: "/Users/arach/dev/scope",
+        projectRoot: "/Users/arach/dev/scope",
+        project: "scope",
+        harnessSessionId: "relay-scope-codex",
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-scope-codex": {
+            id: "endpoint-scope-codex",
+            agentId: "scope.main.arts-mac-mini-local",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "waiting",
+            sessionId: "relay-scope-codex",
+            cwd: "/Users/arach/dev/scope",
+            projectRoot: "/Users/arach/dev/scope",
+            metadata: {
+              runtimeInstanceId: "relay-scope-codex",
+              runtimeMode: "direct_session",
+            },
+          },
+        },
+      },
+    };
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "codex",
+          transcriptPath: historyPath,
+          sessionId: "wrong-codex-session",
+          cwd: "/Users/arach/dev/scope",
+          project: "scope",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadAgentObservePayload("scope.main.arts-mac-mini-local");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("unavailable");
+    expect(payload?.historyPath).toBeNull();
+    expect(payload?.sessionId).toBeNull();
+    expect(payload?.data.events.some((event) => event.text.includes("wrong raw codex history"))).toBe(false);
+  });
+
+  test("uses session-matched discovered Codex history for direct relay sessions", async () => {
+    const tempRoot = makeTempDir("openscout-observe-codex-direct-match-");
+    const historyPath = join(tempRoot, "relay-scope-codex.jsonl");
+    writeCodexHistory(historyPath, {
+      sessionId: "relay-scope-codex",
+      cwd: "/Users/arach/dev/scope",
+      assistantText: "matched direct codex history",
+    });
+
+    queryAgentsResult = [
+      makeAgent({
+        id: "scope.main.arts-mac-mini-local",
+        harness: "codex",
+        transport: "codex_app_server",
+        cwd: "/Users/arach/dev/scope",
+        projectRoot: "/Users/arach/dev/scope",
+        project: "scope",
+        harnessSessionId: "relay-scope-codex",
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-scope-codex": {
+            id: "endpoint-scope-codex",
+            agentId: "scope.main.arts-mac-mini-local",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "waiting",
+            sessionId: "relay-scope-codex",
+            cwd: "/Users/arach/dev/scope",
+            projectRoot: "/Users/arach/dev/scope",
+            metadata: {
+              runtimeInstanceId: "relay-scope-codex",
+              runtimeMode: "direct_session",
+            },
+          },
+        },
+      },
+    };
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "codex",
+          transcriptPath: historyPath,
+          sessionId: "relay-scope-codex",
+          cwd: "/Users/arach/dev/scope",
+          project: "scope",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadAgentObservePayload("scope.main.arts-mac-mini-local");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.sessionId).toBe("relay-scope-codex");
+    expect(payload?.data.events.some((event) => event.text.includes("matched direct codex history"))).toBe(true);
   });
 
   test("maps a Claude session ref id directly to its history file", async () => {

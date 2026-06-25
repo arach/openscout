@@ -14,6 +14,18 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(transportKind(forRelayURL: "ws://10.0.0.5:8080").label, "LAN")
     }
 
+    func testBridgeMachineHostSkipsSharedRelayFrontDoors() {
+        XCTAssertNil(bridgeMachineHost(from: "wss://mesh.oscout.net/v1/relay"))
+        XCTAssertEqual(
+            bridgeMachineHost(from: "ws://arts-mac-mini.local:43131"),
+            "arts-mac-mini.local"
+        )
+        XCTAssertEqual(
+            bridgeMachineHost(from: "wss://arts-mac-mini.tail1e8e67.ts.net:43131"),
+            "arts-mac-mini.tail1e8e67.ts.net"
+        )
+    }
+
     func testTailnetRoutingDefaultsEnabledWhenUnset() {
         let defaults = makeDefaults()
 

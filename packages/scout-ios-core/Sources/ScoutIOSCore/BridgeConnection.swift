@@ -280,7 +280,13 @@ private struct RelayConnectionAttempt: Sendable {
 
 private struct MobileEndpointManifest: Decodable, Sendable {
     let version: Int
+    let node: Node?
     let endpoints: Endpoints
+
+    struct Node: Decodable, Sendable {
+        let name: String?
+        let hostName: String?
+    }
 
     struct Endpoints: Decodable, Sendable {
         let relayURLs: [String]?
@@ -288,6 +294,10 @@ private struct MobileEndpointManifest: Decodable, Sendable {
         enum CodingKeys: String, CodingKey {
             case relayURLs = "relayUrls"
         }
+    }
+
+    var machineIdentityHost: String? {
+        node?.hostName?.trimmedNonEmpty ?? node?.name?.trimmedNonEmpty
     }
 
     var orderedRelayURLs: [String] {
@@ -340,6 +350,7 @@ public final class BridgeConnection: @unchecked Sendable {
     private var _isConnected = false
     private var _currentRoute: TransportKind = .none
     private var _currentHost: String?
+    private var machineIdentityUpdatedHandler: ((String) -> Void)?
 
     // MARK: Fan-out continuations
 
@@ -394,6 +405,12 @@ public final class BridgeConnection: @unchecked Sendable {
     public func setUnexpectedDisconnectHandler(_ handler: BridgeConnectionDisconnectHandler?) {
         lock.withLockVoid {
             disconnectHandler = handler
+        }
+    }
+
+    public func setMachineIdentityUpdatedHandler(_ handler: ((String) -> Void)?) {
+        lock.withLockVoid {
+            machineIdentityUpdatedHandler = handler
         }
     }
 
@@ -498,9 +515,14 @@ public final class BridgeConnection: @unchecked Sendable {
             connectionInfo = updated
             _isConnected = true
             _currentRoute = transportKind(forRelayURL: attempt.relayURL)
-            _currentHost = URLComponents(string: attempt.relayURL)?.host
+            _currentHost = bridgeMachineHost(from: attempt.relayURL)
         }
 
+        persistMachineIdentity(
+            host: bridgeMachineHost(from: attempt.relayURL),
+            publicKey: attempt.remoteKey,
+            notify: false
+        )
         try? ScoutIdentity.touchTrustedBridge(publicKey: attempt.remoteKey)
 
         await connectionLogHandle.log(
@@ -582,12 +604,10 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         // XX handshake succeeded and the learned key matched the QR — trust it.
-        // Label the record with the Mac's own advertised name (its relay host),
-        // not the phone's device name.
-        let learnedName = URLComponents(string: attempt.relayURL)?.host.map {
-            $0.hasSuffix(".local") ? String($0.dropLast(6)) : $0
-        }
-        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: learnedName ?? primaryName)
+        // Prefer the Mac's own LAN/Tailnet hostname; shared relay front doors
+        // (mesh.oscout.net) are not machine labels.
+        let learnedName = bridgeMachineHost(from: attempt.relayURL) ?? primaryName
+        try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: learnedName)
 
         let publicKeyHex = hexString(attempt.remoteKey)
         let persistedRelayURLs = relayURLsPromotingSuccessfulRelay(attempt.relayURL, within: relayURLs)
@@ -604,8 +624,10 @@ public final class BridgeConnection: @unchecked Sendable {
             connectionInfo = info
             _isConnected = true
             _currentRoute = route
-            _currentHost = URLComponents(string: attempt.relayURL)?.host
+            _currentHost = bridgeMachineHost(from: attempt.relayURL) ?? learnedName
         }
+
+        persistMachineIdentity(host: bridgeMachineHost(from: attempt.relayURL) ?? learnedName, publicKey: attempt.remoteKey, notify: true)
 
         await connectionLogHandle.log(
             "Paired via \(route.label) \(attempt.relayURL)",
@@ -745,6 +767,12 @@ public final class BridgeConnection: @unchecked Sendable {
                 connectionInfo = refreshed
             }
 
+            if let identity = manifest.machineIdentityHost,
+               let bridge = currentTrustedBridge(),
+               bridge.publicKeyHex.lowercased() == refreshed.publicKeyHex.lowercased() {
+                persistMachineIdentity(host: identity, publicKey: bridge.publicKey, notify: true)
+            }
+
             await connectionLogHandle.log(
                 "Refreshed endpoint manifest with \(relayURLs.count) relay route(s)",
                 event: .resolve,
@@ -757,6 +785,16 @@ public final class BridgeConnection: @unchecked Sendable {
                 level: .warning
             )
         }
+    }
+
+    private func persistMachineIdentity(host: String?, publicKey: Data, notify: Bool) {
+        guard let host = host?.trimmedNonEmpty else { return }
+        try? ScoutIdentity.saveTrustedBridge(publicKey: publicKey, name: host)
+        let handler = lock.withLockReturning { () -> ((String) -> Void)? in
+            _currentHost = host
+            return notify ? machineIdentityUpdatedHandler : nil
+        }
+        handler?(host)
     }
 
     private func currentTrustedBridge() -> TrustedBridge? {

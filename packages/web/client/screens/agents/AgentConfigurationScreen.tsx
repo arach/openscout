@@ -113,7 +113,7 @@ function AgentRow({
     <button
       type="button"
       className={`agent-config-row agent-config-row-button${selected ? " agent-config-row-selected" : ""}`}
-      onClick={() => navigate({ view: "settings", section: "agents", agentId: agent.id })}
+      onClick={() => navigate({ view: "agents-v2", agentId: agent.id, tab: "config" })}
     >
       <div className="agent-config-row-main">
         <span className="agent-config-icon"><Bot size={14} /></span>

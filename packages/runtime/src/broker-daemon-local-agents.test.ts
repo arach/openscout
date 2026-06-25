@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -77,6 +77,167 @@ describe("broker daemon local agent routing", () => {
         }),
       }),
     ]));
+  }, 15_000);
+
+  test("starts and invokes a Grok ACP cardless session for project routing", async () => {
+    const controlHome = mkdtempSync(join(tmpdir(), "openscout-runtime-test-"));
+    const supportDirectory = join(controlHome, "support");
+    const projectRoot = join(controlHome, "projects", "grok-acp-project");
+    mkdirSync(projectRoot, { recursive: true });
+    broker.writeRelayAgentRegistry(supportDirectory, {});
+    const fakeBin = mkdtempSync(join(tmpdir(), "openscout-fake-grok-"));
+    broker.temporaryDirectories.add(fakeBin);
+    const fakeGrokPath = join(fakeBin, "grok");
+    writeFileSync(fakeGrokPath, `#!/usr/bin/env bun
+import readline from "node:readline";
+
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+
+for await (const line of rl) {
+  const trimmed = line.trim();
+  if (!trimmed) continue;
+  const message = JSON.parse(trimmed);
+  const id = message.id;
+  const method = message.method;
+  const params = message.params ?? {};
+
+  if (method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        protocolVersion: 1,
+        agentCapabilities: {
+          promptCapabilities: { image: false },
+          sessionCapabilities: { close: {} }
+        },
+        agentInfo: { name: "grok-acp", title: "Grok ACP", version: "test" },
+        authMethods: [{ id: "xai.api_key" }]
+      }
+    }));
+    continue;
+  }
+
+  if (method === "authenticate") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+    continue;
+  }
+
+  if (method === "session/new") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { sessionId: "fake-grok-acp-session" } }));
+    continue;
+  }
+
+  if (method === "session/prompt") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        sessionId: params.sessionId,
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: "grok-acp-ok" }
+        }
+      }
+    }));
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: { stopReason: "end_turn" } }));
+    continue;
+  }
+
+  if (method === "session/close") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id, result: {} }));
+    continue;
+  }
+}
+`, "utf8");
+    chmodSync(fakeGrokPath, 0o755);
+
+    const harness = await broker.startBroker({
+      controlHome,
+      env: {
+        HOME: controlHome,
+        OPENSCOUT_SUPPORT_DIRECTORY: supportDirectory,
+        OPENSCOUT_CORE_AGENTS: "",
+        OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
+        OPENSCOUT_NODE_QUALIFIER: "test-node",
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        SCOUT_XAI_API_KEY: "test-key",
+      },
+    });
+
+    const response = await broker.postJson<{
+      kind: string;
+      accepted: boolean;
+      targetAgentId?: string;
+      flight?: { id: string; targetAgentId: string; state: string };
+    }>(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-project-grok-acp",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "project_path",
+        projectPath: projectRoot,
+      },
+      body: "Reply with exactly grok-acp-ok.",
+      intent: "consult",
+      execution: {
+        harness: "grok-acp",
+        session: "new",
+      },
+      ensureAwake: false,
+      createdAt: Date.now(),
+    });
+
+    expect(response.kind).toBe("delivery");
+    expect(response.accepted).toBe(true);
+    expect(response.targetAgentId).toMatch(/^session-/);
+    expect(response.flight?.targetAgentId).toBe(response.targetAgentId);
+
+    const completed = await broker.waitFor(
+      () => broker.getJson<{
+        endpoints: Record<string, {
+        agentId: string;
+        harness?: string;
+        transport?: string;
+        sessionId?: string;
+          metadata?: Record<string, unknown>;
+        }>;
+        flights: Record<string, { state: string; summary?: string; metadata?: Record<string, unknown> }>;
+      }>(harness.baseUrl, "/v1/snapshot"),
+      (snapshot) => Object.values(snapshot.endpoints).some((endpoint) =>
+        endpoint.agentId === response.targetAgentId
+        && endpoint.harness === "grok-acp"
+        && endpoint.transport === "grok_acp"
+        && endpoint.metadata?.pendingExternalSession === false
+      ) && Boolean(response.flight?.id && snapshot.flights[response.flight.id]?.state === "completed"),
+    );
+
+    const endpoint = Object.values(completed.endpoints).find((candidate) =>
+      candidate.agentId === response.targetAgentId
+      && candidate.harness === "grok-acp"
+      && candidate.transport === "grok_acp"
+    );
+    expect(endpoint).toEqual(expect.objectContaining({
+      sessionId: response.targetAgentId,
+      metadata: expect.objectContaining({
+        cardless: true,
+        pendingExternalSession: false,
+        externalSessionId: response.targetAgentId,
+        adapterType: "grok-acp",
+      }),
+    }));
+
+    expect(completed.flights[response.flight!.id]).toEqual(expect.objectContaining({
+      state: "completed",
+      output: expect.stringContaining("grok-acp-ok"),
+      metadata: expect.objectContaining({
+        dispatchAck: expect.objectContaining({
+          transport: "grok_acp",
+        }),
+      }),
+    }));
   }, 15_000);
 
   test("starts a cardless project session instead of using a registered card when one-time was requested", async () => {
@@ -283,11 +444,26 @@ describe("broker daemon local agent routing", () => {
       },
     });
 
+    await broker.postJson(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-prime-empty-registry-refresh",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "channel",
+        channel: "shared",
+      },
+      body: "prime registry signature before refresh",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
     broker.writeRelayAgentRegistry(supportDirectory, {
-      ranger: {
-        agentId: "ranger",
-        definitionId: "ranger",
-        displayName: "Ranger",
+      hudson: {
+        agentId: "hudson",
+        definitionId: "hudson",
+        displayName: "Hudson",
         projectName: "OpenScout",
         projectRoot,
         source: "manual",
@@ -296,7 +472,7 @@ describe("broker daemon local agent routing", () => {
           cwd: projectRoot,
           harness: "codex",
           transport: "codex_app_server",
-          sessionId: "relay-ranger-codex",
+          sessionId: "relay-hudson-codex",
           wakePolicy: "on_demand",
         },
         capabilities: ["chat", "invoke", "deliver"],
@@ -309,24 +485,24 @@ describe("broker daemon local agent routing", () => {
       targetAgentId?: string;
       receipt?: { targetAgentId?: string };
     }>(harness.baseUrl, "/v1/deliver", {
-      id: "deliver-ranger-after-registry-change",
+      id: "deliver-hudson-after-registry-change",
       caller: {
         actorId: "operator",
         nodeId: harness.nodeId,
       },
       target: {
         kind: "agent_label",
-        label: "@ranger",
+        label: "@hudson",
       },
-      body: "@ranger registry changed while the broker was already running",
+      body: "@hudson registry changed while the broker was already running",
       intent: "tell",
       createdAt: Date.now(),
     });
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.targetAgentId).toBe("ranger.test-node");
-    expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
+    expect(response.targetAgentId).toBe("hudson.test-node");
+    expect(response.receipt?.targetAgentId).toBe("hudson.test-node");
   }, 15_000);
 
   test("routes harness-qualified labels as target params, not exact sessions", async () => {
@@ -431,15 +607,15 @@ describe("broker daemon local agent routing", () => {
     });
 
     await broker.postJson(harness.baseUrl, "/v1/agents", {
-      id: "ranger.main.mini",
+      id: "hudson.main.mini",
       kind: "agent",
-      definitionId: "ranger",
+      definitionId: "hudson",
       nodeQualifier: "mini",
       workspaceQualifier: "main",
-      selector: "@ranger.main.node:mini",
-      defaultSelector: "@ranger",
-      displayName: "Ranger",
-      handle: "ranger",
+      selector: "@hudson.main.node:mini",
+      defaultSelector: "@hudson",
+      displayName: "Hudson",
+      handle: "hudson",
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source: "relay-agent-registry",
@@ -464,7 +640,7 @@ describe("broker daemon local agent routing", () => {
       },
       target: {
         kind: "agent_id",
-        agentId: "ranger.main.mini",
+        agentId: "hudson.main.mini",
       },
       body: "race before stale sync",
       intent: "consult",
@@ -472,7 +648,7 @@ describe("broker daemon local agent routing", () => {
     });
 
     expect(accepted.kind).toBe("delivery");
-    expect(accepted.flight?.targetAgentId).toBe("ranger.main.mini");
+    expect(accepted.flight?.targetAgentId).toBe("hudson.main.mini");
     const flightId = accepted.flight!.id;
     await broker.waitFor(
       () => broker.getJson<{ flights: Record<string, { state: string }> }>(harness.baseUrl, "/v1/snapshot"),
@@ -480,10 +656,10 @@ describe("broker daemon local agent routing", () => {
     );
 
     broker.writeRelayAgentRegistry(supportDirectory, {
-      ranger: {
-        agentId: "ranger.test-node",
-        definitionId: "ranger",
-        displayName: "Ranger",
+      hudson: {
+        agentId: "hudson.test-node",
+        definitionId: "hudson",
+        displayName: "Hudson",
         projectName: "OpenScout",
         projectRoot,
         source: "manual",
@@ -492,7 +668,7 @@ describe("broker daemon local agent routing", () => {
           cwd: projectRoot,
           harness: "codex",
           transport: "codex_app_server",
-          sessionId: "relay-ranger-codex",
+          sessionId: "relay-hudson-codex",
           wakePolicy: "on_demand",
         },
         capabilities: ["chat", "invoke", "deliver"],
@@ -507,7 +683,7 @@ describe("broker daemon local agent routing", () => {
       },
       target: {
         kind: "agent_id",
-        agentId: "ranger.test-node",
+        agentId: "hudson.test-node",
       },
       body: "trigger registry sync",
       intent: "tell",
@@ -521,15 +697,15 @@ describe("broker daemon local agent routing", () => {
         flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
       }>(harness.baseUrl, "/v1/snapshot"),
       (snapshot) => Boolean(
-        snapshot.agents["ranger.test-node"]
+        snapshot.agents["hudson.test-node"]
         && snapshot.flights[flightId]?.state === "queued",
       ),
       { attempts: 120 },
     );
 
-    expect(reconciled.agents["ranger.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
+    expect(reconciled.agents["hudson.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
     expect(Object.values(reconciled.endpoints).some((endpoint) => (
-      endpoint.agentId === "ranger.main.mini"
+      endpoint.agentId === "hudson.main.mini"
       && endpoint.metadata?.staleLocalRegistration === true
     ))).toBe(false);
     expect(reconciled.flights[flightId]).toMatchObject({

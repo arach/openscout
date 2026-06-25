@@ -20,6 +20,7 @@ import type {
 import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
 import { DispatchStalledError } from "./dispatch-stalled.js";
+import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 
 import {
   answerClaudeStreamJsonQuestion,
@@ -438,6 +439,7 @@ function titleCaseLocalAgentName(value: string): string {
 export const SUPPORTED_LOCAL_AGENT_HARNESSES: AgentHarness[] = ["claude", "codex", "grok", "pi"];
 export const SUPPORTED_SCOUT_HARNESSES: AgentHarness[] = [
   ...SUPPORTED_LOCAL_AGENT_HARNESSES,
+  "grok-acp",
   "flue",
 ];
 
@@ -2009,6 +2011,35 @@ export async function updateLocalAgentConfig(
   return buildLocalAgentConfigState(agentId, nextRecord);
 }
 
+/**
+ * Archive (or un-archive) a local agent. The flag lives directly on the
+ * persisted relay-agent override, so it survives config edits without touching
+ * the record-normalize / sync path. The web directory filters on it.
+ */
+export async function setLocalAgentArchived(
+  agentId: string,
+  archived: boolean,
+): Promise<boolean> {
+  const overrides = await readRelayAgentOverrides();
+  const existing = overrides[agentId];
+  if (!existing) {
+    return false;
+  }
+  overrides[agentId] = archived
+    ? { ...existing, archivedAt: existing.archivedAt ?? Date.now() }
+    : { ...existing, archivedAt: undefined };
+  await writeRelayAgentOverrides(overrides);
+  return true;
+}
+
+/** Ids of agents currently archived — the directory uses this to hide them. */
+export async function listArchivedLocalAgentIds(): Promise<string[]> {
+  const overrides = await readRelayAgentOverrides();
+  return Object.entries(overrides)
+    .filter(([, override]) => typeof override.archivedAt === "number")
+    .map(([agentId]) => agentId);
+}
+
 export async function updateLocalAgentCardLifecycle(
   agentId: string,
   input: LocalAgentCardLifecycleInput,
@@ -2512,6 +2543,10 @@ export function isLocalAgentEndpointAlive(endpoint: AgentEndpoint): boolean {
 
   if (endpoint.transport === "pi_rpc") {
     return isPiRpcAgentAlive(buildPiEndpointSessionOptions(endpoint));
+  }
+
+  if (endpoint.transport === "grok_acp") {
+    return endpoint.state !== "offline";
   }
 
   const sessionId =
@@ -4680,6 +4715,24 @@ export async function invokeLocalAgentEndpoint(
     const result = await invokePiRpcAgent({
       ...buildPiEndpointSessionOptions(endpoint),
       prompt,
+    });
+
+    return {
+      output: result.output,
+      externalSessionId: result.sessionId,
+      metadata: result.metadata,
+    };
+  }
+
+  if (!existing && endpoint.transport === "grok_acp") {
+    const cwd = endpoint.cwd ?? endpoint.projectRoot ?? process.cwd();
+    const sessionId = endpoint.sessionId?.trim() || agentRuntimeId;
+    const result = await invokeGrokAcpAgent({
+      sessionId,
+      cwd,
+      prompt,
+      name: String(endpoint.metadata?.agentName ?? endpoint.metadata?.definitionId ?? "Grok ACP"),
+      timeoutMs: invocation.timeoutMs,
     });
 
     return {
