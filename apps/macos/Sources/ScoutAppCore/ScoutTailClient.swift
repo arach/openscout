@@ -10,13 +10,16 @@ public struct ScoutTailClient: Sendable {
         if includeTranscripts {
             items.append(URLQueryItem(name: "transcripts", value: "true"))
         }
-        let url = ScoutBroker.baseURL()
-            .appending(path: "v1/tail/recent")
+        let url = ScoutWeb.baseURL()
+            .appending(path: "api/tail/recent")
             .appending(queryItems: items)
         return try await ScoutHTTP.fetch(ScoutTailRecentPayload.self, from: url)
     }
 
     public func fetchDiscovery() async throws -> ScoutTailDiscoverySnapshot {
-        try await ScoutHTTP.fetch(ScoutTailDiscoverySnapshot.self, from: ScoutBroker.baseURL().appending(path: "v1/tail/discover"))
+        try await ScoutHTTP.fetch(
+            ScoutTailDiscoverySnapshot.self,
+            from: ScoutWeb.baseURL().appending(path: "api/tail/discover")
+        )
     }
 }

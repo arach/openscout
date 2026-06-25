@@ -228,7 +228,7 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             scoutSetIfChanged(
-                ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout broker."),
+                ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app."),
                 to: \.lastError
             )
         }
