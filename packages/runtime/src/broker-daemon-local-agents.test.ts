@@ -444,11 +444,26 @@ for await (const line of rl) {
       },
     });
 
+    await broker.postJson(harness.baseUrl, "/v1/deliver", {
+      id: "deliver-prime-empty-registry-refresh",
+      caller: {
+        actorId: "operator",
+        nodeId: harness.nodeId,
+      },
+      target: {
+        kind: "channel",
+        channel: "shared",
+      },
+      body: "prime registry signature before refresh",
+      intent: "tell",
+      createdAt: Date.now(),
+    });
+
     broker.writeRelayAgentRegistry(supportDirectory, {
-      ranger: {
-        agentId: "ranger",
-        definitionId: "ranger",
-        displayName: "Ranger",
+      hudson: {
+        agentId: "hudson",
+        definitionId: "hudson",
+        displayName: "Hudson",
         projectName: "OpenScout",
         projectRoot,
         source: "manual",
@@ -457,7 +472,7 @@ for await (const line of rl) {
           cwd: projectRoot,
           harness: "codex",
           transport: "codex_app_server",
-          sessionId: "relay-ranger-codex",
+          sessionId: "relay-hudson-codex",
           wakePolicy: "on_demand",
         },
         capabilities: ["chat", "invoke", "deliver"],
@@ -470,24 +485,24 @@ for await (const line of rl) {
       targetAgentId?: string;
       receipt?: { targetAgentId?: string };
     }>(harness.baseUrl, "/v1/deliver", {
-      id: "deliver-ranger-after-registry-change",
+      id: "deliver-hudson-after-registry-change",
       caller: {
         actorId: "operator",
         nodeId: harness.nodeId,
       },
       target: {
         kind: "agent_label",
-        label: "@ranger",
+        label: "@hudson",
       },
-      body: "@ranger registry changed while the broker was already running",
+      body: "@hudson registry changed while the broker was already running",
       intent: "tell",
       createdAt: Date.now(),
     });
 
     expect(response.kind).toBe("delivery");
     expect(response.accepted).toBe(true);
-    expect(response.targetAgentId).toBe("ranger.test-node");
-    expect(response.receipt?.targetAgentId).toBe("ranger.test-node");
+    expect(response.targetAgentId).toBe("hudson.test-node");
+    expect(response.receipt?.targetAgentId).toBe("hudson.test-node");
   }, 15_000);
 
   test("routes harness-qualified labels as target params, not exact sessions", async () => {
@@ -592,15 +607,15 @@ for await (const line of rl) {
     });
 
     await broker.postJson(harness.baseUrl, "/v1/agents", {
-      id: "ranger.main.mini",
+      id: "hudson.main.mini",
       kind: "agent",
-      definitionId: "ranger",
+      definitionId: "hudson",
       nodeQualifier: "mini",
       workspaceQualifier: "main",
-      selector: "@ranger.main.node:mini",
-      defaultSelector: "@ranger",
-      displayName: "Ranger",
-      handle: "ranger",
+      selector: "@hudson.main.node:mini",
+      defaultSelector: "@hudson",
+      displayName: "Hudson",
+      handle: "hudson",
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         source: "relay-agent-registry",
@@ -625,7 +640,7 @@ for await (const line of rl) {
       },
       target: {
         kind: "agent_id",
-        agentId: "ranger.main.mini",
+        agentId: "hudson.main.mini",
       },
       body: "race before stale sync",
       intent: "consult",
@@ -633,7 +648,7 @@ for await (const line of rl) {
     });
 
     expect(accepted.kind).toBe("delivery");
-    expect(accepted.flight?.targetAgentId).toBe("ranger.main.mini");
+    expect(accepted.flight?.targetAgentId).toBe("hudson.main.mini");
     const flightId = accepted.flight!.id;
     await broker.waitFor(
       () => broker.getJson<{ flights: Record<string, { state: string }> }>(harness.baseUrl, "/v1/snapshot"),
@@ -641,10 +656,10 @@ for await (const line of rl) {
     );
 
     broker.writeRelayAgentRegistry(supportDirectory, {
-      ranger: {
-        agentId: "ranger.test-node",
-        definitionId: "ranger",
-        displayName: "Ranger",
+      hudson: {
+        agentId: "hudson.test-node",
+        definitionId: "hudson",
+        displayName: "Hudson",
         projectName: "OpenScout",
         projectRoot,
         source: "manual",
@@ -653,7 +668,7 @@ for await (const line of rl) {
           cwd: projectRoot,
           harness: "codex",
           transport: "codex_app_server",
-          sessionId: "relay-ranger-codex",
+          sessionId: "relay-hudson-codex",
           wakePolicy: "on_demand",
         },
         capabilities: ["chat", "invoke", "deliver"],
@@ -668,7 +683,7 @@ for await (const line of rl) {
       },
       target: {
         kind: "agent_id",
-        agentId: "ranger.test-node",
+        agentId: "hudson.test-node",
       },
       body: "trigger registry sync",
       intent: "tell",
@@ -682,15 +697,15 @@ for await (const line of rl) {
         flights: Record<string, { state: string; error?: string; metadata?: Record<string, unknown> }>;
       }>(harness.baseUrl, "/v1/snapshot"),
       (snapshot) => Boolean(
-        snapshot.agents["ranger.test-node"]
+        snapshot.agents["hudson.test-node"]
         && snapshot.flights[flightId]?.state === "queued",
       ),
       { attempts: 120 },
     );
 
-    expect(reconciled.agents["ranger.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
+    expect(reconciled.agents["hudson.main.mini"]?.metadata?.staleLocalRegistration).not.toBe(true);
     expect(Object.values(reconciled.endpoints).some((endpoint) => (
-      endpoint.agentId === "ranger.main.mini"
+      endpoint.agentId === "hudson.main.mini"
       && endpoint.metadata?.staleLocalRegistration === true
     ))).toBe(false);
     expect(reconciled.flights[flightId]).toMatchObject({
