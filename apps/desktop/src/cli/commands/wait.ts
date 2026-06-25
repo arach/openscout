@@ -2,6 +2,7 @@ import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 import {
   resolveScoutBrokerUrl,
+  loadScoutInvocationSnapshot,
   resolveScoutWaitReference,
   waitForScoutInvocation,
   type ScoutFlightRecord,
@@ -109,6 +110,7 @@ export async function runWaitCommand(
   } catch (error) {
     if (isInvocationWaitTimeout(error)) {
       timedOut = true;
+      snapshot = await loadScoutInvocationSnapshot(brokerUrl, resolution.invocationId);
     } else {
       throw error;
     }

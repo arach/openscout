@@ -154,9 +154,15 @@ function AgentLaneColumn({
 export function AgentLanesView({
   navigate,
   agents: scoutAgents,
+  embedded = false,
+  harnessFilter,
+  projectFilter,
 }: {
   navigate: (route: Route) => void;
   agents: Agent[];
+  embedded?: boolean;
+  harnessFilter?: string | null;
+  projectFilter?: string | null;
 }) {
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
@@ -273,14 +279,23 @@ export function AgentLanesView({
     () => lanes.find((lane) => lane.id === inspectedLaneId) ?? null,
     [inspectedLaneId, lanes],
   );
+  const visibleLanes = useMemo(
+    () => lanes.filter((lane) => laneMatchesEmbedFilters(lane, { harnessFilter, projectFilter })),
+    [lanes, harnessFilter, projectFilter],
+  );
+  const activeFilterLabel = useMemo(
+    () => embedFilterLabel({ harnessFilter, projectFilter }),
+    [harnessFilter, projectFilter],
+  );
 
   return (
-    <div className="s-agent-lanes">
+    <div className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded" : ""}`}>
       <div className="s-agent-lanes-bar">
         <div className="s-agent-lanes-bar-main">
           <div className="s-agent-lanes-title">Agent Lanes</div>
           <div className="s-agent-lanes-meta">
-            {lanes.length} active · trace {horizonLabel}
+            {visibleLanes.length} active · trace {horizonLabel}
+            {activeFilterLabel ? ` · ${activeFilterLabel}` : ""}
           </div>
         </div>
         <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
@@ -312,15 +327,17 @@ export function AgentLanesView({
           </ul>
         </div>
       ) : null}
-      {lanes.length === 0 ? (
+      {visibleLanes.length === 0 ? (
         <div className="s-agent-lanes-empty">
           {tailLoading
             ? "Loading tail stream…"
-            : `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`}
+            : activeFilterLabel
+              ? `No lanes match ${activeFilterLabel} in the last ${horizonLabel}.`
+              : `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`}
         </div>
       ) : (
         <div className="s-agent-lanes-scroll">
-          {lanes.map((lane) => (
+          {visibleLanes.map((lane) => (
             <AgentLaneColumn
               key={lane.id}
               lane={lane}
@@ -347,4 +364,74 @@ export function AgentLanesView({
       )}
     </div>
   );
+}
+
+type AgentLaneEmbedFilters = {
+  harnessFilter?: string | null;
+  projectFilter?: string | null;
+};
+
+function normalizeEmbedFilter(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function slugValue(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/gu, "")
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+}
+
+function pathLeaf(value: string): string | null {
+  const leaf = value.trim().replace(/\/+$/u, "").split(/[\\/]/u).filter(Boolean).pop();
+  return leaf?.trim() || null;
+}
+
+function matchesAnyFilter(candidates: Array<string | null | undefined>, filter: string | null): boolean {
+  if (!filter) return true;
+  const filterSlug = slugValue(filter);
+  return candidates.some((candidate) => {
+    const raw = candidate?.trim();
+    if (!raw) return false;
+    const normalized = raw.toLowerCase();
+    const leaf = pathLeaf(raw);
+    return normalized === filter
+      || slugValue(raw) === filterSlug
+      || Boolean(leaf && (leaf.toLowerCase() === filter || slugValue(leaf) === filterSlug));
+  });
+}
+
+function laneMatchesEmbedFilters(lane: AgentLane, filters: AgentLaneEmbedFilters): boolean {
+  const harnessFilter = normalizeEmbedFilter(filters.harnessFilter);
+  const projectFilter = normalizeEmbedFilter(filters.projectFilter);
+  const { agent, facts, source } = lane;
+  return matchesAnyFilter(
+    [
+      agent.harness,
+      agent.definitionId,
+      facts?.attribution,
+      source,
+    ],
+    harnessFilter,
+  ) && matchesAnyFilter(
+    [
+      agent.project,
+      agent.projectRoot,
+      agent.cwd,
+      facts?.cwd,
+      lanePrimaryLabel(agent, source),
+    ],
+    projectFilter,
+  );
+}
+
+function embedFilterLabel(filters: AgentLaneEmbedFilters): string {
+  const parts = [
+    filters.harnessFilter?.trim() ? `harness ${filters.harnessFilter.trim()}` : "",
+    filters.projectFilter?.trim() ? `project ${filters.projectFilter.trim()}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
 }

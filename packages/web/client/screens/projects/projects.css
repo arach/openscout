@@ -1833,6 +1833,7 @@
   background: none;
   color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -1873,6 +1874,7 @@
   font-family: var(--av2-mono);
   font-size: 9px;
   letter-spacing: 0.06em;
+  text-decoration: none;
   text-transform: uppercase;
   cursor: pointer;
   opacity: 0;
@@ -2271,6 +2273,25 @@
   gap: 2px;
 }
 
+.av2-sessionGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.av2-sessionGroup + .av2-sessionGroup {
+  margin-top: 8px;
+}
+
+.av2-sessionGroupHead {
+  padding: 4px 8px 2px;
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--av2-dim);
+}
+
 .av2-sessionItem {
   display: flex;
   flex-direction: column;
@@ -2282,6 +2303,7 @@
   background: none;
   color: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 }
 

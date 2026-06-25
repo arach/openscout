@@ -18,9 +18,8 @@ import {
   type ProjectOverviewPayload,
 } from "./project-overview-helpers.ts";
 import { ProjectRepoFrame } from "./project-repo-frame.tsx";
-import type { RegistrySessionEntry } from "./model.ts";
 import { harnessOf, registryAgentsForProject } from "./model.ts";
-import type { RegistryAgentEntry } from "./model.ts";
+import type { ProjectSessionEntry, RegistryAgentEntry } from "./model.ts";
 import type { ReactNode } from "react";
 
 type Navigate = (route: Route) => void;
@@ -148,7 +147,7 @@ export function ProjectOverview({
   dirProject: DirProject | null;
   agentEntries: RegistryAgentEntry[];
   agentIdsKey: string;
-  projectSessions: RegistrySessionEntry[];
+  projectSessions: ProjectSessionEntry[];
   sessionCount: number;
   indexViewToggle: ReactNode;
 }) {
@@ -232,7 +231,12 @@ export function ProjectOverview({
     [overview?.root, projectRoot, repoWatch],
   );
   const mainWt = primaryWorktree(repoProject);
-  const harnesses = dirProject ? dirProjectHarnesses(dirProject) : [...new Set(agentEntries.map((e) => e.group.harness))];
+  const harnesses = [
+    ...new Set([
+      ...(dirProject ? dirProjectHarnesses(dirProject) : agentEntries.map((e) => e.group.harness)),
+      ...projectSessions.map((entry) => entry.harness),
+    ].map((h) => harnessOf(h))),
+  ];
   const branches = dirProject
     ? [...new Set(dirProject.agents.map((n) => n.row.branch).filter((b) => b && b !== "—"))]
     : [...new Set(agentEntries.flatMap((e) => e.group.branches))];

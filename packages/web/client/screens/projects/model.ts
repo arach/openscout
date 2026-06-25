@@ -5,8 +5,8 @@ import {
   partitionGroups,
   type ProjectAgentGroup,
 } from "../agents/agents-project-model.ts";
-import { pathLeaf } from "../agents/model.ts";
-import type { AgentInventoryRow, DirProject } from "../agents/model.ts";
+import { nativeSessionMatchesAgent, pathLeaf } from "../agents/model.ts";
+import type { AgentInventoryRow, DirProject, NativeSessionRow } from "../agents/model.ts";
 import type {
   Agent,
   ProjectsIndexView,
@@ -41,6 +41,29 @@ export type RegistrySessionEntry = {
   agent: Agent | null;
   projectSlug: string | null;
   projectTitle: string | null;
+};
+
+export type ProjectSessionMappedAgent = {
+  agentId: string;
+  handle: string | null;
+  name: string;
+  harness: string | null;
+};
+
+export type ProjectSessionEntry = {
+  session: NativeSessionRow;
+  projectSlug: string;
+  projectTitle: string;
+  projectRoot: string | null;
+  harness: string;
+  mappedAgent: ProjectSessionMappedAgent | null;
+};
+
+export type ProjectSessionGroup = {
+  key: string;
+  label: string;
+  sessions: ProjectSessionEntry[];
+  activeCount: number;
 };
 
 export type BrowseProject = {
@@ -130,6 +153,90 @@ export function buildRegistrySessions(
       return { session, agent, projectSlug: slug, projectTitle: title };
     })
     .sort((a, b) => (b.session.lastMessageAt ?? 0) - (a.session.lastMessageAt ?? 0));
+}
+
+export function isNativeProjectSession(row: NativeSessionRow): boolean {
+  return Boolean(row.transcriptPath || row.sessionId);
+}
+
+function mappedAgentForNativeSession(
+  project: DirProject,
+  session: NativeSessionRow,
+): ProjectSessionMappedAgent | null {
+  for (const group of groupsForProject(project)) {
+    const node = group.nodes.find((candidate) => nativeSessionMatchesAgent(session, candidate.row));
+    if (!node) continue;
+    const agent = node.row.agent;
+    return {
+      agentId: agent.id,
+      handle: agent.handle,
+      name: agent.name,
+      harness: agent.harness,
+    };
+  }
+  return null;
+}
+
+export function buildProjectSessions(projects: DirProject[]): ProjectSessionEntry[] {
+  const rows: ProjectSessionEntry[] = [];
+  for (const project of projects) {
+    for (const session of project.slice.nativeSessions) {
+      if (!isNativeProjectSession(session)) continue;
+      rows.push({
+        session,
+        projectSlug: project.slice.slug,
+        projectTitle: project.slice.title,
+        projectRoot: project.slice.root,
+        harness: harnessOf(session.source),
+        mappedAgent: mappedAgentForNativeSession(project, session),
+      });
+    }
+  }
+  return rows.sort((a, b) => projectSessionLastAt(b) - projectSessionLastAt(a)
+    || a.projectTitle.localeCompare(b.projectTitle)
+    || a.harness.localeCompare(b.harness));
+}
+
+export function projectSessionLastAt(entry: ProjectSessionEntry): number {
+  return entry.session.lastActivityAt ?? entry.session.mtimeMs ?? 0;
+}
+
+export function isProjectSessionLive(entry: ProjectSessionEntry, nowMs: number): boolean {
+  return entry.session.status === "active" || nowMs - projectSessionLastAt(entry) < LIVE_WINDOW_MS;
+}
+
+export function filterProjectSessions(
+  entries: ProjectSessionEntry[],
+  scope: ProjectRegistryScope,
+  nowMs: number,
+): ProjectSessionEntry[] {
+  return entries.filter((entry) => {
+    if (scope.projectSlug && entry.projectSlug !== scope.projectSlug) return false;
+    if (scope.harness && harnessOf(entry.harness) !== harnessOf(scope.harness)) return false;
+    if (scope.set === "live" && !isProjectSessionLive(entry, nowMs)) return false;
+    if (scope.set === "ephemeral" || scope.set === "archived") return false;
+    return true;
+  });
+}
+
+export function groupProjectSessionsByHarness(entries: ProjectSessionEntry[]): ProjectSessionGroup[] {
+  const groups = new Map<string, ProjectSessionEntry[]>();
+  for (const entry of entries) {
+    const key = harnessOf(entry.harness);
+    const list = groups.get(key) ?? [];
+    list.push(entry);
+    groups.set(key, list);
+  }
+  return [...groups.entries()]
+    .map(([key, sessions]) => ({
+      key,
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      sessions: [...sessions].sort((a, b) => projectSessionLastAt(b) - projectSessionLastAt(a)),
+      activeCount: sessions.filter((entry) => entry.session.status === "active").length,
+    }))
+    .sort((a, b) => b.activeCount - a.activeCount
+      || b.sessions.length - a.sessions.length
+      || a.label.localeCompare(b.label));
 }
 
 function compareRegistryAgents(a: RegistryAgentEntry, b: RegistryAgentEntry): number {
@@ -222,13 +329,17 @@ export function buildBrowseProjects(projects: DirProject[], nowMs: number): Brow
     .map((project) => {
       const groups = groupsForProject(project);
       const { primary } = partitionGroups(groups);
+      const nativeSessions = project.slice.nativeSessions.filter(isNativeProjectSession);
       return {
         slug: project.slice.slug,
         title: project.slice.title,
         agentCount: primary.length,
-        sessionCount: groups.reduce((total, group) => total + group.sessionCount, 0),
+        sessionCount: nativeSessions.length,
         needsCount: primary.filter((group) => group.needs).length,
-        liveCount: primary.filter((group) => isGroupLive(group, nowMs)).length,
+        liveCount: Math.max(
+          primary.filter((group) => isGroupLive(group, nowMs)).length,
+          nativeSessions.filter((session) => session.status === "active").length,
+        ),
       };
     })
     .sort((a, b) => b.liveCount - a.liveCount || b.needsCount - a.needsCount || a.title.localeCompare(b.title));
@@ -372,6 +483,22 @@ export function displaySessionPreview(session: SessionEntry, maxLen = 140): stri
   const raw = sessionPreview(session);
   if (raw === "Untitled session") return raw;
   return humanizeWorkText(raw, maxLen) || raw;
+}
+
+export function displayProjectSessionPreview(entry: ProjectSessionEntry): string {
+  const leaf = entry.session.transcriptPath ? pathLeaf(entry.session.transcriptPath) : null;
+  const mapped = entry.mappedAgent?.handle?.trim() || entry.mappedAgent?.name;
+  const label = mapped ? `@${mapped.replace(/^@+/, "")}` : entry.projectTitle;
+  return [label, leaf ?? entry.session.refId].filter(Boolean).join(" · ");
+}
+
+export function projectSessionMeta(entry: ProjectSessionEntry): string {
+  const parts = [
+    harnessOf(entry.harness),
+    entry.session.status === "active" ? "active" : "idle",
+    entry.session.cwd ? pathLeaf(entry.session.cwd) : null,
+  ];
+  return parts.filter(Boolean).join(" · ");
 }
 
 /** Best recent session story across every broker row folded into this agent group. */
@@ -548,6 +675,7 @@ export function agentsV2Route(
 }
 
 export function indexViewOf(route: Extract<Route, { view: "agents-v2" }>): ProjectsIndexView {
+  if (route.projectSlug) return route.indexView ?? "sessions";
   return route.indexView ?? "agents";
 }
 

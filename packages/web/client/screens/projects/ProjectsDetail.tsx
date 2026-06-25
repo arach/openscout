@@ -6,12 +6,16 @@ import type { Agent, Route, SessionEntry } from "../../lib/types.ts";
 import "./projects.css";
 import {
   agentNodeLabel,
+  displayProjectSessionPreview,
+  filterProjectSessions,
   harnessOf,
   openProjectAgentProfile,
+  projectSessionLastAt,
   registryAgentsForProject,
   sessionPreview,
   shortSessionRef,
 } from "./model.ts";
+import type { ProjectSessionEntry } from "./model.ts";
 import { ProjectAgentPeek } from "./ProjectAgentPeek.tsx";
 import { ProjectActivityDetail } from "./ProjectActivityDetail.tsx";
 import { useProjectsData } from "./useProjectsData.ts";
@@ -297,6 +301,79 @@ function SessionDetail({
   );
 }
 
+function NativeSessionDetail({
+  entry,
+  route,
+  navigate,
+}: {
+  entry: ProjectSessionEntry;
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+}) {
+  const when = projectSessionLastAt(entry);
+  const mapped = entry.mappedAgent;
+  const openSession = () => navigate({ view: "sessions", sessionId: entry.session.refId });
+
+  return (
+    <div className="s-av2-detail">
+      <header className="av2-detailHead">
+        <div>
+          <h2 className="av2-detailTitle">{shortSessionRef(entry.session.refId)}</h2>
+          <div className="av2-detailSub">{displayProjectSessionPreview(entry)}</div>
+        </div>
+      </header>
+
+      <section className="av2-section">
+        <div className="av2-sectionHead">Session</div>
+        <div className="av2-factGrid">
+          <Fact label="Ref" value={entry.session.refId} />
+          <Fact label="Source" value={entry.harness} />
+          <Fact label="State" value={entry.session.status} />
+          <Fact label="Project" value={entry.projectTitle} />
+          <Fact label="CWD" value={entry.session.cwd} />
+          <Fact label="Updated" value={when ? timeAgo(when) : null} />
+          <Fact label="Transcript" value={entry.session.transcriptPath} />
+        </div>
+      </section>
+
+      {mapped ? (
+        <section className="av2-section">
+          <div className="av2-sectionHead">Attach point</div>
+          <div className="av2-factGrid">
+            <Fact label="Agent" value={`@${(mapped.handle ?? mapped.name).replace(/^@+/, "")}`} />
+            <Fact label="ID" value={mapped.agentId} />
+            <Fact label="Harness" value={mapped.harness} />
+          </div>
+          <button
+            type="button"
+            className="av2-relatedItem"
+            style={{ marginTop: 8 }}
+            onClick={() => navigate({ ...route, selectedAgentId: mapped.agentId, sessionId: undefined })}
+          >
+            Agent overview
+          </button>
+        </section>
+      ) : (
+        <section className="av2-section">
+          <div className="av2-sectionHead">Attach point</div>
+          <div className="av2-detailSub">
+            No named agent is attached yet. The session is still indexed by project and harness.
+          </div>
+        </section>
+      )}
+
+      <div className="av2-links">
+        <button type="button" className="av2-link" data-primary onClick={openSession}>
+          Open session ↗
+        </button>
+        <button type="button" className="av2-link" onClick={() => navigate({ ...route, sessionId: undefined })}>
+          Clear selection
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SetDetail({
   route,
   navigate,
@@ -350,33 +427,32 @@ export function ProjectsDetail({
   navigate: Navigate;
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
-  const { agentsById, sessionsByAgentId, registryAgents, registrySessions } =
+  const { agentsById, sessionsByAgentId, registryAgents, registrySessions, projectSessions } =
     useProjectsData(showEphemeral);
 
   const peekAgent = route.selectedAgentId ? agentsById.get(route.selectedAgentId) ?? null : null;
-  const selectedSession = route.sessionId
+  const selectedNativeSession = route.sessionId
+    ? projectSessions.find((entry) =>
+      entry.session.refId === route.sessionId
+      || entry.session.sessionId === route.sessionId
+      || entry.session.key === route.sessionId
+    ) ?? null
+    : null;
+  const selectedSession = route.sessionId && !selectedNativeSession
     ? registrySessions.find((entry) => entry.session.id === route.sessionId)?.session
-      ?? [...sessionsByAgentId.values()]
-        .flat()
-        .find((session) => session.id === route.sessionId)
-      ?? null
+    ?? [...sessionsByAgentId.values()]
+      .flat()
+      .find((session) => session.id === route.sessionId)
+    ?? null
     : null;
 
   const scopedSessionCount = useMemo(() => {
     const nowMs = Date.now();
-    return registrySessions.filter((entry) => {
-      if (route.projectSlug && entry.projectSlug !== route.projectSlug) return false;
-      if (route.set === "live") {
-        const lastAt = Math.max(entry.session.lastMessageAt ?? 0, entry.agent?.updatedAt ?? 0);
-        return nowMs - lastAt < 30 * 60_000;
-      }
-      if (route.set === "ephemeral" && entry.agent) {
-        return /\bcard\b/i.test(entry.agent.name) || /\b\d{3,}\b/i.test(entry.agent.name);
-      }
-      if (route.set === "archived") return Boolean(entry.agent?.retiredFromFleet);
-      return true;
-    }).length;
-  }, [registrySessions, route.projectSlug, route.set]);
+    return filterProjectSessions(projectSessions, {
+      projectSlug: route.projectSlug,
+      set: route.set,
+    }, nowMs).length;
+  }, [projectSessions, route.projectSlug, route.set]);
 
   const scopedAgentCount = useMemo(() => {
     const nowMs = Date.now();
@@ -393,6 +469,10 @@ export function ProjectsDetail({
     if (!route.selectedAgentId) return null;
     return registryAgents.find((entry) => entry.leadAgent.id === route.selectedAgentId) ?? null;
   }, [registryAgents, route.selectedAgentId]);
+
+  if (selectedNativeSession && !route.selectedAgentId) {
+    return <NativeSessionDetail entry={selectedNativeSession} route={route} navigate={navigate} />;
+  }
 
   if (selectedSession && !route.selectedAgentId) {
     const parent =
@@ -427,7 +507,7 @@ export function ProjectsDetail({
 
   if (route.projectSlug && !route.selectedAgentId && !route.sessionId) {
     const projectAgents = registryAgentsForProject(registryAgents, route.projectSlug, showEphemeral);
-    const projectSessions = registrySessions.filter(
+    const projectNativeSessions = projectSessions.filter(
       (entry) => entry.projectSlug === route.projectSlug,
     );
     const projectTitle = projectAgents[0]?.projectTitle ?? route.projectSlug;
@@ -437,7 +517,7 @@ export function ProjectsDetail({
         navigate={navigate}
         projectTitle={projectTitle}
         agentEntries={projectAgents}
-        sessionEntries={projectSessions}
+        sessionEntries={projectNativeSessions}
       />
     );
   }

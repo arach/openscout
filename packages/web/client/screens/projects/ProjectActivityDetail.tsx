@@ -1,15 +1,19 @@
 import { HarnessMark } from "../../components/HarnessMark.tsx";
+import { routePath } from "../../lib/router.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Route } from "../../lib/types.ts";
 import { isGroupLive } from "../agents/agents-project-model.ts";
 import {
   agentPrecedence,
-  displaySessionPreview,
+  displayProjectSessionPreview,
+  groupProjectSessionsByHarness,
   harnessOf,
+  projectSessionLastAt,
+  projectSessionMeta,
   registryWorkLine,
   selectProjectAgent,
 } from "./model.ts";
-import type { RegistryAgentEntry, RegistrySessionEntry } from "./model.ts";
+import type { ProjectSessionEntry, RegistryAgentEntry } from "./model.ts";
 import "./projects.css";
 
 type Navigate = (route: Route) => void;
@@ -25,7 +29,7 @@ export function ProjectActivityDetail({
   navigate: Navigate;
   projectTitle: string;
   agentEntries: RegistryAgentEntry[];
-  sessionEntries: RegistrySessionEntry[];
+  sessionEntries: ProjectSessionEntry[];
 }) {
   const nowMs = Date.now();
   const liveCount = agentEntries.filter((entry) => isGroupLive(entry.group, nowMs)).length;
@@ -35,7 +39,7 @@ export function ProjectActivityDetail({
     ?? agentEntries.find((entry) => isGroupLive(entry.group, nowMs))
     ?? agentEntries[0]
     ?? null;
-  const recentSessions = sessionEntries.slice(0, 6);
+  const sessionGroups = groupProjectSessionsByHarness(sessionEntries);
 
   const leadNeedsAttention =
     lead != null
@@ -78,12 +82,20 @@ export function ProjectActivityDetail({
         </section>
       ) : null}
 
-      {recentSessions.length > 0 ? (
+      {sessionEntries.length > 0 ? (
         <section className="av2-section">
           <div className="av2-sectionHead">Recent sessions · {sessionEntries.length}</div>
           <div className="av2-sessionList">
-            {recentSessions.map((entry) => (
-              <SessionChip key={entry.session.id} entry={entry} route={route} navigate={navigate} />
+            {sessionGroups.slice(0, 4).map((group) => (
+              <div key={group.key} className="av2-sessionGroup">
+                <div className="av2-sessionGroupHead">
+                  {group.label} · {group.sessions.length}
+                  {group.activeCount > 0 ? ` · ${group.activeCount} active` : ""}
+                </div>
+                {group.sessions.slice(0, 4).map((entry) => (
+                  <SessionChip key={entry.session.key} entry={entry} route={route} />
+                ))}
+              </div>
             ))}
           </div>
         </section>
@@ -111,26 +123,30 @@ export function ProjectActivityDetail({
 function SessionChip({
   entry,
   route,
-  navigate,
 }: {
-  entry: RegistrySessionEntry;
+  entry: ProjectSessionEntry;
   route: Extract<Route, { view: "agents-v2" }>;
-  navigate: Navigate;
 }) {
-  const handle = entry.agent?.handle?.trim() || entry.session.agentName || "—";
-  const open = () => {
-    navigate({ ...route, sessionId: entry.session.id, selectedAgentId: undefined });
-  };
+  const handle = entry.mappedAgent?.handle?.trim() || entry.mappedAgent?.name || null;
+  const sessionHref = routePath({
+    ...route,
+    projectSlug: entry.projectSlug,
+    indexView: "sessions",
+    sessionId: entry.session.refId,
+    selectedAgentId: undefined,
+  });
+  const when = projectSessionLastAt(entry);
 
   return (
-    <button type="button" className="av2-sessionItem" onClick={open}>
-      <span className="av2-sessionTitle" title={displaySessionPreview(entry.session)}>
-        {displaySessionPreview(entry.session)}
+    <a className="av2-sessionItem" href={sessionHref}>
+      <span className="av2-sessionTitle" title={entry.session.transcriptPath ?? displayProjectSessionPreview(entry)}>
+        {displayProjectSessionPreview(entry)}
       </span>
       <span className="av2-sessionMeta">
-        @{handle}
-        {entry.session.lastMessageAt ? ` · ${timeAgo(entry.session.lastMessageAt)}` : ""}
+        {handle ? `@${handle.replace(/^@+/, "")} · ` : ""}
+        {projectSessionMeta(entry)}
+        {when ? ` · ${timeAgo(when)}` : ""}
       </span>
-    </button>
+    </a>
   );
 }

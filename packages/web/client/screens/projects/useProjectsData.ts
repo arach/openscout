@@ -15,9 +15,11 @@ import {
   buildBrowseHarnesses,
   buildBrowseNodes,
   buildBrowseProjects,
+  buildProjectSessions,
   buildBrowseSets,
   buildRegistryAgents,
   buildRegistrySessions,
+  type ProjectSessionEntry,
   type RegistryAgentEntry,
   type RegistrySessionEntry,
 } from "./model.ts";
@@ -91,6 +93,11 @@ export function useProjectsData(showEphemeral: boolean) {
     [projects, sessions, agentsById],
   );
 
+  const projectSessions = useMemo(
+    () => buildProjectSessions(projects),
+    [projects],
+  );
+
   const nowMs = Date.now();
   const browseProjects = useMemo(() => buildBrowseProjects(projects, nowMs), [projects, nowMs]);
   const browseHarnesses = useMemo(() => buildBrowseHarnesses(registryAgents), [registryAgents]);
@@ -120,6 +127,7 @@ export function useProjectsData(showEphemeral: boolean) {
     sessionsByAgentId,
     registryAgents,
     registrySessions,
+    projectSessions,
     browseProjects,
     browseHarnesses,
     browseNodes,
@@ -132,5 +140,6 @@ export type ProjectsData = {
   agentsById: Map<string, Agent>;
   registryAgents: RegistryAgentEntry[];
   registrySessions: RegistrySessionEntry[];
+  projectSessions: ProjectSessionEntry[];
   sessionsByAgentId: Map<string, SessionEntry[]>;
 };

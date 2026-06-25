@@ -9,6 +9,32 @@
   background: var(--bg);
 }
 
+.s-agent-lanes-embed {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.s-agent-lanes--embedded {
+  background: transparent;
+}
+
+.s-agent-lanes--embedded .s-agent-lanes-bar {
+  padding: var(--space-sm) var(--space-lg);
+}
+
+.s-agent-lanes--embedded .s-agent-lanes-scroll {
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+}
+
+.s-agent-lanes--embedded .s-agent-lane {
+  width: min(512px, calc(100vw - (var(--space-lg) * 2)));
+}
+
 .s-agent-lanes-bar {
   display: flex;
   align-items: center;

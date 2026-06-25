@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
+import { routePath } from "../../lib/router.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { ProjectStateFilter, Route } from "../../lib/types.ts";
 import "./projects.css";
 import {
   agentPrecedence,
-  displaySessionPreview,
+  displayProjectSessionPreview,
   filterRegistryAgents,
-  filterRegistrySessions,
+  filterProjectSessions,
+  groupProjectSessionsByHarness,
   indexViewOf,
   openProjectAgentProfile,
   partitionRegistryAgents,
+  projectSessionLastAt,
+  projectSessionMeta,
   registryAgentSubline,
   registryWorkLine,
   scopeLabel,
@@ -18,12 +22,85 @@ import {
   selectProjectAgent,
   shortSessionRef,
 } from "./model.ts";
+import type { ProjectSessionEntry } from "./model.ts";
 import { ProjectOverview, useProjectOverviewContext } from "./ProjectOverview.tsx";
 import { useProjectsData } from "./useProjectsData.ts";
 
 type Navigate = (route: Route) => void;
 
 type AgentRowEntry = ReturnType<typeof filterRegistryAgents>[number];
+
+function ProjectSessionIndexRow({
+  entry,
+  idx,
+  cursor,
+  route,
+  rowRefs,
+  showProject,
+}: {
+  entry: ProjectSessionEntry;
+  idx: number;
+  cursor: number;
+  route: Extract<Route, { view: "agents-v2" }>;
+  rowRefs: MutableRefObject<Map<string, HTMLDivElement>>;
+  showProject: boolean;
+}) {
+  const sessionRoute: Extract<Route, { view: "agents-v2" }> = {
+    view: "agents-v2",
+    projectSlug: entry.projectSlug,
+    indexView: "sessions",
+    sessionId: entry.session.refId,
+    selectedAgentId: undefined,
+    ...(route.showEphemeral ? { showEphemeral: true } : {}),
+  };
+  const sessionHref = routePath(sessionRoute);
+  const when = projectSessionLastAt(entry);
+  const owner = entry.mappedAgent?.handle?.trim() || entry.mappedAgent?.name || null;
+  const title = shortSessionRef(entry.session.refId);
+  const preview = displayProjectSessionPreview(entry);
+  const meta = [
+    owner ? `@${owner.replace(/^@+/, "")}` : null,
+    projectSessionMeta(entry),
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div
+      key={`${entry.projectSlug}:${entry.session.key}`}
+      ref={(el) => {
+        if (el) rowRefs.current.set(entry.session.refId, el);
+        else rowRefs.current.delete(entry.session.refId);
+      }}
+      className="av2-row"
+      data-cursor={cursor === idx || undefined}
+      data-session-ref={entry.session.refId}
+      data-tone={entry.session.status === "active" ? "live" : undefined}
+    >
+      <a className="av2-rowMain" href={sessionHref}>
+        <span className="av2-dot" data-tone={entry.session.status === "active" ? "live" : undefined} aria-hidden />
+        <span className="av2-agentCell">
+          <span className="av2-agentName">{title}</span>
+          <span className="av2-agentSub">
+            {showProject ? `/${entry.projectTitle} · ` : null}
+            {meta}
+          </span>
+        </span>
+        <span className="av2-workCell" title={entry.session.transcriptPath ?? preview}>
+          {preview}
+        </span>
+        <span className="av2-metaCell" title={entry.session.cwd ?? undefined}>
+          {entry.harness}
+          {entry.session.status === "active" ? " · active" : ""}
+        </span>
+      </a>
+      <div className="av2-rowTail">
+        <span className="av2-tailWhen">{when ? timeAgo(when) : "—"}</span>
+        <a className="av2-openAct" href={sessionHref}>
+          Select
+        </a>
+      </div>
+    </div>
+  );
+}
 
 function AgentIndexRow({
   entry,
@@ -128,7 +205,7 @@ function IndexViewToggle({
         type="button"
         className="av2-viewBtn"
         data-on={indexView === "agents" || undefined}
-        onClick={() => navigate({ ...route, indexView: undefined })}
+        onClick={() => navigate({ ...route, indexView: route.projectSlug ? "agents" : undefined })}
       >
         Agents
       </button>
@@ -152,7 +229,7 @@ export function ProjectsIndex({
   navigate: Navigate;
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
-  const { registryAgents, registrySessions, agentsById, projects } = useProjectsData(showEphemeral);
+  const { registryAgents, projectSessions, projects } = useProjectsData(showEphemeral);
   const projectContext = useProjectOverviewContext(route, registryAgents, projects, showEphemeral);
   const indexView = indexViewOf(route);
   const nowMs = Date.now();
@@ -169,8 +246,8 @@ export function ProjectsIndex({
   );
 
   const sessionRows = useMemo(
-    () => filterRegistrySessions(registrySessions, scope, agentsById, nowMs),
-    [registrySessions, scope, agentsById, nowMs],
+    () => filterProjectSessions(projectSessions, scope, nowMs),
+    [projectSessions, scope, nowMs],
   );
 
   const rows = indexView === "sessions" ? sessionRows : agentRows;
@@ -213,10 +290,14 @@ export function ProjectsIndex({
           const entry = sessionRows[i];
           if (!entry) return;
           navigate(
-            selectionRoute(route, {
-              sessionId: entry.session.id,
+            {
+              view: "agents-v2",
+              projectSlug: entry.projectSlug,
+              indexView: "sessions",
+              sessionId: entry.session.refId,
               selectedAgentId: undefined,
-            }),
+              ...(route.showEphemeral ? { showEphemeral: true } : {}),
+            },
           );
         } else {
           const entry = flatAgentRows[i];
@@ -233,7 +314,7 @@ export function ProjectsIndex({
     if (cursor < 0) return;
     const key =
       indexView === "sessions"
-        ? sessionRows[cursor]?.session.id
+        ? sessionRows[cursor]?.session.refId
         : flatAgentRows[cursor]?.leadAgent.id;
     rowRefs.current.get(key ?? "")?.scrollIntoView({ block: "nearest" });
   }, [cursor, flatAgentRows, indexView, sessionRows]);
@@ -251,12 +332,16 @@ export function ProjectsIndex({
 
   const indexViewToggle = <IndexViewToggle route={route} navigate={navigate} indexView={indexView} />;
   const projectSessionCount = route.projectSlug ? sessionRows.length : 0;
-  const projectSessions = useMemo(
+  const projectSessionRows = useMemo(
     () =>
       route.projectSlug
-        ? registrySessions.filter((entry) => entry.projectSlug === route.projectSlug)
+        ? projectSessions.filter((entry) => entry.projectSlug === route.projectSlug)
         : [],
-    [registrySessions, route.projectSlug],
+    [projectSessions, route.projectSlug],
+  );
+  const groupedSessionRows = useMemo(
+    () => groupProjectSessionsByHarness(sessionRows),
+    [sessionRows],
   );
 
   return (
@@ -270,7 +355,7 @@ export function ProjectsIndex({
           dirProject={projectContext.dirProject}
           agentEntries={projectContext.agentEntries}
           agentIdsKey={projectContext.agentIdsKey}
-          projectSessions={projectSessions}
+          projectSessions={projectSessionRows}
           sessionCount={projectSessionCount}
           indexViewToggle={indexViewToggle}
         />
@@ -409,50 +494,35 @@ export function ProjectsIndex({
             ))
           )
         ) : (
-          sessionRows.map((entry, idx) => {
-              const handle = entry.agent?.handle?.trim() || entry.session.agentName || "—";
-              const openSession = () => {
-                navigate(
-                  selectionRoute(route, {
-                    sessionId: entry.session.id,
-                    selectedAgentId: undefined,
-                  }),
-                );
-              };
-              return (
-                <div
-                  key={entry.session.id}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(entry.session.id, el);
-                    else rowRefs.current.delete(entry.session.id);
-                  }}
-                  className="av2-row"
-                  data-cursor={cursor === idx || undefined}
-                >
-                  <button type="button" className="av2-rowMain" onClick={openSession}>
-                    <span className="av2-dot" aria-hidden />
-                    <span className="av2-agentCell">
-                      <span className="av2-agentName">{shortSessionRef(entry.session.id)}</span>
-                      <span className="av2-agentSub">
-                        {entry.projectTitle ? `/${entry.projectTitle}` : "—"}
-                      </span>
-                    </span>
-                    <span className="av2-workCell" title={displaySessionPreview(entry.session)}>
-                      {displaySessionPreview(entry.session)}
-                    </span>
-                    <span className="av2-metaCell">@{handle}</span>
-                  </button>
-                  <div className="av2-rowTail">
-                    <span className="av2-tailWhen">
-                      {entry.session.lastMessageAt ? timeAgo(entry.session.lastMessageAt) : "—"}
-                    </span>
-                    <button type="button" className="av2-openAct" onClick={openSession}>
-                      Select
-                    </button>
-                  </div>
+          groupedSessionRows.map((group) => {
+            let offset = 0;
+            for (const prior of groupedSessionRows) {
+              if (prior.key === group.key) break;
+              offset += prior.sessions.length;
+            }
+            return (
+              <Fragment key={group.key}>
+                <div key={`${group.key}:head`} className="av2-groupHead">
+                  <span className="av2-groupTitle">{group.label}</span>
+                  <span className="av2-groupMeta">
+                    {group.sessions.length}
+                    {group.activeCount > 0 ? ` · ${group.activeCount} active` : ""}
+                  </span>
                 </div>
-              );
-            })
+                {group.sessions.map((entry, groupIdx) => (
+                  <ProjectSessionIndexRow
+                    key={`${entry.projectSlug}:${entry.session.key}`}
+                    entry={entry}
+                    idx={offset + groupIdx}
+                    cursor={cursor}
+                    route={route}
+                    rowRefs={rowRefs}
+                    showProject={!route.projectSlug}
+                  />
+                ))}
+              </Fragment>
+            );
+          })
         )}
 
         {rows.length === 0 ? (
