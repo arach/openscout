@@ -529,6 +529,45 @@ describe("local agent prompts", () => {
     expect(prompt).not.toContain("Action:");
   });
 
+  test("direct wake follow-up prompt does not expose the standing collaboration contract", () => {
+    useTestOperatorIdentity("Arach", "arach");
+
+    const prompt = buildLocalAgentDirectInvocationPrompt(
+      "openscout-codex.main.arachs-mac-mini-local",
+      {
+        id: "inv-wake-08vm",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "openscout-codex.main.arachs-mac-mini-local",
+        action: "wake",
+        task: "hello?",
+        messageId: "msg-wake-08vm",
+        execution: {
+          session: "existing",
+        },
+        ensureAwake: true,
+        stream: false,
+        createdAt: 1,
+        metadata: {
+          requesterDisplayName: "Arach",
+        },
+      },
+    );
+
+    expect(prompt).toBe([
+      "⌖ Arach (@arach) → @openscout-codex.main.arachs-mac-mini-local · wake:08vm › hello?",
+      "delivery: routed · session: continuing session",
+      "",
+      "Treat this as a message/update, not a reply-required ask. Continue your current work and reply only if useful.",
+      "",
+      "Task:",
+      "hello?",
+    ].join("\n"));
+    expect(prompt).not.toContain("Collaboration contract:");
+    expect(prompt).not.toContain("Default loop:");
+    expect(prompt).not.toContain("Return only the broker-visible reply");
+  });
+
   test("direct invocation prompt shows configured actor display names without losing ids", () => {
     useTestOperatorIdentity("Arach", "arach");
     const prompt = buildLocalAgentDirectInvocationPrompt(
