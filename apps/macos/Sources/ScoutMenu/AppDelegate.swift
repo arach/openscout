@@ -234,18 +234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 point(5.2, 7.1),
                 point(5.2, 12.9),
             ]
-            let inner = [
-                point(10.0, 12.0),
-                point(12.4, 10.6),
-                point(12.4, 8.4),
-                point(10.0, 7.0),
-                point(7.6, 8.4),
-                point(7.6, 10.6),
-            ]
-
             let ink = NSColor.black
-            stroke(outer, closed: true, lineWidth: 1.9, color: ink)
-            stroke(inner, closed: true, lineWidth: 1.32, color: ink)
+            stroke(outer, closed: true, lineWidth: 2.15, color: ink)
 
             return true
         }

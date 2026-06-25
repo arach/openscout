@@ -39,7 +39,7 @@
             "infoPlist": "Info.plist",
             "bundleIdentifier": "app.openscout.scout.menu",
             "lsuiElement": true,
-            "icon": "../../apps/desktop/public/scout-icon.png",
+            "icon": "../../apps/desktop/public/scout-menu-icon.png",
             "destination": "Contents/Library/LoginItems"
           }
         ]
