@@ -178,6 +178,7 @@ struct Config {
     runtime_package_dir: PathBuf,
     daemon_executable: PathBuf,
     daemon_state_path: PathBuf,
+    host_info_path: PathBuf,
     bun_executable: String,
     broker_host: String,
     broker_port: u16,
@@ -266,6 +267,7 @@ impl Config {
             }),
         );
         let daemon_state_path = runtime_directory.join("scoutd-state.json");
+        let host_info_path = support_directory.join(".host-info");
         let repo_watch_interval = repo_watch_interval_from_env();
 
         Ok(Self {
@@ -283,6 +285,7 @@ impl Config {
             runtime_package_dir,
             daemon_executable,
             daemon_state_path,
+            host_info_path,
             bun_executable,
             broker_host,
             broker_port,
@@ -321,6 +324,7 @@ struct ServiceStatus {
     launchctl: LaunchctlStatus,
     health: HealthStatus,
     effective_broker_url: Option<String>,
+    effective_web_url: Option<String>,
     daemon_state: Option<String>,
 }
 
@@ -795,17 +799,27 @@ fn send_process_signal(pid: u32, signal_name: &str) -> Result<(), String> {
 
 fn broker_service_status(config: &Config) -> ServiceStatus {
     let health = fetch_health(config);
-    let effective_broker_url = if health.reachable && health.ok {
-        fetch_node_broker_url(config).ok().flatten()
-    } else {
-        None
-    };
+    let host_info = read_host_info_json(config);
+    let effective_broker_url = host_info
+        .as_deref()
+        .and_then(|body| parse_json_string_field(body, "brokerUrl"))
+        .or_else(|| {
+            if health.reachable && health.ok {
+                fetch_node_broker_url(config).ok().flatten()
+            } else {
+                None
+            }
+        });
+    let effective_web_url = host_info
+        .as_deref()
+        .and_then(|body| parse_json_string_field(body, "webUrl"));
 
     ServiceStatus {
         config: config.clone(),
         launchctl: inspect_launchctl(config),
         health,
         effective_broker_url,
+        effective_web_url,
         daemon_state: read_daemon_state_json(config),
     }
 }
@@ -1452,6 +1466,16 @@ fn read_daemon_state_json(config: &Config) -> Option<String> {
     }
 }
 
+fn read_host_info_json(config: &Config) -> Option<String> {
+    let raw = fs::read_to_string(&config.host_info_path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
 fn write_daemon_state(
     config: &Config,
     started_at_ms: u128,
@@ -1937,6 +1961,10 @@ fn print_status(status: &ServiceStatus, json: bool) {
         println!(
             "broker socket: {}",
             status.config.broker_socket_path.display()
+        );
+        println!(
+            "web url: {}",
+            status.effective_web_url.as_deref().unwrap_or("-")
         );
         println!("reachable: {}", yes_no(status.health.reachable));
         println!(
