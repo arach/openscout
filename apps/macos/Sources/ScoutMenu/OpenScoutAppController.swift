@@ -950,7 +950,7 @@ final class OpenScoutAppController: ObservableObject {
            url.host != nil {
             return url
         }
-        ScoutWeb.baseURL()
+        return ScoutWeb.baseURL()
     }
 
     private var webSurfaceDisplayURL: String {
