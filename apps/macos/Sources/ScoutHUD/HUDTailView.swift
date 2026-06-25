@@ -72,9 +72,47 @@ private func copyToPasteboard(_ value: String) {
     NSPasteboard.general.setString(value, forType: .string)
 }
 
+enum HUDTailTreatment: String, CaseIterable, Identifiable {
+    static let storageKey = "scout.hud.tail.treatment.v1"
+
+    case firehose
+    case agentLatest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .firehose: return "Tail"
+        case .agentLatest: return "Latest"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .firehose: return "TAIL"
+        case .agentLatest: return "AGENT"
+        }
+    }
+
+    var systemName: String {
+        switch self {
+        case .firehose: return "list.bullet"
+        case .agentLatest: return "person.2"
+        }
+    }
+
+    var next: HUDTailTreatment {
+        switch self {
+        case .firehose: return .agentLatest
+        case .agentLatest: return .firehose
+        }
+    }
+}
+
 struct HUDTailView: View {
     @ObservedObject var tail: ScoutTailStore
     let agents: [HudAgent]
+    @Binding var treatment: HUDTailTreatment
 
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var state = HUDState.shared
@@ -92,10 +130,20 @@ struct HUDTailView: View {
     @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
 
     var body: some View {
-        HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme))
+        Group {
+            switch treatment {
+            case .firehose:
+                nativeTailContent
+            case .agentLatest:
+                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme))
+            }
+        }
         .onAppear {
             tail.start()
-            HUDNavBus.shared.clear()
+            wireNavBus()
+        }
+        .onChange(of: treatment) { _, _ in
+            wireNavBus()
         }
         .onDisappear {
             tail.stop()
@@ -103,10 +151,33 @@ struct HUDTailView: View {
         }
     }
 
+    @ViewBuilder
+    private var nativeTailContent: some View {
+        if let error = tail.lastError, !tail.hasBufferedEvents {
+            TailProblemView(message: error)
+        } else if tail.isLoading && !tail.hasBufferedEvents {
+            TailLoadingView()
+        } else if rows.isEmpty {
+            TailEmptyView(hasBufferedEvents: tail.hasBufferedEvents)
+        } else {
+            switch state.size {
+            case .compact: rowsBody(size: .compact)
+            case .medium: rowsBody(size: .medium)
+            case .large: rowsBody(size: .large)
+            }
+        }
+    }
+
     // Register cycle/engage closures with the global key bus. HUDController
     // dispatches j/k/Return/f into these — each view tab does its own wiring
     // so the bus stays a thin dispatcher.
     private func wireNavBus() {
+        HUDNavBus.shared.clear()
+        HUDNavBus.shared.cycleTreatment = {
+            treatment = treatment.next
+        }
+        guard treatment == .firehose else { return }
+
         // j/k / g / G never flip `following` — the firehose keeps firing
         // even while the operator explores. Only `f` pauses live mode
         // (deliberately, so it can't be triggered as a side effect).

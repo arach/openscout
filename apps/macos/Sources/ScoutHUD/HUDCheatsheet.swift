@@ -66,6 +66,7 @@ struct HUDCheatsheetOverlay: View {
 
             section("Tail") {
                 kbd("f", "toggle live FOLLOW / PAUSED")
+                kbd("t", "cycle tail treatment")
             }
 
             section("Tabs · Tier") {

@@ -63,6 +63,7 @@ struct HUDStatusView: View {
     @AppStorage(HUDTailAppearance.rowOpacityKey) private var tailRowOpacity = HUDTailAppearance.defaultRowOpacity
     @AppStorage(HUDTailAppearance.pathColumnWidthKey) private var tailPathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
     @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var tailKindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
+    @AppStorage(HUDTailTreatment.storageKey) private var tailTreatmentRaw = HUDTailTreatment.firehose.rawValue
 
     private let minPanelW: CGFloat = 360
     private let minPanelH: CGFloat = 380
@@ -141,6 +142,17 @@ struct HUDStatusView: View {
 
     private var agents: [HudAgent] {
         agentsStore.agents ?? []
+    }
+
+    private var tailTreatment: HUDTailTreatment {
+        HUDTailTreatment(rawValue: tailTreatmentRaw) ?? .firehose
+    }
+
+    private var tailTreatmentBinding: Binding<HUDTailTreatment> {
+        Binding(
+            get: { tailTreatment },
+            set: { tailTreatmentRaw = $0.rawValue }
+        )
     }
 
     private var activeAgentId: String? {
@@ -402,6 +414,8 @@ struct HUDStatusView: View {
                         .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
                 }
                 DismissedFlashPip()
+                HUDTailTreatmentToggle(selection: tailTreatmentBinding)
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 HUDTailAppearanceButton(
                     blurOpacity: $tailBlurOpacity,
                     passiveBlurOpacity: $tailPassiveBlurOpacity,
@@ -550,8 +564,8 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
-                HUDTailView(tail: tail, agents: agents)
-                    .opacity(resolvedTailRowOpacity)
+                HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding)
+                    .opacity(tailTreatment == .firehose ? resolvedTailRowOpacity : 1.0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .sessions:
@@ -834,6 +848,40 @@ private struct TailDismissButton: View {
     }
 }
 
+private struct HUDTailTreatmentToggle: View {
+    @Binding var selection: HUDTailTreatment
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(HUDTailTreatment.allCases) { treatment in
+                Button(action: { selection = treatment }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: treatment.systemName)
+                            .font(.system(size: 8.5, weight: .semibold))
+                        Text(treatment.shortLabel)
+                            .font(HUDType.mono(8.5, weight: .bold))
+                            .tracking(0.45)
+                    }
+                    .foregroundStyle(selection == treatment ? HUDChrome.accent : HUDChrome.inkFaint)
+                    .frame(width: 48, height: 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                            .fill(selection == treatment ? HUDChrome.canvasAlt : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(HUDChrome.border, lineWidth: 0.75)
+        )
+        .help("Tail treatment: \(selection.title). Press T to cycle.")
+    }
+}
+
 private struct HUDTailAppearanceButton: View {
     @Binding var blurOpacity: Double
     @Binding var passiveBlurOpacity: Double
@@ -885,70 +933,164 @@ private struct HUDTailAppearancePopover: View {
     @Binding var kindColumnWidth: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HUDTailAppearanceSlider(
-                label: "ACTIVE OP",
-                value: $activeOpacity,
-                range: 0.35...1
-            )
-            HUDTailAppearanceSlider(
-                label: "PASSIVE OP",
-                value: $passiveOpacity,
-                range: 0.35...1
-            )
-            HUDTailAppearanceSlider(
-                label: "ACTIVE BLUR",
-                value: $blurOpacity,
-                range: 0.30...1
-            )
-            HUDTailAppearanceSlider(
-                label: "PASSIVE BLUR",
-                value: $passiveBlurOpacity,
-                range: 0.30...1
-            )
-            HUDTailAppearanceSlider(
-                label: "TINT",
-                value: $tintOpacity,
-                range: 0...0.85
-            )
-            HUDTailAppearanceSlider(
-                label: "ROWS",
-                value: $rowOpacity,
-                range: 0.55...1
-            )
-            HUDTailAppearanceSlider(
-                label: "PATH",
-                value: $pathColumnWidth,
-                range: 64...240,
-                step: 1,
-                valueStyle: .points
-            )
-            HUDTailAppearanceSlider(
-                label: "KIND",
-                value: $kindColumnWidth,
-                range: 28...64,
-                step: 1,
-                valueStyle: .points
-            )
-
-            Button("Reset") {
-                blurOpacity = HUDTailAppearance.defaultBlurOpacity
-                passiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
-                passiveOpacity = HUDTailAppearance.defaultPassiveOpacity
-                activeOpacity = HUDTailAppearance.defaultActiveOpacity
-                tintOpacity = HUDTailAppearance.defaultTintOpacity
-                rowOpacity = HUDTailAppearance.defaultRowOpacity
-                pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
-                kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                HUDEyebrow(text: "TAIL  ·  TRANSPARENCY", color: HUDChrome.inkFaint)
+                Spacer(minLength: 0)
+                Button(action: resetAll) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Reset Tail appearance")
             }
-            .font(HUDType.mono(9, weight: .semibold))
-            .buttonStyle(.plain)
-            .foregroundStyle(HUDChrome.inkMuted)
-            .padding(.top, 2)
+
+            HUDTailTransparencyPresets { preset in
+                apply(preset)
+            }
+
+            HUDTailAppearanceSection(title: "Surface") {
+                HUDTailAppearanceSlider(label: "Active blur", value: $blurOpacity, range: 0.30...1)
+                HUDTailAppearanceSlider(label: "Idle blur", value: $passiveBlurOpacity, range: 0.30...1)
+                HUDTailAppearanceSlider(label: "Tint", value: $tintOpacity, range: 0...0.85)
+            }
+
+            HUDTailAppearanceSection(title: "Presence") {
+                HUDTailAppearanceSlider(label: "Active opacity", value: $activeOpacity, range: 0.35...1)
+                HUDTailAppearanceSlider(label: "Idle opacity", value: $passiveOpacity, range: 0.35...1)
+            }
+
+            HUDTailAppearanceSection(title: "Stream") {
+                HUDTailAppearanceSlider(label: "Row ink", value: $rowOpacity, range: 0.55...1)
+            }
+
+            HUDTailAppearanceSection(title: "Columns") {
+                HUDTailAppearanceSlider(
+                    label: "Path",
+                    value: $pathColumnWidth,
+                    range: 64...240,
+                    step: 1,
+                    valueStyle: .points
+                )
+                HUDTailAppearanceSlider(
+                    label: "Kind",
+                    value: $kindColumnWidth,
+                    range: 28...64,
+                    step: 1,
+                    valueStyle: .points
+                )
+            }
         }
         .padding(12)
-        .frame(width: 238)
+        .frame(width: 286)
         .background(HUDChrome.canvas)
+    }
+
+    private func apply(_ preset: HUDTailTransparencyPreset) {
+        let values = preset.values
+        blurOpacity = values.blurOpacity
+        passiveBlurOpacity = values.passiveBlurOpacity
+        passiveOpacity = values.passiveOpacity
+        activeOpacity = values.activeOpacity
+        tintOpacity = values.tintOpacity
+        rowOpacity = values.rowOpacity
+    }
+
+    private func resetAll() {
+        blurOpacity = HUDTailAppearance.defaultBlurOpacity
+        passiveBlurOpacity = HUDTailAppearance.defaultPassiveBlurOpacity
+        passiveOpacity = HUDTailAppearance.defaultPassiveOpacity
+        activeOpacity = HUDTailAppearance.defaultActiveOpacity
+        tintOpacity = HUDTailAppearance.defaultTintOpacity
+        rowOpacity = HUDTailAppearance.defaultRowOpacity
+        pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
+        kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
+    }
+}
+
+private enum HUDTailTransparencyPreset: String, CaseIterable, Identifiable {
+    case airy
+    case balanced
+    case solid
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .airy: return "AIRY"
+        case .balanced: return "BAL"
+        case .solid: return "SOLID"
+        }
+    }
+
+    var values: (
+        blurOpacity: Double,
+        passiveBlurOpacity: Double,
+        passiveOpacity: Double,
+        activeOpacity: Double,
+        tintOpacity: Double,
+        rowOpacity: Double
+    ) {
+        switch self {
+        case .airy:
+            return (0.68, 0.52, 0.58, 0.88, 0.20, 0.88)
+        case .balanced:
+            return (
+                HUDTailAppearance.defaultBlurOpacity,
+                HUDTailAppearance.defaultPassiveBlurOpacity,
+                HUDTailAppearance.defaultPassiveOpacity,
+                HUDTailAppearance.defaultActiveOpacity,
+                HUDTailAppearance.defaultTintOpacity,
+                HUDTailAppearance.defaultRowOpacity
+            )
+        case .solid:
+            return (0.96, 0.92, 0.94, 1.0, 0.50, 1.0)
+        }
+    }
+}
+
+private struct HUDTailTransparencyPresets: View {
+    let apply: (HUDTailTransparencyPreset) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(HUDTailTransparencyPreset.allCases) { preset in
+                Button(action: { apply(preset) }) {
+                    Text(preset.label)
+                        .font(HUDType.mono(8.5, weight: .bold))
+                        .tracking(0.4)
+                        .foregroundStyle(HUDChrome.inkMuted)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 18)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(HUDChrome.canvasLift.opacity(0.24))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .stroke(HUDChrome.border.opacity(0.85), lineWidth: 0.5)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+private struct HUDTailAppearanceSection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HUDEyebrow(text: title.uppercased(), color: HUDChrome.inkFaint)
+            VStack(alignment: .leading, spacing: 8) {
+                content()
+            }
+        }
     }
 }
 
@@ -967,18 +1109,17 @@ private struct HUDTailAppearanceSlider: View {
     private var valueLabel: String {
         switch valueStyle {
         case .percent:
-            return "\(Int((value * 100).rounded()))"
+            return "\(Int((value * 100).rounded()))%"
         case .points:
-            return "\(Int(value.rounded()))"
+            return "\(Int(value.rounded()))px"
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(HUDType.mono(9, weight: .bold))
-                    .tracking(HUDType.eyebrowMicro)
+                    .font(HUDType.mono(9, weight: .semibold))
                     .foregroundStyle(HUDChrome.inkMuted)
                 Spacer(minLength: 0)
                 Text(valueLabel)
