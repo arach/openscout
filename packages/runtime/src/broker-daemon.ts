@@ -790,7 +790,7 @@ function brokerActorDisplayName(snapshot: ReturnType<typeof runtime.snapshot>, a
 async function createCardlessProjectSessionForDelivery(input: {
   projectPath: string;
   execution?: InvocationRequest["execution"];
-  projectAgent?: { displayName?: string; agentName?: string };
+  projectAgent?: { handle?: string };
   requesterId: string;
   createdAt: number;
 }) {
@@ -810,18 +810,36 @@ async function createCardlessProjectSessionForDelivery(input: {
       : "claude_stream_json";
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;
-  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(runtime.snapshot());
+  const snapshot = runtime.snapshot();
+  const projectSessionIndex = Object.values(snapshot.endpoints).filter((endpoint) => {
+    const endpointProjectRoot = endpoint.projectRoot
+      ?? (typeof endpoint.metadata?.projectRoot === "string" ? endpoint.metadata.projectRoot : undefined)
+      ?? endpoint.cwd;
+    return endpoint.metadata?.cardless === true
+      && endpoint.harness === harness
+      && Boolean(endpointProjectRoot)
+      && resolve(expandHomePath(endpointProjectRoot!)) === projectRoot;
+  }).length;
+  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(snapshot);
+  const requestedHandle = input.projectAgent?.handle?.trim();
   const provisionalName = resolveProvisionalAgentName({
-    explicitName: input.projectAgent?.agentName,
+    explicitName: requestedHandle,
     occupied,
+    seedParts: [
+      "cardless-project-session",
+      input.requesterId,
+      projectRoot,
+      harness,
+      projectSessionIndex,
+    ],
   });
-  const displayName = input.projectAgent?.displayName?.trim()
-    || provisionalName.charAt(0).toUpperCase() + provisionalName.slice(1);
+  const displayName = titleCaseName(provisionalName);
   const registered = await registerCardlessSession({
     upsertActor: upsertActorDurably,
     upsertEndpoint: persistEndpoint,
   }, {
     sessionId,
+    handle: provisionalName,
     transport,
     harness,
     cwd: projectRoot,

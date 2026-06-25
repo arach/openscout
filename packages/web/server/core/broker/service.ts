@@ -217,6 +217,9 @@ export type ScoutAskResult = {
   flight?: ScoutFlightRecord;
   conversationId?: string;
   messageId?: string;
+  targetAgentId?: string;
+  targetSessionId?: string;
+  targetLabel?: string;
   unresolvedTarget?: string;
   targetDiagnostic?: ScoutAskTargetDiagnostic;
 };
@@ -2694,6 +2697,9 @@ export async function askScoutQuestion(input: {
     flight: delivery.flight,
     conversationId: delivery.conversation.id,
     messageId: delivery.message.id,
+    targetAgentId: delivery.targetAgentId,
+    targetSessionId: delivery.targetSessionId,
+    targetLabel: delivery.receipt.targetLabel,
   };
 }
 

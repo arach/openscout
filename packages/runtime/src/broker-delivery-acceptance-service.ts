@@ -560,6 +560,8 @@ export class BrokerDeliveryAcceptanceService {
           label: resolved.session.label,
           endpoint: resolved.session.endpoint as AgentEndpoint | undefined,
         };
+    const receiptSessionId = targetSessionId
+      ?? (resolved.kind === "resolved_session" ? resolved.session.sessionId : undefined);
 
     const unavailable = resolved.kind === "resolved"
       ? this.options.describeUnavailableDeliveryTarget(
@@ -668,7 +670,7 @@ export class BrokerDeliveryAcceptanceService {
         requesterId,
         requesterNodeId,
         targetAgentId: target.actorId,
-        targetSessionId,
+        targetSessionId: receiptSessionId,
         targetLabel,
         conversationId: conversation.id,
         messageId,
@@ -681,7 +683,7 @@ export class BrokerDeliveryAcceptanceService {
         conversation,
         message,
         targetAgentId: target.actorId,
-        ...(targetSessionId ? { targetSessionId } : {}),
+        ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
         ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
       };
     }
@@ -749,7 +751,7 @@ export class BrokerDeliveryAcceptanceService {
         requesterId,
         requesterNodeId,
         targetAgentId: target.actorId,
-        targetSessionId,
+        targetSessionId: receiptSessionId,
         targetLabel,
         bindingRef,
         conversationId: conversation.id,
@@ -759,7 +761,7 @@ export class BrokerDeliveryAcceptanceService {
       conversation,
       message,
       targetAgentId: target.actorId,
-      ...(targetSessionId ? { targetSessionId } : {}),
+      ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
       bindingRef,
       flight,
       ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),

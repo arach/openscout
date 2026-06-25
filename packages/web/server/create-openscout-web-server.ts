@@ -5462,7 +5462,10 @@ export async function createOpenScoutWebServer(
         session?: string;
         targetSessionId?: string;
       };
-      agent?: { persistence?: string; name?: string; displayName?: string };
+      agent?: {
+        persistence?: string;
+        handle?: string;
+      };
       seed?: {
         instructions?: string;
         fromMessageId?: string;
@@ -5513,19 +5516,18 @@ export async function createOpenScoutWebServer(
       );
     }
 
-    // Sticky reuse of the same agentName is what makes M3/M4 "the same agent".
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
-    let agentName =
-      optionalString(body.agent?.name)?.trim() || agent?.name?.trim() || undefined;
-    if (persistence === "one_time" && !agentName) {
+    let agentHandle =
+      optionalString(body.agent?.handle)?.trim()
+      || (targetAgentId ? agent?.name?.trim() : undefined);
+    if (!targetAgentId && !agentHandle) {
       const broker = await loadScoutBrokerContext().catch(() => null);
       const occupied = broker
         ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
         : new Set<string>();
-      agentName = resolveProvisionalAgentName({ occupied });
+      agentHandle = resolveProvisionalAgentName({ occupied });
     }
-    const displayName = optionalString(body.agent?.displayName)?.trim() || undefined;
 
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
@@ -5546,8 +5548,7 @@ export async function createOpenScoutWebServer(
       ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
       projectAgent: {
         persistence,
-        ...(agentName ? { agentName } : {}),
-        ...(displayName ? { displayName } : {}),
+        ...(agentHandle ? { handle: agentHandle } : {}),
       },
       currentDirectory: projectPath ?? currentDirectory,
       source: "scout-session-initiation",
@@ -5580,7 +5581,9 @@ export async function createOpenScoutWebServer(
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
-      agentId: result.flight?.targetAgentId ?? targetAgentId ?? null,
+      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? targetAgentId ?? null,
+      sessionId: result.targetSessionId ?? null,
+      handle: agentHandle ?? null,
       provenance:
         fromMessageId || fromConversationId || branchFrom
           ? {

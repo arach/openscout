@@ -22,8 +22,8 @@ export type ScoutProjectAgentPersistence = "one_time" | "sticky";
 
 export interface ScoutProjectAgentSpec {
   persistence?: ScoutProjectAgentPersistence;
-  agentName?: string;
-  displayName?: string;
+  /** Human-addressable handle, without requiring the caller to include "@". */
+  handle?: string;
 }
 
 export type ScoutDeliveryRemediationKind =

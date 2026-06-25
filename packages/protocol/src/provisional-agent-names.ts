@@ -206,6 +206,38 @@ export type AllocateProvisionalAgentNameOptions = {
   pool?: readonly string[];
 };
 
+export type ProvisionalAgentNameSeedPart = string | number | boolean | null | undefined;
+
+function updateFnv1a32(hash: number, value: string): number {
+  let next = hash >>> 0;
+  for (let index = 0; index < value.length; index += 1) {
+    next ^= value.charCodeAt(index);
+    next = Math.imul(next, 0x01000193) >>> 0;
+  }
+  return next;
+}
+
+export function provisionalAgentNameStartIndexForSeed(
+  seedParts: Iterable<ProvisionalAgentNameSeedPart>,
+  pool: readonly string[] = PROVISIONAL_AGENT_NAMES,
+): number {
+  if (pool.length === 0) {
+    return 0;
+  }
+
+  let hash = 0x811c9dc5;
+  let fieldIndex = 0;
+  for (const part of seedParts) {
+    const value = part == null ? "" : String(part);
+    hash = updateFnv1a32(hash, `${fieldIndex}:${value.length}:`);
+    hash = updateFnv1a32(hash, value);
+    hash = updateFnv1a32(hash, "|");
+    fieldIndex += 1;
+  }
+  hash = updateFnv1a32(hash, `fields:${fieldIndex}`);
+  return hash % pool.length;
+}
+
 /**
  * Pick the next free name from the pool.
  * Falls back to `{poolName}-{n}` only when the entire pool is occupied.
