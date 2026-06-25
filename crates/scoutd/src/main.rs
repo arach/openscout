@@ -2036,6 +2036,7 @@ fn status_json(status: &ServiceStatus) -> String {
 \"bootoutCommand\":{},\
 \"brokerUrl\":{},\
 \"effectiveBrokerUrl\":{},\
+\"webUrl\":{},\
 \"brokerSocketPath\":{},\
 \"supportDirectory\":{},\
 \"runtimeDirectory\":{},\
@@ -2054,6 +2055,7 @@ fn status_json(status: &ServiceStatus) -> String {
 \"scoutdExecutable\":{},\
 \"scoutdVersion\":{},\
 \"scoutdBuild\":{},\
+\"hostInfoPath\":{},\
 \"scoutdStatePath\":{},\
 \"scoutdState\":{}\
 }}",
@@ -2066,6 +2068,7 @@ fn status_json(status: &ServiceStatus) -> String {
         )),
         json_string(&status.config.broker_url),
         json_opt_str(status.effective_broker_url.as_deref()),
+        json_opt_str(status.effective_web_url.as_deref()),
         json_string(&status.config.broker_socket_path.to_string_lossy()),
         json_string(&status.config.support_directory.to_string_lossy()),
         json_string(&status.config.runtime_directory.to_string_lossy()),
@@ -2084,6 +2087,7 @@ fn status_json(status: &ServiceStatus) -> String {
         json_string(&status.config.daemon_executable.to_string_lossy()),
         json_string(BUILD_VERSION),
         build_identity_json(),
+        json_string(&status.config.host_info_path.to_string_lossy()),
         json_string(&status.config.daemon_state_path.to_string_lossy()),
         status.daemon_state.as_deref().unwrap_or("null"),
     )
