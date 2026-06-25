@@ -4,8 +4,8 @@
  * Sources per service:
  *   - codex:  most recent `token_count` event in ~/.codex/sessions/**.jsonl
  *             (carries authoritative rate_limits.secondary — the OpenAI weekly window)
- *   - claude: provider-reported Anthropic quota windows from the control-plane DB
- *             when available; otherwise a trailing-7d transcript token total
+ *   - claude: provider-reported Anthropic quota windows from statusline capture
+ *             or the control-plane DB when available
  *   - github: `gh api rate_limit` resources.core (hourly window; honest about scope)
  *
  * Cached server-side so we can poll cheaply from the client.
@@ -330,43 +330,13 @@ async function loadClaudeGauge(): Promise<ServiceGauge | null> {
   const statusline = loadClaudeStatuslineGauge();
   if (statusline) return statusline;
 
-  const persisted = loadPersistedProviderQuotaGauge({
+  return loadPersistedProviderQuotaGauge({
     id: "claude",
     label: "claude",
     provider: "anthropic",
     harness: "claude",
     maxAgeMs: WEEK_MS,
   });
-  if (persisted) return persisted;
-
-  const root = join(homeDir(), ".claude", "projects");
-  if (!existsSync(root)) return null;
-
-  const since = Date.now() - WEEK_MS;
-  let totalTokens = 0;
-  let scanned = 0;
-
-  const files = listClaudeProjectJsonl(root, since);
-  for (const file of files) {
-    try {
-      totalTokens += await sumClaudeTokensSince(file, since);
-      scanned++;
-    } catch {
-      // ignore unreadable file
-    }
-  }
-
-  if (scanned === 0 || totalTokens === 0) return null;
-
-  return {
-    id: "claude",
-    label: "claude",
-    kind: "status",
-    statusLabel: formatTokenCount(totalTokens),
-    windowLabel: "7d",
-    detailLabel: "quota n/a",
-    tone: "ok",
-  };
 }
 
 type ClaudeStatuslineSnapshot = Record<string, unknown>;
@@ -400,8 +370,7 @@ function loadClaudeStatuslineGauge(): ServiceGauge | null {
     if (stale) return stale;
   }
 
-  const latest = readClaudeStatuslineLatest();
-  return latest ? claudeContextStatusGauge(latest) : null;
+  return null;
 }
 
 function claudeStatuslineDir(): string {
@@ -522,28 +491,6 @@ function claudeQuotaSnapshotFromStatuslineWindow(
       cwd: stringValue(record.cwd),
       model: claudeStatuslineModel(record),
     },
-  };
-}
-
-function claudeContextStatusGauge(record: ClaudeStatuslineSnapshot): ServiceGauge | null {
-  const context = recordValue(record.context_window);
-  if (!context) return null;
-
-  const totalInput = numericValue(context.total_input_tokens);
-  const totalOutput = numericValue(context.total_output_tokens);
-  const usedPercent = numericValue(context.used_percentage);
-  const totalTokens = (totalInput ?? 0) + (totalOutput ?? 0);
-  if (totalTokens <= 0 && usedPercent === undefined) return null;
-
-  const fill = (usedPercent ?? 0) / 100;
-  return {
-    id: "claude",
-    label: "claude",
-    kind: "status",
-    statusLabel: totalTokens > 0 ? formatTokenCount(totalTokens) : `${Math.round(usedPercent ?? 0)}%`,
-    windowLabel: "context",
-    detailLabel: usedPercent === undefined ? "usage captured" : `${Math.round(usedPercent)}% ctx`,
-    tone: gaugeToneFromFill(fill),
   };
 }
 
@@ -792,79 +739,6 @@ function quotaWindowSortRank(label: string): number {
   if (label === "5h") return 0;
   if (label === "7d") return 1;
   return 2;
-}
-
-function listClaudeProjectJsonl(root: string, sinceMs: number): string[] {
-  const out: string[] = [];
-  let projects;
-  try {
-    projects = readdirSync(root, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const project of projects) {
-    if (!project.isDirectory()) continue;
-    const projectDir = join(root, project.name);
-    let files;
-    try {
-      files = readdirSync(projectDir, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const file of files) {
-      if (!file.isFile() || !file.name.endsWith(".jsonl")) continue;
-      const full = join(projectDir, file.name);
-      const stat = safeStat(full);
-      if (!stat || stat.mtimeMs < sinceMs) continue;
-      out.push(full);
-    }
-  }
-  return out;
-}
-
-async function sumClaudeTokensSince(path: string, sinceMs: number): Promise<number> {
-  const handle = await open(path, "r");
-  try {
-    const rl = createInterface({ input: handle.createReadStream({ encoding: "utf8" }) });
-    let sum = 0;
-    for await (const line of rl) {
-      if (!line.includes("\"usage\"")) continue;
-      try {
-        const record = JSON.parse(line) as {
-          timestamp?: string;
-          message?: { role?: string; usage?: Record<string, unknown> };
-        };
-        const usage = record.message?.usage;
-        if (!usage) continue;
-        const ts = record.timestamp ? Date.parse(record.timestamp) : NaN;
-        if (Number.isFinite(ts) && ts < sinceMs) continue;
-        const input = numberish(usage.input_tokens);
-        const output = numberish(usage.output_tokens);
-        sum += input + output;
-      } catch {
-        // skip malformed
-      }
-    }
-    return sum;
-  } finally {
-    await handle.close();
-  }
-}
-
-function numberish(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
-}
-
-function gaugeToneFromFill(fill: number): GaugeTone {
-  if (fill >= 0.9) return "err";
-  if (fill >= 0.75) return "warn";
-  return "ok";
-}
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
-  return String(n);
 }
 
 /* ── github ─────────────────────────────────────────────────────────── */

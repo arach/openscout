@@ -1,8 +1,11 @@
+import { performance } from "node:perf_hooks";
+
 import type {
   RepoWatchPathHint,
   RepoWatchSnapshot,
   RepoWatchSnapshotOptions,
 } from "./repo-watch/index.js";
+import type { ServerTimingMetric } from "./broker-http-helpers.js";
 import type {
   DiscoverySnapshot,
   TailEvent,
@@ -26,6 +29,11 @@ export type TailRecentPayload = {
   limit: number;
   cursor: string | null;
   events: TailEvent[];
+};
+
+export type TimedTailRecentPayload = {
+  payload: TailRecentPayload;
+  timings: ServerTimingMetric[];
 };
 
 export type BrokerRepoTailServiceOptions<TBrokerSnapshot> = {
@@ -161,19 +169,30 @@ export class BrokerRepoTailService<TBrokerSnapshot> {
     return snapshot;
   }
 
-  async readTailRecentPayload(url: URL): Promise<TailRecentPayload> {
+  async readTailRecentPayloadWithTiming(url: URL): Promise<TimedTailRecentPayload> {
+    const timings: ServerTimingMetric[] = [];
+    const measure = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+      const start = performance.now();
+      try {
+        return await fn();
+      } finally {
+        timings.push({ name, dur: performance.now() - start });
+      }
+    };
     const limit = parseTailLimit(url);
-    const bufferedEvents = await this.options.readRecentLiveEvents(limit);
+    const bufferedEvents = await measure("tail-live", () => this.options.readRecentLiveEvents(limit));
     const eventsById = new Map<string, TailEvent>();
 
     if (url.searchParams.get("transcripts") === "true" || url.searchParams.get("transcripts") === "1") {
-      const transcriptEvents = await this.options.readRecentTranscriptEvents(limit, {
+      const transcriptEvents = await measure("tail-transcripts", () => this.options.readRecentTranscriptEvents(limit, {
         perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
-      });
+      }));
       for (const event of transcriptEvents) {
         eventsById.set(event.id, event);
       }
     }
+
+    const mergeStart = performance.now();
     for (const event of bufferedEvents) {
       eventsById.set(event.id, event);
     }
@@ -184,13 +203,21 @@ export class BrokerRepoTailService<TBrokerSnapshot> {
         return left.ts - right.ts;
       })
       .slice(-limit);
+    timings.push({ name: "tail-merge", dur: performance.now() - mergeStart });
 
     return {
-      generatedAt: this.now(),
-      limit,
-      cursor: events.at(-1)?.id ?? null,
-      events,
+      payload: {
+        generatedAt: this.now(),
+        limit,
+        cursor: events.at(-1)?.id ?? null,
+        events,
+      },
+      timings,
     };
+  }
+
+  async readTailRecentPayload(url: URL): Promise<TailRecentPayload> {
+    return (await this.readTailRecentPayloadWithTiming(url)).payload;
   }
 
   private now(): number {

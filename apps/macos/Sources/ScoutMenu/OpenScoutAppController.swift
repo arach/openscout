@@ -38,6 +38,7 @@ final class OpenScoutAppController: ObservableObject {
         var lastExitStatus: Int? = nil
         var restartTelemetry: BrokerRestartTelemetry? = nil
         var statusDetail: String = "Checking broker status..."
+        var webURL: String? = nil
 
         var hasRestartWarning: Bool {
             guard loaded || reachable else { return false }
@@ -907,7 +908,11 @@ final class OpenScoutAppController: ObservableObject {
     }
 
     private func isWebSurfaceReachable() async -> Bool {
-        guard let url = URL(string: "/api/health", relativeTo: webSurfaceBaseURL)?.absoluteURL else {
+        return await probeWebSurfaceReachable(baseURL: webSurfaceBaseURL)
+    }
+
+    private func probeWebSurfaceReachable(baseURL: URL) async -> Bool {
+        guard let url = URL(string: "/api/health", relativeTo: baseURL)?.absoluteURL else {
             return false
         }
 
@@ -930,7 +935,21 @@ final class OpenScoutAppController: ObservableObject {
         }
     }
 
+    var webSurfacePortLabel: String {
+        if let port = webSurfaceBaseURL.port {
+            return ":\(port)"
+        }
+        return "WEB"
+    }
+
     private var webSurfaceBaseURL: URL {
+        if let webURL = broker.webURL,
+           let url = URL(string: webURL),
+           let scheme = url.scheme?.lowercased(),
+           (scheme == "http" || scheme == "https"),
+           url.host != nil {
+            return url
+        }
         ScoutWeb.baseURL()
     }
 
@@ -943,6 +962,7 @@ extension OpenScoutAppController.BrokerState {
     init(from status: BrokerServiceStatus) {
         self.label = status.label
         self.brokerURL = status.brokerURL
+        self.webURL = status.webURL
         self.launchAgentPath = status.launchAgentPath
         self.installed = status.installed
         self.loaded = status.loaded

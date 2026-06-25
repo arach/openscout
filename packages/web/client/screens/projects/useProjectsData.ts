@@ -22,7 +22,7 @@ import {
   type RegistrySessionEntry,
 } from "./model.ts";
 
-export function useAgentsV2Data(showEphemeral: boolean) {
+export function useProjectsData(showEphemeral: boolean) {
   const { agents, route } = useScout();
   const machineId = routeMachineId(route);
   const scopedAgents = useMemo(
@@ -127,7 +127,7 @@ export function useAgentsV2Data(showEphemeral: boolean) {
   };
 }
 
-export type AgentsV2Data = {
+export type ProjectsData = {
   agents: Agent[];
   agentsById: Map<string, Agent>;
   registryAgents: RegistryAgentEntry[];

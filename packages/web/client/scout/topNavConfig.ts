@@ -17,25 +17,25 @@ export type TopNavItem = {
   route: Route;
 };
 
-// Full nav — today's default. Home · Agents · Terminals · Chat · Search · Ops, with the
+// Full nav — today's default. Home · Projects · Terminals · Chat · Search · Ops, with the
 // Ops cluster (Control/Dispatch/Repos/Mesh/Tail/Runtime/Plans) one level down.
 export const TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
-  { key: "agents", label: "Agents", route: { view: "agents" } },
+  { key: "agents", label: "Projects", route: { view: "agents-v2" } },
   { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
   { key: "search", label: "Search", route: { view: "search" } },
   { key: "ops", label: "Ops", route: { view: "ops" } },
 ];
 
-// Clean / lean launch nav — mirrors the macOS core. Home · Agents · Terminals · Chat ·
+// Clean / lean launch nav — mirrors the macOS core. Home · Projects · Terminals · Chat ·
 // Tail · Dispatch · Repos. Tail/Dispatch/Repos are promoted out of the Ops
 // cluster to the primary bar; Search + the rest of Ops (Control/Mesh/Runtime/
 // Plans) drop off the bar and stay reachable via the Ops subnav + ⌘K palette.
 // Gated by the `nav.clean` flag.
 export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
-  { key: "agents", label: "Agents", route: { view: "agents" } },
+  { key: "agents", label: "Projects", route: { view: "agents-v2" } },
   { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
   { key: "tail", label: "Tail", route: { view: "ops", mode: "tail" } },
@@ -47,7 +47,8 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   inbox: "Home",
   conversation: "Conversation",
   "agent-info": "Agent",
-  agents: "Agents",
+  agents: "Agents .deprecated",
+  "agents-v2": "Projects",
   fleet: "Home",
   conversations: "Chat",
   messages: "Chat",
@@ -83,6 +84,7 @@ export function topNavKeyForRoute(
     return "agents";
   }
   switch (route.view) {
+    case "agents-v2":
     case "agents":
     case "agent-info":
     case "sessions":

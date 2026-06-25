@@ -1,5 +1,5 @@
 /* Agents v2 session preview — lane-detail-sheet instrument (scoped .av2-sheet-*).
-   Uses --av2-* tokens from .s-av2 in agents-v2.css. */
+   Uses --av2-* tokens from .s-av2 in projects.css. */
 
 .av2-sheet {
   display: flex;

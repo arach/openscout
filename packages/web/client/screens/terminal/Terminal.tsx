@@ -522,7 +522,7 @@ function TerminalPlaceholder({
       <div className="s-term-bar">
         <BackToPicker
           slot="terminal"
-          fallback={agentId ? { view: "agents", agentId } : { view: "inbox" }}
+          fallback={agentId ? { view: "agents-v2", agentId } : { view: "inbox" }}
           navigate={navigate}
           className="s-term-back"
         />
@@ -662,7 +662,7 @@ function TerminalRelayCanvas({
           {!registeredTarget && (
             <BackToPicker
               slot="terminal"
-              fallback={agentId ? { view: "agents", agentId } : { view: "terminal" }}
+              fallback={agentId ? { view: "agents-v2", agentId } : { view: "terminal" }}
               navigate={navigate}
               className="s-term-back"
             />
@@ -906,7 +906,7 @@ function ResolvingAgent({ navigate }: { navigate: TerminalNavigate }) {
       <div className="s-term-bar">
         <BackToPicker
           slot="terminal"
-          fallback={{ view: "agents" }}
+          fallback={{ view: "agents-v2" }}
           navigate={navigate}
           className="s-term-back"
         />

@@ -5,6 +5,7 @@ import { actorColor } from "../../lib/colors.ts";
 import { agentStateLabel, isAgentBusy, normalizeAgentState } from "../../lib/agent-state.ts";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import { timeAgo } from "../../lib/time.ts";
+import { formatLabel } from "../../lib/text.ts";
 import { statusOnHover } from "../../lib/page-status.ts";
 import { summarizeObserveEvent } from "../../lib/observe.ts";
 import { DictationMic } from "../../components/DictationMic.tsx";
@@ -492,7 +493,7 @@ function FocusActivityEmpty({
   onOpenConversation: () => void;
   onMessage: () => void;
 }) {
-  const role = agent.role?.trim();
+  const role = formatLabel(agent.role);
   const harness = [agent.harness, agent.model].filter(Boolean).join("/");
   const where = [agent.project, agent.branch].filter(Boolean).join("/");
   const state = normalizeAgentState(agent.state);

@@ -44,6 +44,70 @@ export function sortSessionsByRecency(
  *  auto-invalidates when the focused agent changes. */
 export type FocusedSession = { agentId: string; sessionId: string };
 
+type SessionCatalogEntryWithAliases = SessionCatalogEntry & {
+  harnessSessionId?: string | null;
+  externalSessionId?: string | null;
+  threadId?: string | null;
+  runtimeSessionId?: string | null;
+  runtimeSessionRef?: string | null;
+  runtimeRef?: string | null;
+  sourceSessionId?: string | null;
+  sessionId?: string | null;
+  refId?: string | null;
+};
+
+function sessionAliasValues(session: SessionCatalogEntry): string[] {
+  const candidate = session as SessionCatalogEntryWithAliases;
+  return [
+    candidate.id,
+    candidate.surfaceSessionId,
+    candidate.harnessSessionId,
+    candidate.externalSessionId,
+    candidate.threadId,
+    candidate.runtimeSessionId,
+    candidate.runtimeSessionRef,
+    candidate.runtimeRef,
+    candidate.sourceSessionId,
+    candidate.sessionId,
+    candidate.refId,
+  ].flatMap((value) => {
+    const trimmed = value?.trim();
+    return trimmed ? [trimmed] : [];
+  });
+}
+
+function relayAliasParts(value: string): { scope: string; harness: string } | null {
+  const match = /^relay-(.+)-(claude|codex)$/iu.exec(value);
+  if (!match) return null;
+  return { scope: match[1]!.toLowerCase(), harness: match[2]!.toLowerCase() };
+}
+
+function relayAliasMatches(candidate: string, routed: string): boolean {
+  const candidateParts = relayAliasParts(candidate);
+  const routedParts = relayAliasParts(routed);
+  if (!candidateParts || !routedParts) return false;
+  return candidateParts.harness === routedParts.harness
+    && (
+      candidateParts.scope === routedParts.scope
+      || candidateParts.scope.startsWith(`${routedParts.scope}-`)
+    );
+}
+
+export function resolveRoutedSessionId(
+  sessionId: string | null | undefined,
+  sorted: SessionCatalogEntry[],
+): string | null {
+  const routed = sessionId?.trim();
+  if (!routed) return null;
+  const exact = sorted.find((s) => sessionAliasValues(s).some((value) => value === routed));
+  if (exact) return exact.id;
+  const relayMatches = sorted.filter((s) =>
+    sessionAliasValues(s).some((value) => relayAliasMatches(value, routed))
+  );
+  const uniqueIds = new Set(relayMatches.map((s) => s.id));
+  return uniqueIds.size === 1 ? relayMatches[0]?.id ?? null : null;
+}
+
 /** The session the profile is exploring: an explicit center selection (when it
  *  still belongs to this agent and exists) wins, else the active session, else
  *  the most recent. `sorted` is the output of {@link sortSessionsByRecency}. */
@@ -52,7 +116,10 @@ export function resolveSelectedSessionId(
   focusedSession: FocusedSession | null,
   activeSessionId: string | null,
   sorted: SessionCatalogEntry[],
+  routedSessionId?: string | null,
 ): string | null {
+  const routed = resolveRoutedSessionId(routedSessionId, sorted);
+  if (routed) return routed;
   const focused =
     focusedSession?.agentId === agentId ? focusedSession.sessionId : null;
   if (focused && sorted.some((s) => s.id === focused)) return focused;

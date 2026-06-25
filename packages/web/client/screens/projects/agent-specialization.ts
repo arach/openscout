@@ -1,4 +1,5 @@
 import type { Agent, LocalAgentConfigState } from "../../lib/types.ts";
+import { formatLabel } from "../../lib/text.ts";
 
 const CLASS_LABELS: Record<string, string> = {
   general: "Generalist",
@@ -20,7 +21,7 @@ export function humanizeAgentClass(agentClass: string | null | undefined): strin
 
 export function humanizeAgentRole(role: string | null | undefined): string | null {
   if (!role?.trim()) return null;
-  return role.replace(/_/g, " ").trim();
+  return formatLabel(role)?.trim() ?? null;
 }
 
 export type AgentSpecialization = {

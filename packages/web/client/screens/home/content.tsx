@@ -14,6 +14,7 @@ import {
   normalizeTimestampMs,
   timeAgo,
 } from "../../lib/time.ts";
+import { formatLabel } from "../../lib/text.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
@@ -113,7 +114,7 @@ function activityVerb(kind: string): string {
 function fleetActivityRoute(item: FleetActivity): Route | null {
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
   if (item.recordId) return { view: "work", workId: item.recordId };
-  if (item.agentId) return { view: "agents", agentId: item.agentId };
+  if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
   return null;
 }
 
@@ -229,7 +230,7 @@ function isFreshMovingTimestamp(
 function routeForFleetAsk(ask: FleetAsk): Route {
   if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
   if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
-  return { view: "agents", agentId: ask.agentId };
+  return { view: "agents-v2", agentId: ask.agentId };
 }
 
 // ── Working-agent card helpers ──────────────────────────────────────────────
@@ -1023,7 +1024,7 @@ function NowCard({
     { key: "branch", text: branchLabel, title: branchLabel, mono: true },
   ];
   if (runtimeLabel) metaParts.push({ key: "runtime", text: runtimeLabel });
-  if (agent.role) metaParts.push({ key: "role", text: agent.role });
+  if (agent.role) metaParts.push({ key: "role", text: formatLabel(agent.role) ?? agent.role });
   if (modelLabel) metaParts.push({ key: "model", text: modelLabel });
 
   // Relevant at-a-glance tiles — only the signals we actually have data for.
@@ -1046,7 +1047,7 @@ function NowCard({
 
   const open = () =>
     navigate({
-      view: "agents",
+      view: "agents-v2",
       agentId: agent.id,
       tab: "observe",
     });
@@ -1142,7 +1143,7 @@ function ObservedActorCard({
     : actor.recordId
       ? { view: "work", workId: actor.recordId }
       : actor.agentId
-        ? { view: "agents", agentId: actor.agentId }
+        ? { view: "agents-v2", agentId: actor.agentId }
         : null;
   const sourceTag = inferActorSource(name);
 
@@ -1413,7 +1414,7 @@ function QuietStartPanel({
       const conversationId = result.conversationId ?? selectedAgent.conversationId;
       navigate(conversationId
         ? { view: "conversation", conversationId }
-        : { view: "agents", agentId: selectedAgent.id, tab: "message" });
+        : { view: "agents-v2", agentId: selectedAgent.id, tab: "message" });
     } catch (submitError) {
       setAskError(submitError instanceof Error ? submitError.message : String(submitError));
     } finally {

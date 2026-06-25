@@ -19,6 +19,7 @@ public struct BrokerServiceStatus: Decodable, Sendable {
     public let label: String
     public let launchAgentPath: String
     public let brokerURL: String
+    public let webURL: String?
     public let installed: Bool
     public let loaded: Bool
     public let pid: Int?
@@ -31,6 +32,9 @@ public struct BrokerServiceStatus: Decodable, Sendable {
         case label
         case launchAgentPath
         case brokerURL = "brokerUrl"
+        case effectiveBrokerURL = "effectiveBrokerUrl"
+        case webURL = "webUrl"
+        case effectiveWebURL = "effectiveWebUrl"
         case installed
         case loaded
         case pid
@@ -48,7 +52,21 @@ public struct BrokerServiceStatus: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.label = try container.decode(String.self, forKey: .label)
         self.launchAgentPath = try container.decode(String.self, forKey: .launchAgentPath)
-        self.brokerURL = try container.decode(String.self, forKey: .brokerURL)
+        let configuredBrokerURL = try container.decode(String.self, forKey: .brokerURL)
+        let effectiveBrokerURL = try container.decodeIfPresent(String.self, forKey: .effectiveBrokerURL)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.brokerURL = effectiveBrokerURL?.isEmpty == false ? effectiveBrokerURL! : configuredBrokerURL
+        let configuredWebURL = try container.decodeIfPresent(String.self, forKey: .webURL)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveWebURL = try container.decodeIfPresent(String.self, forKey: .effectiveWebURL)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let effectiveWebURL, !effectiveWebURL.isEmpty {
+            self.webURL = effectiveWebURL
+        } else if let configuredWebURL, !configuredWebURL.isEmpty {
+            self.webURL = configuredWebURL
+        } else {
+            self.webURL = nil
+        }
         self.installed = try container.decode(Bool.self, forKey: .installed)
         self.loaded = try container.decode(Bool.self, forKey: .loaded)
         self.pid = try container.decodeIfPresent(Int.self, forKey: .pid)

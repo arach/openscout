@@ -10,19 +10,19 @@ import type { Agent, Route, SessionCatalogEntry, SessionCatalogWithResume, Sessi
 import {
   agentNowLine,
   conversationForCatalogSession,
-  openAgentsV2Profile,
+  openProjectAgentProfile,
   peekSessionMeta,
   peekSessionTitle,
 } from "./model.ts";
 import type { RegistryAgentEntry } from "./model.ts";
-import "./agents-v2-sheet.css";
-import "./agents-v2.css";
+import "./projects-sheet.css";
+import "./projects.css";
 
 type Navigate = (route: Route) => void;
 
 const PEEK_SESSION_LIMIT = 4;
 
-export function AgentsV2AgentPeek({
+export function ProjectAgentPeek({
   agent,
   route,
   navigate,
@@ -70,15 +70,15 @@ export function AgentsV2AgentPeek({
   const openProfile = (sessionId?: string) =>
     navigate(
       sessionId
-        ? { ...openAgentsV2Profile(route, agent.id), sessionId }
-        : openAgentsV2Profile(route, agent.id),
+        ? { ...openProjectAgentProfile(route, agent.id), sessionId }
+        : openProjectAgentProfile(route, agent.id),
     );
 
   const openMessage = async () => {
     try {
       const chatId = await ensureAgentChat({ ...agent, conversationId: agent.conversationId ?? null });
       navigate({
-        ...openAgentsV2Profile(route, agent.id),
+        ...openProjectAgentProfile(route, agent.id),
         conversationId: chatId,
         tab: "message",
       });

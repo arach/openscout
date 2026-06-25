@@ -16,6 +16,7 @@ import {
   parseSince,
   readRequestBody,
   requestAbortSignal,
+  serverTimingHeader,
   threadWatchError,
   throwIfAborted,
 } from "./broker-http-helpers.js";
@@ -118,6 +119,14 @@ describe("broker http helpers", () => {
     jsonWithHeaders(cors as never, 200, { ok: true }, { "access-control-allow-origin": "*" });
     expect(cors.headers?.["access-control-allow-origin"]).toBe("*");
     expect(cors.headers?.["content-type"]).toBe("application/json; charset=utf-8");
+  });
+
+  test("formats Server-Timing headers with safe tokens and bounded durations", () => {
+    expect(serverTimingHeader([
+      { name: "tail live", dur: 12.345 },
+      { name: "broker-fetch", dur: -1, desc: "tail \"proxy\"" },
+      { name: "   " },
+    ])).toBe('tail-live;dur=12.3, broker-fetch;dur=0.0;desc="tail proxy"');
   });
 
   test("maps thread-watch protocol errors and query parameters", () => {

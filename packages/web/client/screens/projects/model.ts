@@ -9,9 +9,9 @@ import { pathLeaf } from "../agents/model.ts";
 import type { AgentInventoryRow, DirProject } from "../agents/model.ts";
 import type {
   Agent,
-  AgentsV2IndexView,
-  AgentsV2Set,
-  AgentsV2StateFilter,
+  ProjectsIndexView,
+  ProjectSet,
+  ProjectStateFilter,
   Route,
   SessionCatalogEntry,
   SessionEntry,
@@ -20,11 +20,11 @@ import { timeAgo } from "../../lib/time.ts";
 
 const LIVE_WINDOW_MS = 30 * 60_000;
 
-export type AgentsV2Scope = {
+export type ProjectRegistryScope = {
   projectSlug?: string;
   harness?: string;
   node?: string;
-  set?: AgentsV2Set;
+  set?: ProjectSet;
 };
 
 export type RegistryAgentEntry = {
@@ -65,7 +65,7 @@ export type BrowseNode = {
 };
 
 export type BrowseSet = {
-  id: AgentsV2Set;
+  id: ProjectSet;
   label: string;
   count: number;
 };
@@ -140,13 +140,13 @@ function compareRegistryAgents(a: RegistryAgentEntry, b: RegistryAgentEntry): nu
 export function agentPrecedence(
   entry: RegistryAgentEntry,
   nowMs: number,
-): AgentsV2StateFilter | "idle" {
+): ProjectStateFilter | "idle" {
   if (entry.group.needs) return "needs";
   if (isGroupLive(entry.group, nowMs)) return "live";
   return "idle";
 }
 
-export function matchesScope(entry: RegistryAgentEntry, scope: AgentsV2Scope, nowMs: number): boolean {
+export function matchesScope(entry: RegistryAgentEntry, scope: ProjectRegistryScope, nowMs: number): boolean {
   if (scope.projectSlug && entry.projectSlug !== scope.projectSlug) return false;
   if (scope.harness && harnessOf(entry.group.harness) !== harnessOf(scope.harness)) return false;
   if (scope.node) {
@@ -163,7 +163,7 @@ export function matchesScope(entry: RegistryAgentEntry, scope: AgentsV2Scope, no
 
 export function matchesSessionScope(
   entry: RegistrySessionEntry,
-  scope: AgentsV2Scope,
+  scope: ProjectRegistryScope,
   agentsById: Map<string, Agent>,
   nowMs: number,
 ): boolean {
@@ -197,8 +197,8 @@ export function matchesSessionScope(
 
 export function filterRegistryAgents(
   entries: RegistryAgentEntry[],
-  scope: AgentsV2Scope,
-  stateFilter: AgentsV2StateFilter | undefined,
+  scope: ProjectRegistryScope,
+  stateFilter: ProjectStateFilter | undefined,
   nowMs: number,
 ): RegistryAgentEntry[] {
   return entries.filter((entry) => {
@@ -210,7 +210,7 @@ export function filterRegistryAgents(
 
 export function filterRegistrySessions(
   entries: RegistrySessionEntry[],
-  scope: AgentsV2Scope,
+  scope: ProjectRegistryScope,
   agentsById: Map<string, Agent>,
   nowMs: number,
 ): RegistrySessionEntry[] {
@@ -396,7 +396,7 @@ export function bestSessionPreviewForEntry(entry: RegistryAgentEntry): string | 
 
 export function registryWorkLine(
   entry: RegistryAgentEntry,
-  tone: AgentsV2StateFilter | "idle",
+  tone: ProjectStateFilter | "idle",
 ): string {
   const task = entry.leadRow.activeTask ? humanizeWorkText(entry.leadRow.activeTask) : null;
   if (task) return task;
@@ -529,15 +529,15 @@ export function agentsV2Route(
     if ("projectSlug" in patch && patch.projectSlug) {
       delete (next as { harness?: string }).harness;
       delete (next as { node?: string }).node;
-      delete (next as { set?: AgentsV2Set }).set;
+      delete (next as { set?: ProjectSet }).set;
     } else if ("harness" in patch && patch.harness) {
       delete (next as { projectSlug?: string }).projectSlug;
       delete (next as { node?: string }).node;
-      delete (next as { set?: AgentsV2Set }).set;
+      delete (next as { set?: ProjectSet }).set;
     } else if ("node" in patch && patch.node) {
       delete (next as { projectSlug?: string }).projectSlug;
       delete (next as { harness?: string }).harness;
-      delete (next as { set?: AgentsV2Set }).set;
+      delete (next as { set?: ProjectSet }).set;
     } else if ("set" in patch && patch.set) {
       delete (next as { projectSlug?: string }).projectSlug;
       delete (next as { harness?: string }).harness;
@@ -547,7 +547,7 @@ export function agentsV2Route(
   return next;
 }
 
-export function indexViewOf(route: Extract<Route, { view: "agents-v2" }>): AgentsV2IndexView {
+export function indexViewOf(route: Extract<Route, { view: "agents-v2" }>): ProjectsIndexView {
   return route.indexView ?? "agents";
 }
 
@@ -569,12 +569,12 @@ export function registryRoute(
   };
 }
 
-export function isAgentsV2ProfileRoute(route: Extract<Route, { view: "agents-v2" }>): boolean {
+export function isProjectAgentProfileRoute(route: Extract<Route, { view: "agents-v2" }>): boolean {
   return Boolean(route.agentId);
 }
 
 /** Select an agent in the registry index — right-rail peek, center stays put. */
-export function selectAgentsV2Agent(
+export function selectProjectAgent(
   route: Extract<Route, { view: "agents-v2" }>,
   agentId: string,
 ): Extract<Route, { view: "agents-v2" }> {
@@ -585,7 +585,7 @@ export function selectAgentsV2Agent(
   };
 }
 
-export function openAgentsV2Profile(
+export function openProjectAgentProfile(
   route: Extract<Route, { view: "agents-v2" }>,
   agentId: string,
 ): Extract<Route, { view: "agents-v2" }> {
@@ -600,12 +600,12 @@ export function openAgentsV2Profile(
   };
 }
 
-export function openAgentsV2Config(
+export function openProjectAgentConfig(
   route: Extract<Route, { view: "agents-v2" }>,
   agentId: string,
 ): Extract<Route, { view: "agents-v2" }> {
   return {
-    ...openAgentsV2Profile(route, agentId),
+    ...openProjectAgentProfile(route, agentId),
     tab: "config",
   };
 }

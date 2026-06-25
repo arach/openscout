@@ -54,8 +54,8 @@ export function useScoutCommands(): CommandOption[] {
       },
       {
         id: "nav:agents",
-        label: "Go to Agents",
-        action: () => navigate({ view: "agents" }),
+        label: "Go to Projects",
+        action: () => navigate({ view: "agents-v2" }),
         shortcut: "Cmd+2",
       },
       {
@@ -126,7 +126,7 @@ export function useScoutCommands(): CommandOption[] {
       }, {
         id: "nav:workflow-topology",
         label: "Open Workflow Topology",
-        action: () => navigate({ view: "agents" }),
+        action: () => navigate({ view: "agents-v2" }),
       }] : []),
       {
         id: "nav:settings",
@@ -168,7 +168,7 @@ export function useScoutCommands(): CommandOption[] {
       commands.push({
         id: `scout:open:${agent.id}`,
         label: `Open ${agent.name}`,
-        action: () => navigate({ view: "agents", agentId: agent.id }),
+        action: () => navigate({ view: "agents-v2", agentId: agent.id }),
       });
       commands.push({
         id: `scout:message:${agent.id}`,
@@ -182,7 +182,7 @@ export function useScoutCommands(): CommandOption[] {
               });
             })
             .catch(() => navigate({
-              view: "agents",
+              view: "agents-v2",
               agentId: agent.id,
               tab: "message",
             }));

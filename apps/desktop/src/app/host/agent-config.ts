@@ -118,7 +118,7 @@ function agentTypeLabel(agent: AgentDefinition | null | undefined): string {
     return "System";
   }
   if (agent.metadata?.source === "relay-agent-registry") {
-    return "Relay Agent";
+    return "Agent";
   }
   return "Built-in Role";
 }
@@ -163,9 +163,9 @@ function buildLocalAgentConfigState(
     editable: agentConfig.editable,
     model: agentConfig.model,
     title: agentId,
-    typeLabel: "Relay Agent",
+    typeLabel: "Agent",
     applyModeLabel: "Save changes, then restart to apply runtime, prompt, and capability updates.",
-    note: `Stored in the canonical relay agent registry. Runtime files live at ${compactHomePath(runtimeDirectory) ?? runtimeDirectory} and logs at ${compactHomePath(logsDirectory) ?? logsDirectory}.`,
+    note: `Stored in the canonical agent registry. Runtime files live at ${compactHomePath(runtimeDirectory) ?? runtimeDirectory} and logs at ${compactHomePath(logsDirectory) ?? logsDirectory}.`,
     systemPromptHint: agentConfig.templateHint,
     availableHarnesses: [...SUPPORTED_LOCAL_AGENT_HARNESSES],
     runtime: {

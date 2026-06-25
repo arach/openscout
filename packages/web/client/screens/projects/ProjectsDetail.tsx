@@ -3,17 +3,18 @@ import { agentStateLabel } from "../../lib/agent-state.ts";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, Route, SessionEntry } from "../../lib/types.ts";
-import "./agents-v2.css";
+import "./projects.css";
 import {
   agentNodeLabel,
   harnessOf,
+  openProjectAgentProfile,
   registryAgentsForProject,
   sessionPreview,
   shortSessionRef,
 } from "./model.ts";
-import { AgentsV2AgentPeek } from "./AgentsV2AgentPeek.tsx";
-import { AgentsV2ProjectDetail } from "./AgentsV2ProjectDetail.tsx";
-import { useAgentsV2Data } from "./useAgentsV2Data.ts";
+import { ProjectAgentPeek } from "./ProjectAgentPeek.tsx";
+import { ProjectActivityDetail } from "./ProjectActivityDetail.tsx";
+import { useProjectsData } from "./useProjectsData.ts";
 import { isGroupLive } from "../agents/agents-project-model.ts";
 
 type Navigate = (route: Route) => void;
@@ -145,14 +146,25 @@ function AgentDetail({
           type="button"
           className="av2-link"
           data-primary
-          onClick={() => navigate({ view: "agents", agentId: agent.id, tab: "profile" })}
+          onClick={() =>
+            navigate({
+              ...openProjectAgentProfile(route, agent.id),
+              ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+            })
+          }
         >
           Open profile ↗
         </button>
         <button
           type="button"
           className="av2-link"
-          onClick={() => navigate({ view: "agents", agentId: agent.id, tab: "observe" })}
+          onClick={() =>
+            navigate({
+              ...openProjectAgentProfile(route, agent.id),
+              ...(selectedSessionId ? { sessionId: selectedSessionId } : {}),
+              tab: "observe",
+            })
+          }
         >
           Observe ↗
         </button>
@@ -270,7 +282,12 @@ function SessionDetail({
           <button
             type="button"
             className="av2-link"
-            onClick={() => navigate({ view: "agents", agentId: agent.id, tab: "profile" })}
+            onClick={() =>
+              navigate({
+                ...openProjectAgentProfile(route, agent.id),
+                sessionId: route.sessionId ?? session.id,
+              })
+            }
           >
             Agent profile ↗
           </button>
@@ -325,7 +342,7 @@ function SetDetail({
   );
 }
 
-export function AgentsV2Detail({
+export function ProjectsDetail({
   route,
   navigate,
 }: {
@@ -334,7 +351,7 @@ export function AgentsV2Detail({
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
   const { agentsById, sessionsByAgentId, registryAgents, registrySessions } =
-    useAgentsV2Data(showEphemeral);
+    useProjectsData(showEphemeral);
 
   const peekAgent = route.selectedAgentId ? agentsById.get(route.selectedAgentId) ?? null : null;
   const selectedSession = route.sessionId
@@ -387,7 +404,7 @@ export function AgentsV2Detail({
   if (peekAgent) {
     const conversations = sessionsByAgentId.get(peekAgent.id) ?? [];
     return (
-      <AgentsV2AgentPeek
+      <ProjectAgentPeek
         agent={peekAgent}
         route={route}
         navigate={navigate}
@@ -415,7 +432,7 @@ export function AgentsV2Detail({
     );
     const projectTitle = projectAgents[0]?.projectTitle ?? route.projectSlug;
     return (
-      <AgentsV2ProjectDetail
+      <ProjectActivityDetail
         route={route}
         navigate={navigate}
         projectTitle={projectTitle}

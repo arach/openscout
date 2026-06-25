@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
+import { normalizeRoute } from "./synthetic-agent-routing.ts";
 import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {
   AgentTab,
@@ -25,6 +26,18 @@ function parseAgentTab(value: string | null): AgentTab | undefined {
       return value;
     default:
       return undefined;
+  }
+}
+
+function hashMessageId(hash: string): string | null {
+  const raw = hash.trim().replace(/^#/, "");
+  if (!raw.startsWith("msg-")) return null;
+  const id = raw.slice("msg-".length).trim();
+  if (!id) return null;
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return id;
   }
 }
 
@@ -201,7 +214,9 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const scoped = <T extends Route>(route: T): T => withMachineScope(route, machineId);
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
-  const agentTab = parseAgentTab(url.searchParams.get("tab"));
+  const messageHashId = hashMessageId(url.hash);
+  const agentTab = parseAgentTab(url.searchParams.get("tab"))
+    ?? (messageHashId ? "message" : undefined);
   const agentProjectSlug = url.searchParams.get("project")?.trim() || undefined;
   if (parts[0] === "agent" && parts[1]) {
     return { view: "agent-info", conversationId: decodeURIComponent(parts[1]) };
@@ -225,18 +240,80 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const agentsV2ShowEphemeral = url.searchParams.get("ephemeral") === "1";
   const agentsV2SessionParam = url.searchParams.get("session")?.trim() || undefined;
   const agentsV2Select = url.searchParams.get("select")?.trim() || undefined;
+  const agentsV2Common = {
+    ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
+    ...(agentsV2Node ? { node: agentsV2Node } : {}),
+    ...(agentsV2Set ? { set: agentsV2Set } : {}),
+    ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
+    ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
+    ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+  };
+  if (parts[0] === "projects") {
+    const projectSlug = parts[1] ? decodeURIComponent(parts[1]) : undefined;
+    if (!projectSlug) {
+      return scoped({
+        view: "agents-v2",
+        ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+        ...agentsV2Common,
+      });
+    }
+    if (parts[2] === "agents") {
+      const agentId = parts[3] ? decodeURIComponent(parts[3]) : undefined;
+      if (agentId) {
+        if (parts[4] === "c" && parts[5]) {
+          return scoped({
+            view: "agents-v2",
+            projectSlug,
+            agentId,
+            conversationId: decodeURIComponent(parts[5]),
+            tab: agentTab ?? "message",
+            ...agentsV2Common,
+          });
+        }
+        const sessionId = parts[4] === "sessions" && parts[5]
+          ? decodeURIComponent(parts[5])
+          : agentsV2SessionParam;
+        return scoped({
+          view: "agents-v2",
+          projectSlug,
+          agentId,
+          ...(sessionId ? { sessionId } : {}),
+          ...(agentTab ? { tab: agentTab } : {}),
+          ...agentsV2Common,
+        });
+      }
+      return scoped({
+        view: "agents-v2",
+        projectSlug,
+        indexView: "agents",
+        ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+        ...agentsV2Common,
+      });
+    }
+    if (parts[2] === "sessions") {
+      return scoped({
+        view: "agents-v2",
+        projectSlug,
+        indexView: "sessions",
+        ...(parts[3] ? { sessionId: decodeURIComponent(parts[3]) } : {}),
+        ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+        ...agentsV2Common,
+      });
+    }
+    return scoped({
+      view: "agents-v2",
+      projectSlug,
+      ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+      ...agentsV2Common,
+    });
+  }
   if (parts[0] === "agents-v2" && parts[1] === "sessions" && parts[2]) {
     return scoped({
       view: "agents-v2",
       sessionId: decodeURIComponent(parts[2]),
       ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
       ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
-      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
-      ...(agentsV2Node ? { node: agentsV2Node } : {}),
-      ...(agentsV2Set ? { set: agentsV2Set } : {}),
-      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
-      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
-      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+      ...agentsV2Common,
     });
   }
   if (parts[0] === "agents-v2" && parts[1]) {
@@ -247,12 +324,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(agentTab ? { tab: agentTab } : {}),
       ...(agentsV2SessionParam ? { sessionId: agentsV2SessionParam } : {}),
       ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
-      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
-      ...(agentsV2Node ? { node: agentsV2Node } : {}),
-      ...(agentsV2Set ? { set: agentsV2Set } : {}),
-      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
-      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
-      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+      ...agentsV2Common,
     });
   }
   if (parts[0] === "agents-v2") {
@@ -260,16 +332,41 @@ export function routeFromUrl(urlLike: string | URL): Route {
       view: "agents-v2",
       ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
       ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
-      ...(agentsV2Harness ? { harness: agentsV2Harness } : {}),
-      ...(agentsV2Node ? { node: agentsV2Node } : {}),
-      ...(agentsV2Set ? { set: agentsV2Set } : {}),
-      ...(agentsV2IndexView ? { indexView: agentsV2IndexView } : {}),
-      ...(agentsV2StateFilter ? { stateFilter: agentsV2StateFilter } : {}),
-      ...(agentsV2ShowEphemeral ? { showEphemeral: true } : {}),
+      ...agentsV2Common,
+    });
+  }
+  if (parts[0] === "agents" && parts[1]) {
+    const agentId = decodeURIComponent(parts[1]);
+    const sessionId = parts[2] === "sessions" && parts[3]
+      ? decodeURIComponent(parts[3])
+      : agentsV2SessionParam;
+    if (parts[2] === "c" && parts[3]) {
+      return scoped({
+        view: "agents-v2",
+        agentId,
+        conversationId: decodeURIComponent(parts[3]),
+        tab: agentTab ?? "message",
+        ...agentsV2Common,
+      });
+    }
+    return scoped({
+      view: "agents-v2",
+      agentId,
+      ...(sessionId ? { sessionId } : {}),
+      ...(agentTab ? { tab: agentTab } : {}),
+      ...agentsV2Common,
+    });
+  }
+  if (parts[0] === "agents") {
+    return scoped({
+      view: "agents-v2",
+      ...(agentsV2Select ? { selectedAgentId: agentsV2Select } : {}),
+      ...(agentsV2Project ? { projectSlug: agentsV2Project } : {}),
+      ...agentsV2Common,
     });
   }
   // /agents/{agentId}/sessions/{sessionId} → session observe scoped to an exact agent/session pair.
-  if (parts[0] === "agents" && parts[1] && parts[2] === "sessions" && parts[3]) {
+  if (parts[0] === "agents.deprecated" && parts[1] && parts[2] === "sessions" && parts[3]) {
     return scoped({
       view: "sessions",
       agentId: decodeURIComponent(parts[1]),
@@ -277,7 +374,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
     });
   }
   // /agents/{agentId}/c/{conversationId} → agent detail with inline conversation
-  if (parts[0] === "agents" && parts[1] && parts[2] === "c" && parts[3]) {
+  if (parts[0] === "agents.deprecated" && parts[1] && parts[2] === "c" && parts[3]) {
     return scoped({
       view: "agents",
       agentId: decodeURIComponent(parts[1]),
@@ -288,7 +385,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   // /agents/{agentId} → agents view with selected agent. With ?project=… and no
   // tab it is a directory-selection (master-detail): the project stays the
   // primary object and the agent only drives the right inspector.
-  if (parts[0] === "agents" && parts[1]) {
+  if (parts[0] === "agents.deprecated" && parts[1]) {
     const agentId = decodeURIComponent(parts[1]);
     return scoped({
       view: "agents",
@@ -297,7 +394,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(!agentTab && agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
     });
   }
-  if (parts[0] === "agents") {
+  if (parts[0] === "agents.deprecated") {
     return scoped({
       view: "agents",
       ...(agentProjectSlug ? { projectSlug: agentProjectSlug } : {}),
@@ -465,8 +562,23 @@ export function routeFromUrl(urlLike: string | URL): Route {
   return scoped({ view: "inbox" });
 }
 
+function readRouteFromLocation(): Route {
+  const raw = routeFromUrl(window.location.href);
+  const normalized = normalizeRoute(raw);
+  const canonicalPath = routePath(normalized);
+  const currentPath = `${window.location.pathname}${window.location.search}`;
+  const shouldCanonicalize =
+    routeKey(raw) !== routeKey(normalized)
+    || raw.view === "agents"
+    || normalized.view === "agents-v2";
+  if (shouldCanonicalize && currentPath !== canonicalPath) {
+    window.history.replaceState(null, "", `${canonicalPath}${window.location.hash}`);
+  }
+  return normalized;
+}
+
 function routeFromPath(): Route {
-  return routeFromUrl(window.location.href);
+  return readRouteFromLocation();
 }
 
 export function routePath(r: Route): string {
@@ -500,29 +612,47 @@ export function routePath(r: Route): string {
       appendMachineScope(params, r);
       const path = r.agentId
         ? r.conversationId
-            ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
-            : `/agents/${encodeURIComponent(r.agentId)}`
-        : "/agents";
+            ? `/agents.deprecated/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+            : `/agents.deprecated/${encodeURIComponent(r.agentId)}`
+        : "/agents.deprecated";
       return `${path}${searchSuffix(params)}`;
     }
     case "agents-v2": {
       const params = new URLSearchParams();
-      if (r.projectSlug) params.set("project", r.projectSlug);
       if (r.harness) params.set("harness", r.harness);
       if (r.node) params.set("node", r.node);
       if (r.set) params.set("set", r.set);
-      if (r.indexView && r.indexView !== "agents") params.set("view", r.indexView);
+      if (!r.projectSlug && r.indexView && r.indexView !== "agents") params.set("view", r.indexView);
       if (r.stateFilter) params.set("state", r.stateFilter);
       if (r.showEphemeral) params.set("ephemeral", "1");
       if (r.selectedAgentId && !r.agentId) params.set("select", r.selectedAgentId);
-      if (r.agentId && r.sessionId) params.set("session", r.sessionId);
-      if (r.agentId && r.tab && r.tab !== "profile") params.set("tab", r.tab);
+      const defaultTab = r.conversationId ? "message" : "profile";
+      if (r.agentId && r.tab && r.tab !== defaultTab) params.set("tab", r.tab);
       appendMachineScope(params, r);
-      const path = r.sessionId && !r.agentId
-        ? `/agents-v2/sessions/${encodeURIComponent(r.sessionId)}`
+      const projectPath = r.projectSlug ? `/projects/${encodeURIComponent(r.projectSlug)}` : null;
+      const path = projectPath
+        ? r.agentId
+          ? r.conversationId
+            ? `${projectPath}/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+            : r.sessionId
+            ? `${projectPath}/agents/${encodeURIComponent(r.agentId)}/sessions/${encodeURIComponent(r.sessionId)}`
+            : `${projectPath}/agents/${encodeURIComponent(r.agentId)}`
+          : r.sessionId
+            ? `${projectPath}/sessions/${encodeURIComponent(r.sessionId)}`
+            : r.indexView === "sessions"
+              ? `${projectPath}/sessions`
+              : r.indexView === "agents"
+                ? `${projectPath}/agents`
+                : projectPath
         : r.agentId
-          ? `/agents-v2/${encodeURIComponent(r.agentId)}`
-          : "/agents-v2";
+          ? r.conversationId
+            ? `/agents/${encodeURIComponent(r.agentId)}/c/${encodeURIComponent(r.conversationId)}`
+            : r.sessionId
+            ? `/agents/${encodeURIComponent(r.agentId)}/sessions/${encodeURIComponent(r.sessionId)}`
+            : `/agents/${encodeURIComponent(r.agentId)}`
+          : r.sessionId
+            ? `/sessions/${encodeURIComponent(r.sessionId)}`
+            : "/projects";
       return `${path}${searchSuffix(params)}`;
     }
     case "fleet":
@@ -696,7 +826,7 @@ function routeKey(r: Route): string {
 /* ── Router hook ── */
 
 export function useRouter() {
-  const [route, setRouteState] = useState<Route>(routeFromPath);
+  const [route, setRouteState] = useState<Route>(readRouteFromLocation);
   const scrollMap = useRef<Record<string, number>>({});
 
   useEffect(() => {
@@ -712,10 +842,11 @@ export function useRouter() {
   }, []);
 
   const navigate = useCallback((r: Route) => {
-    const requestedRoute: Route =
+    const requestedRoute: Route = normalizeRoute(
       r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
         ? { view: "inbox" }
-        : r;
+        : r,
+    );
     const currentRoute = routeFromPath();
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;

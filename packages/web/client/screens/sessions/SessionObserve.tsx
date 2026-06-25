@@ -519,21 +519,6 @@ const LANE_FAMILY_GLYPH: Record<LaneToolFamily, string> = {
   generic: "▸",
 };
 
-/** The right-aligned gutter label for a lane row: the tool name for tool rows,
- *  otherwise the event kind. Kept a single compact token (just first-letter
- *  capitalised) so names like "WebSearch"/"TodoWrite" fit the narrow gutter the
- *  way the studio trace shows them. Codex's raw ids are usually mapped to
- *  friendly names (Shell/Edit/Read/Search) upstream. */
-function laneRowGutterLabel(event: SessionEvent): string {
-  if (event.kind === "tool") {
-    const tool = event.tool?.trim();
-    if (!tool) return "tool";
-    if (tool.length <= 2) return tool;
-    return tool.charAt(0).toUpperCase() + tool.slice(1);
-  }
-  return event.kind;
-}
-
 function laneToolFamily(tool: string | undefined): LaneToolFamily {
   const key = (tool ?? "").trim().toLowerCase();
   if (!key) return "generic";
@@ -1105,11 +1090,6 @@ function StreamRow({
     nudging ? "s-observe-row--nudge" : "",
   ].filter(Boolean).join(" ");
 
-  // Lane gutter label — names each row by its kind (boot · message · think · ask
-  // · note · system) or, for tool rows, the tool itself (Read · Bash · Grep …),
-  // the way the studio trace wires a right-aligned label into each event.
-  const gutterLabel = laneRowGutterLabel(event);
-
   return (
     <div
       className={rowClass}
@@ -1120,7 +1100,6 @@ function StreamRow({
       {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
 
       <div className="s-observe-row-time" title={rowTime.title}>
-        {laneMode && <span className="s-observe-row-kindlabel">{gutterLabel}</span>}
         <span className="s-observe-row-clock">{rowTime.label}</span>
         {repeatCount > 1 && (
           <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
@@ -1647,7 +1626,7 @@ function SessionHeader({
 
   const openPair = useCallback(() => {
     navigate({
-      view: "agents",
+      view: "agents-v2",
       agentId,
       tab: "message",
     });

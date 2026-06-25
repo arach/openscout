@@ -32,6 +32,14 @@ describe("canonicalProjectRoot", () => {
   test("collapses a worktree family to its repo root", () => {
     expect(canonicalProjectRoot("/Users/art/dev/openscout-c2")).toBe("~/dev/openscout");
   });
+  test("collapses common worktree container paths to the base checkout", () => {
+    expect(canonicalProjectRoot("/Users/art/dev/openscout-worktrees/feature-a")).toBe("~/dev/openscout");
+    expect(canonicalProjectRoot("/Users/art/dev/openscout/.worktrees/feature-a")).toBe("~/dev/openscout");
+    expect(canonicalProjectRoot("/Users/art/dev/openscout/worktrees/feature-a/packages/web")).toBe("~/dev/openscout");
+  });
+  test("keeps a standalone worktrees-named checkout distinct", () => {
+    expect(canonicalProjectRoot("/Users/art/dev/openscout-worktrees")).toBe("~/dev/openscout-worktrees");
+  });
   test("collapses a numbered node/clone sibling onto its base", () => {
     expect(canonicalProjectRoot("/Users/art/dev/openscout-185")).toBe("~/dev/openscout");
   });
@@ -89,6 +97,9 @@ describe("projectIdentity slug", () => {
   });
   test("collapses node-qualified titles and worktree families", () => {
     expect(projectIdentity("openscout-185", "/Users/art/dev/openscout-c2").slug).toBe("openscout");
+  });
+  test("uses the base project slug for worktree container checkouts", () => {
+    expect(projectIdentity("feature-a", "/Users/art/dev/openscout-worktrees/feature-a").slug).toBe("openscout");
   });
   test("rootless junk falls back to a usable slug", () => {
     expect(projectIdentity("Usetalkie.com", null).slug).toBe("usetalkie-com");

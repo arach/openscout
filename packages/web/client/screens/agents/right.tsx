@@ -5,12 +5,14 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { agentStateLabel, isAgentOnline, normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
 import { actorColor, stateColor } from "../../lib/colors.ts";
 import { compareTimestampsDesc, timeAgo } from "../../lib/time.ts";
+import { formatLabel } from "../../lib/text.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { resolveAgentTerminalSurface } from "../../lib/terminal-relay.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import {
   resolveActiveSessionId,
+  resolveRoutedSessionId,
   resolveSelectedSessionId,
   sessionEngage,
   sortSessionsByRecency,
@@ -555,18 +557,40 @@ function AgentContextPanel({
 
   // Selection is shared with the center's session list (Provider) so the rail's
   // session info + secondary actions follow whichever session is being explored.
-  const { focusedSession } = useScout();
+  const { focusedSession, focusSession } = useScout();
   const activeSessionId = resolveActiveSessionId(agent, sessionCatalog);
   const sortedSessions = useMemo(
     () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
     [sessionCatalog?.sessions, activeSessionId],
   );
+  const routedSessionId =
+    route.view === "agents-v2" && route.agentId === agent.id
+      ? route.sessionId
+      : null;
   const selectedSessionId = resolveSelectedSessionId(
     agent.id,
     focusedSession,
     activeSessionId,
     sortedSessions,
+    routedSessionId,
   );
+  const normalizedRoutedSessionId = resolveRoutedSessionId(routedSessionId, sortedSessions);
+  useEffect(() => {
+    if (!normalizedRoutedSessionId) return;
+    if (
+      focusedSession?.agentId === agent.id &&
+      focusedSession.sessionId === normalizedRoutedSessionId
+    ) {
+      return;
+    }
+    focusSession(agent.id, normalizedRoutedSessionId);
+  }, [
+    agent.id,
+    focusedSession?.agentId,
+    focusedSession?.sessionId,
+    focusSession,
+    normalizedRoutedSessionId,
+  ]);
   const selectedSession = sortedSessions.find((s) => s.id === selectedSessionId) ?? null;
   const sessionActive = Boolean(
     selectedSession && activeSessionId && selectedSession.id === activeSessionId,
@@ -799,7 +823,7 @@ function AgentContextPanel({
         {agent.providerName && <Row label="Provider" value={agent.providerName} />}
         {protocol && <Row label="Protocol" value={protocol} />}
         {!externalCardIdentity && <Row label="Class" value={agent.agentClass} />}
-        {!externalCardIdentity && agent.role && <Row label="Role" value={agent.role} />}
+        {!externalCardIdentity && agent.role && <Row label="Role" value={formatLabel(agent.role) ?? agent.role} />}
         {!externalCardIdentity && agent.harness && <Row label="Harness" value={agent.harness} />}
         {!externalCardIdentity && agent.transport && <Row label="Transport" value={transportDisplayLabel(agent.transport) ?? agent.transport} />}
         {(agent.homeNodeName || agent.homeNodeId) && (
@@ -870,7 +894,7 @@ function RuntimeGrid({ agent }: { agent: Agent }) {
     push("Protocol", protocol);
   } else {
     push("Transport", agent.transport);
-    push("Role", agent.role ? agent.role.replace(/_/g, " ") : null);
+    push("Role", formatLabel(agent.role));
     push("Class", agent.agentClass);
   }
 

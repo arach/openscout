@@ -3,6 +3,7 @@ import { agentStateLabel, isAgentOnline } from "../../lib/agent-state.ts";
 import { api } from "../../lib/api.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
+import { openContent } from "../../scout/slots/openContent.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import type {
@@ -55,7 +56,7 @@ function MetaItem({ label, value, title }: { label: string; value: string | null
   );
 }
 
-export function AgentsV2ProfileHero({
+export function ProjectAgentProfileHero({
   agent,
   route,
   navigate,
@@ -121,6 +122,11 @@ export function AgentsV2ProfileHero({
         method: "POST",
         body: JSON.stringify(newSessionPayloadForAgent(agent)),
       });
+      const sessionId = result.sessionId?.trim();
+      if (sessionId) {
+        openContent(navigate, { view: "sessions", sessionId }, { returnTo: route });
+        return;
+      }
       const cid = result.conversationId?.trim();
       navigate({
         ...route,

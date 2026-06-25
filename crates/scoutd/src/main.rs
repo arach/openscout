@@ -320,6 +320,7 @@ struct ServiceStatus {
     config: Config,
     launchctl: LaunchctlStatus,
     health: HealthStatus,
+    effective_broker_url: Option<String>,
     daemon_state: Option<String>,
 }
 
@@ -793,10 +794,18 @@ fn send_process_signal(pid: u32, signal_name: &str) -> Result<(), String> {
 }
 
 fn broker_service_status(config: &Config) -> ServiceStatus {
+    let health = fetch_health(config);
+    let effective_broker_url = if health.reachable && health.ok {
+        fetch_node_broker_url(config).ok().flatten()
+    } else {
+        None
+    };
+
     ServiceStatus {
         config: config.clone(),
         launchctl: inspect_launchctl(config),
-        health: fetch_health(config),
+        health,
+        effective_broker_url,
         daemon_state: read_daemon_state_json(config),
     }
 }
@@ -916,6 +925,54 @@ fn fetch_tcp_health(config: &Config) -> Result<HealthStatus, String> {
 fn fetch_http_health<T: Read + Write>(stream: &mut T, host: &str) -> Result<HealthStatus, String> {
     let response = fetch_http_response(stream, host, "/health", "application/json")?;
     parse_health_response(&response)
+}
+
+fn fetch_node_broker_url(config: &Config) -> Result<Option<String>, String> {
+    match fetch_node_broker_url_unix(&config.broker_socket_path) {
+        Ok(url) => Ok(url),
+        Err(_) => fetch_node_broker_url_tcp(config),
+    }
+}
+
+fn fetch_node_broker_url_unix(socket_path: &Path) -> Result<Option<String>, String> {
+    let mut stream = UnixStream::connect(socket_path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    fetch_node_broker_url_http(&mut stream, "localhost")
+}
+
+fn fetch_node_broker_url_tcp(config: &Config) -> Result<Option<String>, String> {
+    let mut stream = TcpStream::connect((&config.broker_host[..], config.broker_port))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    fetch_node_broker_url_http(&mut stream, &config.broker_host)
+}
+
+fn fetch_node_broker_url_http<T: Read + Write>(
+    stream: &mut T,
+    host: &str,
+) -> Result<Option<String>, String> {
+    let response = fetch_http_response(stream, host, "/v1/node", "application/json")?;
+    match parse_http_status_code(&response) {
+        Some(status) if (200..300).contains(&status) => {
+            let body = response
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .unwrap_or_default();
+            Ok(parse_json_string_field(body, "brokerUrl"))
+        }
+        Some(status) => Err(format!("broker node returned HTTP {status}")),
+        None => Err("broker node response missing HTTP status".to_string()),
+    }
 }
 
 fn parse_health_response(response: &str) -> Result<HealthStatus, String> {
@@ -1870,7 +1927,13 @@ fn print_status(status: &ServiceStatus, json: bool) {
                 "missing"
             }
         );
-        println!("broker url: {}", status.config.broker_url);
+        println!(
+            "broker url: {}",
+            status
+                .effective_broker_url
+                .as_deref()
+                .unwrap_or(&status.config.broker_url)
+        );
         println!(
             "broker socket: {}",
             status.config.broker_socket_path.display()
@@ -1944,6 +2007,7 @@ fn status_json(status: &ServiceStatus) -> String {
 \"launchAgentPath\":{},\
 \"bootoutCommand\":{},\
 \"brokerUrl\":{},\
+\"effectiveBrokerUrl\":{},\
 \"brokerSocketPath\":{},\
 \"supportDirectory\":{},\
 \"runtimeDirectory\":{},\
@@ -1973,6 +2037,7 @@ fn status_json(status: &ServiceStatus) -> String {
             status.config.service_target
         )),
         json_string(&status.config.broker_url),
+        json_opt_str(status.effective_broker_url.as_deref()),
         json_string(&status.config.broker_socket_path.to_string_lossy()),
         json_string(&status.config.support_directory.to_string_lossy()),
         json_string(&status.config.runtime_directory.to_string_lossy()),

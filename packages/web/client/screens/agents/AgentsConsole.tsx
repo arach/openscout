@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark, harnessLabel } from "../../components/HarnessMark.tsx";
 import { agentStateLabel } from "../../lib/agent-state.ts";
+import { formatLabel } from "../../lib/text.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, SessionEntry } from "../../lib/types.ts";
 import "./agents-console.css";
@@ -433,7 +434,7 @@ function PromptFacet({ entry }: { entry: ConsoleAgentEntry }) {
         {agent.role ? (
           <>
             <span className="ac-docKey">role</span>
-            <span className="ac-docVal">{agent.role}</span>
+            <span className="ac-docVal">{formatLabel(agent.role) ?? agent.role}</span>
           </>
         ) : null}
         <span className="ac-docKey">harness</span>
@@ -591,7 +592,7 @@ function FactsRail({
         </span>
         <div className="ac-railNames">
           <div className="ac-railName">@{agent.name}</div>
-          {agent.role ? <div className="ac-railRole">{agent.role}</div> : null}
+          {agent.role ? <div className="ac-railRole">{formatLabel(agent.role) ?? agent.role}</div> : null}
         </div>
       </div>
 

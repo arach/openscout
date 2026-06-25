@@ -1,9 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { resolveAgentTerminalSurface } from "../../lib/terminal-relay.ts";
 import {
   resolveActiveSessionId,
+  resolveRoutedSessionId,
   resolveSelectedSessionId,
   sessionEngage,
   sortSessionsByRecency,
@@ -13,7 +14,7 @@ import { openContent } from "../../scout/slots/openContent.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { Agent, Route, SessionCatalogWithResume } from "../../lib/types.ts";
 import { pathLeaf } from "../agents/model.ts";
-import { AgentsV2SessionDetail } from "./AgentsV2SessionDetail.tsx";
+import { ProjectSessionDetail } from "./ProjectSessionDetail.tsx";
 
 function shortSessionLabel(id: string): string {
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(id)) {
@@ -22,7 +23,7 @@ function shortSessionLabel(id: string): string {
   return id.length > 16 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
-export function AgentsV2SessionsPanel({
+export function ProjectSessionsPanel({
   agent,
   sessionCatalog,
   conversationId,
@@ -41,12 +42,31 @@ export function AgentsV2SessionsPanel({
     () => sortSessionsByRecency(sessionCatalog?.sessions ?? [], activeSessionId),
     [sessionCatalog?.sessions, activeSessionId],
   );
+  const routedSessionId = route.agentId === agent.id ? route.sessionId : null;
   const selectedSessionId = resolveSelectedSessionId(
     agent.id,
     focusedSession,
     activeSessionId,
     sessions,
+    routedSessionId,
   );
+  const normalizedRoutedSessionId = resolveRoutedSessionId(routedSessionId, sessions);
+  useEffect(() => {
+    if (!normalizedRoutedSessionId) return;
+    if (
+      focusedSession?.agentId === agent.id &&
+      focusedSession.sessionId === normalizedRoutedSessionId
+    ) {
+      return;
+    }
+    focusSession(agent.id, normalizedRoutedSessionId);
+  }, [
+    agent.id,
+    focusedSession?.agentId,
+    focusedSession?.sessionId,
+    focusSession,
+    normalizedRoutedSessionId,
+  ]);
   const selectedSession = sessions.find((s) => s.id === selectedSessionId) ?? sessions[0] ?? null;
   const sessionActive = Boolean(
     selectedSession && activeSessionId && selectedSession.id === activeSessionId,
@@ -95,6 +115,12 @@ export function AgentsV2SessionsPanel({
     }
     takeoverTerminal();
   };
+  const selectSession = (sessionId: string) => {
+    focusSession(agent.id, sessionId);
+    if (route.agentId === agent.id) {
+      navigate({ ...route, sessionId });
+    }
+  };
 
   return (
     <section className="av2-sessions" aria-label="Sessions">
@@ -134,7 +160,7 @@ export function AgentsV2SessionsPanel({
                   className="av2-sessionsRailItem"
                   data-selected={isSelected || undefined}
                   data-tone={isActive ? "live" : "idle"}
-                  onClick={() => focusSession(agent.id, s.id)}
+                  onClick={() => selectSession(s.id)}
                   aria-current={isSelected ? "true" : undefined}
                 >
                   {isActive ? (
@@ -156,7 +182,7 @@ export function AgentsV2SessionsPanel({
 
           <div className="av2-sessionsPreview">
             {selectedSession ? (
-              <AgentsV2SessionDetail
+              <ProjectSessionDetail
                 agent={agent}
                 session={selectedSession}
                 active={sessionActive}

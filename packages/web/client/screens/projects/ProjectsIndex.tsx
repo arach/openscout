@@ -1,25 +1,25 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 
 import { timeAgo } from "../../lib/time.ts";
-import type { AgentsV2StateFilter, Route } from "../../lib/types.ts";
-import "./agents-v2.css";
+import type { ProjectStateFilter, Route } from "../../lib/types.ts";
+import "./projects.css";
 import {
   agentPrecedence,
   displaySessionPreview,
   filterRegistryAgents,
   filterRegistrySessions,
   indexViewOf,
-  openAgentsV2Profile,
+  openProjectAgentProfile,
   partitionRegistryAgents,
   registryAgentSubline,
   registryWorkLine,
   scopeLabel,
   scopeMetaLabel,
-  selectAgentsV2Agent,
+  selectProjectAgent,
   shortSessionRef,
 } from "./model.ts";
-import { AgentsV2ProjectOverview, useProjectOverviewContext } from "./AgentsV2ProjectOverview.tsx";
-import { useAgentsV2Data } from "./useAgentsV2Data.ts";
+import { ProjectOverview, useProjectOverviewContext } from "./ProjectOverview.tsx";
+import { useProjectsData } from "./useProjectsData.ts";
 
 type Navigate = (route: Route) => void;
 
@@ -52,8 +52,8 @@ function AgentIndexRow({
     entry.group.branches.length > 1
       ? `${entry.group.branches.length} branches`
       : entry.group.branches[0] ?? "main";
-  const selectAgent = () => navigate(selectAgentsV2Agent(route, entry.leadAgent.id));
-  const openProfile = () => navigate(openAgentsV2Profile(route, entry.leadAgent.id));
+  const selectAgent = () => navigate(selectProjectAgent(route, entry.leadAgent.id));
+  const openProfile = () => navigate(openProjectAgentProfile(route, entry.leadAgent.id));
   const selected = route.selectedAgentId === entry.leadAgent.id;
 
   return (
@@ -99,7 +99,7 @@ function AgentIndexRow({
   );
 }
 
-const STATE_FILTERS: Array<{ id: AgentsV2StateFilter | "all"; label: string }> = [
+const STATE_FILTERS: Array<{ id: ProjectStateFilter | "all"; label: string }> = [
   { id: "all", label: "All" },
   { id: "needs", label: "Needs you" },
   { id: "live", label: "Live" },
@@ -144,7 +144,7 @@ function IndexViewToggle({
   );
 }
 
-export function AgentsV2Index({
+export function ProjectsIndex({
   route,
   navigate,
 }: {
@@ -152,7 +152,7 @@ export function AgentsV2Index({
   navigate: Navigate;
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
-  const { registryAgents, registrySessions, agentsById, projects } = useAgentsV2Data(showEphemeral);
+  const { registryAgents, registrySessions, agentsById, projects } = useProjectsData(showEphemeral);
   const projectContext = useProjectOverviewContext(route, registryAgents, projects, showEphemeral);
   const indexView = indexViewOf(route);
   const nowMs = Date.now();
@@ -221,7 +221,7 @@ export function AgentsV2Index({
         } else {
           const entry = flatAgentRows[i];
           if (!entry) return;
-          navigate(selectAgentsV2Agent(route, entry.leadAgent.id));
+          navigate(selectProjectAgent(route, entry.leadAgent.id));
         }
       }
     }
@@ -238,7 +238,7 @@ export function AgentsV2Index({
     rowRefs.current.get(key ?? "")?.scrollIntoView({ block: "nearest" });
   }, [cursor, flatAgentRows, indexView, sessionRows]);
 
-  const toggleState = (id: AgentsV2StateFilter | "all") => {
+  const toggleState = (id: ProjectStateFilter | "all") => {
     navigate({
       ...route,
       stateFilter: id === "all" ? undefined : id,
@@ -262,7 +262,7 @@ export function AgentsV2Index({
   return (
     <div className="s-av2-index" data-project={route.projectSlug || undefined}>
       {route.projectSlug ? (
-        <AgentsV2ProjectOverview
+        <ProjectOverview
           route={route}
           navigate={navigate}
           projectTitle={projectContext.projectTitle}

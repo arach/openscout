@@ -13,8 +13,13 @@ import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { ObserveData, ObserveEvent, ObserveFile, PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { bashDisplaySpans, splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
-import { openAgent } from "../../scout/slots/openAgent.ts";
+import { openContent } from "../../scout/slots/openContent.ts";
 import { buildAgentLanePreview, filePreviewLabel } from "./agent-lane-preview.ts";
+import {
+  laneProfileRoute,
+  laneSessionRoute,
+  laneTraceRoute,
+} from "./agent-lane-navigation.ts";
 import {
   buildLaneSessionStats,
   buildLaneTouchedFiles,
@@ -339,16 +344,19 @@ function SheetGhost({
   children,
   onClick,
   primary = false,
+  disabled = false,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   primary?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       className={`s-lane-sheet-ghost${primary ? " s-lane-sheet-ghost--primary" : ""}`}
       onClick={onClick}
+      disabled={disabled}
     >
       {children}
     </button>
@@ -744,16 +752,30 @@ export function AgentLaneDetailSheet({
   // the restrained one-liner instead of a fabricated sparkline.
   const cadenceAge = lastActiveAt ? timeAgo(lastActiveAt) : null;
 
-  // The sheet's two primary destinations: the agent's home (profile) and its
-  // live trace (observe). The old "Open session" dumped organic agents into a
-  // global tail filter, which never actually opened their session.
+  const sessionRoute = useMemo(() => laneSessionRoute(lane), [lane]);
+  const profileRoute = useMemo(() => laneProfileRoute(lane), [lane]);
+  const traceRoute = useMemo(() => laneTraceRoute(lane), [lane]);
+
+  const openSession = useCallback(() => {
+    if (!sessionRoute) return;
+    openContent(navigate, sessionRoute, { returnTo: returnRoute });
+    onClose();
+  }, [navigate, onClose, returnRoute, sessionRoute]);
+
   const openProfile = useCallback(() => {
-    openAgent(navigate, agent, { returnTo: returnRoute });
-  }, [agent, navigate, returnRoute]);
+    if (profileRoute) {
+      openContent(navigate, profileRoute, { returnTo: returnRoute });
+      onClose();
+      return;
+    }
+    openSession();
+  }, [navigate, onClose, openSession, profileRoute, returnRoute]);
 
   const openTraces = useCallback(() => {
-    openAgent(navigate, agent, { returnTo: returnRoute, observe: true });
-  }, [agent, navigate, returnRoute]);
+    if (!traceRoute) return;
+    openContent(navigate, traceRoute, { returnTo: returnRoute });
+    onClose();
+  }, [navigate, onClose, returnRoute, traceRoute]);
 
   const openDocument = useCallback(
     (documentId: string) => {
@@ -815,16 +837,23 @@ export function AgentLaneDetailSheet({
         </div>
         <span className="s-slide-spacer" />
         {/* CTAs ride the header's horizontal line, aligned with the harness
-            brand mark: the primary (accent) goes to the agent home, the second
-            to its live trace. */}
+            brand mark: jump into the lane session first; profile/trace only
+            when the agent is registered in the directory. */}
         <div className="s-lane-sheet-header-cta">
           <HarnessMark
             harness={agent.harness ?? stats.harness}
             size={18}
             className={`s-lane-sheet-hmark${isLive ? " s-lane-sheet-hmark--working" : ""}`}
           />
-          <SheetGhost primary onClick={openProfile}>Agent profile</SheetGhost>
-          <SheetGhost onClick={openTraces}>Traces</SheetGhost>
+          <SheetGhost primary onClick={openSession} disabled={!sessionRoute}>
+            Open session
+          </SheetGhost>
+          {profileRoute ? (
+            <SheetGhost onClick={openProfile}>Agent profile</SheetGhost>
+          ) : null}
+          <SheetGhost onClick={openTraces} disabled={!traceRoute}>
+            Traces
+          </SheetGhost>
         </div>
         <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
           ×

@@ -756,6 +756,82 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.data.events.some((event) => event.text.includes("matched direct codex history"))).toBe(true);
   });
 
+  test("uses routed session id to discover Codex history when the agent record has no harness session", async () => {
+    const tempRoot = makeTempDir("openscout-observe-codex-routed-session-");
+    const historyPath = join(tempRoot, "relay-scope-codex.jsonl");
+    writeCodexHistory(historyPath, {
+      sessionId: "relay-scope-codex",
+      cwd: "/Users/arach/dev/scope",
+      assistantText: "routed direct codex history",
+    });
+
+    queryAgentsResult = [
+      makeAgent({
+        id: "scope.main.arts-mac-mini-local",
+        harness: "codex",
+        transport: "codex_app_server",
+        cwd: "/Users/arach/dev/scope",
+        projectRoot: "/Users/arach/dev/scope",
+        project: "scope",
+        harnessSessionId: null,
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-scope-codex": {
+            id: "endpoint-scope-codex",
+            agentId: "scope.main.arts-mac-mini-local",
+            nodeId: "node-1",
+            harness: "codex",
+            transport: "codex_app_server",
+            state: "waiting",
+            sessionId: "relay-scope-codex",
+            cwd: "/Users/arach/dev/scope",
+            projectRoot: "/Users/arach/dev/scope",
+            metadata: {
+              runtimeInstanceId: "relay-scope-codex",
+              runtimeMode: "direct_session",
+            },
+          },
+        },
+      },
+    };
+    tailDiscoveryResult = {
+      generatedAt: Date.now(),
+      processes: [],
+      transcripts: [
+        {
+          source: "codex",
+          transcriptPath: historyPath,
+          sessionId: "relay-scope-codex",
+          cwd: "/Users/arach/dev/scope",
+          project: "scope",
+          harness: "unattributed",
+          mtimeMs: Date.now(),
+          size: 100,
+        },
+      ],
+      totals: {
+        total: 0,
+        scoutManaged: 0,
+        hudsonManaged: 0,
+        unattributed: 0,
+        transcripts: 1,
+      },
+    };
+
+    const payload = await loadAgentObservePayload("scope.main.arts-mac-mini-local", {
+      sessionId: "relay-scope-codex",
+    });
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("history");
+    expect(payload?.historyPath).toBe(historyPath);
+    expect(payload?.sessionId).toBe("relay-scope-codex");
+    expect(payload?.data.events.some((event) => event.text.includes("routed direct codex history"))).toBe(true);
+  });
+
   test("maps a Claude session ref id directly to its history file", async () => {
     const home = makeTempDir("openscout-observe-home-");
     process.env.HOME = home;

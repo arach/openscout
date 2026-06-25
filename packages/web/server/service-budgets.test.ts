@@ -223,6 +223,41 @@ describe("service budgets", () => {
     rawDb.close();
   });
 
+  test("does not expose Claude context-window data as a subscription budget", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-service-budgets-claude-context-only-"));
+    tempPaths.add(root);
+    const controlHome = join(root, "control-plane");
+    const home = join(root, "home");
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(home, "Library", "Application Support", "OpenScout");
+    process.env.PATH = "";
+    mkdirSync(controlHome, { recursive: true });
+
+    const rawDb = new Database(join(controlHome, "control-plane.sqlite"));
+    createQuotaTable(rawDb);
+
+    const statuslineDir = join(home, "Library", "Application Support", "OpenScout", "runtime", "statusline");
+    mkdirSync(statuslineDir, { recursive: true });
+    writeFileSync(join(statuslineDir, "claude-latest.json"), JSON.stringify({
+      session_id: "claude-statusline-session",
+      cwd: "/repo",
+      model: { id: "claude-opus-4-8", display_name: "Opus 4.8" },
+      context_window: {
+        total_input_tokens: 78_572,
+        total_output_tokens: 1_413,
+        used_percentage: 8,
+        remaining_percentage: 92,
+      },
+      openscoutCapturedAt: Date.now(),
+    }), "utf8");
+
+    const response = await loadServiceBudgets(true);
+
+    expect(response.gauges.find((gauge) => gauge.id === "claude")).toBeUndefined();
+    rawDb.close();
+  });
+
   test("uses persisted Anthropic quota windows for the Claude gauge", async () => {
     const controlHome = mkdtempSync(join(tmpdir(), "openscout-service-budgets-"));
     tempPaths.add(controlHome);

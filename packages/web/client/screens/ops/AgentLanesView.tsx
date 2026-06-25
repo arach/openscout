@@ -176,6 +176,7 @@ export function AgentLanesView({
     // what's streamed in since the broker started. buildAgentLanes still trims
     // everything to the selected windowMs.
     includeTranscriptReplay: true,
+    discoveryIntervalMs: 5_000,
     recentLimit: tailRecentLimit,
   });
   const returnRoute: Route = { view: "ops", mode: "lanes" };

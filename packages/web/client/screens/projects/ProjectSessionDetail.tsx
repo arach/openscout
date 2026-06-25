@@ -14,7 +14,7 @@ import type {
 } from "../../lib/types.ts";
 import { pathLeaf } from "../agents/model.ts";
 import { harnessOf } from "./model.ts";
-import "./agents-v2-sheet.css";
+import "./projects-sheet.css";
 
 type SessionStatus = "running" | "done" | "idle";
 
@@ -232,7 +232,7 @@ function FileRow({
   );
 }
 
-export function AgentsV2SessionDetail({
+export function ProjectSessionDetail({
   agent,
   session,
   active,
@@ -268,12 +268,13 @@ export function AgentsV2SessionDetail({
       return;
     }
     setPhase("loading");
+    const params = new URLSearchParams({ sessionId: session.id });
     const payload = await api<AgentObservePayload>(
-      `/api/agents/${encodeURIComponent(agent.id)}/observe`,
+      `/api/agents/${encodeURIComponent(agent.id)}/observe?${params}`,
     ).catch(() => null);
     setObserve(payload);
     setPhase("loaded");
-  }, [active, agent.id]);
+  }, [active, agent.id, session.id]);
 
   useEffect(() => {
     setObserve(null);

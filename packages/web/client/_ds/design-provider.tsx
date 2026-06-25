@@ -15,7 +15,7 @@ import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 // reads `route` + `reload`; the rest are inert defaults. Loose-typed — this is
 // fixture wiring, not app code.
 const value: any = {
-  route: { view: "agents", projectSlug: "openscout" },
+  route: { view: "agents-v2", projectSlug: "openscout" },
   navigate: () => {},
   agents: [],
   onlineCount: 0,

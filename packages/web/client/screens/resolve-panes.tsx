@@ -3,7 +3,7 @@ import type { Route } from "../lib/types.ts";
 import type { useScout } from "../scout/Provider.tsx";
 import { ActivityContent } from "./activity/index.ts";
 import { AgentsContent, AgentsLeft, AgentsRight } from "./agents/index.ts";
-import { AgentsV2Browse, AgentsV2Detail, AgentsV2Screen } from "./agents-v2/index.ts";
+import { ProjectsBrowse, ProjectsDetail, ProjectsScreen } from "./projects/index.ts";
 import { BriefingsContent } from "./briefings/index.ts";
 import { BrokerContent } from "./broker/index.ts";
 import { ChatContent, ChatLeft, ChatRight } from "./chat/index.ts";
@@ -27,7 +27,7 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
     case "ops":
       return <OpsLeft />;
     case "agents-v2":
-      return <AgentsV2Browse route={route} navigate={navigate} />;
+      return <ProjectsBrowse route={route} navigate={navigate} />;
     case "agents":
     case "agent-info":
       return <AgentsLeft />;
@@ -55,7 +55,7 @@ export function resolveContentPane(route: Route, navigate: Navigate): ReactNode 
     case "conversations":
       return <ChatContent route={route} navigate={navigate} />;
     case "agents-v2":
-      return <AgentsV2Screen route={route} navigate={navigate} />;
+      return <ProjectsScreen route={route} navigate={navigate} />;
     case "agent-info":
     case "agents":
       return <AgentsContent route={route} navigate={navigate} />;
@@ -102,7 +102,7 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
       return <HomeRight />;
     case "agents-v2": {
       if (!route.agentId) {
-        return <AgentsV2Detail route={route} navigate={navigate} />;
+        return <ProjectsDetail route={route} navigate={navigate} />;
       }
       // Hybrid (agent-profile-rebalance): center = sessions spine + inline summary;
       // right rail = session snapshot, files, transcript tail, Observe/Take over.

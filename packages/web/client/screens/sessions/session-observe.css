@@ -227,9 +227,6 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  /* the kind label + clock are two stacked lines — give them room to breathe so
-     neither crowds the other (the gutter widened to match). */
-  gap: 3px;
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
@@ -240,26 +237,12 @@
   padding-right: var(--space-sm);
 }
 
-/* the studio-style gutter: a row is NAMED by its kind/tool (primary), with the
-   clock kept as a quiet — but still legible — recency line beneath it. */
-.s-observe--lane .s-observe-row-kindlabel {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  letter-spacing: var(--tracking-xs);
-  line-height: 1.3;
-}
+/* Lane gutters are time-only; the row body already carries the event/tool name. */
 .s-observe--lane .s-observe-row-clock {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   line-height: 1.3;
   letter-spacing: 0.015em;
   color: color-mix(in srgb, var(--dim) 90%, transparent);
-}
-/* the row's accent tint flows onto the label of the live edge only */
-.s-observe--lane .s-observe-row--kind-ask .s-observe-row-kindlabel {
-  color: color-mix(in srgb, var(--muted) 70%, var(--accent) 30%);
 }
 
 .s-observe--lane .s-observe-row-repeat {

@@ -4,16 +4,17 @@ export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
   {
     items: [
       {
-        id: "directory",
-        label: "Directory",
-        route: { view: "agents" },
-        active: (route) => route.view === "agents" || route.view === "agent-info",
-      },
-      {
-        id: "registry-v2",
-        label: "Registry",
+        id: "projects",
+        label: "Projects",
         route: { view: "agents-v2" },
         active: (route) => route.view === "agents-v2",
+      },
+      {
+        id: "directory-deprecated",
+        label: "Directory .deprecated",
+        route: { view: "agents" },
+        active: (route) => route.view === "agents" || route.view === "agent-info",
+        hideInLean: true,
       },
       {
         id: "sessions",

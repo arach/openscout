@@ -73,6 +73,21 @@ let deepDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 let discoveryInFlight: Promise<DiscoverySnapshot> | null = null;
 let lastDiscovery: DiscoverySnapshot | null = null;
 
+function emptyDiscoverySnapshot(): DiscoverySnapshot {
+  return {
+    generatedAt: Date.now(),
+    processes: [],
+    transcripts: [],
+    totals: {
+      total: 0,
+      scoutManaged: 0,
+      hudsonManaged: 0,
+      unattributed: 0,
+      transcripts: 0,
+    },
+  };
+}
+
 const ATTRIBUTION_RANK: Record<DiscoveredProcess["harness"], number> = {
   "scout-managed": 3,
   "hudson-managed": 2,
@@ -358,7 +373,7 @@ async function pumpWatcher(watcher: Watcher): Promise<void> {
 }
 
 async function pumpAllWatchers(): Promise<void> {
-  await Promise.all([...watchers.values()].map(pumpWatcher));
+  await Promise.allSettled([...watchers.values()].map(pumpWatcher));
 }
 
 async function seedTail(watcher: Watcher): Promise<void> {
@@ -523,6 +538,13 @@ function runDiscovery(
   return discoveryInFlight;
 }
 
+function scheduleDiscovery(
+  scope: TailDiscoveryScope,
+  options: { pruneMissing: boolean } = { pruneMissing: scope !== "hot" },
+): void {
+  void runDiscovery(scope, options).catch(() => {});
+}
+
 function ensureLoopRunning(): void {
   if (!pollTimer) {
     pollTimer = setInterval(() => {
@@ -531,17 +553,17 @@ function ensureLoopRunning(): void {
   }
   if (!hotDiscoveryTimer) {
     hotDiscoveryTimer = setInterval(() => {
-      void runDiscovery("hot", { pruneMissing: false });
+      void runDiscovery("hot", { pruneMissing: false }).catch(() => {});
     }, HOT_DISCOVERY_INTERVAL_MS);
   }
   if (!shallowDiscoveryTimer) {
     shallowDiscoveryTimer = setInterval(() => {
-      void runDiscovery("shallow", { pruneMissing: true });
+      void runDiscovery("shallow", { pruneMissing: true }).catch(() => {});
     }, SHALLOW_DISCOVERY_INTERVAL_MS);
   }
   if (!deepDiscoveryTimer) {
     deepDiscoveryTimer = setInterval(() => {
-      void runDiscovery("deep", { pruneMissing: true });
+      void runDiscovery("deep", { pruneMissing: true }).catch(() => {});
     }, DEEP_DISCOVERY_INTERVAL_MS);
   }
 }
@@ -569,12 +591,20 @@ function stopLoopIfIdle(): void {
 
 export async function getTailDiscovery(force = false): Promise<DiscoverySnapshot> {
   if (force) {
-    return runDiscovery("deep", { pruneMissing: true });
+    scheduleDiscovery("deep", { pruneMissing: true });
+    return lastDiscovery ?? emptyDiscoverySnapshot();
   }
   if (lastDiscovery && Date.now() - lastDiscovery.generatedAt <= DISCOVERY_CACHE_MAX_AGE_MS) {
     return lastDiscovery;
   }
-  return runDiscovery("shallow", { pruneMissing: true });
+  scheduleDiscovery("shallow", { pruneMissing: true });
+  return lastDiscovery ?? emptyDiscoverySnapshot();
+}
+
+export async function refreshTailDiscovery(
+  scope: TailDiscoveryScope = "shallow",
+): Promise<DiscoverySnapshot> {
+  return runDiscovery(scope, { pruneMissing: scope !== "hot" });
 }
 
 export function subscribeTail(handler: Subscriber): () => void {
@@ -583,7 +613,9 @@ export function subscribeTail(handler: Subscriber): () => void {
   // Kick one moderate inventory pass immediately so the new subscriber is live;
   // after that, slower timers discover new movers.
   if (watchers.size === 0) {
-    void runDiscovery("shallow", { pruneMissing: true }).then(() => pumpAllWatchers());
+    void runDiscovery("shallow", { pruneMissing: true })
+      .then(() => pumpAllWatchers())
+      .catch(() => {});
   } else {
     void pumpAllWatchers();
   }
@@ -607,11 +639,11 @@ export const __testing = {
 
 export async function readRecentLiveEvents(limit = 500): Promise<TailEvent[]> {
   if (watchers.size === 0) {
-    await runDiscovery("shallow", { pruneMissing: true });
+    scheduleDiscovery("shallow", { pruneMissing: true });
   } else if (!lastDiscovery || Date.now() - lastDiscovery.generatedAt > DISCOVERY_CACHE_MAX_AGE_MS) {
-    await runDiscovery("hot", { pruneMissing: false });
+    scheduleDiscovery("hot", { pruneMissing: false });
   }
-  await pumpAllWatchers();
+  void pumpAllWatchers();
   return snapshotRecentEvents(limit);
 }
 
@@ -649,7 +681,13 @@ export async function readRecentTranscriptEvents(
   },
 ): Promise<TailEvent[]> {
   if (watchers.size === 0) {
-    await (options?.discovery ? Promise.resolve(options.discovery) : getTailDiscovery());
+    if (options?.discovery) {
+      for (const transcript of options.discovery.transcripts) {
+        knownTranscripts.set(sessionRegistryKey(transcript), transcript);
+      }
+    } else {
+      scheduleDiscovery("shallow", { pruneMissing: true });
+    }
   }
   const events: TailEvent[] = [];
   const seenEvents = new Set<string>();

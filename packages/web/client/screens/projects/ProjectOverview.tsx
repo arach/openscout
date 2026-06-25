@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FileText, Rocket, Users } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { api } from "../../lib/api.ts";
 import type { LocalAgentConfigState, Route } from "../../lib/types.ts";
@@ -6,6 +7,7 @@ import { useScout } from "../../scout/Provider.tsx";
 import type { RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
 import { dirProjectHarnesses } from "../agents/model.ts";
 import type { DirProject } from "../agents/model.ts";
+import { NewAgentModal, type NewAgentExistingAgent } from "./NewAgentModal.tsx";
 import { ProjectAgentsFrame } from "./project-agents-frame.tsx";
 import {
   agentOverviewRows,
@@ -26,19 +28,65 @@ type Navigate = (route: Route) => void;
 function FacetSection({
   label,
   children,
+  actions,
   wide,
 }: {
   label: string;
   children: ReactNode;
+  actions?: ReactNode;
   wide?: boolean;
 }) {
   return (
     <section className="av2-facet" data-wide={wide || undefined}>
       <header className="av2-facetHead">
         <span className="av2-facetLabel">{label}</span>
+        {actions ? <div className="av2-facetActions">{actions}</div> : null}
       </header>
       <div className="av2-facetBody">{children}</div>
     </section>
+  );
+}
+
+type ProjectWorkspaceView = "agents" | "files";
+
+function ProjectWorkspaceToggle({
+  value,
+  fileCount,
+  agentCount,
+  onChange,
+}: {
+  value: ProjectWorkspaceView;
+  fileCount: number;
+  agentCount: number;
+  onChange: (view: ProjectWorkspaceView) => void;
+}) {
+  return (
+    <div className="av2-projectWorkspaceToggle" role="group" aria-label="Project workspace">
+      <button
+        type="button"
+        className="av2-projectWorkspaceBtn"
+        data-on={value === "agents" || undefined}
+        aria-pressed={value === "agents"}
+        onClick={() => onChange("agents")}
+        title={`${agentCount} project agent${agentCount === 1 ? "" : "s"}`}
+      >
+        <Users size={12} strokeWidth={1.8} aria-hidden />
+        <span>Agents</span>
+        <span className="av2-projectWorkspaceCount">{agentCount}</span>
+      </button>
+      <button
+        type="button"
+        className="av2-projectWorkspaceBtn"
+        data-on={value === "files" || undefined}
+        aria-pressed={value === "files"}
+        onClick={() => onChange("files")}
+        title={`${fileCount} project file${fileCount === 1 ? "" : "s"}`}
+      >
+        <FileText size={12} strokeWidth={1.8} aria-hidden />
+        <span>Files</span>
+        <span className="av2-projectWorkspaceCount">{fileCount}</span>
+      </button>
+    </div>
   );
 }
 
@@ -81,7 +129,7 @@ function WorktreeRow({
   );
 }
 
-export function AgentsV2ProjectOverview({
+export function ProjectOverview({
   route,
   navigate,
   projectTitle,
@@ -94,6 +142,7 @@ export function AgentsV2ProjectOverview({
   indexViewToggle,
 }: {
   route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
   projectTitle: string;
   projectRoot: string | null;
   dirProject: DirProject | null;
@@ -193,8 +242,30 @@ export function AgentsV2ProjectOverview({
     () => overview?.artifacts.filter((a) => a.kind !== "package" || a.relativePath === "package.json") ?? [],
     [overview?.artifacts],
   );
+  const [workspaceView, setWorkspaceView] = useState<ProjectWorkspaceView>("agents");
+  useEffect(() => {
+    if (workspaceView === "agents" && agentRows.length === 0 && repoArtifacts.length > 0) {
+      setWorkspaceView("files");
+    } else if (workspaceView === "files" && repoArtifacts.length === 0 && agentRows.length > 0) {
+      setWorkspaceView("agents");
+    }
+  }, [agentRows.length, repoArtifacts.length, workspaceView]);
 
   const displayRoot = overview?.root ?? projectRoot;
+  const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const existingAgents = useMemo<NewAgentExistingAgent[]>(
+    () =>
+      agentEntries.map((entry) => ({
+        name: entry.group.name,
+        handle: entry.leadAgent.handle,
+        harness: entry.leadAgent.harness,
+      })),
+    [agentEntries],
+  );
+  const launchBranches = useMemo(
+    () => branches.filter((b): b is string => typeof b === "string" && b.length > 0 && b !== "—"),
+    [branches],
+  );
 
   return (
     <header className="av2-projectOverview">
@@ -252,12 +323,23 @@ export function AgentsV2ProjectOverview({
         <div className="av2-projectOverviewLoading">Loading repo facets…</div>
       ) : (
         <div className="av2-facetGrid">
-          <FacetSection label="Project files" wide>
-            <ProjectRepoFrame
-              artifacts={repoArtifacts}
-              onOpen={openFilePreview}
-              onReveal={(path) => void revealPath(path)}
-            />
+          <FacetSection label="New agent">
+            <div className="av2-newAgentFacet">
+              <button
+                type="button"
+                className="av2-newAgentBtn"
+                disabled={!displayRoot}
+                onClick={() => setNewAgentOpen(true)}
+              >
+                <Rocket size={13} strokeWidth={2} aria-hidden />
+                New agent
+              </button>
+              <p className="av2-newAgentHint">
+                {displayRoot
+                  ? "A harnessed identity with an addressable handle for this project."
+                  : "No project root resolved yet — cannot create an agent."}
+              </p>
+            </div>
           </FacetSection>
 
           <FacetSection label="Git & worktrees">
@@ -288,11 +370,47 @@ export function AgentsV2ProjectOverview({
             )}
           </FacetSection>
 
-          <FacetSection label="Agents" wide>
-            <ProjectAgentsFrame rows={agentRows} route={route} navigate={navigate} />
+          <FacetSection
+            label="Workspace"
+            wide
+            actions={
+              <ProjectWorkspaceToggle
+                value={workspaceView}
+                fileCount={repoArtifacts.length}
+                agentCount={agentRows.length}
+                onChange={setWorkspaceView}
+              />
+            }
+          >
+            <div className="av2-projectWorkspace" data-view={workspaceView}>
+              {workspaceView === "files" ? (
+                <ProjectRepoFrame
+                  artifacts={repoArtifacts}
+                  onOpen={openFilePreview}
+                  onReveal={(path) => void revealPath(path)}
+                />
+              ) : (
+                <ProjectAgentsFrame rows={agentRows} route={route} navigate={navigate} />
+              )}
+            </div>
           </FacetSection>
         </div>
       )}
+
+      <NewAgentModal
+        open={newAgentOpen}
+        onClose={() => setNewAgentOpen(false)}
+        projectTitle={projectTitle}
+        projectRoot={displayRoot ?? null}
+        primaryWt={mainWt}
+        worktreeCount={repoProject?.worktrees.length ?? 0}
+        branches={launchBranches}
+        existingAgents={existingAgents}
+        agentCount={agentEntries.length}
+        sessionCount={sessionCount}
+        route={route}
+        navigate={navigate}
+      />
     </header>
   );
 }
@@ -313,6 +431,6 @@ export function useProjectOverviewContext(
   );
   const dirProject = projects.find((p) => p.slice.slug === route.projectSlug) ?? null;
   const projectRoot = dirProject?.slice.root ?? agentEntries[0]?.projectRoot ?? null;
-  const projectTitle = agentEntries[0]?.projectTitle ?? route.projectSlug ?? "project";
+  const projectTitle = agentEntries[0]?.projectTitle ?? dirProject?.slice.title ?? route.projectSlug ?? "project";
   return { agentEntries, agentIdsKey, dirProject, projectRoot, projectTitle };
 }

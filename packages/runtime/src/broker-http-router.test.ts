@@ -101,7 +101,11 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
     brokerRepoTailService: {
       warmRepoWatchSnapshot: () => {},
       readRepoWatchSnapshotForUrl: async () => ({ ok: true }),
-      readTailRecentPayload: async () => ({ events: [] }),
+      readTailRecentPayloadWithTiming: async () => ({
+        payload: { generatedAt: 1, limit: 0, cursor: null, events: [] },
+        timings: [],
+      }),
+      readTailRecentPayload: async () => ({ generatedAt: 1, limit: 0, cursor: null, events: [] }),
     },
     getHarnessTopologySnapshot: async () => ({ nodes: [] }),
     getTailDiscovery: async () => ({ tails: [] }),

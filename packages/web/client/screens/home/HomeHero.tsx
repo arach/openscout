@@ -376,6 +376,10 @@ function gaugeUsageScore(gauge: ServiceGauge): number {
   return compactNumberValue(gauge.statusLabel) > 0 ? 0.01 : 0;
 }
 
+function isQuotaGauge(gauge: ServiceGauge): gauge is Extract<ServiceGauge, { kind: "quota" }> {
+  return gauge.kind === "quota";
+}
+
 function topServiceGauges(gauges: ServiceGauge[]): ServiceGauge[] {
   return sortedServiceGauges(gauges)
     .slice(0, HOME_SERVICE_GAUGE_LIMIT);
@@ -408,10 +412,11 @@ export default function HomeHero(props: HomeHeroProps) {
   const [showAllGauges, setShowAllGauges] = useState(false);
 
   const syncTone = error ? "err" : "ok";
-  const sortedGauges = sortedServiceGauges(serviceGauges);
-  const compactGauges = topServiceGauges(serviceGauges);
+  const subscriptionGauges = serviceGauges.filter(isQuotaGauge);
+  const sortedGauges = sortedServiceGauges(subscriptionGauges);
+  const compactGauges = topServiceGauges(subscriptionGauges);
   const gauges = showAllGauges ? sortedGauges : compactGauges;
-  const hasHiddenGauges = serviceGauges.length > compactGauges.length;
+  const hasHiddenGauges = subscriptionGauges.length > compactGauges.length;
   const showHeartrate = heartrate.reduce((total, bucket) => total + bucket.count, 0)
     >= heartrateVisibleEventThreshold;
   return (
@@ -452,7 +457,7 @@ export default function HomeHero(props: HomeHeroProps) {
           </span>
         </div>
         {gauges.length > 0 && (
-          <div className="hd-topbar-c" aria-label="service usage">
+          <div className="hd-topbar-c" aria-label="subscription usage">
             <div className="hd-gauge-title-row">
               <span className="hd-gauge-window">SUBSCRIPTIONS</span>
               {hasHiddenGauges && (
@@ -462,7 +467,7 @@ export default function HomeHero(props: HomeHeroProps) {
                   aria-expanded={showAllGauges}
                   onClick={() => setShowAllGauges((value) => !value)}
                 >
-                  [{showAllGauges ? "top 2" : `all ${serviceGauges.length}`}]
+                  [{showAllGauges ? "top 2" : `all ${subscriptionGauges.length}`}]
                 </button>
               )}
             </div>

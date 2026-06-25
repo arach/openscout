@@ -11,10 +11,10 @@ import { agentLabel, directSessionMaps, resolveSelectedAgent } from "../agents/m
 import "../agents/agents-screen.css";
 import "../ops/ops-atop.css";
 import "../ops/ops-screen.css";
-import { AgentsV2ProfileBar } from "./AgentsV2ProfileBar.tsx";
-import "./agents-v2.css";
+import { ProjectAgentProfileBar } from "./ProjectAgentProfileBar.tsx";
+import "./projects.css";
 
-export function AgentsV2Profile({
+export function ProjectAgentProfile({
   route,
   navigate,
 }: {
@@ -59,9 +59,9 @@ export function AgentsV2Profile({
 
   if (!selectedAgent) {
     return (
-      <AgentsV2RouteFrame activeRoute={route} navigate={navigate}>
+      <ProjectRouteFrame activeRoute={route} navigate={navigate}>
         <div className="av2-empty">Agent not found.</div>
-      </AgentsV2RouteFrame>
+      </ProjectRouteFrame>
     );
   }
 
@@ -75,11 +75,11 @@ export function AgentsV2Profile({
 
   return (
     <div className="s-av2-profileShell">
-      <AgentsV2RouteFrame
+      <ProjectRouteFrame
         activeRoute={route}
         navigate={navigate}
         bar={
-          <AgentsV2ProfileBar
+          <ProjectAgentProfileBar
             agent={selectedAgent}
             conversationId={resolvedConversationId}
             activeTab={resolvedTab}
@@ -108,12 +108,12 @@ export function AgentsV2Profile({
             )}
           />
         </div>
-      </AgentsV2RouteFrame>
+      </ProjectRouteFrame>
     </div>
   );
 }
 
-function AgentsV2RouteFrame({
+function ProjectRouteFrame({
   activeRoute,
   children,
   navigate,

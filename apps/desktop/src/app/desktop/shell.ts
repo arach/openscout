@@ -1821,7 +1821,7 @@ function buildRelayDirects(
         ? agent.metadata.role
         : typeof agent.metadata?.summary === "string"
           ? agent.metadata.summary
-          : "Relay agent";
+          : "Agent";
       const activity = activityByAgent.get(agent.id) ?? inactiveDirectAgentActivity(agent, null, null);
 
       return {

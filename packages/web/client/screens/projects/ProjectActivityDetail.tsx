@@ -7,14 +7,14 @@ import {
   displaySessionPreview,
   harnessOf,
   registryWorkLine,
-  selectAgentsV2Agent,
+  selectProjectAgent,
 } from "./model.ts";
 import type { RegistryAgentEntry, RegistrySessionEntry } from "./model.ts";
-import "./agents-v2.css";
+import "./projects.css";
 
 type Navigate = (route: Route) => void;
 
-export function AgentsV2ProjectDetail({
+export function ProjectActivityDetail({
   route,
   navigate,
   projectTitle,
@@ -60,7 +60,7 @@ export function AgentsV2ProjectDetail({
           <button
             type="button"
             className="av2-projectLead"
-            onClick={() => navigate(selectAgentsV2Agent(route, lead.leadAgent.id))}
+            onClick={() => navigate(selectProjectAgent(route, lead.leadAgent.id))}
           >
             <span className="av2-projectLeadTop">
               <span className="av2-projectLeadName">

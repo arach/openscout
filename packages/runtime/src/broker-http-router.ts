@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { performance } from "node:perf_hooks";
 
 import type {
   A2AJsonRpcRequest,
@@ -48,6 +49,7 @@ import {
   parseSince,
   readRequestBody,
   requestAbortSignal,
+  serverTimingHeader,
   threadWatchError,
   throwIfAborted,
 } from "./broker-http-helpers.js";
@@ -112,6 +114,7 @@ export type BrokerHttpRouterDeps = {
   knownInvocations: Map<string, InvocationRequest>;
   brokerService: ActiveScoutBrokerService;
   webControl: BrokerWebControlService;
+  readHostInfo?: () => unknown | Promise<unknown>;
   a2aService: BrokerA2AService;
   brokerRepoTailService: BrokerRepoTailService<RuntimeRegistrySnapshot>;
   getHarnessTopologySnapshot: (force: boolean) => unknown | Promise<unknown>;
@@ -159,6 +162,7 @@ export function createBrokerHttpRouter(
     knownInvocations,
     brokerService,
     webControl,
+    readHostInfo,
     a2aService,
     brokerRepoTailService,
     getHarnessTopologySnapshot,
@@ -217,6 +221,19 @@ export function createBrokerHttpRouter(
 
   if (method === "GET" && url.pathname === "/health") {
     json(response, 200, await brokerService.readHealth());
+    return;
+  }
+
+  if (method === "GET" && url.pathname === "/.host-info") {
+    json(response, 200, readHostInfo ? await readHostInfo() : {
+      schemaVersion: 1,
+      source: "openscout-broker",
+      updatedAtMs: Date.now(),
+      nodeId,
+      meshId,
+      brokerUrl: `http://${host}:${port}`,
+      ports: { broker: port },
+    });
     return;
   }
 
@@ -331,7 +348,14 @@ export function createBrokerHttpRouter(
 
   if (method === "GET" && url.pathname === "/v1/tail/discover") {
     const force = url.searchParams.get("force") === "1" || url.searchParams.get("force") === "true";
-    json(response, 200, await getTailDiscovery(force));
+    const start = performance.now();
+    const payload = await getTailDiscovery(force);
+    jsonWithHeaders(response, 200, payload, {
+      "Server-Timing": serverTimingHeader([{
+        name: force ? "tail-discover-force" : "tail-discover",
+        dur: performance.now() - start,
+      }]),
+    });
     return;
   }
 
@@ -347,7 +371,10 @@ export function createBrokerHttpRouter(
   }
 
   if (method === "GET" && url.pathname === "/v1/tail/recent") {
-    json(response, 200, await brokerRepoTailService.readTailRecentPayload(url));
+    const result = await brokerRepoTailService.readTailRecentPayloadWithTiming(url);
+    jsonWithHeaders(response, 200, result.payload, {
+      "Server-Timing": serverTimingHeader(result.timings),
+    });
     return;
   }
 

@@ -23,6 +23,7 @@ describe("SCO-070 cardless sessions", () => {
     const runtime = newRuntime();
     const result = await registerCardlessSession(runtime, {
       sessionId: "sess-abc12345",
+      handle: "archimedes",
       transport: "codex_app_server",
       harness: "codex",
       cwd: PROJECT,
@@ -32,6 +33,8 @@ describe("SCO-070 cardless sessions", () => {
 
     // The actor exists and is session-kind; NO agent card was minted.
     expect(snapshot.actors["sess-abc12345"]?.kind).toBe("session");
+    expect(snapshot.actors["sess-abc12345"]?.handle).toBe("archimedes");
+    expect(snapshot.actors["sess-abc12345"]?.metadata?.handle).toBe("archimedes");
     expect(snapshot.agents["sess-abc12345"]).toBeUndefined();
 
     // The endpoint occupies the identity slot with agentId === sessionId.
@@ -39,6 +42,7 @@ describe("SCO-070 cardless sessions", () => {
     expect(endpoint?.agentId).toBe("sess-abc12345");
     expect(isCardlessSessionEndpoint(endpoint!)).toBe(true);
     expect(endpoint?.metadata?.pendingExternalSession).toBe(true);
+    expect(endpoint?.metadata?.handle).toBe("archimedes");
     expect(endpoint?.metadata?.externalSessionId).toBeUndefined();
     expect(endpoint?.metadata?.threadId).toBeUndefined();
   });
@@ -47,6 +51,7 @@ describe("SCO-070 cardless sessions", () => {
     const runtime = newRuntime();
     await registerCardlessSession(runtime, {
       sessionId: "sess-route-1",
+      handle: "franklin",
       transport: "claude_stream_json",
       harness: "claude",
       cwd: PROJECT,
@@ -64,6 +69,17 @@ describe("SCO-070 cardless sessions", () => {
       expect(result.session.actorId).toBe("sess-route-1");
       expect(result.session.endpoint.sessionId).toBe("sess-route-1");
       expect(result.session.nodeId).toBe("node-1");
+    }
+
+    const handleResult = resolveBrokerRouteTarget(
+      runtime.snapshot(),
+      { target: { kind: "agent_label", label: "@franklin" } },
+      { helpers },
+    );
+    expect(handleResult.kind).toBe("resolved_session");
+    if (handleResult.kind === "resolved_session") {
+      expect(handleResult.session.actorId).toBe("sess-route-1");
+      expect(handleResult.session.label).toBe("Franklin");
     }
   });
 

@@ -1,5 +1,5 @@
 import type { RepoWatchProject, RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
-import type { AgentsV2StateFilter, LocalAgentConfigState } from "../../lib/types.ts";
+import type { ProjectStateFilter, LocalAgentConfigState } from "../../lib/types.ts";
 import type { RegistryAgentEntry, RegistrySessionEntry } from "./model.ts";
 import {
   agentPrecedence,
@@ -75,7 +75,7 @@ export type AgentOverviewRow = {
   entry: RegistryAgentEntry;
   projectRoot: string | null;
   config: LocalAgentConfigState | null;
-  tone: AgentsV2StateFilter | "idle";
+  tone: ProjectStateFilter | "idle";
   workLine: string;
   sessions: RegistrySessionEntry[];
 };

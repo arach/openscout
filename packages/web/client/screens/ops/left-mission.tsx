@@ -187,7 +187,7 @@ export function OpsMissionLeft() {
                   }
                 }}
                 onFocusOnCanvas={() => requestMissionCanvasFocus(agent.id)}
-                onOpen={() => navigate({ view: "agents", agentId: agent.id })}
+                onOpen={() => navigate({ view: "agents-v2", agentId: agent.id })}
               />
             );
           })

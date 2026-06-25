@@ -201,7 +201,7 @@ export function PresenceSidebar({
               onClick={() =>
                 openContent(
                   navigate,
-                  { view: "agents", agentId: p.agent!.id },
+                  { view: "agents-v2", agentId: p.agent!.id },
                   { returnTo: route },
                 )
               }

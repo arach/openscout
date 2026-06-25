@@ -1,7 +1,7 @@
 import type { Agent, AgentTab, Route } from "../../lib/types.ts";
 import { registryRoute } from "./model.ts";
 
-export function AgentsV2ProfileBar({
+export function ProjectAgentProfileBar({
   agent,
   conversationId,
   activeTab,
@@ -36,14 +36,11 @@ export function AgentsV2ProfileBar({
         type="button"
         className="av2-profileBack"
         onClick={() =>
-          navigate({
-            ...registryRoute(route),
-            selectedAgentId: agent.id,
-          })
+          navigate(registryRoute(route))
         }
       >
         <span className="av2-profileBackGlyph" aria-hidden>←</span>
-        Registry
+        Project
       </button>
 
       <nav className="av2-profileTabs" aria-label="Agent views">

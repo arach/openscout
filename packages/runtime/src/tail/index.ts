@@ -7,6 +7,7 @@
 
 export {
   getTailDiscovery,
+  refreshTailDiscovery,
   readRecentLiveEvents,
   readRecentTranscriptEvents,
   readTailEventsForSession,

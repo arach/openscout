@@ -215,7 +215,7 @@ export function useAgentHoverCard({
       if (e.key === "End") { e.preventDefault(); focusAgent(visible[visible.length - 1]); return; }
       if (e.key.toLowerCase() === "o" && focusedAgentId && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
-        navigate({ view: "agents", agentId: focusedAgentId });
+        navigate({ view: "agents-v2", agentId: focusedAgentId });
       }
     };
     root.addEventListener("keydown", onKey);
@@ -246,7 +246,7 @@ export function useAgentHoverCard({
 
   const handleClick = useCallback((agentId: string) => {
     if (selectMode === "navigate") {
-      navigate({ view: "agents", agentId });
+      navigate({ view: "agents-v2", agentId });
       return;
     }
     clearTimers();
@@ -256,7 +256,7 @@ export function useAgentHoverCard({
 
   const handleOpen = useCallback(() => {
     if (!activeAgent) return;
-    navigate({ view: "agents", agentId: activeAgent.id });
+    navigate({ view: "agents-v2", agentId: activeAgent.id });
   }, [activeAgent, navigate]);
 
   const clear = useCallback(() => {

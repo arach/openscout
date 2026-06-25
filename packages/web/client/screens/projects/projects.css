@@ -88,9 +88,110 @@
   background: color-mix(in srgb, var(--hud-surface) 22%, transparent);
 }
 
+.av2-projectRailTools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 10px;
+}
+
+.av2-projectRailSearchWrap,
+.av2-projectRailSortWrap {
+  position: relative;
+  height: 30px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--av2-hairline);
+  border-radius: var(--av2-radius-sm);
+  background: color-mix(in srgb, var(--hud-surface) 44%, transparent);
+  color: var(--av2-ink);
+  box-shadow: var(--av2-inset-highlight);
+}
+
+.av2-projectRailSearchWrap {
+  flex: 1 1 auto;
+  padding: 0 7px 0 8px;
+}
+
+.av2-projectRailSortWrap {
+  flex: 0 0 88px;
+  padding: 0 18px 0 8px;
+}
+
+.av2-projectRailSearchWrap svg,
+.av2-projectRailSortWrap svg {
+  flex: none;
+  color: var(--av2-dim);
+}
+
+.av2-projectRailSearch,
+.av2-projectRailSort {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.av2-projectRailSort {
+  color: var(--av2-muted);
+  appearance: none;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.av2-projectRailSearch::placeholder {
+  color: var(--av2-dim);
+}
+
+.av2-projectRailClear {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--av2-dim);
+  cursor: pointer;
+}
+
+.av2-projectRailClear:hover {
+  background: color-mix(in srgb, var(--hud-ink) 7%, transparent);
+  color: var(--av2-ink);
+}
+
+.av2-projectRailChevron {
+  position: absolute;
+  right: 6px;
+  color: var(--av2-dim);
+  pointer-events: none;
+}
+
+.av2-projectRailSearchWrap:focus-within,
+.av2-projectRailSortWrap:focus-within {
+  border-color: color-mix(in srgb, var(--av2-accent) 52%, var(--av2-hairline));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--av2-accent) 18%, transparent);
+}
+
 .av2-browseSection {
   padding: 0 10px;
   margin-bottom: 10px;
+}
+
+.av2-browseSection--projects {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
 .av2-browseHead {
@@ -167,6 +268,31 @@
 }
 
 .av2-browseCount[data-needs] {
+  color: var(--av2-accent);
+  background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
+}
+
+.av2-browseEmpty {
+  padding: 8px 10px;
+  color: var(--av2-dim);
+  font-size: 11px;
+}
+
+.av2-browseStatus {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-family: var(--av2-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.45;
+  text-transform: uppercase;
+  color: var(--av2-dim);
+  background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
+}
+
+.av2-browseStatus[data-needs] {
   color: var(--av2-accent);
   background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
 }
@@ -339,6 +465,10 @@
 
 .av2-facetHead {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 14px 6px;
   border-bottom: 1px solid var(--av2-hairline);
 }
@@ -349,6 +479,11 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--av2-dim);
+}
+
+.av2-facetActions {
+  flex: none;
+  min-width: 0;
 }
 
 .av2-facetBody {
@@ -366,6 +501,48 @@
   font-family: var(--av2-mono);
   font-size: 10px;
   color: var(--av2-dim);
+}
+
+.av2-newAgentFacet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.av2-newAgentBtn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--av2-accent) 42%, transparent);
+  border-radius: var(--av2-radius-sm);
+  background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
+  color: var(--av2-accent);
+  font-family: var(--av2-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: var(--av2-inset-highlight);
+}
+
+.av2-newAgentBtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--av2-accent) 22%, transparent);
+  color: var(--av2-ink);
+}
+
+.av2-newAgentBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.av2-newAgentHint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--av2-muted);
 }
 
 .av2-facetMono {
@@ -737,6 +914,80 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.av2-projectWorkspaceToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--av2-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--hud-surface) 42%, transparent);
+}
+
+.av2-projectWorkspaceBtn {
+  height: 24px;
+  min-width: 82px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--av2-dim);
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.av2-projectWorkspaceBtn:hover {
+  color: var(--av2-ink);
+  background: color-mix(in srgb, var(--hud-ink) 5%, transparent);
+}
+
+.av2-projectWorkspaceBtn[data-on] {
+  color: var(--av2-ink);
+  background: color-mix(in srgb, var(--av2-accent) 11%, transparent);
+  box-shadow: var(--av2-inset-highlight);
+}
+
+.av2-projectWorkspaceBtn svg {
+  flex: none;
+}
+
+.av2-projectWorkspaceCount {
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 999px;
+  color: var(--av2-dim);
+  background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
+}
+
+.av2-projectWorkspaceBtn[data-on] .av2-projectWorkspaceCount {
+  color: var(--av2-accent);
+  background: color-mix(in srgb, var(--av2-accent) 15%, transparent);
+}
+
+.av2-projectWorkspace {
+  height: clamp(360px, 48vh, 560px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.av2-projectWorkspace > .av2-repoFrame,
+.av2-projectWorkspace > .av2-agentsFrame {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
 }
 
 .av2-repoFrame {

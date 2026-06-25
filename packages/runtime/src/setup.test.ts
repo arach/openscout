@@ -141,7 +141,7 @@ describe("setup inventory", () => {
     expect(settings.statusLine.refreshInterval).toBe(30);
     expect(delegate.command).toBe("~/.claude/custom-statusline.sh");
     expect(delegate.statusLine.padding).toBe(2);
-    expect(wrapper).toContain("statusline claude");
+    expect(wrapper).toContain("statusline claude --delegate");
     expect(statuslineInstall).toEqual(expect.objectContaining({
       kind: "statusline",
       owner: "openscout",

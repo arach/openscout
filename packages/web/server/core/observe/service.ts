@@ -1399,14 +1399,19 @@ function isLiveSessionSnapshot(snapshot: SessionState | null | undefined): boole
   );
 }
 
+type AgentObserveOptions = {
+  sessionId?: string | null;
+};
+
 async function resolveSnapshotSource(
   agent: WebAgent,
   broker: ObserveBrokerContext,
+  options: AgentObserveOptions = {},
 ): Promise<SnapshotSource> {
   const endpoint = broker ? selectPreferredAgentEndpoint(broker.snapshot, agent.id, {
     harness: agent.harness,
     transport: agent.transport,
-    sessionId: agent.harnessSessionId,
+    sessionId: options.sessionId ?? agent.harnessSessionId,
     cwd: agent.cwd,
     projectRoot: agent.projectRoot,
   }) : null;
@@ -1479,8 +1484,9 @@ async function resolveSnapshotSource(
 async function buildAgentObservePayload(
   agent: WebAgent,
   broker: ObserveBrokerContext,
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload> {
-  const source = await resolveSnapshotSource(agent, broker);
+  const source = await resolveSnapshotSource(agent, broker, options);
   if (source.source === "unavailable") {
     return {
       agentId: agent.id,
@@ -1507,6 +1513,7 @@ async function buildAgentObservePayload(
 
 async function loadAgentObservePayloadsInternal(
   agentIds?: string[],
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload[]> {
   const agents = queryAgents(200);
   const filteredAgents = agentIds && agentIds.length > 0
@@ -1517,7 +1524,7 @@ async function loadAgentObservePayloadsInternal(
   }
 
   const broker = await loadScoutBrokerContext();
-  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker)));
+  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker, options)));
 }
 
 function summarizeAgentObservePayload(
@@ -1542,8 +1549,9 @@ export async function loadAgentObserveSummaries(
 
 export async function loadAgentObservePayload(
   agentId: string,
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload | null> {
-  const payloads = await loadAgentObservePayloadsInternal([agentId]);
+  const payloads = await loadAgentObservePayloadsInternal([agentId], options);
   return payloads[0] ?? null;
 }
 

@@ -313,10 +313,13 @@ function normalizeRoute(raw: unknown): Route | null {
     case "fleet":
       return { view: "fleet" };
     case "agents":
+    case "agents-v2":
       return {
-        view: "agents",
+        view: "agents-v2",
         ...(typeof record.agentId === "string" ? { agentId: record.agentId } : {}),
         ...(typeof record.conversationId === "string" ? { conversationId: record.conversationId } : {}),
+        ...(typeof record.sessionId === "string" ? { sessionId: record.sessionId } : {}),
+        ...(typeof record.projectSlug === "string" ? { projectSlug: record.projectSlug } : {}),
         ...(record.tab === "profile" || record.tab === "observe" || record.tab === "message" ? { tab: record.tab } : {}),
       };
     case "sessions":

@@ -8,8 +8,8 @@ import { AgentEssentialsGlyph } from "../agents/agent-essentials.tsx";
 import {
   agentNodeLabel,
   harnessOf,
-  openAgentsV2Config,
-  openAgentsV2Profile,
+  openProjectAgentConfig,
+  openProjectAgentProfile,
   registryAgentSubline,
 } from "./model.ts";
 import { agentSpecialization, partitionProjectRoster } from "./agent-specialization.ts";
@@ -151,14 +151,14 @@ function AgentDetailPane({
           <button
             type="button"
             className="av2-embedLaunch"
-            onClick={() => navigate(openAgentsV2Config(route, row.agentId))}
+            onClick={() => navigate(openProjectAgentConfig(route, row.agentId))}
           >
             config
           </button>
           <button
             type="button"
             className="av2-embedLaunch"
-            onClick={() => navigate(openAgentsV2Profile(route, row.agentId))}
+            onClick={() => navigate(openProjectAgentProfile(route, row.agentId))}
           >
             profile ↗
           </button>

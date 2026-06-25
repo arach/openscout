@@ -9,6 +9,8 @@ const React = (await import("../../node_modules/react/index.js")) as typeof Reac
 mock.module("react", () => React);
 
 const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
+const { normalizeRoute } = await import("./synthetic-agent-routing.ts");
+const { resolveRoutedSessionId, resolveSelectedSessionId, sortSessionsByRecency } = await import("./session-catalog.ts");
 
 describe("agents route parsing", () => {
   test("conversations routes round-trip", () => {
@@ -22,12 +24,43 @@ describe("agents route parsing", () => {
     const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/c.openscout-chat");
 
     expect(route).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "openscout-6.main.mini",
       conversationId: "c.openscout-chat",
       tab: "message",
     });
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini/c/c.openscout-chat");
+  });
+
+  test("project agent session resource routes preserve session focus", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:43120/projects/scope/agents/scope.main.arts-mac-mini-local/sessions/019efa89-4392-72f1-af6c-860951059bcb",
+    );
+
+    expect(route).toEqual({
+      view: "agents-v2",
+      agentId: "scope.main.arts-mac-mini-local",
+      projectSlug: "scope",
+      sessionId: "019efa89-4392-72f1-af6c-860951059bcb",
+    });
+    expect(routePath(route)).toBe(
+      "/projects/scope/agents/scope.main.arts-mac-mini-local/sessions/019efa89-4392-72f1-af6c-860951059bcb",
+    );
+  });
+
+  test("deprecated agents-v2 message hash routes open the message tab and serialize canonically", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:43120/agents-v2/scope.main.arts-mac-mini-local#msg-msg-mqtjmvqd-n734dq",
+    );
+
+    expect(route).toEqual({
+      view: "agents-v2",
+      agentId: "scope.main.arts-mac-mini-local",
+      tab: "message",
+    });
+    expect(routePath(route)).toBe(
+      "/agents/scope.main.arts-mac-mini-local?tab=message",
+    );
   });
 
   test("machine-scoped routes round-trip through URLs", () => {
@@ -62,7 +95,7 @@ describe("agents route parsing", () => {
   test("machine scope composes with existing route query params", () => {
     const agentRoute = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main?tab=observe&machineId=node-b");
     expect(agentRoute).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "hudson.main",
       tab: "observe",
       machineId: "node-b",
@@ -98,7 +131,8 @@ describe("agents route parsing", () => {
       view: "agents",
       machineId: "node-b",
     });
-    expect(routePath(clearRouteMachineScope({ view: "agents", machineId: "node-b" }))).toBe("/agents");
+    expect(routePath(clearRouteMachineScope({ view: "agents", machineId: "node-b" }))).toBe("/agents.deprecated");
+    expect(routePath(clearRouteMachineScope({ view: "agents-v2", machineId: "node-b" }))).toBe("/projects");
     expect(setRouteMachineScope({ view: "settings" }, "node-b")).toEqual({ view: "settings" });
   });
 
@@ -106,7 +140,7 @@ describe("agents route parsing", () => {
     const route = routeFromUrl("http://127.0.0.1:43120/agents/openscout-6.main.mini/c/c.openscout-chat?tab=observe");
 
     expect(route).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "openscout-6.main.mini",
       conversationId: "c.openscout-chat",
       tab: "observe",
@@ -114,12 +148,28 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/agents/openscout-6.main.mini/c/c.openscout-chat?tab=observe");
   });
 
+  test("synthetic agent observe links normalize to session observe", () => {
+    const route = normalizeRoute(
+      routeFromUrl(
+        "http://127.0.0.1:43120/agents/native%3Aclaude%3A1e753cef-92ae-4e22-a365-0f5d23a07652?tab=observe",
+      ),
+    );
+
+    expect(route).toEqual({
+      view: "sessions",
+      sessionId: "1e753cef-92ae-4e22-a365-0f5d23a07652",
+    });
+    expect(routePath(route)).toBe(
+      "/sessions/1e753cef-92ae-4e22-a365-0f5d23a07652",
+    );
+  });
+
 
   test("agent-scoped session routes round-trip", () => {
     const route = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main/sessions/codex-thread-1");
 
     expect(route).toEqual({
-      view: "sessions",
+      view: "agents-v2",
       agentId: "hudson.main",
       sessionId: "codex-thread-1",
     });
@@ -251,14 +301,14 @@ describe("agents route parsing", () => {
     ).toBe("/messages/c.foo");
   });
 
-  test("agents-v2 registry routes round-trip", () => {
+  test("project registry routes round-trip and old agents-v2 input serializes canonically", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/agents-v2")).toEqual({
       view: "agents-v2",
     });
-    expect(routePath({ view: "agents-v2" })).toBe("/agents-v2");
+    expect(routePath({ view: "agents-v2" })).toBe("/projects");
 
     const scoped = routeFromUrl(
-      "http://127.0.0.1:43120/agents-v2?project=lattices&state=needs&view=sessions",
+      "http://127.0.0.1:43120/projects/lattices/sessions?state=needs",
     );
     expect(scoped).toEqual({
       view: "agents-v2",
@@ -268,49 +318,51 @@ describe("agents route parsing", () => {
     });
     expect(routeFromUrl(`http://127.0.0.1:43120${routePath(scoped)}`)).toEqual(scoped);
 
-    const agent = routeFromUrl("http://127.0.0.1:43120/agents-v2/lattices.main?project=lattices&session=c.foo");
+    const agent = routeFromUrl("http://127.0.0.1:43120/projects/lattices/agents/lattices.main/sessions/c.foo");
     expect(agent).toEqual({
       view: "agents-v2",
       agentId: "lattices.main",
       projectSlug: "lattices",
       sessionId: "c.foo",
     });
-    expect(routePath(agent)).toBe("/agents-v2/lattices.main?project=lattices&session=c.foo");
+    expect(routePath(agent)).toBe("/projects/lattices/agents/lattices.main/sessions/c.foo");
 
-    const session = routeFromUrl("http://127.0.0.1:43120/agents-v2/sessions/c.foo");
+    const session = routeFromUrl("http://127.0.0.1:43120/projects/lattices/sessions/c.foo");
     expect(session).toEqual({
       view: "agents-v2",
+      projectSlug: "lattices",
+      indexView: "sessions",
       sessionId: "c.foo",
     });
-    expect(routePath(session)).toBe("/agents-v2/sessions/c.foo");
+    expect(routePath(session)).toBe("/projects/lattices/sessions/c.foo");
 
     const selected = routeFromUrl(
-      "http://127.0.0.1:43120/agents-v2?project=hudson&select=grok.main",
+      "http://127.0.0.1:43120/projects/hudson?select=grok.main",
     );
     expect(selected).toEqual({
       view: "agents-v2",
       projectSlug: "hudson",
       selectedAgentId: "grok.main",
     });
-    expect(routePath(selected)).toBe("/agents-v2?project=hudson&select=grok.main");
+    expect(routePath(selected)).toBe("/projects/hudson?select=grok.main");
   });
 
   test("agent config tab routes round-trip and legacy definitions alias", () => {
-    const configRoute = routeFromUrl("http://127.0.0.1:43120/agents-v2/codex.main?tab=config");
+    const configRoute = routeFromUrl("http://127.0.0.1:43120/agents/codex.main?tab=config");
     expect(configRoute).toEqual({
       view: "agents-v2",
       agentId: "codex.main",
       tab: "config",
     });
-    expect(routePath(configRoute)).toBe("/agents-v2/codex.main?tab=config");
+    expect(routePath(configRoute)).toBe("/agents/codex.main?tab=config");
 
-    const legacyRoute = routeFromUrl("http://127.0.0.1:43120/agents/hudson.main?tab=definitions");
+    const legacyRoute = routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main?tab=definitions");
     expect(legacyRoute).toEqual({
       view: "agents",
       agentId: "hudson.main",
       tab: "config",
     });
-    expect(routePath(legacyRoute)).toBe("/agents/hudson.main?tab=config");
+    expect(routePath(legacyRoute)).toBe("/agents.deprecated/hudson.main?tab=config");
   });
 
   test("agent configuration settings routes round-trip", () => {
@@ -327,5 +379,85 @@ describe("agents route parsing", () => {
       agentId: "openscout-6.main.mini",
     });
     expect(routePath(detailRoute)).toBe("/settings/agents/openscout-6.main.mini");
+  });
+});
+
+describe("session catalog selection", () => {
+  const sessions = [
+    {
+      id: "active-session",
+      startedAt: 300,
+      cwd: "/repo",
+    },
+    {
+      id: "routed-session",
+      startedAt: 200,
+      cwd: "/repo",
+      surfaceSessionId: "tmux:routed",
+    },
+    {
+      id: "scope-catalog-session",
+      startedAt: 150,
+      cwd: "/Users/art/dev/scope",
+      harness: "codex",
+      surfaceSessionId: "relay-scope-live-arts-mac-mini-local-codex",
+      harnessSessionId: "relay-scope-codex",
+      runtimeSessionId: "runtime-scope-codex",
+    },
+    {
+      id: "scope-claude-session",
+      startedAt: 125,
+      cwd: "/Users/art/dev/scope",
+      harness: "claude",
+      surfaceSessionId: "relay-scope-live-arts-mac-mini-local-claude",
+    },
+    {
+      id: "focused-session",
+      startedAt: 100,
+      cwd: "/repo",
+    },
+  ];
+
+  test("normalizes routed surface ids to catalog session ids", () => {
+    expect(resolveRoutedSessionId("tmux:routed", sessions)).toBe("routed-session");
+    expect(resolveRoutedSessionId("missing-session", sessions)).toBeNull();
+  });
+
+  test("normalizes routed stable aliases to catalog session ids", () => {
+    expect(resolveRoutedSessionId("relay-scope-codex", sessions)).toBe("scope-catalog-session");
+    expect(resolveRoutedSessionId("runtime-scope-codex", sessions)).toBe("scope-catalog-session");
+  });
+
+  test("normalizes compact relay refs to matching harness surfaces", () => {
+    expect(resolveRoutedSessionId("relay-scope-claude", sessions)).toBe("scope-claude-session");
+    expect(resolveRoutedSessionId("relay-scope-codex", sessions)).toBe("scope-catalog-session");
+  });
+
+  test("prefers a valid routed session over stale focused and active sessions", () => {
+    const sorted = sortSessionsByRecency(sessions, "active-session");
+
+    expect(
+      resolveSelectedSessionId(
+        "agent-1",
+        { agentId: "agent-1", sessionId: "focused-session" },
+        "active-session",
+        sorted,
+        "relay-scope-codex",
+      ),
+    ).toBe("scope-catalog-session");
+  });
+
+  test("falls back to focused session when routed session is invalid", () => {
+    const sorted = sortSessionsByRecency(sessions, "active-session");
+
+    expect(
+      resolveSelectedSessionId(
+        "agent-1",
+        { agentId: "agent-1", sessionId: "focused-session" },
+        "active-session",
+        sorted,
+        "missing-session",
+      ),
+    ).toBe("focused-session");
   });
 });

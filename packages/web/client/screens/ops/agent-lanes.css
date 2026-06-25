@@ -981,8 +981,7 @@
 }
 
 /* CTA cluster riding the header's horizontal line — the harness brand mark plus
-   the two reusable ghost actions (Agent profile · Traces), the primary carrying
-   the single accent. Replaces the old standalone actions row. */
+   session/profile/trace jumps, with Open session as the primary accent. */
 .s-lane-sheet-header-cta {
   display: flex;
   align-items: center;
@@ -1077,6 +1076,12 @@
 .s-lane-sheet-ghost--primary:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.s-lane-sheet-ghost:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .s-lane-sheet-empty {

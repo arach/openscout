@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { AgentEssentialsGlyph } from "../agents/agent-essentials.tsx";
 import type { LocalAgentConfigState, Route } from "../../lib/types.ts";
-import { harnessOf, openAgentsV2Config, openAgentsV2Profile } from "./model.ts";
+import { harnessOf, openProjectAgentConfig, openProjectAgentProfile } from "./model.ts";
 import type { AgentFacetRow } from "./project-overview-helpers.ts";
 
 export type FacetLaunch = {
@@ -126,14 +126,14 @@ export function AgentFacetEmbed({
           <button
             type="button"
             className="av2-embedLaunch"
-            onClick={() => navigate(openAgentsV2Config(route, row.agentId))}
+            onClick={() => navigate(openProjectAgentConfig(route, row.agentId))}
           >
             config
           </button>
           <button
             type="button"
             className="av2-embedLaunch"
-            onClick={() => navigate(openAgentsV2Profile(route, row.agentId))}
+            onClick={() => navigate(openProjectAgentProfile(route, row.agentId))}
           >
             profile ↗
           </button>

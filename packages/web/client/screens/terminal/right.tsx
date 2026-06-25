@@ -3,6 +3,7 @@ import { useScout } from "../../scout/Provider.tsx";
 import { agentStateLabel } from "../../lib/agent-state.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { timeAgo } from "../../lib/time.ts";
+import { formatLabel } from "../../lib/text.ts";
 import type { Agent, Route, TerminalSurfaceDescriptor } from "../../lib/types.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import {
@@ -98,18 +99,18 @@ export function TerminalInspector() {
         />
         <ModeButton
           label="Profile"
-          onClick={() => navigate({ view: "agents", agentId: agent.id, tab: "profile" })}
+          onClick={() => navigate({ view: "agents-v2", agentId: agent.id, tab: "profile" })}
         />
         <ModeButton
           label="Trace"
-          onClick={() => navigate({ view: "agents", agentId: agent.id, tab: "observe" })}
+          onClick={() => navigate({ view: "agents-v2", agentId: agent.id, tab: "observe" })}
         />
       </div>
 
       <Section label="Agent">
         <Row label="Harness" value={agent.harness ?? "-"} />
         <Row label="Transport" value={agent.transport ?? "-"} />
-        {agent.role && <Row label="Role" value={agent.role} />}
+        {agent.role && <Row label="Role" value={formatLabel(agent.role) ?? agent.role} />}
         {agent.handle && <Row label="Handle" value={`@${agent.handle}`} />}
         {agent.updatedAt && <Row label="Updated" value={timeAgo(agent.updatedAt)} />}
       </Section>
