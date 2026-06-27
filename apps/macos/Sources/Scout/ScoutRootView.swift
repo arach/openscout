@@ -1474,12 +1474,12 @@ struct ScoutRootView: View {
                         // ⌘V image paste is handled by ImagePasteCatcher at the
                         // AppKit level — the field editor swallows it here.
                         if press.key == .return {
-                            if applySelectedSuggestion() { return .handled }
-                            if press.modifiers.contains(.shift) {
-                                draft.append("\n")
+                            if press.modifiers.contains(.command) || press.modifiers.contains(.control) {
+                                requestSend()
                                 return .handled
                             }
-                            requestSend()
+                            if !press.modifiers.contains(.shift), applySelectedSuggestion() { return .handled }
+                            draft.append("\n")
                             return .handled
                         }
                         return .ignored
