@@ -32,6 +32,10 @@ Ports with established protocol meaning stay conventional. The local edge uses
 HTTP `80` and HTTPS `443` when enabled, and SSH terminal access remains port
 `22` when a host reports that capability.
 
+In dev mode with Vite enabled, the generated Caddyfile also routes
+`/ws/hmr` directly to the Vite asset server (`43122` by default) so hot reload
+works through `scout.local` without opening the raw Vite port in the browser.
+
 Existing `~/.openscout/config.json` values and environment variables are still
 authoritative. Delete or update local port overrides if you want an existing
 machine to move to these defaults.

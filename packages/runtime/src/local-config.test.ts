@@ -4,6 +4,7 @@ import {
   normalizeLocalHostname,
   normalizeLocalHostnameLabel,
   resolveConfiguredScoutWebHostname,
+  resolveScoutWebDevHostname,
   resolveScoutWebMdnsHostname,
   resolveScoutWebNamedHostname,
   resolveScoutWebVirtualHostname,
@@ -18,6 +19,11 @@ describe("local web hostnames", () => {
   test("derives the Scout virtual host for an edge proxy", () => {
     expect(resolveScoutWebVirtualHostname("hudson-mini")).toBe("hudson-mini.scout.local");
     expect(resolveScoutWebVirtualHostname("Hudson-Mini.local")).toBe("hudson-mini.scout.local");
+  });
+
+  test("derives the dev edge hostname from the portal host", () => {
+    expect(resolveScoutWebDevHostname("scout.local")).toBe("dev.scout.local");
+    expect(resolveScoutWebDevHostname("dev.scout.local")).toBe("dev.scout.local");
   });
 
   test("derives user-defined Scout names", () => {

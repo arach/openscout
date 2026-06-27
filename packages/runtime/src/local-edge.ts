@@ -1,14 +1,19 @@
 import {
   DEFAULT_SCOUT_WEB_PORTAL_HOST,
+  DEFAULT_SCOUT_WEB_VITE_HMR_PATH,
   resolveConfiguredScoutWebHostname,
   resolveBrokerPort,
+  resolveScoutWebDevHostname,
   resolveScoutWebNamedHostname,
   resolveWebPort,
 } from "./local-config.js";
 
+export type OpenScoutLocalEdgeRouteMode = "default" | "vite-dev";
+
 export type OpenScoutLocalEdgeRoute = {
   host: string;
   upstream: string;
+  mode?: OpenScoutLocalEdgeRouteMode;
 };
 
 export type OpenScoutLocalEdgeScheme = "http" | "https" | "both";
@@ -20,7 +25,40 @@ export type OpenScoutLocalEdgeConfig = {
   scheme: OpenScoutLocalEdgeScheme;
   brokerUpstream: string;
   routes: OpenScoutLocalEdgeRoute[];
+  /** Dev-only: upstream host for Vite HMR, e.g. 127.0.0.1:43122 */
+  viteUpstream?: string;
+  /** Dev-only: browser-visible HMR path, e.g. /ws/hmr */
+  viteHmrPath?: string;
 };
+
+function normalizeViteHmrPath(value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return DEFAULT_SCOUT_WEB_VITE_HMR_PATH;
+  }
+  const normalized = `${trimmed.startsWith("/") ? "" : "/"}${trimmed}`
+    .replace(/\/{2,}/g, "/")
+    .replace(/\/+$/g, "");
+  return normalized || DEFAULT_SCOUT_WEB_VITE_HMR_PATH;
+}
+
+function resolveViteUpstream(input: {
+  viteDevUrl?: string;
+  vitePort?: number;
+}): string | undefined {
+  const url = input.viteDevUrl?.trim();
+  if (url) {
+    try {
+      return new URL(url).host;
+    } catch {
+      return undefined;
+    }
+  }
+  if (typeof input.vitePort === "number" && input.vitePort > 0) {
+    return `127.0.0.1:${input.vitePort}`;
+  }
+  return undefined;
+}
 
 function normalizeRouteHost(value: string | undefined): string | null {
   const normalized = value?.trim().replace(/\.$/, "").toLowerCase();
@@ -61,6 +99,9 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
   scheme?: OpenScoutLocalEdgeScheme;
   brokerPort?: number;
   webPort?: number;
+  vitePort?: number;
+  viteDevUrl?: string;
+  viteHmrPath?: string;
   extraHosts?: string[];
 } = {}): OpenScoutLocalEdgeConfig {
   const portalHost = resolveScoutWebNamedHostname(input.portalHost ?? DEFAULT_SCOUT_WEB_PORTAL_HOST);
@@ -69,6 +110,7 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
   const scheme = input.scheme ?? "http";
   const upstream = `127.0.0.1:${input.webPort ?? resolveWebPort()}`;
   const brokerUpstream = `127.0.0.1:${input.brokerPort ?? resolveBrokerPort()}`;
+  const viteUpstream = resolveViteUpstream(input);
   return {
     portalHost,
     nodeHost,
@@ -78,9 +120,31 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
     routes: uniqRoutes([
       { host: portalHost, upstream },
       { host: wildcardHost, upstream },
+      ...(viteUpstream
+        ? [{
+            host: resolveScoutWebDevHostname(portalHost),
+            upstream: viteUpstream,
+            mode: "vite-dev" as const,
+          }]
+        : []),
       ...(input.extraHosts ?? []).map((host) => ({ host, upstream })),
     ]),
+    ...(viteUpstream
+      ? {
+          viteUpstream,
+          viteHmrPath: normalizeViteHmrPath(input.viteHmrPath),
+        }
+      : {}),
   };
+}
+
+export function renderCaddyViteHmrHandle(config: Pick<OpenScoutLocalEdgeConfig, "viteUpstream" | "viteHmrPath">): string {
+  if (!config.viteUpstream || !config.viteHmrPath) {
+    return "";
+  }
+  return `  handle ${config.viteHmrPath}* {\n`
+    + `    reverse_proxy ${config.viteUpstream}\n`
+    + `  }\n`;
 }
 
 export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): string {
@@ -282,38 +346,67 @@ export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): stri
 </html>`;
 }
 
+function renderCaddyDefaultRouteBlock(
+  config: OpenScoutLocalEdgeConfig,
+  route: OpenScoutLocalEdgeRoute,
+  scheme: "http" | "https",
+  startPage: string,
+): string {
+  const routeHost = formatCaddyHost(route.host);
+  const host = scheme === "http" ? `http://${routeHost}` : routeHost;
+  return `${host} {\n`
+    + (scheme === "https" ? `  tls internal\n` : "")
+    + `  handle /__openscout/web/start {\n`
+    + `    rewrite * /v1/web/start\n`
+    + `    reverse_proxy ${config.brokerUpstream}\n`
+    + `  }\n`
+    + `  handle /__openscout/web/status {\n`
+    + `    rewrite * /v1/web/status\n`
+    + `    reverse_proxy ${config.brokerUpstream}\n`
+    + `  }\n`
+    + renderCaddyViteHmrHandle(config)
+    + `  handle {\n`
+    + `    reverse_proxy ${route.upstream} {\n`
+    + `      lb_try_duration 1s\n`
+    + `      lb_try_interval 250ms\n`
+    + `    }\n`
+    + `  }\n`
+    + `  handle_errors {\n`
+    + `    header Content-Type "text/html; charset=utf-8"\n`
+    + `    respond <<HTML\n`
+    + `${startPage}\n`
+    + `HTML 200\n`
+    + `  }\n`
+    + `}`;
+}
+
+function renderCaddyViteDevRouteBlock(
+  route: OpenScoutLocalEdgeRoute,
+  scheme: "http" | "https",
+): string {
+  const routeHost = formatCaddyHost(route.host);
+  const host = scheme === "http" ? `http://${routeHost}` : routeHost;
+  return `${host} {\n`
+    + (scheme === "https" ? `  tls internal\n` : "")
+    + `  handle {\n`
+    + `    reverse_proxy ${route.upstream} {\n`
+    + `      lb_try_duration 1s\n`
+    + `      lb_try_interval 250ms\n`
+    + `    }\n`
+    + `  }\n`
+    + `}`;
+}
+
 export function renderOpenScoutCaddyfile(config: OpenScoutLocalEdgeConfig): string {
   const schemes = config.scheme === "both" ? ["http", "https"] as const : [config.scheme] as const;
   const startPage = renderOpenScoutStartPage(config);
   const blocks = schemes
     .flatMap((scheme) =>
-      config.routes.map((route) => {
-        const routeHost = formatCaddyHost(route.host);
-        const host = scheme === "http" ? `http://${routeHost}` : routeHost;
-        return `${host} {\n`
-          + (scheme === "https" ? `  tls internal\n` : "")
-          + `  handle /__openscout/web/start {\n`
-          + `    rewrite * /v1/web/start\n`
-          + `    reverse_proxy ${config.brokerUpstream}\n`
-          + `  }\n`
-          + `  handle /__openscout/web/status {\n`
-          + `    rewrite * /v1/web/status\n`
-          + `    reverse_proxy ${config.brokerUpstream}\n`
-          + `  }\n`
-          + `  handle {\n`
-          + `    reverse_proxy ${route.upstream} {\n`
-          + `      lb_try_duration 1s\n`
-          + `      lb_try_interval 250ms\n`
-          + `    }\n`
-          + `  }\n`
-          + `  handle_errors {\n`
-          + `    header Content-Type "text/html; charset=utf-8"\n`
-          + `    respond <<HTML\n`
-          + `${startPage}\n`
-          + `HTML 200\n`
-          + `  }\n`
-          + `}`;
-      }),
+      config.routes.map((route) => (
+        route.mode === "vite-dev"
+          ? renderCaddyViteDevRouteBlock(route, scheme)
+          : renderCaddyDefaultRouteBlock(config, route, scheme, startPage)
+      )),
     )
     .join("\n\n");
   return `${blocks}\n`;

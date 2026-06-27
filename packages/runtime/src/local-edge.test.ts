@@ -77,6 +77,37 @@ describe("OpenScout local edge", () => {
     expect(caddyfile).toContain("*.scout.local {\n  tls internal");
   });
 
+  test("renders a Vite HMR route when a vite upstream is configured", () => {
+    const caddyfile = renderOpenScoutCaddyfile(
+      resolveOpenScoutLocalEdgeConfig({
+        nodeHost: "m1.scout.local",
+        brokerPort: 43110,
+        webPort: 43120,
+        vitePort: 43122,
+        viteHmrPath: "/ws/hmr",
+      }),
+    );
+
+    expect(caddyfile).toContain("handle /ws/hmr* {");
+    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43122");
+    expect(caddyfile).toContain("reverse_proxy 127.0.0.1:43120 {");
+    expect(caddyfile).toContain("http://dev.scout.local {");
+    expect(caddyfile).toContain("http://dev.scout.local {\n  handle {\n    reverse_proxy 127.0.0.1:43122");
+  });
+
+  test("omits the Vite HMR route in production edge mode", () => {
+    const caddyfile = renderOpenScoutCaddyfile(
+      resolveOpenScoutLocalEdgeConfig({
+        nodeHost: "m1.scout.local",
+        brokerPort: 43110,
+        webPort: 43120,
+      }),
+    );
+
+    expect(caddyfile).not.toContain("handle /ws/hmr*");
+    expect(caddyfile).not.toContain("reverse_proxy 127.0.0.1:43122");
+  });
+
   test("renders an HTTP Caddyfile for browser stores that do not trust local TLS yet", () => {
     expect(
       renderOpenScoutCaddyfile(

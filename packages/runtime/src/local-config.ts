@@ -11,6 +11,9 @@ import { dirname, join } from "node:path";
 export const LOCAL_CONFIG_VERSION = 1;
 export const DEFAULT_SCOUT_WEB_PORTAL_HOST = "scout.local";
 export const DEFAULT_SCOUT_WEB_LOCAL_NAME = DEFAULT_SCOUT_WEB_PORTAL_HOST;
+export const DEFAULT_SCOUT_WEB_DEV_HOST = `dev.${DEFAULT_SCOUT_WEB_PORTAL_HOST}`;
+export const DEFAULT_SCOUT_WEB_VITE_HMR_PATH = "/ws/hmr";
+
 export const OPENSCOUT_PORTS = {
   broker: 43110,
   web: 43120,
@@ -89,6 +92,17 @@ export function resolveScoutWebMdnsHostname(hostname = osHostname()): string {
 export function resolveScoutWebNamedHostname(name: string): string {
   const normalized = normalizeLocalHostname(name);
   return normalized.includes(".") ? normalized : `${normalized}.${DEFAULT_SCOUT_WEB_PORTAL_HOST}`;
+}
+
+/** Stable dev edge hostname for source + Vite HMR through Caddy. */
+export function resolveScoutWebDevHostname(
+  portalHost = DEFAULT_SCOUT_WEB_PORTAL_HOST,
+): string {
+  const normalized = portalHost.trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized || normalized.startsWith("dev.")) {
+    return normalized || DEFAULT_SCOUT_WEB_DEV_HOST;
+  }
+  return `dev.${normalized}`;
 }
 
 export function resolveConfiguredScoutWebHostname(

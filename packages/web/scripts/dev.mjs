@@ -516,7 +516,16 @@ function renderDevStartPage() {
 </html>`;
 }
 
-function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }) {
+function renderCaddyViteHmrHandle(viteUpstream, viteHmrPath) {
+  if (!viteUpstream || !viteHmrPath) {
+    return "";
+  }
+  return `  handle ${viteHmrPath}* {\n`
+    + `    reverse_proxy ${viteUpstream}\n`
+    + `  }\n`;
+}
+
+function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl, viteUpstream, viteHmrPath }) {
   const brokerUpstream = new URL(brokerUrl).host;
   const startPage = renderDevStartPage();
   return edgeSchemes(scheme)
@@ -533,6 +542,7 @@ function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }) {
           + `    rewrite * /v1/web/status\n`
           + `    reverse_proxy ${brokerUpstream}\n`
           + `  }\n`
+          + renderCaddyViteHmrHandle(viteUpstream, viteHmrPath)
           + `  handle {\n`
           + `    reverse_proxy ${upstream} {\n`
           + `      lb_try_duration 1s\n`
@@ -566,10 +576,30 @@ function spawnMdnsProxy({ name, host, port, scheme }) {
   });
 }
 
-function spawnLocalEdge({ caddyBin, portalHost, advertisedHost, scheme, upstream, brokerUrl }) {
+function spawnLocalEdge({
+  caddyBin,
+  portalHost,
+  advertisedHost,
+  scheme,
+  upstream,
+  brokerUrl,
+  viteUpstream,
+  viteHmrPath,
+}) {
   mkdirSync(resolveDevLocalEdgeRoot(), { recursive: true });
   const caddyfilePath = resolve(resolveDevLocalEdgeRoot(), "dev-Caddyfile");
-  writeFileSync(caddyfilePath, renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }), "utf8");
+  writeFileSync(
+    caddyfilePath,
+    renderDevCaddyfile({
+      portalHost,
+      scheme,
+      upstream,
+      brokerUrl,
+      viteUpstream,
+      viteHmrPath,
+    }),
+    "utf8",
+  );
 
   const mdns = edgeSchemes(scheme).flatMap((currentScheme) => {
     const edgePort = currentScheme === "https" ? 443 : 80;
@@ -828,6 +858,8 @@ const localEdge = edgeEnabled
     scheme: edgeScheme,
     upstream: `127.0.0.1:${portLabel(bunPort)}`,
     brokerUrl,
+    viteUpstream: `127.0.0.1:${portLabel(vitePort)}`,
+    viteHmrPath: routes.viteHmrPath,
   })
   : null;
 
