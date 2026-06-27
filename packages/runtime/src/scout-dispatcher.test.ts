@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
-import type { AgentDefinition, AgentEndpoint } from "@openscout/protocol";
+import type { ActorIdentity, AgentDefinition, AgentEndpoint } from "@openscout/protocol";
 
 import {
   buildAgentLabelCandidates,
@@ -47,10 +47,25 @@ function makeAgent(input: {
   };
 }
 
+function makeSessionActor(input: {
+  id: string;
+  handle: string;
+  displayName?: string;
+}): ActorIdentity {
+  return {
+    id: input.id,
+    kind: "session",
+    displayName: input.displayName ?? input.handle,
+    handle: input.handle,
+    metadata: { cardless: true, handle: input.handle },
+  };
+}
+
 function makeSnapshot(
   agents: AgentDefinition[],
   endpoints: AgentEndpoint[] = [],
   flights: RuntimeSnapshot["flights"] = {},
+  actors: Record<string, ActorIdentity> = {},
 ): RuntimeSnapshot {
   const agentMap: Record<string, AgentDefinition> = {};
   for (const agent of agents) agentMap[agent.id] = agent;
@@ -59,7 +74,7 @@ function makeSnapshot(
   return {
     agents: agentMap,
     endpoints: endpointMap,
-    actors: {},
+    actors,
     nodes: {},
     conversations: {},
     bindings: {},
@@ -113,6 +128,35 @@ describe("resolveAgentLabel", () => {
     const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
     const result = resolveAgentLabel(snapshot, "@nobody", { helpers });
     expect(result.kind).toBe("unknown");
+  });
+
+  test("resolves bare provisional handles to project-prefixed session aliases", () => {
+    const sessionId = "session-chopin-1";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-chopin",
+          agentId: sessionId,
+          harness: "codex",
+          projectRoot: "/Users/art/dev/scope",
+          metadata: { cardless: true, handle: "project-chopin" },
+        }),
+      ],
+      {},
+      {
+        [sessionId]: makeSessionActor({
+          id: sessionId,
+          handle: "project-chopin",
+          displayName: "Project Chopin",
+        }),
+      },
+    );
+    const result = resolveAgentLabel(snapshot, "@chopin", { helpers });
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(sessionId);
+    }
   });
 
   test("returns resolved when a single candidate matches", () => {
@@ -418,6 +462,49 @@ describe("resolveBrokerRouteTarget", () => {
     expect(result.kind).toBe("resolved");
     if (result.kind === "resolved") {
       expect(result.agent.id).toBe(agent.id);
+    }
+  });
+
+  test("resolves binding refs to cardless session targets", () => {
+    const sessionId = "session-chopin-1";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-chopin",
+          agentId: sessionId,
+          harness: "codex",
+          sessionId,
+          projectRoot: "/Users/art/dev/scope",
+          metadata: { cardless: true, handle: "project-chopin" },
+        }),
+      ],
+      {
+        "flt-1234567890abcdef": {
+          id: "flt-1234567890abcdef",
+          invocationId: "inv-1",
+          requesterId: "operator",
+          targetAgentId: sessionId,
+          state: "completed",
+        },
+      },
+      {
+        [sessionId]: makeSessionActor({
+          id: sessionId,
+          handle: "project-chopin",
+        }),
+      },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "binding_ref", ref: "90abcdef" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(sessionId);
     }
   });
 

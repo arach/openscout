@@ -87,6 +87,8 @@ export interface ScoutDeliveryReceipt {
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
   targetLabel?: string;
+  /** Provisional routable pointer (e.g. project-chopin) when target is cardless. */
+  sessionAlias?: string;
   bindingRef?: string;
   conversationId: ScoutId;
   messageId: ScoutId;
@@ -111,6 +113,7 @@ export interface ScoutDeliverAcceptedResponse {
   message: MessageRecord;
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
+  sessionAlias?: string;
   bindingRef?: string;
   flight?: FlightRecord;
   workItem?: WorkItemRecord;

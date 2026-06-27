@@ -143,6 +143,7 @@ export function buildDeliveryReceipt(input: {
   targetAgentId?: string;
   targetSessionId?: string;
   targetLabel: string;
+  sessionAlias?: string;
   bindingRef?: string;
   conversationId: string;
   messageId: string;
@@ -156,6 +157,7 @@ export function buildDeliveryReceipt(input: {
     targetAgentId: input.targetAgentId,
     targetSessionId: input.targetSessionId,
     targetLabel: input.targetLabel,
+    ...(input.sessionAlias ? { sessionAlias: input.sessionAlias } : {}),
     ...(input.bindingRef ? { bindingRef: input.bindingRef } : {}),
     conversationId: input.conversationId,
     messageId: input.messageId,

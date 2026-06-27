@@ -148,4 +148,28 @@ describe("renderScoutAskReceipt", () => {
       },
     })).toContain("Dispatch acknowledged: Openscout Card acknowledged via spawn.");
   });
+
+  test("includes session alias pointers in ask receipts", () => {
+    expect(renderScoutAskReceipt({
+      replyMode: "notify",
+      receipt: {
+        ok: true,
+        state: "queued",
+        ids: {
+          targetAgentId: "session-chopin-1",
+          flightId: "flt-3",
+          sessionAlias: "project-chopin",
+          bindingRef: "abc12345",
+        },
+      },
+      flight: {
+        id: "flt-3",
+        invocationId: "inv-3",
+        requesterId: "operator",
+        targetAgentId: "session-chopin-1",
+        state: "running",
+        summary: "alias project-chopin → session-chop…pin-1 (scope, codex) acknowledged via spawn.",
+      },
+    })).toContain("alias project-chopin");
+  });
 });

@@ -34,6 +34,7 @@ import {
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
 import { describeUnavailableSessionEndpoint } from "./broker-endpoint-selection.js";
+import { sessionActorAlias } from "./session-alias.js";
 
 type EnsureBrokerDeliveryConversationInput = {
   requesterId: string;
@@ -738,6 +739,7 @@ export class BrokerDeliveryAcceptanceService {
     const flight = await this.options.acceptInvocation(invocation);
     throwIfAborted(options.signal);
     const bindingRef = flight.id.slice(-8);
+    const sessionAlias = sessionActorAlias(snapshot, target.actorId) ?? undefined;
     this.options.dispatchAcceptedInvocation(invocation).catch((error) => {
       this.options.warn?.(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
     });
@@ -753,6 +755,7 @@ export class BrokerDeliveryAcceptanceService {
         targetAgentId: target.actorId,
         targetSessionId: receiptSessionId,
         targetLabel,
+        sessionAlias,
         bindingRef,
         conversationId: conversation.id,
         messageId,
@@ -762,6 +765,7 @@ export class BrokerDeliveryAcceptanceService {
       message,
       targetAgentId: target.actorId,
       ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+      ...(sessionAlias ? { sessionAlias } : {}),
       bindingRef,
       flight,
       ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),

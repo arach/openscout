@@ -332,6 +332,17 @@ export function resolveAgentLabel(
       return session;
     }
 
+    const bareHandle = normalizeAgentSelectorSegment(identity.definitionId);
+    if (bareHandle && !bareHandle.startsWith("project-")) {
+      const prefixed = parseAgentIdentity(`@project-${bareHandle}`);
+      if (prefixed) {
+        const prefixedSession = resolveSessionHandleLabel(snapshot, prefixed, options);
+        if (prefixedSession) {
+          return prefixedSession;
+        }
+      }
+    }
+
     if (harnessAgnosticIdentity) {
       const agnosticResolution = resolutionFromDiagnosis(
         diagnoseAgentIdentity(harnessAgnosticIdentity, candidates),
@@ -523,8 +534,14 @@ export function resolveBrokerRouteTarget(
       || String(flight.metadata?.["bindingRef"] ?? "").toLowerCase() === normalizedRef
     );
     if (matches.length === 1) {
-      const agent = snapshot.agents[matches[0]!.targetAgentId];
-      return agent ? { kind: "resolved", agent } : { kind: "unknown", label: `ref:${bindingRef}` };
+      const flight = matches[0]!;
+      const agent = snapshot.agents[flight.targetAgentId];
+      if (agent) {
+        return { kind: "resolved", agent };
+      }
+      return resolveSessionTarget(snapshot, flight.targetAgentId, {
+        helpers: options.helpers,
+      });
     }
     if (matches.length > 1) {
       return {
