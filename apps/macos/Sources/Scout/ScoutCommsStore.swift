@@ -35,6 +35,7 @@ final class ScoutCommsStore: ObservableObject {
     private var knownChannelIds: Set<String> = []
     private var pollTask: Task<Void, Never>?
     private var channelsTask: Task<Void, Never>?
+    private var channelsRequestId: UUID?
     private var messagesTask: Task<Void, Never>?
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
@@ -118,6 +119,7 @@ final class ScoutCommsStore: ObservableObject {
         readCursorTask?.cancel()
         activeTurnTask?.cancel()
         channelsTask = nil
+        channelsRequestId = nil
         messagesTask = nil
         agentsTask = nil
         observeTask = nil
@@ -140,20 +142,21 @@ final class ScoutCommsStore: ObservableObject {
     }
 
     func selectChannel(_ cId: String) {
-        guard selectedCId != cId else { return }
-        selectedCId = cId
-        selectedAgentId = channels.first(where: { $0.cId == cId })?.agentId
+        let resolvedCId = Self.channel(in: channels, matching: cId)?.cId ?? cId
+        guard selectedCId != resolvedCId else { return }
+        selectedCId = resolvedCId
+        selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
         messages = []
         // Drop the prior conversation's in-flight row immediately so it can't
         // flash on the new thread; the fire-now fetch repopulates if this one
         // is mid-turn rather than waiting for the next poll tick.
         activeTurn = nil
-        loadActiveTurn(cId: cId)
+        loadActiveTurn(cId: resolvedCId)
         loadMessages()
         // Opening a conversation reads it. Fire immediately (timestamp-based) so
         // unread clears even before the message list lands; loadMessages() will
         // re-advance to the exact latest id once messages arrive.
-        markConversationRead(cId: cId)
+        markConversationRead(cId: resolvedCId)
     }
 
     func selectAgent(_ agentId: String) {
@@ -321,11 +324,18 @@ final class ScoutCommsStore: ObservableObject {
     }
 
     private func loadChannels(force: Bool) {
-        if channelsTask != nil { return }
+        if let channelsTask {
+            guard force else { return }
+            channelsTask.cancel()
+            self.channelsTask = nil
+            channelsRequestId = nil
+        }
         if !force, pollTask == nil { return }
         setIfChanged(channels.isEmpty && !attemptedInitialChannelsLoad, to: \.isLoading)
+        let requestId = UUID()
+        channelsRequestId = requestId
         channelsTask = Task { [weak self] in
-            await self?.fetchChannels()
+            await self?.fetchChannels(requestId: requestId)
         }
     }
 
@@ -337,15 +347,19 @@ final class ScoutCommsStore: ObservableObject {
         }
     }
 
-    private func fetchChannels() async {
+    private func fetchChannels(requestId: UUID) async {
         defer {
-            attemptedInitialChannelsLoad = true
-            setIfChanged(false, to: \.isLoading)
-            channelsTask = nil
+            if channelsRequestId == requestId {
+                attemptedInitialChannelsLoad = true
+                setIfChanged(false, to: \.isLoading)
+                channelsTask = nil
+                channelsRequestId = nil
+            }
         }
 
         do {
             let next = try await ScoutCommsClient().fetchChannels(limit: 160)
+            guard channelsRequestId == requestId else { return }
             let incomingIds = Set(next.map(\.cId))
             // The first successful population shouldn't flash every row as "new".
             setIfChanged(knownChannelIds.isEmpty ? [] : incomingIds.subtracting(knownChannelIds), to: \.newChannelIds)
@@ -361,6 +375,12 @@ final class ScoutCommsStore: ObservableObject {
             } else if next != channels {
                 channels = next
             }
+            if let selectedCId,
+               !incomingIds.contains(selectedCId),
+               let canonical = Self.channel(in: next, matching: selectedCId) {
+                setIfChanged(canonical.cId, to: \.selectedCId)
+                setIfChanged(canonical.agentId, to: \.selectedAgentId)
+            }
             let shouldSelectFallback = selectedCId.map { !incomingIds.contains($0) } ?? true
             if shouldSelectFallback {
                 setIfChanged(next.first?.cId, to: \.selectedCId)
@@ -371,6 +391,18 @@ final class ScoutCommsStore: ObservableObject {
         } catch {
             guard !ScoutAppError.isCancellation(error) else { return }
             setIfChanged(Self.userFacingError(error), to: \.lastError)
+        }
+    }
+
+    private static func channel(in channels: [ScoutChannel], matching reference: String) -> ScoutChannel? {
+        let trimmed = reference.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return channels.first { channel in
+            channel.cId == trimmed
+                || channel.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                || channel.participants.contains { participant in
+                    participant.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+                }
         }
     }
 
@@ -553,70 +585,3 @@ struct ScoutBlobUploadResponse: Decodable {
     let fileName: String?
 }
 
-#if os(macOS)
-/// Builds composer images from pasteboard, dropped files, or picked files,
-/// sniffing the media type so the attachment carries a correct MIME.
-enum ScoutImageIntake {
-    static func fromPasteboard() -> [ScoutComposerImage] {
-        let pb = NSPasteboard.general
-        // Copied image files (Finder, etc.) come through as file URLs.
-        if let urls = pb.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingContentsConformToTypes: [UTType.image.identifier]]
-        ) as? [URL], !urls.isEmpty {
-            let images = urls.compactMap(fromFileURL)
-            if !images.isEmpty { return images }
-        }
-        // Raw PNG bytes (some apps put these directly on the pasteboard).
-        if let data = pb.data(forType: .png) {
-            return [ScoutComposerImage(data: data, mediaType: "image/png", fileName: "pasted-image.png")]
-        }
-        // Screenshots usually land as TIFF — re-encode to PNG.
-        if let tiff = pb.data(forType: .tiff),
-           let rep = NSBitmapImageRep(data: tiff),
-           let png = rep.representation(using: .png, properties: [:]) {
-            return [ScoutComposerImage(data: png, mediaType: "image/png", fileName: "pasted-image.png")]
-        }
-        return []
-    }
-
-    static func fromFileURL(_ url: URL) -> ScoutComposerImage? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        let resolved = mediaType(forExtension: url.pathExtension.lowercased())
-            ?? sniffMediaType(data)
-        guard let resolved, resolved.hasPrefix("image/") else { return nil }
-        return ScoutComposerImage(data: data, mediaType: resolved, fileName: url.lastPathComponent)
-    }
-
-    private static func mediaType(forExtension ext: String) -> String? {
-        switch ext {
-        case "png": return "image/png"
-        case "jpg", "jpeg": return "image/jpeg"
-        case "gif": return "image/gif"
-        case "webp": return "image/webp"
-        case "heic": return "image/heic"
-        case "tiff", "tif": return "image/tiff"
-        case "bmp": return "image/bmp"
-        default: return nil
-        }
-    }
-
-    private static func sniffMediaType(_ data: Data) -> String? {
-        let bytes = [UInt8](data.prefix(12))
-        if bytes.count >= 4, bytes[0] == 0x89, bytes[1] == 0x50, bytes[2] == 0x4E, bytes[3] == 0x47 {
-            return "image/png"
-        }
-        if bytes.count >= 3, bytes[0] == 0xFF, bytes[1] == 0xD8, bytes[2] == 0xFF {
-            return "image/jpeg"
-        }
-        if bytes.count >= 3, bytes[0] == 0x47, bytes[1] == 0x49, bytes[2] == 0x46 {
-            return "image/gif"
-        }
-        if bytes.count >= 12, bytes[0] == 0x52, bytes[1] == 0x49, bytes[2] == 0x46, bytes[3] == 0x46,
-           bytes[8] == 0x57, bytes[9] == 0x45, bytes[10] == 0x42, bytes[11] == 0x50 {
-            return "image/webp"
-        }
-        return nil
-    }
-}
-#endif

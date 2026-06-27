@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   loadProvisionalAgentNamePool,
+  resolveProjectProvisionalAgentName,
   resolveProvisionalAgentName,
 } from "./provisional-agent-names.js";
 
@@ -40,5 +41,23 @@ describe("runtime provisional agent names", () => {
     const allocated = resolveProvisionalAgentName(input);
     expect(resolveProvisionalAgentName(input)).toBe(allocated);
     expect(loadProvisionalAgentNamePool()).toContain(allocated);
+  });
+
+  test("allocates project-prefixed names and treats prefixed handles as occupied", () => {
+    expect(resolveProjectProvisionalAgentName({
+      explicitName: "alpha-reply",
+      occupied: new Set(["project-archimedes"]),
+      startIndex: 0,
+    })).toBe("alpha-reply");
+
+    expect(resolveProjectProvisionalAgentName({
+      occupied: new Set(["project-archimedes"]),
+      startIndex: 0,
+    })).toBe("project-avogadro");
+
+    expect(resolveProjectProvisionalAgentName({
+      occupied: new Set(["archimedes"]),
+      startIndex: 0,
+    })).toBe("project-avogadro");
   });
 });

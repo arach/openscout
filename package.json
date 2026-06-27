@@ -81,6 +81,7 @@
     "landing:build": "cd landing && bun install && bun run build",
     "landing:dev": "cd landing && bun install && bun run dev",
     "docs:agent": "bun scripts/generate-agent-docs.mjs",
+    "logs:event-types": "bun run --cwd packages/agent-sessions event-types",
     "macos:build": "bun ./apps/macos/bin/openscout-menu.ts build",
     "macos:launch": "bun ./apps/macos/bin/openscout-menu.ts launch",
     "macos:restart": "bun ./apps/macos/bin/openscout-menu.ts restart",

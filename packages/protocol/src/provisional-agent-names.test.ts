@@ -67,6 +67,27 @@ describe("provisional agent names", () => {
     expect(offsets.size).toBeGreaterThan(1);
   });
 
+  test("distributes project-session seed offsets across the name pool", () => {
+    const sampleCount = PROVISIONAL_AGENT_NAMES.length * 20;
+    const counts = new Map<string, number>();
+    for (let index = 0; index < sampleCount; index += 1) {
+      const name = PROVISIONAL_AGENT_NAMES[provisionalAgentNameStartIndexForSeed([
+        "cardless-project-session",
+        "operator",
+        "/Users/art/dev/openscout",
+        "codex",
+        index,
+      ])]!;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+
+    const average = sampleCount / PROVISIONAL_AGENT_NAMES.length;
+    const max = Math.max(...counts.values());
+    expect(counts.size).toBe(PROVISIONAL_AGENT_NAMES.length);
+    expect(counts.get("archimedes") ?? 0).toBeLessThan(average * 2);
+    expect(max).toBeLessThanOrEqual(Math.ceil(average * 2));
+  });
+
   test("parses json pool blobs", () => {
     expect(parseProvisionalAgentNamesText("# team\nada\n@grace\n")).toEqual(["ada", "grace"]);
     expect(parseProvisionalAgentNamesJson('["linus", "ada"]')).toEqual(["linus", "ada"]);

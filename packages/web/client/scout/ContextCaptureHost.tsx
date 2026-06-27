@@ -90,7 +90,7 @@ export function ContextCaptureHost({
           <div className="s-capture-drop-card">
             <div className="s-capture-drop-title">Route capture</div>
             <div className="s-capture-drop-copy">
-              Drop a screenshot or video to send it to the right agent or chat.
+              Drop markdown, code, an image, or a video clip to send it to the right agent or chat.
             </div>
           </div>
         </div>

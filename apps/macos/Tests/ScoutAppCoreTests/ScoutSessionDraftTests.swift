@@ -4,7 +4,7 @@ import ScoutCapabilities
 import XCTest
 
 final class ScoutSessionDraftTests: XCTestCase {
-    func testProjectDraftBuildsOneTimeFreshSpec() {
+    func testProjectDraftDefaultsToStickyWithoutAlias() {
         let draft = ScoutSessionDraft(
             title: "New conversation",
             target: .project,
@@ -19,17 +19,17 @@ final class ScoutSessionDraftTests: XCTestCase {
         XCTAssertNil(spec.target?.agentId)
         XCTAssertEqual(spec.execution?.session, .new)
         XCTAssertNil(spec.execution?.targetSessionId)
-        XCTAssertEqual(spec.agent?.persistence, "one_time")
-        XCTAssertNil(spec.agent?.name)
+        XCTAssertEqual(spec.agent?.persistence, "sticky")
+        XCTAssertNil(spec.agent?.handle)
+        XCTAssertNil(spec.agent?.displayName)
         XCTAssertEqual(spec.seed?.instructions, "Investigate startup flow.")
     }
 
-    func testProjectDraftKeepsNamedAgentWhenRequested() {
+    func testProjectDraftSendsAliasWhenProvided() {
         let draft = ScoutSessionDraft(
             title: "New conversation",
             target: .project,
             projectPath: "/repo",
-            keepAgent: true,
             agentName: "  build-runner  ",
             displayName: "  Build Runner  "
         )
@@ -37,7 +37,7 @@ final class ScoutSessionDraftTests: XCTestCase {
         let spec = draft.spec()
 
         XCTAssertEqual(spec.agent?.persistence, "sticky")
-        XCTAssertEqual(spec.agent?.name, "build-runner")
+        XCTAssertEqual(spec.agent?.handle, "build-runner")
         XCTAssertEqual(spec.agent?.displayName, "Build Runner")
     }
 

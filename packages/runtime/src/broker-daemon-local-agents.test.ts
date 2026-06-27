@@ -58,13 +58,19 @@ describe("broker daemon local agent routing", () => {
     expect(response.flight?.state).toBe("queued");
 
     const snapshot = await broker.getJson<{
-      actors: Record<string, { kind: string; metadata?: Record<string, unknown> }>;
+      actors: Record<string, { kind: string; displayName?: string; handle?: string; metadata?: Record<string, unknown> }>;
       agents: Record<string, unknown>;
       endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
     }>(harness.baseUrl, "/v1/snapshot");
+    expect(snapshot.actors[response.targetAgentId!]?.handle).toMatch(/^project-/);
+    expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^Project /);
     expect(snapshot.actors[response.targetAgentId!]).toEqual(expect.objectContaining({
       kind: "session",
-      metadata: expect.objectContaining({ cardless: true, projectRoot }),
+      metadata: expect.objectContaining({
+        cardless: true,
+        handle: expect.stringMatching(/^project-/),
+        projectRoot,
+      }),
     }));
     expect(snapshot.agents[response.targetAgentId!]).toBeUndefined();
     expect(Object.values(snapshot.endpoints)).toEqual(expect.arrayContaining([

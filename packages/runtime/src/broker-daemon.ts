@@ -129,7 +129,7 @@ import { BrokerLocalInvocationService } from "./broker-local-invocation-service.
 import { registerCardlessSession } from "./broker-cardless-session.js";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProvisionalAgentName,
+  resolveProjectProvisionalAgentName,
 } from "./provisional-agent-names.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
@@ -871,7 +871,7 @@ async function createCardlessProjectSessionForDelivery(input: {
   }).length;
   const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(snapshot);
   const requestedHandle = input.projectAgent?.handle?.trim();
-  const provisionalName = resolveProvisionalAgentName({
+  const provisionalName = resolveProjectProvisionalAgentName({
     explicitName: requestedHandle,
     occupied,
     seedParts: [

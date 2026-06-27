@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentLanesView } from "./AgentLanesView.tsx";
 import { readAgentLaneSize } from "./agent-lane-size.ts";
+import { readLaneDeckProfileId } from "./lane-deck.ts";
 
 function readEmbedParam(name: string): string | null {
   const value = new URLSearchParams(window.location.search).get(name)?.trim();
@@ -10,6 +11,7 @@ function readEmbedParam(name: string): string | null {
 
 export function AgentLanesEmbedScreen() {
   const { agents, navigate } = useScout();
+  const profileId = useMemo(() => readLaneDeckProfileId(), []);
   const laneSize = useMemo(() => readAgentLaneSize(), []);
   const filters = useMemo(
     () => ({
@@ -25,6 +27,7 @@ export function AgentLanesEmbedScreen() {
         navigate={navigate}
         agents={agents}
         embedded
+        profileId={profileId}
         laneSize={laneSize}
         harnessFilter={filters.harnessFilter}
         projectFilter={filters.projectFilter}

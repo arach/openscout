@@ -58,6 +58,61 @@ export function resolveProvisionalAgentName(input: {
   });
 }
 
+export function resolvePrefixedProvisionalAgentName(input: {
+  explicitName?: string | null;
+  occupied: ReadonlySet<string> | Iterable<string>;
+  prefix: string;
+  startIndex?: number;
+  seedParts?: Iterable<ProvisionalAgentNameSeedPart>;
+}): string {
+  const explicit = input.explicitName?.trim();
+  if (explicit) {
+    return resolveProvisionalAgentName({
+      explicitName: explicit,
+      occupied: input.occupied,
+      startIndex: input.startIndex,
+      seedParts: input.seedParts,
+    });
+  }
+
+  const prefix = normalizeAgentSelectorSegment(input.prefix);
+  if (!prefix) {
+    throw new Error(`Invalid provisional agent name prefix "${input.prefix}".`);
+  }
+
+  const pool = loadProvisionalAgentNamePool();
+  const occupied = input.occupied instanceof Set
+    ? new Set(input.occupied)
+    : collectOccupiedDefinitionIds(input.occupied);
+  const prefixed = `${prefix}-`;
+  for (const name of Array.from(occupied)) {
+    if (name.startsWith(prefixed)) {
+      const baseName = name.slice(prefixed.length);
+      if (baseName) {
+        occupied.add(baseName);
+      }
+    }
+  }
+  const startIndex = input.startIndex
+    ?? (input.seedParts ? provisionalAgentNameStartIndexForSeed(input.seedParts, pool) : undefined);
+  return `${prefix}-${allocateProvisionalAgentName(occupied, {
+    startIndex,
+    pool,
+  })}`;
+}
+
+export function resolveProjectProvisionalAgentName(input: {
+  explicitName?: string | null;
+  occupied: ReadonlySet<string> | Iterable<string>;
+  startIndex?: number;
+  seedParts?: Iterable<ProvisionalAgentNameSeedPart>;
+}): string {
+  return resolvePrefixedProvisionalAgentName({
+    ...input,
+    prefix: "project",
+  });
+}
+
 export {
   allocateProvisionalAgentName,
   collectOccupiedDefinitionIds,

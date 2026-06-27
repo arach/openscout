@@ -2,12 +2,14 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resolveTextCaptureMediaType } from "../client/lib/capture-attachments.ts";
 
-// Ephemeral, session-scoped image storage. These blobs are caches, not
-// records: they live just long enough for an agent to fetch an attachment the
-// first time it sees a message. We optimize for delivery success (the file is
-// present and fast on first fetch), not durability — if a blob is gone after
-// its TTL, that is expected and fine. Nothing here touches the database.
+// Ephemeral, session-scoped capture storage (markdown, code, images, clips).
+// These blobs are caches, not records: they live just long enough for an agent
+// to fetch an attachment the first time it sees a message. We optimize for
+// delivery success (the file is present and fast on first fetch), not
+// durability — if a blob is gone after its TTL, that is expected and fine.
+// Nothing here touches the database.
 
 const BLOB_DIR = join(tmpdir(), "openscout-image-blobs");
 // Comfortable window so a blob is reliably present on the agent's first fetch.
@@ -80,18 +82,26 @@ async function sweepExpired(now = Date.now()): Promise<void> {
   }
 }
 
-function normalizeMediaType(raw: string): string {
+function normalizeMediaType(raw: string, fileName?: string): string {
   const value = raw.trim().toLowerCase();
-  if (!value.startsWith("image/") && !value.startsWith("video/")) {
-    throw new ImageBlobError("Only image and video attachments are supported", 415);
+  if (value.startsWith("image/") || value.startsWith("video/")) {
+    return value;
   }
-  return value;
+  const resolvedName = fileName?.trim();
+  if (resolvedName) {
+    const textCapture = resolveTextCaptureMediaType(value, resolvedName);
+    if (textCapture) return textCapture;
+  }
+  throw new ImageBlobError(
+    "Only markdown, code, image, and video attachments are supported",
+    415,
+  );
 }
 
 export async function putImageBlob(
   input: PutImageBlobInput,
 ): Promise<PutImageBlobResult> {
-  const mediaType = normalizeMediaType(input.mediaType);
+  const mediaType = normalizeMediaType(input.mediaType, input.fileName);
   if (!input.data) {
     throw new ImageBlobError("Missing image data", 400);
   }

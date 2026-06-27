@@ -494,50 +494,15 @@ struct ScoutSessionComposer: View {
 
     private var contactSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Contact", tint: ScoutPalette.dim)
-            HStack(spacing: HudSpacing.xxs) {
-                contactSegment(keepAgent: false, title: "One-time", icon: "bolt")
-                contactSegment(keepAgent: true, title: "Alias", icon: "at")
-            }
-            .padding(HudSpacing.xxs)
-            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
-            .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin))
-
-            if draft.keepAgent {
-                aliasFields
-            }
-        }
-        .padding(.top, HudSpacing.xs)
-    }
-
-    private func contactSegment(keepAgent: Bool, title: String, icon: String) -> some View {
-        let isSelected = draft.keepAgent == keepAgent
-        return Button {
-            draft.keepAgent = keepAgent
-            if keepAgent { ensureAliasDefaults() }
-        } label: {
-            HStack(spacing: HudSpacing.xs) {
-                Image(systemName: icon)
-                    .font(HudFont.ui(HudTextSize.xxs, weight: .semibold))
-                Text(title)
-                    .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-            }
-            .foregroundStyle(isSelected ? ScoutPalette.bg : ScoutPalette.muted)
-            .frame(maxWidth: .infinity)
-            .frame(height: 26)
-            .background(
-                RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
-                    .fill(isSelected ? ScoutPalette.accent : Color.clear)
+            HudSectionLabel("Alias (optional)", tint: ScoutPalette.dim)
+            aliasTextField(
+                key: "@",
+                placeholder: "Leave blank to assign later",
+                text: $draft.agentName,
+                mono: true
             )
         }
-        .buttonStyle(.plain).scoutPointerCursor()
-    }
-
-    private var aliasFields: some View {
-        HStack(spacing: HudSpacing.sm) {
-            aliasTextField(key: "Alias", placeholder: defaultAgentAlias, text: $draft.agentName, mono: true)
-            aliasTextField(key: "Name", placeholder: defaultAgentDisplayName, text: $draft.displayName)
-        }
+        .padding(.top, HudSpacing.xs)
     }
 
     private func aliasTextField(key: String, placeholder: String, text: Binding<String>, mono: Bool = false) -> some View {
@@ -1202,7 +1167,6 @@ struct ScoutSessionComposer: View {
         draft.target = .project
         draft.projectPath = trimmed
         lastProjectPath = trimmed
-        if draft.keepAgent { ensureAliasDefaults() }
     }
 
     private func selectAgent(_ agent: ScoutAgent) {
@@ -1244,33 +1208,6 @@ struct ScoutSessionComposer: View {
             return projectName(for: path)
         }
         return "No project"
-    }
-
-    private var defaultAgentDisplayName: String {
-        projectName(for: draft.projectPath)
-    }
-
-    private var defaultAgentAlias: String {
-        slug(defaultAgentDisplayName)
-    }
-
-    private func ensureAliasDefaults() {
-        if draft.agentName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            draft.agentName = defaultAgentAlias
-        }
-        if draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            draft.displayName = defaultAgentDisplayName
-        }
-    }
-
-    private func slug(_ value: String) -> String {
-        let lowered = value.lowercased()
-        let scalars = lowered.unicodeScalars.map { scalar -> Character in
-            CharacterSet.alphanumerics.contains(scalar) ? Character(scalar) : "-"
-        }
-        return String(scalars)
-            .split(separator: "-")
-            .joined(separator: "-")
     }
 
     private func agentDetail(_ agent: ScoutAgent) -> String {

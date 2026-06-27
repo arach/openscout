@@ -99,13 +99,13 @@ final class BridgeBrokerClientTests: XCTestCase {
         let spec = SessionInitiationSpec(
             target: .init(projectPath: "/Users/x/dev/openscout"),
             execution: .init(harness: "claude", model: "opus", session: .new),
-            agent: .init(name: "vox"),
+            agent: .init(handle: "vox"),
             seed: .init(instructions: "check status")
         )
         let params = MobileCreateSessionParams(
             workspaceId: spec.target?.projectPath ?? "",
             harness: spec.execution?.harness,
-            agentName: spec.agent?.name,
+            agentName: spec.agent?.handle,
             worktree: nil, profile: nil, branch: nil,
             model: spec.execution?.model,
             forceNew: (spec.execution?.session == .new) ? true : nil,

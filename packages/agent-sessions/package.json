@@ -52,6 +52,7 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test src/*.test.ts src/protocol/*.test.ts src/adapters/*.test.ts src/adapters/**/*.test.ts",
     "adapter:validate-specs": "node ./src/adapters/spec/tools/validate-adapter-specs.mjs",
+    "event-types": "bun ./src/adapters/tools/extract-event-types.ts",
     "codex:extract-protocol": "node ./src/adapters/codex/tools/extract-rust-protocol-spec.mjs",
     "prepack": "npm run build && node ../../scripts/prepare-publish-manifest.mjs .",
     "postpack": "node ../../scripts/restore-publish-manifest.mjs .",

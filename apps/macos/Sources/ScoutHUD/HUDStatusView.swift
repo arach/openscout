@@ -189,6 +189,7 @@ struct HUDStatusView: View {
                 )
                 .opacity(tailMaterialOpacity)
                 tailReadabilityVeil
+                    .opacity(tailPresenceOpacity)
             } else {
                 HUDChrome.canvas
             }
@@ -257,7 +258,6 @@ struct HUDStatusView: View {
                     )
             }
         }
-        .opacity(tailPresenceOpacity)
         .animation(
             .timingCurve(0.18, 0.88, 0.22, 1.0, duration: tailPresenceLifted ? 0.10 : 0.18),
             value: tailPresenceOpacity
@@ -427,9 +427,9 @@ struct HUDStatusView: View {
                     kindColumnWidth: $tailKindColumnWidth
                 )
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-                HUDSizeToggle()
+                HUDSizeToggle(filled: true)
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
-                CheatsheetChip()
+                CheatsheetChip(filled: true)
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 TailDismissButton {
                     onDismiss()
@@ -440,6 +440,27 @@ struct HUDStatusView: View {
         .padding(.horizontal, 13)
         .padding(.top, 8)
         .padding(.bottom, 7)
+        .background(tailMastheadBackground)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HUDChrome.border.opacity(0.78))
+                .frame(height: 0.5)
+        }
+    }
+
+    private var tailMastheadBackground: some View {
+        ZStack {
+            HUDChrome.canvas.opacity(0.96)
+            LinearGradient(
+                colors: [
+                    HUDChrome.canvasAlt.opacity(0.62),
+                    HUDChrome.canvas.opacity(0.98),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        .allowsHitTesting(false)
     }
 
     private var tailCollapsedRail: some View {
@@ -565,7 +586,7 @@ struct HUDStatusView: View {
                 .transition(.opacity)
             case .tail:
                 HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding)
-                    .opacity(tailTreatment == .firehose ? resolvedTailRowOpacity : 1.0)
+                    .opacity(tailContentOpacity)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             case .sessions:
@@ -588,6 +609,11 @@ struct HUDStatusView: View {
         } else {
             HUDAgentsView(agents: agents, activeAgentId: activeAgentId)
         }
+    }
+
+    private var tailContentOpacity: Double {
+        let streamOpacity = tailTreatment == .firehose ? resolvedTailRowOpacity : 1.0
+        return streamOpacity * tailPresenceOpacity
     }
 
     // MARK: - Footer (dateline + hotkey credit)
@@ -772,6 +798,8 @@ private struct LiveDot: View {
 // keymap cheatsheet. Lives here so the discovery affordance never
 // scrolls off-screen with the content.
 private struct CheatsheetChip: View {
+    var filled = false
+
     @ObservedObject private var sheet = HUDCheatsheetState.shared
 
     var body: some View {
@@ -780,6 +808,10 @@ private struct CheatsheetChip: View {
                 .font(HUDType.mono(10, weight: .bold))
                 .foregroundStyle(sheet.visible ? HUDChrome.accent : HUDChrome.inkFaint)
                 .frame(width: 14, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(filled ? HUDChrome.canvasAlt.opacity(sheet.visible ? 0.86 : 0.68) : Color.clear)
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .stroke(sheet.visible ? HUDChrome.accent.opacity(0.7) : HUDChrome.border, lineWidth: 0.5)
@@ -806,7 +838,7 @@ private struct TailCollapseButton: View {
                 .frame(width: 16, height: 16)
                 .background(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.34) : HUDChrome.canvas.opacity(0.16))
+                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.72) : HUDChrome.canvasAlt.opacity(0.68))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -834,7 +866,7 @@ private struct TailDismissButton: View {
                 .frame(width: compact ? 15 : 16, height: compact ? 15 : 16)
                 .background(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.34) : HUDChrome.canvas.opacity(0.12))
+                        .fill(hovered ? HUDChrome.canvasLift.opacity(0.72) : HUDChrome.canvasAlt.opacity(0.64))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -866,7 +898,7 @@ private struct HUDTailTreatmentToggle: View {
                     .frame(width: 48, height: 16)
                     .background(
                         RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                            .fill(selection == treatment ? HUDChrome.canvasAlt : Color.clear)
+                            .fill(selection == treatment ? HUDChrome.canvasLift.opacity(0.50) : Color.clear)
                     )
                     .contentShape(Rectangle())
                 }
@@ -876,7 +908,11 @@ private struct HUDTailTreatmentToggle: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(HUDChrome.border, lineWidth: 0.75)
+                .fill(HUDChrome.canvasAlt.opacity(0.62))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(HUDChrome.border.opacity(0.92), lineWidth: 0.75)
         )
         .help("Tail treatment: \(selection.title). Press T to cycle.")
     }
@@ -899,6 +935,10 @@ private struct HUDTailAppearanceButton: View {
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(showing ? HUDChrome.ink : HUDChrome.inkFaint)
                 .frame(width: 14, height: 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(showing ? HUDChrome.canvasLift.opacity(0.58) : HUDChrome.canvasAlt.opacity(0.66))
+                )
                 .overlay(
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .stroke(showing ? HUDChrome.inkMuted.opacity(0.7) : HUDChrome.border, lineWidth: 0.5)

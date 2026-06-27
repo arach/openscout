@@ -135,7 +135,7 @@ struct HUDTailView: View {
             case .firehose:
                 nativeTailContent
             case .agentLatest:
-                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme))
+                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: state.size))
             }
         }
         .onAppear {
@@ -379,7 +379,14 @@ struct HUDTailView: View {
 
 // MARK: - Web embed
 
-private func hudTailEmbedURL(colorScheme: ColorScheme) -> URL {
+private func hudTailEmbedURL(colorScheme: ColorScheme, hudSize: HUDSize) -> URL {
+    let lanes: String = {
+        switch hudSize {
+        case .compact: return "sm"
+        case .medium: return "md"
+        case .large: return "lg"
+        }
+    }()
     let override = ProcessInfo.processInfo.environment["OPENSCOUT_HUD_TAIL_EMBED_URL"]?
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let base = override.flatMap(URL.init(string:))
@@ -395,6 +402,12 @@ private func hudTailEmbedURL(colorScheme: ColorScheme) -> URL {
     }
     if !items.contains(where: { $0.name == "embed" }) {
         items.append(URLQueryItem(name: "embed", value: "hud"))
+    }
+    if !items.contains(where: { $0.name == "profile" }) {
+        items.append(URLQueryItem(name: "profile", value: "hud.tail"))
+    }
+    if !items.contains(where: { $0.name == "lanes" }) {
+        items.append(URLQueryItem(name: "lanes", value: lanes))
     }
     components.queryItems = items
     return components.url ?? base

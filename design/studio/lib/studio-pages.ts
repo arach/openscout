@@ -1001,7 +1001,7 @@ export const STUDIO_PAGES: StudioPage[] = [
   },
   {
     href: "/studies/workflow-run",
-    label: "Workflow Run Brief",
+    label: "Workflow Topology Lab",
     bucket: "studies",
     surface: "web",
     family: "workflow-observation",
@@ -1011,7 +1011,7 @@ export const STUDIO_PAGES: StudioPage[] = [
       "packages/agent-sessions/src/adapters/claude-code/workflow-topology.ts",
       "packages/runtime/src/tail/claude-source.ts",
     ],
-    blurb: "A concrete run brief for a Claude workflow: parent launch, journal, worker outputs, synthesis, and projection gaps.",
+    blurb: "A live read-only visualization for Claude workflows: parent launch, fan-out workers, journal order, result shape, and topology gaps.",
   },
   {
     href: "/studies/data",

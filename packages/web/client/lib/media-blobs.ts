@@ -1,4 +1,11 @@
 import { api } from "./api.ts";
+import {
+  isRoutableCaptureMediaType,
+  isMarkdownFileName,
+  isCodeFileName,
+  isTextCaptureFileName,
+  resolvedCaptureUploadMediaType,
+} from "./capture-attachments.ts";
 
 export type OutgoingAttachment = {
   mediaType: string;
@@ -14,13 +21,22 @@ export type UploadedMediaBlob = {
   size: number;
 };
 
-export function isRoutableMediaType(mediaType: string): boolean {
-  const type = mediaType.trim().toLowerCase();
-  return type.startsWith("image/") || type.startsWith("video/");
+export {
+  isMarkdownFileName,
+  isCodeFileName,
+  isTextCaptureFileName,
+} from "./capture-attachments.ts";
+
+export function isRoutableMediaType(mediaType: string, fileName?: string): boolean {
+  return isRoutableCaptureMediaType(mediaType, fileName);
 }
 
-export function isRoutableMediaFile(file: Pick<File, "type">): boolean {
-  return isRoutableMediaType(file.type);
+export function isRoutableMediaFile(file: Pick<File, "type" | "name">): boolean {
+  return isRoutableCaptureMediaType(file.type, file.name);
+}
+
+export function resolvedUploadMediaType(file: Pick<File, "type" | "name">): string {
+  return resolvedCaptureUploadMediaType(file);
 }
 
 export function readRoutableFiles(dataTransfer: DataTransfer | null | undefined): File[] {
@@ -30,10 +46,8 @@ export function readRoutableFiles(dataTransfer: DataTransfer | null | undefined)
   const fromItems: File[] = [];
   for (const item of dataTransfer.items) {
     if (item.kind !== "file") continue;
-    const type = item.type.trim().toLowerCase();
-    if (!isRoutableMediaType(type)) continue;
     const file = item.getAsFile();
-    if (file) fromItems.push(file);
+    if (file && isRoutableMediaFile(file)) fromItems.push(file);
   }
   return fromItems;
 }
@@ -57,14 +71,14 @@ function readFileAsBase64(file: File): Promise<string> {
 
 export async function uploadMediaFile(file: File): Promise<UploadedMediaBlob> {
   if (!isRoutableMediaFile(file)) {
-    throw new Error("Only image and video files can be routed.");
+    throw new Error("Only markdown, code, image, and video files can be routed.");
   }
   const data = await readFileAsBase64(file);
   return api<UploadedMediaBlob>("/api/blobs", {
     method: "POST",
     body: JSON.stringify({
       data,
-      mediaType: file.type,
+      mediaType: resolvedUploadMediaType(file),
       fileName: file.name,
     }),
   });
@@ -73,7 +87,7 @@ export async function uploadMediaFile(file: File): Promise<UploadedMediaBlob> {
 export async function uploadMediaFiles(files: File[]): Promise<OutgoingAttachment[]> {
   const routable = files.filter(isRoutableMediaFile);
   if (routable.length === 0) {
-    throw new Error("Drop an image or video to route.");
+    throw new Error("Drop markdown, code, an image, or a video clip to route.");
   }
   const uploaded = await Promise.all(routable.map((file) => uploadMediaFile(file)));
   return uploaded.map((blob, index) => ({

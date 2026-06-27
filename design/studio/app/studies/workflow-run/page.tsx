@@ -1,811 +1,803 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import Link from "next/link";
+import { WorkflowMap } from "./workflow-map";
 
 export const dynamic = "force-dynamic";
 
-const WORKFLOW_DIR =
-  "/Users/art/.claude/projects/-Users-art-dev-talkie/02882166-cd21-42b3-9b01-df8912d441dc/subagents/workflows/wf_edb96359-320";
-
-type JsonlSource = {
-  file: string;
-  found: boolean;
-  count?: number;
-  sizeBytes?: number;
-  entries?: unknown[];
-  parseErrors?: Array<{ line: number; error: string; raw: string }>;
-  error?: string;
+type Search = {
+  run?: string;
+  project?: string;
 };
 
-function messageFromError(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
+type JsonRecord = Record<string, unknown>;
+
+type WorkflowCandidate = {
+  runId: string;
+  workflowDir: string;
+  parentSessionId: string;
+  parentSessionPath: string;
+  projectDir: string;
+  projectLabel: string;
+  mtimeMs: number;
+};
+
+type JournalEvent = {
+  index: number;
+  type: string;
+  key: string | null;
+  agentId: string | null;
+  result: JsonRecord | null;
+  raw: JsonRecord;
+};
+
+type LaunchMeta = {
+  taskId: string | null;
+  summary: string | null;
+  cwd: string | null;
+  scriptPath: string | null;
+  transcriptDir: string | null;
+};
+
+type TraceEvent = {
+  index: number;
+  type: string;
+  role: string | null;
+  tool: string | null;
+  detail: string | null;
+  text: string | null;
+  at: number | null;
+};
+
+type WorkerTrace = {
+  totalEvents: number;
+  firstAt: number | null;
+  typeCounts: Record<string, number>;
+  toolCounts: Record<string, number>;
+  finalText: string | null;
+  head: TraceEvent[];
+  tail: TraceEvent[];
+};
+
+type WorkerNode = {
+  id: string;
+  shortId: string;
+  label: string;
+  kind: "review" | "verification" | "synthesis" | "worker";
+  status: "completed" | "running" | "observed";
+  score: number | null;
+  findingCount: number;
+  eventCount: number;
+  sizeKb: number;
+  model: string | null;
+  latestAt: number | null;
+  startedIndex: number | null;
+  resultIndex: number | null;
+  prompt: string | null;
+  output: string[];
+  sourceFile: string;
+  trace: WorkerTrace;
+};
+
+type WorkflowModel = {
+  candidate: WorkflowCandidate;
+  launch: LaunchMeta;
+  journal: JournalEvent[];
+  workers: WorkerNode[];
+  completedCount: number;
+  runningCount: number;
+  scoreAverage: number | null;
+  startedCount: number;
+  resultCount: number;
+};
+
+const MAX_RECENT_RUNS = 14;
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : null;
 }
 
-function readJsonFileSource(fileName: string) {
-  const file = join(WORKFLOW_DIR, fileName);
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
-  if (!existsSync(file)) {
-    return { file, found: false, error: "missing file" };
-  }
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function statMtimeMs(path: string): number {
   try {
-    return {
-      file,
-      found: true,
-      sizeBytes: statSync(file).size,
-      value: JSON.parse(readFileSync(file, "utf8")) as unknown,
-    };
-  } catch (error) {
-    return { file, found: true, error: messageFromError(error) };
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
   }
 }
 
-function readJsonlSource(fileName: string): JsonlSource {
-  const file = join(WORKFLOW_DIR, fileName);
-
-  if (!existsSync(file)) {
-    return { file, found: false, error: "missing file" };
-  }
-
+function statSizeKb(path: string): number {
   try {
-    const raw = readFileSync(file, "utf8");
-    const entries: unknown[] = [];
-    const parseErrors: JsonlSource["parseErrors"] = [];
+    return Math.max(1, Math.round(statSync(path).size / 1024));
+  } catch {
+    return 0;
+  }
+}
 
-    raw.split(/\r?\n/).forEach((line, index) => {
-      if (!line.trim()) {
-        return;
-      }
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
 
-      try {
-        entries.push(JSON.parse(line) as unknown);
-      } catch (error) {
-        parseErrors.push({
-          line: index + 1,
-          error: messageFromError(error),
-          raw: line,
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function readJsonFile(path: string): JsonRecord | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    return asRecord(parsed);
+  } catch {
+    return null;
+  }
+}
+
+function readJsonl(path: string): JsonRecord[] {
+  if (!isFile(path)) return [];
+  const raw = readFileSync(path, "utf8");
+  const records: JsonRecord[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      const record = asRecord(parsed);
+      if (record) records.push(record);
+    } catch {
+      // Claude writes JSONL while sessions are active; skip partial lines.
+    }
+  }
+  return records;
+}
+
+function compactPath(path: string | null): string {
+  if (!path) return "-";
+  const home = homedir();
+  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+function shortId(value: string | null | undefined, size = 8): string {
+  if (!value) return "-";
+  return value.length > size ? value.slice(0, size) : value;
+}
+
+function formatAgo(ms: number | null): string {
+  if (!ms) return "-";
+  const delta = Math.max(0, Date.now() - ms);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < hour) return `${Math.max(1, Math.round(delta / minute))}m ago`;
+  if (delta < day) return `${Math.round(delta / hour)}h ago`;
+  return `${Math.round(delta / day)}d ago`;
+}
+
+function formatClock(ms: number | null): string {
+  if (!ms) return "-";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(ms));
+}
+
+function formatTime(ms: number | null): string {
+  if (!ms) return "--:--:--";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(new Date(ms));
+}
+
+function contentText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) {
+    return value.map(contentText).filter(Boolean).join(" ");
+  }
+  const record = asRecord(value);
+  if (!record) return "";
+  return [
+    record.text,
+    record.content,
+    record.name,
+    record.summary,
+    record.title,
+  ].map(contentText).filter(Boolean).join(" ");
+}
+
+function eventTimestampMs(record: JsonRecord): number | null {
+  const raw = stringValue(record.timestamp);
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function discoverWorkflowRuns(projectFilter?: string): WorkflowCandidate[] {
+  const projectsRoot = join(homedir(), ".claude", "projects");
+  if (!existsSync(projectsRoot) || !isDirectory(projectsRoot)) return [];
+
+  const runs: WorkflowCandidate[] = [];
+  for (const projectEntry of readdirSync(projectsRoot).sort()) {
+    if (projectFilter && !projectEntry.toLowerCase().includes(projectFilter.toLowerCase())) {
+      continue;
+    }
+    const projectDir = join(projectsRoot, projectEntry);
+    if (!isDirectory(projectDir)) continue;
+
+    for (const sessionEntry of readdirSync(projectDir).sort()) {
+      const sessionDir = join(projectDir, sessionEntry);
+      const workflowsRoot = join(sessionDir, "subagents", "workflows");
+      if (!isDirectory(workflowsRoot)) continue;
+
+      for (const runEntry of readdirSync(workflowsRoot).sort()) {
+        const workflowDir = join(workflowsRoot, runEntry);
+        if (!isDirectory(workflowDir)) continue;
+        runs.push({
+          runId: runEntry,
+          workflowDir,
+          parentSessionId: sessionEntry,
+          parentSessionPath: join(projectDir, `${sessionEntry}.jsonl`),
+          projectDir,
+          projectLabel: projectEntry.replace(/^-Users-[^-]+-dev-/, "").replace(/-/g, "/"),
+          mtimeMs: statMtimeMs(workflowDir),
         });
       }
-    });
+    }
+  }
+
+  return runs.sort((left, right) => right.mtimeMs - left.mtimeMs);
+}
+
+function normalizeJournal(path: string): JournalEvent[] {
+  return readJsonl(path).map((raw, index) => ({
+    index,
+    type: stringValue(raw.type) ?? "event",
+    key: stringValue(raw.key),
+    agentId: stringValue(raw.agentId),
+    result: asRecord(raw.result),
+    raw,
+  }));
+}
+
+function readLaunchMeta(candidate: WorkflowCandidate): LaunchMeta {
+  const empty: LaunchMeta = {
+    taskId: null,
+    summary: null,
+    cwd: null,
+    scriptPath: null,
+    transcriptDir: null,
+  };
+  const parentEvents = readJsonl(candidate.parentSessionPath);
+  for (const event of parentEvents) {
+    const toolUseResult = asRecord(event.toolUseResult);
+    if (stringValue(toolUseResult?.runId) !== candidate.runId) continue;
+    return {
+      taskId: stringValue(toolUseResult?.taskId),
+      summary: stringValue(toolUseResult?.summary),
+      cwd: stringValue(event.cwd),
+      scriptPath: stringValue(toolUseResult?.scriptPath),
+      transcriptDir: stringValue(toolUseResult?.transcriptDir),
+    };
+  }
+  return empty;
+}
+
+function resultTitle(result: JsonRecord | null): string | null {
+  if (!result) return null;
+  return stringValue(result.lens)
+    ?? stringValue(result.title)
+    ?? stringValue(result.summary)
+    ?? stringValue(result.reason)
+    ?? stringValue(result.verdict);
+}
+
+function countResultItems(result: JsonRecord | null): number {
+  if (!result) return 0;
+  return arrayValue(result.findings).length
+    || arrayValue(result.gaps).length
+    || arrayValue(result.punchList).length
+    || arrayValue(result.quickWins).length
+    || arrayValue(result.opportunities).length;
+}
+
+function resultKind(result: JsonRecord | null): WorkerNode["kind"] {
+  if (!result) return "worker";
+  if (asRecord(result.scores) || arrayValue(result.punchList).length > 0) return "synthesis";
+  if (typeof result.real === "boolean" || stringValue(result.refinedFix)) return "verification";
+  if (arrayValue(result.findings).length > 0 || arrayValue(result.gaps).length > 0) return "review";
+  return "worker";
+}
+
+function resultScore(result: JsonRecord | null): number | null {
+  if (!result) return null;
+  const score = numberValue(result.score);
+  if (score !== null) return score;
+  return numberValue(asRecord(result.scores)?.overall);
+}
+
+function resultPreview(result: JsonRecord | null): string[] {
+  if (!result) return [];
+  const direct = [
+    stringValue(result.summary),
+    stringValue(result.reason),
+    stringValue(result.refinedFix),
+  ].filter((value): value is string => Boolean(value));
+  if (direct.length > 0) return direct.map((value) => truncate(value, 220)).slice(0, 2);
+
+  const fromList = [
+    ...arrayValue(result.findings),
+    ...arrayValue(result.gaps),
+    ...arrayValue(result.punchList),
+    ...arrayValue(result.quickWins),
+    ...arrayValue(result.opportunities),
+  ].map((item) => {
+    const record = asRecord(item);
+    return stringValue(record?.title) ?? stringValue(record?.fix) ?? stringValue(item);
+  }).filter((value): value is string => Boolean(value));
+
+  return fromList.map((value) => truncate(value, 180)).slice(0, 3);
+}
+
+function truncate(value: string, max: number): string {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned.length > max ? `${cleaned.slice(0, max - 3)}...` : cleaned;
+}
+
+function toolInputDetail(input: JsonRecord | null): string | null {
+  if (!input) return null;
+  const filePath = stringValue(input.file_path) ?? stringValue(input.path) ?? stringValue(input.notebook_path);
+  if (filePath) return filePath.split("/").slice(-1)[0] ?? filePath;
+  const probe = stringValue(input.pattern)
+    ?? stringValue(input.query)
+    ?? stringValue(input.command)
+    ?? stringValue(input.description)
+    ?? stringValue(input.prompt);
+  return probe ? truncate(probe, 56) : null;
+}
+
+function compactEvent(record: JsonRecord, index: number): TraceEvent {
+  const type = stringValue(record.type) ?? "event";
+  const message = asRecord(record.message);
+  const role = stringValue(message?.role);
+  let tool: string | null = null;
+  let detail: string | null = null;
+  let text: string | null = null;
+
+  const content = message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content) {
+      const blockRecord = asRecord(block);
+      const blockType = stringValue(blockRecord?.type);
+      if (blockType === "tool_use") {
+        tool = stringValue(blockRecord?.name) ?? "tool";
+        detail = toolInputDetail(asRecord(blockRecord?.input));
+      } else if (blockType === "tool_result") {
+        tool = tool ?? "tool_result";
+      } else if (blockType === "text") {
+        const value = stringValue(blockRecord?.text);
+        if (value && !text) text = truncate(value, 96);
+      }
+    }
+  } else if (typeof content === "string" && content.trim()) {
+    text = truncate(content, 96);
+  }
+
+  return { index, type, role, tool, detail, text, at: eventTimestampMs(record) };
+}
+
+function transcriptStats(file: string) {
+  const records = readJsonl(file);
+  const eventCounts: Record<string, number> = {};
+  const toolCounts: Record<string, number> = {};
+  let latestAt: number | null = null;
+  let firstAt: number | null = null;
+  let prompt: string | null = null;
+  let model: string | null = null;
+  let finalText: string | null = null;
+  const events: TraceEvent[] = [];
+
+  records.forEach((record, index) => {
+    const type = stringValue(record.type) ?? "event";
+    eventCounts[type] = (eventCounts[type] ?? 0) + 1;
+    const ts = eventTimestampMs(record);
+    if (ts && (!latestAt || ts > latestAt)) latestAt = ts;
+    if (ts && (!firstAt || ts < firstAt)) firstAt = ts;
+
+    const message = asRecord(record.message);
+    const role = stringValue(message?.role);
+    if (!prompt && role === "user") {
+      prompt = truncate(contentText(message?.content), 260);
+    }
+    const messageModel = stringValue(message?.model);
+    if (messageModel) model = messageModel;
+
+    const content = message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        const blockRecord = asRecord(block);
+        if (stringValue(blockRecord?.type) === "tool_use") {
+          const name = stringValue(blockRecord?.name) ?? "tool";
+          toolCounts[name] = (toolCounts[name] ?? 0) + 1;
+        }
+      }
+      if (role === "assistant") {
+        const text = content
+          .map((block) => (stringValue(asRecord(block)?.type) === "text" ? stringValue(asRecord(block)?.text) : null))
+          .filter((value): value is string => Boolean(value))
+          .join(" ");
+        if (text.trim()) finalText = truncate(text, 360);
+      }
+    } else if (typeof content === "string" && role === "assistant" && content.trim()) {
+      finalText = truncate(content, 360);
+    }
+
+    events.push(compactEvent(record, index));
+  });
+
+  const headSize = 5;
+  const tailSize = 5;
+  const head = events.slice(0, headSize);
+  const tail = events.length > headSize + tailSize ? events.slice(events.length - tailSize) : events.slice(headSize);
+
+  return {
+    records,
+    eventCounts,
+    toolCounts,
+    latestAt,
+    firstAt,
+    prompt,
+    model,
+    finalText,
+    head,
+    tail,
+  };
+}
+
+function buildWorkflowModel(candidate: WorkflowCandidate): WorkflowModel {
+  const journal = normalizeJournal(join(candidate.workflowDir, "journal.jsonl"));
+  const startedByAgent = new Map<string, number>();
+  const resultByAgent = new Map<string, JournalEvent>();
+
+  for (const event of journal) {
+    if (!event.agentId) continue;
+    if (event.type === "started" && !startedByAgent.has(event.agentId)) {
+      startedByAgent.set(event.agentId, event.index);
+    }
+    if (event.type === "result") {
+      resultByAgent.set(event.agentId, event);
+    }
+  }
+
+  const files = readdirSync(candidate.workflowDir)
+    .filter((file) => /^agent-.*\.jsonl$/.test(file))
+    .sort();
+
+  const workers = files.map((file): WorkerNode => {
+    const sourceFile = join(candidate.workflowDir, file);
+    const id = file.replace(/^agent-/, "").replace(/\.jsonl$/, "");
+    const resultEvent = resultByAgent.get(id) ?? null;
+    const result = resultEvent?.result ?? null;
+    const stats = transcriptStats(sourceFile);
+    const meta = readJsonFile(sourceFile.replace(/\.jsonl$/, ".meta.json"));
+    const title = resultTitle(result);
+    const fallbackLabel = stringValue(meta?.agentType) ?? shortId(id);
+    const score = resultScore(result);
 
     return {
-      file,
-      found: true,
-      count: entries.length,
-      sizeBytes: statSync(file).size,
-      entries,
-      parseErrors,
-    };
-  } catch (error) {
-    return { file, found: true, error: messageFromError(error) };
-  }
-}
-
-function asRecord(value: unknown) {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function previewValue(value: unknown, limit = 900) {
-  const text =
-    typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "";
-
-  if (text.length <= limit) {
-    return text;
-  }
-
-  return `${text.slice(0, limit)}\n...<truncated ${text.length - limit} chars>`;
-}
-
-function compactTranscriptEvent(entry: unknown) {
-  const record = asRecord(entry);
-
-  if (!record) {
-    return entry;
-  }
-
-  const message = asRecord(record.message);
-  const content = message?.content;
-
-  return {
-    type: record.type,
-    uuid: record.uuid,
-    timestamp: record.timestamp,
-    agentId: record.agentId,
-    cwd: record.cwd,
-    sessionId: record.sessionId,
-    gitBranch: record.gitBranch,
-    message: message
-      ? {
-          role: message.role,
-          contentKind: Array.isArray(content) ? "array" : typeof content,
-          contentItems: Array.isArray(content) ? content.length : undefined,
-          contentPreview: previewValue(content),
-        }
-      : undefined,
-  };
-}
-
-type WorkerKind = "explore" | "synthesis";
-
-type Worker = {
-  id: string;
-  fullId: string;
-  label: string;
-  kind: WorkerKind;
-  model: string;
-  events: number;
-  sizeKb: number;
-  resultCount: number;
-  summary: string;
-  session: {
-    file: string;
-    cwd: string;
-    externalSessionId: string;
-    latestTimestamp: string;
-    eventCounts: Record<string, number>;
-    tools: string[];
-    promptExcerpt?: string;
-    resultLabel: string;
-    protect?: string[];
-    opportunities?: string[];
-    quickWins?: string[];
-    signatureBet?: string;
-  };
-};
-
-type JournalStep = {
-  n: number;
-  type: "started" | "result";
-  agent: string;
-  label: string;
-  kind?: WorkerKind;
-};
-
-const run = {
-  id: "wf_edb96359-320",
-  name: "talkie-delight-scout",
-  taskId: "wn342iea9",
-  parentSession: "02882166-cd21-42b3-9b01-df8912d441dc",
-  cwd: "/Users/art/dev/talkie",
-  branch: "codex/top-band-study",
-  localTime: "2026-06-03 23:06 -> 23:14 EDT",
-  summary:
-    "Scout every Talkie surface for concrete delight opportunities, then synthesize a prioritized set.",
-  headline:
-    "Talkie is mechanically excellent and visually on-brand, but emotionally flat at the seams. The mag-tape soul lives inside recording, while many state changes are silent and unrewarded.",
-  signatureBet:
-    "The tape transport: a living tape-head needle that travels the whole capture -> read -> play lifecycle.",
-  sourceRefs: {
-    parent:
-      "~/.claude/projects/-Users-art-dev-talkie/02882166...jsonl",
-    runDir:
-      "~/.claude/projects/-Users-art-dev-talkie/02882166.../subagents/workflows/wf_edb96359-320/",
-    script:
-      "~/.claude/projects/-Users-art-dev-talkie/02882166.../workflows/scripts/talkie-delight-scout-wf_edb96359-320.js",
-  },
-};
-
-const workers: Worker[] = [
-  {
-    id: "a9c4a9e0",
-    fullId: "a9c4a9e0f777ab311",
-    label: "AI intelligence",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 46,
-    sizeKb: 267,
-    resultCount: 9,
-    summary:
-      "Capable but transactional. Thinking states exist, but response arrivals and AI edits lack progressive reveal or arrival weight.",
-    session: {
-      file: "agent-a9c4a9e0f777ab311.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:07:38.276Z",
-      eventCounts: { user: 18, attachment: 2, assistant: 26 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: the intelligence layer — Ask AI, compose AI commands, revision, model selection, AI credentials. Read AskAINext, CaptureAICommandsSheet, AICredentialsNext, ComposeStore, and ComposeLocalRevisionService.",
-      resultLabel:
-        "Intelligence layer — Ask AI, Compose AI revisions, AI Commands, AI credentials/model selection",
-      protect: [
-        "Auto-save + undo model respects the user's flow.",
-        "PulsingAccentDot animation is tactful and does not distract from thinking.",
-        "Inline diff in Compose makes edits scannable and reviewable.",
-      ],
-      opportunities: [
-        "Typewriter reveal on Ask AI responses",
-        "Diff arrival flourish in Compose",
-        "Model/provider indicator badge refresh on selection",
-        "AI credential validation celebration",
-      ],
-    },
-  },
-  {
-    id: "a1734246",
-    fullId: "a1734246f3572587f",
-    label: "macOS HUD",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 69,
-    sizeKb: 202,
-    resultCount: 9,
-    summary:
-      "Already crafted and instrument-like. The missing delight is in capture selection feedback, preview collision cues, and timeout/body signals.",
-    session: {
-      file: "agent-a1734246f3572587f.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:08:02.709Z",
-      eventCounts: { user: 23, attachment: 2, assistant: 44 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: the macOS capture HUD + screenshot preview + chrome. Explore apps/macos/Talkie and read the capture HUD, screenshot preview panel, status readout, and chrome/tray views.",
-      resultLabel:
-        "macOS capture HUD + screenshot preview + chrome (PEARL/SLATE/AMBER trio, deck-of-cards stack)",
-      protect: [
-        "Instrument-bay vocabulary reads as milled hardware, not a flat sticker.",
-        "Wallpaper-adaptive palette trio keeps contrast without hardcoded tones.",
-        "Proximity-based opacity ramps feel anticipatory, not reactive.",
-      ],
-      opportunities: [
-        "Snap glow flash on capture mode selection",
-        "Haptic tap on capture mode selection",
-        "Deck-of-cards collision cue when HUD and preview overlap",
-        "Palette warm-up transition when adaptive scheme changes",
-      ],
-    },
-  },
-  {
-    id: "a730169b",
-    fullId: "a730169b55f42a12a",
-    label: "Companion bridge",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 38,
-    sizeKb: 320,
-    resultCount: 16,
-    summary:
-      "Secure and functional, but the pairing handshake and reconnection story feel like networking rather than a magical companion link.",
-    session: {
-      file: "agent-a730169b55f42a12a.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:08:02.910Z",
-      eventCounts: { user: 15, attachment: 2, assistant: 21 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: the Mac<->iPhone companion experience — pairing, connection status, screen mirror, and the deck mirror.",
-      resultLabel:
-        "Mac<->iPhone Companion Experience (Pairing Handshake, Live Connection, Reconnection, Deck Mirror)",
-      protect: [
-        "Pairing phase banner honestly shows where the user is in the process.",
-        "Deck mirror tiles animate on tap with immediate feedback.",
-        "Mag-tape waveform in DeckCockpit is a strong visual identity.",
-      ],
-      opportunities: [
-        "Haptic pulse on successful pairing approval",
-        "Fade + scale-in the pairing phase banner chips",
-        "Haptic feedback on Deck tile fire + visual echo timing",
-        "Animated connection status dot in BridgeDetail",
-      ],
-    },
-  },
-  {
-    id: "a8e09ba9",
-    fullId: "a8e09ba9a883963f0",
-    label: "First run",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 47,
-    sizeKb: 245,
-    resultCount: 7,
-    summary:
-      "The first 60 seconds are clear but under-celebrated. Permissions, sign-in, and first success need earned sensory punctuation.",
-    session: {
-      file: "agent-a8e09ba9a883963f0.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:08:04.492Z",
-      eventCounts: { user: 18, attachment: 2, assistant: 27 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: onboarding, first-run, splash, sign-in, keyboard activation. Focus on the first launch, splash handoff, Sign in with Apple, first recording, and keyboard extension activation.",
-      resultLabel:
-        "Onboarding, First-Run, Splash, Sign-In, Keyboard Activation (iOS)",
-      protect: [
-        "Splash screen stagger creates a feeling of arrival without overload.",
-        "Welcome hero pulse signals life.",
-        "Sign-in auth steps form a satisfying visual state machine.",
-      ],
-      opportunities: [
-        "Tape-head marker on first recording",
-        "Centerline amber glow on permission checkmarks",
-        "Splash -> Home handoff with waveform halo",
-        "Sign-in -> Home completion pulse",
-      ],
-    },
-  },
-  {
-    id: "a7c6f8de",
-    fullId: "a7c6f8de0d035117c",
-    label: "Core loop",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 38,
-    sizeKb: 246,
-    resultCount: 10,
-    summary:
-      "Recording, composing, and dictation are mechanically sound, but key moments like start, stop, and transcript landing are quiet.",
-    session: {
-      file: "agent-a7c6f8de0d035117c.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:08:21.481Z",
-      eventCounts: { user: 15, attachment: 2, assistant: 21 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: the core capture -> compose -> dictation loop. Read CaptureComposeNextView, ComposeNextView, RecordingSheetNext, MinimalDictationOverlayNext, ListeningBubble, VoicePivotButton, RecordingView, and WaveformView.",
-      resultLabel:
-        "Capture -> Compose -> Dictation Loop (RecordingSheetNext, ComposeNextView, WaveformView)",
-      protect: [
-        "WaveformBars staggered sine-wave cycle reads as a real level meter.",
-        "VoicePivotButton brass halo earns expanded/listening states.",
-        "ParticlesWaveformView is voice-reactive, not a static chart.",
-      ],
-      opportunities: [
-        "Tape-head marker synced to waveform playhead during transcription",
-        "Haptic pulse on mic start and recording-stop moments",
-        "Live partial transcription animation",
-        "Waveform bar height easing on arrival",
-      ],
-    },
-  },
-  {
-    id: "afafa731",
-    fullId: "afafa7319133bafb0",
-    label: "Home/library",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 47,
-    sizeKb: 317,
-    resultCount: 13,
-    summary:
-      "Polished hierarchy and spacing, but empty states and row interactions need a stronger first-impression and tactile response.",
-    session: {
-      file: "agent-afafa7319133bafb0.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:08:24.424Z",
-      eventCounts: { user: 18, attachment: 2, assistant: 27 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: home, library, feed, history, and empty states. Read HomeNextView, HomeFeed, LibraryFeed, LibraryNextView, DictationHistoryNext, VoiceMemoDetailNext, and CaptureListSectionNext.",
-      resultLabel: "Home, Library, Dictation History, and Empty States (iOS)",
-      protect: [
-        "Soft brass underline tabs with easeOut animation on Library.",
-        "Content-type glyphs in list rows match the material.",
-        "Haptic copy feedback appears in dictation history entries.",
-      ],
-      opportunities: [
-        "First-empty-memo entrance animation",
-        "Empty state icon idle breath",
-        "Recent/Library row press background flash + haptic snap",
-        "Pull-to-refresh tape-head alignment checkpoint",
-      ],
-    },
-  },
-  {
-    id: "ab7466d9",
-    fullId: "ab7466d90bea3b3f2",
-    label: "Sensory system",
-    kind: "explore",
-    model: "haiku-4-5",
-    events: 102,
-    sizeKb: 260,
-    resultCount: 10,
-    summary:
-      "The foundation is present, but haptics, motion, sound, and waveform identity are scattered rather than a coherent system.",
-    session: {
-      file: "agent-ab7466d90bea3b3f2.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:10:04.041Z",
-      eventCounts: { user: 35, attachment: 2, assistant: 65 },
-      tools: ["Bash", "Read", "StructuredOutput"],
-      promptExcerpt:
-        "SURFACE: the cross-cutting sensory layer — motion, haptics, sound, and the mag-tape waveform identity across the whole iOS app.",
-      resultLabel:
-        "iOS App: Cross-cutting sensory layer (haptics, motion, sound, waveform aesthetic)",
-      protect: [
-        "WalkieFX synth sound design is thoughtfully crafted and modular.",
-        "Particles waveform animation is organic and responsive.",
-        "TalkieStatusDot phosphor pulse is subtle and theme-aware.",
-      ],
-      opportunities: [
-        "Sonic bookends for recording lifecycle",
-        "Haptic stacking by interaction class",
-        "Waveform as system indicator during sync/transcription",
-        "Sync state sonification with tiny tonal rises/falls",
-      ],
-    },
-  },
-  {
-    id: "ad037917",
-    fullId: "ad0379178b9c0022a",
-    label: "Synthesis",
-    kind: "synthesis",
-    model: "opus-4-8",
-    events: 10,
-    sizeKb: 131,
-    resultCount: 7,
-    summary:
-      "Deduped surface reports into seven themes, eight quick wins, and one signature bet around a persistent tape-head transport.",
-    session: {
-      file: "agent-ad0379178b9c0022a.jsonl",
-      cwd: "/Users/art/dev/talkie",
-      externalSessionId: "02882166-cd21-42b3-9b01-df8912d441dc",
-      latestTimestamp: "2026-06-04T03:14:49.447Z",
-      eventCounts: { user: 3, attachment: 2, assistant: 5 },
-      tools: ["StructuredOutput"],
-      resultLabel: "Synthesis",
-      protect: [
-        "WaveformBars staggered sine cycle",
-        "VoicePivotButton brass halo",
-        "ParticlesWaveformView level-proportional spawn",
-      ],
-      opportunities: [
-        "Tape-head marker + permanent amber centerline on the live waveform",
-        "Saved-memo waveform fingerprint instead of a bare checkmark",
-        "Waveform never leaves — it wakes up during sync/transcription",
-        "Per-bar level easing so the waveform reacts with inertia",
-      ],
-      quickWins: [
-        "Tape-head marker + permanent amber centerline on the live waveform",
-        "Haptic taxonomy utility replacing today's uniform .light",
-        "Record-start/stop + dictation-toggle haptics fired on the exact frame",
-        "First-ever-save fanfare gated on a settings flag",
-      ],
-      signatureBet:
-        "The tape transport: a living tape-head needle that travels the whole capture -> read -> play lifecycle",
-    },
-  },
-];
-
-const journal: JournalStep[] = [
-  { n: 1, type: "started", agent: "a7c6f8de", label: "core loop" },
-  { n: 2, type: "started", agent: "a1734246", label: "macOS HUD" },
-  { n: 3, type: "started", agent: "a730169b", label: "companion" },
-  { n: 4, type: "started", agent: "ab7466d9", label: "sensory" },
-  { n: 5, type: "started", agent: "a8e09ba9", label: "first run" },
-  { n: 6, type: "started", agent: "afafa731", label: "home/library" },
-  { n: 7, type: "started", agent: "a9c4a9e0", label: "AI" },
-  { n: 8, type: "result", agent: "a9c4a9e0", label: "9 AI opportunities", kind: "explore" },
-  { n: 9, type: "result", agent: "a1734246", label: "9 HUD opportunities", kind: "explore" },
-  { n: 10, type: "result", agent: "a730169b", label: "16 bridge opportunities", kind: "explore" },
-  { n: 11, type: "result", agent: "a8e09ba9", label: "7 first-run opportunities", kind: "explore" },
-  { n: 12, type: "result", agent: "a7c6f8de", label: "10 core-loop opportunities", kind: "explore" },
-  { n: 13, type: "result", agent: "afafa731", label: "13 home opportunities", kind: "explore" },
-  { n: 14, type: "result", agent: "ab7466d9", label: "10 sensory opportunities", kind: "explore" },
-  { n: 15, type: "started", agent: "ad037917", label: "synthesis" },
-  { n: 16, type: "result", agent: "ad037917", label: "7 themes, 8 quick wins", kind: "synthesis" },
-];
-
-const coverage = [
-  "Workflow group with run id, parent session, task id, transcript directory, and script path.",
-  "Lead parent-session agent plus one observed agent for each workflow transcript.",
-  "Source refs for parent transcript, run directory, journal, script, metadata, and agent transcripts.",
-  "Relationships for member_of, leads, and spawned, enough to draw topology.",
-  "Basic agent status, cwd, model, latest timestamp, event count, and source ref.",
-];
-
-const gaps = [
-  "No first-class workflow_run record with phase timings, status, result summary, and output artifacts.",
-  "Journal results stay buried in source refs instead of becoming run-level worker outputs.",
-  "Worker labels fall back to ids; script labels and surface prompts are not projected into the UI model.",
-  "Synthesis is just another subagent, not the run's final answer or handoff.",
-  "No distinction between workflow bookkeeping files and session transcripts unless each source filters carefully.",
-  "No compact run brief for the operator: objective, fan-out, worker findings, final synthesis, and follow-up actions.",
-];
-
-const quickWins = [
-  "Project worker output summaries from journal.result into the observed topology payload.",
-  "Promote the synthesis result to a workflow-level outcome when it matches the final agent phase.",
-  "Capture script phases and labels as stable metadata, not just source file text.",
-  "Expose workflow run refs as /workflows/:runId or nested inside the existing work detail page.",
-  "Treat journal.jsonl as a workflow event ledger, never as a session transcript.",
-];
-
-const journalSource = readJsonlSource("journal.jsonl");
-
-const runSource = {
-  kind: "workflow_run",
-  derived: run,
-  source: {
-    workflowDir: WORKFLOW_DIR,
-    journal: {
-      file: journalSource.file,
-      found: journalSource.found,
-      count: journalSource.count,
-      sizeBytes: journalSource.sizeBytes,
-      parseErrors: journalSource.parseErrors,
-    },
-    workerFiles: workers.map((worker) => ({
-      agentId: worker.fullId,
-      transcript: join(WORKFLOW_DIR, worker.session.file),
-      meta: join(
-        WORKFLOW_DIR,
-        worker.session.file.replace(/\.jsonl$/, ".meta.json"),
-      ),
-    })),
-  },
-  derivedJournal: journal,
-};
-
-const proposedProjection = {
-  runId: run.id,
-  parentSessionId: run.parentSession,
-  taskId: run.taskId,
-  name: run.name,
-  objective: run.summary,
-  status: "completed",
-  phases: ["fanout", "worker-results", "synthesis"],
-  workers: workers.map((worker) => ({
-    agentId: worker.fullId,
-    label: worker.label,
-    kind: worker.kind,
-    model: worker.model,
-    sourceFile: worker.session.file,
-    output: worker.session.resultLabel,
-  })),
-  outcome: workers.find((worker) => worker.kind === "synthesis")?.session,
-  sourceRefs: run.sourceRefs,
-};
-
-function journalEntrySource(index: number) {
-  return journalSource.entries?.[index] ?? {
-    missingSourceLine: true,
-    derivedFallback: journal[index],
-  };
-}
-
-function workerSource(worker: Worker) {
-  const transcript = readJsonlSource(worker.session.file);
-  const meta = readJsonFileSource(
-    worker.session.file.replace(/\.jsonl$/, ".meta.json"),
-  );
-  const transcriptEntries = transcript.entries ?? [];
-
-  return {
-    kind: "workflow_worker_session",
-    agentId: worker.fullId,
-    label: worker.label,
-    worker: {
-      kind: worker.kind,
-      model: worker.model,
-      events: worker.events,
-      sizeKb: worker.sizeKb,
-      resultCount: worker.resultCount,
-      summary: worker.summary,
-    },
-    derivedSession: worker.session,
-    source: {
-      meta,
-      transcript: {
-        file: transcript.file,
-        found: transcript.found,
-        count: transcript.count,
-        sizeBytes: transcript.sizeBytes,
-        parseErrors: transcript.parseErrors,
-        firstEvents: transcriptEntries.slice(0, 2).map(compactTranscriptEvent),
-        lastEvents: transcriptEntries.slice(-2).map(compactTranscriptEvent),
+      id,
+      shortId: shortId(id),
+      label: title ? truncate(title, 72) : fallbackLabel,
+      kind: resultKind(result),
+      status: resultEvent ? "completed" : startedByAgent.has(id) ? "running" : "observed",
+      score,
+      findingCount: countResultItems(result),
+      eventCount: stats.records.length,
+      sizeKb: statSizeKb(sourceFile),
+      model: stats.model,
+      latestAt: stats.latestAt,
+      startedIndex: startedByAgent.get(id) ?? null,
+      resultIndex: resultEvent?.index ?? null,
+      prompt: stats.prompt,
+      output: resultPreview(result),
+      sourceFile: file,
+      trace: {
+        totalEvents: stats.records.length,
+        firstAt: stats.firstAt,
+        typeCounts: stats.eventCounts,
+        toolCounts: stats.toolCounts,
+        finalText: stats.finalText,
+        head: stats.head,
+        tail: stats.tail,
       },
-    },
+    };
+  }).sort((left, right) => {
+    const leftOrder = left.resultIndex ?? left.startedIndex ?? 9999;
+    const rightOrder = right.resultIndex ?? right.startedIndex ?? 9999;
+    return leftOrder - rightOrder || left.id.localeCompare(right.id);
+  });
+
+  const completedCount = workers.filter((worker) => worker.status === "completed").length;
+  const runningCount = workers.filter((worker) => worker.status === "running").length;
+  const scores = workers.map((worker) => worker.score).filter((score): score is number => score !== null);
+
+  return {
+    candidate,
+    launch: readLaunchMeta(candidate),
+    journal,
+    workers,
+    completedCount,
+    runningCount,
+    scoreAverage: scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : null,
+    startedCount: journal.filter((event) => event.type === "started").length,
+    resultCount: journal.filter((event) => event.type === "result").length,
   };
 }
 
-export default function WorkflowRunStudy() {
-  const exploreWorkers = workers.filter((worker) => worker.kind === "explore");
-  const synthWorker = workers.find((worker) => worker.kind === "synthesis");
+export default async function WorkflowRunStudy({
+  searchParams,
+}: {
+  searchParams: Promise<Search>;
+}) {
+  const sp = await searchParams;
+  const runs = discoverWorkflowRuns(sp.project).slice(0, MAX_RECENT_RUNS);
+  const selected = runs.find((run) => run.runId === sp.run) ?? runs[0] ?? null;
+  const model = selected ? buildWorkflowModel(selected) : null;
+
+  if (!model) {
+    return (
+      <main className="mx-auto max-w-page px-7 py-8">
+        <Header runCount={0} />
+        <section className="rounded-md border border-studio-edge bg-studio-surface p-5">
+          <h2 className="font-display text-[22px] font-medium text-studio-ink">No Claude workflows found</h2>
+          <p className="mt-2 max-w-prose text-[13px] leading-relaxed text-studio-ink-faint">
+            The study looks for workflow runs under <code>~/.claude/projects/*/*/subagents/workflows/*</code>.
+          </p>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-page px-7 py-8">
-      <Header />
-      <Overview />
-      <section className="mb-10 grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-        <ExecutionSpine />
-        <RunOutput synthWorker={synthWorker} />
+      <Header runCount={runs.length} />
+      <RunSelector runs={runs} selected={model.candidate.runId} project={sp.project} />
+      <RunOverview model={model} />
+      <WorkflowMap model={model} />
+      <section className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+        <JournalTimeline journal={model.journal} workers={model.workers} />
+        <WorkerResults workers={model.workers} />
       </section>
-      <WorkerGrid workers={exploreWorkers} />
-      <CoveragePanel />
-      <ModelProposal />
+      <SubagentTraces model={model} />
+      <ModelNotes model={model} />
     </main>
   );
 }
 
-function Header() {
+function Header({ runCount }: { runCount: number }) {
   return (
-    <div className="mb-8 border-b border-studio-edge pb-5">
+    <header className="mb-7 border-b border-studio-edge pb-5">
       <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-        · openscout · workflow observation
+        openscout / claude workflow topology
       </div>
-      <h1 className="mt-1 font-display text-[28px] font-medium leading-none text-studio-ink">
-        Workflow Run Brief
-      </h1>
-      <p className="mt-3 max-w-prose font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-        A design sketch for representing a Claude workflow as one coordinated
-        run: launch context, worker fan-out, journaled results, and final
-        synthesis. Expand any source block to see the JSON underneath the
-        recent Talkie run <code>{run.id}</code>.
-      </p>
-    </div>
+      <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-[30px] font-medium leading-none text-studio-ink">
+            Workflow Topology Lab
+          </h1>
+          <p className="mt-3 max-w-3xl text-[13px] leading-relaxed text-studio-ink-faint">
+            A live read-only renderer for Claude's generated workflow runs: parent session,
+            fan-out workers, journal order, result shape, and source files.
+          </p>
+        </div>
+        <Metric label="recent runs" value={String(runCount)} />
+      </div>
+    </header>
   );
 }
 
-function Overview() {
+function RunSelector({
+  runs,
+  selected,
+  project,
+}: {
+  runs: WorkflowCandidate[];
+  selected: string;
+  project?: string;
+}) {
   return (
-    <section className="mb-10 grid gap-5 xl:grid-cols-[minmax(0,1fr)_440px]">
+    <nav className="mb-5 flex gap-2 overflow-x-auto pb-1" aria-label="Recent Claude workflow runs">
+      {runs.map((run) => {
+        const active = run.runId === selected;
+        const href = `/studies/workflow-run?run=${encodeURIComponent(run.runId)}${project ? `&project=${encodeURIComponent(project)}` : ""}`;
+        return (
+          <Link
+            key={run.workflowDir}
+            href={href}
+            className={`min-w-[190px] rounded-md border px-3 py-2 text-left transition ${
+              active
+                ? "border-scout-accent/50 bg-scout-accent-soft text-studio-ink"
+                : "border-studio-edge bg-studio-surface text-studio-ink-faint hover:border-studio-edge-strong hover:text-studio-ink"
+            }`}
+          >
+            <div className="truncate font-mono text-[10px]">{run.runId}</div>
+            <div className="mt-1 flex items-center justify-between gap-3 font-mono text-[9px] uppercase tracking-ch">
+              <span className="truncate">{run.projectLabel}</span>
+              <span>{formatAgo(run.mtimeMs)}</span>
+            </div>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+function RunOverview({ model }: { model: WorkflowModel }) {
+  return (
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-              run
+              selected run
             </div>
             <h2 className="mt-1 font-display text-[24px] font-medium leading-tight text-studio-ink">
-              {run.name}
+              {model.launch.summary ?? model.candidate.runId}
             </h2>
-            <p className="mt-2 max-w-3xl font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-              {run.summary}
+            <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-studio-ink-faint">
+              {compactPath(model.candidate.workflowDir)}
             </p>
           </div>
-          <StatusBadge label="completed" tone="ok" />
+          <StatusBadge label={model.runningCount > 0 ? "running" : "completed"} tone={model.runningCount > 0 ? "warn" : "ok"} />
         </div>
-
-        <dl className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="run id" value={run.id} />
-          <Metric label="task" value={run.taskId} />
-          <Metric label="workers" value="7 + 1" />
-          <Metric label="journal" value="16 events" />
+        <dl className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <Metric label="workers" value={String(model.workers.length)} />
+          <Metric label="started" value={String(model.startedCount)} />
+          <Metric label="results" value={String(model.resultCount)} />
+          <Metric label="avg score" value={model.scoreAverage ? String(model.scoreAverage) : "-"} />
+          <Metric label="updated" value={formatClock(model.candidate.mtimeMs)} />
         </dl>
-        <SourceDisclosure
-          defaultOpen
-          label="run source"
-          meta="derived object + filesystem refs"
-          value={runSource}
-        />
       </div>
 
       <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
-        <div className="mb-4 text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-          source refs
-        </div>
-        <SourceRow label="parent" value={run.sourceRefs.parent} />
-        <SourceRow label="run dir" value={run.sourceRefs.runDir} />
-        <SourceRow label="script" value={run.sourceRefs.script} />
-        <div className="mt-5 grid grid-cols-2 gap-3 border-t border-studio-edge pt-4">
-          <Metric label="cwd" value={run.cwd.split("/").slice(-2).join("/")} />
-          <Metric label="time" value={run.localTime} />
+        <SectionHead title="Source" meta="read-only" />
+        <div className="mt-4 grid gap-3">
+          <SourceRow label="project" value={model.candidate.projectLabel} />
+          <SourceRow label="parent" value={shortId(model.candidate.parentSessionId, 12)} />
+          <SourceRow label="task" value={model.launch.taskId ?? "-"} />
+          <SourceRow label="cwd" value={compactPath(model.launch.cwd)} />
+          <SourceRow label="script" value={compactPath(model.launch.scriptPath)} />
         </div>
       </div>
     </section>
   );
 }
 
-function ExecutionSpine() {
+function JournalTimeline({
+  journal,
+  workers,
+}: {
+  journal: JournalEvent[];
+  workers: WorkerNode[];
+}) {
+  const workerById = new Map(workers.map((worker) => [worker.id, worker]));
   return (
     <section className="rounded-md border border-studio-edge bg-studio-surface p-5">
-      <SectionHead title="Execution spine" meta="journal.jsonl -> run lifecycle" />
-      <div className="mt-5 grid gap-2">
-        {journal.map((step, index) => (
-          <div
-            key={step.n}
-            className="rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2"
-          >
-            <div className="grid grid-cols-[34px_88px_minmax(0,1fr)] items-center gap-3">
+      <SectionHead title="Journal timeline" meta={`${journal.length} events`} />
+      <div className="mt-5 grid max-h-[640px] gap-2 overflow-auto pr-1">
+        {journal.map((event) => {
+          const worker = event.agentId ? workerById.get(event.agentId) : null;
+          const result = event.type === "result";
+          return (
+            <div
+              key={`${event.index}:${event.agentId ?? "event"}`}
+              className="grid grid-cols-[34px_78px_minmax(0,1fr)] items-center gap-3 rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2"
+            >
               <span className="font-mono text-[10px] text-studio-ink-faint">
-                {String(step.n).padStart(2, "0")}
+                {String(event.index + 1).padStart(2, "0")}
               </span>
               <span
                 className={`inline-flex h-6 items-center justify-center rounded-sm border px-2 font-mono text-[9px] uppercase tracking-ch ${
-                  step.type === "result"
+                  result
                     ? "border-scout-accent/40 bg-scout-accent-soft text-scout-accent"
                     : "border-studio-edge-strong bg-studio-canvas text-studio-ink-faint"
                 }`}
               >
-                {step.type}
+                {event.type}
               </span>
               <div className="min-w-0">
                 <div className="flex min-w-0 items-baseline gap-2">
                   <span className="font-mono text-[10px] text-studio-ink-muted">
-                    {step.agent}
+                    {shortId(event.agentId, 8)}
                   </span>
-                  <span className="truncate font-sans text-[13px] text-studio-ink">
-                    {step.label}
+                  <span className="truncate text-[13px] text-studio-ink">
+                    {worker?.label ?? event.key ?? "workflow event"}
                   </span>
                 </div>
               </div>
             </div>
-            <SourceDisclosure
-              compact
-              label={`journal line ${step.n}`}
-              meta={journalSource.file.split("/").pop()}
-              value={journalEntrySource(index)}
-            />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function RunOutput({ synthWorker }: { synthWorker?: Worker }) {
+function WorkerResults({ workers }: { workers: WorkerNode[] }) {
+  const sorted = [...workers].sort((left, right) => {
+    const scoreDelta = (right.score ?? -1) - (left.score ?? -1);
+    if (scoreDelta !== 0) return scoreDelta;
+    return right.findingCount - left.findingCount || left.shortId.localeCompare(right.shortId);
+  });
   return (
-    <aside className="rounded-md border border-studio-edge bg-studio-surface p-5">
-      <SectionHead title="Final synthesis" meta="promote this to run outcome" />
-      <p className="mt-5 font-display text-[19px] leading-snug text-studio-ink">
-        {run.headline}
-      </p>
-      <div className="mt-5 rounded border border-scout-accent/40 bg-scout-accent-soft p-4">
-        <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-scout-accent">
-          signature bet
-        </div>
-        <p className="mt-2 font-sans text-[13px] leading-relaxed text-studio-ink">
-          {run.signatureBet}
-        </p>
-      </div>
-      {synthWorker ? (
-        <>
-          <div className="mt-5 grid grid-cols-3 gap-2">
-            <Metric label="themes" value={String(synthWorker.resultCount)} />
-            <Metric label="quick wins" value="8" />
-            <Metric label="model" value={synthWorker.model} />
-          </div>
-          <SourceDisclosure
-            label="synthesis source"
-            meta={synthWorker.session.file}
-            value={workerSource(synthWorker)}
-          />
-        </>
-      ) : null}
-    </aside>
-  );
-}
-
-function WorkerGrid({ workers: items }: { workers: Worker[] }) {
-  return (
-    <section className="mb-10">
-      <SectionHead title="Worker findings" meta="seven parallel surface scouts" />
-      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {items.map((worker) => (
-          <article
-            key={worker.id}
-            className="rounded-md border border-studio-edge bg-studio-surface p-4"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
+    <section className="rounded-md border border-studio-edge bg-studio-surface p-5">
+      <SectionHead title="Worker results" meta="ranked by score/items" />
+      <div className="mt-5 grid max-h-[640px] gap-3 overflow-auto pr-1">
+        {sorted.map((worker) => (
+          <article key={worker.id} className="rounded border border-studio-edge bg-studio-canvas-alt p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
                 <div className="font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint">
-                  {worker.id}
+                  {worker.shortId} / {worker.kind}
                 </div>
-                <h3 className="mt-1 font-display text-[18px] font-medium leading-tight text-studio-ink">
+                <h3 className="mt-1 truncate font-display text-[17px] font-medium text-studio-ink">
                   {worker.label}
                 </h3>
               </div>
-              <StatusBadge label={`${worker.resultCount} opps`} tone="neutral" />
+              <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge
+                  label={worker.score !== null ? `score ${worker.score}` : `${worker.findingCount} items`}
+                  tone={worker.status === "completed" ? "ok" : "warn"}
+                />
+                <a
+                  href={`#trace-${worker.shortId}`}
+                  className="rounded-sm border border-studio-edge bg-studio-canvas px-2 py-1 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint transition hover:border-scout-accent/50 hover:text-studio-ink"
+                >
+                  trace ↓
+                </a>
+              </div>
             </div>
-            <p className="mt-3 min-h-[72px] font-sans text-[13px] leading-relaxed text-studio-ink-faint">
-              {worker.summary}
-            </p>
-            <div className="mt-4 grid grid-cols-3 gap-2 border-t border-studio-edge pt-3">
-              <Metric label="events" value={String(worker.events)} />
+            {worker.output.length > 0 ? (
+              <ul className="mt-3 grid gap-1.5">
+                {worker.output.map((line) => (
+                  <li key={line} className="text-[12.5px] leading-relaxed text-studio-ink-faint">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            ) : worker.prompt ? (
+              <p className="mt-3 text-[12.5px] leading-relaxed text-studio-ink-faint">
+                {worker.prompt}
+              </p>
+            ) : null}
+            <dl className="mt-3 grid grid-cols-4 gap-2 border-t border-studio-edge pt-3">
+              <Metric label="events" value={String(worker.eventCount)} />
               <Metric label="size" value={`${worker.sizeKb} KB`} />
-              <Metric label="model" value={worker.model} />
-            </div>
-            <SourceDisclosure
-              label="session source"
-              meta={worker.session.file}
-              value={workerSource(worker)}
-            />
+              <Metric label="model" value={worker.model ? worker.model.replace(/^claude-/, "") : "-"} />
+              <Metric label="latest" value={formatAgo(worker.latestAt)} />
+            </dl>
           </article>
         ))}
       </div>
@@ -813,83 +805,225 @@ function WorkerGrid({ workers: items }: { workers: Worker[] }) {
   );
 }
 
-function CoveragePanel() {
+function SubagentTraces({ model }: { model: WorkflowModel }) {
   return (
-    <section className="mb-10 grid gap-5 lg:grid-cols-2">
-      <ListPanel
-        title="Covered today"
-        meta="observed topology"
-        items={coverage}
-        tone="ok"
-      />
-      <ListPanel
-        title="Missing shape"
-        meta="needed for first-class support"
-        items={gaps}
-        tone="warn"
-      />
-    </section>
-  );
-}
-
-function ModelProposal() {
-  return (
-    <section className="rounded-md border border-studio-edge bg-studio-surface p-5">
-      <SectionHead title="Proposed projection" meta="smallest useful model" />
-      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.2fr]">
-        <div className="rounded border border-studio-edge bg-studio-canvas-alt p-4">
-          <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-            workflow_run
-          </div>
-          <SourceDisclosure
-            defaultOpen
-            compact
-            label="projection source"
-            meta="candidate JSON shape"
-            value={proposedProjection}
-          />
-        </div>
-        <ListPanel
-          title="Near-term UI moves"
-          meta="good enough to try"
-          items={quickWins}
-          tone="neutral"
-        />
+    <section className="mt-6 rounded-md border border-studio-edge bg-studio-surface p-5">
+      <SectionHead title="Subagent traces" meta="what each subagent did · execution order" />
+      <p className="mt-2 max-w-3xl text-[12.5px] leading-relaxed text-studio-ink-faint">
+        Each card stays tied to its node in the fan-out map and its rows in the journal. Expand a trace
+        to read the transcript edges without leaving the run context.
+      </p>
+      <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        {model.workers.map((worker) => (
+          <TraceCard key={worker.id} worker={worker} />
+        ))}
       </div>
     </section>
   );
 }
 
-function SourceDisclosure({
-  label,
-  meta,
-  value,
-  defaultOpen = false,
-  compact = false,
-}: {
-  label: string;
-  meta?: string;
-  value: unknown;
-  defaultOpen?: boolean;
-  compact?: boolean;
-}) {
-  const text = JSON.stringify(value, null, 2) ?? String(value);
+function TraceCard({ worker }: { worker: WorkerNode }) {
+  const accentClass =
+    worker.status === "completed"
+      ? "bg-scout-accent"
+      : worker.status === "running"
+        ? "bg-status-warn-fg"
+        : "bg-studio-edge-strong";
+  const journalSpan =
+    worker.startedIndex !== null || worker.resultIndex !== null
+      ? `${worker.startedIndex !== null ? `#${String(worker.startedIndex + 1).padStart(2, "0")}` : "--"} → ${
+          worker.resultIndex !== null ? `#${String(worker.resultIndex + 1).padStart(2, "0")}` : "--"
+        }`
+      : "not in journal";
 
   return (
-    <details
-      className={`${compact ? "mt-2" : "mt-4"} min-w-0 max-w-full rounded border border-studio-edge bg-studio-canvas`}
-      open={defaultOpen}
+    <article
+      id={`trace-${worker.shortId}`}
+      className="scroll-mt-6 rounded-md border border-studio-edge bg-studio-canvas-alt p-4"
     >
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 font-mono text-[10px] uppercase tracking-ch text-studio-ink-muted marker:hidden [&::-webkit-details-marker]:hidden">
-        <span>{label}</span>
-        <span className="truncate text-right text-[9px] text-studio-ink-faint">
-          {meta ?? "json"}
-        </span>
-      </summary>
-      <pre className="max-h-96 min-w-0 max-w-full overflow-auto whitespace-pre-wrap break-words border-t border-studio-edge bg-studio-canvas-alt p-3 font-mono text-[10px] leading-relaxed text-studio-ink-muted">
-        {text}
-      </pre>
-    </details>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+            <span className={`h-1.5 w-1.5 rounded-sm ${accentClass}`} />
+            <span>{worker.shortId}</span>
+            <span className="text-studio-edge-strong">/</span>
+            <span>{worker.kind}</span>
+            <span className="text-studio-edge-strong">/</span>
+            <span>{worker.status}</span>
+          </div>
+          <h3 className="mt-1.5 truncate font-display text-[16px] font-medium text-studio-ink">
+            {worker.label}
+          </h3>
+        </div>
+        <StatusBadge
+          label={worker.score !== null ? `score ${worker.score}` : `${worker.findingCount || worker.eventCount} ${worker.findingCount ? "items" : "events"}`}
+          tone={worker.status === "completed" ? "ok" : "warn"}
+        />
+      </div>
+
+      <dl className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Metric label="journal" value={journalSpan} />
+        <Metric label="model" value={worker.model ? worker.model.replace(/^claude-/, "") : "-"} />
+        <Metric label="window" value={`${formatTime(worker.trace.firstAt)}→${formatTime(worker.latestAt)}`} />
+        <Metric label="events" value={`${worker.trace.totalEvents} / ${worker.sizeKb}KB`} />
+      </dl>
+
+      <TraceHistogram trace={worker.trace} />
+
+      <div className="mt-3 grid gap-2">
+        {worker.prompt ? (
+          <TraceExcerpt label="task prompt" body={worker.prompt} />
+        ) : null}
+        {worker.output.length > 0 ? (
+          <div className="rounded border border-studio-edge bg-studio-canvas px-3 py-2">
+            <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">promoted result</div>
+            <ul className="mt-1.5 grid gap-1">
+              {worker.output.map((line) => (
+                <li key={line} className="text-[12.5px] leading-relaxed text-studio-ink">
+                  {line}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {worker.trace.finalText ? (
+          <TraceExcerpt label="final message" body={worker.trace.finalText} muted />
+        ) : null}
+      </div>
+
+      <details className="group mt-3 rounded border border-studio-edge bg-studio-canvas">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 font-mono text-[10px] uppercase tracking-ch text-studio-ink-faint transition hover:text-studio-ink">
+          <span>transcript · {worker.trace.totalEvents} events</span>
+          <span className="font-mono text-[10px] text-studio-ink-muted group-open:hidden">expand ↓</span>
+          <span className="hidden font-mono text-[10px] text-studio-ink-muted group-open:inline">collapse ↑</span>
+        </summary>
+        <div className="border-t border-studio-edge px-3 py-3">
+          <TranscriptStream trace={worker.trace} sourceFile={worker.sourceFile} />
+        </div>
+      </details>
+    </article>
+  );
+}
+
+function TraceExcerpt({ label, body, muted }: { label: string; body: string; muted?: boolean }) {
+  return (
+    <div className="rounded border border-studio-edge bg-studio-canvas px-3 py-2">
+      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">{label}</div>
+      <p className={`mt-1.5 text-[12.5px] leading-relaxed ${muted ? "text-studio-ink-faint" : "text-studio-ink"}`}>
+        {body}
+      </p>
+    </div>
+  );
+}
+
+function TraceHistogram({ trace }: { trace: WorkerTrace }) {
+  const typeEntries = Object.entries(trace.typeCounts).sort((left, right) => right[1] - left[1]);
+  const toolEntries = Object.entries(trace.toolCounts).sort((left, right) => right[1] - left[1]).slice(0, 6);
+  const maxTool = toolEntries.reduce((max, [, count]) => Math.max(max, count), 0);
+
+  return (
+    <div className="mt-3 rounded border border-studio-edge bg-studio-canvas px-3 py-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] text-studio-ink-faint">
+        <span className="text-[9px] uppercase tracking-ch">event mix</span>
+        {typeEntries.map(([type, count]) => (
+          <span key={type} className="text-studio-ink-muted">
+            {type} <span className="text-studio-ink">{count}</span>
+          </span>
+        ))}
+      </div>
+      {toolEntries.length > 0 ? (
+        <div className="mt-2 grid gap-1">
+          {toolEntries.map(([tool, count]) => (
+            <div key={tool} className="grid grid-cols-[88px_minmax(0,1fr)_28px] items-center gap-2">
+              <span className="truncate font-mono text-[10px] text-studio-ink" title={tool}>{tool}</span>
+              <span className="h-1.5 overflow-hidden rounded-sm bg-studio-canvas-alt">
+                <span
+                  className="block h-full rounded-sm bg-scout-accent/70"
+                  style={{ width: `${maxTool ? Math.max(8, Math.round((count / maxTool) * 100)) : 0}%` }}
+                />
+              </span>
+              <span className="text-right font-mono text-[10px] text-studio-ink-faint">{count}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-1.5 font-mono text-[10px] text-studio-ink-muted">no tool calls recorded</div>
+      )}
+    </div>
+  );
+}
+
+function TranscriptStream({ trace, sourceFile }: { trace: WorkerTrace; sourceFile: string }) {
+  const elided = Math.max(0, trace.totalEvents - trace.head.length - trace.tail.length);
+  return (
+    <div className="grid gap-1.5">
+      <div className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
+        {sourceFile}
+      </div>
+      {trace.head.map((event) => (
+        <TraceEventRow key={`head-${event.index}`} event={event} />
+      ))}
+      {elided > 0 ? (
+        <div className="py-1 text-center font-mono text-[9px] uppercase tracking-ch text-studio-ink-muted">
+          ··· {elided} interior events elided ···
+        </div>
+      ) : null}
+      {elided > 0
+        ? trace.tail.map((event) => <TraceEventRow key={`tail-${event.index}`} event={event} />)
+        : null}
+    </div>
+  );
+}
+
+function TraceEventRow({ event }: { event: TraceEvent }) {
+  const tag = event.tool ?? event.role ?? event.type;
+  const isTool = Boolean(event.tool);
+  const main = isTool
+    ? event.detail
+      ? `${event.detail}`
+      : event.text ?? ""
+    : event.text ?? "";
+  return (
+    <div className="grid grid-cols-[26px_92px_minmax(0,1fr)_62px] items-center gap-2 rounded-sm border border-studio-edge bg-studio-canvas-alt px-2 py-1">
+      <span className="font-mono text-[9px] text-studio-ink-muted">{String(event.index + 1).padStart(2, "0")}</span>
+      <span
+        className={`inline-flex h-5 items-center justify-center truncate rounded-sm border px-1.5 font-mono text-[8.5px] uppercase tracking-ch ${
+          isTool
+            ? "border-scout-accent/40 bg-scout-accent-soft text-scout-accent"
+            : "border-studio-edge-strong bg-studio-canvas text-studio-ink-faint"
+        }`}
+        title={tag}
+      >
+        {tag}
+      </span>
+      <span className="truncate text-[11px] text-studio-ink-faint" title={main || undefined}>
+        {main || (isTool ? "—" : event.type)}
+      </span>
+      <span className="text-right font-mono text-[9px] text-studio-ink-muted">{formatTime(event.at)}</span>
+    </div>
+  );
+}
+
+function ModelNotes({ model }: { model: WorkflowModel }) {
+  const notes = [
+    "The SVG fan-out map is useful for quickly seeing breadth, completion, and result concentration; nodes now jump to the matching trace card.",
+    "The journal timeline is the clearest source of ordering; trace cards cite their journal indices instead of replaying the transcript.",
+    "Subagent trace cards keep prompt, promoted result, final message, and an event histogram in context; the raw transcript stays one disclosure away.",
+    "For production, this wants a workflow detail route backed by the existing observed topology reader, reusing this trace card shape.",
+  ];
+  return (
+    <section className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+      <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
+        <SectionHead title="Visualization read" meta="from this run" />
+        <dl className="mt-5 grid gap-3 sm:grid-cols-2">
+          <Metric label="review workers" value={String(model.workers.filter((worker) => worker.kind === "review").length)} />
+          <Metric label="verifiers" value={String(model.workers.filter((worker) => worker.kind === "verification").length)} />
+          <Metric label="synthesis" value={String(model.workers.filter((worker) => worker.kind === "synthesis").length)} />
+          <Metric label="files read" value={String(model.workers.reduce((sum, worker) => sum + worker.sizeKb, 0)) + " KB"} />
+        </dl>
+      </div>
+      <ListPanel title="Next UI moves" items={notes} />
+    </section>
   );
 }
 
@@ -922,18 +1056,24 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SourceRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 border-t border-studio-edge py-3 first:border-t-0 first:pt-0">
+    <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-3 border-t border-studio-edge py-2 first:border-t-0 first:pt-0">
       <span className="font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
         {label}
       </span>
-      <span className="truncate font-mono text-[10px] text-studio-ink-muted">
+      <span className="truncate font-mono text-[10px] text-studio-ink-muted" title={value}>
         {value}
       </span>
     </div>
   );
 }
 
-function StatusBadge({ label, tone }: { label: string; tone: "ok" | "warn" | "neutral" }) {
+function StatusBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "ok" | "warn" | "neutral";
+}) {
   const cls =
     tone === "ok"
       ? "border-status-ok-fg/40 bg-status-ok-bg text-status-ok-fg"
@@ -947,38 +1087,18 @@ function StatusBadge({ label, tone }: { label: string; tone: "ok" | "warn" | "ne
   );
 }
 
-function ListPanel({
-  title,
-  meta,
-  items,
-  tone,
-}: {
-  title: string;
-  meta: string;
-  items: string[];
-  tone: "ok" | "warn" | "neutral";
-}) {
+function ListPanel({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="rounded-md border border-studio-edge bg-studio-surface p-5">
-      <div className="mb-4 flex items-baseline justify-between gap-4">
-        <div>
-          <h2 className="font-display text-[20px] font-medium tracking-tight text-studio-ink">
-            {title}
-          </h2>
-          <div className="mt-1 font-mono text-[9px] uppercase tracking-ch text-studio-ink-faint">
-            {meta}
-          </div>
-        </div>
-        <StatusBadge label={String(items.length)} tone={tone} />
-      </div>
-      <ul className="grid gap-2">
+      <SectionHead title={title} meta={`${items.length} notes`} />
+      <ul className="mt-5 grid gap-2">
         {items.map((item) => (
           <li
             key={item}
             className="grid grid-cols-[10px_minmax(0,1fr)] gap-3 rounded border border-studio-edge bg-studio-canvas-alt px-3 py-2"
           >
             <span className="mt-[7px] h-1.5 w-1.5 rounded-sm bg-scout-accent" />
-            <span className="font-sans text-[13px] leading-relaxed text-studio-ink-faint">
+            <span className="text-[13px] leading-relaxed text-studio-ink-faint">
               {item}
             </span>
           </li>

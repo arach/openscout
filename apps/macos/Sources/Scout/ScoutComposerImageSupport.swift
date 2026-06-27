@@ -2,6 +2,7 @@ import SwiftUI
 import HudsonUI
 #if os(macOS)
 import AppKit
+import UniformTypeIdentifiers
 
 /// Catches ⌘V at the AppKit level so an image on the pasteboard is staged in
 /// the composer even while the text field holds focus. A focused field's editor
@@ -53,7 +54,7 @@ struct ImagePasteCatcher: NSViewRepresentable {
                       event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
                 // Only claim ⌘V when the pasteboard actually holds an image;
                 // otherwise let the normal text paste proceed untouched.
-                let images = ScoutImageIntake.fromPasteboard()
+                let images = ScoutMediaIntake.fromPasteboard()
                 guard !images.isEmpty else { return event }
                 return self.onPasteImages(images) ? nil : event
             }
@@ -108,6 +109,82 @@ struct ScoutImageLightbox: View {
         }
         .onExitCommand(perform: onDismiss)
         .transition(.opacity)
+    }
+}
+
+/// AppKit-backed drag destination for the attachment drop zone. SwiftUI's
+/// `dropDestination(for: URL.self)` alone often rejects Finder drops unless the
+/// file URL is read under a security scope, and it misses raw image payloads.
+struct ScoutAttachmentDropCatcher: NSViewRepresentable {
+    var onTargeted: (Bool) -> Void
+    var onStageAttachments: ([ScoutComposerImage]) -> Bool
+
+    func makeNSView(context: Context) -> ScoutAttachmentDropView {
+        let view = ScoutAttachmentDropView()
+        view.onTargeted = onTargeted
+        view.onStageAttachments = onStageAttachments
+        return view
+    }
+
+    func updateNSView(_ nsView: ScoutAttachmentDropView, context: Context) {
+        nsView.onTargeted = onTargeted
+        nsView.onStageAttachments = onStageAttachments
+    }
+}
+
+final class ScoutAttachmentDropView: NSView {
+    var onTargeted: (Bool) -> Void = { _ in }
+    var onStageAttachments: ([ScoutComposerImage]) -> Bool = { _ in false }
+
+    private let dragTypes: [NSPasteboard.PasteboardType] = [
+        .fileURL,
+        .png,
+        .tiff,
+        NSPasteboard.PasteboardType(UTType.image.identifier),
+        NSPasteboard.PasteboardType(UTType.movie.identifier),
+        NSPasteboard.PasteboardType(UTType.mpeg4Movie.identifier),
+        NSPasteboard.PasteboardType(UTType.quickTimeMovie.identifier),
+    ] + ScoutMediaIntake.textCapturePasteboardTypes
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        registerForDraggedTypes(dragTypes)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { self }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard canAccept(sender) else {
+            onTargeted(false)
+            return []
+        }
+        onTargeted(true)
+        return .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        canAccept(sender) ? .copy : []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        onTargeted(false)
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onTargeted(false)
+        let media = ScoutMediaIntake.fromPasteboard(sender.draggingPasteboard)
+        guard !media.isEmpty else { return false }
+        return onStageAttachments(media)
+    }
+
+    private func canAccept(_ sender: NSDraggingInfo) -> Bool {
+        let offered = Set(sender.draggingPasteboard.types ?? [])
+        return dragTypes.contains { offered.contains($0) }
     }
 }
 #endif

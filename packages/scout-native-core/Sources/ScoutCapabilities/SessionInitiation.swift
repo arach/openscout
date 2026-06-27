@@ -38,11 +38,11 @@ public struct SessionInitiationSpec: Codable, Sendable, Equatable {
 
     public struct Agent: Codable, Sendable, Equatable {
         public var persistence: String?
-        public var name: String?
+        public var handle: String?
         public var displayName: String?
-        public init(persistence: String? = nil, name: String? = nil, displayName: String? = nil) {
+        public init(persistence: String? = nil, handle: String? = nil, displayName: String? = nil) {
             self.persistence = persistence
-            self.name = name
+            self.handle = handle
             self.displayName = displayName
         }
     }
@@ -77,13 +77,17 @@ public struct SessionInitiationResult: Codable, Sendable, Equatable {
     public var ok: Bool?
     public var conversationId: String?
     public var agentId: String?
+    public var sessionId: String?
+    public var handle: String?
     public var flightId: String?
     public var messageId: String?
 
-    public init(ok: Bool? = nil, conversationId: String? = nil, agentId: String? = nil, flightId: String? = nil, messageId: String? = nil) {
+    public init(ok: Bool? = nil, conversationId: String? = nil, agentId: String? = nil, sessionId: String? = nil, handle: String? = nil, flightId: String? = nil, messageId: String? = nil) {
         self.ok = ok
         self.conversationId = conversationId
         self.agentId = agentId
+        self.sessionId = sessionId
+        self.handle = handle
         self.flightId = flightId
         self.messageId = messageId
     }
