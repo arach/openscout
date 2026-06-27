@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentLanesView } from "./AgentLanesView.tsx";
+import { readAgentLaneSize } from "./agent-lane-size.ts";
 
 function readEmbedParam(name: string): string | null {
   const value = new URLSearchParams(window.location.search).get(name)?.trim();
@@ -9,6 +10,7 @@ function readEmbedParam(name: string): string | null {
 
 export function AgentLanesEmbedScreen() {
   const { agents, navigate } = useScout();
+  const laneSize = useMemo(() => readAgentLaneSize(), []);
   const filters = useMemo(
     () => ({
       harnessFilter: readEmbedParam("harness"),
@@ -23,6 +25,7 @@ export function AgentLanesEmbedScreen() {
         navigate={navigate}
         agents={agents}
         embedded
+        laneSize={laneSize}
         harnessFilter={filters.harnessFilter}
         projectFilter={filters.projectFilter}
       />

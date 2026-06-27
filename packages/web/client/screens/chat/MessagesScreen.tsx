@@ -33,33 +33,51 @@ export function MessagesScreen({
 }
 
 function MessagesEmptyState() {
-  const { onlineCount } = useScout();
+  const { onlineCount, apiConnection, reload } = useScout();
+  const apiOffline = apiConnection.status === "offline";
 
   return (
-    <div className="s-conv-empty">
+    <div className={`s-conv-empty${apiOffline ? " s-conv-empty--offline" : ""}`}>
       <div className="s-conv-empty-inner">
         <EmptyMesh />
-        <div className="s-conv-empty-eyebrow">Conversations</div>
-        <p className="s-conv-empty-title">Nothing open yet</p>
+        <div className="s-conv-empty-eyebrow">
+          {apiOffline ? "Connection" : "Conversations"}
+        </div>
+        <p className="s-conv-empty-title">
+          {apiOffline ? "Scout server offline" : "Nothing open yet"}
+        </p>
         <p className="s-conv-empty-detail">
-          Pick a conversation from the rail to follow the thread, or filter to
-          find the one you want.
+          {apiOffline
+            ? "Start or restart Scout services. Chats and context will appear when the server responds."
+            : "Pick a conversation from the rail to follow the thread, or filter to find the one you want."}
         </p>
 
-        <div className="s-conv-empty-hints">
-          <span className="s-conv-empty-hint">
-            <kbd className="s-conv-empty-kbd">/</kbd>
-            filter the rail
-          </span>
-          <span className="s-conv-empty-hint">
-            <kbd className="s-conv-empty-kbd">⌘K</kbd>
-            command palette
-          </span>
-        </div>
+        {apiOffline ? (
+          <button
+            type="button"
+            className="s-conv-empty-action"
+            onClick={() => void reload()}
+          >
+            Retry connection
+          </button>
+        ) : (
+          <div className="s-conv-empty-hints">
+            <span className="s-conv-empty-hint">
+              <kbd className="s-conv-empty-kbd">/</kbd>
+              filter the rail
+            </span>
+            <span className="s-conv-empty-hint">
+              <kbd className="s-conv-empty-kbd">⌘K</kbd>
+              command palette
+            </span>
+          </div>
+        )}
 
         <div className="s-conv-empty-ambient">
           <span className="s-conv-empty-ambient-dot" aria-hidden="true" />
-          {onlineCount} {onlineCount === 1 ? "agent" : "agents"} active
+          {apiOffline
+            ? "waiting for server"
+            : `${onlineCount} ${onlineCount === 1 ? "agent" : "agents"} active`}
         </div>
       </div>
     </div>

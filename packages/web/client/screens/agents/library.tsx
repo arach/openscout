@@ -4,7 +4,7 @@ import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { SpriteAvatar } from "../../components/SpriteAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
-import { NewChatComposer } from "./NewChatComposer.tsx";
+
 import { AgentSessions } from "./AgentSessions.tsx";
 import { api } from "../../lib/api.ts";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu.tsx";
@@ -78,7 +78,7 @@ export function AgentsLibrary({
   // the REAL inspector renders its card + sessions.
   selectedAgentId?: string;
 }) {
-  const { route, reload } = useScout();
+  const { route, reload, openContextCapture } = useScout();
   const selectedSlug = route.view === "agents" ? route.projectSlug : undefined;
 
   const activeAsksByAgent = useMemo(() => {
@@ -114,7 +114,7 @@ export function AgentsLibrary({
     [projects, selectedSlug],
   );
 
-  const [composerAgentId, setComposerAgentId] = useState<string | null>(null);
+
 
   // Two gestures only, both route-driven — no Provider/shell hacks:
   //   selectAgent  — master-detail. Sets route.agentId (project preserved), so
@@ -131,7 +131,7 @@ export function AgentsLibrary({
       }),
     openAgentPage: (row) =>
       navigate({ view: "agents", agentId: row.agent.id, tab: "profile" }),
-    startSession: (row) => setComposerAgentId(row.agent.id),
+    startSession: (row) => openContextCapture({ agentId: row.agent.id }),
     openSession: (sessionRoute) => navigate(sessionRoute),
     // Retarget reuses the existing agent config editor (model/cwd/harness/…).
     configureAgent: (row) =>
@@ -176,14 +176,6 @@ export function AgentsLibrary({
         gestures={gestures}
         sessions={sessions}
       />
-      {composerAgentId ? (
-        <NewChatComposer
-          agents={agents}
-          navigate={navigate}
-          initialAgentId={composerAgentId}
-          onClose={() => setComposerAgentId(null)}
-        />
-      ) : null}
     </div>
   );
 }

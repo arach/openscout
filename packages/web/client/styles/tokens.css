@@ -53,6 +53,16 @@
   --text-3xl: 18px;
   --text-4xl: 20px;
   --text-5xl: 24px;
+  --text-6xl: 28px;
+  --text-7xl: 34px;
+  --text-8xl: 44px;
+  --text-9xl: 52px;
+
+  /* Fluid display type. Endpoints stay on the whole-pixel scale; the middle
+   * term lets large headings breathe across desktop/mobile widths. */
+  --display-xs: clamp(var(--text-5xl), calc(20px + 1vw), var(--text-6xl));
+  --display-sm: clamp(var(--text-6xl), calc(24px + 1vw), var(--text-7xl));
+  --display-md: clamp(var(--text-7xl), calc(28px + 2vw), var(--text-9xl));
 
   /* ── Tracking (letter-spacing) ─────────────────────────────────────────────
    * Collapses 10+ ad-hoc values. xl (0.18em) is the signature wide eyebrow. */
@@ -67,6 +77,23 @@
   --leading-tight: 1.35;
   --leading-snug: 1.45;
   --leading-normal: 1.5;
+  --leading-display: 1.12;
+
+  /* ── Motion ───────────────────────────────────────────────────────────────
+   * Scope-inspired: short hover transitions, slower state changes, entry
+   * motion only when a surface appears, and a single reduced-motion gate. */
+  --motion-duration-fast: 120ms;
+  --motion-duration-hover: 150ms;
+  --motion-duration-state: 220ms;
+  --motion-duration-enter: 340ms;
+  --motion-duration-reveal: 600ms;
+  --motion-duration-typing: 1100ms;
+  --motion-duration-pulse: 1600ms;
+  --motion-duration-breathe: 2000ms;
+  --motion-duration-scan: 3200ms;
+  --motion-ease-standard: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --motion-ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-linear: linear;
 
   /* ── Layout constants (NOT spacing — never snap these to the scale) ─────────
    * --statusbar-h matches Hudson's SHELL_THEME.layout.statusBarHeight and the

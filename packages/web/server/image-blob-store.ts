@@ -82,8 +82,8 @@ async function sweepExpired(now = Date.now()): Promise<void> {
 
 function normalizeMediaType(raw: string): string {
   const value = raw.trim().toLowerCase();
-  if (!value.startsWith("image/")) {
-    throw new ImageBlobError("Only image attachments are supported", 415);
+  if (!value.startsWith("image/") && !value.startsWith("video/")) {
+    throw new ImageBlobError("Only image and video attachments are supported", 415);
   }
   return value;
 }

@@ -2277,6 +2277,12 @@ button.s-thread-sidebar-participant:focus-visible {
   fill: var(--accent);
 }
 
+.s-conv-empty--offline .s-conv-empty-mesh-node--accent,
+.s-conv-empty--offline .s-conv-empty-ambient-dot {
+  fill: var(--red, #ef4444);
+  background: var(--red, #ef4444);
+}
+
 .s-conv-empty-mesh-link {
   stroke: currentColor;
   stroke-width: 1;
@@ -2314,6 +2320,25 @@ button.s-thread-sidebar-participant:focus-visible {
   justify-content: center;
   gap: var(--space-2xl);
   margin-top: var(--space-5xl);
+}
+
+.s-conv-empty-action {
+  min-height: 30px;
+  margin-top: var(--space-5xl);
+  padding: 0 var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--red, #ef4444) 34%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red, #ef4444) 8%, transparent);
+  color: color-mix(in srgb, var(--red, #ef4444) 86%, var(--ink));
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+}
+
+.s-conv-empty-action:hover {
+  background: color-mix(in srgb, var(--red, #ef4444) 14%, transparent);
+  color: var(--ink);
 }
 
 .s-conv-empty-hint {

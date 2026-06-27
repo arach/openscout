@@ -15,7 +15,7 @@ import {
 import { loadHarnessCatalogSnapshot } from "@openscout/runtime/harness-catalog";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProvisionalAgentName,
+  resolveProjectProvisionalAgentName,
 } from "@openscout/runtime";
 import {
   type ProjectInventoryEntry,
@@ -1032,15 +1032,23 @@ export async function sendScoutMobileMessage(
 
 /** Mint a collision-free provisional agent name from the curated rotation pool. */
 async function deriveNewAgentName(
-  _projectName: string,
-  _branch?: string,
-  _harness?: string,
+  projectName: string,
+  branch?: string,
+  harness?: string,
 ): Promise<string> {
   const broker = await loadScoutBrokerContext();
   const occupied = broker
     ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
     : new Set<string>();
-  return resolveProvisionalAgentName({ occupied });
+  return resolveProjectProvisionalAgentName({
+    occupied,
+    seedParts: [
+      "mobile-new-project-agent",
+      projectName,
+      branch ?? "",
+      harness ?? "",
+    ],
+  });
 }
 
 /**

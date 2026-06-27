@@ -116,7 +116,7 @@
 }
 
 .s-observe--lane .s-observe-row {
-  padding-bottom: var(--space-lg);
+  padding-bottom: var(--space-sm);
   padding-left: var(--space-md);
 }
 
@@ -488,7 +488,7 @@
 .s-observe--lane .s-observe-tool-result {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .s-observe--lane .s-observe-tool {

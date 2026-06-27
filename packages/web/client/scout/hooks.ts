@@ -8,6 +8,7 @@ import { useScout } from "./Provider.tsx";
 import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
+import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -31,7 +32,7 @@ type BuildInfo = {
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
+  const { navigate, agents, reload, openSettings, applyScoutbotUiAction, openContextCapture, route } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
 
@@ -46,6 +47,15 @@ export function useScoutCommands(): CommandOption[] {
 
   return useMemo<CommandOption[]>(() => {
     const commands: CommandOption[] = [
+      {
+        id: "session:new",
+        label: "New Session",
+        action: () => {
+          const context = resolveCaptureRouteContext(route, agents);
+          openContextCapture({ agentId: context.agentId ?? undefined });
+        },
+        shortcut: "Cmd+Shift+N",
+      },
       {
         id: "nav:home",
         label: "Go to Home",
@@ -191,11 +201,11 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, openContextCapture, opsEnabled, route, scoutbotEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {
-  const { onlineCount } = useScout();
+  const { onlineCount, apiConnection } = useScout();
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const [build, setBuild] = useState<BuildInfo | null>(null);
   const requestIdRef = useRef(0);
@@ -244,7 +254,9 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
   })();
 
   return {
-    status: mesh === null
+    status: apiConnection.status === "offline"
+      ? { label: "Scout: OFFLINE", color: "red" }
+      : mesh === null
       ? { label: "Broker: …", color: "neutral" }
       : mesh.health.reachable
         ? { label: "Broker: UP", color: "emerald" }
@@ -255,6 +267,9 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
     },
     mesh: (() => {
       const label = localMachineLabel(mesh);
+      if (apiConnection.status === "offline") {
+        return { label, value: "offline", color: "red" as StatusColor };
+      }
       if (mesh === null) {
         return { label, value: "checking", color: "neutral" as StatusColor };
       }

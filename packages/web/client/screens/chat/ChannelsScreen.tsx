@@ -586,7 +586,8 @@ function ChannelFeed({
             type="submit"
             className="ch-compose-send"
             disabled={!draft.trim() || sending}
-            aria-label="Send message"
+            aria-label="Send message (Cmd+Enter)"
+            title="Send (Cmd+Enter)"
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="2" y1="8" x2="14" y2="8" />

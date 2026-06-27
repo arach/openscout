@@ -15,6 +15,7 @@ import type { Agent, Route } from "../../lib/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
+import { agentLaneSizeClass, type AgentLaneSize } from "./agent-lane-size.ts";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
@@ -23,6 +24,7 @@ import {
   readStoredLaneSummaryHeight,
   useLaneSummaryResize,
 } from "./AgentLaneSummaryResize.tsx";
+import { useAgentLanesKeyboard } from "./useAgentLanesKeyboard.ts";
 import {
   AGENT_LANE_HORIZON_OPTIONS,
   agentLaneHorizonLabel,
@@ -81,6 +83,7 @@ function AgentLaneColumn({
   onSummaryResizeReset,
   summaryResizing,
   onInspect,
+  focusProps,
 }: {
   lane: AgentLane;
   isNew?: boolean;
@@ -92,6 +95,12 @@ function AgentLaneColumn({
   onSummaryResizeReset: () => void;
   summaryResizing?: boolean;
   onInspect: (lane: AgentLane) => void;
+  focusProps?: {
+    "data-cursor"?: boolean;
+    tabIndex: 0 | -1;
+    ref: (node: HTMLElement | null) => void;
+    onFocus: () => void;
+  };
 }) {
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
@@ -106,6 +115,15 @@ function AgentLaneColumn({
   // The proven lane trace (distinguished per-kind rows, enter animations,
   // auto-scroll, hidden scrollbars). Rendered fresh per call so it can sit in
   // both the current column and the new card without sharing an element.
+  const laneRef = focusProps?.ref;
+  const laneFocusRest = focusProps
+    ? {
+        "data-cursor": focusProps["data-cursor"],
+        tabIndex: focusProps.tabIndex,
+        onFocus: focusProps.onFocus,
+      }
+    : undefined;
+
   const renderTrace = () => (
     <section className="s-agent-lane-trace" aria-label={`${lanePrimaryLabel(agent, source)} trace`}>
       <div className="s-agent-lane-body">
@@ -130,7 +148,11 @@ function AgentLaneColumn({
   // The agent lane: the studio-design card (identity header + resizable cockpit
   // overlay) above the live SessionObserve trace.
   return (
-    <article className={`s-agent-lane${liveClass}${newClass}`}>
+    <article
+      ref={laneRef}
+      className={`s-agent-lane${liveClass}${newClass}${focusProps?.["data-cursor"] ? " s-agent-lane--cursor" : ""}`}
+      {...laneFocusRest}
+    >
       <AgentLaneCard
         model={agentLaneToCardModel(lane, { isLive, nowMs })}
         avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
@@ -155,12 +177,14 @@ export function AgentLanesView({
   navigate,
   agents: scoutAgents,
   embedded = false,
+  laneSize = "lg",
   harnessFilter,
   projectFilter,
 }: {
   navigate: (route: Route) => void;
   agents: Agent[];
   embedded?: boolean;
+  laneSize?: AgentLaneSize;
   harnessFilter?: string | null;
   projectFilter?: string | null;
 }) {
@@ -287,9 +311,20 @@ export function AgentLanesView({
     () => embedFilterLabel({ harnessFilter, projectFilter }),
     [harnessFilter, projectFilter],
   );
+  const inspectLane = useCallback((lane: AgentLane) => {
+    setInspectedLaneId(lane.id);
+  }, []);
+  const { getLaneFocusProps } = useAgentLanesKeyboard({
+    lanes: visibleLanes,
+    inspectedLaneId,
+    onInspect: inspectLane,
+    onHorizonChange: setHorizon,
+  });
 
   return (
-    <div className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded" : ""}`}>
+    <div
+      className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded" : ""}${embedded ? ` ${agentLaneSizeClass(laneSize)}` : ""}`}
+    >
       <div className="s-agent-lanes-bar">
         <div className="s-agent-lanes-bar-main">
           <div className="s-agent-lanes-title">Agent Lanes</div>
@@ -299,12 +334,13 @@ export function AgentLanesView({
           </div>
         </div>
         <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
-          {AGENT_LANE_HORIZON_OPTIONS.map((option) => (
+          {AGENT_LANE_HORIZON_OPTIONS.map((option, index) => (
             <button
               key={option.key}
               type="button"
               className={`s-agent-lanes-horizon${horizon === option.key ? " s-agent-lanes-horizon--on" : ""}`}
               aria-pressed={horizon === option.key}
+              title={`${option.label} window (${index + 1})`}
               onClick={() => setHorizon(option.key)}
             >
               {option.label}
@@ -336,8 +372,8 @@ export function AgentLanesView({
               : `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`}
         </div>
       ) : (
-        <div className="s-agent-lanes-scroll">
-          {visibleLanes.map((lane) => (
+        <div className="s-agent-lanes-scroll" role="listbox" aria-label="Active agent lanes">
+          {visibleLanes.map((lane, index) => (
             <AgentLaneColumn
               key={lane.id}
               lane={lane}
@@ -349,7 +385,8 @@ export function AgentLanesView({
               onSummaryResizeStart={handleSummaryResizeStart}
               onSummaryResizeReset={resetSummaryHeight}
               summaryResizing={summaryResizing}
-              onInspect={(target) => setInspectedLaneId(target.id)}
+              onInspect={inspectLane}
+              focusProps={getLaneFocusProps(index, lane.id)}
             />
           ))}
         </div>

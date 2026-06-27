@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import "../../scout/slots/ctx-panel.css";
 import "./agents-rail.css";
 import { filterAgentsByMachineScope } from "../../lib/machine-scope.ts";
 import { routeMachineId } from "../../lib/router.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
-import { NewChatComposer } from "./NewChatComposer.tsx";
 import { useAgentDirectory } from "./useAgentDirectory.ts";
 import { dirProjectNeeds, dirProjectWorking } from "./model.ts";
 
@@ -16,8 +15,7 @@ import { dirProjectNeeds, dirProjectWorking } from "./model.ts";
  * `projectSlug`. The roster lives inside a project now, not in this lane.
  */
 export function AgentsLeft() {
-  const { agents, route, navigate } = useScout();
-  const [composerOpen, setComposerOpen] = useState(false);
+  const { agents, route, navigate, openContextCapture } = useScout();
   const machineId = routeMachineId(route);
   const scopedAgents = useMemo(
     () => filterAgentsByMachineScope(agents, machineId),
@@ -77,7 +75,13 @@ export function AgentsLeft() {
         <button type="button" className="s-rail-icon" title="Search" aria-label="Search" onClick={() => navigate({ view: "search" })}>
           <IcoSearch />
         </button>
-        <button type="button" className="s-rail-icon" title="New chat" aria-label="New chat" onClick={() => setComposerOpen(true)}>
+        <button
+          type="button"
+          className="s-rail-icon"
+          title="New session (⌘⇧N)"
+          aria-label="New session"
+          onClick={() => openContextCapture({ agentId: selectedAgentId })}
+        >
           <IcoPlus />
         </button>
         <button
@@ -91,14 +95,6 @@ export function AgentsLeft() {
         </button>
       </div>
 
-      {composerOpen && (
-        <NewChatComposer
-          agents={scopedAgents}
-          navigate={navigate}
-          onClose={() => setComposerOpen(false)}
-          initialAgentId={selectedAgentId}
-        />
-      )}
     </div>
   );
 }

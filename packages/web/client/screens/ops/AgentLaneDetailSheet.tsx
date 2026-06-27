@@ -13,6 +13,7 @@ import { copyTextToClipboard } from "../../lib/clipboard.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { ObserveData, ObserveEvent, ObserveFile, PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { bashDisplaySpans, splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
+import { isEditableTarget } from "../../lib/keyboard-nav.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { buildAgentLanePreview, filePreviewLabel } from "./agent-lane-preview.ts";
 import {
@@ -776,6 +777,31 @@ export function AgentLaneDetailSheet({
     openContent(navigate, traceRoute, { returnTo: returnRoute });
     onClose();
   }, [navigate, onClose, returnRoute, traceRoute]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (isEditableTarget(event.target)) return;
+      switch (event.key.toLowerCase()) {
+        case "o":
+          event.preventDefault();
+          openSession();
+          break;
+        case "t":
+          event.preventDefault();
+          openTraces();
+          break;
+        case "p":
+          if (!profileRoute) return;
+          event.preventDefault();
+          openProfile();
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openProfile, openSession, openTraces, profileRoute]);
 
   const openDocument = useCallback(
     (documentId: string) => {

@@ -1,5 +1,6 @@
 import type { CSSProperties, Dispatch, RefObject, SetStateAction } from "react";
 import { actorColor } from "../../lib/colors.ts";
+import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
 import { DictationMic } from "../../components/DictationMic.tsx";
 import { SendIcon, StopIcon } from "./conversation-icons.tsx";
 import type {
@@ -172,6 +173,14 @@ export function ConversationComposer({
               setTimeout(closeSuggestions, 120);
             }}
             onKeyDown={(event) => {
+              if (isComposerSendShortcut(event)) {
+                event.preventDefault();
+                if (!sending && draft.trim()) {
+                  onSend();
+                }
+                return;
+              }
+
               const suggestOpen =
                 (slashState.open && filteredSlashCommands.length > 0) ||
                 (mentionState.open && filteredMentions.length > 0);
@@ -232,16 +241,6 @@ export function ConversationComposer({
                   return;
                 }
               }
-              if (
-                event.key !== "Enter" ||
-                event.shiftKey ||
-                event.nativeEvent.isComposing
-              )
-                return;
-              event.preventDefault();
-              if (!sending && draft.trim()) {
-                onSend();
-              }
             }}
             rows={1}
           />
@@ -266,14 +265,15 @@ export function ConversationComposer({
               type="submit"
               className="s-thread-compose-send"
               disabled={sending || !draft.trim()}
+              title="Send (Cmd+Enter)"
               aria-label={
                 composeAction === "ask"
-                  ? "Ask agent"
+                  ? "Ask agent (Cmd+Enter)"
                   : composeAction === "steer"
-                    ? "Steer agent"
+                    ? "Steer agent (Cmd+Enter)"
                     : isDm
-                      ? "Tell agent"
-                      : "Send message"
+                      ? "Tell agent (Cmd+Enter)"
+                      : "Send message (Cmd+Enter)"
               }
             >
               <SendIcon />

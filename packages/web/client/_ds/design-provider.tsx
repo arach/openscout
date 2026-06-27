@@ -19,6 +19,7 @@ const value: any = {
   navigate: () => {},
   agents: [],
   onlineCount: 0,
+  apiConnection: { status: "online", message: null, lastCheckedAt: null },
   reload: async () => {},
   onboarding: null,
   refreshOnboarding: async () => {},
@@ -41,6 +42,8 @@ const value: any = {
   focusSession: () => {},
   openFilePreview: () => {},
   closeFilePreview: () => {},
+  openContextCapture: () => {},
+  closeContextCapture: () => {},
 };
 
 export function DesignProvider({ children }: { children: ReactNode }) {

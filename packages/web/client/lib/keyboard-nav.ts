@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef } from "react";
 
+export {
+  isEditableTarget,
+  isModalShortcutContext,
+  nextListIndex,
+} from "./keyboard-nav-core.ts";
+
+import { isEditableTarget } from "./keyboard-nav-core.ts";
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
@@ -105,11 +113,8 @@ export function usePaneNav() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "[" && e.key !== "]") return;
+      if (isEditableTarget(e.target)) return;
       const target = e.target as HTMLElement | null;
-      const inEditable = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || (target?.isContentEditable ?? false);
-      if (inEditable) return;
       const order = ["left", "center", "right"] as const;
       const dir = e.key === "]" ? 1 : -1;
       const currentIdx = order.findIndex((name) => {
@@ -137,11 +142,7 @@ export function useSlashToFocus(getInput: () => HTMLInputElement | null) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "/") return;
-      const target = e.target as HTMLElement | null;
-      const inEditable = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || (target?.isContentEditable ?? false);
-      if (inEditable) return;
+      if (isEditableTarget(e.target)) return;
       const input = getInput();
       if (!input) return;
       e.preventDefault();

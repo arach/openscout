@@ -24,7 +24,7 @@ import {
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProvisionalAgentName,
+  resolveProjectProvisionalAgentName,
   resolveOpenScoutSupportPaths,
 } from "@openscout/runtime";
 
@@ -5786,7 +5786,16 @@ export async function createOpenScoutWebServer(
       const occupied = broker
         ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
         : new Set<string>();
-      agentHandle = resolveProvisionalAgentName({ occupied });
+      agentHandle = resolveProjectProvisionalAgentName({
+        occupied,
+        seedParts: [
+          "web-session-initiation",
+          resolveOperatorName().trim() || "operator",
+          projectPath ?? currentDirectory ?? "",
+          harness ?? "",
+          model ?? "",
+        ],
+      });
     }
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();

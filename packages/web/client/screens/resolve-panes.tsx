@@ -120,6 +120,9 @@ export function resolveRightPane(route: Route, navigate: Navigate): ReactNode {
       return <SearchRight />;
     case "conversation":
       return <ChatRight />;
+    case "messages":
+    case "conversations":
+      return <ChatRight />;
     case "terminal":
       return <TerminalRight />;
     case "work":
