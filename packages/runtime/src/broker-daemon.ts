@@ -882,7 +882,6 @@ async function createCardlessProjectSessionForDelivery(input: {
       projectSessionIndex,
     ],
   });
-  const displayName = titleCaseName(provisionalName);
   const registered = await registerCardlessSession({
     upsertActor: upsertActorDurably,
     upsertEndpoint: persistEndpoint,
@@ -894,7 +893,6 @@ async function createCardlessProjectSessionForDelivery(input: {
     cwd: projectRoot,
     projectRoot,
     nodeId,
-    displayName,
     ...(input.execution?.model?.trim() ? { model: input.execution.model.trim() } : {}),
   });
   const endpoint = runtime.snapshot().endpoints[registered.endpointId];
@@ -907,7 +905,7 @@ async function createCardlessProjectSessionForDelivery(input: {
       sessionId: registered.sessionId,
       actorId: registered.actorId,
       endpoint,
-      label: displayName,
+      label: provisionalName,
       nodeId: endpoint.nodeId,
     },
   };

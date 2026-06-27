@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { createInMemoryControlRuntime } from "./broker.js";
 import {
   buildCardlessSessionEndpoint,
+  cardlessSessionDisplayName,
   cardlessSessionsForProjectRoot,
   isCardlessSessionEndpoint,
   registerCardlessSession,
@@ -19,6 +20,11 @@ function newRuntime() {
 }
 
 describe("SCO-070 cardless sessions", () => {
+  test("keeps prefixed provisional handles literal in display names", () => {
+    expect(cardlessSessionDisplayName("project-hooke")).toBe("project-hooke");
+    expect(cardlessSessionDisplayName("archimedes")).toBe("Archimedes");
+  });
+
   test("registers a session-kind actor + endpoint with no card", async () => {
     const runtime = newRuntime();
     const result = await registerCardlessSession(runtime, {

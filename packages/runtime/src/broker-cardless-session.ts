@@ -59,6 +59,15 @@ function titleCaseHandle(handle: string): string {
     .join(" ") || handle;
 }
 
+/** Keep routable prefixes literal (project-hooke), not faux agent names (Project Hooke). */
+export function cardlessSessionDisplayName(handle: string): string {
+  const trimmed = handle.trim();
+  if (/^(project|spawn|sess)-/u.test(trimmed)) {
+    return trimmed;
+  }
+  return titleCaseHandle(trimmed);
+}
+
 /** Build the session-kind actor that occupies the identity slot (no card). */
 export function buildCardlessSessionActor(input: CardlessSessionInput): ActorIdentity {
   const projectRoot = resolveCardlessSessionPath(input.projectRoot ?? input.cwd);
@@ -68,7 +77,7 @@ export function buildCardlessSessionActor(input: CardlessSessionInput): ActorIde
   return {
     id: input.sessionId,
     kind: "session",
-    displayName: input.displayName?.trim() || (input.handle?.trim() ? titleCaseHandle(handle) : `${projectName}:${shortId}`),
+    displayName: input.displayName?.trim() || (input.handle?.trim() ? cardlessSessionDisplayName(handle) : `${projectName}:${shortId}`),
     handle,
     labels: ["cardless-session", "session"],
     metadata: {
@@ -92,7 +101,7 @@ export function buildCardlessSessionEndpoint(input: CardlessSessionInput): Agent
   const endpointSessionId = input.pairingSessionId?.trim() || input.sessionId;
   const launchArgs = input.launchArgs?.map((entry) => entry.trim()).filter(Boolean);
   const handle = cleanCardlessSessionHandle(input);
-  const displayName = input.displayName?.trim() || (input.handle?.trim() ? titleCaseHandle(handle) : undefined);
+  const displayName = input.displayName?.trim() || (input.handle?.trim() ? cardlessSessionDisplayName(handle) : undefined);
   return {
     id: `endpoint.${input.sessionId}.${input.nodeId}.${input.transport}`,
     agentId: input.sessionId,

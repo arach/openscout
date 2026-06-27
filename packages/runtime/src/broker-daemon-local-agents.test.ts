@@ -63,7 +63,7 @@ describe("broker daemon local agent routing", () => {
       endpoints: Record<string, { agentId: string; projectRoot?: string; metadata?: Record<string, unknown> }>;
     }>(harness.baseUrl, "/v1/snapshot");
     expect(snapshot.actors[response.targetAgentId!]?.handle).toMatch(/^project-/);
-    expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^Project /);
+    expect(snapshot.actors[response.targetAgentId!]?.displayName).toMatch(/^project-/);
     expect(snapshot.actors[response.targetAgentId!]).toEqual(expect.objectContaining({
       kind: "session",
       metadata: expect.objectContaining({
