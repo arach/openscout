@@ -770,19 +770,19 @@ function PlanContextSection({
 function planRouteForAsk(ask: FleetAsk): Route {
   if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
   if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
-  return { view: "agents", agentId: ask.agentId };
+  return { view: "agents-v2", agentId: ask.agentId };
 }
 
 function planRouteForRun(run: AgentRun): Route {
   if (run.conversationId) return { view: "conversation", conversationId: run.conversationId };
   if (run.workId) return { view: "work", workId: run.workId };
-  return { view: "agents", agentId: run.agentId };
+  return { view: "agents-v2", agentId: run.agentId };
 }
 
 function planRouteForAttention(item: FleetAttentionItem): Route | null {
   if (item.recordId) return { view: "work", workId: item.recordId };
   if (item.conversationId) return { view: "conversation", conversationId: item.conversationId };
-  if (item.agentId) return { view: "agents", agentId: item.agentId };
+  if (item.agentId) return { view: "agents-v2", agentId: item.agentId };
   return null;
 }
 
@@ -899,4 +899,3 @@ function OpsAskButton({
 }
 
 export { OpsInspectorPanel as OpsRight };
-

@@ -7,6 +7,7 @@ import {
   isProvisionalAgentName,
   parseProvisionalAgentNamesJson,
   parseProvisionalAgentNamesText,
+  provisionalAgentNameStartIndexForSeed,
   PROVISIONAL_AGENT_NAMES,
 } from "./provisional-agent-names.js";
 
@@ -44,6 +45,47 @@ describe("provisional agent names", () => {
   test("allocates from a custom pool when provided", () => {
     const occupied = new Set(["ada"]);
     expect(allocateProvisionalAgentName(occupied, { pool: ["ada", "grace"] })).toBe("grace");
+  });
+
+  test("derives a deterministic pool offset from caller, receiver, and index seeds", () => {
+    const seed = ["operator", "/Users/art/dev/openscout", "codex", 3];
+    const first = provisionalAgentNameStartIndexForSeed(seed);
+    expect(provisionalAgentNameStartIndexForSeed(seed)).toBe(first);
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(PROVISIONAL_AGENT_NAMES.length);
+
+    const offsets = new Set(
+      Array.from({ length: 8 }, (_, index) =>
+        provisionalAgentNameStartIndexForSeed([
+          "operator",
+          "/Users/art/dev/openscout",
+          "codex",
+          index,
+        ])
+      ),
+    );
+    expect(offsets.size).toBeGreaterThan(1);
+  });
+
+  test("distributes project-session seed offsets across the name pool", () => {
+    const sampleCount = PROVISIONAL_AGENT_NAMES.length * 20;
+    const counts = new Map<string, number>();
+    for (let index = 0; index < sampleCount; index += 1) {
+      const name = PROVISIONAL_AGENT_NAMES[provisionalAgentNameStartIndexForSeed([
+        "cardless-project-session",
+        "operator",
+        "/Users/art/dev/openscout",
+        "codex",
+        index,
+      ])]!;
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+
+    const average = sampleCount / PROVISIONAL_AGENT_NAMES.length;
+    const max = Math.max(...counts.values());
+    expect(counts.size).toBe(PROVISIONAL_AGENT_NAMES.length);
+    expect(counts.get("archimedes") ?? 0).toBeLessThan(average * 2);
+    expect(max).toBeLessThanOrEqual(Math.ceil(average * 2));
   });
 
   test("parses json pool blobs", () => {

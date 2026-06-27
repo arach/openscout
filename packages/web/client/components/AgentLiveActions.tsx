@@ -123,7 +123,7 @@ export function AgentLiveActions({
     onNavigate?.();
     openContent(
       resolvedNavigate,
-      { view: "agents", agentId: agent.id, tab: "observe" },
+      { view: "agents-v2", agentId: agent.id, tab: "observe" },
       { returnTo: resolvedReturnTo },
     );
   };

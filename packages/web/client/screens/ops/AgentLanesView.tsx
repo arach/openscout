@@ -6,23 +6,31 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
-import type { Agent, Route } from "../../lib/types.ts";
+import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
+import { type AgentLaneSize, readAgentLaneSize } from "./agent-lane-size.ts";
+import { AgentLaneChrome } from "./AgentLaneChrome.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
+import {
+  LaneTraceDetailSheet,
+  type LaneTraceSheetTarget,
+} from "./LaneTraceDetailSheet.tsx";
 import {
   AgentLaneSummaryResizeHandle,
   readStoredLaneSummaryHeight,
   useLaneSummaryResize,
 } from "./AgentLaneSummaryResize.tsx";
+import { useAgentLanesKeyboard } from "./useAgentLanesKeyboard.ts";
 import {
   AGENT_LANE_HORIZON_OPTIONS,
   agentLaneHorizonLabel,
@@ -40,6 +48,19 @@ import {
   type AgentLaneHorizonKey,
   type AgentLaneRosterIssue,
 } from "./agent-lanes-model.ts";
+import {
+  hasAttentionLane,
+  hasHarnessLane,
+  type ResolvedLaneColumn,
+} from "./lane-deck-layout.ts";
+import {
+  readLaneDeckProfileId,
+  snapLaneWidthPx,
+  type AgentLaneWidthTier,
+  type LaneDeckProfileId,
+} from "./lane-deck.ts";
+import { useLaneDeck } from "./useLaneDeck.ts";
+import { useLaneWidthResize } from "./useLaneWidthResize.ts";
 
 const LANE_HORIZON_STORAGE_KEY = "openscout:agent-lanes-horizon";
 
@@ -72,6 +93,11 @@ function AgentLaneIssueRow({ issue }: { issue: AgentLaneRosterIssue }) {
 
 function AgentLaneColumn({
   lane,
+  widthPx,
+  laneTitle,
+  pinned,
+  laneWidth,
+  defaultWidth,
   isNew,
   nowMs,
   traceWindowMs,
@@ -81,8 +107,19 @@ function AgentLaneColumn({
   onSummaryResizeReset,
   summaryResizing,
   onInspect,
+  onTraceEventSelect,
+  onTogglePin,
+  onWidthChange,
+  onWidthResizeStart,
+  widthResizing,
+  focusProps,
 }: {
   lane: AgentLane;
+  widthPx: number;
+  laneTitle: string;
+  pinned: boolean;
+  laneWidth: AgentLaneWidthTier | number | undefined;
+  defaultWidth: AgentLaneWidthTier;
   isNew?: boolean;
   nowMs: number;
   traceWindowMs: number;
@@ -92,6 +129,17 @@ function AgentLaneColumn({
   onSummaryResizeReset: () => void;
   summaryResizing?: boolean;
   onInspect: (lane: AgentLane) => void;
+  onTraceEventSelect: (lane: AgentLane, event: ObserveEvent) => void;
+  onTogglePin: () => void;
+  onWidthChange: (width: AgentLaneWidthTier) => void;
+  onWidthResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  widthResizing?: boolean;
+  focusProps?: {
+    "data-cursor"?: boolean;
+    tabIndex: 0 | -1;
+    ref: (node: HTMLElement | null) => void;
+    onFocus: () => void;
+  };
 }) {
   const { agent, observe, source } = lane;
   const isLive = isAgentLaneLive(observe);
@@ -106,6 +154,15 @@ function AgentLaneColumn({
   // The proven lane trace (distinguished per-kind rows, enter animations,
   // auto-scroll, hidden scrollbars). Rendered fresh per call so it can sit in
   // both the current column and the new card without sharing an element.
+  const laneRef = focusProps?.ref;
+  const laneFocusRest = focusProps
+    ? {
+        "data-cursor": focusProps["data-cursor"],
+        tabIndex: focusProps.tabIndex,
+        onFocus: focusProps.onFocus,
+      }
+    : undefined;
+
   const renderTrace = () => (
     <section className="s-agent-lane-trace" aria-label={`${lanePrimaryLabel(agent, source)} trace`}>
       <div className="s-agent-lane-body">
@@ -119,6 +176,7 @@ function AgentLaneColumn({
             nowMs={nowMs}
             traceWindowMs={traceWindowMs}
             traceWindowLabel={traceWindowLabel}
+            onLaneEventSelect={(event) => onTraceEventSelect(lane, event)}
           />
         ) : (
           <div className="s-agent-lane-empty">Waiting for trace activity…</div>
@@ -130,7 +188,23 @@ function AgentLaneColumn({
   // The agent lane: the studio-design card (identity header + resizable cockpit
   // overlay) above the live SessionObserve trace.
   return (
-    <article className={`s-agent-lane${liveClass}${newClass}`}>
+    <article
+      ref={laneRef}
+      data-lane-id={lane.id}
+      className={`s-agent-lane${liveClass}${newClass}${pinned ? " s-agent-lane--pinned" : ""}${focusProps?.["data-cursor"] ? " s-agent-lane--cursor" : ""}`}
+      style={{ "--lane-width": `${widthPx}px` } as CSSProperties}
+      {...laneFocusRest}
+    >
+      <AgentLaneChrome
+        title={laneTitle}
+        width={laneWidth}
+        defaultWidth={defaultWidth}
+        pinned={pinned}
+        onTogglePin={onTogglePin}
+        onWidthChange={onWidthChange}
+        onResizeStart={onWidthResizeStart}
+        resizing={widthResizing}
+      />
       <AgentLaneCard
         model={agentLaneToCardModel(lane, { isLive, nowMs })}
         avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
@@ -154,10 +228,22 @@ function AgentLaneColumn({
 export function AgentLanesView({
   navigate,
   agents: scoutAgents,
+  embedded = false,
+  laneSize = "lg",
+  profileId: profileIdProp,
+  harnessFilter,
+  projectFilter,
 }: {
   navigate: (route: Route) => void;
   agents: Agent[];
+  embedded?: boolean;
+  laneSize?: AgentLaneSize;
+  profileId?: LaneDeckProfileId;
+  harnessFilter?: string | null;
+  projectFilter?: string | null;
 }) {
+  const profileId = profileIdProp ?? readLaneDeckProfileId();
+  const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
   const [summaryHeight, setSummaryHeight] = useState<number | null>(readStoredLaneSummaryHeight);
@@ -176,6 +262,7 @@ export function AgentLanesView({
     // what's streamed in since the broker started. buildAgentLanes still trims
     // everything to the selected windowMs.
     includeTranscriptReplay: true,
+    discoveryIntervalMs: 5_000,
     recentLimit: tailRecentLimit,
   });
   const returnRoute: Route = { view: "ops", mode: "lanes" };
@@ -272,28 +359,222 @@ export function AgentLanesView({
     () => lanes.find((lane) => lane.id === inspectedLaneId) ?? null,
     [inspectedLaneId, lanes],
   );
+  const filteredLanes = useMemo(
+    () => lanes.filter((lane) => laneMatchesEmbedFilters(lane, { harnessFilter, projectFilter })),
+    [lanes, harnessFilter, projectFilter],
+  );
+  const {
+    deck,
+    layout,
+    pinLane,
+    unpinLane,
+    setLaneWidth,
+    addHarnessLane,
+    addAttentionLane,
+    clearPins,
+    isPinned,
+  } = useLaneDeck(profileId, defaultWidthTier, filteredLanes);
+  const { beginResize: beginWidthResize, resizingLaneId } = useLaneWidthResize(setLaneWidth);
+  const activeFilterLabel = useMemo(
+    () => embedFilterLabel({ harnessFilter, projectFilter }),
+    [harnessFilter, projectFilter],
+  );
+  const visibleColumns = layout.flat;
+  const pinnedCount = layout.pinnedLeft.length + layout.pinnedRight.length;
+  const [traceSheetTarget, setTraceSheetTarget] = useState<LaneTraceSheetTarget | null>(null);
+  const inspectLane = useCallback((lane: AgentLane) => {
+    setInspectedLaneId(lane.id);
+  }, []);
+  const openTraceSheet = useCallback((lane: AgentLane, event: ObserveEvent) => {
+    setTraceSheetTarget({ lane, event });
+  }, []);
+  const { getLaneFocusProps } = useAgentLanesKeyboard({
+    lanes: visibleColumns.map((column) => column.lane),
+    inspectedLaneId,
+    onInspect: inspectLane,
+    onHorizonChange: setHorizon,
+  });
+  const [deckMenuOpen, setDeckMenuOpen] = useState(false);
+  const deckMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!deckMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!deckMenuRef.current?.contains(event.target as Node)) {
+        setDeckMenuOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [deckMenuOpen]);
+
+  const renderLaneColumn = useCallback((column: ResolvedLaneColumn, index: number) => {
+    const { lane } = column;
+    const laneTitle = lanePrimaryLabel(lane.agent, lane.source);
+    const laneWidth = deck.laneWidths[lane.id] ?? snapLaneWidthPx(column.widthPx).tier ?? column.widthPx;
+    return (
+      <AgentLaneColumn
+        key={column.key}
+        lane={lane}
+        widthPx={column.widthPx}
+        laneTitle={laneTitle}
+        pinned={column.isPinned}
+        laneWidth={laneWidth}
+        defaultWidth={deck.defaultLaneWidth}
+        isNew={newLaneIds.has(lane.id)}
+        nowMs={now}
+        traceWindowMs={traceWindowMs}
+        traceWindowLabel={horizonLabel}
+        summaryHeight={summaryHeight}
+        onSummaryResizeStart={handleSummaryResizeStart}
+        onSummaryResizeReset={resetSummaryHeight}
+        summaryResizing={summaryResizing}
+        onInspect={inspectLane}
+        onTraceEventSelect={openTraceSheet}
+        onTogglePin={() => {
+          if (isPinned(lane.id)) unpinLane(lane.id);
+          else pinLane(lane);
+        }}
+        onWidthChange={(width) => setLaneWidth(lane.id, width)}
+        onWidthResizeStart={(event) => beginWidthResize(lane.id, event, column.widthPx)}
+        widthResizing={resizingLaneId === lane.id}
+        focusProps={getLaneFocusProps(index, lane.id)}
+      />
+    );
+  }, [
+    beginWidthResize,
+    deck.defaultLaneWidth,
+    deck.laneWidths,
+    getLaneFocusProps,
+    handleSummaryResizeStart,
+    horizonLabel,
+    inspectLane,
+    openTraceSheet,
+    isPinned,
+    newLaneIds,
+    now,
+    pinLane,
+    resetSummaryHeight,
+    resizingLaneId,
+    setLaneWidth,
+    summaryHeight,
+    summaryResizing,
+    traceWindowMs,
+    unpinLane,
+  ]);
 
   return (
-    <div className="s-agent-lanes">
+    <div
+      className={`s-agent-lanes${embedded ? " s-agent-lanes--embedded" : ""}`}
+      data-lane-profile={profileId}
+      data-lanes-deck-version="1"
+    >
       <div className="s-agent-lanes-bar">
-        <div className="s-agent-lanes-bar-main">
+        <div className="s-agent-lanes-bar-leading">
           <div className="s-agent-lanes-title">Agent Lanes</div>
-          <div className="s-agent-lanes-meta">
-            {lanes.length} active · trace {horizonLabel}
+          <div className="s-agent-lanes-meta" aria-label="Lane deck status">
+            <span className="s-agent-lanes-meta-stat">{visibleColumns.length} live</span>
+            {pinnedCount > 0 ? (
+              <span className="s-agent-lanes-meta-stat">{pinnedCount} pinned</span>
+            ) : null}
+            <span className="s-agent-lanes-meta-stat">trace {horizonLabel}</span>
+            {activeFilterLabel ? (
+              <span className="s-agent-lanes-meta-filter">{activeFilterLabel}</span>
+            ) : null}
+            <span className="s-agent-lanes-meta-detail">
+              deck v1 · {profileId}
+            </span>
           </div>
         </div>
-        <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
-          {AGENT_LANE_HORIZON_OPTIONS.map((option) => (
+        <div className="s-agent-lanes-bar-controls">
+          <div className="s-agent-lanes-deck-menu" ref={deckMenuRef}>
             <button
-              key={option.key}
               type="button"
-              className={`s-agent-lanes-horizon${horizon === option.key ? " s-agent-lanes-horizon--on" : ""}`}
-              aria-pressed={horizon === option.key}
-              onClick={() => setHorizon(option.key)}
+              className="s-agent-lanes-deck-btn"
+              aria-expanded={deckMenuOpen}
+              onClick={() => setDeckMenuOpen((open) => !open)}
             >
-              {option.label}
+              + Lane
             </button>
-          ))}
+            {deckMenuOpen ? (
+              <div className="s-agent-lanes-deck-popover" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="s-agent-lanes-deck-item"
+                  onClick={() => {
+                    addAttentionLane();
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={hasAttentionLane(deck)}
+                >
+                  Needs attention
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="s-agent-lanes-deck-item"
+                  onClick={() => {
+                    addHarnessLane("codex", "Codex sessions");
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={hasHarnessLane(deck, "codex")}
+                >
+                  Codex sessions
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="s-agent-lanes-deck-item"
+                  onClick={() => {
+                    addHarnessLane("claude", "Claude sessions");
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={hasHarnessLane(deck, "claude")}
+                >
+                  Claude sessions
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="s-agent-lanes-deck-item"
+                  onClick={() => {
+                    addHarnessLane("grok", "Grok sessions");
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={hasHarnessLane(deck, "grok")}
+                >
+                  Grok sessions
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="s-agent-lanes-deck-item s-agent-lanes-deck-item--danger"
+                  onClick={() => {
+                    clearPins();
+                    setDeckMenuOpen(false);
+                  }}
+                  disabled={pinnedCount === 0}
+                >
+                  Clear pinned lanes
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <div className="s-agent-lanes-horizons" role="group" aria-label="Activity window">
+            {AGENT_LANE_HORIZON_OPTIONS.map((option, index) => (
+              <button
+                key={option.key}
+                type="button"
+                className={`s-agent-lanes-horizon${horizon === option.key ? " s-agent-lanes-horizon--on" : ""}`}
+                aria-pressed={horizon === option.key}
+                title={`${option.label} window (${index + 1})`}
+                onClick={() => setHorizon(option.key)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       {issues.length > 0 ? (
@@ -311,29 +592,45 @@ export function AgentLanesView({
           </ul>
         </div>
       ) : null}
-      {lanes.length === 0 ? (
+      {visibleColumns.length === 0 ? (
         <div className="s-agent-lanes-empty">
           {tailLoading
             ? "Loading tail stream…"
-            : `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`}
+            : activeFilterLabel
+              ? `No lanes match ${activeFilterLabel} in the last ${horizonLabel}.`
+              : deck.showAutoLanes
+                ? `No agents with recent work in the last ${horizonLabel}. Lanes appear when harness transcripts update, registered sessions launch, or tools emit inside the selected window.`
+                : "No pinned lanes yet. Use + Lane or pin a session from its lane header."}
         </div>
       ) : (
-        <div className="s-agent-lanes-scroll">
-          {lanes.map((lane) => (
-            <AgentLaneColumn
-              key={lane.id}
-              lane={lane}
-              isNew={newLaneIds.has(lane.id)}
-              nowMs={now}
-              traceWindowMs={traceWindowMs}
-              traceWindowLabel={horizonLabel}
-              summaryHeight={summaryHeight}
-              onSummaryResizeStart={handleSummaryResizeStart}
-              onSummaryResizeReset={resetSummaryHeight}
-              summaryResizing={summaryResizing}
-              onInspect={(target) => setInspectedLaneId(target.id)}
-            />
-          ))}
+        <div className="s-agent-lanes-body">
+          {layout.pinnedLeft.length > 0 ? (
+            <section className="s-agent-lanes-zone s-agent-lanes-zone--pinned-left" aria-label="Pinned lanes">
+              <div className="s-agent-lanes-zone-label">Pinned</div>
+              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Pinned agent lanes">
+                {layout.pinnedLeft.map((column, index) => renderLaneColumn(column, index))}
+              </div>
+            </section>
+          ) : null}
+          {layout.main.length > 0 ? (
+            <section className="s-agent-lanes-zone s-agent-lanes-zone--main" aria-label="Active lanes">
+              {layout.pinnedLeft.length > 0 ? <div className="s-agent-lanes-zone-label">Live</div> : null}
+              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Active agent lanes">
+                {layout.main.map((column, index) => renderLaneColumn(column, layout.pinnedLeft.length + index))}
+              </div>
+            </section>
+          ) : null}
+          {layout.pinnedRight.length > 0 ? (
+            <section className="s-agent-lanes-zone s-agent-lanes-zone--pinned-right" aria-label="Pinned right lanes">
+              <div className="s-agent-lanes-zone-label">Pinned</div>
+              <div className="s-agent-lanes-scroll" role="listbox" aria-label="Pinned right agent lanes">
+                {layout.pinnedRight.map((column, index) => renderLaneColumn(
+                  column,
+                  layout.pinnedLeft.length + layout.main.length + index,
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
       )}
       {inspectedLane && (
@@ -344,6 +641,82 @@ export function AgentLanesView({
           onClose={() => setInspectedLaneId(null)}
         />
       )}
+      {traceSheetTarget && (
+        <LaneTraceDetailSheet
+          target={traceSheetTarget}
+          onClose={() => setTraceSheetTarget(null)}
+        />
+      )}
     </div>
   );
+}
+
+type AgentLaneEmbedFilters = {
+  harnessFilter?: string | null;
+  projectFilter?: string | null;
+};
+
+function normalizeEmbedFilter(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function slugValue(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/['"]/gu, "")
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+}
+
+function pathLeaf(value: string): string | null {
+  const leaf = value.trim().replace(/\/+$/u, "").split(/[\\/]/u).filter(Boolean).pop();
+  return leaf?.trim() || null;
+}
+
+function matchesAnyFilter(candidates: Array<string | null | undefined>, filter: string | null): boolean {
+  if (!filter) return true;
+  const filterSlug = slugValue(filter);
+  return candidates.some((candidate) => {
+    const raw = candidate?.trim();
+    if (!raw) return false;
+    const normalized = raw.toLowerCase();
+    const leaf = pathLeaf(raw);
+    return normalized === filter
+      || slugValue(raw) === filterSlug
+      || Boolean(leaf && (leaf.toLowerCase() === filter || slugValue(leaf) === filterSlug));
+  });
+}
+
+function laneMatchesEmbedFilters(lane: AgentLane, filters: AgentLaneEmbedFilters): boolean {
+  const harnessFilter = normalizeEmbedFilter(filters.harnessFilter);
+  const projectFilter = normalizeEmbedFilter(filters.projectFilter);
+  const { agent, facts, source } = lane;
+  return matchesAnyFilter(
+    [
+      agent.harness,
+      agent.definitionId,
+      facts?.attribution,
+      source,
+    ],
+    harnessFilter,
+  ) && matchesAnyFilter(
+    [
+      agent.project,
+      agent.projectRoot,
+      agent.cwd,
+      facts?.cwd,
+      lanePrimaryLabel(agent, source),
+    ],
+    projectFilter,
+  );
+}
+
+function embedFilterLabel(filters: AgentLaneEmbedFilters): string {
+  const parts = [
+    filters.harnessFilter?.trim() ? `harness ${filters.harnessFilter.trim()}` : "",
+    filters.projectFilter?.trim() ? `project ${filters.projectFilter.trim()}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
 }

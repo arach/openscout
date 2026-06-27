@@ -88,7 +88,7 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
         totalCount={scopedAgents.length}
         readyCount={scopedAgents.filter((a) => isAgentOnline(a.state)).length}
         onSelect={(agent) => openAgent(navigate, agent, { from: "base-rail", returnTo: route })}
-        onSeeAll={() => navigate({ view: "agents" })}
+        onSeeAll={() => navigate({ view: "agents-v2" })}
       />
 
       <RecentActivitySection
@@ -278,7 +278,7 @@ function routeForActivity(item: FleetActivity): Route {
     return { view: "conversation", conversationId: item.conversationId };
   }
   if (item.agentId) {
-    return { view: "agents", agentId: item.agentId };
+    return { view: "agents-v2", agentId: item.agentId };
   }
   return { view: "activity" };
 }

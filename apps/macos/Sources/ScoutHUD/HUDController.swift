@@ -606,6 +606,10 @@ public final class HUDController {
            HUDNavBus.shared.createNew != nil {
             return true
         }
+        if event.keyCode == 17,
+           HUDNavBus.shared.cycleTreatment != nil {
+            return true
+        }
         switch event.keyCode {
         case 18, 19, 20, 21, 23, 36, 38, 40, 34, 125, 126, 46, 5, 3, 44, 33, 30, 124, 123:
             return true
@@ -679,6 +683,8 @@ public final class HUDController {
             }
         case 3: // f — toggle live-follow
             Task { @MainActor in HUDNavBus.shared.toggleFollow?() }
+        case 17: // t — cycle visual treatment
+            Task { @MainActor in HUDNavBus.shared.cycleTreatment?() }
         case 44: // / focuses dock; ? toggles cheatsheet
             if event.modifierFlags.contains(.shift) {
                 Task { @MainActor in HUDCheatsheetState.shared.toggle() }

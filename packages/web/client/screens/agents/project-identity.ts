@@ -43,8 +43,17 @@ export function readableProjectTitle(value: string): string {
 }
 
 export function worktreeFamilyFromRoot(root: string | null): { title: string; root: string | null } | null {
+  if (!root) return null;
+  const containerRoot = worktreeContainerFamilyRoot(root);
+  if (containerRoot) {
+    return {
+      title: readableProjectTitle(basename(containerRoot) ?? "Unscoped"),
+      root: containerRoot,
+    };
+  }
+
   const leaf = basename(root)?.trim().toLowerCase();
-  if (!root || !leaf || leaf === "~") return null;
+  if (!leaf || leaf === "~") return null;
   const match = leaf.match(/^(.+?)(?:-(?:parity|codex))?-c\d+$/);
   const family = match?.[1];
   if (!family) return null;
@@ -53,6 +62,17 @@ export function worktreeFamilyFromRoot(root: string | null): { title: string; ro
     title: readableProjectTitle(family),
     root: parent ? `${parent}/${family}` : family,
   };
+}
+
+function worktreeContainerFamilyRoot(root: string): string | null {
+  const normalized = root.replace(/\/+$/, "");
+  const siblingContainer = normalized.match(/^(.*)\/([^/]+)-worktrees(?:\/[^/]+)+$/);
+  if (siblingContainer?.[1] && siblingContainer[2]) {
+    return `${siblingContainer[1]}/${siblingContainer[2]}`;
+  }
+
+  const nestedContainer = normalized.match(/^(.*\/[^/]+)\/(?:\.worktrees|worktrees)(?:\/[^/]+)+$/);
+  return nestedContainer?.[1] ?? null;
 }
 
 export function workspaceRootFromObservedPath(path: string | null | undefined): string | null {

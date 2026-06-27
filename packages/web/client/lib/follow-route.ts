@@ -62,7 +62,7 @@ function observeRouteForFollowTarget(target: FollowTarget): Route | null {
     };
   }
   return target.targetAgentId
-    ? { view: "agents", agentId: target.targetAgentId, tab: "observe" }
+    ? { view: "agents-v2", agentId: target.targetAgentId, tab: "observe" }
     : null;
 }
 

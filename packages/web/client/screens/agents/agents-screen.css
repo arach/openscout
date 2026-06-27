@@ -841,8 +841,11 @@
 }
 
 .s-sum-session-ref code {
+  min-width: 0;
   color: var(--ink);
   font-family: inherit;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .s-sum-trace-pill {
@@ -860,12 +863,6 @@
   letter-spacing: var(--tracking-md);
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.s-sum-trace-pill--observed {
-  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--accent);
 }
 
 .s-sum-trace-pill--waiting,

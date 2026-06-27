@@ -52,7 +52,7 @@ describe("follow route resolution", () => {
       sessionId: null,
       targetAgentId: "agent.main",
     }, undefined)).toEqual({
-      view: "agents",
+      view: "agents-v2",
       agentId: "agent.main",
       tab: "observe",
     });

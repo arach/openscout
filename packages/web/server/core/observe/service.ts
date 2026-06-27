@@ -223,6 +223,17 @@ export type SessionRefObservePayload =
       sessionId: string;
       updatedAt: number;
       data: ObserveData;
+    }
+  | {
+      kind: "broker";
+      refId: string;
+      agentId: null;
+      source: "broker";
+      fidelity: "synthetic";
+      historyPath: null;
+      sessionId: string;
+      updatedAt: number;
+      data: ObserveData;
     };
 
 function normalizedComparableString(value: string | null | undefined): string | null {
@@ -1388,14 +1399,19 @@ function isLiveSessionSnapshot(snapshot: SessionState | null | undefined): boole
   );
 }
 
+type AgentObserveOptions = {
+  sessionId?: string | null;
+};
+
 async function resolveSnapshotSource(
   agent: WebAgent,
   broker: ObserveBrokerContext,
+  options: AgentObserveOptions = {},
 ): Promise<SnapshotSource> {
   const endpoint = broker ? selectPreferredAgentEndpoint(broker.snapshot, agent.id, {
     harness: agent.harness,
     transport: agent.transport,
-    sessionId: agent.harnessSessionId,
+    sessionId: options.sessionId ?? agent.harnessSessionId,
     cwd: agent.cwd,
     projectRoot: agent.projectRoot,
   }) : null;
@@ -1468,8 +1484,9 @@ async function resolveSnapshotSource(
 async function buildAgentObservePayload(
   agent: WebAgent,
   broker: ObserveBrokerContext,
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload> {
-  const source = await resolveSnapshotSource(agent, broker);
+  const source = await resolveSnapshotSource(agent, broker, options);
   if (source.source === "unavailable") {
     return {
       agentId: agent.id,
@@ -1496,6 +1513,7 @@ async function buildAgentObservePayload(
 
 async function loadAgentObservePayloadsInternal(
   agentIds?: string[],
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload[]> {
   const agents = queryAgents(200);
   const filteredAgents = agentIds && agentIds.length > 0
@@ -1506,7 +1524,7 @@ async function loadAgentObservePayloadsInternal(
   }
 
   const broker = await loadScoutBrokerContext();
-  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker)));
+  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker, options)));
 }
 
 function summarizeAgentObservePayload(
@@ -1531,9 +1549,113 @@ export async function loadAgentObserveSummaries(
 
 export async function loadAgentObservePayload(
   agentId: string,
+  options: AgentObserveOptions = {},
 ): Promise<AgentObservePayload | null> {
-  const payloads = await loadAgentObservePayloadsInternal([agentId]);
+  const payloads = await loadAgentObservePayloadsInternal([agentId], options);
   return payloads[0] ?? null;
+}
+
+function endpointRefAliases(endpoint: AgentEndpoint): string[] {
+  const metadata = endpointMetadataRecord(endpoint);
+  return [
+    endpoint.agentId,
+    endpoint.sessionId,
+    metadataString(metadata, "handle"),
+    metadataString(metadata, "externalSessionId"),
+    metadataString(metadata, "threadId"),
+    metadataString(metadata, "runtimeSessionId"),
+    metadataString(metadata, "runtimeInstanceId"),
+  ].filter((value): value is string => Boolean(value));
+}
+
+function brokerSessionObserveData(input: {
+  refId: string;
+  endpoint: AgentEndpoint;
+  actorName?: string | null;
+}): ObserveData {
+  const metadata = endpointMetadataRecord(input.endpoint);
+  const startedAt = Number(metadata.startedAt);
+  const sessionStart = Number.isFinite(startedAt) && startedAt > 0 ? startedAt : Date.now();
+  const handle = metadataString(metadata, "handle");
+  const displayName = input.actorName?.trim() || metadataString(metadata, "displayName") || handle || input.refId;
+  const externalSessionId = metadataString(metadata, "externalSessionId");
+  const pending = metadata.pendingExternalSession === true && !externalSessionId;
+  return {
+    events: [
+      {
+        id: `${input.refId}:registered`,
+        t: 0,
+        at: sessionStart,
+        kind: "boot",
+        text: `Session registered - ${displayName}`,
+        detail: [
+          input.endpoint.harness,
+          metadataString(metadata, "model"),
+          input.endpoint.cwd,
+        ].filter(Boolean).join(" - "),
+      },
+      {
+        id: `${input.refId}:handoff`,
+        t: 1,
+        at: Date.now(),
+        kind: "system",
+        text: pending
+          ? "Waiting for the harness to attach and emit its first turn."
+          : "Harness session attached; waiting for trace events.",
+        detail: externalSessionId ? `external session: ${externalSessionId}` : "broker endpoint is live",
+      },
+    ],
+    files: [],
+    contextUsage: [],
+    live: true,
+    metadata: {
+      session: {
+        adapterType: input.endpoint.harness,
+        model: metadataString(metadata, "model"),
+        cwd: input.endpoint.cwd ?? input.endpoint.projectRoot,
+        sessionStart,
+        externalSessionId,
+        threadId: metadataString(metadata, "threadId"),
+        source: "broker",
+      },
+    },
+  };
+}
+
+async function loadBrokerSessionRefObservePayload(
+  refId: string,
+): Promise<SessionRefObservePayload | null> {
+  const normalizedRef = normalizeSessionRefId(refId);
+  if (!normalizedRef) {
+    return null;
+  }
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  if (!broker) {
+    return null;
+  }
+  const endpoint = Object.values(broker.snapshot.endpoints)
+    .find((candidate) => endpointRefAliases(candidate)
+      .map((alias) => normalizeSessionRefId(alias))
+      .includes(normalizedRef));
+  if (!endpoint) {
+    return null;
+  }
+  const actor = broker.snapshot.actors[endpoint.agentId];
+  return {
+    kind: "broker",
+    refId: normalizedRef,
+    agentId: null,
+    source: "broker",
+    fidelity: "synthetic",
+    historyPath: null,
+    sessionId: endpoint.agentId,
+    updatedAt: Date.now(),
+    data: brokerSessionObserveData({
+      refId: normalizedRef,
+      endpoint,
+      actorName: actor?.displayName ?? null,
+    }),
+  };
 }
 
 export async function loadSessionRefObservePayload(
@@ -1562,6 +1684,11 @@ export async function loadSessionRefObservePayload(
         data: payload.data,
       };
     }
+  }
+
+  const brokerPayload = await loadBrokerSessionRefObservePayload(normalizedRef);
+  if (brokerPayload) {
+    return brokerPayload;
   }
 
   let historyEntry = sessionRefLookup().get(normalizedRef) ?? null;

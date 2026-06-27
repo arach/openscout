@@ -1,8 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { api } from "../../lib/api.ts";
+import {
+  contextBudgetBarWidth,
+  deriveContextBudgetGauge,
+} from "../../lib/context-budget.ts";
 import { ensureAgentChat } from "../../lib/agent-chat.ts";
-import { resolveActiveSessionId, resolveSelectedSessionId, sortSessionsByRecency } from "../../lib/session-catalog.ts";
+import {
+  resolveActiveSessionId,
+  resolveRoutedSessionId,
+  resolveSelectedSessionId,
+  sortSessionsByRecency,
+} from "../../lib/session-catalog.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
@@ -182,13 +191,14 @@ function SessionSummary({
   const [ctx, setCtx] = useState<LocalAgentContextState | null>(null);
 
   const load = useCallback(async () => {
+    const params = new URLSearchParams({ sessionId: session.id });
     const [o, c] = await Promise.all([
-      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agentId)}/observe`).catch(() => null),
+      api<AgentObservePayload>(`/api/agents/${encodeURIComponent(agentId)}/observe?${params}`).catch(() => null),
       api<LocalAgentContextState>(`/api/agents/${encodeURIComponent(agentId)}/session/context`).catch(() => null),
     ]);
     setObserve(o);
     setCtx(c);
-  }, [agentId]);
+  }, [agentId, session.id]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -236,21 +246,23 @@ function SessionSummary({
   // Context, quantifiable only when the harness reports a real token window.
   // Turn policy is useful session bookkeeping, but it is not context usage.
   const usage = data?.metadata?.usage;
-  const win = usage?.contextWindowTokens ?? 0;
-  const used = usage?.totalTokens ?? usage?.inputTokens ?? 0;
-  const tokenPct = win > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
-  const ctxHead =
-    tokenPct !== null
-      ? `${fmtTokens(used)} / ${fmtTokens(win)} ctx`
-      : ctx
-        ? contextTurnLabel(ctx)
-        : "context";
-  const ctxPctLabel = tokenPct !== null ? `${tokenPct}%` : "tokens unavailable";
+  const contextGauge = deriveContextBudgetGauge(usage, {
+    model: data?.metadata?.session?.model ?? session.model,
+    adapterType: session.harness ?? agent.harness,
+  });
+  const ctxHead = contextGauge
+    ? `${contextGauge.usedLabel} / ${contextGauge.budgetLabel} ctx`
+    : ctx
+      ? contextTurnLabel(ctx)
+      : "context";
+  const ctxPctLabel = contextGauge
+    ? `${contextGauge.pct}%${contextGauge.overLimit ? " over" : ""}`
+    : "tokens unavailable";
   // When the gauge already shows tokens, the runway adds turns + age. When the
   // head already shows turns, the runway is just age, so don't print the turns twice.
   const ctxAge = ctx && ctx.sessionAgeMs !== null ? formatContextAge(ctx.sessionAgeMs) : null;
   const ctxRunway =
-    tokenPct !== null && ctx
+    contextGauge && ctx
       ? `${contextTurnLabel(ctx)}${ctxAge ? ` · ${ctxAge}` : ""}`
       : ctxAge;
   const observedSessionId =
@@ -258,8 +270,24 @@ function SessionSummary({
     || observe?.data.metadata?.session?.externalSessionId?.trim()
     || observe?.data.metadata?.session?.threadId?.trim()
     || null;
-  const displaySessionId = active && observedSessionId ? observedSessionId : session.id;
-  const profileSessionId = displaySessionId !== session.id ? session.id : null;
+  const nativeSessionId =
+    session.harnessSessionId?.trim()
+    || session.threadId?.trim()
+    || session.externalSessionId?.trim()
+    || (active ? observedSessionId : null)
+    || null;
+  const runtimeSessionId =
+    session.runtimeSessionId?.trim()
+    || session.surfaceSessionId?.trim()
+    || (nativeSessionId && nativeSessionId !== session.id ? session.id : null);
+  const displaySessionId = nativeSessionId ?? session.id;
+  const displaySessionLabel = nativeSessionId && session.harness === "codex"
+    ? "codex session id"
+    : nativeSessionId && session.harness
+      ? `${session.harness} session id`
+      : session.id.startsWith("relay-")
+        ? "runtime id"
+        : "session id";
   const workspaceLabel = session.cwd ? pathLeaf(session.cwd) : "workspace";
 
   return (
@@ -269,25 +297,25 @@ function SessionSummary({
         <span className="s-sum-session-copy">
           <strong>{active ? "Session attached" : "Previous session"}</strong>
           <span className="s-sum-session-ref" title={displaySessionId}>
-            <span>session</span>
-            <code>{shortSessionLabel(displaySessionId)}</code>
+            <span>{displaySessionLabel}</span>
+            <code>{displaySessionId}</code>
           </span>
-          {profileSessionId && (
-            <span className="s-sum-session-profile" title={profileSessionId}>
-              profile {shortSessionLabel(profileSessionId)}
+          {runtimeSessionId && runtimeSessionId !== displaySessionId && (
+            <span className="s-sum-session-profile" title={runtimeSessionId}>
+              runtime {runtimeSessionId}
             </span>
           )}
           <small title={session.cwd || undefined}>{workspaceLabel}</small>
         </span>
-        <span className={`s-sum-trace-pill s-sum-trace-pill--${traceState}`}>
-          {traceState === "observed"
-            ? "observing work"
-            : traceState === "waiting"
+        {traceState !== "observed" ? (
+          <span className={`s-sum-trace-pill s-sum-trace-pill--${traceState}`}>
+            {traceState === "waiting"
               ? "waiting for work"
               : traceState === "loading"
                 ? "checking trace"
                 : "no trace"}
-        </span>
+          </span>
+        ) : null}
       </div>
       <div className="s-sum-cols">
         <div className="s-sum-col s-sum-col--activity">
@@ -304,9 +332,12 @@ function SessionSummary({
             <span className="s-sum-ctx-size">{ctxHead}</span>
             <span className="s-sum-ctx-pct">{ctxPctLabel}</span>
           </div>
-          {tokenPct !== null ? (
-            <div className="s-sum-gauge" aria-label={`Context ${tokenPct}%`}>
-              <div className="s-sum-gauge-fill" style={{ width: `${tokenPct}%` }} />
+          {contextGauge ? (
+            <div className="s-sum-gauge" aria-label={`Context ${contextGauge.pct}%`}>
+              <div
+                className="s-sum-gauge-fill"
+                style={{ width: `${contextBudgetBarWidth(contextGauge)}%` }}
+              />
             </div>
           ) : (
             <div className="s-sum-ctx-unavailable">No token-window usage yet</div>
@@ -392,12 +423,35 @@ export function AgentProfileSessionsCenter({
 
   // Selection is shared with the rail (Provider): it defaults to the active (or
   // most recent) session, and clicking a row only re-points it — never jumps.
+  const routedSessionId =
+    route.view === "agents-v2" && route.agentId === agent.id
+      ? route.sessionId
+      : null;
   const selectedSessionId = resolveSelectedSessionId(
     agent.id,
     focusedSession,
     activeSessionId,
     sessions,
+    routedSessionId,
   );
+  const normalizedRoutedSessionId = resolveRoutedSessionId(routedSessionId, sessions);
+
+  useEffect(() => {
+    if (!normalizedRoutedSessionId) return;
+    if (
+      focusedSession?.agentId === agent.id &&
+      focusedSession.sessionId === normalizedRoutedSessionId
+    ) {
+      return;
+    }
+    focusSession(agent.id, normalizedRoutedSessionId);
+  }, [
+    agent.id,
+    focusedSession?.agentId,
+    focusedSession?.sessionId,
+    focusSession,
+    normalizedRoutedSessionId,
+  ]);
 
   const openMessage = async () => {
     if (chatState === "opening") return;
@@ -426,6 +480,11 @@ export function AgentProfileSessionsCenter({
         method: "POST",
         body: JSON.stringify(newSessionPayloadForAgent(agent)),
       });
+      const sessionId = result.sessionId?.trim();
+      if (sessionId) {
+        openContent(navigate, { view: "sessions", sessionId }, { returnTo: route });
+        return;
+      }
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
         throw new Error("Session started, but no conversation was returned.");
@@ -444,6 +503,12 @@ export function AgentProfileSessionsCenter({
   };
   const resumeSession = (s: SessionCatalogEntry) =>
     openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
+  const selectSession = (sessionId: string) => {
+    focusSession(agent.id, sessionId);
+    if (route.view === "agents-v2" && route.agentId === agent.id) {
+      navigate({ ...route, sessionId });
+    }
+  };
 
   return (
     <div className="s-sess-root">
@@ -532,7 +597,7 @@ export function AgentProfileSessionsCenter({
                   <button
                     type="button"
                     className={`s-sess-row${active ? " s-sess-row--active" : ""}${selected ? " s-sess-row--selected" : ""}`}
-                    onClick={() => focusSession(agent.id, s.id)}
+                    onClick={() => selectSession(s.id)}
                     aria-expanded={selected}
                   >
                     <span
@@ -646,9 +711,11 @@ export function CurrentSessionCard({
     agent.name;
   const usage = observe?.data.metadata?.usage ?? null;
   const turns = usage?.assistantMessages ?? null;
-  const win = usage?.contextWindowTokens ?? 0;
-  const used = usage?.contextInputTokens ?? 0;
-  const ctxPct = win > 0 && used > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
+  const contextGauge = deriveContextBudgetGauge(usage, {
+    model: observe?.data.metadata?.session?.model ?? model,
+    adapterType: harness,
+  });
+  const ctxPct = contextGauge ? Math.min(100, contextGauge.pct) : null;
   const tone: "live" | "idle" = active ? "live" : "idle";
   const eventCount = events.length;
   const logLines = events.slice(-6).map((e) => ({
@@ -759,7 +826,35 @@ function SessionProfileCenter({
     [sessionCatalog?.sessions, activeSessionId],
   );
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
-  const selectedSessionId = resolveSelectedSessionId(agent.id, focusedSession, activeSessionId, sessions);
+  const routedSessionId =
+    route.view === "agents-v2" && route.agentId === agent.id
+      ? route.sessionId
+      : null;
+  const selectedSessionId = resolveSelectedSessionId(
+    agent.id,
+    focusedSession,
+    activeSessionId,
+    sessions,
+    routedSessionId,
+  );
+  const normalizedRoutedSessionId = resolveRoutedSessionId(routedSessionId, sessions);
+
+  useEffect(() => {
+    if (!normalizedRoutedSessionId) return;
+    if (
+      focusedSession?.agentId === agent.id &&
+      focusedSession.sessionId === normalizedRoutedSessionId
+    ) {
+      return;
+    }
+    focusSession(agent.id, normalizedRoutedSessionId);
+  }, [
+    agent.id,
+    focusedSession?.agentId,
+    focusedSession?.sessionId,
+    focusSession,
+    normalizedRoutedSessionId,
+  ]);
 
   const modelShort =
     agent.model && agent.harness && agent.model.startsWith(`${agent.harness}-`)
@@ -793,6 +888,11 @@ function SessionProfileCenter({
         method: "POST",
         body: JSON.stringify(newSessionPayloadForAgent(agent)),
       });
+      const sessionId = result.sessionId?.trim();
+      if (sessionId) {
+        openContent(navigate, { view: "sessions", sessionId }, { returnTo: route });
+        return;
+      }
       const cid = result.conversationId?.trim();
       navigate(
         agentRoute({
@@ -809,6 +909,12 @@ function SessionProfileCenter({
     openContent(navigate, { view: "sessions", sessionId: s.id }, { returnTo: route });
   const takeover = () =>
     openContent(navigate, { view: "terminal", agentId: agent.id, mode: "takeover" }, { returnTo: route });
+  const selectSession = (sessionId: string) => {
+    focusSession(agent.id, sessionId);
+    if (route.view === "agents-v2" && route.agentId === agent.id) {
+      navigate({ ...route, sessionId });
+    }
+  };
 
   return (
     <div className="ap-profile">
@@ -899,7 +1005,7 @@ function SessionProfileCenter({
                     className="ap-sessRow"
                     data-tone={isActive ? "live" : "idle"}
                     data-selected={s.id === selectedSessionId || undefined}
-                    onClick={() => (isActive ? focusSession(agent.id, s.id) : resumeSession(s))}
+                    onClick={() => (isActive ? selectSession(s.id) : resumeSession(s))}
                   >
                     {isActive ? (
                       <span className="ap-dot" data-tone="live" aria-hidden />
@@ -970,6 +1076,13 @@ export function AgentDetailWithRail({
   const [observeLoading, setObserveLoading] = useState(false);
   const [sessionCatalog, setSessionCatalog] = useState<SessionCatalogWithResume | null>(null);
   const { route } = useScout();
+  const routedObserveSessionId =
+    route.view === "agents-v2" && route.agentId === agent.id
+      ? route.sessionId ?? null
+      : null;
+  const observeSessionId =
+    resolveRoutedSessionId(routedObserveSessionId, sessionCatalog?.sessions ?? [])
+    ?? routedObserveSessionId;
 
   const load = useCallback(async () => {
     const catalogResult = await api<SessionCatalogWithResume>(
@@ -981,8 +1094,9 @@ export function AgentDetailWithRail({
   const loadObserve = useCallback(async () => {
     setObserveLoading(true);
     try {
+      const params = observeSessionId ? new URLSearchParams({ sessionId: observeSessionId }) : null;
       const result = await api<AgentObservePayload>(
-        `/api/agents/${encodeURIComponent(agent.id)}/observe`,
+        `/api/agents/${encodeURIComponent(agent.id)}/observe${params ? `?${params}` : ""}`,
       );
       setObserve(result);
     } catch {
@@ -1011,7 +1125,7 @@ export function AgentDetailWithRail({
     } finally {
       setObserveLoading(false);
     }
-  }, [agent.id]);
+  }, [agent.id, observeSessionId]);
 
   useEffect(() => {
     setSessionCatalog(null);
@@ -1025,7 +1139,7 @@ export function AgentDetailWithRail({
   useEffect(() => {
     setObserve(null);
     setObserveLoading(false);
-  }, [agent.id]);
+  }, [agent.id, observeSessionId]);
 
   useEffect(() => {
     if (activeTab !== "observe") {

@@ -6,8 +6,9 @@ import { api } from "../lib/api.ts";
 import { ensureAgentChat } from "../lib/agent-chat.ts";
 import { useScout } from "./Provider.tsx";
 import { localMachineLabel } from "../lib/mesh-buckets.ts";
-import type { MeshStatus } from "../lib/types.ts";
+import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
+import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -31,7 +32,7 @@ type BuildInfo = {
 
 /* ── useCommands — nav + agent operations ─────────────────────────────── */
 export function useScoutCommands(): CommandOption[] {
-  const { navigate, agents, reload, openSettings, applyScoutbotUiAction } = useScout();
+  const { navigate, agents, reload, openSettings, applyScoutbotUiAction, openContextCapture, route } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const scoutbotEnabled = useOptionalFlag("surface.scoutbot", true);
 
@@ -47,6 +48,15 @@ export function useScoutCommands(): CommandOption[] {
   return useMemo<CommandOption[]>(() => {
     const commands: CommandOption[] = [
       {
+        id: "session:new",
+        label: "New Session",
+        action: () => {
+          const context = resolveCaptureRouteContext(route, agents);
+          openContextCapture({ agentId: context.agentId ?? undefined });
+        },
+        shortcut: "Cmd+Shift+N",
+      },
+      {
         id: "nav:home",
         label: "Go to Home",
         action: () => navigate({ view: "inbox" }),
@@ -54,8 +64,8 @@ export function useScoutCommands(): CommandOption[] {
       },
       {
         id: "nav:agents",
-        label: "Go to Agents",
-        action: () => navigate({ view: "agents" }),
+        label: "Go to Projects",
+        action: () => navigate({ view: "agents-v2" }),
         shortcut: "Cmd+2",
       },
       {
@@ -126,7 +136,7 @@ export function useScoutCommands(): CommandOption[] {
       }, {
         id: "nav:workflow-topology",
         label: "Open Workflow Topology",
-        action: () => navigate({ view: "agents" }),
+        action: () => navigate({ view: "agents-v2" }),
       }] : []),
       {
         id: "nav:settings",
@@ -168,7 +178,7 @@ export function useScoutCommands(): CommandOption[] {
       commands.push({
         id: `scout:open:${agent.id}`,
         label: `Open ${agent.name}`,
-        action: () => navigate({ view: "agents", agentId: agent.id }),
+        action: () => navigate({ view: "agents-v2", agentId: agent.id }),
       });
       commands.push({
         id: `scout:message:${agent.id}`,
@@ -182,7 +192,7 @@ export function useScoutCommands(): CommandOption[] {
               });
             })
             .catch(() => navigate({
-              view: "agents",
+              view: "agents-v2",
               agentId: agent.id,
               tab: "message",
             }));
@@ -191,11 +201,11 @@ export function useScoutCommands(): CommandOption[] {
     }
 
     return commands;
-  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, opsEnabled, scoutbotEnabled, reload, openSettings]);
+  }, [agents, applyScoutbotUiAction, askScoutbotForState, navigate, openContextCapture, opsEnabled, route, scoutbotEnabled, reload, openSettings]);
 }
 
 export function useScoutStatusBarState(): ScoutStatusBarState {
-  const { onlineCount } = useScout();
+  const { onlineCount, apiConnection } = useScout();
   const [mesh, setMesh] = useState<MeshStatus | null>(null);
   const [build, setBuild] = useState<BuildInfo | null>(null);
   const requestIdRef = useRef(0);
@@ -244,7 +254,9 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
   })();
 
   return {
-    status: mesh === null
+    status: apiConnection.status === "offline"
+      ? { label: "Scout: OFFLINE", color: "red" }
+      : mesh === null
       ? { label: "Broker: …", color: "neutral" }
       : mesh.health.reachable
         ? { label: "Broker: UP", color: "emerald" }
@@ -255,6 +267,9 @@ export function useScoutStatusBarState(): ScoutStatusBarState {
     },
     mesh: (() => {
       const label = localMachineLabel(mesh);
+      if (apiConnection.status === "offline") {
+        return { label, value: "offline", color: "red" as StatusColor };
+      }
       if (mesh === null) {
         return { label, value: "checking", color: "neutral" as StatusColor };
       }
@@ -326,8 +341,17 @@ export function useScoutLayoutMode(): "canvas" | "panel" {
 }
 
 /* ── useTakeover — gate chrome on first-run onboarding ─────────────────── */
+function isOnboardingExemptRoute(route: Route): boolean {
+  return route.view === "ops" && route.mode === "lanes";
+}
+
 export function useScoutTakeover(): TakeoverState | null {
-  const { onboarding, onboardingSkipped, skipOnboarding } = useScout();
+  const { onboarding, onboardingSkipped, skipOnboarding, route } = useScout();
+  // Lanes is a first-class ops surface (and mirrors the native/embed deck).
+  // Don't block it behind first-run project setup.
+  if (isOnboardingExemptRoute(route)) {
+    return { active: false, dismissible: true };
+  }
   // Until the first fetch resolves we pass through; false negatives would
   // block the app on reloads and true would flash a takeover for returning
   // users. Waiting one RTT is cheap and correct.

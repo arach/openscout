@@ -6,10 +6,10 @@ import { agentStateLabel } from "../../lib/agent-state.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { Agent, LocalAgentConfigState, Route, SessionCatalogWithResume } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
-import { agentSpecialization } from "../agents-v2/agent-specialization.ts";
-import { permissionLabel } from "../agents-v2/project-overview-helpers.ts";
-import { FileViewerPane, type ViewableProjectFile } from "../agents-v2/project-repo-frame.tsx";
-import "../agents-v2/agents-v2.css";
+import { agentSpecialization } from "../projects/agent-specialization.ts";
+import { permissionLabel } from "../projects/project-overview-helpers.ts";
+import { FileViewerPane, type ViewableProjectFile } from "../projects/project-repo-frame.tsx";
+import "../projects/projects.css";
 import "./agent-definitions.css";
 
 export type AgentDefinitionsPayload = {

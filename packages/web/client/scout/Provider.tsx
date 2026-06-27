@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
+import { friendlyApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
 import { isAgentOnline } from "../lib/agent-state.ts";
 import {
@@ -22,6 +23,7 @@ import { ContextMenuProvider } from "../components/ContextMenu.tsx";
 import { FilePreviewOverlay } from "./FilePreviewOverlay.tsx";
 import { ScoutbotStateProvider } from "./scoutbot/ScoutbotStateContext.tsx";
 import { SettingsDrawer } from "../screens/settings/SettingsDrawer.tsx";
+import { ContextCaptureHost } from "./ContextCaptureHost.tsx";
 import type { Agent, BrokerRouteAttempt, Route } from "../lib/types.ts";
 import type { ScoutTheme } from "../lib/theme.ts";
 import { resolveScoutNativeThemeVars } from "../lib/theme.ts";
@@ -63,6 +65,7 @@ export interface ScoutContextValue {
 
   agents: Agent[];
   onlineCount: number;
+  apiConnection: ApiConnectionState;
 
   reload: () => Promise<void>;
 
@@ -95,7 +98,24 @@ export interface ScoutContextValue {
 
   openFilePreview: (path: string) => void;
   closeFilePreview: () => void;
+
+  openContextCapture: (request?: ContextCaptureRequest) => void;
+  closeContextCapture: () => void;
 }
+
+export type ContextCaptureRequest = {
+  agentId?: string;
+  conversationId?: string;
+  message?: string;
+  files?: File[];
+  preferExistingChat?: boolean;
+};
+
+export type ApiConnectionState = {
+  status: "checking" | "online" | "offline";
+  message: string | null;
+  lastCheckedAt: number | null;
+};
 
 // Exported so the design-sync preview provider (client/_ds/) can supply a mock
 // ScoutContext to context-coupled components (e.g. AgentsLibrary) without the
@@ -168,8 +188,8 @@ export const DARK_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#111111",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
-  "--hud-font-accent-title": "var(--hud-font-sans)",
+  "--hud-font-serif": "'Spectral', 'Cormorant Garamond', Georgia, serif",
+  "--hud-font-accent-title": "'Inter Tight', var(--hud-font-sans)",
 };
 
 const LIGHT_THEME_VARS: ThemeVars = {
@@ -206,8 +226,8 @@ const LIGHT_THEME_VARS: ThemeVars = {
   "--scout-chrome-avatar-ink": "#ffffff",
   "--hud-font-sans": "'Inter Tight', 'Inter', ui-sans-serif, system-ui, sans-serif",
   "--hud-font-mono": "'JetBrains Mono', ui-monospace, Menlo, monospace",
-  "--hud-font-serif": "'Play', 'Inter Tight', ui-sans-serif, system-ui, sans-serif",
-  "--hud-font-accent-title": "var(--hud-font-sans)",
+  "--hud-font-serif": "'Spectral', 'Cormorant Garamond', Georgia, serif",
+  "--hud-font-accent-title": "'Inter Tight', var(--hud-font-sans)",
 };
 
 export function useScout() {
@@ -225,6 +245,11 @@ export function ScoutProvider({
 }) {
   const { route, navigate } = useRouter();
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
+    status: "checking",
+    message: null,
+    lastCheckedAt: null,
+  });
   const [onboarding, setOnboarding] = useState<OnboardingState | null>(null);
   const [onboardingSkipped, setOnboardingSkipped] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -232,11 +257,16 @@ export function ScoutProvider({
   const [selectedKnowledgeHit, setSelectedKnowledgeHit] = useState<KnowledgeHit | null>(null);
   const [selectedKnowledgeQuery, setSelectedKnowledgeQuery] = useState("");
   const [focusedSession, setFocusedSession] = useState<FocusedSession | null>(null);
+  const [contextCaptureRequest, setContextCaptureRequest] = useState<ContextCaptureRequest | null>(null);
   const focusSession = useCallback((agentId: string, sessionId: string) => {
     setFocusedSession({ agentId, sessionId });
   }, []);
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  const openContextCapture = useCallback((request: ContextCaptureRequest = {}) => {
+    setContextCaptureRequest(request);
+  }, []);
+  const closeContextCapture = useCallback(() => setContextCaptureRequest(null), []);
   const inspectBrokerAttempt = useCallback((attempt: BrokerRouteAttempt) => {
     setSelectedBrokerAttempt(attempt);
   }, []);
@@ -266,15 +296,34 @@ export function ScoutProvider({
   const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
   const reloadInFlightRef = useRef<Promise<void> | null>(null);
 
+  const markApiOnline = useCallback(() => {
+    setApiConnection({
+      status: "online",
+      message: null,
+      lastCheckedAt: Date.now(),
+    });
+  }, []);
+
+  const markApiOffline = useCallback((cause: unknown) => {
+    setApiConnection({
+      status: "offline",
+      message: friendlyApiError(cause),
+      lastCheckedAt: Date.now(),
+    });
+  }, []);
+
   const reload = useCallback(async () => {
     if (reloadInFlightRef.current) {
       return reloadInFlightRef.current;
     }
 
     const request = (async () => {
-      const agentsResult = await api<Agent[]>("/api/agents").catch(() => null);
-      if (agentsResult) {
+      try {
+        const agentsResult = await api<Agent[]>("/api/agents");
         setAgents((previous) => keepPreviousIfJsonEqual(previous, agentsResult));
+        markApiOnline();
+      } catch (cause) {
+        markApiOffline(cause);
       }
     })();
 
@@ -284,13 +333,15 @@ export function ScoutProvider({
     } finally {
       reloadInFlightRef.current = null;
     }
-  }, []);
+  }, [markApiOffline, markApiOnline]);
 
   const refreshOnboarding = useCallback(async () => {
     try {
       const state = await api<OnboardingState>("/api/onboarding/state");
       setOnboarding(state);
-    } catch {
+      markApiOnline();
+    } catch (cause) {
+      markApiOffline(cause);
       setOnboarding({
         hasLocalConfig: true,
         hasProjectConfig: true,
@@ -302,7 +353,7 @@ export function ScoutProvider({
         operatorNameSuggestion: null,
       });
     }
-  }, []);
+  }, [markApiOffline, markApiOnline]);
 
   const skipOnboarding = useCallback(() => {
     setOnboardingSkipped(true);
@@ -397,7 +448,7 @@ export function ScoutProvider({
 
   const value = useMemo<ScoutContextValue>(
     () => ({
-      route, navigate, agents, onlineCount, reload,
+      route, navigate, agents, onlineCount, apiConnection, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotConversationId: scoutbotDmConversationId, applyScoutbotUiAction,
@@ -405,9 +456,10 @@ export function ScoutProvider({
       selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       focusedSession, focusSession,
       openFilePreview, closeFilePreview,
+      openContextCapture, closeContextCapture,
     }),
     [
-      route, navigate, agents, onlineCount, reload,
+      route, navigate, agents, onlineCount, apiConnection, reload,
       onboarding, refreshOnboarding, onboardingSkipped, skipOnboarding,
       settingsOpen, openSettings, closeSettings,
       scoutbotAgentId, scoutbotDmConversationId, applyScoutbotUiAction,
@@ -415,6 +467,7 @@ export function ScoutProvider({
       selectedKnowledgeHit, selectedKnowledgeQuery, inspectKnowledgeHit, clearKnowledgeHit,
       focusedSession, focusSession,
       openFilePreview, closeFilePreview,
+      openContextCapture, closeContextCapture,
     ],
   );
 
@@ -435,6 +488,11 @@ export function ScoutProvider({
               path={filePreviewPath}
               onOpenPath={openFilePreview}
               onClose={closeFilePreview}
+            />
+            <ContextCaptureHost
+              request={contextCaptureRequest}
+              onClose={closeContextCapture}
+              onOpenCapture={openContextCapture}
             />
           </ScoutbotStateProvider>
         </ContextMenuProvider>

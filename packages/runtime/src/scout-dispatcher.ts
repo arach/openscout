@@ -19,6 +19,7 @@ import {
   type ScoutId,
   type ScoutRoutePolicy,
   type ScoutRouteTarget,
+  normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
 
 import type { createInMemoryControlRuntime } from "./broker.js";
@@ -122,6 +123,20 @@ export function routeChannelForTarget(input: BrokerRouteTargetInput): string | u
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function sessionActorHandleAliases(
+  snapshot: RuntimeSnapshot,
+  actorId: string,
+): string[] {
+  const actor = snapshot.actors[actorId];
+  const endpoint = homeEndpointForAgent(snapshot, actorId);
+  return [
+    actor?.handle,
+    metadataStringValue(actor?.metadata, "handle"),
+    metadataStringValue(endpoint?.metadata, "handle"),
+    actorId,
+  ].filter((value): value is string => Boolean(value));
 }
 
 function isReservedProductIdentity(definitionId: string): boolean {
@@ -231,6 +246,60 @@ function resolutionFromDiagnosis(
   return null;
 }
 
+function resolveSessionHandleLabel(
+  snapshot: RuntimeSnapshot,
+  identity: AgentIdentity,
+  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
+): BrokerLabelResolution | null {
+  if (
+    identity.workspaceQualifier
+    || identity.nodeQualifier
+    || identity.profile
+    || identity.harness
+    || identity.model
+  ) {
+    return null;
+  }
+
+  const handle = normalizeAgentSelectorSegment(identity.definitionId);
+  if (!handle) {
+    return null;
+  }
+
+  const matches = Object.values(snapshot.actors)
+    .filter((actor) => actor.kind === "session")
+    .filter((actor) => (
+      sessionActorHandleAliases(snapshot, actor.id)
+        .map((alias) => normalizeAgentSelectorSegment(alias))
+        .includes(handle)
+    ))
+    .map((actor) => {
+      const endpoint = Object.values(snapshot.endpoints)
+        .filter((candidate) => candidate.agentId === actor.id)
+        .filter((candidate) => !isStaleLocalEndpoint(snapshot, candidate))
+        .sort((left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right))[0];
+      return endpoint ? { actor, endpoint } : null;
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  if (matches.length !== 1) {
+    return null;
+  }
+
+  const { actor, endpoint } = matches[0]!;
+  const sessionId = actor.id;
+  return {
+    kind: "resolved_session",
+    session: {
+      sessionId,
+      actorId: actor.id,
+      endpoint,
+      label: actor.displayName || sessionTargetLabel(endpoint, sessionId),
+      nodeId: endpoint.nodeId,
+    },
+  };
+}
+
 export function resolveAgentLabel(
   snapshot: RuntimeSnapshot,
   label: string,
@@ -258,6 +327,22 @@ export function resolveAgentLabel(
   }
 
   if (diagnosis.kind === "unknown") {
+    const session = resolveSessionHandleLabel(snapshot, identity, options);
+    if (session) {
+      return session;
+    }
+
+    const bareHandle = normalizeAgentSelectorSegment(identity.definitionId);
+    if (bareHandle && !bareHandle.startsWith("project-")) {
+      const prefixed = parseAgentIdentity(`@project-${bareHandle}`);
+      if (prefixed) {
+        const prefixedSession = resolveSessionHandleLabel(snapshot, prefixed, options);
+        if (prefixedSession) {
+          return prefixedSession;
+        }
+      }
+    }
+
     if (harnessAgnosticIdentity) {
       const agnosticResolution = resolutionFromDiagnosis(
         diagnoseAgentIdentity(harnessAgnosticIdentity, candidates),
@@ -449,8 +534,14 @@ export function resolveBrokerRouteTarget(
       || String(flight.metadata?.["bindingRef"] ?? "").toLowerCase() === normalizedRef
     );
     if (matches.length === 1) {
-      const agent = snapshot.agents[matches[0]!.targetAgentId];
-      return agent ? { kind: "resolved", agent } : { kind: "unknown", label: `ref:${bindingRef}` };
+      const flight = matches[0]!;
+      const agent = snapshot.agents[flight.targetAgentId];
+      if (agent) {
+        return { kind: "resolved", agent };
+      }
+      return resolveSessionTarget(snapshot, flight.targetAgentId, {
+        helpers: options.helpers,
+      });
     }
     if (matches.length > 1) {
       return {

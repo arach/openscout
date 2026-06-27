@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
+import type { DiscoverySnapshot } from "@openscout/runtime/tail";
 import {
   buildRelayAgentInstance,
   writeRelayAgentOverrides,
@@ -262,6 +263,25 @@ function makeStaticRoot(): string {
     "utf8",
   );
   return root;
+}
+
+function makeDiscoverySnapshot(generatedAt: number): DiscoverySnapshot {
+  return {
+    generatedAt,
+    processes: [],
+    transcripts: [],
+    totals: {
+      total: 0,
+      scoutManaged: 0,
+      hudsonManaged: 0,
+      unattributed: 0,
+      transcripts: 0,
+    },
+  };
+}
+
+async function flushPromises(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function useIsolatedOpenScoutHome(): string {
@@ -754,6 +774,137 @@ describe("createOpenScoutWebServer", () => {
     const response = await server.app.request("http://localhost/assets/index-stale.js");
 
     expect(response.status).toBe(404);
+  });
+
+  test("serves tail recent immediately while broker refresh is pending", async () => {
+    const fetchUrls: string[] = [];
+    globalThis.fetch = ((input) => {
+      fetchUrls.push(String(input));
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/tail/recent?limit=10");
+
+    expect(response.status).toBe(200);
+    expect(fetchUrls[0]).toContain("/v1/tail/recent?limit=10");
+    expect(response.headers.get("x-openscout-tail-state")).toBe("empty-refreshing");
+    const timing = response.headers.get("server-timing") ?? "";
+    expect(timing).toContain("web-tail-cache");
+    await expect(response.json()).resolves.toMatchObject({ generatedAt: expect.any(Number), limit: 10, events: [] });
+  });
+
+  test("refreshes tail recent cache in the background with server timing from broker", async () => {
+    const fetchUrls: string[] = [];
+    globalThis.fetch = (async (input) => {
+      fetchUrls.push(String(input));
+      return new Response(JSON.stringify({
+        generatedAt: 1,
+        limit: 10,
+        cursor: "tail-1",
+        events: [{ id: "tail-1", ts: 1 }],
+      }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+          "server-timing": "tail-live;dur=1.2",
+        },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const first = await server.app.request("http://localhost/api/tail/recent?limit=10");
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({ events: [] });
+    await flushPromises();
+
+    const second = await server.app.request("http://localhost/api/tail/recent?limit=10");
+    expect(fetchUrls[0]).toContain("/v1/tail/recent?limit=10");
+    expect(second.status).toBe(200);
+    expect(second.headers.get("x-openscout-tail-state")).toBe("hit-refreshing");
+    const timing = second.headers.get("server-timing") ?? "";
+    expect(timing).toContain("tail-live;dur=1.2");
+    expect(timing).toContain("web-broker-fetch");
+    expect(timing).toContain("web-json");
+    await expect(second.json()).resolves.toMatchObject({
+      generatedAt: 1,
+      cursor: "tail-1",
+      events: [{ id: "tail-1", ts: 1 }],
+    });
+  });
+
+  test("forces tail discovery refresh before serving cached broker data", async () => {
+    const fetchUrls: string[] = [];
+    let brokerGeneratedAt = 0;
+    globalThis.fetch = (async (input) => {
+      fetchUrls.push(String(input));
+      brokerGeneratedAt += 1;
+      return new Response(JSON.stringify(makeDiscoverySnapshot(brokerGeneratedAt)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      tailRuntime: {
+        getTailDiscovery: async () => makeDiscoverySnapshot(0),
+      },
+    });
+
+    const first = await server.app.request("http://localhost/api/tail/discover");
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({ generatedAt: 0 });
+    await flushPromises();
+
+    const forced = await server.app.request("http://localhost/api/tail/discover?force=1");
+
+    expect(forced.status).toBe(200);
+    expect(fetchUrls.at(-1)).toContain("/v1/tail/discover?force=1");
+    await expect(forced.json()).resolves.toMatchObject({ generatedAt: 2 });
+  });
+
+  test("serves an empty tail snapshot when broker refresh fails", async () => {
+    globalThis.fetch = (async () => {
+      return new Response(JSON.stringify({ error: "tail_unavailable" }), {
+        status: 503,
+        headers: {
+          "content-type": "application/json",
+          "server-timing": "tail-discover;dur=9.4",
+        },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const first = await server.app.request("http://localhost/api/tail/recent?limit=10");
+    expect(first.status).toBe(200);
+    await flushPromises();
+    const response = await server.app.request("http://localhost/api/tail/recent?limit=10");
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-openscout-tail-state")).toBe("empty-retrying");
+    expect(response.headers.get("x-openscout-tail-warning")).toContain("broker tail unavailable (503)");
+    const timing = response.headers.get("server-timing") ?? "";
+    expect(timing).toContain("tail-discover;dur=9.4");
+    expect(timing).toContain("web-broker-fetch");
+    await expect(response.json()).resolves.toMatchObject({ limit: 10, events: [] });
   });
 
   test("keeps strict voice health 503 while serving quiet browser probes as handled readiness", async () => {

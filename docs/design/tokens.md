@@ -36,13 +36,32 @@ per-`.tsx`). That ordering lets component CSS win as a contextual override.
 stays the default for HudsonKit chrome.
 
 ### Font size — `--text-*` (whole pixels only — no 9.5/10.5/11.5/12.5)
-`2xs=9, xs=10, sm=11, md=12, lg=13, xl=14, 2xl=16, 3xl=18, 4xl=20, 5xl=24`
+`2xs=9, xs=10, sm=11, md=12, lg=13, xl=14, 2xl=16, 3xl=18, 4xl=20, 5xl=24,
+6xl=28, 7xl=34, 8xl=44, 9xl=52`
+
+### Display type — `--display-*`
+Fluid display aliases use `clamp(min, preferred, max)` so large headings can
+scale between mobile and desktop without inventing off-grid literals. The min
+and max endpoints stay on the whole-pixel `--text-*` scale.
+
+`xs=24→28, sm=28→34, md=34→52`
 
 ### Tracking — `--tracking-*` (letter-spacing)
 `xs=0.02em, sm=0.04em, md=0.08em, lg=0.12em, xl=0.18em`
 
 ### Leading — `--leading-*` (line-height)
-`none=1, tight=1.35, snug=1.45, normal=1.5`
+`none=1, tight=1.35, snug=1.45, normal=1.5, display=1.12`
+
+### Motion — `--motion-*`
+Scope-inspired discipline: short hover color changes, slightly slower state
+movement, reveal/entry motion only when a surface appears, and a global
+`prefers-reduced-motion` gate.
+
+Durations: `fast=120ms, hover=150ms, state=220ms, enter=340ms, reveal=600ms,
+typing=1100ms, pulse=1600ms, breathe=2000ms, scan=3200ms`.
+
+Easing: `standard=cubic-bezier(0.2, 0.7, 0.2, 1)`,
+`emphasis=cubic-bezier(0.16, 1, 0.3, 1)`, `linear=linear`.
 
 ### Layout constants (NOT spacing — never snap these)
 `--statusbar-h: 28px` (Hudson `SHELL_THEME.layout.statusBarHeight` + `bottom:28`
@@ -98,13 +117,15 @@ Round **up** for interactive padding (preserve touch targets); **to-nearest**
 | 22 | `4xl` (24) | `4xl` (24)|
 
 Type snapping: fractional sizes → nearest `--text-*` (9.5→9, 10.5→11, 11.5→11,
-12.5→12, 15→16). Letter-spacing → nearest `--tracking-*` (0.06→0.04 or 0.08,
-0.1→0.08, 0.14→0.12, 0.16→0.18); sub-0.02em optical values may stay literal.
-Line-height → nearest `--leading-*` (ties → snug).
+12.5→12, 15→16). Display headings use `--display-*` instead of ad-hoc 22/28/34+
+literals. Letter-spacing → nearest `--tracking-*` (0.06→0.04 or 0.08,
+0.1→0.08, 0.14→0.12, 0.16→0.18); display letter-spacing stays `0`.
+Line-height → nearest `--leading-*` (ties → snug; display → `--leading-display`).
 
 ### Properties to tokenize vs leave literal
 **Tokenize:** `padding`, `margin`, `gap` (incl. 2-value `gap: 8px 12px`),
-`border-radius`, `font-size`, `letter-spacing`, `line-height`.
+`border-radius`, `font-size`, `letter-spacing`, `line-height`, common
+`transition` durations/easings.
 **Leave literal:** `width`/`height`/`min`/`max-*`, `border-width`,
 `inset`/`top`/`left`/`right`/`bottom`, `transform`, `box-shadow` geometry,
 `backdrop-filter`/`blur()`, `flex-basis`, `grid-template-columns`/`-rows`

@@ -30,6 +30,7 @@ import type {
   TailEvent,
   TailHarness,
 } from "../../lib/types.ts";
+import { laneCompactionStateFromTail } from "./session-compaction.ts";
 
 export type AgentLaneHorizonKey = "5m" | "30m" | "4h" | "24h";
 
@@ -110,6 +111,13 @@ export type AgentLaneRosterBuild = {
   issues: AgentLaneRosterIssue[];
 };
 
+export type LaneCompactionFacts = {
+  eligible: boolean;
+  reason: "high_context" | "over_limit" | "post_compaction_point" | null;
+  lastCompactedAt?: number;
+  lastCompactedSummary?: string;
+};
+
 export type LaneFacts = {
   model?: string;
   effort?: string;
@@ -119,6 +127,7 @@ export type LaneFacts = {
   attribution?: TailHarness;
   turn?: { phase: "idle" | "started" | "complete"; index?: number };
   usage?: ObserveUsageMeta;
+  compaction?: LaneCompactionFacts;
   currentTask?: string;
   touchedFiles: ObserveFile[];
 };
@@ -1143,7 +1152,11 @@ export function buildLaneFacts(
     : attributionFromEvents(events);
   const inferredFiles = observe ? filesFromObserveEvents(observe.events) : [];
   const touchedFiles = mergeObserveFiles(observe?.files, inferredFiles);
-  const usage = observe?.metadata?.usage ?? usageFromTailEvents(events);
+  // Vitals/cockpit context should reflect the latest turn-scoped usage from the
+  // full transcript, not horizon-filtered observe metadata (which can drop stale
+  // token_count events outside the selected window).
+  const usage = usageFromTailEvents(events, { scope: "turn" })
+    ?? observe?.metadata?.usage;
 
   const facts: LaneFacts = {
     touchedFiles,
@@ -1170,7 +1183,20 @@ export function buildLaneFacts(
     currentTask: currentTaskFromTailEvents(events, observe),
   };
 
-  for (const key of ["model", "effort", "branch", "cwd", "originator", "attribution", "usage", "currentTask"] as const) {
+  const compaction = laneCompactionStateFromTail(events, usage, {
+    model: facts.model,
+    adapterType: transcript?.source ?? agent.harness,
+  });
+  if (compaction.eligible || compaction.lastCompactedAt !== null) {
+    facts.compaction = {
+      eligible: compaction.eligible,
+      reason: compaction.reason,
+      ...(compaction.lastCompactedAt !== null ? { lastCompactedAt: compaction.lastCompactedAt } : {}),
+      ...(compaction.lastCompactedSummary ? { lastCompactedSummary: compaction.lastCompactedSummary } : {}),
+    };
+  }
+
+  for (const key of ["model", "effort", "branch", "cwd", "originator", "attribution", "usage", "compaction", "currentTask"] as const) {
     if (facts[key] === undefined) delete facts[key];
   }
   return facts;

@@ -27,6 +27,7 @@ import type { RuntimeSnapshot } from "./scout-dispatcher.js";
 import { isRequesterWaitTimeoutError } from "./requester-timeout.js";
 import { isDispatchStalledError } from "./dispatch-stalled.js";
 import { isCodexAppServerExitError } from "./codex-app-server.js";
+import { sessionAliasAckSummary } from "./session-alias.js";
 
 type LocalInvocationRuntime = {
   actor(actorId: string): ActorIdentity | undefined;
@@ -251,10 +252,16 @@ export class BrokerLocalInvocationService {
       nodeId: runningEndpoint.nodeId,
       acknowledgedAt: this.now(),
     };
+    const aliasSummary = sessionAliasAckSummary({
+      snapshot: this.options.runtime.snapshot(),
+      actorId: invocation.targetAgentId,
+      endpoint: runningEndpoint,
+      strategy: dispatchAck.strategy,
+    });
     const runningFlight = {
       ...initialFlight,
       state: "running" as const,
-      summary: `${target.displayName} acknowledged via ${dispatchAck.strategy}.`,
+      summary: aliasSummary || `${target.displayName} acknowledged via ${dispatchAck.strategy}.`,
       error: undefined,
       completedAt: undefined,
       metadata: {

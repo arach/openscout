@@ -22,8 +22,8 @@ export type ScoutProjectAgentPersistence = "one_time" | "sticky";
 
 export interface ScoutProjectAgentSpec {
   persistence?: ScoutProjectAgentPersistence;
-  agentName?: string;
-  displayName?: string;
+  /** Human-addressable handle, without requiring the caller to include "@". */
+  handle?: string;
 }
 
 export type ScoutDeliveryRemediationKind =
@@ -87,6 +87,8 @@ export interface ScoutDeliveryReceipt {
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
   targetLabel?: string;
+  /** Provisional routable pointer (e.g. project-chopin) when target is cardless. */
+  sessionAlias?: string;
   bindingRef?: string;
   conversationId: ScoutId;
   messageId: ScoutId;
@@ -111,6 +113,7 @@ export interface ScoutDeliverAcceptedResponse {
   message: MessageRecord;
   targetAgentId?: ScoutId;
   targetSessionId?: ScoutId;
+  sessionAlias?: string;
   bindingRef?: string;
   flight?: FlightRecord;
   workItem?: WorkItemRecord;

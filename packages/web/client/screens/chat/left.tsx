@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "../../scout/slots/ctx-panel.css";
 import { api } from "../../lib/api.ts";
+import { friendlyApiError, isOfflineApiError } from "../../lib/api-errors.ts";
 import { useListArrowNav, makeSearchHandoff, useSlashToFocus, rovingTabIndex } from "../../lib/keyboard-nav.ts";
 import { normalizeAgentState, type AgentDisplayState } from "../../lib/agent-state.ts";
 import {
@@ -54,12 +55,15 @@ const SORT_LABEL: Record<MessagesSort, string> = {
 };
 
 export function ChatLeft() {
-  const { route, navigate, agents } = useScout();
+  const { route, navigate, agents, apiConnection } = useScout();
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [lastViewed, setLastViewed] = useState<LastViewedMap>(() => loadLastViewedMap());
   const [query, setQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(() => new Set());
   const asksByAgent = useFleetActiveAsks();
+  const loadedRef = useRef(false);
   const machineId = routeMachineId(route);
   const scopedAgentIds = useMemo(
     () => machineScopedAgentIds(agents, machineId),
@@ -91,10 +95,17 @@ export function ChatLeft() {
     undefined;
 
   const load = useCallback(async () => {
-    const data = await api<SessionEntry[]>("/api/conversations").catch(
-      () => [] as SessionEntry[],
-    );
-    setSessions(data);
+    if (!loadedRef.current) setLoading(true);
+    try {
+      const data = await api<SessionEntry[]>("/api/conversations");
+      setSessions(data);
+      setLoadError(null);
+    } catch (cause) {
+      setLoadError(friendlyApiError(cause));
+    } finally {
+      loadedRef.current = true;
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -192,6 +203,8 @@ export function ChatLeft() {
     () => buildConversationGroups(filtered, agentById, lastViewed, activeRouteSort),
     [filtered, agentById, lastViewed, activeRouteSort],
   );
+  const apiOffline =
+    apiConnection.status === "offline" || isOfflineApiError(loadError);
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -251,11 +264,26 @@ export function ChatLeft() {
 
       <div
         ref={listRef}
-        className="ctx-panel-list ctx-panel-list--scroll"
+        className={[
+          "ctx-panel-list",
+          "ctx-panel-list--scroll",
+          groups.length === 0 && "ctx-panel-list--empty",
+        ]
+          .filter(Boolean)
+          .join(" ")}
         onKeyDown={onListKeyDown}
       >
         {groups.length === 0 ? (
-          <div className="ctx-panel-empty">{query ? "No match" : "Nothing yet"}</div>
+          <ChatRailEmptyState
+            query={query}
+            loading={loading}
+            error={loadError}
+            apiOffline={apiOffline}
+            onRetry={() => {
+              setLoading(true);
+              void load();
+            }}
+          />
         ) : (() => {
           const flatConversations = groups.flatMap((g) => g.conversations);
           const firstConversationId = flatConversations[0]?.id;
@@ -350,6 +378,56 @@ export function ChatLeft() {
           });
         })()}
       </div>
+    </div>
+  );
+}
+
+function ChatRailEmptyState({
+  query,
+  loading,
+  error,
+  apiOffline,
+  onRetry,
+}: {
+  query: string;
+  loading: boolean;
+  error: string | null;
+  apiOffline: boolean;
+  onRetry: () => void;
+}) {
+  const hasQuery = query.trim().length > 0;
+  const title = loading
+    ? "Loading chats"
+    : apiOffline
+      ? "Scout server offline"
+      : error
+        ? "Couldn't load chats"
+        : hasQuery
+          ? "No matching chats"
+          : "No chats yet";
+  const detail = loading
+    ? "Checking the broker for direct messages and shared channels."
+    : apiOffline
+      ? "Start or restart Scout services, then retry."
+      : error
+        ? error
+        : hasQuery
+          ? "Try a broader filter or switch chat types."
+          : "Start a DM or shared channel to see it here.";
+
+  return (
+    <div className="ctx-panel-empty-card" data-tone={apiOffline || error ? "error" : "neutral"}>
+      <div className="ctx-panel-empty-card-title">{title}</div>
+      <div className="ctx-panel-empty-card-detail">{detail}</div>
+      {(apiOffline || error) && (
+        <button
+          type="button"
+          className="ctx-panel-empty-card-action"
+          onClick={onRetry}
+        >
+          Retry
+        </button>
+      )}
     </div>
   );
 }

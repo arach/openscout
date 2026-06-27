@@ -237,7 +237,7 @@
 .s-thread-participant-overflow {
   display: inline-flex;
   align-items: center;
-  height: 28px;
+  min-height: 28px;
   border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--bg) 82%, transparent);
@@ -247,7 +247,7 @@
 
 .s-thread-participant-pill {
   gap: var(--space-xs);
-  max-width: 172px;
+  max-width: 200px;
   min-width: 0;
   padding: 2px var(--space-sm) 2px 3px;
 }
@@ -275,11 +275,63 @@ button.s-thread-participant-pill:hover {
   font-weight: 700;
 }
 
+.s-thread-participant-identity {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  line-height: 1.15;
+}
+
 .s-thread-participant-name {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.s-thread-participant-model {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.01em;
+}
+
+/* Operator pill (active member) — neutral so it never reads as an agent author. */
+.s-thread-participant-pill--operator {
+  color: var(--muted);
+}
+
+.s-thread-participant-avatar--operator {
+  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  color: var(--muted);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* Operator observer chip — dashed + eye, signals not-in-thread. */
+.s-thread-participant-observer {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs, 4px);
+  min-height: 28px;
+  padding: 0 var(--space-sm);
+  border: 1px dashed color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--dim);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.s-thread-participant-observer svg {
+  opacity: 0.85;
 }
 
 .s-thread-participant-overflow {
@@ -2225,6 +2277,12 @@ button.s-thread-sidebar-participant:focus-visible {
   fill: var(--accent);
 }
 
+.s-conv-empty--offline .s-conv-empty-mesh-node--accent,
+.s-conv-empty--offline .s-conv-empty-ambient-dot {
+  fill: var(--red, #ef4444);
+  background: var(--red, #ef4444);
+}
+
 .s-conv-empty-mesh-link {
   stroke: currentColor;
   stroke-width: 1;
@@ -2262,6 +2320,25 @@ button.s-thread-sidebar-participant:focus-visible {
   justify-content: center;
   gap: var(--space-2xl);
   margin-top: var(--space-5xl);
+}
+
+.s-conv-empty-action {
+  min-height: 30px;
+  margin-top: var(--space-5xl);
+  padding: 0 var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--red, #ef4444) 34%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red, #ef4444) 8%, transparent);
+  color: color-mix(in srgb, var(--red, #ef4444) 86%, var(--ink));
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-sm);
+}
+
+.s-conv-empty-action:hover {
+  background: color-mix(in srgb, var(--red, #ef4444) 14%, transparent);
+  color: var(--ink);
 }
 
 .s-conv-empty-hint {

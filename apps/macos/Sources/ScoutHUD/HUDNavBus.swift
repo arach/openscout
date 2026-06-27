@@ -38,6 +38,11 @@ final class HUDNavBus: ObservableObject {
     /// the cursor anchors the visible window and rows pile up below.
     var toggleFollow: (() -> Void)?
 
+    /// Cycle the current surface's visual treatment. Tail uses this to switch
+    /// between the native firehose and the agent-latest embed without changing
+    /// tabs.
+    var cycleTreatment: (() -> Void)?
+
     /// Create a new item from the current surface. Agents uses this for
     /// Command-N to open the runner without routing that policy through
     /// HUDController.
@@ -55,6 +60,7 @@ final class HUDNavBus: ObservableObject {
         engageSelected = nil
         unengageSelected = nil
         toggleFollow = nil
+        cycleTreatment = nil
         createNew = nil
     }
 }

@@ -16,6 +16,7 @@ import type {
   RefObject,
 } from "react";
 import { actorColor } from "./colors.ts";
+import { isComposerSendShortcut } from "./compose-shortcuts.ts";
 import type { Agent } from "./types.ts";
 import "./agent-autocomplete.css";
 
@@ -432,6 +433,26 @@ export const AgentMentionTextarea = forwardRef<
   const { filtered, highlightedIndex, setHighlightedIndex, moveHighlight } =
     useAgentAutocomplete({ agents, query, excludeIds });
 
+  const resizeTextarea = useCallback(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+    const computed = window.getComputedStyle(node);
+    const minHeight = parseFloat(computed.minHeight) || 0;
+    const maxHeight = parseFloat(computed.maxHeight);
+    node.style.height = "0px";
+    const naturalHeight = Math.max(node.scrollHeight, minHeight);
+    const nextHeight =
+      Number.isFinite(maxHeight) && maxHeight > 0
+        ? Math.min(naturalHeight, maxHeight)
+        : naturalHeight;
+    node.style.height = `${nextHeight}px`;
+    node.style.overflowY = naturalHeight > nextHeight ? "auto" : "hidden";
+  }, []);
+
+  useLayoutEffect(() => {
+    resizeTextarea();
+  }, [resizeTextarea, value]);
+
   const refreshMention = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -492,6 +513,12 @@ export const AgentMentionTextarea = forwardRef<
   );
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isComposerSendShortcut(e)) {
+      e.preventDefault();
+      onSubmit?.();
+      return;
+    }
+
     if (mention && filtered.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -504,6 +531,7 @@ export const AgentMentionTextarea = forwardRef<
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
+        if (e.key === "Enter" && e.shiftKey) return;
         const target = filtered[highlightedIndex];
         if (target) {
           e.preventDefault();
@@ -516,10 +544,6 @@ export const AgentMentionTextarea = forwardRef<
         setMention(null);
         return;
       }
-    }
-    if (e.key === "Enter" && !e.shiftKey && !mention) {
-      e.preventDefault();
-      onSubmit?.();
     }
   };
 
@@ -534,6 +558,7 @@ export const AgentMentionTextarea = forwardRef<
         disabled={disabled}
         onChange={(e) => {
           onChange(e.target.value);
+          resizeTextarea();
           // defer until value reflects new state in DOM
           queueMicrotask(refreshMention);
         }}

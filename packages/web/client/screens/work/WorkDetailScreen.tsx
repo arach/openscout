@@ -246,7 +246,7 @@ function WorkAskOverview({
         ...(ask.targetAgentId ? { agentId: ask.targetAgentId } : {}),
       }
     : ask?.targetAgentId
-    ? { view: "agents", agentId: ask.targetAgentId, tab: "observe" }
+    ? { view: "agents-v2", agentId: ask.targetAgentId, tab: "observe" }
     : null;
   const observeLabel = ask?.resolvedSessionId ? "Observe session" : "Observe agent";
   const tailRoute: Route = {

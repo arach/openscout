@@ -207,6 +207,14 @@
 .s-lane-card-fieldc:hover {
   background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
+/* Lift the WHOLE field (text + runway + dot) above the card's full-bleed "open"
+   hit while interacting. Without this only the text pokes above the hit overlay
+   (z-index:2); the runway gap between text and dot dips back under it, so :hover
+   drops mid-travel and the dot vanishes before the cursor reaches it. */
+.s-lane-card-fieldc:hover,
+.s-lane-card-fieldc:focus-within {
+  z-index: 2;
+}
 .s-lane-card-fieldc--trail {
   padding-right: 22px;
   margin-right: -22px;

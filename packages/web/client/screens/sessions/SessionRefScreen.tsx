@@ -20,10 +20,10 @@ type SessionRefObservePayload =
       agentId: string;
     } & Omit<AgentObservePayload, "agentId">)
   | {
-      kind: "pairing";
+      kind: "broker";
       refId: string;
       agentId: null;
-      source: "live";
+      source: "broker";
       fidelity: "synthetic";
       historyPath: null;
       sessionId: string;

@@ -64,8 +64,10 @@ import {
   type ScoutBrokerHealthPayload,
   type ScoutBrokerJsonRequestTrace,
 } from "@openscout/runtime/broker-api";
-import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
-import { OPENSCOUT_PORTS } from "@openscout/runtime/local-config";
+import {
+  resolveBrokerServiceConfig,
+  resolveBrokerSocketPathForBaseUrl,
+} from "@openscout/runtime/broker-process-manager";
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -409,6 +411,7 @@ export type ScoutAskResult = {
   conversationId?: string;
   messageId?: string;
   bindingRef?: string;
+  sessionAlias?: string;
   workItem?: ScoutTrackedWorkItem;
   unresolvedTarget?: string;
   targetDiagnostic?: ScoutAskTargetDiagnostic;
@@ -547,28 +550,12 @@ const BROKER_SHARED_CHANNEL_ID = "channel.shared";
 const BROKER_VOICE_CHANNEL_ID = "channel.voice";
 const BROKER_SYSTEM_CHANNEL_ID = "channel.system";
 const OPERATOR_ID = "operator";
-const DEFAULT_BROKER_HOST = "127.0.0.1";
-const DEFAULT_BROKER_PORT = OPENSCOUT_PORTS.broker;
-
-function buildScoutBrokerUrlFromEnv(): string {
-  const host = process.env.OPENSCOUT_BROKER_HOST ?? DEFAULT_BROKER_HOST;
-  const port = Number.parseInt(
-    process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT),
-    10,
-  );
-  const fromEnv = process.env.OPENSCOUT_BROKER_URL?.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-  return `http://${host}:${port}`;
-}
-
 function relayHubDirectory(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
 }
 
 export function resolveScoutBrokerUrl(): string {
-  return buildScoutBrokerUrlFromEnv();
+  return resolveBrokerServiceConfig().brokerUrl;
 }
 
 export function parseScoutHarness(
@@ -2142,8 +2129,8 @@ function scoutBrokerAgentRegistrationFromConfig(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         ...metadata,
-        summary: `${config.displayName} relay agent for ${config.projectName}.`,
-        role: "Relay agent",
+        summary: `${config.displayName} agent for ${config.projectName}.`,
+        role: "Agent",
       },
       agentClass: "general",
       capabilities: config.capabilities,
@@ -3958,6 +3945,7 @@ export async function deliverScoutAsk(input: {
     conversationId: delivery.conversation.id,
     messageId: delivery.message.id,
     bindingRef: delivery.receipt?.bindingRef ?? delivery.bindingRef,
+    sessionAlias: delivery.receipt?.sessionAlias ?? delivery.sessionAlias,
     workItem,
   };
 }

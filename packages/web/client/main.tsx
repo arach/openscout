@@ -5,6 +5,7 @@ import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
+import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
 import {
   applyScoutThemeToDocument,
@@ -33,6 +34,11 @@ const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
 // Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
 // chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
 const isSessionEmbed = window.location.pathname === "/embed/session";
+// Content-only agent lanes embed for the HUD Tail content area. `/embed/traces`
+// keeps compatibility with the older root-level trace embed shape.
+const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
+  || window.location.pathname === "/embed/lanes"
+  || window.location.pathname === "/embed/traces";
 const scoutApp = createScoutApp({ initialTheme });
 
 createRoot(el).render(
@@ -50,6 +56,10 @@ createRoot(el).render(
     ) : isSessionEmbed ? (
       <scoutApp.Provider>
         <SessionEmbedScreen />
+      </scoutApp.Provider>
+    ) : isAgentLanesEmbed ? (
+      <scoutApp.Provider>
+        <AgentLanesEmbedScreen />
       </scoutApp.Provider>
     ) : (
       <OpenScoutAppShell app={scoutApp} />

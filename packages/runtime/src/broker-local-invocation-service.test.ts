@@ -392,6 +392,47 @@ describe("BrokerLocalInvocationService", () => {
     }));
   });
 
+  test("uses pointer-forward alias copy for cardless session dispatch acks", async () => {
+    const sessionActor = testActor({
+      id: "session-chopin-1",
+      kind: "session",
+      displayName: "Project Chopin",
+      handle: "project-chopin",
+      metadata: { cardless: true, handle: "project-chopin" },
+    });
+    const endpoint = testEndpoint({
+      id: "endpoint-chopin",
+      agentId: sessionActor.id,
+      transport: "codex_app_server",
+      harness: "codex",
+      sessionId: sessionActor.id,
+      projectRoot: "/Users/art/dev/scope",
+      cwd: "/Users/art/dev/scope",
+      metadata: {
+        cardless: true,
+        handle: "project-chopin",
+        sessionBacked: true,
+        pendingExternalSession: true,
+      },
+    });
+    const harness = createHarness({
+      agent: null,
+      actor: sessionActor,
+      endpoint,
+      invokeResult: { output: "done" },
+      now: 25_000,
+    });
+
+    await harness.service.execute(
+      testInvocation({ targetAgentId: sessionActor.id }),
+      testFlight({ targetAgentId: sessionActor.id }),
+    );
+
+    expect(harness.persistedFlights[0]?.summary).toBe(
+      "alias project-chopin → session-chopin-1 (scope, codex) acknowledged via attach.",
+    );
+  });
+
   test("keeps requester wait timeout flights running", async () => {
     const endpoint = testEndpoint({
       id: "endpoint-tmux",

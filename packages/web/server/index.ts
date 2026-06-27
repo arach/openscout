@@ -115,6 +115,7 @@ void startTerminalRelay();
 
 const web = await createOpenScoutWebServer({
   currentDirectory,
+  webPort: port,
   shellStateCacheTtlMs,
   assetMode: useViteProxy ? "vite-proxy" : "static",
   viteDevUrl,

@@ -124,6 +124,36 @@ export function jsonWithHeaders(
   response.end(JSON.stringify(payload, null, 2));
 }
 
+export type ServerTimingMetric = {
+  name: string;
+  dur?: number;
+  desc?: string;
+};
+
+function serverTimingToken(value: string): string {
+  return value.trim().replace(/[^A-Za-z0-9!#$%&'*+.^_`|~-]+/g, "-") || "metric";
+}
+
+function serverTimingDescription(value: string): string {
+  return value.replace(/["\\]/g, "");
+}
+
+export function serverTimingHeader(metrics: ServerTimingMetric[]): string {
+  return metrics
+    .filter((metric) => metric.name.trim())
+    .map((metric) => {
+      const parts = [serverTimingToken(metric.name)];
+      if (metric.dur !== undefined && Number.isFinite(metric.dur)) {
+        parts.push(`dur=${Math.max(0, metric.dur).toFixed(1)}`);
+      }
+      if (metric.desc?.trim()) {
+        parts.push(`desc="${serverTimingDescription(metric.desc.trim())}"`);
+      }
+      return parts.join(";");
+    })
+    .join(", ");
+}
+
 export function notFound(response: ServerResponse): void {
   json(response, 404, { error: "not_found" });
 }

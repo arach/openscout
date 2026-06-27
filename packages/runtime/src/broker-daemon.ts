@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFile, stat, unlink } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { Duplex } from "node:stream";
 
 import { applyWSSHandler } from "@trpc/server/adapters/ws";
@@ -129,7 +129,7 @@ import { BrokerLocalInvocationService } from "./broker-local-invocation-service.
 import { registerCardlessSession } from "./broker-cardless-session.js";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProvisionalAgentName,
+  resolveProjectProvisionalAgentName,
 } from "./provisional-agent-names.js";
 import { BrokerControlStreamService } from "./broker-control-stream-service.js";
 import { json } from "./broker-http-helpers.js";
@@ -501,12 +501,61 @@ const localNode: NodeDefinition = {
   hostName: hostname(),
   advertiseScope,
   brokerUrl,
+  webUrl: webControl.url(),
   ...(localIrohEntrypoint ? { meshEntrypoints: [localIrohEntrypoint] } : {}),
   tailnetName,
   capabilities: ["broker", "mesh", "local_runtime"],
   registeredAt: Date.now(),
   lastSeenAt: Date.now(),
 };
+
+function currentHostInfo() {
+  const supportPaths = resolveOpenScoutSupportPaths();
+  const webUrl = webControl.url();
+  const webPort = webControl.port();
+  const now = Date.now();
+  return {
+    schemaVersion: 1,
+    source: "openscout-runtime",
+    updatedAtMs: now,
+    nodeId,
+    meshId,
+    nodeName,
+    hostName: hostname(),
+    advertiseScope,
+    tailnetName,
+    brokerUrl,
+    webUrl,
+    brokerSocketPath,
+    supportDirectory: supportPaths.supportDirectory,
+    runtimeDirectory: supportPaths.runtimeDirectory,
+    ports: {
+      broker: port,
+      web: webPort,
+    },
+    services: {
+      broker: {
+        url: brokerUrl,
+        host,
+        port,
+        socketPath: brokerSocketPath,
+      },
+      web: {
+        url: webUrl,
+        host: "127.0.0.1",
+        port: webPort,
+      },
+    },
+  };
+}
+
+async function writeHostInfo(): Promise<void> {
+  const hostInfoPath = resolveOpenScoutSupportPaths().hostInfoPath;
+  await mkdir(dirname(hostInfoPath), { recursive: true });
+  const temporaryPath = `${hostInfoPath}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(currentHostInfo(), null, 2)}\n`, "utf8");
+  await rename(temporaryPath, hostInfoPath);
+}
 
 const systemActor: ActorIdentity = {
   id: "system",
@@ -790,7 +839,7 @@ function brokerActorDisplayName(snapshot: ReturnType<typeof runtime.snapshot>, a
 async function createCardlessProjectSessionForDelivery(input: {
   projectPath: string;
   execution?: InvocationRequest["execution"];
-  projectAgent?: { displayName?: string; agentName?: string };
+  projectAgent?: { handle?: string };
   requesterId: string;
   createdAt: number;
 }) {
@@ -810,18 +859,36 @@ async function createCardlessProjectSessionForDelivery(input: {
       : "claude_stream_json";
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;
-  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(runtime.snapshot());
-  const provisionalName = resolveProvisionalAgentName({
-    explicitName: input.projectAgent?.agentName,
+  const snapshot = runtime.snapshot();
+  const projectSessionIndex = Object.values(snapshot.endpoints).filter((endpoint) => {
+    const endpointProjectRoot = endpoint.projectRoot
+      ?? (typeof endpoint.metadata?.projectRoot === "string" ? endpoint.metadata.projectRoot : undefined)
+      ?? endpoint.cwd;
+    return endpoint.metadata?.cardless === true
+      && endpoint.harness === harness
+      && Boolean(endpointProjectRoot)
+      && resolve(expandHomePath(endpointProjectRoot!)) === projectRoot;
+  }).length;
+  const occupied = collectOccupiedDefinitionIdsFromBrokerSnapshot(snapshot);
+  const requestedHandle = input.projectAgent?.handle?.trim();
+  const provisionalName = resolveProjectProvisionalAgentName({
+    explicitName: requestedHandle,
     occupied,
+    seedParts: [
+      "cardless-project-session",
+      input.requesterId,
+      projectRoot,
+      harness,
+      projectSessionIndex,
+    ],
   });
-  const displayName = input.projectAgent?.displayName?.trim()
-    || provisionalName.charAt(0).toUpperCase() + provisionalName.slice(1);
+  const displayName = titleCaseName(provisionalName);
   const registered = await registerCardlessSession({
     upsertActor: upsertActorDurably,
     upsertEndpoint: persistEndpoint,
   }, {
     sessionId,
+    handle: provisionalName,
     transport,
     harness,
     cwd: projectRoot,
@@ -1148,6 +1215,7 @@ const routeRequest = createBrokerHttpRouter({
   knownInvocations,
   brokerService,
   webControl,
+  readHostInfo: currentHostInfo,
   a2aService,
   brokerRepoTailService,
   getHarnessTopologySnapshot,
@@ -1226,6 +1294,9 @@ const trpcHandler = applyWSSHandler({
 try {
   await listenTcp(server, { host, port });
   await listenUnixSocket(socketServer, brokerSocketPath);
+  await writeHostInfo().catch((error) => {
+    console.warn("[openscout-runtime] failed to write .host-info:", error);
+  });
   peerDelivery.start();
   const meshRendezvousConfig = resolveMeshRendezvousPublishConfig();
   if (meshRendezvousConfig) {
@@ -1312,6 +1383,7 @@ async function shutdownBroker(exitCode = 0): Promise<void> {
   projection.close();
   await Promise.all([closeServer(socketServer), closeServer(server)]);
   await unlink(brokerSocketPath).catch(() => undefined);
+  await unlink(resolveOpenScoutSupportPaths().hostInfoPath).catch(() => undefined);
   process.exit(exitCode);
 }
 

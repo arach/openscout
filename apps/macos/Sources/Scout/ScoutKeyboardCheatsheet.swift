@@ -43,8 +43,10 @@ struct ScoutKeyboardCheatsheet: View {
             }
 
             keyGroup("Comms", active: section == .comms) {
+                kbd("⌘N", "new chat")
                 kbd("⌘K", "focus search")
                 kbd("⌘L", "focus composer")
+                kbd("⌘V", "paste screenshot / image")
                 kbd("Esc", "leave composer (then j/k to navigate)")
                 kbd("⌘1  ⌘2  ⌘3", "filter all / direct / shared")
                 kbd("⌘R", "refresh")
@@ -62,6 +64,10 @@ struct ScoutKeyboardCheatsheet: View {
                 kbd("j  k  ·  ↑ ↓", "walk repo · worktree")
                 kbd("l  ·  h", "expand · collapse / parent")
                 kbd("⌘↩", "reveal worktree in Finder")
+            }
+
+            keyGroup("Lanes", active: section == .lanes) {
+                kbd("⌘R", "refresh embed")
             }
 
             keyGroup("Global", active: false) {

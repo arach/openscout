@@ -620,6 +620,15 @@ function runtimeSessionMetadata(endpoint: AgentEndpoint): Record<string, unknown
 
 function endpointRuntimeSessionPrimaryAlias(endpoint: AgentEndpoint): string | null {
   const metadata = runtimeSessionMetadata(endpoint);
+  if (metadata.cardless === true) {
+    return firstStringValue(
+      metadataStringValue(metadata, "handle"),
+      metadataStringValue(metadata, "externalSessionId"),
+      metadataStringValue(metadata, "threadId"),
+      endpoint.sessionId,
+      endpoint.agentId,
+    );
+  }
   return firstStringValue(
     metadataStringValue(metadata, "externalSessionId"),
     metadataStringValue(metadata, "threadId"),
@@ -692,6 +701,13 @@ function endpointRuntimeSessionAliases(endpoint: AgentEndpoint, scoutSessionId: 
     if (value) {
       aliases.push({ alias: value, aliasKind: entry.kind });
     }
+  }
+  const provisionalHandle = metadataStringValue(metadata, "handle");
+  if (provisionalHandle) {
+    aliases.push({ alias: provisionalHandle, aliasKind: "provisional" });
+  }
+  if (endpoint.agentId?.trim()) {
+    aliases.push({ alias: endpoint.agentId.trim(), aliasKind: "session_actor" });
   }
 
   const unique = new Map<string, RuntimeSessionAliasInput>();

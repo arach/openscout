@@ -82,6 +82,7 @@ export function renderScoutAskReceipt(value: {
     ids.targetAgentId ? `asked ${ids.targetAgentId}` : "ask queued",
     ids.flightId ? `flight ${ids.flightId}` : null,
     ids.conversationId ? renderConversationRoute(ids.conversationId) : null,
+    ids.sessionAlias ? `alias ${ids.sessionAlias}` : null,
     renderBindingRef(ids.bindingRef),
   ].filter((piece): piece is string => Boolean(piece));
   const delivery = renderScoutAskDeliveryStatus(value.flight);
@@ -389,6 +390,7 @@ export async function runAskWithOptions(
         conversationId: receipt.ids.conversationId ?? null,
         messageId: receipt.ids.messageId ?? null,
         bindingRef: renderBindingRef(receipt.ids.bindingRef),
+        sessionAlias: receipt.ids.sessionAlias ?? null,
         flight: completed,
         timedOut,
       }),
@@ -401,6 +403,7 @@ function renderScoutAskInlineResult(value: {
   conversationId?: string | null;
   messageId?: string | null;
   bindingRef?: string | null;
+  sessionAlias?: string | null;
   flight: ScoutFlightRecord;
   timedOut?: boolean;
 }): string {
@@ -415,6 +418,7 @@ function renderScoutAskInlineResult(value: {
     `state ${value.flight.state}`,
     `flight ${value.flight.id}`,
     value.conversationId ? renderConversationRoute(value.conversationId) : null,
+    value.sessionAlias ? `alias ${value.sessionAlias}` : null,
     value.bindingRef,
   ].filter((piece): piece is string => Boolean(piece));
   return `${pieces.join(" · ")}. Next: scout wait ${waitReferenceForFlight(value.flight)} --timeout 600.`;

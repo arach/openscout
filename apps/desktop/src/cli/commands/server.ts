@@ -29,7 +29,7 @@ import {
   ensureScoutLocalEdgeTrust,
   type ScoutLocalEdgeTrustReport,
 } from "../../core/setup/local-edge-dependencies.ts";
-import { resolveScoutBrokerUrl } from "../../core/broker/service.ts";
+import { loadScoutBrokerContext, resolveScoutBrokerUrl } from "../../core/broker/service.ts";
 import type { ScoutCommandContext } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
 
@@ -40,6 +40,7 @@ type ScoutServerHealth = {
   ok: true;
   surface: "control-plane" | "openscout-web";
   currentDirectory: string;
+  brokerUrl?: string;
 };
 
 type ScoutServerOpenResult = {
@@ -353,6 +354,40 @@ function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Rec
   return mergedEnv;
 }
 
+async function withLiveBrokerInternalUrl(env: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
+  if (env.OPENSCOUT_BROKER_INTERNAL_URL?.trim() || env.OPENSCOUT_BROKER_URL?.trim()) {
+    return env;
+  }
+
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const brokerUrl = broker?.node.brokerUrl?.trim();
+  if (!brokerUrl) {
+    return env;
+  }
+
+  return {
+    ...env,
+    OPENSCOUT_BROKER_INTERNAL_URL: brokerUrl,
+  };
+}
+
+function normalizedUrl(value: string | undefined | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+function brokerUrlMatches(actual: string | undefined, expected: string | undefined): boolean {
+  const expectedUrl = normalizedUrl(expected);
+  if (!expectedUrl) return true;
+  const actualUrl = normalizedUrl(actual);
+  return !actualUrl || actualUrl === expectedUrl;
+}
+
 function parseServerSelection(args: string[]): {
   action: ScoutServerAction;
   flagArgs: string[];
@@ -563,6 +598,7 @@ async function probeScoutServer(port: number): Promise<
           ok: true,
           surface: body.surface,
           currentDirectory: body.currentDirectory,
+          brokerUrl: typeof body.brokerUrl === "string" ? body.brokerUrl : undefined,
         },
       };
     }
@@ -758,6 +794,7 @@ async function waitForScoutServer(
   port: number,
   mode: ScoutServerMode,
   expectedCurrentDirectory: string,
+  expectedBrokerUrl?: string,
 ): Promise<void> {
   const deadline = Date.now() + SERVER_OPEN_TIMEOUT_MS;
 
@@ -773,6 +810,11 @@ async function waitForScoutServer(
       if (actualCurrentDirectory !== expectedCurrentDirectory) {
         throw new ScoutCliError(
           `port ${port} is already serving Scout for ${actualCurrentDirectory}, not ${expectedCurrentDirectory}.`,
+        );
+      }
+      if (!brokerUrlMatches(probe.health.brokerUrl, expectedBrokerUrl)) {
+        throw new ScoutCliError(
+          `port ${port} is serving Scout with broker ${probe.health.brokerUrl}, not ${expectedBrokerUrl}. Restart the Scout web server.`,
         );
       }
       return;
@@ -796,6 +838,7 @@ async function openScoutServer(options: {
 }): Promise<ScoutServerOpenResult> {
   const port = resolveServerPort(options.env);
   const expectedCurrentDirectory = resolveExpectedCurrentDirectory(options.env);
+  const expectedBrokerUrl = options.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();
   const browserUrl = resolveServerBrowserUrl(options.env, port, options.openPath);
   const probe = await probeScoutServer(port);
 
@@ -809,6 +852,11 @@ async function openScoutServer(options: {
     if (actualCurrentDirectory !== expectedCurrentDirectory) {
       throw new ScoutCliError(
         `port ${port} is already serving Scout for ${actualCurrentDirectory}, not ${expectedCurrentDirectory}.`,
+      );
+    }
+    if (!brokerUrlMatches(probe.health.brokerUrl, expectedBrokerUrl)) {
+      throw new ScoutCliError(
+        `port ${port} is already serving Scout with broker ${probe.health.brokerUrl}, not ${expectedBrokerUrl}. Restart the Scout web server.`,
       );
     }
     await openBrowser(browserUrl);
@@ -825,7 +873,7 @@ async function openScoutServer(options: {
   }
 
   await spawnDetachedServer(options.entry, options.env);
-  await waitForScoutServer(port, options.mode, expectedCurrentDirectory);
+  await waitForScoutServer(port, options.mode, expectedCurrentDirectory, expectedBrokerUrl);
   await openBrowser(browserUrl);
   return {
     url: browserUrl,
@@ -843,7 +891,9 @@ export async function runServerCommand(context: ScoutCommandContext, args: strin
 
   const selection = parseServerSelection(args);
   const { env: flagEnv, openPath } = parseServerFlags(selection.flagArgs);
-  const mergedEnv = buildMergedServerEnv(selection.entry, selection.mode, flagEnv);
+  const mergedEnv = await withLiveBrokerInternalUrl(
+    buildMergedServerEnv(selection.entry, selection.mode, flagEnv),
+  );
 
   if (selection.action === "open") {
     const result = await openScoutServer({

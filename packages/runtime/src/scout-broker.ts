@@ -1016,8 +1016,8 @@ function scoutBrokerAgentRegistrationFromConfig(
       labels: ["relay", "project", "agent", "local-agent"],
       metadata: {
         ...metadata,
-        summary: `${config.displayName} relay agent for ${config.projectName}.`,
-        role: "Relay agent",
+        summary: `${config.displayName} agent for ${config.projectName}.`,
+        role: "Agent",
       },
       agentClass: "general",
       capabilities: config.capabilities,

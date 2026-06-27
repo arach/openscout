@@ -712,7 +712,7 @@ export async function getScoutDesktopFeedbackBundle(
       entries: [
         { label: "Support Directory", value: compactHomePath(supportPaths.supportDirectory) ?? supportPaths.supportDirectory },
         { label: "Settings", value: compactHomePath(supportPaths.settingsPath) ?? supportPaths.settingsPath },
-        { label: "Relay Agents", value: compactHomePath(supportPaths.relayAgentsRegistryPath) ?? supportPaths.relayAgentsRegistryPath },
+        { label: "Agent Registry", value: compactHomePath(supportPaths.relayAgentsRegistryPath) ?? supportPaths.relayAgentsRegistryPath },
         { label: "Harness Catalog", value: compactHomePath(supportPaths.harnessCatalogPath) ?? supportPaths.harnessCatalogPath },
         { label: "Relay Hub", value: compactHomePath(supportPaths.relayHubDirectory) ?? supportPaths.relayHubDirectory },
         { label: "Control Home", value: compactHomePath(supportPaths.controlHome) ?? supportPaths.controlHome },

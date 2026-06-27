@@ -2034,7 +2034,7 @@ export async function installClaudeStatuslineTool(): Promise<ClaudeStatuslineIns
       [
         "#!/bin/sh",
         "set -eu",
-        `exec ${scoutInvocation} statusline claude "$@"`,
+        `exec ${scoutInvocation} statusline claude --delegate "$@"`,
         "",
       ].join("\n"),
       "utf8",

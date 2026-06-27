@@ -1,6 +1,7 @@
 import AppKit
 import ScoutAppCore
 import SwiftUI
+import WebKit
 
 // Tail tab — native port of design/studio/components/hud/HudTail.tsx.
 //
@@ -71,10 +72,49 @@ private func copyToPasteboard(_ value: String) {
     NSPasteboard.general.setString(value, forType: .string)
 }
 
+enum HUDTailTreatment: String, CaseIterable, Identifiable {
+    static let storageKey = "scout.hud.tail.treatment.v1"
+
+    case firehose
+    case agentLatest
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .firehose: return "Tail"
+        case .agentLatest: return "Latest"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .firehose: return "TAIL"
+        case .agentLatest: return "AGENT"
+        }
+    }
+
+    var systemName: String {
+        switch self {
+        case .firehose: return "list.bullet"
+        case .agentLatest: return "person.2"
+        }
+    }
+
+    var next: HUDTailTreatment {
+        switch self {
+        case .firehose: return .agentLatest
+        case .agentLatest: return .firehose
+        }
+    }
+}
+
 struct HUDTailView: View {
     @ObservedObject var tail: ScoutTailStore
     let agents: [HudAgent]
+    @Binding var treatment: HUDTailTreatment
 
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
     @StateObject private var engage = HUDEngageState()
@@ -91,22 +131,18 @@ struct HUDTailView: View {
 
     var body: some View {
         Group {
-            if let error = tail.lastError, !tail.hasBufferedEvents {
-                TailProblemView(message: error)
-            } else if tail.isLoading && !tail.hasBufferedEvents {
-                TailLoadingView()
-            } else if rows.isEmpty {
-                TailEmptyView(hasBufferedEvents: tail.hasBufferedEvents)
-            } else {
-                switch state.size {
-                case .compact: rowsBody(size: .compact)
-                case .medium:  rowsBody(size: .medium)
-                case .large:   rowsBody(size: .large)
-                }
+            switch treatment {
+            case .firehose:
+                nativeTailContent
+            case .agentLatest:
+                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: state.size))
             }
         }
         .onAppear {
             tail.start()
+            wireNavBus()
+        }
+        .onChange(of: treatment) { _, _ in
             wireNavBus()
         }
         .onDisappear {
@@ -115,10 +151,33 @@ struct HUDTailView: View {
         }
     }
 
+    @ViewBuilder
+    private var nativeTailContent: some View {
+        if let error = tail.lastError, !tail.hasBufferedEvents {
+            TailProblemView(message: error)
+        } else if tail.isLoading && !tail.hasBufferedEvents {
+            TailLoadingView()
+        } else if rows.isEmpty {
+            TailEmptyView(hasBufferedEvents: tail.hasBufferedEvents)
+        } else {
+            switch state.size {
+            case .compact: rowsBody(size: .compact)
+            case .medium: rowsBody(size: .medium)
+            case .large: rowsBody(size: .large)
+            }
+        }
+    }
+
     // Register cycle/engage closures with the global key bus. HUDController
     // dispatches j/k/Return/f into these — each view tab does its own wiring
     // so the bus stays a thin dispatcher.
     private func wireNavBus() {
+        HUDNavBus.shared.clear()
+        HUDNavBus.shared.cycleTreatment = {
+            treatment = treatment.next
+        }
+        guard treatment == .firehose else { return }
+
         // j/k / g / G never flip `following` — the firehose keeps firing
         // even while the operator explores. Only `f` pauses live mode
         // (deliberately, so it can't be triggered as a side effect).
@@ -315,6 +374,187 @@ struct HUDTailView: View {
             try? await Task.sleep(nanoseconds: 720_000_000)
             freshRowIds.subtract(fresh)
         }
+    }
+}
+
+// MARK: - Web embed
+
+private func hudTailEmbedURL(colorScheme: ColorScheme, hudSize: HUDSize) -> URL {
+    let lanes: String = {
+        switch hudSize {
+        case .compact: return "sm"
+        case .medium: return "md"
+        case .large: return "lg"
+        }
+    }()
+    let override = ProcessInfo.processInfo.environment["OPENSCOUT_HUD_TAIL_EMBED_URL"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    let base = override.flatMap(URL.init(string:))
+        ?? ScoutWeb.url(path: "/ops/lanes/embed")
+        ?? ScoutWeb.baseURL().appending(path: "ops/lanes/embed")
+
+    guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+        return base
+    }
+    var items = components.queryItems ?? []
+    if !items.contains(where: { $0.name == "theme" }) {
+        items.append(URLQueryItem(name: "theme", value: colorScheme == .dark ? "dark" : "light"))
+    }
+    if !items.contains(where: { $0.name == "embed" }) {
+        items.append(URLQueryItem(name: "embed", value: "hud"))
+    }
+    if !items.contains(where: { $0.name == "profile" }) {
+        items.append(URLQueryItem(name: "profile", value: "hud.tail"))
+    }
+    if !items.contains(where: { $0.name == "lanes" }) {
+        items.append(URLQueryItem(name: "lanes", value: lanes))
+    }
+    components.queryItems = items
+    return components.url ?? base
+}
+
+private enum HUDTailEmbedLoadPhase: Equatable {
+    case loading
+    case ready
+    case failed(String)
+}
+
+private struct HUDTailEmbedContent: View {
+    let url: URL
+
+    @State private var phase: HUDTailEmbedLoadPhase = .loading
+    @State private var reloadToken = UUID()
+
+    var body: some View {
+        ZStack {
+            HUDTailEmbedWebView(url: url, reloadToken: reloadToken, phase: $phase)
+                .opacity(isFailed ? 0 : 1)
+
+            if phase == .loading {
+                TailLoadingView()
+                    .transition(.opacity)
+            }
+
+            if case .failed(let message) = phase {
+                TailEmbedProblemView(message: message, url: url) {
+                    phase = .loading
+                    reloadToken = UUID()
+                }
+                .transition(.opacity)
+            }
+        }
+        .background(HUDChrome.canvas)
+        .onChange(of: url) { _, _ in
+            phase = .loading
+        }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+}
+
+private struct HUDTailEmbedWebView: NSViewRepresentable {
+    let url: URL
+    let reloadToken: UUID
+    @Binding var phase: HUDTailEmbedLoadPhase
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(phase: $phase)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = context.coordinator
+        webView.allowsBackForwardNavigationGestures = false
+        webView.setValue(false, forKey: "drawsBackground")
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        }
+        return webView
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.currentURL != url
+            || context.coordinator.reloadToken != reloadToken else { return }
+        context.coordinator.currentURL = url
+        context.coordinator.reloadToken = reloadToken
+        phase = .loading
+        webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 30))
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        @Binding var phase: HUDTailEmbedLoadPhase
+        var currentURL: URL?
+        var reloadToken: UUID?
+
+        init(phase: Binding<HUDTailEmbedLoadPhase>) {
+            _phase = phase
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            setPhase(.ready)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            setPhase(.failed(Self.message(for: error)))
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            guard !ScoutAppError.isCancellation(error) else { return }
+            setPhase(.failed(Self.message(for: error)))
+        }
+
+        private func setPhase(_ next: HUDTailEmbedLoadPhase) {
+            DispatchQueue.main.async { [weak self] in self?.phase = next }
+        }
+
+        private static func message(for error: Error) -> String {
+            ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app.")
+        }
+    }
+}
+
+private struct TailEmbedProblemView: View {
+    let message: String
+    let url: URL
+    let retry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Spacer(minLength: 24)
+            HUDEyebrow(text: "LANES EMBED  ·  OFFLINE", color: HUDChrome.inkFaint)
+            Text("Lanes unavailable.")
+                .font(HUDType.body(15, weight: .semibold))
+                .foregroundStyle(HUDChrome.ink)
+            Text(message)
+                .font(HUDType.body(12))
+                .foregroundStyle(HUDChrome.inkMuted)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, 32)
+            Text(url.absoluteString)
+                .font(HUDType.mono(9))
+                .foregroundStyle(HUDChrome.inkDeep)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 32)
+            Button("Retry", action: retry)
+                .buttonStyle(.plain)
+                .font(HUDType.mono(10, weight: .bold))
+                .tracking(HUDType.eyebrowMicro)
+                .foregroundStyle(HUDChrome.accent)
+                .padding(.top, 4)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(HUDChrome.canvas)
     }
 }
 

@@ -196,6 +196,8 @@ export type SessionInitiationResult = {
   ok?: boolean;
   conversationId?: string | null;
   agentId?: string | null;
+  sessionId?: string | null;
+  handle?: string | null;
   flightId?: string | null;
   messageId?: string | null;
 };

@@ -199,7 +199,7 @@ export function AgentInfoScreen({
     ...(protocol ? [{ label: "Protocol", value: protocol }] : []),
     ...(skills.length > 0 ? [{ label: "Skills", value: <CapabilityTokens values={skills} /> }] : []),
     ...(!hasExternalCardIdentity ? [{ label: "Class", value: formatLabel(agent.agentClass) ?? "—" }] : []),
-    ...(!hasExternalCardIdentity && agent.role ? [{ label: "Role", value: agent.role }] : []),
+    ...(!hasExternalCardIdentity && agent.role ? [{ label: "Role", value: formatLabel(agent.role) ?? agent.role }] : []),
     ...(agent.staleLocalRegistration
       ? [{
         label: "Registration",

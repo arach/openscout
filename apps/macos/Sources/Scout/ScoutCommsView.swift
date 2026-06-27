@@ -108,11 +108,21 @@ struct ScoutPendingConversation: Identifiable, Equatable {
 
     let id: String
     let conversationId: String?
+    let sessionId: String?
     let flightId: String?
     let title: String
     let subtitle: String
     let draft: ScoutSessionDraft
     var state: State
+
+    var selectionReferences: [String] {
+        [conversationId, sessionId, flightId, id].compactMap { $0?.nilIfEmpty }
+    }
+
+    func matchesSelection(_ selectedCId: String?) -> Bool {
+        guard let selectedCId = selectedCId?.nilIfEmpty else { return false }
+        return selectionReferences.contains(selectedCId)
+    }
 }
 
 struct ScoutPendingFlightStatus: Decodable, Sendable {
@@ -394,7 +404,7 @@ struct ScoutConversationListBar: View {
                     ForEach(pendingConversations) { pending in
                         ScoutPendingConversationRow(
                             pending: pending,
-                            isSelected: pending.conversationId == selectedCId,
+                            isSelected: pending.matchesSelection(selectedCId),
                             onRetry: { onRetryPending(pending) },
                             onSelect: { onSelectPending(pending) }
                         )
@@ -718,6 +728,9 @@ struct ScoutPendingConversationRow: View {
         if let cId = pending.conversationId?.nilIfEmpty {
             return shortConversationId(cId)
         }
+        if let sessionId = pending.sessionId?.nilIfEmpty {
+            return shortSessionId(sessionId)
+        }
         if let flightId = pending.flightId?.nilIfEmpty {
             return "flight \(String(flightId.prefix(8)))"
         }
@@ -729,6 +742,10 @@ struct ScoutPendingConversationRow: View {
             return "chat \(String(cId.dropFirst(2).prefix(8)))"
         }
         return cId.count > 16 ? "chat \(String(cId.prefix(12)))" : "chat \(cId)"
+    }
+
+    private func shortSessionId(_ sessionId: String) -> String {
+        sessionId.count > 18 ? "session \(String(sessionId.prefix(14)))" : "session \(sessionId)"
     }
 }
 

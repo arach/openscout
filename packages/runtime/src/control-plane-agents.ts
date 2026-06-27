@@ -131,6 +131,7 @@ async function resolveOneTimeAgentName<TBroker extends ScoutAgentServiceBrokerCo
     agentName?: string;
     projectPath: string;
     currentDirectory?: string;
+    createdById?: string;
   },
 ): Promise<string> {
   if (input.agentName?.trim()) {
@@ -155,8 +156,16 @@ async function resolveOneTimeAgentName<TBroker extends ScoutAgentServiceBrokerCo
   for (const status of localStatuses) {
     references.push(status.agentId);
   }
+  const occupied = collectOccupiedDefinitionIds(references);
   return resolveProvisionalAgentName({
-    occupied: collectOccupiedDefinitionIds(references),
+    occupied,
+    seedParts: [
+      "one-time-agent-card",
+      input.createdById,
+      input.projectPath,
+      input.currentDirectory ?? input.projectPath,
+      localStatuses.length,
+    ],
   });
 }
 
@@ -252,6 +261,7 @@ export function createScoutAgentService<TBroker extends ScoutAgentServiceBrokerC
           agentName: input.agentName,
           projectPath: input.projectPath,
           currentDirectory: input.currentDirectory,
+          createdById: input.createdById,
         })
         : input.agentName;
       const lifecycle = oneTimeUse

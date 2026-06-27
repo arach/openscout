@@ -178,6 +178,7 @@ struct Config {
     runtime_package_dir: PathBuf,
     daemon_executable: PathBuf,
     daemon_state_path: PathBuf,
+    host_info_path: PathBuf,
     bun_executable: String,
     broker_host: String,
     broker_port: u16,
@@ -266,6 +267,7 @@ impl Config {
             }),
         );
         let daemon_state_path = runtime_directory.join("scoutd-state.json");
+        let host_info_path = support_directory.join(".host-info");
         let repo_watch_interval = repo_watch_interval_from_env();
 
         Ok(Self {
@@ -283,6 +285,7 @@ impl Config {
             runtime_package_dir,
             daemon_executable,
             daemon_state_path,
+            host_info_path,
             bun_executable,
             broker_host,
             broker_port,
@@ -320,6 +323,8 @@ struct ServiceStatus {
     config: Config,
     launchctl: LaunchctlStatus,
     health: HealthStatus,
+    effective_broker_url: Option<String>,
+    effective_web_url: Option<String>,
     daemon_state: Option<String>,
 }
 
@@ -793,10 +798,28 @@ fn send_process_signal(pid: u32, signal_name: &str) -> Result<(), String> {
 }
 
 fn broker_service_status(config: &Config) -> ServiceStatus {
+    let health = fetch_health(config);
+    let host_info = read_host_info_json(config);
+    let effective_broker_url = host_info
+        .as_deref()
+        .and_then(|body| parse_json_string_field(body, "brokerUrl"))
+        .or_else(|| {
+            if health.reachable && health.ok {
+                fetch_node_broker_url(config).ok().flatten()
+            } else {
+                None
+            }
+        });
+    let effective_web_url = host_info
+        .as_deref()
+        .and_then(|body| parse_json_string_field(body, "webUrl"));
+
     ServiceStatus {
         config: config.clone(),
         launchctl: inspect_launchctl(config),
-        health: fetch_health(config),
+        health,
+        effective_broker_url,
+        effective_web_url,
         daemon_state: read_daemon_state_json(config),
     }
 }
@@ -916,6 +939,54 @@ fn fetch_tcp_health(config: &Config) -> Result<HealthStatus, String> {
 fn fetch_http_health<T: Read + Write>(stream: &mut T, host: &str) -> Result<HealthStatus, String> {
     let response = fetch_http_response(stream, host, "/health", "application/json")?;
     parse_health_response(&response)
+}
+
+fn fetch_node_broker_url(config: &Config) -> Result<Option<String>, String> {
+    match fetch_node_broker_url_unix(&config.broker_socket_path) {
+        Ok(url) => Ok(url),
+        Err(_) => fetch_node_broker_url_tcp(config),
+    }
+}
+
+fn fetch_node_broker_url_unix(socket_path: &Path) -> Result<Option<String>, String> {
+    let mut stream = UnixStream::connect(socket_path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    fetch_node_broker_url_http(&mut stream, "localhost")
+}
+
+fn fetch_node_broker_url_tcp(config: &Config) -> Result<Option<String>, String> {
+    let mut stream = TcpStream::connect((&config.broker_host[..], config.broker_port))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(1)))
+        .map_err(|error| error.to_string())?;
+    fetch_node_broker_url_http(&mut stream, &config.broker_host)
+}
+
+fn fetch_node_broker_url_http<T: Read + Write>(
+    stream: &mut T,
+    host: &str,
+) -> Result<Option<String>, String> {
+    let response = fetch_http_response(stream, host, "/v1/node", "application/json")?;
+    match parse_http_status_code(&response) {
+        Some(status) if (200..300).contains(&status) => {
+            let body = response
+                .split_once("\r\n\r\n")
+                .map(|(_, body)| body)
+                .unwrap_or_default();
+            Ok(parse_json_string_field(body, "brokerUrl"))
+        }
+        Some(status) => Err(format!("broker node returned HTTP {status}")),
+        None => Err("broker node response missing HTTP status".to_string()),
+    }
 }
 
 fn parse_health_response(response: &str) -> Result<HealthStatus, String> {
@@ -1387,6 +1458,16 @@ fn render_launch_agent_plist(config: &Config) -> String {
 
 fn read_daemon_state_json(config: &Config) -> Option<String> {
     let raw = fs::read_to_string(&config.daemon_state_path).ok()?;
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}') {
+        Some(trimmed.to_string())
+    } else {
+        None
+    }
+}
+
+fn read_host_info_json(config: &Config) -> Option<String> {
+    let raw = fs::read_to_string(&config.host_info_path).ok()?;
     let trimmed = raw.trim();
     if trimmed.starts_with('{') && trimmed.ends_with('}') {
         Some(trimmed.to_string())
@@ -1870,10 +1951,20 @@ fn print_status(status: &ServiceStatus, json: bool) {
                 "missing"
             }
         );
-        println!("broker url: {}", status.config.broker_url);
+        println!(
+            "broker url: {}",
+            status
+                .effective_broker_url
+                .as_deref()
+                .unwrap_or(&status.config.broker_url)
+        );
         println!(
             "broker socket: {}",
             status.config.broker_socket_path.display()
+        );
+        println!(
+            "web url: {}",
+            status.effective_web_url.as_deref().unwrap_or("-")
         );
         println!("reachable: {}", yes_no(status.health.reachable));
         println!(
@@ -1944,6 +2035,8 @@ fn status_json(status: &ServiceStatus) -> String {
 \"launchAgentPath\":{},\
 \"bootoutCommand\":{},\
 \"brokerUrl\":{},\
+\"effectiveBrokerUrl\":{},\
+\"webUrl\":{},\
 \"brokerSocketPath\":{},\
 \"supportDirectory\":{},\
 \"runtimeDirectory\":{},\
@@ -1962,6 +2055,7 @@ fn status_json(status: &ServiceStatus) -> String {
 \"scoutdExecutable\":{},\
 \"scoutdVersion\":{},\
 \"scoutdBuild\":{},\
+\"hostInfoPath\":{},\
 \"scoutdStatePath\":{},\
 \"scoutdState\":{}\
 }}",
@@ -1973,6 +2067,8 @@ fn status_json(status: &ServiceStatus) -> String {
             status.config.service_target
         )),
         json_string(&status.config.broker_url),
+        json_opt_str(status.effective_broker_url.as_deref()),
+        json_opt_str(status.effective_web_url.as_deref()),
         json_string(&status.config.broker_socket_path.to_string_lossy()),
         json_string(&status.config.support_directory.to_string_lossy()),
         json_string(&status.config.runtime_directory.to_string_lossy()),
@@ -1991,6 +2087,7 @@ fn status_json(status: &ServiceStatus) -> String {
         json_string(&status.config.daemon_executable.to_string_lossy()),
         json_string(BUILD_VERSION),
         build_identity_json(),
+        json_string(&status.config.host_info_path.to_string_lossy()),
         json_string(&status.config.daemon_state_path.to_string_lossy()),
         status.daemon_state.as_deref().unwrap_or("null"),
     )

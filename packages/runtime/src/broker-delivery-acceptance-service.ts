@@ -34,6 +34,7 @@ import {
   type RuntimeSnapshot,
 } from "./scout-dispatcher.js";
 import { describeUnavailableSessionEndpoint } from "./broker-endpoint-selection.js";
+import { sessionActorAlias } from "./session-alias.js";
 
 type EnsureBrokerDeliveryConversationInput = {
   requesterId: string;
@@ -560,6 +561,8 @@ export class BrokerDeliveryAcceptanceService {
           label: resolved.session.label,
           endpoint: resolved.session.endpoint as AgentEndpoint | undefined,
         };
+    const receiptSessionId = targetSessionId
+      ?? (resolved.kind === "resolved_session" ? resolved.session.sessionId : undefined);
 
     const unavailable = resolved.kind === "resolved"
       ? this.options.describeUnavailableDeliveryTarget(
@@ -668,7 +671,7 @@ export class BrokerDeliveryAcceptanceService {
         requesterId,
         requesterNodeId,
         targetAgentId: target.actorId,
-        targetSessionId,
+        targetSessionId: receiptSessionId,
         targetLabel,
         conversationId: conversation.id,
         messageId,
@@ -681,7 +684,7 @@ export class BrokerDeliveryAcceptanceService {
         conversation,
         message,
         targetAgentId: target.actorId,
-        ...(targetSessionId ? { targetSessionId } : {}),
+        ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
         ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),
       };
     }
@@ -736,6 +739,7 @@ export class BrokerDeliveryAcceptanceService {
     const flight = await this.options.acceptInvocation(invocation);
     throwIfAborted(options.signal);
     const bindingRef = flight.id.slice(-8);
+    const sessionAlias = sessionActorAlias(snapshot, target.actorId) ?? undefined;
     this.options.dispatchAcceptedInvocation(invocation).catch((error) => {
       this.options.warn?.(`[openscout-runtime] background dispatch failed for invocation ${invocation.id}:`, error);
     });
@@ -749,8 +753,9 @@ export class BrokerDeliveryAcceptanceService {
         requesterId,
         requesterNodeId,
         targetAgentId: target.actorId,
-        targetSessionId,
+        targetSessionId: receiptSessionId,
         targetLabel,
+        sessionAlias,
         bindingRef,
         conversationId: conversation.id,
         messageId,
@@ -759,7 +764,8 @@ export class BrokerDeliveryAcceptanceService {
       conversation,
       message,
       targetAgentId: target.actorId,
-      ...(targetSessionId ? { targetSessionId } : {}),
+      ...(receiptSessionId ? { targetSessionId: receiptSessionId } : {}),
+      ...(sessionAlias ? { sessionAlias } : {}),
       bindingRef,
       flight,
       ...(workRecord?.kind === "work_item" ? { workItem: workRecord } : {}),

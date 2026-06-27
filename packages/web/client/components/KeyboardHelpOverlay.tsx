@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
-import { useFocusTrap } from "../lib/keyboard-nav.ts";
+import { isEditableTarget, useFocusTrap } from "../lib/keyboard-nav.ts";
 import "./keyboard-help.css";
 
 type Binding = { keys: string[]; label: string };
 type Group = { title: string; bindings: Binding[] };
 
 const GROUPS: Group[] = [
+  {
+    title: "App shell",
+    bindings: [
+      { keys: ["⌘", "⇧", "N"], label: "New session" },
+      { keys: ["⌘", "K"], label: "Command palette" },
+      { keys: ["⌘", "["], label: "Toggle left panel" },
+      { keys: ["⌘", "]"], label: "Toggle right panel" },
+      { keys: ["⌘", "⇧", "]"], label: "Toggle inspector overlay" },
+      { keys: ["Ctrl", "`"], label: "Toggle terminal drawer" },
+      { keys: ["⌘", "J"], label: "Toggle assistant drawer" },
+    ],
+  },
   {
     title: "Global",
     bindings: [
@@ -32,6 +44,34 @@ const GROUPS: Group[] = [
       { keys: ["/"], label: "Focus filter input" },
       { keys: ["↓"], label: "From filter → first match" },
       { keys: ["Esc"], label: "Clear filter (while focused)" },
+    ],
+  },
+  {
+    title: "Composers",
+    bindings: [
+      { keys: ["Enter", "⇧ Enter"], label: "Insert line break" },
+      { keys: ["⌘ Enter", "Ctrl Enter"], label: "Send message" },
+    ],
+  },
+  {
+    title: "Capture routing",
+    bindings: [
+      { keys: ["Drop"], label: "Drop screenshot/video anywhere" },
+      { keys: ["⌘", "V"], label: "Paste image into route composer" },
+      { keys: ["Existing chat", "New session"], label: "Choose delivery in composer" },
+    ],
+  },
+  {
+    title: "Agent lanes",
+    bindings: [
+      { keys: ["↓", "j"], label: "Next lane" },
+      { keys: ["↑", "k"], label: "Previous lane" },
+      { keys: ["Enter", "i"], label: "Inspect lane" },
+      { keys: ["1", "…", "4"], label: "Switch trace window (5m → 24h)" },
+      { keys: ["o"], label: "Open session (detail sheet)" },
+      { keys: ["t"], label: "Open traces (detail sheet)" },
+      { keys: ["p"], label: "Agent profile (detail sheet)" },
+      { keys: ["Esc"], label: "Close detail sheet" },
     ],
   },
   {
@@ -118,11 +158,7 @@ export function useKeyboardHelp() {
         return;
       }
       if (e.key !== "?") return;
-      const target = e.target as HTMLElement | null;
-      const inEditable = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || (target?.isContentEditable ?? false);
-      if (inEditable) return;
+      if (isEditableTarget(e.target)) return;
       e.preventDefault();
       setOpen((v) => !v);
     };

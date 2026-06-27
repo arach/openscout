@@ -219,7 +219,7 @@ function AgentHoverCardPopover({
 
   const openAgentPage = useCallback(() => {
     if (!agent) return;
-    navigate({ view: "agents", agentId: agent.id });
+    navigate({ view: "agents-v2", agentId: agent.id });
     onRequestClose();
   }, [agent, navigate, onRequestClose]);
 

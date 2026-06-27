@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 
 import { Hono, type Context } from "hono";
@@ -23,7 +24,8 @@ import {
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
-  resolveProvisionalAgentName,
+  resolveProjectProvisionalAgentName,
+  resolveOpenScoutSupportPaths,
 } from "@openscout/runtime";
 
 import {
@@ -119,9 +121,12 @@ import {
 } from "./core/observe/service.ts";
 import {
   getTailDiscovery,
+  refreshTailDiscovery,
   readRecentTranscriptEvents,
   snapshotRecentEvents,
+  type DiscoverySnapshot,
   type DiscoveredTranscript,
+  type TailEvent,
 } from "@openscout/runtime/tail";
 import {
   indexRecentSessionKnowledge,
@@ -253,6 +258,7 @@ import {
   invokeCodexAppServerAgent,
   normalizeCodexAppServerLaunchArgs,
 } from "@openscout/runtime/codex-app-server";
+import { requestHarnessSessionCompaction } from "./session-compaction.ts";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -336,6 +342,28 @@ function nativeSessionId(transcript: DiscoveredTranscript): string {
   return `native:${transcript.source}:${sessionId}:${stableHash(transcript.transcriptPath)}`;
 }
 
+function normalizeTranscriptCwd(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? resolve(expandHomePath(trimmed)) : null;
+}
+
+function mostRecentTranscriptForHarnessCwd(
+  transcripts: readonly DiscoveredTranscript[],
+  harness: string | null | undefined,
+  cwd: string | null | undefined,
+): DiscoveredTranscript | null {
+  const expectedHarness = harness?.trim().toLowerCase();
+  const expectedCwd = normalizeTranscriptCwd(cwd);
+  if (!expectedHarness || !expectedCwd) return null;
+  return transcripts
+    .filter((transcript) =>
+      transcript.source.toLowerCase() === expectedHarness
+      && normalizeTranscriptCwd(transcript.cwd) === expectedCwd
+      && Boolean(transcript.sessionId?.trim())
+    )
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0] ?? null;
+}
+
 function slugifyTmuxName(value: string): string {
   const slug = value
     .toLowerCase()
@@ -398,6 +426,13 @@ export type TmuxPanePeekCapture = {
   truncated?: boolean;
 };
 
+type WebTailRuntime = {
+  getTailDiscovery: typeof getTailDiscovery;
+  refreshTailDiscovery: typeof refreshTailDiscovery;
+  readRecentTranscriptEvents: typeof readRecentTranscriptEvents;
+  snapshotRecentEvents: typeof snapshotRecentEvents;
+};
+
 export type CreateOpenScoutWebServerOptions = {
   currentDirectory: string;
   shellStateCacheTtlMs?: number;
@@ -427,6 +462,7 @@ export type CreateOpenScoutWebServerOptions = {
   // Injectable for tests; defaults to the runtime native diff producer.
   repoDiffSnapshot?: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>;
   repoPullRequests?: (options: RepoPullRequestLoadOptions) => Promise<RepoPullRequestSnapshot>;
+  tailRuntime?: Partial<WebTailRuntime>;
 };
 
 function pairingQrValueWithWebPort(
@@ -1413,6 +1449,184 @@ function parseOptionalPositiveInt(
   }
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+type ServerTimingMetric = {
+  name: string;
+  dur?: number;
+  desc?: string;
+};
+
+function serverTimingToken(value: string): string {
+  return value.trim().replace(/[^A-Za-z0-9!#$%&'*+.^_`|~-]+/g, "-") || "metric";
+}
+
+function serverTimingDescription(value: string): string {
+  return value.replace(/["\\]/g, "");
+}
+
+function formatServerTiming(metrics: ServerTimingMetric[]): string {
+  return metrics
+    .filter((metric) => metric.name.trim())
+    .map((metric) => {
+      const parts = [serverTimingToken(metric.name)];
+      if (metric.dur !== undefined && Number.isFinite(metric.dur)) {
+        parts.push(`dur=${Math.max(0, metric.dur).toFixed(1)}`);
+      }
+      if (metric.desc?.trim()) {
+        parts.push(`desc="${serverTimingDescription(metric.desc.trim())}"`);
+      }
+      return parts.join(";");
+    })
+    .join(", ");
+}
+
+function appendServerTimingHeader(
+  upstream: string | null,
+  metrics: ServerTimingMetric[],
+): string {
+  const local = formatServerTiming(metrics);
+  return [upstream?.trim() || null, local || null].filter(Boolean).join(", ");
+}
+
+type TailRecentPayload = {
+  generatedAt: number;
+  limit: number;
+  cursor: string | null;
+  events: TailEvent[];
+};
+
+type BrokerJsonCache<T> = {
+  data: T | null;
+  inFlight: Promise<void> | null;
+  lastError: string | null;
+  serverTiming: string | null;
+  refreshedAt: number | null;
+};
+
+function createBrokerJsonCache<T>(): BrokerJsonCache<T> {
+  return {
+    data: null,
+    inFlight: null,
+    lastError: null,
+    serverTiming: null,
+    refreshedAt: null,
+  };
+}
+
+async function localTailRecentPayload(
+  tailRuntime: WebTailRuntime,
+  limit: number,
+  includeTranscripts: boolean,
+): Promise<TailRecentPayload> {
+  const eventsById = new Map<string, TailEvent>();
+  for (const event of tailRuntime.snapshotRecentEvents(limit)) {
+    eventsById.set(event.id, event);
+  }
+
+  if (includeTranscripts) {
+    const discovery = await tailRuntime.getTailDiscovery();
+    const transcriptEvents = await tailRuntime.readRecentTranscriptEvents(limit, {
+      discovery,
+      perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+    });
+    for (const event of transcriptEvents) {
+      eventsById.set(event.id, event);
+    }
+  }
+
+  const events = [...eventsById.values()]
+    .sort((left, right) => left.ts - right.ts)
+    .slice(-limit);
+
+  return {
+    generatedAt: Date.now(),
+    limit,
+    cursor: events.at(-1)?.id ?? null,
+    events,
+  };
+}
+
+function headerSafe(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").slice(0, 180);
+}
+
+function scheduleBrokerJsonRefresh<T>(
+  cache: BrokerJsonCache<T>,
+  url: URL,
+  label: string,
+): Promise<void> {
+  if (cache.inFlight) return cache.inFlight;
+  const fetchStart = performance.now();
+  cache.inFlight = (async () => {
+    let upstreamTiming: string | null = null;
+    const metrics: ServerTimingMetric[] = [];
+    try {
+      const res = await fetch(url);
+      upstreamTiming = res.headers.get("server-timing");
+      metrics.push({ name: "web-broker-fetch", dur: performance.now() - fetchStart });
+      if (!res.ok) {
+        throw new Error(`${label} unavailable (${res.status})`);
+      }
+      const parseStart = performance.now();
+      const data = await res.json() as T;
+      metrics.push({ name: "web-json", dur: performance.now() - parseStart });
+      cache.data = data;
+      cache.lastError = null;
+      cache.refreshedAt = Date.now();
+      cache.serverTiming = appendServerTimingHeader(upstreamTiming, metrics);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      cache.lastError = message;
+      metrics.push({
+        name: "web-broker-fetch",
+        dur: performance.now() - fetchStart,
+        desc: "error",
+      });
+      cache.serverTiming = appendServerTimingHeader(upstreamTiming, metrics);
+    } finally {
+      cache.inFlight = null;
+    }
+  })();
+  return cache.inFlight;
+}
+
+function cachedBrokerJsonState<T>(cache: BrokerJsonCache<T>): string {
+  if (cache.data) return cache.inFlight ? "hit-refreshing" : "hit";
+  if (cache.lastError) return cache.inFlight ? "empty-retrying" : "empty-error";
+  return cache.inFlight ? "empty-refreshing" : "empty";
+}
+
+async function serveCachedBrokerJson<T>(
+  c: Context,
+  cache: BrokerJsonCache<T>,
+  url: URL,
+  label: string,
+  fallback: () => T | Promise<T>,
+  options: { forceRefresh?: boolean } = {},
+): Promise<Response> {
+  const start = performance.now();
+  if (options.forceRefresh) {
+    if (cache.inFlight) {
+      await cache.inFlight;
+    }
+    await scheduleBrokerJsonRefresh(cache, url, label);
+  } else {
+    scheduleBrokerJsonRefresh(cache, url, label);
+  }
+  const state = cachedBrokerJsonState(cache);
+  const data = cache.data ?? await fallback();
+  c.header("Cache-Control", "no-store");
+  c.header("X-OpenScout-Tail-State", state);
+  if (cache.lastError) {
+    c.header("X-OpenScout-Tail-Warning", headerSafe(cache.lastError));
+  }
+  c.header("Server-Timing", appendServerTimingHeader(cache.serverTiming, [{
+    name: "web-tail-cache",
+    dur: performance.now() - start,
+    desc: state,
+  }]));
+  return c.json(data);
 }
 
 function parseOptionalBoolean(value: string | undefined): boolean | undefined {
@@ -2962,6 +3176,7 @@ function buildAgentSessionCatalogPayload(input: {
   model?: string | null;
   startedAt?: number | null;
   endpoint?: AgentEndpoint | null;
+  nativeTranscript?: DiscoveredTranscript | null;
 }) {
   const runtimeDir = relayAgentRuntimeDirectory(input.agentId);
   const catalog = readSessionCatalogSync(runtimeDir);
@@ -2978,11 +3193,14 @@ function buildAgentSessionCatalogPayload(input: {
   const observedHarnessSession = input.harness === "claude"
     ? mostRecentClaudeSessionForCwd(input.cwd)
     : null;
+  const discoveredHarnessSessionId = firstMetadataString(input.nativeTranscript?.sessionId);
   const harnessNativeSessionId = firstMetadataString(
     endpointMetadata.externalSessionId,
     endpointMetadata.threadId,
     observedHarnessSession?.sessionId,
+    discoveredHarnessSessionId,
   );
+  const runtimeSessionId = firstMetadataString(input.activeSessionId, input.endpoint?.sessionId);
   const terminalSurface = input.terminalSurface ?? resolveTerminalSurface({
     transport: input.transport,
     endpointSessionId: input.activeSessionId,
@@ -3009,7 +3227,7 @@ function buildAgentSessionCatalogPayload(input: {
     endpointMetadata.resumeSessionPath,
     endpointMetadata.historyPath,
   );
-  const sessionHistoryPath = historyPath ?? observedHarnessSession?.transcriptPath ?? null;
+  const sessionHistoryPath = historyPath ?? observedHarnessSession?.transcriptPath ?? input.nativeTranscript?.transcriptPath ?? null;
   const provider = firstMetadataString(endpointMetadata.provider);
   const source = firstMetadataString(endpointMetadata.source) ?? "broker-endpoint";
   const startedAt = metadataTimestampMs(endpointMetadata.lastStartedAt)
@@ -3030,6 +3248,12 @@ function buildAgentSessionCatalogPayload(input: {
           ...(terminalSurface?.sessionName && terminalSurface.sessionName !== sessionId
             ? { surfaceSessionId: terminalSurface.sessionName }
             : {}),
+          ...(harnessNativeSessionId ? { harnessSessionId: harnessNativeSessionId } : {}),
+          ...(endpointMetadata.externalSessionId ? { externalSessionId: endpointMetadata.externalSessionId } : {}),
+          ...(endpointMetadata.threadId ?? (input.harness === "codex" ? harnessNativeSessionId : null)
+            ? { threadId: endpointMetadata.threadId ?? harnessNativeSessionId }
+            : {}),
+          ...(runtimeSessionId && runtimeSessionId !== sessionId ? { runtimeSessionId } : {}),
           source,
           canObserve: Boolean(sessionHistoryPath) || Boolean(terminalSurface),
           // Terminal surfaces are taken over by grabbing the live pane (no
@@ -3864,23 +4088,27 @@ async function buildOperatorAttentionState(currentDirectory: string) {
   };
 }
 
-async function buildScoutbotAssistantControlState(currentDirectory: string, route?: unknown) {
+async function buildScoutbotAssistantControlState(
+  currentDirectory: string,
+  tailRuntime: WebTailRuntime,
+  route?: unknown,
+) {
   const omittedActiveAgentId = isScoutbotAssistantRoute(route) ? "scoutbot" : null;
   const [attention, mesh, tailDiscovery] = await Promise.all([
     valueOrNull(buildOperatorAttentionState(currentDirectory)),
     valueOrNull(loadMeshStatus()),
-    valueOrNull(getTailDiscovery()),
+    valueOrNull(tailRuntime.getTailDiscovery()),
   ]);
   const broker = queryBrokerDiagnostics({ limit: 80, windowMs: 6 * 60 * 60_000 });
   const fleet = queryFleet({ limit: 16, activityLimit: 40 });
   const transcriptEvents = await valueOrNull(
-    readRecentTranscriptEvents(50, {
+    tailRuntime.readRecentTranscriptEvents(50, {
       ...(tailDiscovery ? { discovery: tailDiscovery } : {}),
     }),
   );
   const agentLogEvents = transcriptEvents && transcriptEvents.length > 0
     ? transcriptEvents
-    : snapshotRecentEvents(50).slice().reverse();
+    : tailRuntime.snapshotRecentEvents(50).slice().reverse();
   const agentLogMessages = agentLogEvents
     .filter((event) => event.kind !== "system")
     .filter((event) => !event.summary.toLowerCase().startsWith("permission-mode"))
@@ -4432,6 +4660,34 @@ async function readLocalHarnessTopologySnapshot() {
   }
 }
 
+function readOpenScoutHostInfoFile(): unknown | null {
+  try {
+    return JSON.parse(readFileSync(resolveOpenScoutSupportPaths().hostInfoPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function fallbackOpenScoutHostInfo(
+  options: CreateOpenScoutWebServerOptions,
+  currentDirectory: string,
+) {
+  const webUrl = options.publicOrigin
+    ?? (options.webPort ? `http://127.0.0.1:${options.webPort}` : undefined);
+  return {
+    schemaVersion: 1,
+    source: "openscout-web",
+    updatedAtMs: Date.now(),
+    currentDirectory,
+    brokerUrl: resolveScoutBrokerUrl(),
+    ...(webUrl ? { webUrl } : {}),
+    ...(options.webPort ? { ports: { web: options.webPort } } : {}),
+    advertisedHost: options.advertisedHost,
+    portalHost: options.portalHost,
+    publicOrigin: options.publicOrigin,
+  };
+}
+
 export async function createOpenScoutWebServer(
   options: CreateOpenScoutWebServerOptions,
 ): Promise<OpenScoutWebServer> {
@@ -4461,10 +4717,17 @@ export async function createOpenScoutWebServer(
   );
   const scoutbotReminders = createScoutbotReminderStore();
   const scoutbotCredentials = createScoutbotCredentialStore();
+  const tailRuntime: WebTailRuntime = {
+    getTailDiscovery,
+    refreshTailDiscovery,
+    readRecentTranscriptEvents,
+    snapshotRecentEvents,
+    ...options.tailRuntime,
+  };
   const scoutbotAssistant = createScoutbotAssistantService({
     currentDirectory,
     loadContext: async (route) => ({
-      ...(await buildScoutbotAssistantControlState(currentDirectory, route)),
+      ...(await buildScoutbotAssistantControlState(currentDirectory, tailRuntime, route)),
       reminders: scoutbotReminders.getState(),
     }),
     resolveApiKey: async () => {
@@ -4490,6 +4753,8 @@ export async function createOpenScoutWebServer(
   let fleetHomeBriefInFlight: Promise<FleetHomeBrief> | null = null;
   const repoDiffCache = new Map<string, RepoDiffCacheEntry>();
   const repoDiffInFlight = new Map<string, Promise<ScoutRepoDiffSnapshot>>();
+  const tailDiscoveryCache = createBrokerJsonCache<DiscoverySnapshot>();
+  const tailRecentCaches = new Map<string, BrokerJsonCache<TailRecentPayload>>();
   const runCachedRepoDiff = (
     key: string,
     runRepoDiff: (options: RepoDiffSnapshotOptions) => Promise<ScoutRepoDiffSnapshot>,
@@ -4637,11 +4902,16 @@ export async function createOpenScoutWebServer(
       },
     }),
   );
+  app.get("/.host-info", (c) => {
+    c.header("cache-control", "no-store");
+    return c.json(readOpenScoutHostInfoFile() ?? fallbackOpenScoutHostInfo(options, currentDirectory));
+  });
   app.get(routes.healthPath, (c) =>
     c.json({
       ok: true,
       surface: "openscout-web",
       currentDirectory,
+      brokerUrl: resolveScoutBrokerUrl(),
       advertisedHost: options.advertisedHost,
       portalHost: options.portalHost,
       publicOrigin: options.publicOrigin,
@@ -5462,7 +5732,10 @@ export async function createOpenScoutWebServer(
         session?: string;
         targetSessionId?: string;
       };
-      agent?: { persistence?: string; name?: string; displayName?: string };
+      agent?: {
+        persistence?: string;
+        handle?: string;
+      };
       seed?: {
         instructions?: string;
         fromMessageId?: string;
@@ -5513,20 +5786,27 @@ export async function createOpenScoutWebServer(
       );
     }
 
-    // Sticky reuse of the same agentName is what makes M3/M4 "the same agent".
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
-    let agentName =
-      optionalString(body.agent?.name)?.trim() || agent?.name?.trim() || undefined;
-    if (persistence === "one_time" && !agentName) {
+    let agentHandle =
+      optionalString(body.agent?.handle)?.trim()
+      || (targetAgentId ? agent?.name?.trim() : undefined);
+    if (!targetAgentId && !agentHandle) {
       const broker = await loadScoutBrokerContext().catch(() => null);
       const occupied = broker
         ? collectOccupiedDefinitionIdsFromBrokerSnapshot(broker.snapshot)
         : new Set<string>();
-      agentName = resolveProvisionalAgentName({ occupied });
+      agentHandle = resolveProjectProvisionalAgentName({
+        occupied,
+        seedParts: [
+          "web-session-initiation",
+          resolveOperatorName().trim() || "operator",
+          projectPath ?? currentDirectory ?? "",
+          harness ?? "",
+          model ?? "",
+        ],
+      });
     }
-    const displayName = optionalString(body.agent?.displayName)?.trim() || undefined;
-
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
@@ -5546,8 +5826,7 @@ export async function createOpenScoutWebServer(
       ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
       projectAgent: {
         persistence,
-        ...(agentName ? { agentName } : {}),
-        ...(displayName ? { displayName } : {}),
+        ...(agentHandle ? { handle: agentHandle } : {}),
       },
       currentDirectory: projectPath ?? currentDirectory,
       source: "scout-session-initiation",
@@ -5580,7 +5859,9 @@ export async function createOpenScoutWebServer(
       conversationId: result.conversationId ?? null,
       messageId: result.messageId ?? null,
       flightId: result.flight?.id ?? null,
-      agentId: result.flight?.targetAgentId ?? targetAgentId ?? null,
+      agentId: result.targetAgentId ?? result.flight?.targetAgentId ?? targetAgentId ?? null,
+      sessionId: result.targetSessionId ?? null,
+      handle: agentHandle ?? null,
       provenance:
         fromMessageId || fromConversationId || branchFrom
           ? {
@@ -5599,7 +5880,9 @@ export async function createOpenScoutWebServer(
     return c.json(await loadAgentObserveSummaries(ids));
   });
   app.get("/api/agents/:id/observe", async (c) => {
-    const payload = await loadAgentObservePayload(c.req.param("id"));
+    const payload = await loadAgentObservePayload(c.req.param("id"), {
+      sessionId: c.req.query("sessionId") ?? null,
+    });
     return payload ? c.json(payload) : c.json({ error: "not found" }, 404);
   });
   app.get("/api/agents/:agentId/config", async (c) => {
@@ -5665,6 +5948,13 @@ export async function createOpenScoutWebServer(
       projectRoot: agent.projectRoot,
     }) : null;
     const cwd = endpoint?.cwd ?? endpoint?.projectRoot ?? agent.cwd ?? agent.projectRoot ?? ".";
+    const nativeTranscript = agent.harness
+      ? mostRecentTranscriptForHarnessCwd(
+          (await tailRuntime.getTailDiscovery().catch(() => null))?.transcripts ?? [],
+          agent.harness,
+          cwd,
+        )
+      : null;
     return c.json(
       buildAgentSessionCatalogPayload({
         agentId,
@@ -5676,6 +5966,7 @@ export async function createOpenScoutWebServer(
         model: observedModel ?? agent.model,
         startedAt: agent.createdAt ?? agent.updatedAt,
         endpoint,
+        nativeTranscript,
       }),
     );
   });
@@ -6583,6 +6874,40 @@ export async function createOpenScoutWebServer(
     });
   });
 
+  app.post("/api/session-control/compact", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      harness?: unknown;
+      sessionId?: unknown;
+      transcriptPath?: unknown;
+      tmuxSessionName?: unknown;
+      agentId?: unknown;
+    };
+    const harness = typeof body.harness === "string" ? body.harness.trim() : "";
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const transcriptPath = typeof body.transcriptPath === "string" ? body.transcriptPath.trim() : "";
+    let tmuxSessionName = typeof body.tmuxSessionName === "string" ? body.tmuxSessionName.trim() : "";
+    const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
+
+    if (!tmuxSessionName && agentId) {
+      const agent = queryAgents().find((entry) => entry.id === agentId) ?? null;
+      tmuxSessionName = agent?.terminalSurface?.sessionName
+        ?? agent?.harnessSessionId
+        ?? "";
+    }
+    if (!tmuxSessionName && harness && transcriptPath) {
+      tmuxSessionName = `scout-vantage-${slugifyTmuxName(harness)}-${stableHash(transcriptPath)}`;
+    }
+
+    const result = requestHarnessSessionCompaction({
+      harness,
+      sessionId,
+      transcriptPath,
+      tmuxSessionName,
+      agentId,
+    });
+    return c.json(result, result.ok ? 200 : 422);
+  });
+
   app.post(routes.vantageOpenPath, async (c) => {
     const body = await c.req.json().catch(() => ({})) as {
       agentId?: unknown;
@@ -6594,7 +6919,7 @@ export async function createOpenScoutWebServer(
     const nativeSessionIds = parseStringArray(body.nativeSessionIds);
     try {
       const nativeSessions = nativeSessionIds.length > 0
-        ? resolveVantageNativeSessions((await getTailDiscovery()).transcripts, nativeSessionIds)
+        ? resolveVantageNativeSessions((await tailRuntime.getTailDiscovery()).transcripts, nativeSessionIds)
         : [];
       const handoff = await (options.createVantageHandoff ?? createOpenScoutVantageHandoff)({
         currentDirectory,
@@ -7084,14 +7409,18 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/tail/discover", async (c) => {
     const url = new URL(scoutBrokerPaths.v1.tailDiscover, resolveScoutBrokerUrl());
-    if (c.req.query("force") === "true" || c.req.query("force") === "1") {
+    const forceRefresh = c.req.query("force") === "true" || c.req.query("force") === "1";
+    if (forceRefresh) {
       url.searchParams.set("force", "1");
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      return c.json({ error: `broker tail discovery unavailable (${res.status})` }, 502);
-    }
-    return c.json(await res.json());
+    return serveCachedBrokerJson(
+      c,
+      tailDiscoveryCache,
+      url,
+      "broker tail discovery",
+      () => tailRuntime.getTailDiscovery(),
+      { forceRefresh },
+    );
   });
 
   app.get("/api/repo-watch", async (c) => {
@@ -7291,16 +7620,25 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/tail/recent", async (c) => {
     const limitParam = parseOptionalPositiveInt(c.req.query("limit"), 500) ?? 500;
+    const includeTranscripts = c.req.query("transcripts") === "true" || c.req.query("transcripts") === "1";
     const url = new URL(scoutBrokerPaths.v1.tailRecent, resolveScoutBrokerUrl());
     url.searchParams.set("limit", String(limitParam));
-    if (c.req.query("transcripts") === "true" || c.req.query("transcripts") === "1") {
+    if (includeTranscripts) {
       url.searchParams.set("transcripts", "true");
     }
-    const res = await fetch(url);
-    if (!res.ok) {
-      return c.json({ error: `broker tail unavailable (${res.status})` }, 502);
+    const cacheKey = `limit=${limitParam};transcripts=${includeTranscripts ? "1" : "0"}`;
+    let cache = tailRecentCaches.get(cacheKey);
+    if (!cache) {
+      cache = createBrokerJsonCache<TailRecentPayload>();
+      tailRecentCaches.set(cacheKey, cache);
     }
-    return c.json(await res.json());
+    return serveCachedBrokerJson(
+      c,
+      cache,
+      url,
+      "broker tail",
+      () => localTailRecentPayload(tailRuntime, limitParam, includeTranscripts),
+    );
   });
 
   // /api/tail/stream removed — clients now subscribe to broker tail.events
@@ -7378,10 +7716,19 @@ export async function createOpenScoutWebServer(
     defaultViteUrl: "http://127.0.0.1:43122",
   });
 
+  const warmTailRuntime = async () => {
+    const discovery = await tailRuntime.refreshTailDiscovery("shallow");
+    await tailRuntime.readRecentTranscriptEvents(500, {
+      discovery,
+      perTranscriptLineLimit: 200,
+    });
+  };
+
   const warmupCaches = () =>
     Promise.allSettled([
       shellStateCache.refresh(),
       loadPairingState(currentDirectory, true),
+      warmTailRuntime(),
     ]).then((results) => {
       for (const result of results) {
         if (result.status === "rejected") {

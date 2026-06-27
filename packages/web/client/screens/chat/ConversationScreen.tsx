@@ -60,6 +60,8 @@ import {
   AddParticipantForm,
   ConversationHeader,
   ConversationIdentityRow,
+  type ConversationHeaderOperator,
+  type ConversationHeaderParticipant,
 } from "./ConversationHeader.tsx";
 import { ConversationComposer } from "./ConversationComposer.tsx";
 import { ThreadMotionPanel } from "./ConversationPanels.tsx";
@@ -103,6 +105,19 @@ import {
   type SlashCommand,
   type SlashSuggestState,
 } from "./conversation-model.ts";
+
+function messageIdFromLocationHash(hash: string | null | undefined): string | null {
+  const raw = hash?.trim().replace(/^#/, "");
+  if (!raw?.startsWith("msg-")) return null;
+  const id = raw.slice("msg-".length).trim();
+  if (!id) return null;
+  try {
+    return decodeURIComponent(id);
+  } catch {
+    return id;
+  }
+}
+
 export function ConversationScreen({
   conversationId,
   initialComposeMode,
@@ -133,6 +148,9 @@ export function ConversationScreen({
     Set<string>
   >(new Set());
   const [allFlights, setAllFlights] = useState<Flight[]>([]);
+  const [hashMessageId, setHashMessageId] = useState(() =>
+    typeof window === "undefined" ? null : messageIdFromLocationHash(window.location.hash),
+  );
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composeRef = useRef<HTMLTextAreaElement>(null);
@@ -647,42 +665,45 @@ export function ConversationScreen({
       turnActivity.length > 0 ||
       turnAsk !== null ||
       awaitingResponseSince !== null);
-  const headerParticipants = useMemo(() => {
-    const participants: Array<{
-      id: string;
-      name: string;
-      title: string;
-      agent: Agent | null;
-      operator?: boolean;
-    }> = [
-      {
-        id: "operator",
-        name: "You",
-        title: operatorName,
-        agent: null,
-        operator: true,
-      },
-    ];
+  const operatorIsParticipant = useMemo(() => {
+    if (sessionMeta) return sessionMeta.participantIds.includes("operator");
+    return isDm;
+  }, [isDm, sessionMeta]);
+  const headerParticipants = useMemo<ConversationHeaderParticipant[]>(() => {
+    const participantMeta = new Map<
+      string,
+      NonNullable<SessionEntry["participants"]>[number]
+    >();
+    for (const entry of sessionMeta?.participants ?? []) {
+      participantMeta.set(entry.actorId, entry);
+      if (entry.agentId) participantMeta.set(entry.agentId, entry);
+    }
     const participantIds = sessionMeta
       ? sessionMeta.participantIds.filter((id) => id !== "operator")
       : agentId
         ? [agentId]
         : [];
-    for (const id of participantIds) {
+    return participantIds.map((id) => {
       const participantAgent = resolveAgentByIdentity(scopedAgents, [id]);
-      participants.push({
+      const meta = participantMeta.get(id);
+      return {
         id,
-        name: participantAgent?.name ?? compactAgentId(id) ?? id,
+        name: participantAgent?.name ?? meta?.displayName ?? compactAgentId(id) ?? id,
         title: participantAgent?.id ?? id,
         agent: participantAgent,
-      });
-    }
-    return participants;
-  }, [agentId, operatorName, scopedAgents, sessionMeta]);
+        harness: participantAgent?.harness ?? meta?.harness ?? null,
+        model: participantAgent?.model ?? null,
+      } satisfies ConversationHeaderParticipant;
+    });
+  }, [agentId, scopedAgents, sessionMeta]);
   const visibleHeaderParticipants = headerParticipants.slice(0, 4);
   const hiddenHeaderParticipantCount = Math.max(
     headerParticipants.length - visibleHeaderParticipants.length,
     0,
+  );
+  const headerOperator = useMemo<ConversationHeaderOperator>(
+    () => ({ name: operatorName, active: operatorIsParticipant }),
+    [operatorIsParticipant, operatorName],
   );
 
   const messagesById = useMemo(
@@ -697,6 +718,18 @@ export function ConversationScreen({
     el.classList.add("s-thread-msg--flash");
     window.setTimeout(() => el.classList.remove("s-thread-msg--flash"), 1200);
   }, []);
+
+  useEffect(() => {
+    const onHashChange = () => setHashMessageId(messageIdFromLocationHash(window.location.hash));
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
+  useEffect(() => {
+    if (!hashMessageId || !messagesById.has(hashMessageId)) return;
+    const timer = window.setTimeout(() => scrollToMessage(hashMessageId), 50);
+    return () => window.clearTimeout(timer);
+  }, [hashMessageId, messagesById, scrollToMessage]);
 
   useBrokerEvents(
     useCallback(
@@ -1132,6 +1165,7 @@ export function ConversationScreen({
             agentId={agentId}
             visibleParticipants={visibleHeaderParticipants}
             hiddenParticipantCount={hiddenHeaderParticipantCount}
+            operator={headerOperator}
             canAddParticipants={canAddParticipants}
             onToggleAddParticipant={() => {
               setAddParticipantError(null);
@@ -1292,7 +1326,7 @@ export function ConversationScreen({
                                     openContent(
                                       navigate,
                                       {
-                                        view: "agents",
+                                        view: "agents-v2",
                                         agentId: messageAgent.id,
                                       },
                                       { returnTo: route },
@@ -1333,7 +1367,7 @@ export function ConversationScreen({
                                   openContent(
                                     navigate,
                                     {
-                                      view: "agents",
+                                      view: "agents-v2",
                                       agentId: messageAgent.id,
                                     },
                                     { returnTo: route },
@@ -1371,8 +1405,15 @@ export function ConversationScreen({
                             aria-label="Copy link to message"
                             title="Copy link to message"
                             onClick={() => {
-                              const url = `${window.location.origin}${window.location.pathname}#msg-${message.id}`;
-                              void navigator.clipboard.writeText(url);
+                              const url = new URL(window.location.href);
+                              if (
+                                route.view === "agents" ||
+                                route.view === "agents-v2"
+                              ) {
+                                url.searchParams.set("tab", "message");
+                              }
+                              url.hash = `msg-${message.id}`;
+                              void navigator.clipboard.writeText(url.toString());
                             }}
                           >
                             <svg

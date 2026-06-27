@@ -109,7 +109,7 @@ function flightStateLabel(state: string): string {
 }
 
 export function ConversationInspector() {
-  const { route, agents, navigate } = useScout();
+  const { route, agents, navigate, apiConnection, reload } = useScout();
   const conversationId =
     route.view === "conversation" ? route.conversationId : null;
 
@@ -463,7 +463,14 @@ export function ConversationInspector() {
     [visibleTailPreviewEvents],
   );
 
-  if (!conversationId) return null;
+  if (!conversationId) {
+    return (
+      <ChatInspectorEmpty
+        apiOffline={apiConnection.status === "offline"}
+        onRetry={() => void reload()}
+      />
+    );
+  }
 
   if (!loaded) {
     return (
@@ -888,6 +895,40 @@ export function ConversationInspector() {
           </button>
         </section>
       )}
+    </div>
+  );
+}
+
+function ChatInspectorEmpty({
+  apiOffline,
+  onRetry,
+}: {
+  apiOffline: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="ctx-panel ctx-panel--conversation">
+      <div className="ctx-panel-empty-state">
+        <div className="ctx-panel-empty-card" data-tone={apiOffline ? "error" : "neutral"}>
+          <div className="ctx-panel-empty-card-title">
+            {apiOffline ? "Context unavailable" : "No conversation selected"}
+          </div>
+          <div className="ctx-panel-empty-card-detail">
+            {apiOffline
+              ? "Scout context will load after the server reconnects."
+              : "Select a chat to inspect participants, sessions, and recent activity."}
+          </div>
+          {apiOffline && (
+            <button
+              type="button"
+              className="ctx-panel-empty-card-action"
+              onClick={onRetry}
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

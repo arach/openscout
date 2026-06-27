@@ -168,11 +168,60 @@
   padding: var(--space-xs) 0 var(--space-lg);
 }
 
+.ctx-panel-list--empty {
+  padding: var(--space-xl) var(--space-md) var(--space-lg);
+}
+
 .ctx-panel-empty {
   padding: var(--space-sm) var(--space-xl);
   font-size: var(--text-sm);
   color: var(--muted);
   font-style: italic;
+}
+
+.ctx-panel-empty-card {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-lg);
+  border: 1px solid color-mix(in srgb, var(--border) 58%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 72%, var(--bg));
+}
+
+.ctx-panel-empty-card[data-tone="error"] {
+  border-color: color-mix(in srgb, var(--red, #ef4444) 30%, var(--border));
+  background: color-mix(in srgb, var(--red, #ef4444) 7%, var(--surface));
+}
+
+.ctx-panel-empty-card-title {
+  color: var(--ink);
+  font-size: var(--text-md);
+  font-weight: 650;
+  line-height: var(--leading-tight);
+}
+
+.ctx-panel-empty-card-detail {
+  color: var(--dim);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.ctx-panel-empty-card-action {
+  width: fit-content;
+  min-height: 26px;
+  padding: 0 var(--space-md);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.ctx-panel-empty-card-action:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  color: var(--ink);
 }
 
 .ctx-panel-item {
@@ -431,19 +480,54 @@
   border-bottom-color: transparent;
 }
 
-.ctx-panel--ops .rr-row-head {
-  min-height: 30px;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
+.ctx-panel--ops .rr-row + .rr-row {
+  margin-top: 1px;
 }
 
-.ctx-panel--ops .rr-row--active .rr-row-head {
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 16%, transparent), transparent 68%),
-    color-mix(in srgb, var(--accent) 8%, transparent);
-  box-shadow:
-    inset 2px 0 0 0 var(--accent),
-    inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+.ctx-panel--ops .rr-row-head {
+  min-height: 34px;
+  gap: var(--space-md);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+/* Surfaces are a navigation menu, not a roster: the leading dot becomes a
+   quiet selection-gutter marker — invisible at rest, a single-accent pip when
+   active — instead of a grey status dot on every row. */
+.ctx-panel--ops .rr-row-dot--neutral {
+  width: 5px;
+  height: 5px;
+  background: transparent;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.ctx-panel--ops .rr-row-head:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.ctx-panel--ops .rr-row-head:hover .rr-row-name {
+  color: var(--ink);
+}
+
+.ctx-panel--ops .rr-row-head:hover .rr-row-dot--neutral {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.ctx-panel--ops .rr-row--active .rr-row-head,
+.ctx-panel--ops .rr-row--active .rr-row-head:hover {
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  box-shadow: none;
+}
+
+.ctx-panel--ops .rr-row--active .rr-row-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ctx-panel--ops .rr-row--active .rr-row-dot--neutral {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .ctx-panel--ops .ctx-panel-empty {

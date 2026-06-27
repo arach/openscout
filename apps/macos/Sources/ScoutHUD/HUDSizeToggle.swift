@@ -9,6 +9,8 @@ import SwiftUI
 // Tap any segment to jump; ⌘← / ⌘→ + `[` / `]` walk it from the keyboard.
 
 struct HUDSizeToggle: View {
+    var filled = false
+
     @ObservedObject var state = HUDState.shared
 
     var body: some View {
@@ -28,7 +30,7 @@ struct HUDSizeToggle: View {
                             RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                                 .fill(
                                     state.size == size
-                                        ? HUDChrome.canvasAlt
+                                        ? HUDChrome.canvasLift.opacity(filled ? 0.50 : 1.0)
                                         : Color.clear
                                 )
                         )
@@ -39,7 +41,11 @@ struct HUDSizeToggle: View {
         .padding(2)
         .background(
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .stroke(HUDChrome.border, lineWidth: 0.75)
+                .fill(filled ? HUDChrome.canvasAlt.opacity(0.62) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(HUDChrome.border.opacity(filled ? 0.92 : 1.0), lineWidth: 0.75)
         )
     }
 }

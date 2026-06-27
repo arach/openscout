@@ -3,13 +3,15 @@ import {
   collectOccupiedDefinitionIds,
   definitionIdFromOccupancyKey,
   normalizeAgentSelectorSegment,
+  provisionalAgentNameStartIndexForSeed,
+  type ProvisionalAgentNameSeedPart,
 } from "@openscout/protocol";
 
 import type { ScoutBrokerSnapshot } from "./scout-broker.js";
 import { loadProvisionalAgentNamePool } from "./provisional-agent-names-config.js";
 
 export function collectOccupiedDefinitionIdsFromBrokerSnapshot(
-  snapshot: Pick<ScoutBrokerSnapshot, "agents">,
+  snapshot: Pick<ScoutBrokerSnapshot, "agents"> & Partial<Pick<ScoutBrokerSnapshot, "actors">>,
 ): Set<string> {
   const references: string[] = [];
   for (const agent of Object.values(snapshot.agents)) {
@@ -21,6 +23,15 @@ export function collectOccupiedDefinitionIdsFromBrokerSnapshot(
       references.push(agent.handle);
     }
   }
+  for (const actor of Object.values(snapshot.actors ?? {})) {
+    references.push(actor.id);
+    if (actor.handle) {
+      references.push(actor.handle);
+    }
+    if (typeof actor.metadata?.handle === "string") {
+      references.push(actor.metadata.handle);
+    }
+  }
   return collectOccupiedDefinitionIds(references);
 }
 
@@ -28,6 +39,7 @@ export function resolveProvisionalAgentName(input: {
   explicitName?: string | null;
   occupied: ReadonlySet<string> | Iterable<string>;
   startIndex?: number;
+  seedParts?: Iterable<ProvisionalAgentNameSeedPart>;
 }): string {
   const explicit = input.explicitName?.trim();
   if (explicit) {
@@ -37,9 +49,67 @@ export function resolveProvisionalAgentName(input: {
     }
     return normalized;
   }
+  const pool = loadProvisionalAgentNamePool();
+  const startIndex = input.startIndex
+    ?? (input.seedParts ? provisionalAgentNameStartIndexForSeed(input.seedParts, pool) : undefined);
   return allocateProvisionalAgentName(input.occupied, {
-    startIndex: input.startIndex,
-    pool: loadProvisionalAgentNamePool(),
+    startIndex,
+    pool,
+  });
+}
+
+export function resolvePrefixedProvisionalAgentName(input: {
+  explicitName?: string | null;
+  occupied: ReadonlySet<string> | Iterable<string>;
+  prefix: string;
+  startIndex?: number;
+  seedParts?: Iterable<ProvisionalAgentNameSeedPart>;
+}): string {
+  const explicit = input.explicitName?.trim();
+  if (explicit) {
+    return resolveProvisionalAgentName({
+      explicitName: explicit,
+      occupied: input.occupied,
+      startIndex: input.startIndex,
+      seedParts: input.seedParts,
+    });
+  }
+
+  const prefix = normalizeAgentSelectorSegment(input.prefix);
+  if (!prefix) {
+    throw new Error(`Invalid provisional agent name prefix "${input.prefix}".`);
+  }
+
+  const pool = loadProvisionalAgentNamePool();
+  const occupied = input.occupied instanceof Set
+    ? new Set(input.occupied)
+    : collectOccupiedDefinitionIds(input.occupied);
+  const prefixed = `${prefix}-`;
+  for (const name of Array.from(occupied)) {
+    if (name.startsWith(prefixed)) {
+      const baseName = name.slice(prefixed.length);
+      if (baseName) {
+        occupied.add(baseName);
+      }
+    }
+  }
+  const startIndex = input.startIndex
+    ?? (input.seedParts ? provisionalAgentNameStartIndexForSeed(input.seedParts, pool) : undefined);
+  return `${prefix}-${allocateProvisionalAgentName(occupied, {
+    startIndex,
+    pool,
+  })}`;
+}
+
+export function resolveProjectProvisionalAgentName(input: {
+  explicitName?: string | null;
+  occupied: ReadonlySet<string> | Iterable<string>;
+  startIndex?: number;
+  seedParts?: Iterable<ProvisionalAgentNameSeedPart>;
+}): string {
+  return resolvePrefixedProvisionalAgentName({
+    ...input,
+    prefix: "project",
   });
 }
 
@@ -51,7 +121,9 @@ export {
   normalizeProvisionalAgentNameCandidates,
   parseProvisionalAgentNamesJson,
   parseProvisionalAgentNamesText,
+  provisionalAgentNameStartIndexForSeed,
   PROVISIONAL_AGENT_NAMES,
+  type ProvisionalAgentNameSeedPart,
 } from "@openscout/protocol";
 
 export {

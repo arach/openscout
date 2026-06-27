@@ -126,6 +126,9 @@ struct ScoutRootView: View {
     /// Images staged in the composer (pasted, dropped, or picked), uploaded as
     /// link-backed attachments on send.
     @State private var pendingImages: [ScoutComposerImage] = []
+    @State private var captureDropTargeted = false
+    @State private var captureDropHint: String?
+    @State private var captureDropHintToken = UUID()
     /// Staged image currently shown in the centered lightbox preview, if any.
     @State private var previewImage: ScoutComposerImage?
     @State private var observeSidecarAgent: ScoutAgent?
@@ -200,6 +203,20 @@ struct ScoutRootView: View {
         }
     }
 
+    @ViewBuilder
+    private func captureEnabledContent(layout: ScoutShellLayout) -> some View {
+        content(layout: layout)
+            .dropDestination(for: URL.self) { urls, _ in
+                stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
+            } isTargeted: { captureDropTargeted = $0 }
+            .overlay {
+                if captureDropTargeted {
+                    ScoutWindowCaptureOverlay()
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: captureDropTargeted)
+    }
+
     private func rootShell(layout: ScoutShellLayout) -> some View {
         HudChromeShell(titlebarStyle: .systemToolbar, titlebarActions: chromeTitlebarActions(layout: layout)) {
             HudResizableNavigationSidebar(
@@ -240,7 +257,7 @@ struct ScoutRootView: View {
         } trailing: {
             trailingPanel(layout: layout)
         } content: {
-            content(layout: layout)
+            captureEnabledContent(layout: layout)
         } statusBar: {
             statusBar
         }
@@ -292,11 +309,13 @@ struct ScoutRootView: View {
             // restore any draft saved for the one we're entering.
             if let oldCId { drafts[oldCId] = draft }
             draft = newCId.flatMap { drafts[$0] } ?? ""
-            // Staged images are tied to the chat that was open; don't carry
-            // them into a different conversation.
-            pendingImages = []
+            // Keep staged captures when landing on a chat from the quick-capture
+            // surface (nil → channel). Clear only when switching chats or leaving.
+            if oldCId != nil {
+                pendingImages = []
+            }
         }
-        .onChange(of: store.channels.map(\.cId)) { _, _ in
+        .onChange(of: channelReconciliationKeys) { _, _ in
             reconcilePendingConversations()
         }
         .onChange(of: section) { _, newSection in
@@ -533,7 +552,7 @@ struct ScoutRootView: View {
             treeMove(delta)
         case .repos:
             reposTreeMove(delta)
-        case .tail, .settings:
+        case .tail, .lanes, .settings:
             break
         }
     }
@@ -549,7 +568,7 @@ struct ScoutRootView: View {
             treeEdge(last: last)
         case .repos:
             reposTreeEdge(last: last)
-        case .tail, .settings:
+        case .tail, .lanes, .settings:
             break
         }
     }
@@ -698,6 +717,7 @@ struct ScoutRootView: View {
     }
 
     private func startNewConversation() {
+        section = .comms
         repos.refresh()
         sessionDraft = ScoutSessionDraft(
             title: "New chat",
@@ -760,13 +780,19 @@ struct ScoutRootView: View {
         if let projectPath = submittedDraft.projectPath.nilIfEmpty {
             lastSessionProjectPath = projectPath
         }
-        if let cId = result.conversationId?.nilIfEmpty {
+        let selectionRef = result.conversationId?.nilIfEmpty ?? result.sessionId?.nilIfEmpty
+        if selectionRef != nil || result.flightId?.nilIfEmpty != nil {
             addPendingConversation(result, draft: submittedDraft)
-            store.selectChannel(cId)
+        }
+        if let channel = store.channels.first(where: { channelMatchesSessionResult($0, result) }) {
+            store.selectChannel(channel.cId)
+        } else if let selectionRef {
+            store.selectChannel(selectionRef)
         }
         if let agentId = result.agentId?.nilIfEmpty {
             store.selectAgent(agentId)
         }
+        reconcilePendingConversations()
         store.refresh(force: true)
     }
 
@@ -809,18 +835,19 @@ struct ScoutRootView: View {
     }
 
     private var visiblePendingConversations: [ScoutPendingConversation] {
-        let channelIds = Set(store.channels.map(\.cId))
         return pendingConversations.filter { pending in
-            guard let cId = pending.conversationId else { return true }
-            return !channelIds.contains(cId)
+            channel(matching: pending) == nil
         }
     }
 
     private func addPendingConversation(_ result: ScoutSessionStartResult, draft submittedDraft: ScoutSessionDraft) {
-        guard let key = result.conversationId?.nilIfEmpty ?? result.flightId?.nilIfEmpty else { return }
+        guard let key = result.conversationId?.nilIfEmpty
+            ?? result.sessionId?.nilIfEmpty
+            ?? result.flightId?.nilIfEmpty else { return }
         let pending = ScoutPendingConversation(
             id: key,
             conversationId: result.conversationId?.nilIfEmpty,
+            sessionId: result.sessionId?.nilIfEmpty,
             flightId: result.flightId?.nilIfEmpty,
             title: pendingConversationTitle(for: submittedDraft),
             subtitle: pendingConversationSubtitle(for: submittedDraft),
@@ -833,10 +860,20 @@ struct ScoutRootView: View {
     }
 
     private func reconcilePendingConversations() {
-        let channelIds = Set(store.channels.map(\.cId))
+        var absorbedIds: Set<String> = []
+        var canonicalSelection: String?
+        for pending in pendingConversations {
+            guard let channel = channel(matching: pending) else { continue }
+            absorbedIds.insert(pending.id)
+            if pending.matchesSelection(store.selectedCId) {
+                canonicalSelection = channel.cId
+            }
+        }
+        if let canonicalSelection {
+            store.selectChannel(canonicalSelection)
+        }
         pendingConversations.removeAll { pending in
-            guard let cId = pending.conversationId else { return false }
-            return channelIds.contains(cId)
+            absorbedIds.contains(pending.id)
         }
         for pending in pendingConversations where pendingFlightTasks[pending.id] == nil {
             startPendingFlightMonitor(for: pending)
@@ -852,8 +889,40 @@ struct ScoutRootView: View {
     }
 
     private func selectPendingConversation(_ pending: ScoutPendingConversation) {
-        guard let cId = pending.conversationId else { return }
-        store.selectChannel(cId)
+        if let channel = channel(matching: pending) {
+            store.selectChannel(channel.cId)
+            return
+        }
+        if let ref = pending.conversationId?.nilIfEmpty ?? pending.sessionId?.nilIfEmpty {
+            store.selectChannel(ref)
+        }
+    }
+
+    private func channel(matching pending: ScoutPendingConversation) -> ScoutChannel? {
+        store.channels.first { channel in
+            channelMatchesPending(channel, pending)
+        }
+    }
+
+    private func channelMatchesPending(_ channel: ScoutChannel, _ pending: ScoutPendingConversation) -> Bool {
+        pending.selectionReferences.contains(channel.cId)
+            || channel.sessionId.map { pending.selectionReferences.contains($0) } == true
+            || channel.participants.contains { participant in
+                participant.sessionId.map { pending.selectionReferences.contains($0) } == true
+            }
+    }
+
+    private func channelMatchesSessionResult(_ channel: ScoutChannel, _ result: ScoutSessionStartResult) -> Bool {
+        let refs = [
+            result.conversationId?.nilIfEmpty,
+            result.sessionId?.nilIfEmpty,
+        ].compactMap { $0 }
+        guard !refs.isEmpty else { return false }
+        return refs.contains(channel.cId)
+            || channel.sessionId.map { refs.contains($0) } == true
+            || channel.participants.contains { participant in
+                participant.sessionId.map { refs.contains($0) } == true
+            }
     }
 
     private func pendingConversationTitle(for draft: ScoutSessionDraft) -> String {
@@ -1005,8 +1074,9 @@ struct ScoutRootView: View {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
             .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
-            .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
+            .item(HudSidebarItem(id: .lanes, title: "Lanes", icon: "rectangle.split.3x1", selectedIcon: "rectangle.split.3x1.fill")),
+            .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
         ]
     }
 
@@ -1065,6 +1135,8 @@ struct ScoutRootView: View {
             reposContent
         case .tail:
             tailContent
+        case .lanes:
+            lanesContent(layout: layout)
         case .settings:
             settingsContent
         }
@@ -1115,17 +1187,37 @@ struct ScoutRootView: View {
     }
 
     private var chatDetail: some View {
-        VStack(spacing: 0) {
-            chatHeader
-            if let channel = store.selectedChannel, channel.isObserverThread {
-                ScoutObservingBanner(channel: channel)
+        Group {
+            if store.selectedChannel == nil {
+                ScoutQuickChatSurface(
+                    recentChannels: Array(commsListChannels.prefix(6)),
+                    stagedAttachments: pendingImages,
+                    dropHint: captureDropHint,
+                    onNewChat: startNewConversation,
+                    onSelectChannel: { channel in
+                        store.selectChannel(channel.cId)
+                        composerFocused = true
+                    },
+                    onStageAttachments: stageCapturedMedia,
+                    onBrowse: presentMediaPicker,
+                    onRemoveAttachment: { attachment in
+                        pendingImages.removeAll { $0.id == attachment.id }
+                    }
+                )
+            } else {
+                VStack(spacing: 0) {
+                    chatHeader
+                    if let channel = store.selectedChannel, channel.isObserverThread {
+                        ScoutObservingBanner(channel: channel)
+                    }
+                    if let ask = store.selectedChannel?.ask {
+                        ScoutPinnedAskBand(ask: ask)
+                    }
+                    messageList
+                    HudDivider(color: ScoutDesign.hairline)
+                    composer
+                }
             }
-            if let ask = store.selectedChannel?.ask {
-                ScoutPinnedAskBand(ask: ask)
-            }
-            messageList
-            HudDivider(color: ScoutDesign.hairline)
-            composer
         }
     }
 
@@ -1412,7 +1504,7 @@ struct ScoutRootView: View {
         .onReceive(voice.$lastFinalText) { spliceDictatedFinal($0) }
         .background(
             ImagePasteCatcher(
-                isActive: { store.selectedCId != nil && sessionDraft == nil },
+                isActive: { sessionDraft == nil && (section == .comms || store.selectedCId != nil) },
                 onPasteImages: stagePastedImages
             )
             .frame(width: 0, height: 0)
@@ -1449,8 +1541,14 @@ struct ScoutRootView: View {
             x: 0,
             y: 1
         )
+        .background {
+            ScoutAttachmentDropCatcher(
+                onTargeted: { _ in },
+                onStageAttachments: stageCapturedMedia
+            )
+        }
         .dropDestination(for: URL.self) { urls, _ in
-            addImages(from: urls)
+            stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
         }
     }
 
@@ -1474,12 +1572,12 @@ struct ScoutRootView: View {
                         // ⌘V image paste is handled by ImagePasteCatcher at the
                         // AppKit level — the field editor swallows it here.
                         if press.key == .return {
-                            if applySelectedSuggestion() { return .handled }
-                            if press.modifiers.contains(.shift) {
-                                draft.append("\n")
+                            if press.modifiers.contains(.command) || press.modifiers.contains(.control) {
+                                requestSend()
                                 return .handled
                             }
-                            requestSend()
+                            if !press.modifiers.contains(.shift), applySelectedSuggestion() { return .handled }
+                            draft.append("\n")
                             return .handled
                         }
                         return .ignored
@@ -1572,9 +1670,9 @@ struct ScoutRootView: View {
         ScoutComposerIconButton(
             systemImage: "paperclip",
             glyph: 13,
-            help: "Attach image",
-            isEnabled: store.selectedCId != nil && !store.isSending,
-            action: presentImagePicker
+            help: "Attach markdown, code, image, or video",
+            isEnabled: !store.isSending,
+            action: presentMediaPicker
         )
     }
 
@@ -1591,64 +1689,75 @@ struct ScoutRootView: View {
     }
 
     private func composerAttachmentChip(_ image: ScoutComposerImage) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Group {
-                if let nsImage = NSImage(data: image.data) {
-                    Image(nsImage: nsImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else {
-                    Image(systemName: "photo")
-                        .foregroundStyle(ScoutPalette.muted)
-                }
-            }
-            .frame(width: 52, height: 52)
-            .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
-            .onTapGesture { previewImage = image }
-            .help("Click to preview")
-
-            Button {
-                pendingImages.removeAll { $0.id == image.id }
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: HudTextSize.md))
-                    .foregroundStyle(.white, .black.opacity(0.55))
-            }
-            .buttonStyle(.plain).scoutPointerCursor()
-            .help("Remove attachment")
-            .offset(x: 5, y: -5)
+        ScoutCaptureAttachmentChip(attachment: image) {
+            pendingImages.removeAll { $0.id == image.id }
         }
+        .onTapGesture {
+            if image.isImage {
+                previewImage = image
+            }
+        }
+        .help(image.isImage ? "Click to preview" : image.fileName)
     }
 
     /// Stage images handed up by the ⌘V paste catcher. Returns false (so the
     /// paste falls through to normal text handling) when we can't accept them.
     private func stagePastedImages(_ images: [ScoutComposerImage]) -> Bool {
-        guard store.selectedCId != nil, !store.isSending, !images.isEmpty else { return false }
+        stageCapturedMedia(images)
+    }
+
+    @discardableResult
+    private func stageCapturedMedia(_ images: [ScoutComposerImage]) -> Bool {
+        guard !images.isEmpty else {
+            showCaptureDropFailure("Use markdown, code, images, or video clips only")
+            return false
+        }
+        guard !store.isSending else {
+            showCaptureDropFailure("Could not attach while a send is in flight")
+            return false
+        }
+        clearCaptureDropHint()
+        prepareCaptureDestination()
         pendingImages.append(contentsOf: images)
+        if store.selectedCId != nil {
+            composerFocused = true
+        }
         return true
     }
 
     @discardableResult
-    private func addImages(from urls: [URL]) -> Bool {
-        let images = urls.compactMap(ScoutImageIntake.fromFileURL)
-        guard !images.isEmpty else { return false }
-        pendingImages.append(contentsOf: images)
-        return true
+    private func handleCapturedURLs(_ urls: [URL]) -> Bool {
+        stageCapturedMedia(ScoutMediaIntake.fromFileURLs(urls))
     }
 
-    private func presentImagePicker() {
+    private func showCaptureDropFailure(_ message: String) {
+        captureDropHint = message
+        let token = UUID()
+        captureDropHintToken = token
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3.2))
+            guard captureDropHintToken == token else { return }
+            captureDropHint = nil
+        }
+    }
+
+    private func clearCaptureDropHint() {
+        captureDropHintToken = UUID()
+        captureDropHint = nil
+    }
+
+    private func prepareCaptureDestination() {
+        section = .comms
+    }
+
+    private func presentMediaPicker() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = ScoutMediaIntake.pickerContentTypes
         guard panel.runModal() == .OK else { return }
-        addImages(from: panel.urls)
+        handleCapturedURLs(panel.urls)
     }
 
     private var composerWellFill: Color {
@@ -1744,18 +1853,19 @@ struct ScoutRootView: View {
     }
 
     private var composerStatusText: String? {
+        if let captureDropHint { return captureDropHint }
         if store.selectedChannel == nil { return "Select a chat to message" }
         if isDictating { return voiceStatusLine }
         if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
         if !pendingImages.isEmpty {
-            let noun = pendingImages.count == 1 ? "image" : "images"
-            return "\(pendingImages.count) \(noun) attached · ↵ send · ⌘V or ⊕ to add"
+            let noun = pendingImages.count == 1 ? "attachment" : "attachments"
+            return "\(pendingImages.count) \(noun) staged · ⌘↵ send · ⌘V or ⊕ to add"
         }
         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Type / for commands · @ for agents · session: for sessions"
         }
-        return "↵ send · ⇧↵ newline"
+        return "⌘↵ send · ↵ newline"
     }
 
     private var showDictationPreview: Bool {
@@ -2128,6 +2238,10 @@ struct ScoutRootView: View {
         )
     }
 
+    private func lanesContent(layout: ScoutShellLayout) -> some View {
+        ScoutLanesContent(windowWidth: layout.windowWidth)
+    }
+
     private var reposContent: some View {
         // The repo-diff sheet (SCO-065) is presented at the app root (see `body`)
         // rather than here, so it sticks across section changes — open a diff in
@@ -2430,6 +2544,16 @@ struct ScoutRootView: View {
 
     private var commsListChannels: [ScoutChannel] {
         channelFilter.apply(to: store.visibleChannels)
+    }
+
+    private var channelReconciliationKeys: [String] {
+        store.channels.map { channel in
+            [
+                channel.cId,
+                channel.sessionId?.nilIfEmpty ?? "",
+                channel.participants.compactMap { $0.sessionId?.nilIfEmpty }.joined(separator: ","),
+            ].joined(separator: "|")
+        }
     }
 
     private var conversationListWidthBinding: Binding<CGFloat> {

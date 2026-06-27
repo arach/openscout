@@ -14,6 +14,7 @@ export type OpenScoutSupportPaths = {
   harnessCatalogPath: string;
   relayAgentsRegistryPath: string;
   managedInstallsPath: string;
+  hostInfoPath: string;
   relayHubDirectory: string;
   controlHome: string;
   knowledgeDirectory: string;
@@ -49,6 +50,7 @@ export function resolveOpenScoutSupportPaths(): OpenScoutSupportPaths {
     harnessCatalogPath: join(catalogDirectory, "harness-catalog.json"),
     relayAgentsRegistryPath: join(supportDirectory, "relay-agents.json"),
     managedInstallsPath: join(supportDirectory, "managed-installs.json"),
+    hostInfoPath: join(supportDirectory, ".host-info"),
     relayHubDirectory: process.env.OPENSCOUT_RELAY_HUB
       ?? join(home, ".openscout", "relay"),
     controlHome,

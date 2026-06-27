@@ -1,4 +1,4 @@
-import { UserPlus } from "lucide-react";
+import { Eye, UserPlus } from "lucide-react";
 import type { CSSProperties } from "react";
 import { actorColor } from "../../lib/colors.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
@@ -16,7 +16,17 @@ export type ConversationHeaderParticipant = {
   name: string;
   title: string;
   agent: Agent | null;
-  operator?: boolean;
+  /** Harness/runtime for the agent, used as a model fallback label. */
+  harness?: string | null;
+  /** Model identifier shown beneath the agent name when known. */
+  model?: string | null;
+};
+
+/** The operator's standing in the conversation, rendered distinctly from agents. */
+export type ConversationHeaderOperator = {
+  name: string;
+  /** True when the operator is an actual member of the thread (e.g. a DM). */
+  active: boolean;
 };
 
 export function ConversationHeader({
@@ -29,6 +39,7 @@ export function ConversationHeader({
   agentId,
   visibleParticipants,
   hiddenParticipantCount,
+  operator,
   canAddParticipants,
   onToggleAddParticipant,
 }: {
@@ -41,6 +52,7 @@ export function ConversationHeader({
   agentId: string | null;
   visibleParticipants: ConversationHeaderParticipant[];
   hiddenParticipantCount: number;
+  operator: ConversationHeaderOperator;
   canAddParticipants: boolean;
   onToggleAddParticipant: () => void;
 }) {
@@ -108,6 +120,10 @@ export function ConversationHeader({
               const participantStyle = {
                 background: actorColor(participant.name),
               } as CSSProperties;
+              const modelLabel = participant.model ?? participant.harness ?? null;
+              const pillTitle = modelLabel
+                ? `${participant.name} · ${modelLabel}`
+                : participant.title;
               const content = (
                 <>
                   <span
@@ -117,8 +133,15 @@ export function ConversationHeader({
                   >
                     {participant.name[0]?.toUpperCase() ?? "?"}
                   </span>
-                  <span className="s-thread-participant-name">
-                    {participant.name}
+                  <span className="s-thread-participant-identity">
+                    <span className="s-thread-participant-name">
+                      {participant.name}
+                    </span>
+                    {modelLabel && (
+                      <span className="s-thread-participant-model" title={modelLabel}>
+                        {modelLabel}
+                      </span>
+                    )}
                   </span>
                 </>
               );
@@ -128,12 +151,14 @@ export function ConversationHeader({
                     key={participant.id}
                     type="button"
                     className="s-thread-participant-pill s-thread-participant-pill--button"
-                    title={`Open ${participant.name} profile`}
+                    title={`Open ${participant.name} profile${
+                      modelLabel ? ` · ${modelLabel}` : ""
+                    }`}
                     onClick={() =>
                       openContent(
                         navigate,
                         {
-                          view: "agents",
+                          view: "agents-v2",
                           agentId: participant.agent!.id,
                         },
                         { returnTo: route },
@@ -148,7 +173,7 @@ export function ConversationHeader({
                 <span
                   key={participant.id}
                   className="s-thread-participant-pill"
-                  title={participant.title}
+                  title={pillTitle}
                 >
                   {content}
                 </span>
@@ -157,6 +182,30 @@ export function ConversationHeader({
             {hiddenParticipantCount > 0 && (
               <span className="s-thread-participant-overflow">
                 +{hiddenParticipantCount}
+              </span>
+            )}
+            {operator.active ? (
+              <span
+                className="s-thread-participant-pill s-thread-participant-pill--operator"
+                title={`${operator.name} · in this conversation`}
+              >
+                <span
+                  className="s-thread-participant-avatar s-thread-participant-avatar--operator"
+                  aria-hidden="true"
+                >
+                  {operator.name[0]?.toUpperCase() ?? "Y"}
+                </span>
+                <span className="s-thread-participant-identity">
+                  <span className="s-thread-participant-name">You</span>
+                </span>
+              </span>
+            ) : (
+              <span
+                className="s-thread-participant-observer"
+                title={`${operator.name} · observing (not in thread)`}
+              >
+                <Eye size={12} strokeWidth={1.9} aria-hidden="true" />
+                <span>Observing</span>
               </span>
             )}
           </div>

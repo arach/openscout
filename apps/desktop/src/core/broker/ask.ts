@@ -72,6 +72,7 @@ type ScoutAskDeliveryResult = {
   conversationId?: string;
   messageId?: string;
   bindingRef?: string;
+  sessionAlias?: string;
   workItem?: ScoutAskResult["workItem"];
   targetDiagnostic?: ScoutAskResult["targetDiagnostic"];
 };
@@ -165,6 +166,7 @@ function buildScoutAskReceipt(input: {
       messageId: input.result.messageId,
       workId: input.result.workItem?.id,
       bindingRef: input.result.bindingRef,
+      sessionAlias: input.result.sessionAlias,
     }),
     ...(next ? { next } : {}),
   };

@@ -1073,7 +1073,7 @@ export function MeshCanvas({ mesh, agents = [] }: { mesh: MeshStatus; agents?: A
   const handleAgentOpen = useCallback(
     (agent: Agent) => {
       if (agent.agentClass === "organic") return;
-      navigate({ view: "agents", agentId: agent.id });
+      navigate({ view: "agents-v2", agentId: agent.id });
     },
     [navigate],
   );

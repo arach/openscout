@@ -122,7 +122,7 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         let params = MobileCreateSessionParams(
             workspaceId: spec.target?.projectPath ?? spec.target?.agentId ?? "",
             harness: spec.execution?.harness,
-            agentName: spec.agent?.name ?? spec.agent?.displayName,
+            agentName: spec.agent?.handle ?? spec.agent?.displayName,
             worktree: nil,
             profile: nil,
             branch: nil,

@@ -810,6 +810,10 @@ export type SessionCatalogEntry = {
   source?: string;
   historyPath?: string;
   surfaceSessionId?: string | null;
+  harnessSessionId?: string | null;
+  externalSessionId?: string | null;
+  threadId?: string | null;
+  runtimeSessionId?: string | null;
   canObserve?: boolean;
   canTakeover?: boolean;
 };
@@ -1201,9 +1205,9 @@ export type PlanDocumentsResponse = {
 export type MessagesFilter = "all" | "dm" | "channel";
 export type MessagesSort = "recent" | "name" | "unread";
 export type SearchMode = "knowledge" | "indexer";
-export type AgentsV2Set = "live" | "ephemeral" | "archived";
-export type AgentsV2IndexView = "agents" | "sessions";
-export type AgentsV2StateFilter = "needs" | "live" | "idle";
+export type ProjectSet = "live" | "ephemeral" | "archived";
+export type ProjectsIndexView = "agents" | "sessions";
+export type ProjectStateFilter = "needs" | "live" | "idle";
 export type MachineScopedRoute = {
   machineId?: string;
 };
@@ -1236,9 +1240,9 @@ export type Route =
       projectSlug?: string;
       harness?: string;
       node?: string;
-      set?: AgentsV2Set;
-      indexView?: AgentsV2IndexView;
-      stateFilter?: AgentsV2StateFilter;
+      set?: ProjectSet;
+      indexView?: ProjectsIndexView;
+      stateFilter?: ProjectStateFilter;
       showEphemeral?: boolean;
     } & MachineScopedRoute)
   | ({ view: "fleet" } & MachineScopedRoute)

@@ -314,6 +314,39 @@
   color: var(--ink);
 }
 
+/* Live entry: only the freshest tail row settles in. */
+.s-tail-body > .s-tail-row:last-child {
+  animation:
+    s-tail-row-in 240ms cubic-bezier(0.22, 0.61, 0.36, 1) both,
+    s-tail-row-settle 1100ms ease-out;
+}
+
+@keyframes s-tail-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes s-tail-row-settle {
+  from {
+    background-color: color-mix(in srgb, var(--accent) 9%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .s-tail-body > .s-tail-row:last-child {
+    animation: none;
+  }
+}
+
 .s-tail-row--issue-warn .s-tail-summary::before,
 .s-tail-row--issue-error .s-tail-summary {
   /* glyphs inline in markup */

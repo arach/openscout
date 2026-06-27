@@ -9,6 +9,10 @@
   animation: s-slide-fade-in 120ms ease-out;
 }
 
+.s-slide-backdrop--elevated {
+  z-index: 7;
+}
+
 .s-slide {
   position: absolute;
   background: var(--surface, var(--bg));
@@ -21,6 +25,10 @@
 }
 
 /* — right variant — */
+
+.s-slide--elevated {
+  z-index: 8;
+}
 
 .s-slide--right {
   top: 0;

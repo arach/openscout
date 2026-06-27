@@ -1297,11 +1297,11 @@ struct ScoutReposInspector: View {
                     .disabled(isAsking)
                     .onKeyPress(phases: .down) { press in
                         if press.key == .return {
-                            if press.modifiers.contains(.shift) {
-                                askDraft.append("\n")
+                            if press.modifiers.contains(.command) || press.modifiers.contains(.control) {
+                                Task { await submitAsk(worktree: worktree, project: project) }
                                 return .handled
                             }
-                            Task { await submitAsk(worktree: worktree, project: project) }
+                            askDraft.append("\n")
                             return .handled
                         }
                         if press.key == .escape {
@@ -1368,6 +1368,7 @@ struct ScoutReposInspector: View {
             .background(canSubmitAsk ? ScoutPalette.accent : ScoutPalette.surface)
             .clipShape(RoundedRectangle(cornerRadius: HudRadius.tight))
             .disabled(!canSubmitAsk)
+            .help(canSubmitAsk ? "Send (⌘↵)" : "")
             .scoutPointerCursor()
         }
         .padding(.leading, HudSpacing.xl)

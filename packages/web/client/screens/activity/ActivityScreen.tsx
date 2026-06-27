@@ -304,7 +304,7 @@ export function ActivityScreen({ navigate }: { navigate: (r: Route) => void }) {
                 key: "agent",
                 label: agentLabel,
                 title: `Open agent ${agentLabel}`,
-                route: { view: "agents", agentId: item.agentId },
+                route: { view: "agents-v2", agentId: item.agentId },
               });
             }
             if (item.sessionId) {

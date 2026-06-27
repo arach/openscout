@@ -1160,7 +1160,7 @@ export function MissionControlView({
               })
               .catch(() => {
                 navigate({
-                  view: "agents",
+                  view: "agents-v2",
                   agentId: focusedAgent.id,
                   tab: "message",
                 });
@@ -1176,7 +1176,7 @@ export function MissionControlView({
           }}
           onProfile={() => {
             setFocusedId(null);
-            navigate({ view: "agents", agentId: focusedAgent.id });
+            navigate({ view: "agents-v2", agentId: focusedAgent.id });
           }}
         />
       )}

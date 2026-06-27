@@ -29,7 +29,7 @@ import { SessionObserve } from "./SessionObserve.tsx";
 type SessionRefObservePayload =
   | ({ kind: "agent"; refId: string; agentId: string } & Omit<AgentObservePayload, "agentId">)
   | {
-      kind: "pairing" | "history";
+      kind: "broker" | "history" | "tail";
       refId: string;
       agentId: null;
       source: string;

@@ -1,3 +1,4 @@
+import { deriveContextBudgetGauge, formatContextTokenCount } from "../../lib/context-budget.ts";
 import { isAgentBusy } from "../../lib/agent-state.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { laneToolArgSnippet } from "../../lib/lane-observe.ts";
@@ -135,13 +136,12 @@ export function agentLaneToCardModel(
 
   // Cockpit session-context instruments — context-window %, context token count, turn.
   const usage = facts?.usage ?? observe?.metadata?.usage ?? null;
-  const ctxWindow = usage?.contextWindowTokens ?? null;
-  const ctxUsed = usage?.contextInputTokens ?? null;
-  const context =
-    ctxWindow && ctxWindow > 0 && typeof ctxUsed === "number"
-      ? Math.min(100, Math.max(0, Math.round((ctxUsed / ctxWindow) * 100)))
-      : null;
-  const tokens = fmtCompactTokens(ctxUsed);
+  const contextGauge = deriveContextBudgetGauge(usage, {
+    model: facts?.model ?? preview?.model ?? agent.model ?? session?.model ?? null,
+    adapterType: agent.harness ?? preview?.harness ?? session?.adapterType ?? null,
+  });
+  const context = contextGauge ? Math.min(100, contextGauge.pct) : null;
+  const tokens = contextGauge?.usedLabel ?? formatContextTokenCount(usage?.contextInputTokens);
   const turns = facts?.turn?.index ?? session?.turnCount ?? null;
 
   const tokenDials = usage

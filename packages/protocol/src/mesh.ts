@@ -56,6 +56,7 @@ export interface NodeDefinition {
   hostName?: string;
   advertiseScope: AdvertiseScope;
   brokerUrl?: string;
+  webUrl?: string;
   meshEntrypoints?: NodeMeshEntrypoint[];
   tailnetName?: string;
   capabilities?: string[];

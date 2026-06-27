@@ -22,6 +22,7 @@ import {
   scoutFlags,
 } from "./lib/scout-flags.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
+import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
 import { KeyboardHelpOverlay, useKeyboardHelp } from "./components/KeyboardHelpOverlay.tsx";
 import { PairingRequestPrompt } from "./components/PairingRequestPrompt.tsx";
@@ -224,7 +225,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   const { navTotalHeight } = usePlatformLayout();
   const keyboardHelp = useKeyboardHelp();
   usePaneNav();
-  const { route } = useScout();
+  const { route, agents, openContextCapture } = useScout();
 
   const appCommands = app.hooks.useCommands();
   const appSearch = app.hooks.useSearch?.() ?? null;
@@ -372,6 +373,15 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
         action: () => setRightOverlay((overlay) => !overlay),
       },
       {
+        id: "shell:new-session",
+        label: "New Session",
+        shortcut: "Cmd+Shift+N",
+        action: () => {
+          const context = resolveCaptureRouteContext(route, agents);
+          openContextCapture({ agentId: context.agentId ?? undefined });
+        },
+      },
+      {
         id: "shell:toggle-terminal",
         label: "Toggle Terminal",
         shortcut: "Ctrl+`",
@@ -396,7 +406,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       });
     }
     return commands;
-  }, [assistantEnabled, activeTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel]);
+  }, [agents, assistantEnabled, activeTab, openContextCapture, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel]);
 
   const allCommands = useMemo(() => [...appCommands, ...shellCommands], [appCommands, shellCommands]);
 
@@ -406,6 +416,11 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setShowCommandPalette(true);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        const context = resolveCaptureRouteContext(route, agents);
+        openContextCapture({ agentId: context.agentId ?? undefined });
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "[") {
         e.preventDefault();
@@ -442,7 +457,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [assistantEnabled, resolvedTab, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, takeoverActive]);
+  }, [agents, assistantEnabled, openContextCapture, resolvedTab, route, setActiveTab, setLeftCollapsed, setRightCollapsed, setRightOverlay, setShowFlagPanel, takeoverActive]);
 
   useEffect(() => {
     const handler = () => {
