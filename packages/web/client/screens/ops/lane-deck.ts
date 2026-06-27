@@ -5,9 +5,9 @@ export type LaneDeckProfileId = "web.ops" | "macos.lanes" | "hud.tail" | "web.em
 export type AgentLaneWidthTier = "sm" | "md" | "lg";
 
 export const AGENT_LANE_WIDTH_TIERS: Readonly<Record<AgentLaneWidthTier, number>> = {
-  sm: 304,
-  md: 408,
-  lg: 512,
+  sm: 408,
+  md: 512,
+  lg: 616,
 };
 
 export const AGENT_LANE_WIDTH_MIN = 240;

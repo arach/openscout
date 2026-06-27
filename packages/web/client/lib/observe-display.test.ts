@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ObserveEvent } from "./types.ts";
-import { collapseObserveDisplayRows, observeEventSignature } from "./observe-display.ts";
+import {
+  collapseObserveDisplayRows,
+  isSimpleLaneToolEvent,
+  observeEventSignature,
+} from "./observe-display.ts";
 
 function observe(overrides: Partial<ObserveEvent> & Pick<ObserveEvent, "id">): ObserveEvent {
   return {
@@ -11,6 +15,64 @@ function observe(overrides: Partial<ObserveEvent> & Pick<ObserveEvent, "id">): O
     ...overrides,
   };
 }
+
+describe("isSimpleLaneToolEvent", () => {
+  test("treats native single-token commands as simple", () => {
+    expect(isSimpleLaneToolEvent(observe({
+      id: "a",
+      kind: "tool",
+      tool: "node",
+      text: "node",
+    }))).toBe(true);
+    expect(isSimpleLaneToolEvent(observe({
+      id: "b",
+      kind: "tool",
+      tool: "pgrep",
+      text: "pgrep",
+    }))).toBe(true);
+    expect(isSimpleLaneToolEvent(observe({
+      id: "c",
+      kind: "tool",
+      tool: "/usr/bin/log",
+      text: "/usr/bin/log",
+    }))).toBe(true);
+  });
+
+  test("treats single-token shell commands as simple", () => {
+    expect(isSimpleLaneToolEvent(observe({
+      id: "a",
+      kind: "tool",
+      tool: "Shell",
+      arg: "ps",
+      text: "Shell · ps",
+    }))).toBe(true);
+  });
+
+  test("rejects multi-arg commands and rich tool rows", () => {
+    expect(isSimpleLaneToolEvent(observe({
+      id: "a",
+      kind: "tool",
+      tool: "Shell",
+      arg: "rg LaneFacts packages/web",
+      text: "Shell · rg LaneFacts packages/web",
+    }))).toBe(false);
+    expect(isSimpleLaneToolEvent(observe({
+      id: "b",
+      kind: "tool",
+      tool: "Read",
+      arg: "README.md",
+      text: "Read · README.md",
+    }))).toBe(false);
+    expect(isSimpleLaneToolEvent(observe({
+      id: "c",
+      kind: "tool",
+      tool: "Shell",
+      arg: "node",
+      text: "Shell · node",
+      diff: { add: 1, del: 0, preview: "+line" },
+    }))).toBe(false);
+  });
+});
 
 describe("collapseObserveDisplayRows", () => {
   test("merges consecutive think runs into the latest reasoning snippet", () => {

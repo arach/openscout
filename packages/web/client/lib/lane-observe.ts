@@ -100,6 +100,9 @@ export function observeEventWallMs(
   return sessionStart + event.t * 1000;
 }
 
+/** Lane trace alias — same wall-clock resolver as observeEventWallMs. */
+export const laneEventWallMs = observeEventWallMs;
+
 export function filterObserveEventsForHorizon(
   events: ObserveEvent[],
   sessionStartMs: number | undefined,

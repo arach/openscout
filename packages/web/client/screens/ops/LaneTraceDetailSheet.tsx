@@ -4,7 +4,9 @@ import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { timeAgo } from "../../lib/time.ts";
 import type { ObserveEvent } from "../../lib/types.ts";
+import { fmtLaneAgeLabel, fmtLaneAgeTitle, observeEventWallMs } from "../../lib/lane-observe.ts";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
+import { LaneTraceEventFocus } from "./LaneTraceEventFocus.tsx";
 import { buildLaneSessionStats } from "./agent-lane-detail.ts";
 import type { AgentLane } from "./agent-lanes-model.ts";
 import {
@@ -40,6 +42,10 @@ export function LaneTraceDetailSheet({
   const primaryLabel = lanePrimaryLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
   const eventLabel = EVENT_KIND_LABEL[event.kind] ?? event.kind;
+  const sessionStartMs = observe?.metadata?.session?.sessionStart;
+  const eventWallMs = observeEventWallMs(event, sessionStartMs);
+  const eventWallLabel = eventWallMs != null ? fmtLaneAgeLabel(eventWallMs, lastActiveAt) : undefined;
+  const eventWallTitle = eventWallMs != null ? fmtLaneAgeTitle(eventWallMs) : undefined;
 
   return (
     <SlidePanel
@@ -91,6 +97,15 @@ export function LaneTraceDetailSheet({
           variant="default"
           initialCursorT={event.t}
           focusEventId={event.id}
+          inlineFocusEventId={event.kind === "tool" ? event.id : undefined}
+          inlineFocusContent={event.kind === "tool" ? (
+            <LaneTraceEventFocus
+              event={event}
+              wallLabel={eventWallLabel}
+              wallTitle={eventWallTitle}
+              variant="inline"
+            />
+          ) : undefined}
         />
       </div>
     </SlidePanel>

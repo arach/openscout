@@ -19,7 +19,12 @@ import type {
   ObserveUsageMeta,
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
-import { collapseObserveDisplayRows } from "../../lib/observe-display.ts";
+import { collapseObserveDisplayRows, isSimpleLaneToolEvent } from "../../lib/observe-display.ts";
+import { fmtLaneSessionOffset } from "../../lib/lane-tool-detail.ts";
+import {
+  useLaneToolHoverCard,
+  type LaneToolHoverBindings,
+} from "./LaneToolHoverCard.tsx";
 import { formatBashLine, type PowerlineMode } from "../../lib/bash-format.ts";
 import {
   countObserveEventsBeforeHorizon,
@@ -799,7 +804,19 @@ function LaneToolContent({ family, event }: { family: LaneToolFamily; event: Ses
   }
 }
 
-function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+function ToolBlock({
+  event,
+  laneMode = false,
+  simple = false,
+  wallLabel,
+  wallTitle,
+}: {
+  event: SessionEvent;
+  laneMode?: boolean;
+  simple?: boolean;
+  wallLabel?: string;
+  wallTitle?: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const family = laneToolFamily(event.tool);
   const glyph = laneMode
@@ -811,6 +828,10 @@ function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?
   const bashCommand = isLaneBash ? laneDecodeArg("bash", event.arg) : "";
   const bashValid = Boolean(bashCommand) && !laneIsControlArg(bashCommand)
     && !bashCommand.startsWith("{") && !bashCommand.startsWith("[");
+  const useBashPill = isLaneBash && !simple;
+  const flatBashProg = bashValid
+    ? formatBashLine(bashCommand).spans.find((span) => span.tier === "prog")?.text ?? bashCommand
+    : "";
   const command = toolArgLabel(event);
   const fullCommand = command ?? event.arg?.trim() ?? "";
   const laneCommand = laneMode ? laneToolArgSnippet(fullCommand) : fullCommand;
@@ -825,20 +846,24 @@ function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?
     || Boolean(event.diff?.preview && laneTextNeedsExpand(event.diff.preview, 120, 4))
   );
 
-  return (
+  const block = (
     <div
-      className={`s-observe-tool s-observe-block${laneMode ? ` s-observe-tool--lane s-observe-tool--fam-${family}` : ""}`}
+      className={`s-observe-tool s-observe-block${laneMode ? ` s-observe-tool--lane s-observe-tool--fam-${family}` : ""}${laneMode && simple ? " s-observe-tool--simple" : ""}`}
     >
       <div
         className={`s-observe-tool-header${hasBody && !laneMode ? " s-observe-tool-header--has-body" : ""}`}
       >
-        {!isLaneBash && <span className="s-observe-tool-glyph">{glyph}</span>}
+        {(!isLaneBash || simple) && <span className="s-observe-tool-glyph">{glyph}</span>}
         <span
           className="s-observe-tool-cmd"
-          title={laneMode && !isLaneBash ? `${event.tool ?? ""} ${fullCommand}`.trim() || undefined : undefined}
+          title={laneMode && !useBashPill
+            ? (isLaneBash && bashValid ? bashCommand : `${event.tool ?? ""} ${fullCommand}`.trim() || undefined)
+            : undefined}
         >
-          {isLaneBash ? (
+          {useBashPill ? (
             <LaneBashLine command={bashValid ? bashCommand : ""} title={bashValid ? bashCommand : undefined} />
+          ) : isLaneBash && simple ? (
+            <span className="s-observe-tool-cmd-name">{flatBashProg || "shell"}</span>
           ) : laneMode ? (
             <LaneToolContent family={family} event={event} />
           ) : (
@@ -908,6 +933,8 @@ function ToolBlock({ event, laneMode = false }: { event: SessionEvent; laneMode?
       {!laneMode && <CopyButton text={buildToolCopyText(event)} label="Copy tool call" />}
     </div>
   );
+
+  return block;
 }
 
 function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
@@ -1064,7 +1091,12 @@ function StreamRow({
   nowMs = Date.now(),
   preferWallAge = false,
   highlighted = false,
+  focusAnchor = false,
+  simpleTool = false,
+  stackedTool = false,
   onLaneEventSelect,
+  laneToolHover,
+  hoverPreviewActive = false,
 }: {
   event: SessionEvent;
   prevT: number;
@@ -1078,7 +1110,16 @@ function StreamRow({
   nowMs?: number;
   preferWallAge?: boolean;
   highlighted?: boolean;
+  focusAnchor?: boolean;
+  simpleTool?: boolean;
+  stackedTool?: boolean;
   onLaneEventSelect?: (event: SessionEvent) => void;
+  laneToolHover?: (event: SessionEvent, meta: {
+    wallLabel?: string;
+    wallTitle?: string;
+    sessionOffset?: string;
+  }) => LaneToolHoverBindings;
+  hoverPreviewActive?: boolean;
 }) {
   const gap = event.t - prevT;
   const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
@@ -1100,7 +1141,68 @@ function StreamRow({
     nudging ? "s-observe-row--nudge" : "",
     laneSelectable ? "s-observe-row--selectable" : "",
     highlighted ? "s-observe-row--highlighted" : "",
+    focusAnchor ? "s-observe-row--focus-anchor" : "",
+    simpleTool ? "s-observe-row--tool-simple" : "",
+    stackedTool ? "s-observe-row--tool-stacked" : "",
+    hoverPreviewActive ? "s-observe-row--hover-preview" : "",
   ].filter(Boolean).join(" ");
+
+  const rowBody = (
+    <>
+      {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
+
+      <div className="s-observe-row-time" title={rowTime.title}>
+        <span className="s-observe-row-clock">{rowTime.label}</span>
+        {repeatCount > 1 && (
+          <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
+            ×{repeatCount}
+          </span>
+        )}
+      </div>
+
+      <span className="s-observe-row-bead" style={{ background: accent }} />
+
+      {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
+      {event.kind === "tool" && (
+        <ToolBlock
+          event={event}
+          laneMode={laneMode}
+          simple={simpleTool}
+          wallLabel={simpleTool ? rowTime.label : undefined}
+          wallTitle={simpleTool ? rowTime.title : undefined}
+        />
+      )}
+      {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
+      {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
+      {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
+      {(event.kind === "system" || event.kind === "boot") && (
+        <SystemLine event={event} laneMode={laneMode} />
+      )}
+    </>
+  );
+
+  const toolHoverBindings = laneMode && event.kind === "tool" && laneToolHover
+    ? laneToolHover(event, {
+      wallLabel: rowTime.label,
+      wallTitle: rowTime.title,
+      sessionOffset: fmtLaneSessionOffset(event.t),
+    })
+    : null;
+
+  const rowHoverBody = toolHoverBindings
+    ? (
+      <div
+        ref={toolHoverBindings.ref}
+        className="s-observe-row-hover-target"
+        onMouseEnter={toolHoverBindings.onMouseEnter}
+        onMouseLeave={toolHoverBindings.onMouseLeave}
+        onFocus={toolHoverBindings.onFocus}
+        onBlur={toolHoverBindings.onBlur}
+      >
+        {rowBody}
+      </div>
+    )
+    : rowBody;
 
   return (
     <div
@@ -1121,29 +1223,13 @@ function StreamRow({
       } : undefined}
       role={laneSelectable ? "button" : undefined}
       tabIndex={laneSelectable ? 0 : undefined}
-      title={laneSelectable ? "Open session detail at this step" : undefined}
+      aria-label={laneSelectable
+        ? (event.kind === "tool"
+          ? "Open command detail at this step"
+          : "Open session detail at this step")
+        : undefined}
     >
-      {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
-
-      <div className="s-observe-row-time" title={rowTime.title}>
-        <span className="s-observe-row-clock">{rowTime.label}</span>
-        {repeatCount > 1 && (
-          <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
-            ×{repeatCount}
-          </span>
-        )}
-      </div>
-
-      <span className="s-observe-row-bead" style={{ background: accent }} />
-
-      {event.kind === "think" && <ThinkBlock event={event} laneMode={laneMode} />}
-      {event.kind === "tool" && <ToolBlock event={event} laneMode={laneMode} />}
-      {event.kind === "ask" && <AskLine event={event} laneMode={laneMode} />}
-      {event.kind === "message" && <MessageLine event={event} laneMode={laneMode} />}
-      {event.kind === "note" && <NoteLine event={event} laneMode={laneMode} />}
-      {(event.kind === "system" || event.kind === "boot") && (
-        <SystemLine event={event} laneMode={laneMode} />
-      )}
+      {rowHoverBody}
     </div>
   );
 }
@@ -1171,6 +1257,8 @@ function ReplayStream({
   nowMs = Date.now(),
   preferWallAge = false,
   focusEventId,
+  inlineFocusEventId,
+  inlineFocusContent,
   onLaneEventSelect,
 }: {
   events: SessionEvent[];
@@ -1180,6 +1268,8 @@ function ReplayStream({
   nowMs?: number;
   preferWallAge?: boolean;
   focusEventId?: string | null;
+  inlineFocusEventId?: string | null;
+  inlineFocusContent?: ReactNode;
   onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
@@ -1252,6 +1342,7 @@ function ReplayStream({
 
   const laneNudgeStrideMs = 28;
   const laneNudgeCapMs = 154;
+  const laneToolHover = useLaneToolHoverCard(laneMode);
 
   return (
     <div className={`s-observe-stream${streamScrollNudge ? " s-observe-stream--scroll-nudge" : ""}`}>
@@ -1261,13 +1352,19 @@ function ReplayStream({
         const prevWallMs = prevEvent
           ? laneEventWallMs(prevEvent, sessionStartMs)
           : null;
-        return (
+        const simpleTool = laneMode && isSimpleLaneToolEvent(row.event);
+        const stackedTool = simpleTool
+          && prevEvent != null
+          && isSimpleLaneToolEvent(prevEvent);
+        const isInlineFocus = inlineFocusEventId === row.event.id && Boolean(inlineFocusContent);
+        const rowEl = (
           <StreamRow
-            key={`${row.event.id}:${row.repeatCount}:${index}`}
             event={row.event}
             prevT={prevEvent?.t ?? 0}
             prevWallMs={prevWallMs}
             laneMode={laneMode}
+            simpleTool={simpleTool}
+            stackedTool={stackedTool}
             entering={laneMode && enteringEventIds.has(row.event.id)}
             nudging={laneMode && nudgingEventIds.has(row.event.id)}
             repeatCount={row.repeatCount}
@@ -1280,11 +1377,31 @@ function ReplayStream({
             nowMs={nowMs}
             preferWallAge={preferWallAge}
             highlighted={!laneMode && focusEventId === row.event.id}
+            focusAnchor={isInlineFocus}
             onLaneEventSelect={onLaneEventSelect}
+            laneToolHover={laneMode ? laneToolHover.bind : undefined}
+            hoverPreviewActive={laneMode && laneToolHover.hoveredEventId === row.event.id}
           />
+        );
+
+        return (
+          <div
+            key={`${row.event.id}:${row.repeatCount}:${index}`}
+            className={`s-observe-focus-group${isInlineFocus ? " s-observe-focus-group--active" : ""}`}
+            data-focus-group={isInlineFocus ? "true" : undefined}
+          >
+            {rowEl}
+            {isInlineFocus ? (
+              <>
+                <div className="s-observe-focus-connector" aria-hidden />
+                <div className="s-observe-focus-detail">{inlineFocusContent}</div>
+              </>
+            ) : null}
+          </div>
         );
       })}
       <div ref={endRef} />
+      {laneToolHover.card}
     </div>
   );
 }
@@ -1752,6 +1869,8 @@ export function SessionObserve({
   nowMs,
   initialCursorT,
   focusEventId,
+  inlineFocusEventId,
+  inlineFocusContent,
   onLaneEventSelect,
 }: {
   data?: SessionObserveData;
@@ -1771,6 +1890,9 @@ export function SessionObserve({
   initialCursorT?: number;
   /** Default mode: visually mark and scroll to this event when the view opens. */
   focusEventId?: string | null;
+  /** Default mode: expand detail content inline below this timeline row. */
+  inlineFocusEventId?: string | null;
+  inlineFocusContent?: ReactNode;
   /** Lane mode: open the full session detail sheet for a clicked trace row. */
   onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
@@ -1876,11 +1998,20 @@ export function SessionObserve({
   }, [events, now, sessionStartMs, traceWindowMs, useHorizonTrace, visible]);
   useLayoutEffect(() => {
     if (laneMode || !focusEventId) return;
-    const row = observeRootRef.current?.querySelector<HTMLElement>(
-      `[data-event-id="${focusEventId}"]`,
-    );
-    row?.scrollIntoView({ block: "center", behavior: "instant" });
-  }, [focusEventId, laneMode, visible.length]);
+    const root = observeRootRef.current;
+    if (!root) return;
+    const target = root.querySelector<HTMLElement>('[data-focus-group="true"]')
+      ?? root.querySelector<HTMLElement>(`[data-event-id="${focusEventId}"]`);
+    const scrollParent = target?.closest(".s-observe-main") as HTMLElement | null;
+    if (target && scrollParent) {
+      const parentRect = scrollParent.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const top = scrollParent.scrollTop + (targetRect.top - parentRect.top) - 16;
+      scrollParent.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      return;
+    }
+    target?.scrollIntoView({ block: "start", behavior: "instant" });
+  }, [focusEventId, inlineFocusEventId, laneMode, visible.length]);
   const isAtTail = isCursorAtLiveEdge(cursor, duration);
   const isFollowing = isAtTail && autoFollow;
   const isLive = liveSession && isFollowing;
@@ -2095,6 +2226,8 @@ export function SessionObserve({
           nowMs={now}
           preferWallAge={useHorizonTrace}
           focusEventId={focusEventId}
+          inlineFocusEventId={inlineFocusEventId}
+          inlineFocusContent={inlineFocusContent}
           onLaneEventSelect={onLaneEventSelect}
         />
       </main>

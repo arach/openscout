@@ -1,4 +1,10 @@
+import { formatBashLine } from "./bash-format.ts";
 import type { ObserveEvent } from "./types.ts";
+
+const LANE_BASH_TOOL_NAMES = new Set([
+  "bash", "shell", "terminal", "exec", "run", "command",
+  "exec_command", "shell_command", "local_shell", "container_exec", "container.exec",
+]);
 
 export type ObserveDisplayRow = {
   event: ObserveEvent;
@@ -80,6 +86,34 @@ function mergeToolLifecyclePair(started: ObserveEvent, completed: ObserveEvent):
     text,
     live: completed.live ?? started.live,
   };
+}
+
+/** A single-token shell invocation (node, pgrep, /usr/bin/log) with no diff/stream. */
+export function isSimpleLaneToolEvent(event: ObserveEvent): boolean {
+  if (event.kind !== "tool") return false;
+  if (event.diff || (event.stream?.length ?? 0) > 0) return false;
+
+  const tool = (event.tool ?? "").trim();
+  const arg = (event.arg ?? "").trim();
+  if (!tool) return false;
+  if (arg === "started" || arg === "completed") return false;
+
+  const outcome = event.result?.outcome;
+  if (outcome != null && outcome !== "success" && outcome !== 0) return false;
+  if (event.result && Object.keys(event.result).length > 1) return false;
+
+  const toolKey = tool.toLowerCase();
+  if (LANE_BASH_TOOL_NAMES.has(toolKey)) {
+    if (!arg || arg.startsWith("{") || arg.startsWith("[")) return false;
+    const { dir, spans } = formatBashLine(arg);
+    if (dir) return false;
+    const progSpans = spans.filter((span) => span.tier === "prog");
+    return progSpans.length === 1 && spans.length === 1 && progSpans[0]!.text.length <= 64;
+  }
+
+  if (arg && arg !== tool) return false;
+  if (/\s/u.test(tool)) return false;
+  return tool.length <= 64;
 }
 
 /**

@@ -137,6 +137,82 @@
   border-radius: var(--radius-sm);
 }
 
+.s-lane-trace-sheet-body .s-observe-row--highlighted {
+  z-index: 1;
+}
+
+.s-lane-trace-sheet-body .s-observe-row--highlighted > .s-observe-row-bead {
+  background: var(--accent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 0 14px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.s-lane-trace-sheet-body .s-observe-row--highlighted > .s-observe-block {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface, oklch(0.18 0.009 80)));
+  outline: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  outline-offset: 0;
+  border-radius: var(--radius-sm);
+  animation: s-observe-row-focus-pulse 1.4s ease-out 1;
+}
+
+.s-observe-focus-group {
+  position: relative;
+}
+
+.s-observe-focus-group--active {
+  margin-bottom: var(--space-lg);
+}
+
+.s-observe-focus-group--active .s-observe-row--focus-anchor {
+  padding-bottom: var(--space-xs);
+  z-index: 1;
+}
+
+.s-observe-focus-group--active .s-observe-row--focus-anchor > .s-observe-row-bead {
+  background: var(--accent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 0 16px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+.s-observe-focus-group--active .s-observe-row--focus-anchor > .s-observe-block {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface, oklch(0.18 0.009 80)));
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  outline: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+  outline-offset: 0;
+  animation: none;
+}
+
+.s-observe-focus-connector {
+  position: relative;
+  left: -14px;
+  width: 18px;
+  height: 10px;
+  margin-top: -2px;
+  margin-bottom: -1px;
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  border-bottom-left-radius: 6px;
+  pointer-events: none;
+}
+
+.s-observe-focus-detail {
+  position: relative;
+}
+
+@keyframes s-observe-row-focus-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  40% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 0%, transparent);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
 .s-observe--lane .s-observe-row {
   padding-bottom: var(--space-sm);
   padding-left: var(--space-md);
@@ -237,6 +313,154 @@
 
 .s-observe--lane .s-observe-row:last-child {
   padding-bottom: var(--space-sm);
+}
+
+/* Simple single-token commands (node, pgrep, ps) — tight vertical rhythm so a
+   burst reads as one compact run instead of spaced-out rows. */
+.s-observe--lane .s-observe-row--tool-simple {
+  padding-bottom: 0;
+}
+
+.s-observe--lane .s-observe-row--tool-stacked {
+  margin-top: -3px;
+}
+
+.s-observe--lane .s-observe-row--tool-stacked::before {
+  display: none;
+}
+
+.s-observe--lane .s-observe-row--tool-stacked .s-observe-row-time {
+  visibility: hidden;
+}
+
+.s-observe--lane .s-observe-row--tool-simple > .s-observe-block {
+  margin-top: 0;
+}
+
+.s-observe--lane .s-observe-row--tool-simple.s-observe-row--selectable {
+  cursor: pointer;
+}
+
+.s-observe--lane .s-observe-row--tool-simple.s-observe-row--selectable:hover .s-observe-tool--simple {
+  color: var(--ink);
+}
+
+.s-observe-tool-hover-anchor,
+.s-observe-row-hover-target {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.s-observe--lane .s-observe-row--hover-preview {
+  z-index: 2;
+}
+
+.s-observe--lane .s-observe-row--hover-preview .s-observe-tool {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface, oklch(0.18 0.009 80)));
+  outline: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  outline-offset: 0;
+}
+
+.s-observe--lane .s-observe-row--hover-preview .s-observe-tool-cmd-name,
+.s-observe--lane .s-observe-row--hover-preview .s-observe-tool-cmd-arg {
+  color: var(--ink);
+}
+
+.s-observe-tool-hover-card {
+  --hover-caret-top: 14px;
+  z-index: 10050;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--border, oklch(0.34 0.012 80)) 92%, var(--ink, oklch(0.96 0.008 80)));
+  background: var(--surface, oklch(0.18 0.009 80));
+  color: var(--ink, oklch(0.96 0.008 80));
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.58),
+    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: auto;
+  isolation: isolate;
+}
+
+.s-observe-tool-hover-card::before,
+.s-observe-tool-hover-card::after {
+  content: "";
+  position: absolute;
+  top: var(--hover-caret-top);
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Bridge line from row to card */
+.s-observe-tool-hover-card::after {
+  height: 1px;
+  width: 10px;
+  border: none;
+  background: color-mix(in srgb, var(--accent) 42%, var(--border, oklch(0.34 0.012 80)));
+  transform: translateY(-50%);
+}
+
+.s-observe-tool-hover-card--side-right::before {
+  left: -7px;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-right: 7px solid var(--surface, oklch(0.18 0.009 80));
+  filter: drop-shadow(-1px 0 0 color-mix(in srgb, var(--accent) 30%, transparent));
+}
+
+.s-observe-tool-hover-card--side-right::after {
+  left: -11px;
+}
+
+.s-observe-tool-hover-card--side-left::before {
+  right: -7px;
+  border-top: 7px solid transparent;
+  border-bottom: 7px solid transparent;
+  border-left: 7px solid var(--surface, oklch(0.18 0.009 80));
+  filter: drop-shadow(1px 0 0 color-mix(in srgb, var(--accent) 30%, transparent));
+}
+
+.s-observe-tool-hover-card--side-left::after {
+  right: -11px;
+}
+
+.s-observe-tool-hover-card-cmd {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.s-observe-tool-hover-card-meta {
+  margin-top: var(--space-3xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--muted);
+}
+
+.s-observe-tool-hover-card-line {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.s-observe-tool-hover-card-hint {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-2xs);
+  border-top: 1px solid color-mix(in srgb, var(--ink) 14%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-xs);
+  color: color-mix(in srgb, var(--muted) 55%, var(--accent) 45%);
 }
 
 .s-observe--lane .s-observe-row-time {
@@ -590,6 +814,36 @@
    plumbing (dim). Single line; full command on hover. All colours derive from
    tokens so it follows the theme. Markup + parsing live in LaneBashLine /
    lib/bash-format.ts — this is just the skin. */
+.s-observe--lane .s-observe-tool--simple,
+.s-observe--lane .s-observe-tool--simple .s-observe-tool-header {
+  background: transparent;
+  border-left: 0;
+  padding: 0;
+}
+
+.s-observe--lane .s-observe-tool--simple .s-observe-tool-header {
+  gap: var(--space-2xs);
+  line-height: 1.2;
+  min-height: 0;
+}
+
+.s-observe--lane .s-observe-tool--simple .s-observe-tool-glyph {
+  line-height: 1.2;
+}
+
+.s-observe--lane .s-observe-tool--simple .s-observe-tool-cmd {
+  line-height: 1.2;
+}
+
+.s-observe--lane .s-observe-tool--simple .s-observe-tool-cmd-name {
+  color: var(--ink);
+}
+
+.s-observe--lane .s-observe-tool--simple:hover {
+  background: transparent;
+  border-color: transparent;
+}
+
 .s-observe--lane .s-observe-tool--fam-bash,
 .s-observe--lane .s-observe-tool--fam-bash .s-observe-tool-header {
   /* the pill is the whole visual — drop the generic tool chrome around it */

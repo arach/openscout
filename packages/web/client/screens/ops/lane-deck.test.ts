@@ -37,13 +37,13 @@ function lane(id: string, harness = "codex", current = false): AgentLane {
 
 describe("lane deck width", () => {
   it("resolves tier widths", () => {
-    expect(resolveLaneWidthPx("sm", "lg")).toBe(304);
+    expect(resolveLaneWidthPx("sm", "lg")).toBe(408);
     expect(resolveLaneWidthPx(420, "md")).toBe(420);
   });
 
   it("snaps near tier boundaries", () => {
-    expect(snapLaneWidthPx(310).tier).toBe("sm");
-    expect(snapLaneWidthPx(500).tier).toBe("lg");
+    expect(snapLaneWidthPx(410).tier).toBe("sm");
+    expect(snapLaneWidthPx(600).tier).toBe("lg");
   });
 });
 
@@ -57,8 +57,8 @@ describe("resolveLaneDeckLayout", () => {
     const layout = resolveLaneDeckLayout({ autoLanes, deck, defaultWidthTier: "md" });
     expect(layout.pinnedLeft.map((entry) => entry.lane.id)).toEqual(["beta"]);
     expect(layout.main.map((entry) => entry.lane.id)).toEqual(["alpha"]);
-    expect(layout.pinnedLeft[0]?.widthPx).toBe(512);
-    expect(layout.main[0]?.widthPx).toBe(304);
+    expect(layout.pinnedLeft[0]?.widthPx).toBe(616);
+    expect(layout.main[0]?.widthPx).toBe(408);
   });
 
   it("creates harness filter lanes in pinned zone", () => {
