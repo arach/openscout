@@ -12,7 +12,7 @@ import {
 import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
-import type { Agent, Route } from "../../lib/types.ts";
+import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
@@ -21,6 +21,10 @@ import { AgentLaneChrome } from "./AgentLaneChrome.tsx";
 import { AgentLaneCard } from "./AgentLaneCard.tsx";
 import { agentLaneToCardModel } from "./agent-lane-card-model.ts";
 import { AgentLaneDetailSheet } from "./AgentLaneDetailSheet.tsx";
+import {
+  LaneTraceDetailSheet,
+  type LaneTraceSheetTarget,
+} from "./LaneTraceDetailSheet.tsx";
 import {
   AgentLaneSummaryResizeHandle,
   readStoredLaneSummaryHeight,
@@ -103,6 +107,7 @@ function AgentLaneColumn({
   onSummaryResizeReset,
   summaryResizing,
   onInspect,
+  onTraceEventSelect,
   onTogglePin,
   onWidthChange,
   onWidthResizeStart,
@@ -124,6 +129,7 @@ function AgentLaneColumn({
   onSummaryResizeReset: () => void;
   summaryResizing?: boolean;
   onInspect: (lane: AgentLane) => void;
+  onTraceEventSelect: (lane: AgentLane, event: ObserveEvent) => void;
   onTogglePin: () => void;
   onWidthChange: (width: AgentLaneWidthTier) => void;
   onWidthResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -170,6 +176,7 @@ function AgentLaneColumn({
             nowMs={nowMs}
             traceWindowMs={traceWindowMs}
             traceWindowLabel={traceWindowLabel}
+            onLaneEventSelect={(event) => onTraceEventSelect(lane, event)}
           />
         ) : (
           <div className="s-agent-lane-empty">Waiting for trace activity…</div>
@@ -374,8 +381,12 @@ export function AgentLanesView({
   );
   const visibleColumns = layout.flat;
   const pinnedCount = layout.pinnedLeft.length + layout.pinnedRight.length;
+  const [traceSheetTarget, setTraceSheetTarget] = useState<LaneTraceSheetTarget | null>(null);
   const inspectLane = useCallback((lane: AgentLane) => {
     setInspectedLaneId(lane.id);
+  }, []);
+  const openTraceSheet = useCallback((lane: AgentLane, event: ObserveEvent) => {
+    setTraceSheetTarget({ lane, event });
   }, []);
   const { getLaneFocusProps } = useAgentLanesKeyboard({
     lanes: visibleColumns.map((column) => column.lane),
@@ -419,6 +430,7 @@ export function AgentLanesView({
         onSummaryResizeReset={resetSummaryHeight}
         summaryResizing={summaryResizing}
         onInspect={inspectLane}
+        onTraceEventSelect={openTraceSheet}
         onTogglePin={() => {
           if (isPinned(lane.id)) unpinLane(lane.id);
           else pinLane(lane);
@@ -437,6 +449,7 @@ export function AgentLanesView({
     handleSummaryResizeStart,
     horizonLabel,
     inspectLane,
+    openTraceSheet,
     isPinned,
     newLaneIds,
     now,
@@ -626,6 +639,12 @@ export function AgentLanesView({
           navigate={navigate}
           returnRoute={returnRoute}
           onClose={() => setInspectedLaneId(null)}
+        />
+      )}
+      {traceSheetTarget && (
+        <LaneTraceDetailSheet
+          target={traceSheetTarget}
+          onClose={() => setTraceSheetTarget(null)}
         />
       )}
     </div>

@@ -36,9 +36,6 @@ import {
   lanePrimaryLabel,
 } from "./agent-lanes-model.ts";
 import { supportsRemoteCompaction } from "./session-compaction.ts";
-import { SessionObserve } from "../sessions/SessionObserve.tsx";
-
-type LaneDetailView = "summary" | "transcript";
 
 /** The leading tonal mark for a touched-file row — a step of one hue: created
  *  is the accent step, modified the neutral step, read the faintest. */
@@ -624,15 +621,10 @@ export function AgentLaneDetailSheet({
   const [changedCopied, setChangedCopied] = useState(false);
   const [compactPending, setCompactPending] = useState(false);
   const [compactError, setCompactError] = useState<string | null>(null);
-  const [detailView, setDetailView] = useState<LaneDetailView>("summary");
   const changedCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (changedCopyTimer.current) clearTimeout(changedCopyTimer.current);
   }, []);
-
-  useEffect(() => {
-    setDetailView("summary");
-  }, [lane.id]);
 
   const primaryLabel = lanePrimaryLabel(agent, source);
   const contextLabel = laneContextLabel(agent, source);
@@ -809,9 +801,6 @@ export function AgentLaneDetailSheet({
     onClose();
   }, [navigate, onClose, returnRoute, traceRoute]);
 
-  const showSummary = useCallback(() => setDetailView("summary"), []);
-  const showTranscript = useCallback(() => setDetailView("transcript"), []);
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
@@ -822,11 +811,7 @@ export function AgentLaneDetailSheet({
           break;
         case "t":
           event.preventDefault();
-          showTranscript();
-          break;
-        case "s":
-          event.preventDefault();
-          showSummary();
+          openTraces();
           break;
         case "p":
           if (!profileRoute) return;
@@ -839,10 +824,7 @@ export function AgentLaneDetailSheet({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openProfile, openSession, profileRoute, showSummary, showTranscript]);
-
-  const transcriptEventCount = observe?.events.length ?? 0;
-  const hasTranscript = transcriptEventCount > 0;
+  }, [openProfile, openSession, openTraces, profileRoute]);
 
   const openDocument = useCallback(
     (documentId: string) => {
@@ -874,8 +856,6 @@ export function AgentLaneDetailSheet({
     };
   }, [lane.id]);
 
-  const isTranscriptView = detailView === "transcript";
-
   return (
     <SlidePanel
       open
@@ -883,12 +863,12 @@ export function AgentLaneDetailSheet({
       side="right"
       owner="openscout.agent-lane"
       resizable
-      defaultSize={isTranscriptView ? 960 : 720}
-      minSize={isTranscriptView ? 560 : 420}
-      maxSize={isTranscriptView ? 1280 : 960}
+      defaultSize={720}
+      minSize={420}
+      maxSize={960}
       scrollLock
       ariaLabel={`${primaryLabel} lane detail`}
-      className={`s-lane-sheet${isTranscriptView ? " s-lane-sheet--transcript" : ""}`}
+      className="s-lane-sheet"
     >
       <div className="s-slide-header s-lane-sheet-header">
         <AgentAvatar
@@ -921,7 +901,7 @@ export function AgentLaneDetailSheet({
             <SheetGhost onClick={openProfile}>Agent profile</SheetGhost>
           ) : null}
           <SheetGhost onClick={openTraces} disabled={!traceRoute}>
-            Full page
+            Traces
           </SheetGhost>
         </div>
         <button type="button" className="s-slide-close" onClick={onClose} aria-label="Close">
@@ -929,31 +909,6 @@ export function AgentLaneDetailSheet({
         </button>
       </div>
 
-      <nav className="s-lane-sheet-tabs" aria-label="Detail view">
-        <button
-          type="button"
-          className={`s-lane-sheet-tab${detailView === "summary" ? " s-lane-sheet-tab--active" : ""}`}
-          aria-current={detailView === "summary" ? "page" : undefined}
-          onClick={showSummary}
-          title="Summary sections (S)"
-        >
-          Summary
-        </button>
-        <button
-          type="button"
-          className={`s-lane-sheet-tab${detailView === "transcript" ? " s-lane-sheet-tab--active" : ""}`}
-          aria-current={detailView === "transcript" ? "page" : undefined}
-          onClick={showTranscript}
-          title="Session transcript (T)"
-        >
-          Transcript
-          {hasTranscript && (
-            <span className="s-lane-sheet-tab-n">{transcriptEventCount}</span>
-          )}
-        </button>
-      </nav>
-
-      {detailView === "summary" && (
       <nav className="s-lane-sheet-anchors" aria-label="Jump to section">
         <a href="#s-lane-sheet-vitals" className="s-lane-sheet-anchor">Vitals</a>
         <a href="#s-lane-sheet-runtime" className="s-lane-sheet-anchor">Runtime</a>
@@ -973,9 +928,7 @@ export function AgentLaneDetailSheet({
           </span>
         )}
       </nav>
-      )}
 
-      {detailView === "summary" ? (
       <div className={`s-slide-body s-lane-sheet-body${isLive ? " s-lane-sheet-body--working" : " s-lane-sheet-body--idle"}`}>
         {/* VITALS — the cockpit hero: alive · how full · how busy, in one look.
             A flat section (soft emerald top wash) holding the live action well,
@@ -1304,28 +1257,6 @@ export function AgentLaneDetailSheet({
           )}
         </section>
       </div>
-      ) : (
-      <div className="s-slide-body s-lane-sheet-body s-lane-sheet-body--transcript">
-        {hasTranscript ? (
-          <div className="s-lane-sheet-transcript">
-            <SessionObserve
-              data={observe ?? undefined}
-              agentId={source === "scout" ? agent.id : undefined}
-              sessionId={agent.harnessSessionId ?? stats.sessionId}
-              showRail
-              variant="default"
-            />
-          </div>
-        ) : (
-          <div className="s-lane-sheet-transcript-empty">
-            <div className="s-lane-sheet-empty">Waiting for trace activity…</div>
-            {sessionRoute && (
-              <SheetGhost primary onClick={openSession}>Open session page</SheetGhost>
-            )}
-          </div>
-        )}
-      </div>
-      )}
     </SlidePanel>
   );
 }

@@ -115,6 +115,28 @@
   opacity: 1;
 }
 
+.s-observe--lane .s-observe-row--selectable {
+  cursor: pointer;
+}
+
+.s-observe--lane .s-observe-row--selectable:hover .s-observe-row-bead {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.s-observe--lane .s-observe-row--selectable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.s-observe-row--highlighted > .s-observe-row-bead {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.s-observe-row--highlighted > .s-observe-block {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: var(--radius-sm);
+}
+
 .s-observe--lane .s-observe-row {
   padding-bottom: var(--space-sm);
   padding-left: var(--space-md);

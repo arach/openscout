@@ -1046,6 +1046,11 @@ function FollowToggle({
 
 /* ── Stream row ── */
 
+function isObserveInteractiveTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  return Boolean(el?.closest("button, a, input, textarea, select, [role='slider'], [contenteditable='true']"));
+}
+
 function StreamRow({
   event,
   prevT,
@@ -1058,6 +1063,8 @@ function StreamRow({
   sessionStartMs,
   nowMs = Date.now(),
   preferWallAge = false,
+  highlighted = false,
+  onLaneEventSelect,
 }: {
   event: SessionEvent;
   prevT: number;
@@ -1070,6 +1077,8 @@ function StreamRow({
   sessionStartMs?: number;
   nowMs?: number;
   preferWallAge?: boolean;
+  highlighted?: boolean;
+  onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
   const gap = event.t - prevT;
   const accent = KIND_COLOR[event.kind] ?? "var(--dim)";
@@ -1083,19 +1092,36 @@ function StreamRow({
   const sessionGapLabel = !preferWallAge && gap > 15 ? `${fmtGap(gap)} gap` : null;
   const gapLabel = wallGapLabel ?? sessionGapLabel;
 
+  const laneSelectable = laneMode && Boolean(onLaneEventSelect);
   const rowClass = [
     "s-observe-row",
     `s-observe-row--kind-${event.kind}`,
     entering ? "s-observe-row--enter" : "",
     nudging ? "s-observe-row--nudge" : "",
+    laneSelectable ? "s-observe-row--selectable" : "",
+    highlighted ? "s-observe-row--highlighted" : "",
   ].filter(Boolean).join(" ");
 
   return (
     <div
       className={rowClass}
+      data-event-id={event.id}
       style={nudging && nudgeDelayMs > 0
         ? ({ "--row-nudge-delay": `${nudgeDelayMs}ms` } as CSSProperties)
         : undefined}
+      onClick={laneSelectable ? (clickEvent) => {
+        if (isObserveInteractiveTarget(clickEvent.target)) return;
+        onLaneEventSelect?.(event);
+      } : undefined}
+      onKeyDown={laneSelectable ? (keyEvent) => {
+        if (keyEvent.key !== "Enter" && keyEvent.key !== " ") return;
+        if (isObserveInteractiveTarget(keyEvent.target)) return;
+        keyEvent.preventDefault();
+        onLaneEventSelect?.(event);
+      } : undefined}
+      role={laneSelectable ? "button" : undefined}
+      tabIndex={laneSelectable ? 0 : undefined}
+      title={laneSelectable ? "Open session detail at this step" : undefined}
     >
       {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
 
@@ -1144,6 +1170,8 @@ function ReplayStream({
   sessionStartMs,
   nowMs = Date.now(),
   preferWallAge = false,
+  focusEventId,
+  onLaneEventSelect,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
@@ -1151,6 +1179,8 @@ function ReplayStream({
   sessionStartMs?: number;
   nowMs?: number;
   preferWallAge?: boolean;
+  focusEventId?: string | null;
+  onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -1249,6 +1279,8 @@ function ReplayStream({
             sessionStartMs={sessionStartMs}
             nowMs={nowMs}
             preferWallAge={preferWallAge}
+            highlighted={!laneMode && focusEventId === row.event.id}
+            onLaneEventSelect={onLaneEventSelect}
           />
         );
       })}
@@ -1718,6 +1750,9 @@ export function SessionObserve({
   traceWindowMs,
   traceWindowLabel,
   nowMs,
+  initialCursorT,
+  focusEventId,
+  onLaneEventSelect,
 }: {
   data?: SessionObserveData;
   agentId?: string;
@@ -1732,6 +1767,12 @@ export function SessionObserve({
   traceWindowLabel?: string;
   /** Lane mode: shared wall clock for horizon filters (kept in sync with lane roster). */
   nowMs?: number;
+  /** Default mode: open the replay cursor at this event time. */
+  initialCursorT?: number;
+  /** Default mode: visually mark and scroll to this event when the view opens. */
+  focusEventId?: string | null;
+  /** Lane mode: open the full session detail sheet for a clicked trace row. */
+  onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
   const laneMode = variant === "lane";
   const observeData = data ?? EMPTY_OBSERVE_DATA;
@@ -1758,11 +1799,22 @@ export function SessionObserve({
   }, [agentId, laneMode]);
 
   const duration = events.length > 0 ? events[events.length - 1].t + 30 : 60;
-  const [cursor, setCursor] = useState(duration);
+  const anchoredCursor = typeof initialCursorT === "number"
+    ? Math.max(0, Math.min(duration, initialCursorT))
+    : null;
+  const [cursor, setCursor] = useState(() => anchoredCursor ?? duration);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
-  const [autoFollow, setAutoFollow] = useState(true);
+  const [autoFollow, setAutoFollow] = useState(anchoredCursor == null);
   const previousDurationRef = useRef(duration);
+  const observeRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (anchoredCursor == null) return;
+    setCursor(anchoredCursor);
+    setAutoFollow(false);
+    setPlaying(false);
+  }, [anchoredCursor, focusEventId]);
 
   useEffect(() => {
     setCursor((current) => {
@@ -1822,6 +1874,13 @@ export function SessionObserve({
       hiddenBeforeCount,
     );
   }, [events, now, sessionStartMs, traceWindowMs, useHorizonTrace, visible]);
+  useLayoutEffect(() => {
+    if (laneMode || !focusEventId) return;
+    const row = observeRootRef.current?.querySelector<HTMLElement>(
+      `[data-event-id="${focusEventId}"]`,
+    );
+    row?.scrollIntoView({ block: "center", behavior: "instant" });
+  }, [focusEventId, laneMode, visible.length]);
   const isAtTail = isCursorAtLiveEdge(cursor, duration);
   const isFollowing = isAtTail && autoFollow;
   const isLive = liveSession && isFollowing;
@@ -1974,6 +2033,7 @@ export function SessionObserve({
 
   return (
     <div
+      ref={observeRootRef}
       className={[
         "s-observe",
         (!showRail || laneMode) && "s-observe--content-only",
@@ -2034,6 +2094,8 @@ export function SessionObserve({
           sessionStartMs={sessionStartMs}
           nowMs={now}
           preferWallAge={useHorizonTrace}
+          focusEventId={focusEventId}
+          onLaneEventSelect={onLaneEventSelect}
         />
       </main>
 

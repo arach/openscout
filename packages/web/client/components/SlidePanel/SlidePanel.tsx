@@ -43,6 +43,8 @@ export type SlidePanelProps = {
   ariaLabel?: string;
   /** Extra className applied to the panel container. */
   className?: string;
+  /** Stack above the default slide layer (e.g. a sheet opened from another sheet). */
+  layer?: "default" | "elevated";
   children: ReactNode;
 };
 
@@ -96,6 +98,7 @@ export function SlidePanel({
   focusTrap = false,
   ariaLabel,
   className,
+  layer = "default",
   children,
 }: SlidePanelProps) {
   const initialSize = defaultSize ?? (side === "right" ? DEFAULT_RIGHT_SIZE : DEFAULT_BOTTOM_SIZE);
@@ -216,12 +219,13 @@ export function SlidePanel({
   if (!open) return null;
 
   const sizeStyle: CSSProperties = side === "right" ? { width: size } : { height: size };
+  const elevated = layer === "elevated";
 
   return (
     <>
       {backdrop && (
         <div
-          className="s-slide-backdrop"
+          className={`s-slide-backdrop${elevated ? " s-slide-backdrop--elevated" : ""}`}
           data-side={side}
           onClick={handleClose}
           aria-hidden="true"
@@ -229,7 +233,13 @@ export function SlidePanel({
       )}
       <aside
         ref={panelRef}
-        className={`s-slide s-slide--${side}${resizing ? " s-slide--resizing" : ""}${className ? ` ${className}` : ""}`}
+        className={[
+          "s-slide",
+          `s-slide--${side}`,
+          resizing ? "s-slide--resizing" : "",
+          elevated ? "s-slide--elevated" : "",
+          className,
+        ].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-label={ariaLabel}
