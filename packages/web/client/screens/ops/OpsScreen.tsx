@@ -49,7 +49,13 @@ export function OpsScreen({
           />
         )}
         {mode === "atop" && <AtopView />}
-        {mode === "lanes" && <AgentLanesView navigate={navigate} agents={agents} />}
+        {mode === "lanes" && (
+          <AgentLanesView
+            navigate={navigate}
+            agents={agents}
+            profileId="web.ops"
+          />
+        )}
       </div>
       <PageStatusBar />
     </div>

@@ -7,6 +7,8 @@
   height: 100%;
   min-height: 0;
   background: var(--bg);
+  container-type: inline-size;
+  container-name: agent-lanes;
 }
 
 .s-agent-lanes-embed {
@@ -23,7 +25,33 @@
 }
 
 .s-agent-lanes--embedded .s-agent-lanes-bar {
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-xs) var(--space-md);
+  gap: var(--space-sm);
+}
+
+.s-agent-lanes--embedded .s-agent-lanes-title {
+  display: none;
+}
+
+.s-agent-lanes--embedded .s-agent-lanes-bar-leading {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.s-agent-lanes--embedded .s-agent-lanes-bar-controls {
+  flex: 0 1 auto;
+}
+
+@container agent-lanes (max-width: 560px) {
+  .s-agent-lanes--embedded .s-agent-lanes-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .s-agent-lanes--embedded .s-agent-lanes-bar-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
 }
 
 .s-agent-lanes--embedded .s-agent-lanes-scroll {
@@ -37,9 +65,10 @@
 
 .s-agent-lanes-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-lg);
+  gap: var(--space-sm) var(--space-md);
   padding: var(--space-md) var(--space-2xl);
   flex: none;
   background:
@@ -48,11 +77,23 @@
   box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--ink) 5%, transparent);
 }
 
-.s-agent-lanes-bar-main {
+.s-agent-lanes-bar-leading {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-lg);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2xs);
   min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.s-agent-lanes-bar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  flex: 0 1 auto;
+  margin-left: auto;
 }
 
 .s-agent-lanes-horizons {
@@ -97,10 +138,34 @@
 }
 
 .s-agent-lanes-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs) var(--space-sm);
+  min-width: 0;
+  max-width: 100%;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
+}
+
+.s-agent-lanes-meta-stat,
+.s-agent-lanes-meta-filter,
+.s-agent-lanes-meta-detail {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.s-agent-lanes-meta-filter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.s-agent-lanes-meta-detail {
+  color: color-mix(in srgb, var(--dim) 82%, transparent);
 }
 
 .s-agent-lanes-issues {
@@ -175,11 +240,58 @@
   white-space: nowrap;
 }
 
-.s-agent-lanes-bar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  flex: none;
+@container agent-lanes (max-width: 860px) {
+  .s-agent-lanes-bar {
+    padding-inline: var(--space-lg);
+  }
+
+  .s-agent-lanes-meta-detail {
+    display: none;
+  }
+}
+
+@container agent-lanes (max-width: 640px) {
+  .s-agent-lanes-bar {
+    align-items: stretch;
+  }
+
+  .s-agent-lanes-bar-leading {
+    flex: 1 1 100%;
+  }
+
+  .s-agent-lanes-bar-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+
+  .s-agent-lanes-meta {
+    overflow: hidden;
+  }
+
+  .s-agent-lanes-meta-filter {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+}
+
+@container agent-lanes (max-width: 480px) {
+  .s-agent-lanes-horizons {
+    flex: 1 1 auto;
+    justify-content: space-between;
+    min-width: 0;
+  }
+
+  .s-agent-lanes-horizon {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: var(--space-xs);
+    text-align: center;
+  }
+
+  .s-agent-lanes-deck-btn {
+    padding-inline: var(--space-sm);
+  }
 }
 
 .s-agent-lanes-deck-menu {
@@ -440,13 +552,22 @@
   background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 
-.s-agent-lane-chrome-main {
+.s-agent-lane-chrome-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs) var(--space-xs);
+  min-width: 0;
+  flex: 1;
+  padding: var(--space-2xs) var(--space-sm);
+}
+
+.s-agent-lane-chrome-top {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
   min-width: 0;
-  flex: 1;
-  padding: var(--space-2xs) var(--space-sm);
+  flex: 1 1 auto;
 }
 
 .s-agent-lane-chrome-pin {
@@ -481,38 +602,79 @@
   white-space: nowrap;
 }
 
-.s-agent-lane-chrome-width {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: var(--tracking-xs);
-  color: var(--dim);
-  flex: none;
-}
-
 .s-agent-lane-chrome-widths {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex: none;
+  padding: 1px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .s-agent-lane-chrome-width-btn {
   appearance: none;
   border: 0;
   background: transparent;
-  border-radius: var(--radius-sm);
-  padding: 2px 5px;
+  border-radius: calc(var(--radius-sm) - 1px);
+  padding: 2px 6px;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: var(--tracking-xs);
   color: var(--dim);
   cursor: pointer;
+  min-width: 1.6rem;
+  text-align: center;
 }
 
 .s-agent-lane-chrome-width-btn:hover,
 .s-agent-lane-chrome-width-btn--on {
   color: var(--ink);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.s-agent-lane-chrome-width-btn--on {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+@container agent-lane (min-width: 420px) {
+  .s-agent-lane-chrome-body {
+    flex-wrap: nowrap;
+  }
+
+  .s-agent-lane-chrome-top {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .s-agent-lane-chrome-widths {
+    margin-left: auto;
+  }
+}
+
+@container agent-lane (max-width: 419px) {
+  .s-agent-lane-chrome-top {
+    flex: 1 1 calc(100% - 2px);
+  }
+
+  .s-agent-lane-chrome-widths {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    margin-left: 1.75rem;
+  }
+}
+
+@container agent-lane (max-width: 320px) {
+  .s-agent-lane-chrome-body {
+    padding-inline: var(--space-xs);
+  }
+
+  .s-agent-lane-chrome-width-btn {
+    min-width: 1.45rem;
+    padding-inline: 4px;
+    font-size: 9px;
+  }
 }
 
 .s-agent-lane-width-handle {
@@ -542,6 +704,8 @@
 }
 
 .s-agent-lane {
+  container-type: inline-size;
+  container-name: agent-lane;
   flex: none;
   width: var(--lane-width, 408px);
   min-height: 0;

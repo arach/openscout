@@ -457,15 +457,23 @@ export function AgentLanesView({
       data-lanes-deck-version="1"
     >
       <div className="s-agent-lanes-bar">
-        <div className="s-agent-lanes-bar-main">
+        <div className="s-agent-lanes-bar-leading">
           <div className="s-agent-lanes-title">Agent Lanes</div>
-          <div className="s-agent-lanes-meta">
-            deck v1 · {visibleColumns.length} visible · {pinnedCount} pinned · trace {horizonLabel}
-            {activeFilterLabel ? ` · ${activeFilterLabel}` : ""}
-            {` · ${profileId}`}
+          <div className="s-agent-lanes-meta" aria-label="Lane deck status">
+            <span className="s-agent-lanes-meta-stat">{visibleColumns.length} live</span>
+            {pinnedCount > 0 ? (
+              <span className="s-agent-lanes-meta-stat">{pinnedCount} pinned</span>
+            ) : null}
+            <span className="s-agent-lanes-meta-stat">trace {horizonLabel}</span>
+            {activeFilterLabel ? (
+              <span className="s-agent-lanes-meta-filter">{activeFilterLabel}</span>
+            ) : null}
+            <span className="s-agent-lanes-meta-detail">
+              deck v1 · {profileId}
+            </span>
           </div>
         </div>
-        <div className="s-agent-lanes-bar-actions">
+        <div className="s-agent-lanes-bar-controls">
           <div className="s-agent-lanes-deck-menu" ref={deckMenuRef}>
             <button
               type="button"

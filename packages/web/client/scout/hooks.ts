@@ -6,7 +6,7 @@ import { api } from "../lib/api.ts";
 import { ensureAgentChat } from "../lib/agent-chat.ts";
 import { useScout } from "./Provider.tsx";
 import { localMachineLabel } from "../lib/mesh-buckets.ts";
-import type { MeshStatus } from "../lib/types.ts";
+import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import {
@@ -341,8 +341,17 @@ export function useScoutLayoutMode(): "canvas" | "panel" {
 }
 
 /* ── useTakeover — gate chrome on first-run onboarding ─────────────────── */
+function isOnboardingExemptRoute(route: Route): boolean {
+  return route.view === "ops" && route.mode === "lanes";
+}
+
 export function useScoutTakeover(): TakeoverState | null {
-  const { onboarding, onboardingSkipped, skipOnboarding } = useScout();
+  const { onboarding, onboardingSkipped, skipOnboarding, route } = useScout();
+  // Lanes is a first-class ops surface (and mirrors the native/embed deck).
+  // Don't block it behind first-run project setup.
+  if (isOnboardingExemptRoute(route)) {
+    return { active: false, dismissible: true };
+  }
   // Until the first fetch resolves we pass through; false negatives would
   // block the app on reloads and true would flash a takeover for returning
   // users. Waiting one RTT is cheap and correct.

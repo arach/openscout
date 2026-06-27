@@ -75,6 +75,13 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.s-ops-body > .s-agent-lanes {
+  flex: 1;
+  min-height: 0;
 }
 
 /* ── Shared ops primitives ── */

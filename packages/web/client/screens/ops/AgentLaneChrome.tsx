@@ -1,7 +1,6 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import type { AgentLaneWidthTier } from "./lane-deck.ts";
-import { widthTierLabel } from "./lane-deck.ts";
 
 const WIDTH_OPTIONS: AgentLaneWidthTier[] = ["sm", "md", "lg"];
 
@@ -24,23 +23,23 @@ export function AgentLaneChrome({
   onResizeStart: (event: ReactPointerEvent<HTMLDivElement>) => void;
   resizing?: boolean;
 }) {
-  const widthLabel = widthTierLabel(width, defaultWidth);
   const activeTier = typeof width === "string" ? width : defaultWidth;
 
   return (
     <div className={`s-agent-lane-chrome${resizing ? " s-agent-lane-chrome--resizing" : ""}`}>
-      <div className="s-agent-lane-chrome-main">
-        <button
-          type="button"
-          className={`s-agent-lane-chrome-pin${pinned ? " s-agent-lane-chrome-pin--on" : ""}`}
-          aria-pressed={pinned}
-          title={pinned ? "Unpin lane" : "Pin lane"}
-          onClick={onTogglePin}
-        >
-          <PinIcon filled={pinned} />
-        </button>
-        <span className="s-agent-lane-chrome-title" title={title}>{title}</span>
-        <span className="s-agent-lane-chrome-width" title="Lane width">{widthLabel}</span>
+      <div className="s-agent-lane-chrome-body">
+        <div className="s-agent-lane-chrome-top">
+          <button
+            type="button"
+            className={`s-agent-lane-chrome-pin${pinned ? " s-agent-lane-chrome-pin--on" : ""}`}
+            aria-pressed={pinned}
+            title={pinned ? "Unpin lane" : "Pin lane"}
+            onClick={onTogglePin}
+          >
+            <PinIcon filled={pinned} />
+          </button>
+          <span className="s-agent-lane-chrome-title" title={title}>{title}</span>
+        </div>
         <div className="s-agent-lane-chrome-widths" role="group" aria-label="Lane width">
           {WIDTH_OPTIONS.map((tier) => (
             <button
@@ -62,7 +61,7 @@ export function AgentLaneChrome({
         role="separator"
         aria-orientation="vertical"
         aria-label="Resize lane width"
-        title="Drag to resize lane · double-click to reset width"
+        title="Drag to resize lane"
         className={`s-agent-lane-width-handle${resizing ? " s-agent-lane-width-handle--active" : ""}`}
         onPointerDown={onResizeStart}
       />

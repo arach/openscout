@@ -86,6 +86,7 @@ export function readLaneDeckProfileId(search = window.location.search, pathname 
   if (embed === "app") return "macos.lanes";
 
   if (pathname.includes("/lanes/embed")) return "web.embed";
+  if (pathname.includes("/ops/lanes") || pathname.endsWith("/lanes")) return "web.ops";
   return "web.ops";
 }
 
