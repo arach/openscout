@@ -1,25 +1,12 @@
 /* Agent Lanes — appliance-grade columns, not terminal chrome. */
 
 .s-agent-lanes {
-  --agent-lane-width: 512px;
   position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
   background: var(--bg);
-}
-
-.s-agent-lanes--lane-sm {
-  --agent-lane-width: 304px;
-}
-
-.s-agent-lanes--lane-md {
-  --agent-lane-width: 408px;
-}
-
-.s-agent-lanes--lane-lg {
-  --agent-lane-width: 512px;
 }
 
 .s-agent-lanes-embed {
@@ -45,7 +32,7 @@
 }
 
 .s-agent-lanes--embedded .s-agent-lane {
-  width: min(var(--agent-lane-width), calc(100vw - (var(--space-lg) * 2)));
+  width: min(var(--lane-width, 408px), calc(100vw - (var(--space-lg) * 2)));
 }
 
 .s-agent-lanes-bar {
@@ -188,6 +175,118 @@
   white-space: nowrap;
 }
 
+.s-agent-lanes-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: none;
+}
+
+.s-agent-lanes-deck-menu {
+  position: relative;
+  flex: none;
+}
+
+.s-agent-lanes-deck-btn {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2xs) var(--space-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-xs);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.s-agent-lanes-deck-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.s-agent-lanes-deck-popover {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  z-index: 20;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+}
+
+.s-agent-lanes-deck-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.s-agent-lanes-deck-item:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
+.s-agent-lanes-deck-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.s-agent-lanes-deck-item--danger {
+  color: var(--amber);
+}
+
+.s-agent-lanes-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.s-agent-lanes-zone {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.s-agent-lanes-zone--pinned-left,
+.s-agent-lanes-zone--pinned-right {
+  flex: none;
+  border-right: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--surface) 18%, transparent);
+}
+
+.s-agent-lanes-zone--pinned-right {
+  border-right: 0;
+  border-left: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.s-agent-lanes-zone--main {
+  flex: 1;
+}
+
+.s-agent-lanes-zone-label {
+  flex: none;
+  padding: var(--space-sm) var(--space-2xl) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
 .s-agent-lanes-scroll {
   flex: 1;
   min-height: 0;
@@ -198,6 +297,11 @@
   align-items: stretch;
   gap: var(--space-lg);
   padding: var(--space-lg) var(--space-2xl) var(--space-2xl);
+}
+
+.s-agent-lanes-zone--pinned-left .s-agent-lanes-scroll,
+.s-agent-lanes-zone--pinned-right .s-agent-lanes-scroll {
+  padding-top: var(--space-sm);
 }
 
 /* The card sits flush at the top of the lane; the trace below it takes the
@@ -322,9 +426,124 @@
   user-select: none !important;
 }
 
+.s-agent-lanes--resizing-width,
+.s-agent-lanes--resizing-width * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.s-agent-lane-chrome {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+.s-agent-lane-chrome-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  flex: 1;
+  padding: var(--space-2xs) var(--space-sm);
+}
+
+.s-agent-lane-chrome-pin {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex: none;
+}
+
+.s-agent-lane-chrome-pin:hover,
+.s-agent-lane-chrome-pin--on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-agent-lane-chrome-title {
+  min-width: 0;
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-agent-lane-chrome-width {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-xs);
+  color: var(--dim);
+  flex: none;
+}
+
+.s-agent-lane-chrome-widths {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.s-agent-lane-chrome-width-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--tracking-xs);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.s-agent-lane-chrome-width-btn:hover,
+.s-agent-lane-chrome-width-btn--on {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+}
+
+.s-agent-lane-width-handle {
+  flex: none;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  position: relative;
+}
+
+.s-agent-lane-width-handle::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  transition: background 140ms ease, width 140ms ease, left 140ms ease;
+}
+
+.s-agent-lane-width-handle:hover::before,
+.s-agent-lane-width-handle--active::before {
+  left: 3px;
+  width: 3px;
+  background: color-mix(in srgb, var(--accent) 55%, var(--ink) 12%);
+}
+
 .s-agent-lane {
   flex: none;
-  width: var(--agent-lane-width);
+  width: var(--lane-width, 408px);
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -344,6 +563,11 @@
 .s-agent-lane:hover {
   border-color: color-mix(in srgb, var(--ink) 9%, transparent);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+.s-agent-lane--pinned {
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, rgba(0, 0, 0, 0.12));
 }
 
 .s-agent-lane--cursor {
@@ -1827,6 +2051,44 @@
   font-weight: 600;
   color: color-mix(in srgb, var(--accent) 82%, var(--ink));
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.s-lane-sheet-vitals-gauge--over .s-lane-sheet-vitals-gauge-pct {
+  color: color-mix(in srgb, var(--warn, #e8b060) 88%, var(--ink));
+  background: color-mix(in srgb, var(--warn, #e8b060) 16%, transparent);
+}
+.s-lane-sheet-vitals-gauge--over .s-lane-sheet-vitals-gaugebar-fill {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--warn, #e8b060) 72%, var(--accent)),
+    color-mix(in srgb, var(--warn, #e8b060) 92%, #fff)
+  );
+}
+.s-lane-sheet-vitals-compact {
+  margin-left: var(--space-sm);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: color-mix(in srgb, var(--accent) 90%, var(--ink));
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-sm);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.s-lane-sheet-vitals-compact:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+.s-lane-sheet-vitals-compact-error,
+.s-lane-sheet-vitals-compact-note {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+.s-lane-sheet-vitals-compact-error {
+  color: color-mix(in srgb, var(--warn, #e8b060) 88%, var(--ink));
 }
 .s-lane-sheet-vitals-gaugebar {
   position: relative;

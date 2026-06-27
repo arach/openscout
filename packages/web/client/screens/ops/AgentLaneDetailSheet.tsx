@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink } from "lucide-react";
-import { inferModelContextWindowTokens } from "@openscout/agent-sessions/client";
-
 import { SlidePanel } from "../../components/SlidePanel/SlidePanel.tsx";
 import { api } from "../../lib/api.ts";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
@@ -10,6 +8,11 @@ import { timeAgo } from "../../lib/time.ts";
 import { tailAttributionLabel } from "../../lib/tail-display.ts";
 import { isAgentBusy } from "../../lib/agent-state.ts";
 import { copyTextToClipboard } from "../../lib/clipboard.ts";
+import {
+  contextBudgetBarWidth,
+  deriveContextBudgetGauge,
+} from "../../lib/context-budget.ts";
+import { requestSessionCompaction } from "../../lib/session-compaction.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { ObserveData, ObserveEvent, ObserveFile, PlanDocument, PlanDocumentStepStatus, PlanDocumentsResponse, Route } from "../../lib/types.ts";
 import { bashDisplaySpans, splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
@@ -32,6 +35,7 @@ import {
   laneContextLabel,
   lanePrimaryLabel,
 } from "./agent-lanes-model.ts";
+import { supportsRemoteCompaction } from "./session-compaction.ts";
 
 /** The leading tonal mark for a touched-file row — a step of one hue: created
  *  is the accent step, modified the neutral step, read the faintest. */
@@ -52,11 +56,6 @@ const PLAN_STEP_LABELS: Record<PlanDocumentStepStatus, string> = {
 function fmtCount(value: number | null | undefined): string {
   if (typeof value !== "number" || !Number.isFinite(value)) return "—";
   return value.toLocaleString();
-}
-
-/** Compact a token count for the gauge readout (108528 → "108k"). */
-function kfmt(value: number): string {
-  return value >= 1000 ? `${Math.round(value / 1000)}k` : `${value}`;
 }
 
 /** Compact a count to a calm magnitude (15451636 → "15.5M", 48553 → "48.6k").
@@ -620,6 +619,8 @@ export function AgentLaneDetailSheet({
   const [expandedDocId, setExpandedDocId] = useState<string | null>(null);
   const [readOpen, setReadOpen] = useState(false);
   const [changedCopied, setChangedCopied] = useState(false);
+  const [compactPending, setCompactPending] = useState(false);
+  const [compactError, setCompactError] = useState<string | null>(null);
   const changedCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (changedCopyTimer.current) clearTimeout(changedCopyTimer.current);
@@ -727,26 +728,48 @@ export function AgentLaneDetailSheet({
     ].filter((entry) => typeof entry.value === "number");
   }, [usage]);
 
-  // CONTEXT BUDGET GAUGE — the primary vital. Used = the live context input
-  // (last-turn input tokens), budget = the model's context window. The window
-  // is normally pre-resolved; if it's missing, infer it from the model/adapter
-  // here so the model file stays untouched. If there is no `contextInputTokens`
-  // at all, the gauge is hidden (no 0%/NaN meter) and the rest of Vitals stays.
-  const contextGauge = useMemo(() => {
-    const used = usage?.contextInputTokens;
-    if (typeof used !== "number" || !Number.isFinite(used)) return null;
-    const budget =
-      usage?.contextWindowTokens ??
-      inferModelContextWindowTokens({
-        model: facts?.model ?? stats.model,
-        adapterType: agent.harness ?? stats.harness,
+  const contextGauge = useMemo(
+    () => deriveContextBudgetGauge(usage, {
+      model: facts?.model ?? stats.model,
+      adapterType: agent.harness ?? stats.harness,
+    }),
+    [usage, facts?.model, stats.model, agent.harness, stats.harness],
+  );
+
+  const canCompactContext = Boolean(
+    facts?.compaction?.eligible
+    && supportsRemoteCompaction(agent.harness ?? stats.harness)
+    && stats.sessionId,
+  );
+
+  const runCompaction = useCallback(async () => {
+    if (!canCompactContext || compactPending) return;
+    setCompactPending(true);
+    setCompactError(null);
+    try {
+      const result = await requestSessionCompaction({
+        harness: agent.harness ?? stats.harness,
+        sessionId: stats.sessionId,
+        transcriptPath: agent.harnessLogPath,
+        agentId: agent.id,
       });
-    if (typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0) {
-      return null;
+      if (!result.ok || !result.delivered) {
+        setCompactError(result.error ?? "Compaction was not delivered to the harness");
+      }
+    } catch (error) {
+      setCompactError(error instanceof Error ? error.message : "Compaction request failed");
+    } finally {
+      setCompactPending(false);
     }
-    const pct = Math.min(100, Math.max(0, Math.round((used / budget) * 100)));
-    return { used, budget, pct };
-  }, [usage, facts?.model, stats.model, agent.harness, stats.harness]);
+  }, [
+    agent.harness,
+    agent.harnessLogPath,
+    agent.id,
+    canCompactContext,
+    compactPending,
+    stats.harness,
+    stats.sessionId,
+  ]);
 
   // CADENCE — a calm one-line readout (events · tools · age). There is no real
   // per-bucket activity time-series in the data model, so we deliberately ship
@@ -953,15 +976,29 @@ export function AgentLaneDetailSheet({
           )}
 
           {contextGauge && (
-            <div className="s-lane-sheet-vitals-gauge">
+            <div className={`s-lane-sheet-vitals-gauge${contextGauge.overLimit ? " s-lane-sheet-vitals-gauge--over" : ""}`}>
               <div className="s-lane-sheet-vitals-gauge-top">
                 <span className="s-lane-sheet-vitals-gauge-label">context</span>
                 <span className="s-lane-sheet-vitals-gauge-read">
-                  <b>{kfmt(contextGauge.used)}</b>
-                  <span className="s-lane-sheet-vitals-gauge-of"> / {kfmt(contextGauge.budget)}</span>
+                  <b>{contextGauge.usedLabel}</b>
+                  <span className="s-lane-sheet-vitals-gauge-of"> / {contextGauge.budgetLabel}</span>
                   <span className="s-lane-sheet-vitals-gauge-unit"> tokens</span>
-                  <span className="s-lane-sheet-vitals-gauge-pct">{contextGauge.pct}%</span>
+                  <span className="s-lane-sheet-vitals-gauge-pct">
+                    {contextGauge.pct}%
+                    {contextGauge.overLimit ? " over" : ""}
+                  </span>
                 </span>
+                {canCompactContext && (
+                  <button
+                    type="button"
+                    className="s-lane-sheet-vitals-compact"
+                    onClick={() => void runCompaction()}
+                    disabled={compactPending}
+                    title="Force a context compaction on this live session"
+                  >
+                    {compactPending ? "Compacting…" : "Compact context"}
+                  </button>
+                )}
               </div>
               <div
                 className="s-lane-sheet-vitals-gaugebar"
@@ -969,15 +1006,26 @@ export function AgentLaneDetailSheet({
                 aria-label="context budget"
                 aria-valuenow={contextGauge.pct}
                 aria-valuemin={0}
-                aria-valuemax={100}
+                aria-valuemax={Math.max(100, contextGauge.pct)}
               >
-                <span className="s-lane-sheet-vitals-gaugebar-fill" style={{ width: `${contextGauge.pct}%` }}>
+                <span
+                  className="s-lane-sheet-vitals-gaugebar-fill"
+                  style={{ width: `${contextBudgetBarWidth(contextGauge)}%` }}
+                >
                   <span className="s-lane-sheet-vitals-gaugebar-edge" aria-hidden="true" />
                 </span>
                 {[25, 50, 75].map((tick) => (
                   <span key={tick} className="s-lane-sheet-vitals-gaugebar-tick" style={{ left: `${tick}%` }} aria-hidden="true" />
                 ))}
               </div>
+              {compactError && (
+                <div className="s-lane-sheet-vitals-compact-error" role="status">{compactError}</div>
+              )}
+              {facts?.compaction?.lastCompactedSummary && (
+                <div className="s-lane-sheet-vitals-compact-note">
+                  last compaction · {facts.compaction.lastCompactedSummary}
+                </div>
+              )}
             </div>
           )}
 

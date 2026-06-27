@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { api } from "../../lib/api.ts";
+import {
+  contextBudgetBarWidth,
+  deriveContextBudgetGauge,
+} from "../../lib/context-budget.ts";
 import { ensureAgentChat } from "../../lib/agent-chat.ts";
 import {
   resolveActiveSessionId,
@@ -242,21 +246,23 @@ function SessionSummary({
   // Context, quantifiable only when the harness reports a real token window.
   // Turn policy is useful session bookkeeping, but it is not context usage.
   const usage = data?.metadata?.usage;
-  const win = usage?.contextWindowTokens ?? 0;
-  const used = usage?.totalTokens ?? usage?.inputTokens ?? 0;
-  const tokenPct = win > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
-  const ctxHead =
-    tokenPct !== null
-      ? `${fmtTokens(used)} / ${fmtTokens(win)} ctx`
-      : ctx
-        ? contextTurnLabel(ctx)
-        : "context";
-  const ctxPctLabel = tokenPct !== null ? `${tokenPct}%` : "tokens unavailable";
+  const contextGauge = deriveContextBudgetGauge(usage, {
+    model: data?.metadata?.session?.model ?? session.model,
+    adapterType: session.harness ?? agent.harness,
+  });
+  const ctxHead = contextGauge
+    ? `${contextGauge.usedLabel} / ${contextGauge.budgetLabel} ctx`
+    : ctx
+      ? contextTurnLabel(ctx)
+      : "context";
+  const ctxPctLabel = contextGauge
+    ? `${contextGauge.pct}%${contextGauge.overLimit ? " over" : ""}`
+    : "tokens unavailable";
   // When the gauge already shows tokens, the runway adds turns + age. When the
   // head already shows turns, the runway is just age, so don't print the turns twice.
   const ctxAge = ctx && ctx.sessionAgeMs !== null ? formatContextAge(ctx.sessionAgeMs) : null;
   const ctxRunway =
-    tokenPct !== null && ctx
+    contextGauge && ctx
       ? `${contextTurnLabel(ctx)}${ctxAge ? ` · ${ctxAge}` : ""}`
       : ctxAge;
   const observedSessionId =
@@ -326,9 +332,12 @@ function SessionSummary({
             <span className="s-sum-ctx-size">{ctxHead}</span>
             <span className="s-sum-ctx-pct">{ctxPctLabel}</span>
           </div>
-          {tokenPct !== null ? (
-            <div className="s-sum-gauge" aria-label={`Context ${tokenPct}%`}>
-              <div className="s-sum-gauge-fill" style={{ width: `${tokenPct}%` }} />
+          {contextGauge ? (
+            <div className="s-sum-gauge" aria-label={`Context ${contextGauge.pct}%`}>
+              <div
+                className="s-sum-gauge-fill"
+                style={{ width: `${contextBudgetBarWidth(contextGauge)}%` }}
+              />
             </div>
           ) : (
             <div className="s-sum-ctx-unavailable">No token-window usage yet</div>
@@ -702,9 +711,11 @@ export function CurrentSessionCard({
     agent.name;
   const usage = observe?.data.metadata?.usage ?? null;
   const turns = usage?.assistantMessages ?? null;
-  const win = usage?.contextWindowTokens ?? 0;
-  const used = usage?.contextInputTokens ?? 0;
-  const ctxPct = win > 0 && used > 0 ? Math.min(100, Math.round((used / win) * 100)) : null;
+  const contextGauge = deriveContextBudgetGauge(usage, {
+    model: observe?.data.metadata?.session?.model ?? model,
+    adapterType: harness,
+  });
+  const ctxPct = contextGauge ? Math.min(100, contextGauge.pct) : null;
   const tone: "live" | "idle" = active ? "live" : "idle";
   const eventCount = events.length;
   const logLines = events.slice(-6).map((e) => ({

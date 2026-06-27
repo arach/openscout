@@ -258,6 +258,7 @@ import {
   invokeCodexAppServerAgent,
   normalizeCodexAppServerLaunchArgs,
 } from "@openscout/runtime/codex-app-server";
+import { requestHarnessSessionCompaction } from "./session-compaction.ts";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
   const trimmed = value?.trim();
@@ -6862,6 +6863,40 @@ export async function createOpenScoutWebServer(
       resumeSessionId: resumeResult?.sessionId ?? null,
       resumeTranscriptPath: resumeResult?.transcriptPath ?? null,
     });
+  });
+
+  app.post("/api/session-control/compact", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      harness?: unknown;
+      sessionId?: unknown;
+      transcriptPath?: unknown;
+      tmuxSessionName?: unknown;
+      agentId?: unknown;
+    };
+    const harness = typeof body.harness === "string" ? body.harness.trim() : "";
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const transcriptPath = typeof body.transcriptPath === "string" ? body.transcriptPath.trim() : "";
+    let tmuxSessionName = typeof body.tmuxSessionName === "string" ? body.tmuxSessionName.trim() : "";
+    const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
+
+    if (!tmuxSessionName && agentId) {
+      const agent = queryAgents().find((entry) => entry.id === agentId) ?? null;
+      tmuxSessionName = agent?.terminalSurface?.sessionName
+        ?? agent?.harnessSessionId
+        ?? "";
+    }
+    if (!tmuxSessionName && harness && transcriptPath) {
+      tmuxSessionName = `scout-vantage-${slugifyTmuxName(harness)}-${stableHash(transcriptPath)}`;
+    }
+
+    const result = requestHarnessSessionCompaction({
+      harness,
+      sessionId,
+      transcriptPath,
+      tmuxSessionName,
+      agentId,
+    });
+    return c.json(result, result.ok ? 200 : 422);
   });
 
   app.post(routes.vantageOpenPath, async (c) => {
