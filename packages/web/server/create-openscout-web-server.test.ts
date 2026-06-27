@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ActionBlock, BlockState, QuestionBlock, SessionState } from "@openscout/agent-sessions";
+import type { DiscoverySnapshot } from "@openscout/runtime/tail";
 import {
   buildRelayAgentInstance,
   writeRelayAgentOverrides,
@@ -262,6 +263,21 @@ function makeStaticRoot(): string {
     "utf8",
   );
   return root;
+}
+
+function makeDiscoverySnapshot(generatedAt: number): DiscoverySnapshot {
+  return {
+    generatedAt,
+    processes: [],
+    transcripts: [],
+    totals: {
+      total: 0,
+      scoutManaged: 0,
+      hudsonManaged: 0,
+      unattributed: 0,
+      transcripts: 0,
+    },
+  };
 }
 
 async function flushPromises(): Promise<void> {
@@ -825,6 +841,39 @@ describe("createOpenScoutWebServer", () => {
       cursor: "tail-1",
       events: [{ id: "tail-1", ts: 1 }],
     });
+  });
+
+  test("forces tail discovery refresh before serving cached broker data", async () => {
+    const fetchUrls: string[] = [];
+    let brokerGeneratedAt = 0;
+    globalThis.fetch = (async (input) => {
+      fetchUrls.push(String(input));
+      brokerGeneratedAt += 1;
+      return new Response(JSON.stringify(makeDiscoverySnapshot(brokerGeneratedAt)), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      tailRuntime: {
+        getTailDiscovery: async () => makeDiscoverySnapshot(0),
+      },
+    });
+
+    const first = await server.app.request("http://localhost/api/tail/discover");
+    expect(first.status).toBe(200);
+    await expect(first.json()).resolves.toMatchObject({ generatedAt: 0 });
+    await flushPromises();
+
+    const forced = await server.app.request("http://localhost/api/tail/discover?force=1");
+
+    expect(forced.status).toBe(200);
+    expect(fetchUrls.at(-1)).toContain("/v1/tail/discover?force=1");
+    await expect(forced.json()).resolves.toMatchObject({ generatedAt: 2 });
   });
 
   test("serves an empty tail snapshot when broker refresh fails", async () => {

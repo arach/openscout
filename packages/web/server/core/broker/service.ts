@@ -2699,7 +2699,7 @@ export async function askScoutQuestion(input: {
     messageId: delivery.message.id,
     targetAgentId: delivery.targetAgentId,
     targetSessionId: delivery.targetSessionId,
-    targetLabel: delivery.receipt.targetLabel,
+    targetLabel: delivery.receipt?.targetLabel ?? renderedTarget,
   };
 }
 

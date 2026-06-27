@@ -1555,8 +1555,8 @@ function scheduleBrokerJsonRefresh<T>(
   cache: BrokerJsonCache<T>,
   url: URL,
   label: string,
-): void {
-  if (cache.inFlight) return;
+): Promise<void> {
+  if (cache.inFlight) return cache.inFlight;
   const fetchStart = performance.now();
   cache.inFlight = (async () => {
     let upstreamTiming: string | null = null;
@@ -1588,6 +1588,7 @@ function scheduleBrokerJsonRefresh<T>(
       cache.inFlight = null;
     }
   })();
+  return cache.inFlight;
 }
 
 function cachedBrokerJsonState<T>(cache: BrokerJsonCache<T>): string {
@@ -1602,9 +1603,17 @@ async function serveCachedBrokerJson<T>(
   url: URL,
   label: string,
   fallback: () => T | Promise<T>,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<Response> {
   const start = performance.now();
-  scheduleBrokerJsonRefresh(cache, url, label);
+  if (options.forceRefresh) {
+    if (cache.inFlight) {
+      await cache.inFlight;
+    }
+    await scheduleBrokerJsonRefresh(cache, url, label);
+  } else {
+    scheduleBrokerJsonRefresh(cache, url, label);
+  }
   const state = cachedBrokerJsonState(cache);
   const data = cache.data ?? await fallback();
   c.header("Cache-Control", "no-store");
@@ -7400,7 +7409,8 @@ export async function createOpenScoutWebServer(
 
   app.get("/api/tail/discover", async (c) => {
     const url = new URL(scoutBrokerPaths.v1.tailDiscover, resolveScoutBrokerUrl());
-    if (c.req.query("force") === "true" || c.req.query("force") === "1") {
+    const forceRefresh = c.req.query("force") === "true" || c.req.query("force") === "1";
+    if (forceRefresh) {
       url.searchParams.set("force", "1");
     }
     return serveCachedBrokerJson(
@@ -7409,6 +7419,7 @@ export async function createOpenScoutWebServer(
       url,
       "broker tail discovery",
       () => tailRuntime.getTailDiscovery(),
+      { forceRefresh },
     );
   });
 
