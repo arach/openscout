@@ -126,7 +126,7 @@ import { BrokerManagedSessionService } from "./broker-managed-session-service.js
 import { BrokerManagedSessionHttpService } from "./broker-managed-session-http-service.js";
 import { BrokerLocalEndpointResolver } from "./broker-local-endpoint-resolver.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
-import { registerCardlessSession } from "./broker-cardless-session.js";
+import { cardlessSessionDisplayName, registerCardlessSession } from "./broker-cardless-session.js";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
@@ -905,7 +905,7 @@ async function createCardlessProjectSessionForDelivery(input: {
       sessionId: registered.sessionId,
       actorId: registered.actorId,
       endpoint,
-      label: provisionalName,
+      label: cardlessSessionDisplayName({ handle: provisionalName, projectName }),
       nodeId: endpoint.nodeId,
     },
   };

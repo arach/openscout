@@ -20,9 +20,10 @@ function newRuntime() {
 }
 
 describe("SCO-070 cardless sessions", () => {
-  test("keeps prefixed provisional handles literal in display names", () => {
-    expect(cardlessSessionDisplayName("project-hooke")).toBe("project-hooke");
-    expect(cardlessSessionDisplayName("archimedes")).toBe("Archimedes");
+  test("formats display names as {project}-{alias}", () => {
+    expect(cardlessSessionDisplayName({ handle: "project-hooke", projectName: "scope" })).toBe("scope-hooke");
+    expect(cardlessSessionDisplayName({ handle: "archimedes", projectName: "scope" })).toBe("scope-archimedes");
+    expect(cardlessSessionDisplayName({ handle: "project-hooke" })).toBe("hooke");
   });
 
   test("registers a session-kind actor + endpoint with no card", async () => {
@@ -85,7 +86,7 @@ describe("SCO-070 cardless sessions", () => {
     expect(handleResult.kind).toBe("resolved_session");
     if (handleResult.kind === "resolved_session") {
       expect(handleResult.session.actorId).toBe("sess-route-1");
-      expect(handleResult.session.label).toBe("Franklin");
+      expect(handleResult.session.label).toBe("openscout-franklin");
     }
   });
 
