@@ -8,6 +8,7 @@ import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
 import { GrokSource } from "./grok-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
+import { PiSource } from "./pi-source.js";
 import type { DiscoveredProcess, DiscoveredTranscript, TailContext } from "./types.js";
 
 const originalClaudeRoot = process.env.OPENSCOUT_TAIL_CLAUDE_PROJECTS_ROOT;
@@ -16,6 +17,7 @@ const originalCursorRoot = process.env.OPENSCOUT_TAIL_CURSOR_PROCESS_MONITOR_ROO
 const originalGrokRoot = process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT;
 const originalOpenCodeRoot = process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT;
 const originalOpenCodeMessages = process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION;
+const originalPiRoot = process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT;
 const originalWindow = process.env.OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS;
 const originalLimit = process.env.OPENSCOUT_TAIL_DISCOVERY_LIMIT;
 
@@ -34,6 +36,8 @@ function restoreEnv(): void {
   else process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT = originalOpenCodeRoot;
   if (originalOpenCodeMessages === undefined) delete process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION;
   else process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION = originalOpenCodeMessages;
+  if (originalPiRoot === undefined) delete process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT;
+  else process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT = originalPiRoot;
   if (originalWindow === undefined) delete process.env.OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS;
   else process.env.OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS = originalWindow;
   if (originalLimit === undefined) delete process.env.OPENSCOUT_TAIL_DISCOVERY_LIMIT;
@@ -72,6 +76,7 @@ beforeEach(() => {
   process.env.OPENSCOUT_TAIL_OPENCODE_MESSAGES_PER_SESSION = "10";
   process.env.OPENSCOUT_TAIL_DISCOVERY_WINDOW_MS = String(60 * 60 * 1000);
   process.env.OPENSCOUT_TAIL_DISCOVERY_LIMIT = "20";
+  process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT = join(tempRoot, "pi-sessions");
 });
 
 afterEach(() => {
@@ -677,6 +682,115 @@ describe("tail transcript sources", () => {
     expect(events[0]?.summary).toBe("Check the repo status");
     expect(events[1]?.kind).toBe("assistant");
     expect(events[1]?.summary).toBe("Repo is clean enough to proceed");
+  });
+
+  test("discovers and parses Pi transcript files without process discovery", () => {
+    const projectDir = join(process.env.OPENSCOUT_TAIL_PI_SESSIONS_ROOT!, "--Users-art-dev-openscout--");
+    mkdirSync(projectDir, { recursive: true });
+    const transcriptPath = join(
+      projectDir,
+      "2026-06-28T15-49-50-320Z_019f0eec-3a70-79c9-b643-ae82a445891b.jsonl",
+    );
+    writeFileSync(
+      transcriptPath,
+      [
+        JSON.stringify({
+          type: "session",
+          version: 3,
+          id: "019f0eec-3a70-79c9-b643-ae82a445891b",
+          timestamp: "2026-06-28T15:49:50.320Z",
+          cwd: "/Users/art/dev/openscout",
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "e5a06ff5",
+          timestamp: "2026-06-28T15:50:05.233Z",
+          message: {
+            role: "user",
+            content: [{ type: "text", text: "pi update" }],
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "245ffa91",
+          timestamp: "2026-06-28T15:50:07.970Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Running update." },
+              {
+                type: "toolCall",
+                id: "call_019f0eec7e8275a3b72837f7",
+                name: "bash",
+                arguments: { command: "pi update --self 2>&1" },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({
+          type: "message",
+          id: "30b2078e",
+          timestamp: "2026-06-28T15:50:11.353Z",
+          message: {
+            role: "toolResult",
+            toolCallId: "call_019f0eec7e8275a3b72837f7",
+            toolName: "bash",
+            content: [{ type: "text", text: "Updated packages" }],
+          },
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const transcripts = PiSource.discoverTranscripts([]);
+    expect(transcripts).toHaveLength(1);
+    expect(transcripts[0]?.source).toBe("pi");
+    expect(transcripts[0]?.sessionId).toBe("019f0eec-3a70-79c9-b643-ae82a445891b");
+    expect(transcripts[0]?.cwd).toBe("/Users/art/dev/openscout");
+    expect(transcripts[0]?.project).toBe("openscout");
+
+    const userLine = JSON.stringify({
+      type: "message",
+      id: "e5a06ff5",
+      timestamp: "2026-06-28T15:50:05.233Z",
+      message: { role: "user", content: [{ type: "text", text: "pi update" }] },
+    });
+    const userEvent = PiSource.parseLine(userLine, makeContext("pi", transcripts[0]!));
+    expect(userEvent?.source).toBe("pi");
+    expect(userEvent?.kind).toBe("user");
+    expect(userEvent?.summary).toBe("pi update");
+
+    const toolLine = JSON.stringify({
+      type: "message",
+      id: "245ffa91",
+      timestamp: "2026-06-28T15:50:07.970Z",
+      message: {
+        role: "assistant",
+        content: [{
+          type: "toolCall",
+          id: "call_019f0eec7e8275a3b72837f7",
+          name: "bash",
+          arguments: { command: "pi update --self 2>&1" },
+        }],
+      },
+    });
+    const toolEvent = PiSource.parseLine(toolLine, makeContext("pi", transcripts[0]!));
+    expect(toolEvent?.kind).toBe("tool");
+    expect(toolEvent?.summary).toContain("pi update --self");
+
+    const resultLine = JSON.stringify({
+      type: "message",
+      id: "30b2078e",
+      timestamp: "2026-06-28T15:50:11.353Z",
+      message: {
+        role: "toolResult",
+        toolName: "bash",
+        content: [{ type: "text", text: "Updated packages" }],
+      },
+    });
+    const resultEvent = PiSource.parseLine(resultLine, makeContext("pi", transcripts[0]!));
+    expect(resultEvent?.kind).toBe("tool-result");
+    expect(resultEvent?.summary).toContain("Updated packages");
   });
 
   test("discovers and parses Cursor process-monitor logs without process discovery", () => {
