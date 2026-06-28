@@ -86,6 +86,8 @@ public enum BridgeRoutePreferences {
 }
 
 public struct BridgeRouteSummary: Equatable, Sendable {
+    public let relayURLs: [String]
+    public let allowedRelayURLs: [String]
     public let relayCount: Int
     public let allowedRelayCount: Int
     public let routeCounts: [TransportKind: Int]
@@ -102,6 +104,8 @@ public struct BridgeRouteSummary: Equatable, Sendable {
         let routes = relayURLs.map(transportKind(forRelayURL:))
         let allowedRelayURLs = relayURLsAllowedByRouteSettings(relayURLs, userDefaults: userDefaults)
         let allowedRoutes = allowedRelayURLs.map(transportKind(forRelayURL:))
+        self.relayURLs = relayURLs
+        self.allowedRelayURLs = allowedRelayURLs
         relayCount = relayURLs.count
         allowedRelayCount = allowedRelayURLs.count
         routeCounts = Self.count(routes)

@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import HudsonUI
 import ScoutCapabilities
 import ScoutIOSCore
@@ -76,7 +77,24 @@ struct HomeSurface: View {
             .padding(.bottom, layout.surfaceBottomPadding)
         }
         .refreshable { await load() }
-        .task(id: reloadToken) { await load() }
+        .task(id: reloadToken) {
+            await load()
+            // Home is otherwise one-shot: it shows the read it fetched at connect
+            // and never updates (no subscription — it's the curated orientation
+            // surface, not the Tail firehose). Slow-poll it back to life while
+            // connected and on screen. The task tears down when Home leaves the
+            // hierarchy and restarts on reconnect/focus-change (reloadToken flips),
+            // so this only spins while it's worth spinning. load() swallows
+            // transient errors, so a blip never blanks the fleet. Poll slowly and
+            // pause while a pushed Home detail is active.
+            guard reloadToken != 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                if Task.isCancelled { break }
+                guard route == nil else { continue }
+                await load()
+            }
+        }
         .navigationDestination(item: $route) { route in
             switch route {
             case .session(let id, let title):
@@ -184,7 +202,7 @@ struct HomeSurface: View {
             }
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, HudSpacing.xs)
-            .background(Capsule().fill(HudSurface.inset))
+            .background(Capsule().fill(ScoutSurface.inset))
             .overlay(Capsule().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
             .contentShape(Capsule())
         }
@@ -311,7 +329,7 @@ struct HomeSurface: View {
                                         treeBranch: .init(isLast: agentIndex == group.agents.count - 1),
                                         onTap: tap(agent)
                                     )
-                                        .background(HudSurface.inset)
+                                        .background(ScoutSurface.inset)
                                 }
                             }
                         }
@@ -453,7 +471,10 @@ struct HomeSurface: View {
         if agents.isEmpty && activity.isEmpty { isLoading = true }
         // Don't clobber what's on screen if a refresh fails — keep the last good
         // fleet rather than dropping to the empty state on a transient error.
-        if let fresh = try? await client.listAgents(query: nil, limit: 20) { agents = fresh }
+        if let fresh = try? await client.listAgents(query: nil, limit: 20) {
+            agents = fresh
+            model.updateFleetStats(from: fresh)
+        }
         // Backfill recent activity — the live tail stream only delivers events
         // that arrive after we subscribe, so without this the section is empty
         // until something new happens.
@@ -541,7 +562,7 @@ private struct WorkingCard: View {
             .padding(HudSpacing.md)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .fill(HudSurface.inset)
+                    .fill(ScoutSurface.inset)
                     // A soft accent glow so the live card reads as lit.
                     .shadow(color: HudPalette.accent.opacity(0.16), radius: 10)
             )
@@ -593,6 +614,11 @@ private struct CornerMark: View {
 /// reads as an insertion point sitting on the action line.
 private struct BlinkingCursor: View {
     @State private var visible = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var shouldAnimate: Bool {
+        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
+    }
 
     var body: some View {
         Rectangle()
@@ -601,9 +627,13 @@ private struct BlinkingCursor: View {
             // Bar runs ascender→just-below-baseline: put the baseline ~2pt up from
             // the bottom so the caret crosses the line instead of floating above it.
             .alignmentGuide(.firstTextBaseline) { dimensions in dimensions.height - 2 }
-            .opacity(visible ? 1 : 0)
+            .opacity(shouldAnimate ? (visible ? 1 : 0) : 1)
             .onAppear {
-                withAnimation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true)) {
+                guard shouldAnimate else {
+                    visible = true
+                    return
+                }
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                     visible = false
                 }
             }
@@ -675,7 +705,7 @@ private struct ActivityRow: View {
                     .foregroundStyle(HudPalette.accent)
                     .padding(.horizontal, HudSpacing.sm)
                     .padding(.vertical, HudSpacing.xs)
-                    .background(Capsule().fill(HudSurface.inset))
+                    .background(Capsule().fill(ScoutSurface.inset))
                     .overlay(Capsule().stroke(HudSurface.tintBorder(HudPalette.accent), lineWidth: HudStrokeWidth.thin))
                 }
                 .buttonStyle(.plain)
@@ -744,7 +774,7 @@ private struct MachineChip: View {
             }
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, HudSpacing.xs)
-            .background(Capsule().fill(HudSurface.inset))
+            .background(Capsule().fill(ScoutSurface.inset))
             .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
             .shadow(color: machine.isOnline ? HudPalette.accent.opacity(0.12) : .clear, radius: 7)
             .opacity(machine.isOnline || isSelected ? 1 : 0.58)
@@ -800,7 +830,7 @@ private struct AllMachinesChip: View {
             }
             .padding(.horizontal, HudSpacing.sm)
             .padding(.vertical, HudSpacing.xs)
-            .background(Capsule().fill(HudSurface.inset))
+            .background(Capsule().fill(ScoutSurface.inset))
             .overlay(Capsule().stroke(isSelected ? HudSurface.tintBorder(HudPalette.accent) : HudHairline.standard, lineWidth: HudStrokeWidth.thin))
             .contentShape(Capsule())
         }
@@ -845,7 +875,7 @@ private struct InlineRuntimePill: View {
             .lineLimit(1)
             .padding(.horizontal, 5)
             .padding(.vertical, 1.5)
-            .background(Capsule().fill(HudSurface.inset))
+            .background(Capsule().fill(ScoutSurface.inset))
             .overlay(Capsule().stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.thin))
             .layoutPriority(0)
     }

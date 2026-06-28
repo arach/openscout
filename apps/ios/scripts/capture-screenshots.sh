@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 
 PROJECT="Scout.xcodeproj"
 SCHEME="Scout"
-BUNDLE_ID="com.openscout.scout"
+BUNDLE_ID="app.openscout.scout"
 CONFIGURATION="${OPENSCOUT_IOS_SCREENSHOT_CONFIGURATION:-Release}"
 DERIVED_DATA_PATH="${OPENSCOUT_IOS_SCREENSHOT_DERIVED_DATA_PATH:-$(pwd)/.deriveddata/screenshots}"
 OUTPUT_ROOT="${OPENSCOUT_IOS_SCREENSHOT_OUTPUT_DIR:-$(pwd)/.artifacts/app-store-screenshots}"
@@ -104,6 +104,17 @@ echo "DerivedData: $DERIVED_DATA_PATH"
 echo "Output root: $OUTPUT_ROOT"
 echo ""
 
+# Keychain entitlements for the Simulator build.
+#
+# Disabling code signing (the old CODE_SIGNING_ALLOWED=NO) strips all entitlements,
+# so ScoutIdentity's Keychain calls fail at runtime with OSStatus -34018
+# (errSecMissingEntitlement) and the Connect screen shows the red
+# "Identity error: Keychain load failed". Headless `xcodebuild` also won't inject
+# them the way Xcode's GUI does. Instead we ad-hoc sign with an explicit
+# entitlements file; the linker embeds it into the binary's __TEXT,__entitlements
+# section, which is where the Simulator's securityd reads from, so the Keychain works.
+SIM_ENTITLEMENTS="$(pwd)/scripts/Scout.simulator.entitlements"
+
 xcodebuild \
   -project "$PROJECT" \
   -scheme "$SCHEME" \
@@ -111,8 +122,10 @@ xcodebuild \
   -destination "generic/platform=iOS Simulator" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   SDKROOT=iphonesimulator \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_STYLE=Manual \
+  CODE_SIGN_IDENTITY="-" \
+  AD_HOC_CODE_SIGNING_ALLOWED=YES \
+  CODE_SIGN_ENTITLEMENTS="$SIM_ENTITLEMENTS" \
   build >/dev/null
 
 APP_PATH="$DERIVED_DATA_PATH/Build/Products/${CONFIGURATION}-iphonesimulator/Scout.app"

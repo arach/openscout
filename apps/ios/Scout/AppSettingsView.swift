@@ -17,8 +17,12 @@ struct AppSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var tab = "CONNECTION"
+    @AppStorage(ScoutTone.storageKey) private var tone = ScoutTone.default.rawValue
     @State private var approvalsAlert = true
+    @State private var renamingMachine: AppModel.PairedMachine?
+    @State private var renameText = ""
     @State private var copiedLogs = false
+    @State private var showingLogViewer = false
 
     private let tabIDs = ["CONNECTION", "ROUTES", "IDENTITY", "VOICE", "ALERTS", "APPEARANCE", "ADVANCED"]
 
@@ -46,6 +50,33 @@ struct AppSettingsView: View {
                 await model.refreshTailnetPairTargets()
             }
         }
+        .sheet(isPresented: $showingLogViewer) {
+            ConnectionLogViewer(model: model, copiedLogs: $copiedLogs)
+        }
+        .alert(
+            "Rename Mac",
+            isPresented: Binding(
+                get: { renamingMachine != nil },
+                set: { if !$0 { renamingMachine = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let machine = renamingMachine {
+                    model.renameMachine(id: machine.id, to: renameText)
+                }
+                renamingMachine = nil
+            }
+            Button("Cancel", role: .cancel) { renamingMachine = nil }
+        } message: {
+            Text("Set a name for this Mac. Macs reached over the mesh can't report their own name, so this is how you label them.")
+        }
+    }
+
+    /// Open the rename alert seeded with the machine's current label.
+    private func beginRename(_ machine: AppModel.PairedMachine) {
+        renameText = machine.name
+        renamingMachine = machine
     }
 
     private var connectionPanel: some View {
@@ -63,7 +94,8 @@ struct AppSettingsView: View {
                             value: machineState(machine),
                             hint: machineHint(machine),
                             onSelect: { Task { await model.connect(toMachineId: machine.id) } },
-                            onForget: { model.forgetMachine(id: machine.id) }
+                            onForget: { model.forgetMachine(id: machine.id) },
+                            onRename: { beginRename(machine) }
                         )
                     }
                 }
@@ -141,8 +173,9 @@ struct AppSettingsView: View {
                     }
                 }
             }
-            HudInspectorSection("Tailnet repair") {
-                HudInspectorFieldRow("Devices", value: tailnetRepairValue, hint: tailnetRepairHint)
+            HudInspectorSection("Tailnet discovery") {
+                HudInspectorFieldRow("Scan", value: tailnetRepairValue, hint: tailnetRepairHint)
+                HudInspectorFieldRow("Anchors", value: tailnetAnchorValue, hint: tailnetAnchorHint)
                 HudInspectorActionRow("Refresh devices", value: model.isRefreshingTailnetPairTargets ? "…" : "Run", tone: .accent) {
                     Task { await model.refreshTailnetPairTargets() }
                 }
@@ -184,9 +217,16 @@ struct AppSettingsView: View {
 
     private var appearancePanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HudInspectorSection("Theme") {
-                HudInspectorFieldRow("Appearance", value: "Dark", hint: "cockpit")
-                HudInspectorFieldRow("Type scale", value: "Standard", hint: "row rhythm")
+            HudInspectorSection("Canvas") {
+                // Live control: cycling re-tones the whole app (canvas + cards
+                // read the same `scout.tone` default) without leaning on accent.
+                HudInspectorCycleRow(
+                    "Tone",
+                    selection: $tone,
+                    choices: ScoutTone.allCases.map { HudInspectorChoice(id: $0.rawValue, title: $0.title) },
+                    hint: "warm or cool the charcoal"
+                )
+                HudInspectorFieldRow("Mode", value: "Dark", hint: "cockpit, always")
             }
         }
     }
@@ -195,6 +235,9 @@ struct AppSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             HudInspectorSection("Diagnostics") {
                 HudInspectorFieldRow("Connection log", value: latestLogMetric, hint: "\(model.connectionLog.entries.count) entries")
+                HudInspectorActionRow("View connection log", value: "Open", tone: .accent) {
+                    showingLogViewer = true
+                }
                 #if canImport(UIKit)
                 HudInspectorActionRow("Copy connection log", value: copiedLogs ? "Copied" : "Copy", tone: .accent) {
                     copyConnectionLog()
@@ -311,13 +354,23 @@ struct AppSettingsView: View {
 
                 #if canImport(UIKit)
                 if !model.connectionLog.entries.isEmpty {
-                    Button { copyConnectionLog() } label: {
-                        Text(copiedLogs ? "COPIED" : "COPY LOG")
-                            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
-                            .tracking(0.8)
-                            .foregroundStyle(HudPalette.accent)
+                    HStack(spacing: HudSpacing.lg) {
+                        Button { showingLogViewer = true } label: {
+                            Text("OPEN LOG")
+                                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                                .tracking(0.8)
+                                .foregroundStyle(HudPalette.accent)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button { copyConnectionLog() } label: {
+                            Text(copiedLogs ? "COPIED" : "COPY LOG")
+                                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                                .tracking(0.8)
+                                .foregroundStyle(HudPalette.accent)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                 }
                 #endif
@@ -485,9 +538,200 @@ struct AppSettingsView: View {
 
     private var tailnetRepairHint: String {
         if model.isRefreshingTailnetPairTargets { return "scanning" }
+        if let status = model.tailnetPairProbeStatus { return status }
         if let origin = model.tailnetPairDiscoveryOrigin { return origin }
         if model.tailnetPairError != nil { return "discovery failed" }
         return "mesh peers"
+    }
+
+    private var tailnetAnchorValue: String {
+        let count = model.tailnetPairDiscoveryHosts.count
+        guard count > 0 else { return "—" }
+        return "\(count)"
+    }
+
+    private var tailnetAnchorHint: String {
+        guard !model.tailnetPairDiscoveryHosts.isEmpty else {
+            return model.hasTrustedBridge ? "no saved Tailnet relay" : "pair a Mac first"
+        }
+        return model.tailnetPairDiscoveryHosts.joined(separator: ", ")
+    }
+}
+
+// MARK: - Connection log viewer
+
+private struct ConnectionLogViewer: View {
+    @Bindable var model: AppModel
+    @Binding var copiedLogs: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                logHeader
+                Divider()
+                    .overlay(HudHairline.subtle)
+                logBody
+            }
+            .background(HudPalette.bg)
+            .navigationTitle("Connection log")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(HudPalette.accent)
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button(copiedLogs ? "Copied" : "Copy") { copyConnectionLog() }
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(HudPalette.accent)
+                        .disabled(model.connectionLog.entries.isEmpty)
+                    Button("Clear") {
+                        model.connectionLog.clear()
+                        copiedLogs = false
+                    }
+                    .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                    .foregroundStyle(model.connectionLog.entries.isEmpty ? ScoutInk.dim : HudPalette.statusWarn)
+                    .disabled(model.connectionLog.entries.isEmpty)
+                }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private var logHeader: some View {
+        HStack(spacing: HudSpacing.md) {
+            HudStatusDot(color: model.statusTint, size: 8, pulses: model.statusPulses)
+            Text(model.statusShortLabel)
+                .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                .foregroundStyle(HudPalette.ink)
+                .lineLimit(1)
+            Spacer()
+            Text("\(model.connectionLog.entries.count) entries")
+                .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+                .foregroundStyle(ScoutInk.dim)
+        }
+        .padding(.horizontal, HudSpacing.lg)
+        .padding(.vertical, HudSpacing.md)
+    }
+
+    @ViewBuilder
+    private var logBody: some View {
+        if model.connectionLog.entries.isEmpty {
+            HudEmptyState(title: "No connection activity yet", icon: "dot.radiowaves.left.and.right")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(HudSpacing.xxl)
+        } else {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.connectionLog.entries) { entry in
+                            logRow(entry)
+                                .id(entry.id)
+                        }
+                    }
+                    .padding(.horizontal, HudSpacing.md)
+                    .padding(.vertical, HudSpacing.sm)
+                }
+                .onAppear {
+                    scrollToLatest(proxy, animated: false)
+                }
+                .onChange(of: model.connectionLog.entries.count) {
+                    scrollToLatest(proxy, animated: true)
+                }
+            }
+        }
+    }
+
+    private func scrollToLatest(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard let latest = model.connectionLog.entries.last else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.18)) {
+                proxy.scrollTo(latest.id, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(latest.id, anchor: .bottom)
+        }
+    }
+
+    private func logRow(_ entry: ConnectionLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xxs) {
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                Text(logTime(entry))
+                    .foregroundStyle(ScoutInk.dim)
+                    .frame(width: 70, alignment: .leading)
+                Text(routeToken(entry.route))
+                    .foregroundStyle(entry.route == nil ? ScoutInk.dim : HudPalette.accent)
+                    .frame(width: 32, alignment: .leading)
+                Text(entry.event.label)
+                    .foregroundStyle(logEventColor(entry))
+                    .frame(width: 82, alignment: .leading)
+                Text(entry.level.rawValue.uppercased())
+                    .foregroundStyle(levelColor(entry.level))
+                    .frame(width: 54, alignment: .leading)
+            }
+            .font(HudFont.mono(HudTextSize.micro, weight: .semibold))
+
+            Text(entry.message)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(levelColor(entry.level))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, HudSpacing.sm)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HudHairline.subtle)
+                .frame(height: HudStrokeWidth.thin)
+        }
+    }
+
+    private func logEventColor(_ entry: ConnectionLogEntry) -> Color {
+        switch entry.event {
+        case .routeDisabled, .routeUnavailable, .reconnect, .network: return HudPalette.statusWarn
+        default: break
+        }
+        switch entry.level {
+        case .error: return HudPalette.statusError
+        case .warning: return HudPalette.statusWarn
+        case .success: return HudPalette.accent
+        case .info: return entry.event == .lifecycle ? ScoutInk.dim : ScoutInk.muted
+        }
+    }
+
+    private func levelColor(_ level: ConnectionLogLevel) -> Color {
+        switch level {
+        case .info: return ScoutInk.muted
+        case .success: return HudPalette.accent
+        case .warning: return HudPalette.statusWarn
+        case .error: return HudPalette.statusError
+        }
+    }
+
+    private func logTime(_ entry: ConnectionLogEntry) -> String {
+        (ScoutTimestamp.date(fromEpoch: TimeInterval(entry.tsMs)) ?? Date(timeIntervalSince1970: 0))
+            .formatted(.dateTime.hour().minute().second())
+    }
+
+    private func routeToken(_ route: TransportKind?) -> String {
+        guard let route, !route.label.isEmpty else { return "SYS" }
+        return route.label
+    }
+
+    private var connectionLogText: String {
+        model.connectionLog.entries
+            .map { entry in
+                "[\(logTime(entry))] \(routeToken(entry.route)) \(entry.event.label) \(entry.message)"
+            }
+            .joined(separator: "\n")
+    }
+
+    private func copyConnectionLog() {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = connectionLogText
+        copiedLogs = true
+        #endif
     }
 }
 
@@ -561,6 +805,7 @@ private struct MacConnectionRow: View {
     let hint: String
     let onSelect: () -> Void
     let onForget: () -> Void
+    var onRename: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .center, spacing: HudSpacing.sm) {
@@ -611,15 +856,7 @@ private struct MacConnectionRow: View {
             }
             .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, machine.isActive ? HudSpacing.xs : 0)
         .frame(height: HudLayout.rowHeightRegular)
-        .background(alignment: .leading) {
-            if machine.isActive {
-                Rectangle()
-                    .fill(HudPalette.accent.opacity(0.12))
-                    .frame(width: 2)
-            }
-        }
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(HudHairline.subtle)
@@ -627,6 +864,12 @@ private struct MacConnectionRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        // Long-press for the operator overrides: rename (mesh Macs can't report
+        // their own name) and forget. Accent stays out of the row chrome.
+        .contextMenu {
+            Button(action: onRename) { Label("Rename", systemImage: "pencil") }
+            Button(role: .destructive, action: onForget) { Label("Forget", systemImage: "trash") }
+        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(machine.name), \(value), \(hint)")
         .accessibilityAddTraits(.isButton)

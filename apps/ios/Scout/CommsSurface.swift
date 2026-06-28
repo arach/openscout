@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import UIKit
 import PhotosUI
 import UniformTypeIdentifiers
@@ -192,23 +193,14 @@ private struct CommsRow: View {
                 .padding(.horizontal, HudSpacing.xxl)
                 .padding(.vertical, HudSpacing.xl)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Unread rows lift on a faint *neutral* tint — standout without
-                // turning the screen green.
-                .background(unread ? HudPalette.ink.opacity(0.05) : Color.clear)
-                // …and carry a slim accent rail at the leading edge for priority.
-                .overlay(alignment: .leading) {
-                    if unread {
-                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                            .fill(HudPalette.accent)
-                            .frame(width: 3)
-                            .padding(.vertical, HudSpacing.lg)
-                            .padding(.leading, HudSpacing.sm)
-                    }
-                }
+                // Unread rows lift on a faint SOLID neutral tint (toned with the
+                // canvas, never white-alpha) — a quiet standout. Accent is reserved
+                // for the unread count alone: no leading rail, no green wash.
+                .background(unread ? ScoutSurface.inset : Color.clear)
 
                 if showDivider {
                     Rectangle()
-                        .fill(HudPalette.ink.opacity(0.06))
+                        .fill(HudHairline.subtle)
                         .frame(height: 0.5)
                         // Inset under the name (past the type glyph) for a list read.
                         .padding(.leading, HudSpacing.huge + HudSpacing.md)
@@ -308,7 +300,7 @@ private struct CommsPeekCard: View {
                 }
             }
 
-            Rectangle().fill(HudPalette.ink.opacity(0.08)).frame(height: 0.5)
+            Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
 
             if recent.isEmpty {
                 Text(loaded ? "No messages yet" : "Loading…")
@@ -418,13 +410,19 @@ private struct CommsStatusGlyph: View {
 /// the frame cycle off the clock, so there's no stored timer to manage.
 private struct BrailleSpinner: View {
     private static let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-    private static let interval: TimeInterval = 0.09
+    private static let interval: TimeInterval = 0.18
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: Self.interval)) { context in
-            let step = Int(context.date.timeIntervalSinceReferenceDate / Self.interval)
-            let frame = Self.frames[((step % Self.frames.count) + Self.frames.count) % Self.frames.count]
-            Text(frame).font(HudFont.mono(HudTextSize.sm))
+        if reduceMotion || ProcessInfo.processInfo.isLowPowerModeEnabled {
+            Text(Self.frames[0]).font(HudFont.mono(HudTextSize.sm))
+        } else {
+            TimelineView(.periodic(from: .now, by: Self.interval)) { context in
+                let step = Int(context.date.timeIntervalSinceReferenceDate / Self.interval)
+                let frame = Self.frames[((step % Self.frames.count) + Self.frames.count) % Self.frames.count]
+                Text(frame).font(HudFont.mono(HudTextSize.sm))
+            }
         }
     }
 }
@@ -522,6 +520,7 @@ struct CommsThreadView: View {
     @State private var showFileImporter = false
     @State private var composerError: String?
     @Environment(HudDictation.self) private var voice
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var micPulse = false
     @FocusState private var composerFocused: Bool
 
@@ -538,7 +537,6 @@ struct CommsThreadView: View {
         .background(InteractivePopGestureEnabler())
         .safeAreaInset(edge: .bottom) { composer }
         .task { await load(); await onRead() }
-        .onAppear { voice.prepare() }
         .onDisappear { if voice.isListening { voice.cancel() } }
     }
 
@@ -550,7 +548,7 @@ struct CommsThreadView: View {
                 Glyphic.chevron(.leading, size: 17)
                     .foregroundStyle(HudPalette.ink)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(HudSurface.inset))
+                    .background(Circle().fill(ScoutSurface.inset))
                     .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
             }
             .buttonStyle(.plain)
@@ -663,7 +661,7 @@ struct CommsThreadView: View {
                     Glyphic.arrow(.top, size: 17)
                         .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
                         .frame(width: 28, height: 28)
-                        .background(Circle().fill(canSend ? HudPalette.accent : HudSurface.inset))
+                        .background(Circle().fill(canSend ? HudPalette.accent : ScoutSurface.inset))
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
@@ -671,7 +669,7 @@ struct CommsThreadView: View {
             .padding(.leading, HudSpacing.lg)
             .padding(.trailing, HudSpacing.sm)
             .padding(.vertical, HudSpacing.sm)
-            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+            .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                     .stroke(composerFocused ? HudPalette.accent.opacity(0.6) : HudHairline.standard,
@@ -717,7 +715,7 @@ struct CommsThreadView: View {
 
     private var micButton: some View {
         Button {
-            voice.toggle()
+            voice.toggleFromUserIntent()
         } label: {
             ZStack {
                 if voice.isListening {
@@ -803,9 +801,13 @@ struct CommsThreadView: View {
 
     private func updatePulse(for state: HudDictation.State) {
         micPulse = false
-        if case .listening = state {
+        if case .listening = state, shouldAnimateMicPulse {
             withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
         }
+    }
+
+    private var shouldAnimateMicPulse: Bool {
+        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     // MARK: Data
@@ -919,7 +921,7 @@ private struct CommsBubble: View {
                 .padding(.vertical, HudSpacing.md)
                 .background(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                        .fill(message.isOperator ? HudPalette.accent.opacity(0.16) : HudSurface.inset)
+                        .fill(message.isOperator ? HudPalette.accent.opacity(0.16) : ScoutSurface.inset)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)

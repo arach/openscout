@@ -155,7 +155,7 @@ struct MessageMarkupView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(HudSurface.raised)
+                .fill(ScoutSurface.raised)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -175,7 +175,7 @@ struct MessageMarkupView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(HudSurface.raised)
+                .fill(ScoutSurface.raised)
         )
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
@@ -309,7 +309,7 @@ struct MessageAttachmentCard: View {
                 .lineLimit(1)
         }
         .padding(HudSpacing.sm)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.raised.opacity(0.7)))
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.raised.opacity(0.7)))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)
@@ -339,7 +339,7 @@ struct MessageAttachmentCard: View {
             }
         }
         .padding(HudSpacing.md)
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard)
@@ -367,7 +367,7 @@ private struct AttachmentPreview: View {
                 fileIcon
             }
         }
-        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(HudSurface.inset))
+        .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
         .overlay(
             RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
                 .stroke(HudHairline.subtle, lineWidth: HudStrokeWidth.standard)

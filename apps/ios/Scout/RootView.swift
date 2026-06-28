@@ -141,9 +141,11 @@ struct RootView: View {
                         // the bar sits flush in the indicator band, not floating.
                         .offset(y: 14)
                 }
-                .task(id: model.dataReadyToken) {
+                .task(id: "\(model.dataReadyToken)|\(surface.rawValue)") {
+                    guard model.dataReadyToken != 0, surface != .home else { return }
                     // Keep the status bar's agent / active counts roughly live while
-                    // the shell is up. Cheap directory read on a slow poll.
+                    // non-Home surfaces are up. Home shares its own successful
+                    // agent read, so Root does not duplicate that RPC underneath it.
                     while !Task.isCancelled {
                         await model.refreshFleetStats()
                         try? await Task.sleep(for: .seconds(20))
@@ -331,7 +333,7 @@ struct RootView: View {
             Glyphic(kind: .gear, size: 21)
                 .foregroundStyle(ScoutInk.muted)
                 .frame(width: 38, height: 38)
-                .background(Circle().fill(HudSurface.inset))
+                .background(Circle().fill(ScoutSurface.inset))
                 .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.thin))
         }
         .buttonStyle(.plain)

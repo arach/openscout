@@ -196,7 +196,7 @@ struct ScoutTailContent: View {
 
     private var sourceMenu: some View {
         ScoutTailFilterMenu(
-            value: tail.selectedSource ?? "All sources",
+            value: tail.selectedSource ?? "All harnesses",
             width: 148
         ) {
             Button {
@@ -215,10 +215,10 @@ struct ScoutTailContent: View {
                 }
             }
         }
-        .help("Filter by source")
+        .help("Filter by harness")
     }
 
-    /// One row of controls, right-aligned: search, the source filter, then the
+    /// One row of controls, right-aligned: search, the harness filter, then the
     /// view + follow toggles and the icon actions. Everything the old two-tier
     /// header spread across two rows, kept on a single line.
     private var commandStrip: some View {
@@ -438,7 +438,6 @@ struct ScoutTailContent: View {
 
 struct ScoutTailInspector: View {
     @ObservedObject var tail: ScoutTailStore
-    @State private var facet: ScoutTailFacet = .source
 
     private var visibleCount: Int {
         tail.filteredEvents.count
@@ -448,7 +447,7 @@ struct ScoutTailInspector: View {
         ScrollView {
             VStack(alignment: .leading, spacing: HudSpacing.xl) {
                 filterSummary
-                ScoutTailDistributionPanel(tail: tail, facet: $facet)
+                ScoutTailDistributionPanel(tail: tail)
                 metadataToggle
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -511,7 +510,7 @@ private enum ScoutTailFacet: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .source: return "Sources"
+        case .source: return "Harnesses"
         case .origin: return "Origins"
         case .kind: return "Kinds"
         case .project: return "Projects"
@@ -521,34 +520,103 @@ private enum ScoutTailFacet: String, CaseIterable, Identifiable {
 
 private struct ScoutTailDistributionPanel: View {
     @ObservedObject var tail: ScoutTailStore
-    @Binding var facet: ScoutTailFacet
 
-    private var items: [ScoutTailCount] {
-        switch facet {
-        case .source: return tail.sourceCounts
-        case .origin: return tail.originCounts
-        case .kind: return tail.kindCounts
-        case .project: return Array(tail.projectCounts.prefix(10))
-        }
+    private var projectItems: [ScoutTailCount] {
+        Array(tail.projectCounts.prefix(8))
     }
 
-    private var total: Int {
-        items.reduce(0) { $0 + $1.count }
+    private var projectTotal: Int {
+        total(tail.projectCounts)
     }
 
     var body: some View {
-        // The facet switch IS the heading (Sources / Origins / Kinds / Projects),
-        // and the inspector eyebrow already reads "Distribution", so the panel
-        // leads straight with the tabs — no repeated title, no duplicate total
-        // (the lead row already carries the buffered count).
-        VStack(alignment: .leading, spacing: HudSpacing.sm) {
-            ScoutTailFacetTabs(selection: $facet)
+        // Projects and harnesses are the high-signal filter axes in practice, so
+        // they stay visible. Origins and kinds remain available below without
+        // taking over the top of the inspector.
+        VStack(alignment: .leading, spacing: HudSpacing.lg) {
+            ScoutTailFacetSection(
+                facet: .project,
+                items: projectItems,
+                total: projectTotal,
+                emptyText: "No projects yet",
+                labelWidth: 104,
+                isActive: { tail.selectedProject == $0 },
+                onSelect: { label in
+                    tail.selectedProject = tail.selectedProject == label ? nil : label
+                }
+            )
+
+            ScoutTailFacetSection(
+                facet: .source,
+                items: tail.sourceCounts,
+                total: total(tail.sourceCounts),
+                emptyText: "No harnesses yet",
+                labelWidth: 84,
+                isActive: { tail.selectedSource == $0 },
+                onSelect: { label in
+                    tail.selectedSource = tail.selectedSource == label ? nil : label
+                }
+            )
+
+            HudDivider(color: ScoutDesign.hairline)
+
+            ScoutTailFacetSection(
+                facet: .origin,
+                items: tail.originCounts,
+                total: total(tail.originCounts),
+                emptyText: "No origins yet",
+                labelWidth: 84,
+                isActive: { tail.selectedOrigin == $0 },
+                onSelect: { label in
+                    tail.selectedOrigin = tail.selectedOrigin == label ? nil : label
+                }
+            )
+
+            ScoutTailFacetSection(
+                facet: .kind,
+                items: tail.kindCounts,
+                total: total(tail.kindCounts),
+                emptyText: "No kinds yet",
+                labelWidth: 84,
+                isActive: { tail.selectedKind?.title == $0 },
+                onSelect: { label in
+                    guard let kind = ScoutTailEventKind.allCases.first(where: { $0.title == label }) else { return }
+                    tail.selectedKind = tail.selectedKind == kind ? nil : kind
+                }
+            )
+        }
+    }
+
+    private func total(_ counts: [ScoutTailCount]) -> Int {
+        counts.reduce(0) { $0 + $1.count }
+    }
+}
+
+private struct ScoutTailFacetSection: View {
+    let facet: ScoutTailFacet
+    let items: [ScoutTailCount]
+    let total: Int
+    let emptyText: String
+    let labelWidth: CGFloat
+    let isActive: (String) -> Bool
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+            HStack(alignment: .firstTextBaseline, spacing: HudSpacing.sm) {
+                HudSectionLabel(facet.title, tint: ScoutPalette.muted)
+                Spacer(minLength: 0)
+                Text("\(items.count)")
+                    .font(ScoutTailFont.mono(HudTextSize.micro, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .monospacedDigit()
+            }
 
             if items.isEmpty {
-                Text("No events yet")
+                Text(emptyText)
                     .font(HudFont.ui(HudTextSize.xs))
                     .foregroundStyle(ScoutPalette.dim)
-                    .padding(.top, HudSpacing.xs)
+                    .padding(.top, HudSpacing.xxs)
             } else {
                 VStack(spacing: HudSpacing.xxs) {
                     ForEach(items) { item in
@@ -557,74 +625,13 @@ private struct ScoutTailDistributionPanel: View {
                             count: item.count,
                             total: max(total, 1),
                             active: isActive(item.label),
-                            onSelect: { toggle(item.label) }
+                            labelWidth: labelWidth,
+                            onSelect: { onSelect(item.label) }
                         )
                     }
                 }
-                .padding(.top, HudSpacing.xxs)
             }
         }
-    }
-
-    private func isActive(_ label: String) -> Bool {
-        switch facet {
-        case .source: return tail.selectedSource == label
-        case .origin: return tail.selectedOrigin == label
-        case .kind: return tail.selectedKind?.title == label
-        case .project: return tail.selectedProject == label
-        }
-    }
-
-    private func toggle(_ label: String) {
-        switch facet {
-        case .source:
-            tail.selectedSource = tail.selectedSource == label ? nil : label
-        case .origin:
-            tail.selectedOrigin = tail.selectedOrigin == label ? nil : label
-        case .kind:
-            guard let kind = ScoutTailEventKind.allCases.first(where: { $0.title == label }) else { return }
-            tail.selectedKind = tail.selectedKind == kind ? nil : kind
-        case .project:
-            tail.selectedProject = tail.selectedProject == label ? nil : label
-        }
-    }
-}
-
-private struct ScoutTailFacetTabs: View {
-    @Binding var selection: ScoutTailFacet
-
-    var body: some View {
-        HStack(spacing: HudSpacing.xxs) {
-            ForEach(ScoutTailFacet.allCases) { facet in
-                let isOn = selection == facet
-                Button {
-                    selection = facet
-                } label: {
-                    Text(facet.title)
-                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
-                        .foregroundStyle(isOn ? ScoutPalette.ink : ScoutPalette.muted)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                                .fill(isOn ? ScoutDesign.bg : Color.clear)
-                                .shadow(color: isOn ? Color.black.opacity(0.12) : .clear, radius: 1, y: 1)
-                        )
-                }
-                .buttonStyle(.plain)
-                .scoutPointerCursor()
-            }
-        }
-        .padding(HudSpacing.xxs)
-        .background(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .fill(ScoutSurface.inset)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.standard)
-        )
     }
 }
 
@@ -633,6 +640,7 @@ private struct ScoutTailDistributionRow: View {
     let count: Int
     let total: Int
     let active: Bool
+    var labelWidth: CGFloat = 84
     let onSelect: () -> Void
 
     @State private var isHovering = false
@@ -653,7 +661,7 @@ private struct ScoutTailDistributionRow: View {
                     .foregroundStyle(active ? ScoutPalette.accent : ScoutPalette.muted)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .frame(width: 72, alignment: .leading)
+                    .frame(width: labelWidth, alignment: .leading)
 
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {

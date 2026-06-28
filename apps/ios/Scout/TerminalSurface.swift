@@ -96,8 +96,6 @@ struct TerminalSurface: View {
         // it rides the bottom safe area and the terminal lays out above it.
         .safeAreaInset(edge: .bottom, spacing: 0) { terminalKeyboard }
         .task(id: preparationToken) { await prepare() }
-        // Warm Parakeet on entry so the first mic tap is instant (no-op if already hot).
-        .task { voice.prepare() }
         // Dictated text lands at the prompt (no trailing newline) — you review it
         // and press RET yourself, so a misheard command never auto-executes. The
         // pulse makes the keyboard's mic flash a success check.
@@ -107,7 +105,14 @@ struct TerminalSurface: View {
             workspace?.controller.onTransportWrite?(Data(text.utf8))
             dictationSuccessPulse += 1
         }
-        .onDisappear { if voice.isListening { voice.cancel() } }
+        .onDisappear {
+            if voice.isListening { voice.cancel() }
+            let activeWorkspace = workspace
+            workspace = nil
+            endpoint = ""
+            preparedIdentityToken = nil
+            Task { await activeWorkspace?.disconnect() }
+        }
     }
 
     // MARK: - Keyboard
@@ -121,7 +126,7 @@ struct TerminalSurface: View {
         if case .live = phase {
             TerminalHostedKeyboard(
                 send: { workspace?.controller.onTransportWrite?($0) },
-                onDictate: { voice.toggle() },
+                onDictate: { voice.toggleFromUserIntent() },
                 dictationPhase: dictationPhase,
                 successPulse: dictationSuccessPulse,
                 preferredHeight: $keyboardHeight

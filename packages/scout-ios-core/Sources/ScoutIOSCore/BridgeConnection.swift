@@ -282,6 +282,11 @@ private struct MobileEndpointManifest: Decodable, Sendable {
     let version: Int
     let node: Node?
     let endpoints: Endpoints
+    /// The bridge Mac's own hostname, advertised so the phone can label a
+    /// mesh-reached machine with its real name — the relay front door
+    /// (`mesh.oscout.net`) never identifies the Mac. Optional: absent on bridges
+    /// that predate the field.
+    let hostName: String?
 
     struct Node: Decodable, Sendable {
         let name: String?
@@ -297,7 +302,7 @@ private struct MobileEndpointManifest: Decodable, Sendable {
     }
 
     var machineIdentityHost: String? {
-        node?.hostName?.trimmedNonEmpty ?? node?.name?.trimmedNonEmpty
+        node?.hostName?.trimmedNonEmpty ?? hostName?.trimmedNonEmpty ?? node?.name?.trimmedNonEmpty
     }
 
     var orderedRelayURLs: [String] {
@@ -343,6 +348,13 @@ public final class BridgeConnection: @unchecked Sendable {
     private var webSocket: URLSessionWebSocketTask?
     private var connectionInfo: BridgeConnectionInfo?
     private var receiveTask: Task<Void, Never>?
+    /// Keepalive loop for the live connection: WS-level pings keep the relay/NAT
+    /// from reaping an idle socket, and a missed-activity deadline tears a
+    /// silently-dropped one down so reconnect (and resubscribe) kicks in.
+    private var heartbeatTask: Task<Void, Never>?
+    /// Last time anything arrived on the live socket — a decrypted data frame or
+    /// a WS pong. Drives the heartbeat's dead-socket deadline.
+    private var lastLivenessAt = Date()
     private var connectionGeneration = 0
     private var disconnectHandler: BridgeConnectionDisconnectHandler?
     private var nextRequestId = 1
@@ -533,6 +545,7 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         startMessageLoop(generation: generation)
+        startHeartbeat(generation: generation)
         refreshEndpointManifestInBackground(
             baseInfo: updated,
             successfulRelayURL: attempt.relayURL,
@@ -604,9 +617,12 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         // XX handshake succeeded and the learned key matched the QR — trust it.
-        // Prefer the Mac's own LAN/Tailnet hostname; shared relay front doors
-        // (mesh.oscout.net) are not machine labels.
-        let learnedName = bridgeMachineHost(from: attempt.relayURL) ?? primaryName
+        // Label the record with the Mac's own advertised name (its relay host for
+        // LAN / tailnet). The shared mesh relay front door (`mesh.oscout.net`) is
+        // NOT the Mac's identity, so don't learn it — and don't fall back to the
+        // phone's own device name either. Leave the record unnamed so the UI
+        // derives a stable per-machine label instead of persisting "mesh".
+        let learnedName = bridgeMachineHost(from: attempt.relayURL)
         try ScoutIdentity.saveTrustedBridge(publicKey: attempt.remoteKey, name: learnedName)
 
         let publicKeyHex = hexString(attempt.remoteKey)
@@ -637,6 +653,7 @@ public final class BridgeConnection: @unchecked Sendable {
         )
 
         startMessageLoop(generation: generation)
+        startHeartbeat(generation: generation)
         refreshEndpointManifestInBackground(
             baseInfo: info,
             successfulRelayURL: attempt.relayURL,
@@ -651,9 +668,11 @@ public final class BridgeConnection: @unchecked Sendable {
         let activeTransport = transport
         let activeWebSocket = webSocket
         let activeReceive = receiveTask
+        let activeHeartbeat = heartbeatTask
         transport = nil
         webSocket = nil
         receiveTask = nil
+        heartbeatTask = nil
         _isConnected = false
         _currentRoute = .none
         _currentHost = nil
@@ -666,6 +685,7 @@ public final class BridgeConnection: @unchecked Sendable {
         lock.unlock()
 
         activeReceive?.cancel()
+        activeHeartbeat?.cancel()
         activeTransport?.shutdown()
         activeWebSocket?.cancel(with: .goingAway, reason: nil)
         cancelAllPendingRequests(with: BridgeConnectionError.notConnected)
@@ -738,6 +758,18 @@ public final class BridgeConnection: @unchecked Sendable {
     ) async {
         do {
             let manifest: MobileEndpointManifest = try await rpc("mobile/endpoints", params: nil)
+
+            // Auto-adopt the Mac's advertised hostname as this machine's label.
+            // Only backfills when we don't already have a real per-machine name
+            // (so a manual rename or a learned LAN/tailnet host always wins). This
+            // is what gives a mesh-reached Mac its real name instead of "Mac <hex>".
+            if let hostName = manifest.hostName {
+                try? ScoutIdentity.adoptBridgeName(
+                    publicKey: baseInfo.bridgePublicKeyData,
+                    name: hostName
+                )
+            }
+
             let manifestRelayURLs = manifest.orderedRelayURLs
             guard !manifestRelayURLs.isEmpty else {
                 return
@@ -1095,6 +1127,68 @@ public final class BridgeConnection: @unchecked Sendable {
         lock.unlock()
     }
 
+    // MARK: - Heartbeat (keepalive + silent-death detection)
+
+    /// How often the live socket sends a WebSocket-level ping. Short enough that
+    /// neither the mesh relay nor the local Bun relay reaps the connection for
+    /// being idle — every frame, pong included, resets their idle timers.
+    private static let heartbeatIntervalSeconds: Double = 20
+    /// If nothing — no decrypted frame, no pong — arrives within this window the
+    /// socket is treated as silently dead. Bounds detection regardless of how
+    /// slowly TCP would otherwise surface a dropped relay socket (~2.5 beats).
+    private static let livenessDeadlineSeconds: TimeInterval = 50
+
+    private func noteLiveness() {
+        let now = Date()
+        lock.withLockVoid { lastLivenessAt = now }
+    }
+
+    /// Keep the live connection warm and notice when it has silently died.
+    /// `sendPing` rides the WebSocket control channel (separate from the Noise
+    /// data frames) and the phone's direct peer — the relay — answers the pong
+    /// itself, so this needs no bridge change. A failed send, or no inbound
+    /// activity past the deadline, tears the socket down through the normal
+    /// `markDisconnected` path, which fires the reconnect handler and re-runs
+    /// every subscription.
+    private func startHeartbeat(generation: Int) {
+        lock.lock()
+        heartbeatTask?.cancel()
+        lastLivenessAt = Date()
+        lock.unlock()
+
+        let task = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.heartbeatIntervalSeconds))
+                guard !Task.isCancelled, let self else { break }
+
+                let (ws, alive, last): (URLSessionWebSocketTask?, Bool, Date) = self.lock.withLockReturning {
+                    (self.webSocket,
+                     self.connectionGeneration == generation && self._isConnected,
+                     self.lastLivenessAt)
+                }
+                guard alive, let ws else { break }
+
+                // Nothing has come back within the deadline — not even a pong.
+                // The socket is silently dead; tear it down so reconnect runs.
+                if Date().timeIntervalSince(last) > Self.livenessDeadlineSeconds {
+                    self.markDisconnected(generation: generation, reason: "heartbeat: no activity")
+                    break
+                }
+
+                // Fire-and-forget: the pong refreshes liveness asynchronously; a
+                // send error means the socket is already gone.
+                ws.sendPing { [weak self] error in
+                    if error == nil {
+                        self?.noteLiveness()
+                    } else {
+                        self?.markDisconnected(generation: generation, reason: "heartbeat: ping failed")
+                    }
+                }
+            }
+        }
+        lock.withLockVoid { heartbeatTask = task }
+    }
+
     private func markDisconnected(generation: Int, reason: String) {
         let result = lock.withLockReturning { () -> (BridgeConnectionDisconnectEvent?, SecureTransport?, URLSessionWebSocketTask?, BridgeConnectionDisconnectHandler?) in
             guard generation == connectionGeneration, _isConnected else {
@@ -1111,6 +1205,8 @@ public final class BridgeConnection: @unchecked Sendable {
             transport = nil
             webSocket = nil
             receiveTask = nil
+            heartbeatTask?.cancel()
+            heartbeatTask = nil
             _isConnected = false
             _currentRoute = .none
             _currentHost = nil
@@ -1139,6 +1235,7 @@ public final class BridgeConnection: @unchecked Sendable {
     }
 
     private func handleDecryptedMessage(_ raw: String) {
+        noteLiveness()
         // tRPC keep-alive (plain text, not JSON).
         if raw == "PING" {
             Task { [weak self] in try? await self?.sendRaw("PONG") }

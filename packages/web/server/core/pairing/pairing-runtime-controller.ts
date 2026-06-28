@@ -2,6 +2,7 @@ import {
   PAIRING_QR_TTL_MS,
   resolvedPairingConfig,
 } from "./runtime/config.ts";
+import { resolveWebPort } from "@openscout/runtime/local-config";
 import { spawn, type ChildProcess } from "node:child_process";
 import { renderQRCode } from "./runtime/bridge/qr.ts";
 import { startPairingRendezvousPublisher } from "./runtime/rendezvous.ts";
@@ -143,6 +144,7 @@ async function startControlledPairingRuntime(state: PairingRuntimeControllerStat
           relayUrl: activeRelayUrl,
           fallbackRelayUrls: managedRelay.fallbackRelayUrls,
           publicKeyHex,
+          webPort: resolveWebPort(),
           onUnavailable: () => {
             if (state.bonjour === bonjour) {
               state.bonjour = null;
@@ -350,6 +352,7 @@ function startBonjourRelayAdvertisement(input: {
   relayUrl: string;
   fallbackRelayUrls?: string[];
   publicKeyHex: string;
+  webPort?: number;
   onUnavailable?: () => void;
 }): BonjourAdvertisement | null {
   if (process.platform !== "darwin") {
@@ -370,6 +373,11 @@ function startBonjourRelayAdvertisement(input: {
     `fp=${fingerprint}`,
     `scheme=${scheme}`,
   ];
+  // Advertise the real web port so the phone hits the right `/pair` endpoint
+  // instead of assuming a default — the same contract the discovery beacon uses.
+  if (typeof input.webPort === "number" && input.webPort > 0) {
+    args.push(`webPort=${input.webPort}`);
+  }
   const fallbackRelayUrls = normalizedBonjourFallbackRelayUrls(input.fallbackRelayUrls);
   if (fallbackRelayUrls.length > 0) {
     args.push(`fallbackRelays=${fallbackRelayUrls.join("|")}`);

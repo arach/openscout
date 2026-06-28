@@ -148,7 +148,7 @@ public final class ScoutTailStore: ObservableObject, ScoutChangeSetting {
             parts.append("query: \(trimmedQuery)")
         }
         if let selectedSource {
-            parts.append("source: \(selectedSource)")
+            parts.append("harness: \(selectedSource)")
         }
         if let selectedOrigin {
             parts.append("origin: \(selectedOrigin)")

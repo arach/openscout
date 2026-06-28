@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import PhotosUI
 import UniformTypeIdentifiers
 import HudsonUI
@@ -51,6 +52,7 @@ struct NewSessionSurface: View {
     /// Shared on-device dictation (Parakeet via Vox + Apple fallback), injected at
     /// the app root — the same controller the Comms composer and Settings use.
     @Environment(HudDictation.self) private var voice
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var micPulse = false
 
     /// A Hashable navigation target — contract models stay transport-pure.
@@ -326,13 +328,13 @@ struct NewSessionSurface: View {
     /// accent ring while listening, transcribed text appended to the prompt.
     private var micButton: some View {
         Button {
-            voice.toggle()
+            voice.toggleFromUserIntent()
         } label: {
             ZStack {
                 // A persistent inset disc so the mic reads as a floating control,
                 // not a stray glyph; it warms to the accent + a pulse while active.
                 Circle()
-                    .fill(voice.isListening ? HudPalette.accent.opacity(micPulse ? 0.24 : 0.12) : HudSurface.inset)
+                    .fill(voice.isListening ? HudPalette.accent.opacity(micPulse ? 0.24 : 0.12) : ScoutSurface.inset)
                 Circle()
                     .stroke(voice.isListening ? HudPalette.accent.opacity(0.45) : HudHairline.standard,
                             lineWidth: HudStrokeWidth.thin)
@@ -417,9 +419,13 @@ struct NewSessionSurface: View {
 
     private func updatePulse(for state: HudDictation.State) {
         micPulse = false
-        if case .listening = state {
+        if case .listening = state, shouldAnimateMicPulse {
             withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { micPulse = true }
         }
+    }
+
+    private var shouldAnimateMicPulse: Bool {
+        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     // MARK: - Agent
