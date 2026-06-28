@@ -52,9 +52,10 @@ export {
   scopePresentationAttrs,
   routeBelongsInScopeNamespace,
   scopeRoutePath,
+  scopeViewSegment,
 } from "./presentation.ts";
 
-export { SCOPE_TOP_NAV_ITEMS, scopeTopNavKeyForRoute } from "./nav.ts";
+export { SCOPE_TOP_NAV_ITEMS, scopePresentationTitle, scopeTopNavKeyForRoute } from "./nav.ts";
 
 export {
   SCOPE_FLAG_BUNDLE_ALIASES,

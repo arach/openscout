@@ -1,10 +1,16 @@
 import type { ReactNode } from "react";
 import { useScout } from "../Provider.tsx";
 import { resolveContentPane } from "../../screens/resolve-panes.tsx";
+import { useScopePresentation } from "../../scope/index.ts";
 
 export function ScoutContent() {
   const { route, navigate, agents } = useScout();
-  return <ScoutSurface>{resolveContentPane(route, navigate, agents)}</ScoutSurface>;
+  const scopePresentation = useScopePresentation();
+  return (
+    <ScoutSurface>
+      {resolveContentPane(route, navigate, agents, scopePresentation)}
+    </ScoutSurface>
+  );
 }
 
 /** Paints the Scout content area background (since Hudson's Frame renders

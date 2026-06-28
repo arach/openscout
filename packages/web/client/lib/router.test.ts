@@ -47,6 +47,10 @@ describe("scope route parsing", () => {
       tailQuery: "codex",
     });
 
+    expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.sessions)}`)).toEqual({
+      view: "sessions",
+    });
+
     expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.sessions, { sessionId: "sess-1" })}`)).toEqual({
       view: "sessions",
       sessionId: "sess-1",
@@ -64,6 +68,12 @@ describe("scope route parsing", () => {
       .toBe("/scope?ffBundle=scope-instrument&layout=grid");
     expect(preserveLocationSearch("/scope/tail?q=codex", "?ffBundle=scope-instrument"))
       .toBe("/scope/tail?q=codex&ffBundle=scope-instrument");
+  });
+
+  test("sessions route stays under /scope when the browser is in the scope namespace", () => {
+    expect(routePath({ view: "sessions" }, "/scope/lanes")).toBe("/scope/sessions");
+    expect(routePath({ view: "sessions" }, "/scope/sessions")).toBe("/scope/sessions");
+    expect(routePath({ view: "sessions" }, "/sessions")).toBe("/sessions");
   });
 });
 

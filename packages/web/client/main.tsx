@@ -1,8 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RouterProvider } from "@tanstack/react-router";
 
-import { OpenScoutAppShell } from "./OpenScoutAppShell.tsx";
 import { createScoutApp } from "./scout";
+import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
+import { scoutTanstackRouter } from "./router/tanstack/router.ts";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
@@ -42,6 +44,7 @@ const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
   || window.location.pathname === "/embed/lanes"
   || window.location.pathname === "/embed/traces";
 const scoutApp = createScoutApp({ initialTheme });
+registerScoutShellApp(scoutApp);
 
 createRoot(el).render(
   <StrictMode>
@@ -64,7 +67,7 @@ createRoot(el).render(
         <AgentLanesEmbedScreen />
       </scoutApp.Provider>
     ) : (
-      <OpenScoutAppShell app={scoutApp} />
+      <RouterProvider router={scoutTanstackRouter} />
     )}
     {/* dev-only runtime-issue HUD — captures uncaught errors, rejections, and
         console/React errors (e.g. duplicate-key warnings) into a clean, copyable

@@ -3,6 +3,8 @@ import {
   SCOPE_LANE_DECK_PROFILE,
   buildScopeRoutePath,
   isScopePath,
+  routeToScopeSegment,
+  type ScopeRouteSegment,
 } from "./paths.ts";
 
 export { isScopePath, buildScopeRoutePath } from "./paths.ts";
@@ -22,13 +24,27 @@ export function scopePresentationAttrs(active = isScopePresentation()): Record<s
   return active ? { "data-scope-presentation": true } : undefined;
 }
 
-/** Scope URL shape when active; null → Scout paths unchanged. */
-export function scopeRoutePath(route: Route): string | null {
-  if (!isScopePresentation()) return null;
+/** Scope URL shape when the browser is on /scope/*; null → Scout paths unchanged. */
+export function scopeRoutePath(
+  route: Route,
+  pathname = typeof window !== "undefined" ? window.location.pathname : "",
+): string | null {
+  if (!isScopePath(pathname)) return null;
   return buildScopeRoutePath(route);
 }
 
-/** True when the active route should stay under /scope, not a Scout mirror path. */
-export function routeBelongsInScopeNamespace(route: Route): boolean {
-  return buildScopeRoutePath(route) !== null && isScopePresentation();
+/** True when this route maps to a scope segment and should stay under /scope/*. */
+export function routeBelongsInScopeNamespace(
+  route: Route,
+  pathname = typeof window !== "undefined" ? window.location.pathname : "",
+): boolean {
+  return scopeRoutePath(route, pathname) !== null;
+}
+
+/** Scope segment id for the active route, when it lives in the scope namespace. */
+export function scopeViewSegment(
+  route: Route,
+  pathname = typeof window !== "undefined" ? window.location.pathname : "",
+): ScopeRouteSegment | null {
+  return routeBelongsInScopeNamespace(route, pathname) ? routeToScopeSegment(route) : null;
 }

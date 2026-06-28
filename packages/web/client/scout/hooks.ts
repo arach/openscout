@@ -10,7 +10,7 @@ import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
 import { SCOPE_BRAND_LABEL } from "../scope/index.ts";
-import { isScopeOnboardingExempt, isScopePresentation } from "../scope/index.ts";
+import { isScopeOnboardingExempt, useScopePresentation } from "../scope/index.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -301,7 +301,7 @@ export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const cleanNav = useOptionalFlag("nav.clean", false);
-  const scopeNav = isScopePresentation();
+  const scopeNav = useScopePresentation();
   const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav, scopeNav);
   const breadcrumb = scopeNav ? null : topNavBreadcrumbForRoute(route);
 
@@ -324,7 +324,7 @@ export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
   // Lean view puts the machines away — the scope selector is power chrome.
   const cleanNav = useOptionalFlag("nav.clean", false);
-  const scopeNav = isScopePresentation();
+  const scopeNav = useScopePresentation();
   return createElement("div", { className: "scout-nav-actions" },
     !cleanNav && !scopeNav && createElement(MachineScopeControl, { variant: "nav" }),
     !scopeNav && createElement(

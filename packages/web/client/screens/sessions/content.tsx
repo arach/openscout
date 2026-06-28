@@ -1,5 +1,12 @@
+import "../../scope/views/scope-views.css";
+
 import type { Route } from "../../lib/types.ts";
-import { useScopePresentationAttrs } from "../../scope/index.ts";
+import { useLocation } from "@tanstack/react-router";
+import {
+  routeBelongsInScopeNamespace,
+  scopeViewSegment,
+  useScopePresentationAttrs,
+} from "../../scope/index.ts";
 import type { useScout } from "../../scout/Provider.tsx";
 import { SessionRefScreen } from "./SessionRefScreen.tsx";
 import { SessionsScreen } from "./SessionsScreen.tsx";
@@ -17,5 +24,16 @@ export function SessionsContent({ route, navigate }: { route: Route; navigate: N
       />
     )
     : <SessionsScreen navigate={navigate} />;
-  return <div className="scout-scope-route" {...scopeAttrs}>{body}</div>;
+  const { pathname } = useLocation();
+  const scopeOwned = routeBelongsInScopeNamespace(route, pathname);
+  const scopeView = scopeViewSegment(route, pathname);
+  return (
+    <div
+      className={scopeOwned ? "scope-sessions-route" : undefined}
+      data-scope-view={scopeView ?? undefined}
+      {...scopeAttrs}
+    >
+      {body}
+    </div>
+  );
 }

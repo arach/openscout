@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useLocation, useRouter as useTanStackRouter } from "@tanstack/react-router";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
-  canonicalizeScopePathname,
   parseScopeRouteFromUrl,
   preserveLocationSearch,
   scopeRoutePath,
@@ -20,6 +20,14 @@ import type {
 } from "./types.ts";
 
 /* ── URL ↔ Route mapping ── */
+
+const APP_URL_BASE = typeof window !== "undefined" ? window.location.href : "http://scout.local/";
+
+/** TanStack location.href is often path-only; resolve against the active document. */
+function resolveAppUrl(hrefOrPath: string | URL): URL {
+  const value = hrefOrPath.toString();
+  return new URL(value, APP_URL_BASE);
+}
 
 function parseAgentTab(value: string | null): AgentTab | undefined {
   switch (value) {
@@ -216,10 +224,12 @@ function routeScopeKey(route: Route): string {
 }
 
 export function routeFromUrl(urlLike: string | URL): Route {
-  const url = new URL(urlLike.toString());
+  const url = resolveAppUrl(urlLike);
   const parts = url.pathname.replace(/^\/+/, "").split("/").filter(Boolean);
   const machineId = parseMachineId(url);
   const scoped = <T extends Route>(route: T): T => withMachineScope(route, machineId);
+  const scopeRoute = parseScopeRouteFromUrl(parts, url, scoped);
+  if (scopeRoute) return scopeRoute;
   const composeMode =
     url.searchParams.get("compose") === "ask" ? "ask" : undefined;
   const messageHashId = hashMessageId(url.hash);
@@ -540,8 +550,6 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(!parts[1] && terminalSurfaceKey ? { terminalSurfaceKey } : {}),
     };
   }
-  const scopeRoute = parseScopeRouteFromUrl(parts, url, scoped);
-  if (scopeRoute) return scopeRoute;
   if (parts[0] === "ops") {
     const mode = parseOpsMode(parts[1]) ?? "mission";
     if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
@@ -572,37 +580,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
   return scoped({ view: "inbox" });
 }
 
-function readRouteFromLocation(): Route {
-  const scopeCanonicalPathname = canonicalizeScopePathname(window.location.pathname);
-  if (scopeCanonicalPathname !== window.location.pathname) {
-    window.history.replaceState(
-      null,
-      "",
-      `${scopeCanonicalPathname}${window.location.search}${window.location.hash}`,
-    );
-  }
-  const raw = routeFromUrl(window.location.href);
-  const normalized = normalizeRoute(raw);
-  const canonicalBase = routePath(normalized);
-  const canonicalPath = preserveLocationSearch(canonicalBase, window.location.search);
-  const currentPath = `${window.location.pathname}${window.location.search}`;
-  const shouldCanonicalize =
-    routeKey(raw) !== routeKey(normalized)
-    || raw.view === "agents"
-    || normalized.view === "agents-v2"
-    || currentPath !== canonicalPath;
-  if (shouldCanonicalize && currentPath !== canonicalPath) {
-    window.history.replaceState(null, "", `${canonicalPath}${window.location.hash}`);
-  }
-  return normalized;
-}
-
-function routeFromPath(): Route {
-  return readRouteFromLocation();
-}
-
-export function routePath(r: Route): string {
-  const scopePath = scopeRoutePath(r);
+export function routePath(r: Route, pathname?: string): string {
+  const scopePath = scopeRoutePath(r, pathname);
   if (scopePath) return scopePath;
 
   switch (r.view) {
@@ -848,21 +827,51 @@ function routeKey(r: Route): string {
 
 /* ── Router hook ── */
 
+function routeFromLocation(pathname: string, searchStr: string): Route {
+  return normalizeRoute(routeFromUrl(`${pathname}${searchStr}`));
+}
+
+function locationHashSuffix(hash: string): string {
+  return hash ? `#${hash}` : "";
+}
+
+function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
+  const routeUrl = `${pathname}${searchStr}`;
+  const raw = routeFromUrl(routeUrl);
+  const normalized = normalizeRoute(raw);
+  const canonicalPath = preserveLocationSearch(routePath(normalized, pathname), searchStr);
+  const shouldCanonicalize =
+    routeKey(raw) !== routeKey(normalized)
+    || raw.view === "agents"
+    || normalized.view === "agents-v2"
+    || routeUrl !== canonicalPath;
+  if (!shouldCanonicalize || routeUrl === canonicalPath) return null;
+  return `${canonicalPath}${locationHashSuffix(hash)}`;
+}
+
 export function useRouter() {
-  const [route, setRouteState] = useState<Route>(readRouteFromLocation);
+  const tanstackRouter = useTanStackRouter();
+  const { pathname, searchStr, hash } = useLocation();
+  const routeUrl = `${pathname}${searchStr}`;
+  const route = useMemo(() => routeFromLocation(pathname, searchStr), [pathname, searchStr]);
   const scrollMap = useRef<Record<string, number>>({});
+  const prevRouteUrl = useRef(routeUrl);
 
   useEffect(() => {
-    const onPop = () => {
-      const r = routeFromPath();
-      setRouteState(r);
-      requestAnimationFrame(() => {
-        window.scrollTo(0, scrollMap.current[routeKey(r)] ?? 0);
-      });
-    };
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, []);
+    const canonicalHref = canonicalHrefForRoute(pathname, searchStr, hash);
+    if (canonicalHref) {
+      void tanstackRouter.navigate({ href: canonicalHref, replace: true });
+    }
+  }, [pathname, searchStr, hash, tanstackRouter]);
+
+  useEffect(() => {
+    if (prevRouteUrl.current === routeUrl) return;
+    const r = routeFromLocation(pathname, searchStr);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollMap.current[routeKey(r)] ?? 0);
+    });
+    prevRouteUrl.current = routeUrl;
+  }, [routeUrl, pathname, searchStr]);
 
   const navigate = useCallback((r: Route) => {
     const requestedRoute: Route = normalizeRoute(
@@ -870,15 +879,15 @@ export function useRouter() {
         ? { view: "inbox" }
         : r,
     );
-    const currentRoute = routeFromPath();
+    const currentRoute = routeFromLocation(pathname, searchStr);
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
-    window.history.pushState(null, "", routePath(nextRoute));
-    setRouteState(nextRoute);
+    const canonicalPath = preserveLocationSearch(routePath(nextRoute, pathname), searchStr);
+    void tanstackRouter.navigate({ href: `${canonicalPath}${locationHashSuffix(hash)}` });
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });
-  }, []);
+  }, [pathname, searchStr, hash, tanstackRouter]);
 
   return { route, navigate };
 }

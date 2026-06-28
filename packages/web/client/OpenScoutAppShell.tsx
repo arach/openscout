@@ -268,6 +268,7 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
   }, []);
 
   const { active: scopePresentation, brandLabel: scopeBrandLabel } = useScopeShellChrome({
+    route,
     setLeftCollapsed,
     setRightCollapsed,
   });

@@ -17,7 +17,9 @@ import {
 } from "../../lib/time.ts";
 import { useTailEvents } from "../../lib/tail-events.ts";
 import { openContent } from "../../scout/slots/openContent.ts";
+import { useLocation } from "@tanstack/react-router";
 import { useScout } from "../../scout/Provider.tsx";
+import { routeBelongsInScopeNamespace } from "../../scope/index.ts";
 import { AgentsSubnav } from "../agents/AgentsSubnav.tsx";
 import type {
   Route,
@@ -256,6 +258,8 @@ function buildRows(
 
 export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   const { route } = useScout();
+  const { pathname } = useLocation();
+  const scopeOwned = routeBelongsInScopeNamespace(route, pathname);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [events, setEvents] = useState<TailEvent[]>([]);
   const [query, setQuery] = useState("");
@@ -379,19 +383,18 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
   }, [filtered, selectedIdx, openSelected]);
 
   const visibleRows = error ? [] : filtered;
+  const activeCount = useMemo(
+    () => rows.filter((row) => row.status === "run").length,
+    [rows],
+  );
   const rowId = useCallback((row: RawSessionRow) => `${row.source}:${row.transcriptPath}`, []);
   const indexById = useMemo(
     () => new Map(filtered.map((row, index) => [rowId(row), index])),
     [filtered, rowId],
   );
 
-  return (
-    <div className="s-secondary-nav-shell">
-      <div className="s-secondary-nav-bar">
-        <AgentsSubnav activeRoute={route} navigate={navigate} />
-      </div>
-      <div className="s-secondary-nav-body">
-        <div className="s-atop s-atop--sessions">
+  const sessionsTable = (
+    <div className={`s-atop s-atop--sessions${scopeOwned ? " scope-sessions__atop" : ""}`}>
       <div className="s-atop-fbar">
         <label className="s-atop-search">
           <span className="s-atop-search-prompt">/</span>
@@ -466,7 +469,37 @@ export function SessionsScreen({ navigate }: { navigate: (r: Route) => void }) {
           <strong>{filtered.length}</strong> sessions
         </span>
       </div>
+    </div>
+  );
+
+  if (scopeOwned) {
+    return (
+      <div className="scope-sessions">
+        <header className="scope-sessions__bar">
+          <div className="scope-sessions__summary">
+            <span className="scope-sessions__count">
+              {rows.length} session{rows.length === 1 ? "" : "s"}
+            </span>
+            {activeCount > 0 ? (
+              <span className="scope-sessions__live">{activeCount} active</span>
+            ) : null}
+            {error ? <span className="scope-sessions__warn">discovery error</span> : null}
+          </div>
+        </header>
+        <div className="scope-sessions__body">
+          {sessionsTable}
         </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="s-secondary-nav-shell">
+      <div className="s-secondary-nav-bar">
+        <AgentsSubnav activeRoute={route} navigate={navigate} />
+      </div>
+      <div className="s-secondary-nav-body">
+        {sessionsTable}
       </div>
     </div>
   );

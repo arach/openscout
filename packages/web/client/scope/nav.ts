@@ -1,5 +1,5 @@
 import type { Route } from "../lib/types.ts";
-import { SCOPE_ROUTE_SEGMENTS } from "../../shared/scope-integration.js";
+import { SCOPE_BRAND_LABEL, SCOPE_ROUTE_SEGMENTS } from "../../shared/scope-integration.js";
 import type { TopNavItem, TopNavKey } from "../scout/topNavConfig.ts";
 import { routeToScopeSegment, segmentToRoute, type ScopeRouteSegment } from "./paths.ts";
 
@@ -21,5 +21,12 @@ export const SCOPE_TOP_NAV_ITEMS: TopNavItem[] = SCOPE_NAV_REGISTRY.map((entry) 
 }));
 
 export function scopeTopNavKeyForRoute(route: Route): TopNavKey {
-  return routeToScopeSegment(route) ?? "lanes";
+  const segment = routeToScopeSegment(route);
+  return SCOPE_NAV_REGISTRY.find((entry) => entry.segment === segment)?.key ?? "lanes";
+}
+
+/** Active Scope section label derived from the route→segment mapping. */
+export function scopePresentationTitle(route: Route): string {
+  const segment = routeToScopeSegment(route);
+  return SCOPE_NAV_REGISTRY.find((entry) => entry.segment === segment)?.label ?? SCOPE_BRAND_LABEL;
 }
