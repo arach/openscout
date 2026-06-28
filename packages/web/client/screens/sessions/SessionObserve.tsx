@@ -45,6 +45,7 @@ import {
   laneTraceWindowStats,
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
+import { buildLaneAskDisplay } from "../../lib/lane-ask-display.ts";
 import { api } from "../../lib/api.ts";
 import {
   formatClockTimestamp,
@@ -956,30 +957,34 @@ function ToolBlock({
 }
 
 function AskLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
-  const toLabel = event.to === "human" ? "you" : event.to ?? "?";
-  const copyText = event.answer
-    ? `${event.text}\n\n↳ ${event.to ?? "you"}: ${event.answer}`
-    : event.text ?? "";
-  const answerDelay = Math.max(0, (event.answerT ?? event.t) - event.t);
+  const ask = buildLaneAskDisplay(event);
+  const previewText = ask.preview === ask.title ? "" : ask.preview;
   return (
     <div className={`s-observe-ask s-observe-block${laneMode ? " s-observe-ask--lane" : ""}`}>
-      <div className="s-observe-ask-label">↗ ask → {toLabel}</div>
-      <LaneExpandableText
-        text={event.text ?? ""}
-        className="s-observe-ask-text"
-        laneMode={laneMode}
-        live={event.live}
-        renderExpanded={(value) => <span className="s-observe-quoted">{value}</span>}
-      />
-      {event.answer && (!laneMode || laneTextNeedsExpand(event.answer)) && (
+      <div className="s-observe-ask-label">{ask.label}</div>
+      <div className="s-observe-ask-title">{ask.title}</div>
+      {previewText ? (
+        <LaneExpandableText
+          text={previewText}
+          className="s-observe-ask-text"
+          laneMode={laneMode}
+          live={event.live}
+          renderExpanded={(value) => laneMode
+            ? value
+            : <MessageMarkup text={value} />}
+        />
+      ) : event.live ? (
+        <span className="s-observe-cursor" />
+      ) : null}
+      {ask.answer && (!laneMode || laneTextNeedsExpand(ask.answer.text)) && (
         <div className="s-observe-ask-answer">
           <span className="s-observe-ask-answer-meta">
-            ↳ @{event.to ?? "you"} · answered after {fmtGap(answerDelay)}
+            ↳ {ask.answer.label}
           </span>
-          <div className="s-observe-ask-answer-text">{event.answer}</div>
+          <div className="s-observe-ask-answer-text">{ask.answer.text}</div>
         </div>
       )}
-      {!laneMode && <CopyButton text={copyText} label="Copy ask" />}
+      {!laneMode && <CopyButton text={ask.copyText} label="Copy ask" />}
     </div>
   );
 }

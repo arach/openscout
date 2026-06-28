@@ -2055,6 +2055,53 @@
   text-shadow: 0 1px 0 color-mix(in srgb, var(--bg) 40%, transparent);
 }
 
+.s-lane-trace-focus--ask {
+  border-bottom-color: color-mix(in srgb, var(--amber, #d6a646) 24%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--amber, #d6a646) 13%, var(--surface, oklch(0.18 0.009 80))),
+      color-mix(in srgb, var(--amber, #d6a646) 4%, var(--surface, oklch(0.18 0.009 80)))
+    );
+  box-shadow: inset 4px 0 0 var(--amber, #d6a646);
+}
+
+.s-lane-trace-focus--ask .s-lane-trace-focus-eyebrow {
+  color: color-mix(in srgb, var(--amber, #d6a646) 74%, var(--ink));
+}
+
+.s-lane-trace-focus--ask .s-lane-trace-focus-eyebrow-dot {
+  background: var(--amber, #d6a646);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber, #d6a646) 22%, transparent);
+}
+
+.s-lane-trace-focus--ask .s-lane-trace-focus-cmd {
+  font-family: var(--font-sans);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  line-height: 1.28;
+}
+
+.s-lane-trace-focus-ask-preview {
+  margin-top: var(--space-sm);
+  max-width: 68ch;
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--ink) 76%, var(--muted));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.s-lane-trace-focus--ask .s-lane-trace-focus-section--primary .s-lane-trace-focus-section-title {
+  color: color-mix(in srgb, var(--amber, #d6a646) 68%, var(--ink));
+}
+
+.s-lane-trace-focus--ask .s-lane-trace-focus-section--primary .s-lane-trace-focus-section-body {
+  border-color: color-mix(in srgb, var(--amber, #d6a646) 30%, transparent);
+  max-height: min(56vh, 520px);
+}
+
 .s-lane-trace-focus-copy {
   flex: none;
   padding: var(--space-2xs) var(--space-sm);

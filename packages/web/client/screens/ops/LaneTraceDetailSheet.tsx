@@ -46,6 +46,7 @@ export function LaneTraceDetailSheet({
   const eventWallMs = observeEventWallMs(event, sessionStartMs);
   const eventWallLabel = eventWallMs != null ? fmtLaneAgeLabel(eventWallMs, lastActiveAt) : undefined;
   const eventWallTitle = eventWallMs != null ? fmtLaneAgeTitle(eventWallMs) : undefined;
+  const inlineFocus = event.kind === "tool" || event.kind === "ask" ? event : undefined;
 
   return (
     <SlidePanel
@@ -97,10 +98,10 @@ export function LaneTraceDetailSheet({
           variant="default"
           initialCursorT={event.t}
           focusEventId={event.id}
-          inlineFocusEventId={event.kind === "tool" ? event.id : undefined}
-          inlineFocusContent={event.kind === "tool" ? (
+          inlineFocusEventId={inlineFocus?.id}
+          inlineFocusContent={inlineFocus ? (
             <LaneTraceEventFocus
-              event={event}
+              event={inlineFocus}
               wallLabel={eventWallLabel}
               wallTitle={eventWallTitle}
               variant="inline"

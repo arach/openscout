@@ -38,6 +38,10 @@ export function ScopeLaneDetailView({
   const eventWallMs = focusEvent ? observeEventWallMs(focusEvent, sessionStartMs) : null;
   const eventWallLabel = eventWallMs != null ? fmtLaneAgeLabel(eventWallMs, lastActiveAt) : undefined;
   const eventWallTitle = eventWallMs != null ? fmtLaneAgeTitle(eventWallMs) : undefined;
+  const inlineFocus =
+    focusEvent?.kind === "tool" || focusEvent?.kind === "ask"
+      ? focusEvent
+      : undefined;
 
   return (
     <div className="scope-lane-detail">
@@ -98,10 +102,10 @@ export function ScopeLaneDetailView({
           surface="scope"
           initialCursorT={focusEvent?.t}
           focusEventId={focusEvent?.id}
-          inlineFocusEventId={focusEvent?.kind === "tool" ? focusEvent.id : undefined}
-          inlineFocusContent={focusEvent?.kind === "tool" ? (
+          inlineFocusEventId={inlineFocus?.id}
+          inlineFocusContent={inlineFocus ? (
             <LaneTraceEventFocus
-              event={focusEvent}
+              event={inlineFocus}
               wallLabel={eventWallLabel}
               wallTitle={eventWallTitle}
               variant="inline"

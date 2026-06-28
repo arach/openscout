@@ -230,7 +230,7 @@ describe("BrokerRepoTailService", () => {
 
     expect(harness.liveLimit).toBe(2);
     expect(harness.transcriptRequest).toEqual({
-      limit: 2,
+      limit: 800,
       perTranscriptLineLimit: 50,
     });
     expect(payload).toEqual({
