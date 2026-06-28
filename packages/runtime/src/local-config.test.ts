@@ -115,8 +115,8 @@ describe("local web hostnames", () => {
   });
 
   test("defaults the Scout node host from the machine hostname", () => {
-    expect(resolveConfiguredScoutWebHostname({ version: 1 }, "Arachs-Mac-mini.local")).toBe(
-      "arachs-mac-mini.scout.local",
+    expect(resolveConfiguredScoutWebHostname({ version: 1 }, "Workstation-Mini.local")).toBe(
+      "workstation-mini.scout.local",
     );
   });
 

@@ -58,7 +58,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         {},
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
         { webLocalName: "m1.scout.local" },
       ),
     ).toEqual({
@@ -74,7 +74,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         { OPENSCOUT_WEB_LOCAL_NAME: "m1" },
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
       ).advertisedHost,
     ).toBe("m1.scout.local");
   });
@@ -83,13 +83,13 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         {},
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
         {},
       ),
     ).toMatchObject({
-      advertisedHost: "arachs-mac-mini.scout.local",
+      advertisedHost: "workstation-mini.scout.local",
       portalHost: "scout.local",
-      trustedHosts: ["arachs-mac-mini.scout.local", "scout.local", "dev.scout.local"],
+      trustedHosts: ["workstation-mini.scout.local", "scout.local", "dev.scout.local"],
     });
   });
 
