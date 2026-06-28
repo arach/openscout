@@ -21,6 +21,7 @@ import {
   scoutFlagInitialLayers,
   scoutFlags,
 } from "./lib/scout-flags.ts";
+import { useScopeShellChrome } from "./scope/index.ts";
 import { type ScoutStatusBarState, useScoutStatusBarState } from "./scout/hooks.ts";
 import { resolveCaptureRouteContext } from "./lib/media-route.ts";
 import { useScout } from "./scout/Provider.tsx";
@@ -265,6 +266,12 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+
+  const { active: scopePresentation, brandLabel: scopeBrandLabel } = useScopeShellChrome({
+    route,
+    setLeftCollapsed,
+    setRightCollapsed,
+  });
 
   useEffect(() => {
     setLeftWidth((current) => Math.min(sidePanelMaxWidth, Math.max(SIDE_PANEL_MIN_WIDTH, current)));
@@ -638,8 +645,8 @@ function OpenScoutAppShellInner({ app, assistantEnabled }: { app: HudsonApp; ass
           hud={
             <>
               <ScoutNavigationBar
-                title={app.name}
-                search={appSearch ?? undefined}
+                title={scopePresentation ? scopeBrandLabel : app.name}
+                search={scopePresentation ? undefined : (appSearch ?? undefined)}
                 center={appNavCenter}
                 actions={appNavActions}
               />

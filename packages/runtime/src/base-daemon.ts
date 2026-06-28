@@ -208,6 +208,8 @@ function resolveEdgeConfig(): OpenScoutLocalEdgeConfig {
     scheme: resolveEdgeScheme(),
     brokerPort: config.brokerPort,
     webPort: Number.parseInt(process.env.OPENSCOUT_WEB_PORT ?? "", 10) || resolveWebPort(),
+    viteDevUrl: process.env.OPENSCOUT_WEB_VITE_URL,
+    viteHmrPath: process.env.OPENSCOUT_WEB_VITE_HMR_PATH,
     extraHosts: [
       ...splitCsv(process.env.OPENSCOUT_WEB_TRUSTED_HOSTS),
       ...resolveTailnetWebHosts(),

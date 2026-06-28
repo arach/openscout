@@ -10,9 +10,9 @@ import {
   pinSessionLane,
   removeSessionPin,
   saveLaneDeck,
+  setDefaultLaneWidth,
   setLaneWidthOverride,
   type AgentLaneWidthTier,
-  type LaneDeckProfileId,
   type LaneDeckState,
   type LaneDeckZone,
 } from "./lane-deck.ts";
@@ -20,7 +20,7 @@ import { resolveLaneDeckLayout, type LaneDeckLayout } from "./lane-deck-layout.t
 import { lanePrimaryLabel, type AgentLane } from "./agent-lanes-model.ts";
 
 export function useLaneDeck(
-  profileId: LaneDeckProfileId,
+  profileId: string,
   defaultWidthTier: AgentLaneWidthTier,
   autoLanes: AgentLane[],
 ): {
@@ -29,13 +29,16 @@ export function useLaneDeck(
   pinLane: (lane: AgentLane, zone?: LaneDeckZone) => void;
   unpinLane: (laneId: string) => void;
   setLaneWidth: (laneId: string, width: AgentLaneWidthTier | number) => void;
+  setDefaultLaneWidth: (width: AgentLaneWidthTier) => void;
   addHarnessLane: (harness: string, title?: string) => void;
   addAttentionLane: () => void;
   clearPins: () => void;
   isPinned: (laneId: string) => boolean;
   pinnedZone: (laneId: string) => LaneDeckZone | null;
 } {
-  const [deck, setDeck] = useState<LaneDeckState>(() => loadLaneDeck(profileId, defaultWidthTier));
+  const [deck, setDeck] = useState<LaneDeckState>(() =>
+    loadLaneDeck(profileId, defaultWidthTier),
+  );
 
   useEffect(() => {
     setDeck(loadLaneDeck(profileId, defaultWidthTier));
@@ -66,6 +69,10 @@ export function useLaneDeck(
 
   const setLaneWidth = useCallback((laneId: string, width: AgentLaneWidthTier | number) => {
     persist(setLaneWidthOverride(deck, laneId, width));
+  }, [deck, persist]);
+
+  const setDefaultLaneWidthTier = useCallback((width: AgentLaneWidthTier) => {
+    persist(setDefaultLaneWidth(deck, width));
   }, [deck, persist]);
 
   const addHarnessLane = useCallback((harness: string, title?: string) => {
@@ -100,6 +107,7 @@ export function useLaneDeck(
     pinLane,
     unpinLane,
     setLaneWidth,
+    setDefaultLaneWidth: setDefaultLaneWidthTier,
     addHarnessLane,
     addAttentionLane,
     clearPins,
@@ -108,7 +116,10 @@ export function useLaneDeck(
   };
 }
 
-export function ensureLaneDeck(profileId: LaneDeckProfileId, defaultWidthTier: AgentLaneWidthTier): LaneDeckState {
+export function ensureLaneDeck(
+  profileId: string,
+  defaultWidthTier: AgentLaneWidthTier,
+): LaneDeckState {
   const deck = loadLaneDeck(profileId, defaultWidthTier);
   if (deck.profileId === profileId) return deck;
   return createDefaultLaneDeck(profileId, defaultWidthTier);

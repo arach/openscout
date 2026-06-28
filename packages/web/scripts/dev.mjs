@@ -533,10 +533,13 @@ function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }) {
           + `    rewrite * /v1/web/status\n`
           + `    reverse_proxy ${brokerUpstream}\n`
           + `  }\n`
+          + `  handle /ws/hmr* {\n`
+          + `    reverse_proxy ${upstream}\n`
+          + `  }\n`
           + `  handle {\n`
           + `    reverse_proxy ${upstream} {\n`
-          + `      lb_try_duration 1s\n`
-          + `      lb_try_interval 250ms\n`
+          + `      lb_try_duration 15s\n`
+          + `      lb_try_interval 500ms\n`
           + `    }\n`
           + `  }\n`
           + `  handle_errors {\n`
@@ -566,10 +569,26 @@ function spawnMdnsProxy({ name, host, port, scheme }) {
   });
 }
 
-function spawnLocalEdge({ caddyBin, portalHost, advertisedHost, scheme, upstream, brokerUrl }) {
+function spawnLocalEdge({
+  caddyBin,
+  portalHost,
+  advertisedHost,
+  scheme,
+  upstream,
+  brokerUrl,
+}) {
   mkdirSync(resolveDevLocalEdgeRoot(), { recursive: true });
   const caddyfilePath = resolve(resolveDevLocalEdgeRoot(), "dev-Caddyfile");
-  writeFileSync(caddyfilePath, renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }), "utf8");
+  writeFileSync(
+    caddyfilePath,
+    renderDevCaddyfile({
+      portalHost,
+      scheme,
+      upstream,
+      brokerUrl,
+    }),
+    "utf8",
+  );
 
   const mdns = edgeSchemes(scheme).flatMap((currentScheme) => {
     const edgePort = currentScheme === "https" ? 443 : 80;

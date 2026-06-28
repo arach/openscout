@@ -5,7 +5,13 @@ import { SessionsScreen } from "./SessionsScreen.tsx";
 
 type Navigate = ReturnType<typeof useScout>["navigate"];
 
-export function SessionsContent({ route, navigate }: { route: Route; navigate: Navigate }) {
+export function SessionsContent({
+  route,
+  navigate,
+}: {
+  route: Route;
+  navigate: Navigate;
+}) {
   if (route.view !== "sessions") return null;
   if (route.sessionId) {
     return (

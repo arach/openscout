@@ -8,9 +8,74 @@ const React = (await import("../../node_modules/react/index.js")) as typeof Reac
 
 mock.module("react", () => React);
 
+const {
+  buildScopePath,
+  preserveLocationSearch,
+  SCOPE_PATH_PREFIX,
+  SCOPE_ROUTE_SEGMENTS,
+} = await import("../scope/paths.ts");
 const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
 const { normalizeRoute } = await import("./synthetic-agent-routing.ts");
 const { resolveRoutedSessionId, resolveSelectedSessionId, sortSessionsByRecency } = await import("./session-catalog.ts");
+
+describe("scope route parsing", () => {
+  const origin = "http://127.0.0.1:43120";
+
+  test("scope lanes routes map to ops lanes", () => {
+    expect(routeFromUrl(`${origin}${SCOPE_PATH_PREFIX}`)).toEqual({
+      view: "ops",
+      mode: "lanes",
+    });
+    expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.lanes)}`)).toEqual({
+      view: "ops",
+      mode: "lanes",
+    });
+  });
+
+  test("legacy scout-prefixed routes still parse", () => {
+    expect(routeFromUrl(`${origin}/scout/sessions/sess-legacy`)).toEqual({
+      view: "sessions",
+      sessionId: "sess-legacy",
+    });
+  });
+
+  test("scope tail and sessions routes round-trip", () => {
+    const tailRoute = routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.tail, { tailQuery: "codex" })}`);
+    expect(tailRoute).toEqual({
+      view: "ops",
+      mode: "tail",
+      tailQuery: "codex",
+    });
+
+    expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.sessions)}`)).toEqual({
+      view: "sessions",
+    });
+
+    expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.sessions, { sessionId: "sess-1" })}`)).toEqual({
+      view: "sessions",
+      sessionId: "sess-1",
+    });
+  });
+
+  test("scope agents maps to the agents directory", () => {
+    expect(routeFromUrl(`${origin}${buildScopePath(SCOPE_ROUTE_SEGMENTS.agents)}`)).toEqual({
+      view: "agents-v2",
+    });
+  });
+
+  test("preserveLocationSearch keeps query params when rewriting to scope paths", () => {
+    expect(preserveLocationSearch("/scope", "?ffBundle=scope-instrument&layout=grid"))
+      .toBe("/scope?ffBundle=scope-instrument&layout=grid");
+    expect(preserveLocationSearch("/scope/tail?q=codex", "?ffBundle=scope-instrument"))
+      .toBe("/scope/tail?q=codex&ffBundle=scope-instrument");
+  });
+
+  test("sessions route stays under /scope when the browser is in the scope namespace", () => {
+    expect(routePath({ view: "sessions" }, "/scope/lanes")).toBe("/scope/sessions");
+    expect(routePath({ view: "sessions" }, "/scope/sessions")).toBe("/scope/sessions");
+    expect(routePath({ view: "sessions" }, "/sessions")).toBe("/sessions");
+  });
+});
 
 describe("agents route parsing", () => {
   test("conversations routes round-trip", () => {

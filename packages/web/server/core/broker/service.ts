@@ -55,7 +55,11 @@ import {
   type ScoutBrokerChildServiceSnapshots,
   type ScoutBrokerHealthPayload,
 } from "@openscout/runtime/broker-api";
-import { resolveBrokerSocketPathForBaseUrl } from "@openscout/runtime/broker-process-manager";
+import {
+  resolveBrokerServiceConfig,
+  resolveBrokerSocketPathForBaseUrl,
+  resolveScoutBrokerControlUrl,
+} from "@openscout/runtime/broker-process-manager";
 import {
   inferLocalAgentBinding,
   SUPPORTED_LOCAL_AGENT_HARNESSES,
@@ -64,7 +68,7 @@ import {
 } from "@openscout/runtime/local-agents";
 import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
-import { loadLocalConfig, OPENSCOUT_PORTS } from "@openscout/runtime/local-config";
+
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
 import { resolveOperatorName } from "@openscout/runtime/user-config";
 
@@ -304,8 +308,6 @@ type RelayConfig = {
 };
 
 const OPERATOR_ID = "operator";
-const DEFAULT_BROKER_HOST = "127.0.0.1";
-const DEFAULT_BROKER_PORT = OPENSCOUT_PORTS.broker;
 
 const SCOPED_ALIAS_POOL = [
   "Curie",
@@ -326,28 +328,18 @@ const SCOPED_ALIAS_POOL = [
   "Kepler",
 ];
 
-function buildScoutBrokerUrlFromEnv(): string {
-  const internal = process.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();
-  if (internal) {
-    return internal;
-  }
-  const fromEnv = process.env.OPENSCOUT_BROKER_URL?.trim();
-  if (fromEnv) {
-    return fromEnv;
-  }
-  const local = loadLocalConfig();
-  const host = process.env.OPENSCOUT_BROKER_HOST ?? local.host ?? DEFAULT_BROKER_HOST;
-  const portStr = process.env.OPENSCOUT_BROKER_PORT ?? String(local.ports?.broker ?? DEFAULT_BROKER_PORT);
-  const port = Number.parseInt(portStr, 10);
-  return `http://${host}:${port}`;
-}
-
 function relayHubDirectory(): string {
   return resolveOpenScoutSupportPaths().relayHubDirectory;
 }
 
+/** Same-machine broker API base URL (runtime config + unix socket). */
 export function resolveScoutBrokerUrl(): string {
-  return buildScoutBrokerUrlFromEnv();
+  return resolveScoutBrokerControlUrl();
+}
+
+/** Mesh-advertised broker URL for peer discovery display. */
+export function resolveScoutBrokerAdvertiseUrl(): string {
+  return resolveBrokerServiceConfig().brokerUrl;
 }
 
 export function resolveScoutAgentName(agentName?: string | null): string {

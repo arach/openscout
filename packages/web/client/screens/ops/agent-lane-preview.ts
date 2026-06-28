@@ -1,4 +1,5 @@
 import { laneToolArgSnippet } from "../../lib/lane-observe.ts";
+import { laneAskHeadline, laneAskPreview } from "../../lib/lane-ask-display.ts";
 import { splitCdPrefix, tildeShortenPath } from "../../lib/bash-format.ts";
 import { observeToolIsEdit, observeToolIsRead } from "../../lib/tail-display.ts";
 import type { Agent, ObserveData, ObserveEvent, ObserveFile } from "../../lib/types.ts";
@@ -133,7 +134,7 @@ function buildHeadline(event: ObserveEvent, full = false): string {
     case "think":
       return clip(text) || "Thinking";
     case "ask":
-      return clip(text) || `Ask → ${event.to ?? "operator"}`;
+      return full ? laneAskHeadline(event, true) : laneAskHeadline(event);
     case "message":
       return clip(text) || `Message → ${event.to ?? "operator"}`;
     case "note":
@@ -148,6 +149,10 @@ function previewHeadline(event: ObserveEvent): string {
 }
 
 function previewDetail(event: ObserveEvent): string | null {
+  if (event.kind === "ask") {
+    return laneAskPreview(event);
+  }
+
   const text = hasMeaningfulText(event.text) ? event.text!.trim() : null;
   if (text) return text.slice(0, 220);
 

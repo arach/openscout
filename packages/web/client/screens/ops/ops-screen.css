@@ -79,7 +79,8 @@
   flex-direction: column;
 }
 
-.s-ops-body > .s-agent-lanes {
+.s-ops-body > .s-agent-lanes,
+.s-ops-body > .scope-lanes {
   flex: 1;
   min-height: 0;
 }

@@ -207,6 +207,7 @@ mock.module("./core/broker/service.ts", () => ({
     error: "offline",
   }),
   resolveScoutBrokerUrl: () => "http://broker.test",
+  resolveScoutBrokerAdvertiseUrl: () => "http://broker.test",
   retireScoutLocalAgentBinding: async () => false,
   sendScoutMessage: async (input: Record<string, unknown>) => {
     sendScoutMessageCalls.push(input);

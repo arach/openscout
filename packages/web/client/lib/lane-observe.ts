@@ -100,6 +100,9 @@ export function observeEventWallMs(
   return sessionStart + event.t * 1000;
 }
 
+/** Lane trace alias — same wall-clock resolver as observeEventWallMs. */
+export const laneEventWallMs = observeEventWallMs;
+
 export function filterObserveEventsForHorizon(
   events: ObserveEvent[],
   sessionStartMs: number | undefined,
@@ -387,6 +390,9 @@ export function filesFromObserveEvents(events: ObserveEvent[]): ObserveFile[] {
 
   return [...byPath.values()].sort((left, right) => right.lastT - left.lastT);
 }
+
+/** Single-line lane rows — clip here instead of wrapping mid-command. */
+export const LANE_CMD_SNIPPET_MAX = 88;
 
 export function laneToolArgSnippet(arg: string | undefined, max = 96): string {
   const trimmed = arg?.trim();

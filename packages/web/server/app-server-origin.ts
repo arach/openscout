@@ -4,6 +4,7 @@ import {
   DEFAULT_SCOUT_WEB_PORTAL_HOST,
   loadLocalConfig,
   resolveConfiguredScoutWebHostname,
+  resolveScoutWebDevHostname,
   resolveScoutWebNamedHostname,
   type LocalConfig,
 } from "@openscout/runtime/local-config";
@@ -71,6 +72,7 @@ export function resolveOpenScoutWebApplicationServerIdentity(
     trustedHosts: uniq([
       advertisedHost,
       portalHost,
+      resolveScoutWebDevHostname(portalHost),
       publicOriginHost,
       ...tailnetHosts,
       ...splitList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),

@@ -9,7 +9,9 @@ export type TopNavKey =
   | "ops"
   | "tail"
   | "dispatch"
-  | "repos";
+  | "repos"
+  | "lanes"
+  | "sessions";
 
 export type TopNavItem = {
   key: TopNavKey;
@@ -67,8 +69,6 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
 };
 
 export function topNavItems(opsEnabled: boolean, cleanNav = false): TopNavItem[] {
-  // Clean nav is its own fixed layout — the lean core always shows, and there
-  // is no Ops top-level entry (ops.control still governs the Ops subnav/routes).
   if (cleanNav) return CLEAN_TOP_NAV_ITEMS;
   return opsEnabled
     ? TOP_NAV_ITEMS
@@ -97,8 +97,6 @@ export function topNavKeyForRoute(
     case "channels":
       return "chat";
     case "search":
-      // Search is a primary tab only in the full nav; in clean nav it's reached
-      // via the palette and highlights nothing of its own.
       return cleanNav ? "home" : "search";
     case "broker":
       return cleanNav ? "dispatch" : opsEnabled ? "ops" : "home";
@@ -107,8 +105,6 @@ export function topNavKeyForRoute(
     case "harnesses":
       return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "ops":
-      // In clean nav only Tail (ops?mode=tail) has its own primary tab; the
-      // other Ops modes (Control/Runtime/Plans) live under the Tail subnav.
       if (cleanNav) return route.mode === "tail" ? "tail" : "home";
       return opsEnabled ? "ops" : "home";
     case "mesh":

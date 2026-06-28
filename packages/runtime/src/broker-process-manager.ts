@@ -14,7 +14,7 @@ import {
   openScoutNetworkDiscoveryEnabled,
 } from "./open-scout-network.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
-import { OPENSCOUT_PORTS } from "./local-config.js";
+import { OPENSCOUT_PORTS, resolveBrokerControlUrl, resolveBrokerPort } from "./local-config.js";
 import {
   expandHomePath,
   isExecutablePath,
@@ -208,13 +208,25 @@ function normalizeBrokerUrl(value: string): string {
   }
 }
 
+/** Same-machine broker API URL — ~/.openscout/config.json (+ env overlays). */
+export function resolveScoutBrokerControlUrl(
+  _config: BrokerServiceConfig = resolveBrokerServiceConfig(),
+): string {
+  return resolveBrokerControlUrl();
+}
+
 export function resolveBrokerSocketPathForBaseUrl(
   baseUrl: string,
   config: BrokerServiceConfig = resolveBrokerServiceConfig(),
 ): string | null {
-  return normalizeBrokerUrl(baseUrl) === normalizeBrokerUrl(config.brokerUrl)
-    ? config.brokerSocketPath
-    : null;
+  const normalized = normalizeBrokerUrl(baseUrl);
+  if (
+    normalized === normalizeBrokerUrl(config.brokerUrl)
+    || normalized === normalizeBrokerUrl(resolveScoutBrokerControlUrl(config))
+  ) {
+    return config.brokerSocketPath;
+  }
+  return null;
 }
 
 function runtimePackageDir(): string {
@@ -368,7 +380,7 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     : supportPaths.controlHome;
   const advertiseScope = resolveAdvertiseScope();
   const brokerHost = resolveBrokerHost(advertiseScope);
-  const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(DEFAULT_BROKER_PORT), 10);
+  const brokerPort = Number.parseInt(process.env.OPENSCOUT_BROKER_PORT ?? String(resolveBrokerPort()), 10);
   const brokerUrl = resolveBrokerUrl(brokerHost, brokerPort, advertiseScope);
   const brokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH
     ?? buildDefaultBrokerSocketPath(runtimeDirectory);

@@ -25,6 +25,7 @@ import {
 import {
   readScoutBrokerHealth,
   loadScoutBrokerContext,
+  resolveScoutBrokerAdvertiseUrl,
   resolveScoutBrokerUrl,
   type ScoutBrokerHealthState,
   type ScoutBrokerNodeRecord,
@@ -305,10 +306,11 @@ function filterCurrentMeshNodes(
 }
 
 export async function loadMeshStatus(): Promise<MeshStatusReport> {
-  const brokerUrl = resolveScoutBrokerUrl();
+  const controlUrl = resolveScoutBrokerUrl();
+  const advertiseUrl = resolveScoutBrokerAdvertiseUrl();
   const [health, context, tailscale] = await Promise.all([
-    readScoutBrokerHealth(brokerUrl),
-    loadScoutBrokerContext(brokerUrl),
+    readScoutBrokerHealth(controlUrl),
+    loadScoutBrokerContext(controlUrl),
     readTailscaleStatus(),
   ]);
 
@@ -320,7 +322,7 @@ export async function loadMeshStatus(): Promise<MeshStatusReport> {
   const issues = computeIssues(health, localNode, nodes, tailscale);
   const warnings = issues.map(formatIssueWarning);
 
-  return { brokerUrl, health, localNode, meshId, identity, nodes, tailscale, issues, warnings };
+  return { brokerUrl: advertiseUrl, health, localNode, meshId, identity, nodes, tailscale, issues, warnings };
 }
 
 function preferredAnnounceHost(self: TailscaleSelfCandidate | null, currentBrokerUrl: string): string | null {

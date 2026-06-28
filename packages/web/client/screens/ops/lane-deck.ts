@@ -1,13 +1,22 @@
 import type { AgentLaneHorizonKey } from "./agent-lanes-model.ts";
 
-export type LaneDeckProfileId = "web.ops" | "macos.lanes" | "hud.tail" | "web.embed";
+export type LaneDeckProfileId =
+  | "web.ops"
+  | "macos.lanes"
+  | "hud.tail"
+  | "web.embed";
+
+export type LaneDeckProfileDefaults = Pick<
+  LaneDeckState,
+  "defaultLaneWidth" | "showAutoLanes" | "defaultHorizon"
+>;
 
 export type AgentLaneWidthTier = "sm" | "md" | "lg";
 
 export const AGENT_LANE_WIDTH_TIERS: Readonly<Record<AgentLaneWidthTier, number>> = {
-  sm: 304,
-  md: 408,
-  lg: 512,
+  sm: 408,
+  md: 512,
+  lg: 616,
 };
 
 export const AGENT_LANE_WIDTH_MIN = 240;
@@ -37,7 +46,7 @@ export type LaneSlot = {
 
 export type LaneDeckState = {
   version: 1;
-  profileId: LaneDeckProfileId;
+  profileId: string;
   defaultLaneWidth: AgentLaneWidthTier;
   defaultHorizon?: AgentLaneHorizonKey;
   laneWidths: Record<string, AgentLaneWidthTier | number>;
@@ -57,14 +66,19 @@ const LANE_DECK_PROFILE_SET = new Set<LaneDeckProfileId>([
 const LANE_WIDTH_TIER_SET = new Set<AgentLaneWidthTier>(["sm", "md", "lg"]);
 const LANE_ZONE_ORDER: LaneDeckZone[] = ["pinned_left", "main", "pinned_right"];
 
-type ProfileDefaults = Pick<LaneDeckState, "defaultLaneWidth" | "showAutoLanes" | "defaultHorizon">;
-
-const PROFILE_DEFAULTS: Record<LaneDeckProfileId, ProfileDefaults> = {
+const SCOUT_PROFILE_DEFAULTS: Record<LaneDeckProfileId, LaneDeckProfileDefaults> = {
   "web.ops": { defaultLaneWidth: "lg", showAutoLanes: true },
   "macos.lanes": { defaultLaneWidth: "md", showAutoLanes: true },
   "hud.tail": { defaultLaneWidth: "sm", showAutoLanes: false, defaultHorizon: "5m" },
   "web.embed": { defaultLaneWidth: "md", showAutoLanes: true },
 };
+
+const FALLBACK_PROFILE_DEFAULTS: LaneDeckProfileDefaults = SCOUT_PROFILE_DEFAULTS["web.ops"];
+
+function resolveProfileDefaults(profileId: string): LaneDeckProfileDefaults {
+  if (isLaneDeckProfileId(profileId)) return SCOUT_PROFILE_DEFAULTS[profileId];
+  return FALLBACK_PROFILE_DEFAULTS;
+}
 
 const ZONE_RANK: Record<LaneDeckZone, number> = {
   pinned_left: 0,
@@ -76,6 +90,8 @@ export function isLaneDeckProfileId(value: string): value is LaneDeckProfileId {
   return LANE_DECK_PROFILE_SET.has(value as LaneDeckProfileId);
 }
 
+/** Infer deck profile from URL hints (embed, ops paths, ?profile=). Callers with a
+ *  known profile (e.g. instrument lanes) should pass `profileId` explicitly. */
 export function readLaneDeckProfileId(search = window.location.search, pathname = window.location.pathname): LaneDeckProfileId {
   const params = new URLSearchParams(search);
   const rawProfile = params.get("profile")?.trim().toLowerCase();
@@ -86,7 +102,7 @@ export function readLaneDeckProfileId(search = window.location.search, pathname 
   if (embed === "app") return "macos.lanes";
 
   if (pathname.includes("/lanes/embed")) return "web.embed";
-  if (pathname.includes("/ops/lanes") || pathname.endsWith("/lanes")) return "web.ops";
+  if (pathname.includes("/ops/lanes")) return "web.ops";
   return "web.ops";
 }
 
@@ -133,11 +149,12 @@ export function widthTierLabel(width: AgentLaneWidthTier | number | undefined, f
   return tier.toUpperCase();
 }
 
-export function createDefaultLaneDeck(
-  profileId: LaneDeckProfileId,
-  defaultLaneWidth?: AgentLaneWidthTier,
+/** Create a lane deck with explicit defaults — generic primitive for dependents. */
+export function createLaneDeck(
+  profileId: string,
+  defaultLaneWidth: AgentLaneWidthTier | undefined,
+  defaults: LaneDeckProfileDefaults,
 ): LaneDeckState {
-  const defaults = PROFILE_DEFAULTS[profileId];
   return {
     version: 1,
     profileId,
@@ -149,6 +166,14 @@ export function createDefaultLaneDeck(
     showAutoLanes: defaults.showAutoLanes,
     updatedAt: Date.now(),
   };
+}
+
+export function createDefaultLaneDeck(
+  profileId: string,
+  defaultLaneWidth?: AgentLaneWidthTier,
+): LaneDeckState {
+  const defaults = resolveProfileDefaults(profileId);
+  return createLaneDeck(profileId, defaultLaneWidth, defaults);
 }
 
 function normalizeLaneWidth(value: unknown): AgentLaneWidthTier | number | undefined {
@@ -193,10 +218,15 @@ function normalizeLaneSlot(raw: unknown): LaneSlot | null {
   };
 }
 
-function normalizeDeck(raw: unknown, profileId: LaneDeckProfileId, fallbackWidth: AgentLaneWidthTier): LaneDeckState {
-  const defaults = PROFILE_DEFAULTS[profileId];
+/** Deserialize persisted lane-deck JSON with explicit defaults — generic primitive. */
+export function deserializeLaneDeck(
+  raw: unknown,
+  profileId: string,
+  fallbackWidth: AgentLaneWidthTier,
+  defaults: LaneDeckProfileDefaults,
+): LaneDeckState {
   if (!raw || typeof raw !== "object") {
-    return createDefaultLaneDeck(profileId, fallbackWidth);
+    return createLaneDeck(profileId, fallbackWidth, defaults);
   }
   const value = raw as Partial<LaneDeckState>;
   const laneDefs = Array.isArray(value.laneDefs)
@@ -228,8 +258,20 @@ function normalizeDeck(raw: unknown, profileId: LaneDeckProfileId, fallbackWidth
   };
 }
 
-export function loadLaneDeck(profileId: LaneDeckProfileId, fallbackWidth?: AgentLaneWidthTier): LaneDeckState {
-  const widthFallback = fallbackWidth ?? PROFILE_DEFAULTS[profileId].defaultLaneWidth;
+function normalizeDeck(
+  raw: unknown,
+  profileId: string,
+  fallbackWidth: AgentLaneWidthTier,
+): LaneDeckState {
+  return deserializeLaneDeck(raw, profileId, fallbackWidth, resolveProfileDefaults(profileId));
+}
+
+export function loadLaneDeck(
+  profileId: string,
+  fallbackWidth?: AgentLaneWidthTier,
+): LaneDeckState {
+  const defaults = resolveProfileDefaults(profileId);
+  const widthFallback = fallbackWidth ?? defaults.defaultLaneWidth;
   try {
     const raw = localStorage.getItem(`${LANE_DECK_STORAGE_PREFIX}:${profileId}`);
     if (!raw) return createDefaultLaneDeck(profileId, widthFallback);
@@ -422,6 +464,18 @@ export function setLaneWidthOverride(
       ...deck.laneWidths,
       [laneId]: width,
     },
+    updatedAt: Date.now(),
+  };
+}
+
+export function setDefaultLaneWidth(
+  deck: LaneDeckState,
+  width: AgentLaneWidthTier,
+): LaneDeckState {
+  return {
+    ...deck,
+    defaultLaneWidth: width,
+    updatedAt: Date.now(),
   };
 }
 

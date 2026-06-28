@@ -499,6 +499,8 @@ function resolveServerLocalEdgeConfig(env: NodeJS.ProcessEnv): OpenScoutLocalEdg
     nodeHost,
     scheme: resolveServerEdgeScheme(env),
     webPort: port,
+    viteDevUrl: env.OPENSCOUT_WEB_VITE_URL,
+    viteHmrPath: env.OPENSCOUT_WEB_VITE_HMR_PATH,
     extraHosts: splitEnvList(env.OPENSCOUT_WEB_TRUSTED_HOSTS),
   });
 }

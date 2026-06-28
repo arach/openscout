@@ -14,6 +14,7 @@ import {
   topNavItems,
   topNavKeyForRoute,
 } from "./topNavConfig.ts";
+import { renderNavCenter } from "./nav-center.tsx";
 
 export type ScoutStatusBarState = {
   status: { label: string; color: StatusColor };
@@ -299,26 +300,18 @@ export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const cleanNav = useOptionalFlag("nav.clean", false);
-  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
-  const breadcrumb = topNavBreadcrumbForRoute(route);
 
-  return createElement("div", { className: "scout-nav-tabs" },
-    topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
-      createElement("button", {
-        key,
-        className: `scout-nav-tab${activeKey === key ? " active" : ""}`,
-        onClick: () => navigate(tabRoute),
-      }, label),
-    ),
-    breadcrumb && createElement("span", { className: "scout-nav-slash" }, "/"),
-    breadcrumb && createElement("span", { className: "scout-nav-crumb" }, breadcrumb),
-  );
+  return renderNavCenter({
+    items: topNavItems(opsEnabled, cleanNav),
+    activeKey: topNavKeyForRoute(route, opsEnabled, cleanNav),
+    breadcrumb: topNavBreadcrumbForRoute(route),
+    navigate,
+  });
 }
 
 /* ── useNavActions ─────────────────────────────────────────────────────── */
 export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
-  // Lean view puts the machines away — the scope selector is power chrome.
   const cleanNav = useOptionalFlag("nav.clean", false);
   return createElement("div", { className: "scout-nav-actions" },
     !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),

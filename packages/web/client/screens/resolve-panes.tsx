@@ -47,7 +47,11 @@ export function resolveLeftPane(route: Route, navigate: Navigate): ReactNode {
 }
 
 /** Center content for the current route. */
-export function resolveContentPane(route: Route, navigate: Navigate): ReactNode {
+export function resolveContentPane(
+  route: Route,
+  navigate: Navigate,
+  agents: ReturnType<typeof useScout>["agents"] = [],
+): ReactNode {
   switch (route.view) {
     case "conversation":
     case "messages":

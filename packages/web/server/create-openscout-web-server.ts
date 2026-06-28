@@ -120,6 +120,7 @@ import {
   loadSessionRefObservePayload,
 } from "./core/observe/service.ts";
 import {
+  filterTailEventsForDisplay,
   getTailDiscovery,
   refreshTailDiscovery,
   readRecentTranscriptEvents,
@@ -1520,19 +1521,23 @@ async function localTailRecentPayload(
   includeTranscripts: boolean,
 ): Promise<TailRecentPayload> {
   const eventsById = new Map<string, TailEvent>();
-  for (const event of tailRuntime.snapshotRecentEvents(limit)) {
-    eventsById.set(event.id, event);
-  }
 
   if (includeTranscripts) {
     const discovery = await tailRuntime.getTailDiscovery();
-    const transcriptEvents = await tailRuntime.readRecentTranscriptEvents(limit, {
-      discovery,
-      perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
-    });
+    const transcriptBudget = Math.max(limit, 800);
+    const transcriptEvents = filterTailEventsForDisplay(
+      await tailRuntime.readRecentTranscriptEvents(transcriptBudget, {
+        discovery,
+        perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+      }),
+    );
     for (const event of transcriptEvents) {
       eventsById.set(event.id, event);
     }
+  }
+
+  for (const event of filterTailEventsForDisplay(tailRuntime.snapshotRecentEvents(limit))) {
+    eventsById.set(event.id, event);
   }
 
   const events = [...eventsById.values()]

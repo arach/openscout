@@ -20,9 +20,9 @@ export function useLaneWidthResize(onCommit: ResizeCommit) {
   const startRef = useRef<{ laneId: string; x: number; width: number }>({
     laneId: "",
     x: 0,
-    width: 408,
+    width: 512,
   });
-  const latestWidthRef = useRef<number>(408);
+  const latestWidthRef = useRef<number>(512);
 
   const beginResize = useCallback((
     laneId: string,

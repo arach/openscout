@@ -20,7 +20,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local"],
       trustedOrigins: [],
     });
   });
@@ -43,6 +43,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       trustedHosts: [
         "m1.scout.local",
         "scout.local",
+        "dev.scout.local",
         "scout.backup.local",
         "192.168.1.20",
       ],
@@ -57,14 +58,14 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         {},
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
         { webLocalName: "m1.scout.local" },
       ),
     ).toEqual({
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local"],
       trustedOrigins: [],
     });
   });
@@ -73,7 +74,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         { OPENSCOUT_WEB_LOCAL_NAME: "m1" },
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
       ).advertisedHost,
     ).toBe("m1.scout.local");
   });
@@ -82,13 +83,13 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     expect(
       resolveOpenScoutWebApplicationServerIdentity(
         {},
-        "Arachs-Mac-mini.local",
+        "Workstation-Mini.local",
         {},
       ),
     ).toMatchObject({
-      advertisedHost: "arachs-mac-mini.scout.local",
+      advertisedHost: "workstation-mini.scout.local",
       portalHost: "scout.local",
-      trustedHosts: ["arachs-mac-mini.scout.local", "scout.local"],
+      trustedHosts: ["workstation-mini.scout.local", "scout.local", "dev.scout.local"],
     });
   });
 
@@ -120,6 +121,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
         trustedHosts: [
           "m1.scout.local",
           "scout.local",
+          "dev.scout.local",
           "m1.tailnet.ts.net",
           "100.64.0.10",
         ],

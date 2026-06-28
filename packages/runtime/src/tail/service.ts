@@ -673,6 +673,67 @@ async function readRecentTranscriptLines(
   }
 }
 
+function rememberTranscriptEvent(
+  events: TailEvent[],
+  seenEvents: Set<string>,
+  event: TailEvent,
+  dedupeKey?: string,
+): void {
+  const compacted = compactEvent(event);
+  const key = dedupeKey ?? compacted.id;
+  if (seenEvents.has(key)) return;
+  seenEvents.add(key);
+  events.push(compacted);
+}
+
+async function appendWatcherTranscriptEvents(
+  events: TailEvent[],
+  seenEvents: Set<string>,
+  watcher: Watcher,
+  perTranscriptLineLimit?: number,
+): Promise<void> {
+  const { source, transcript, process, transcriptPath } = watcher;
+  if (source.parseFile) {
+    const text = await readTranscriptText(transcriptPath);
+    if (!text) return;
+    const parsed = parsedEventsToArray(source.parseFile(text, {
+      process,
+      transcript,
+      transcriptPath,
+      lineOffset: 0,
+      state: {},
+    }));
+    for (const event of parsed) {
+      rememberTranscriptEvent(events, seenEvents, event);
+    }
+    return;
+  }
+
+  const lines = await readRecentTranscriptLines(
+    transcriptPath,
+    perTranscriptLineLimit,
+  );
+  const parseState: Record<string, unknown> = {};
+  lines.forEach((line, index) => {
+    const event = source.parseLine(line, {
+      process,
+      transcript,
+      transcriptPath,
+      lineOffset: index,
+      state: parseState,
+    });
+    if (!event) return;
+    const compacted = compactEvent(event);
+    const eventKey = [
+      compacted.source,
+      compacted.sessionId,
+      compacted.kind,
+      compacted.summary,
+    ].join("\u0000");
+    rememberTranscriptEvent(events, seenEvents, event, eventKey);
+  });
+}
+
 export async function readRecentTranscriptEvents(
   limit = 50,
   options?: {
@@ -691,60 +752,38 @@ export async function readRecentTranscriptEvents(
   }
   const events: TailEvent[] = [];
   const seenEvents = new Set<string>();
+  const seenTranscriptPaths = new Set<string>();
 
   const transcriptReadLimit = Math.min(RECENT_TRANSCRIPT_MAX_FILES, Math.max(12, limit));
+  const lineLimit = options?.perTranscriptLineLimit ?? RECENT_TRANSCRIPT_LINES_PER_FILE;
   const activeWatchers = [...watchers.values()]
     .sort((left, right) => right.transcript.mtimeMs - left.transcript.mtimeMs)
     .slice(0, transcriptReadLimit);
 
   for (const watcher of activeWatchers) {
-    const { source, transcript, process, transcriptPath } = watcher;
-    if (source.parseFile) {
-      const text = await readTranscriptText(transcriptPath);
-      if (!text) continue;
-      const parsed = parsedEventsToArray(source.parseFile(text, {
-        process,
+    seenTranscriptPaths.add(watcher.transcriptPath);
+    await appendWatcherTranscriptEvents(events, seenEvents, watcher, lineLimit);
+  }
+
+  // Replay discovered transcripts that are not actively watched — Claude/Codex
+  // archives often have no live watcher while Grok floods the firehose buffer.
+  if (options?.discovery?.transcripts?.length) {
+    const discoveryTranscripts = [...options.discovery.transcripts]
+      .filter((transcript) => !seenTranscriptPaths.has(transcript.transcriptPath))
+      .sort((left, right) => right.mtimeMs - left.mtimeMs)
+      .slice(0, transcriptReadLimit);
+
+    for (const transcript of discoveryTranscripts) {
+      const parsed = await parseTranscriptSessionEvents(
         transcript,
-        transcriptPath,
-        lineOffset: 0,
-        state: {},
-      }));
+        options.discovery.processes,
+        lineLimit,
+      );
       for (const event of parsed) {
-        const compacted = compactEvent(event);
-        if (!seenEvents.has(compacted.id)) {
-          seenEvents.add(compacted.id);
-          events.push(compacted);
-        }
+        rememberTranscriptEvent(events, seenEvents, event);
       }
-      continue;
+      seenTranscriptPaths.add(transcript.transcriptPath);
     }
-    const lines = await readRecentTranscriptLines(
-      transcriptPath,
-      options?.perTranscriptLineLimit,
-    );
-    const parseState: Record<string, unknown> = {};
-    lines.forEach((line, index) => {
-      const event = source.parseLine(line, {
-        process,
-        transcript,
-        transcriptPath,
-        lineOffset: index,
-        state: parseState,
-      });
-      if (event) {
-        const compacted = compactEvent(event);
-        const eventKey = [
-          compacted.source,
-          compacted.sessionId,
-          compacted.kind,
-          compacted.summary,
-        ].join("\u0000");
-        if (!seenEvents.has(eventKey)) {
-          seenEvents.add(eventKey);
-          events.push(compacted);
-        }
-      }
-    });
   }
 
   return events

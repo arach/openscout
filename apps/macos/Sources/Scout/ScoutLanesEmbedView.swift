@@ -10,7 +10,7 @@ private enum ScoutLanesMetrics {
 }
 
 /// Lane column width tier — sm / md / lg maps to the web embed's
-/// `--agent-lane-width` (304 / 408 / 512 px).
+/// `--agent-lane-width` (408 / 512 / 616 px).
 enum ScoutAgentLaneSize: String, CaseIterable, Identifiable {
     static let storageKey = "scout.lanes.size.v1"
 
@@ -24,9 +24,9 @@ enum ScoutAgentLaneSize: String, CaseIterable, Identifiable {
 
     var laneWidth: CGFloat {
         switch self {
-        case .sm: return 304
-        case .md: return 408
-        case .lg: return 512
+        case .sm: return 408
+        case .md: return 512
+        case .lg: return 616
         }
     }
 
