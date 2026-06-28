@@ -30,6 +30,11 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
     /// The conversation/session this event belongs to, when known — lets a row
     /// tap through to where it happened. nil for events with no thread linkage.
     public var conversationId: String?
+    /// The project (repo) the event came from, when known. nil when absent.
+    public var project: String?
+    /// The working directory the event came from, when known — surfaces render a
+    /// compact `/project-rooted-path:session` handle from it. nil when absent.
+    public var cwd: String?
 
     public init(
         id: String,
@@ -38,7 +43,9 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         harness: Harness = .unattributed,
         kind: Kind = .other,
         summary: String,
-        conversationId: String? = nil
+        conversationId: String? = nil,
+        project: String? = nil,
+        cwd: String? = nil
     ) {
         self.id = id
         self.tsMs = tsMs
@@ -47,6 +54,8 @@ public struct TailEvent: Codable, Sendable, Identifiable, Equatable {
         self.kind = kind
         self.summary = summary
         self.conversationId = conversationId
+        self.project = project
+        self.cwd = cwd
     }
 }
 
@@ -61,8 +70,17 @@ public protocol TailCapability: Sendable {
     /// without this backfill. Conformers without a history source get the
     /// default empty list.
     func recentActivity(limit: Int) async throws -> [TailEvent]
+
+    /// Recent harness-firehose snapshot (the cross-agent Tail surface), newest
+    /// arbitrary order — the caller sorts. Unlike `tailEvents`, this is a plain
+    /// request/response query meant to be *polled* on a slow cadence: mobile
+    /// clients don't need low-latency streaming for "a sense of what's going on",
+    /// and polling keeps the firehose off the cellular link except while the Tail
+    /// view is open. Conformers without a tail source get the default empty list.
+    func recentTail(limit: Int) async throws -> [TailEvent]
 }
 
 public extension TailCapability {
     func recentActivity(limit: Int) async throws -> [TailEvent] { [] }
+    func recentTail(limit: Int) async throws -> [TailEvent] { [] }
 }

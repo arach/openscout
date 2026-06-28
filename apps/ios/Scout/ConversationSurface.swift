@@ -125,6 +125,7 @@ struct ConversationSurface: View {
     /// visible "agent picked it up / working" status for a just-sent message.
     @State private var lifecycleTask: Task<Void, Never>?
     @Environment(HudDictation.self) private var voice
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var micPulse = false
     @FocusState private var composerFocused: Bool
 
@@ -157,15 +158,11 @@ struct ConversationSurface: View {
         .safeAreaInset(edge: .bottom) { composer }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: conversationId) { restartRun() }
-        // Start warming the on-device model the moment you reach the conversation,
-        // so Parakeet is hot well before the mic is ever tapped.
         .onAppear {
-            voice.prepare()
             publishStatusContext()
         }
-        // Only stop an active recording on the way out — let a background model
-        // warm-up keep running to completion so it caches, instead of being
-        // cancelled (and restarted from ~38%) on every visit.
+        // Stop active capture and long-lived stream tasks when the conversation
+        // leaves the screen.
         .onDisappear {
             if voice.isListening { voice.cancel() }
             sendTask?.cancel()
@@ -225,7 +222,7 @@ struct ConversationSurface: View {
                         .foregroundStyle(canSend ? HudPalette.bg : ScoutInk.muted)
                         .frame(width: 28, height: 28)
                         .background(
-                            Circle().fill(canSend ? HudPalette.accent : HudSurface.inset)
+                            Circle().fill(canSend ? HudPalette.accent : ScoutSurface.inset)
                         )
                 }
                 .buttonStyle(.plain)
@@ -236,7 +233,7 @@ struct ConversationSurface: View {
             .padding(.vertical, HudSpacing.sm)
             .background(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                    .fill(HudSurface.inset)
+                    .fill(ScoutSurface.inset)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
@@ -286,7 +283,7 @@ struct ConversationSurface: View {
     /// previews in the placeholder, and each final utterance appends to the field.
     private var micButton: some View {
         Button {
-            voice.toggle()
+            voice.toggleFromUserIntent()
         } label: {
             ZStack {
                 if voice.isListening {
@@ -394,12 +391,17 @@ struct ConversationSurface: View {
             // Pulse ONLY while actively recording. Preparing/transcribing must not
             // mimic a hot mic — those read via the placeholder ("Preparing voice… N%")
             // and a static muted glyph, so a backgrounded model download never looks live.
+            guard shouldAnimateMicPulse else { return }
             withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
                 micPulse = true
             }
         case .idle, .transcribing, .preparing, .unavailable:
             break
         }
+    }
+
+    private var shouldAnimateMicPulse: Bool {
+        !reduceMotion && !ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     // MARK: - Header
@@ -410,7 +412,7 @@ struct ConversationSurface: View {
                 Glyphic.chevron(.leading, size: 17)
                     .foregroundStyle(HudPalette.ink)
                     .frame(width: 32, height: 32)
-                    .background(Circle().fill(HudSurface.inset))
+                    .background(Circle().fill(ScoutSurface.inset))
                     .overlay(Circle().stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
             }
             .buttonStyle(.plain)
@@ -934,7 +936,7 @@ private struct BlockView: View {
         case .text:
             // User vs agent differ by fill lightness, not hue. Markdown is parsed
             // into native styled blocks (emphasis, lists, headings, highlighted code).
-            markupCard(block.text ?? "", fill: isUser ? HudSurface.inset : nil)
+            markupCard(block.text ?? "", fill: isUser ? ScoutSurface.inset : nil)
         case .reasoning:
             reasoning(block.text ?? "")
         case .action:
@@ -994,7 +996,7 @@ private struct BlockView: View {
 
     private var actionCard: some View {
         let action = block.action
-        return HudCard(padding: HudSpacing.lg, fill: HudSurface.inset) {
+        return HudCard(padding: HudSpacing.lg, fill: ScoutSurface.inset) {
             VStack(alignment: .leading, spacing: HudSpacing.sm) {
                 HStack(spacing: HudSpacing.sm) {
                     Image(systemName: actionIcon(action?.kind))

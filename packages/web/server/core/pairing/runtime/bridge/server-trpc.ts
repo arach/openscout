@@ -41,7 +41,6 @@ import type { Bridge } from "./bridge.ts";
 import { resolveConfig } from "./config.ts";
 import { handleRPC, type BridgeServerOptions } from "./server.ts";
 import { bridgeRouter, lookupMobileInboxItemForEvent } from "./router.ts";
-import { getTailFanout } from "./tail-fanout.ts";
 import {
   watchScoutMessages,
   type ScoutBrokerConversationLifecycleRecord,
@@ -76,8 +75,6 @@ export interface BridgeContext {
 interface SocketState {
   /** Unsubscribe from bridge event stream. */
   unsub?: () => void;
-  /** Unsubscribe from broker tail-fanout (machine-wide harness firehose). */
-  tailUnsub?: () => void;
   /** Abort the broker message invalidation watch for this socket. */
   brokerWatchAbort?: AbortController;
   /** Noise encryption transport (when secure=true). */
@@ -588,12 +585,10 @@ export function startBridgeServerTRPC(options: {
       }
     });
 
-    // Subscribe to the broker's machine-wide harness firehose. Each TailEvent
-    // is forwarded as its own raw JSON message, in parity with the SequencedEvent
-    // path above. iOS decodes by TailEvent shape (no `seq` field).
-    state.tailUnsub = getTailFanout().subscribe((tailEvent) => {
-      sendEvent(JSON.stringify(tailEvent));
-    });
+    // Mobile Tail is NOT pushed the live firehose here. The phone polls a recent
+    // slice (mobile.tail) only while the Tail view is open — bandwidth/battery
+    // friendly and resilient to broker restarts, where this singleton push would
+    // silently go stale. See readScoutBrokerTailRecent / TailSurface.
 
     state.brokerWatchAbort?.abort();
     const brokerWatchAbort = new AbortController();
@@ -718,7 +713,6 @@ export function startBridgeServerTRPC(options: {
 
               onClose: () => {
                 state.unsub?.();
-                state.tailUnsub?.();
                 state.brokerWatchAbort?.abort();
                 state.abortController.abort();
               },
@@ -764,7 +758,6 @@ export function startBridgeServerTRPC(options: {
         if (!state) return;
 
         state.unsub?.();
-        state.tailUnsub?.();
         state.brokerWatchAbort?.abort();
         state.abortController.abort();
         // Abort all per-request controllers (subscriptions, etc.).

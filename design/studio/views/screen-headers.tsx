@@ -45,7 +45,6 @@ const TAIL: TailRow[] = [
   { time: "09:42:44", repo: "openscout", ref: "/a60911d5:6575", harness: "claude", kind: "git", event: "rebased main onto origin — 2 ahead, clean" },
   { time: "09:42:41", repo: "talkie", ref: "/d51a7b90:3309", harness: "codex", kind: "run", event: "bun test packages/runtime · 218 passed", tone: "dim" },
   { time: "09:42:38", repo: "hudson", ref: "/9b2e7c14:4821", harness: "gemini", kind: "read", event: "Read app/shell/WorkspaceShell.tsx" },
-  { time: "09:42:36", repo: "openscout", ref: "/a60911d5:6575", harness: "claude", kind: "tool", event: "puppeteer · captured studio-tail.png" },
   { time: "09:42:33", repo: "lattices", ref: "/4f8a16d2:5120", harness: "claude", kind: "edit", event: "Edit tokens/typography.css" },
   { time: "09:42:31", repo: "narrative-studio", ref: "/2c83de01:5331", harness: "cursor", kind: "git", event: "commit 7d4cfa8 — lane-card resize", tone: "dim" },
   { time: "09:42:29", repo: "openscout", ref: "/7f10c3aa:4894", harness: "codex", kind: "edit", event: "Edit packages/protocol/scout-delivery.ts" },

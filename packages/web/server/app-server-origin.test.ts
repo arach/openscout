@@ -20,7 +20,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local", "hudson-mini.local"],
       trustedOrigins: [],
     });
   });
@@ -44,6 +44,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
         "m1.scout.local",
         "scout.local",
         "dev.scout.local",
+        "hudson-mini.local",
         "scout.backup.local",
         "192.168.1.20",
       ],
@@ -65,7 +66,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
       advertisedHost: "m1.scout.local",
       portalHost: "scout.local",
       publicOrigin: undefined,
-      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local"],
+      trustedHosts: ["m1.scout.local", "scout.local", "dev.scout.local", "workstation-mini.local"],
       trustedOrigins: [],
     });
   });
@@ -89,7 +90,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
     ).toMatchObject({
       advertisedHost: "workstation-mini.scout.local",
       portalHost: "scout.local",
-      trustedHosts: ["workstation-mini.scout.local", "scout.local", "dev.scout.local"],
+      trustedHosts: ["workstation-mini.scout.local", "scout.local", "dev.scout.local", "workstation-mini.local"],
     });
   });
 
@@ -122,6 +123,7 @@ describe("resolveOpenScoutWebApplicationServerIdentity", () => {
           "m1.scout.local",
           "scout.local",
           "dev.scout.local",
+          "m1.local",
           "m1.tailnet.ts.net",
           "100.64.0.10",
         ],

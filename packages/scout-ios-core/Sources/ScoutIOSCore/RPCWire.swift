@@ -37,6 +37,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/agents":           TRPCRoute(path: "mobile.agents",          method: .query),
     "mobile/workspaces":       TRPCRoute(path: "mobile.workspaces",      method: .query),
     "mobile/activity":         TRPCRoute(path: "mobile.activity",        method: .query),
+    "mobile/tail":             TRPCRoute(path: "mobile.tail",            method: .query),
     "mobile/endpoints":        TRPCRoute(path: "mobile.endpoints",       method: .query),
     "mobile/session/snapshot": TRPCRoute(path: "mobile.sessionSnapshot", method: .query),
     "mobile/message/send":     TRPCRoute(path: "mobile.sendMessage",     method: .mutation),
@@ -50,6 +51,7 @@ let trpcRouteMap: [String: TRPCRoute] = [
     "mobile/attachments/upload":  TRPCRoute(path: "mobile.attachmentUpload",   method: .mutation),
     "mobile/comms/read":          TRPCRoute(path: "mobile.commsMarkRead",      method: .mutation),
     "mobile/terminal/provision":  TRPCRoute(path: "mobile.terminalProvision",  method: .mutation),
+    "mobile/mesh/status":         TRPCRoute(path: "mobile.meshStatus",         method: .query),
 ]
 
 // MARK: - Request envelope (ported byte-for-byte)

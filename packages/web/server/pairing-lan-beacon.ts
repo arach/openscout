@@ -10,6 +10,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { resolvedPairingConfig } from "./core/pairing/runtime/config.ts";
+import { resolveWebPort } from "@openscout/runtime/local-config";
 import { tryLoadIdentityPublicKeyHex } from "./core/pairing/runtime/security/identity.ts";
 
 const RECONCILE_INTERVAL_MS = 5_000;
@@ -37,7 +38,10 @@ export function startScoutPairLanBeacon(
 
   const fingerprint = publicKeyHex.slice(0, 16);
   const relayPort = resolvedPairingConfig().port + 1;
-  const webPort = normalizeWebPort(options.webPort);
+  // Always advertise the real web port (the Mac's `/pair` endpoint) so the phone
+  // never assumes a default. Prefer the bound port the caller passed; fall back to
+  // the configured web port rather than omitting it.
+  const webPort = normalizeWebPort(options.webPort) ?? resolveWebPort();
 
   let advert: ChildProcess | null = null;
   let stopped = false;
@@ -62,7 +66,7 @@ export function startScoutPairLanBeacon(
         `fp=${fingerprint}`,
         "scheme=ws",
         "mode=discovery",
-        ...(webPort === null ? [] : [`webPort=${webPort}`]),
+        `webPort=${webPort}`,
       ],
       { stdio: "ignore" },
     );

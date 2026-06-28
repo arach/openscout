@@ -44,6 +44,7 @@ import {
   pairingFileServerOrigin,
   storePairingAttachmentBlob,
 } from "./fileserver.ts";
+import { getMobileMeshStatus } from "./mobile-mesh-status.ts";
 import {
   SecureTransport,
   type SocketLike,
@@ -647,6 +648,13 @@ async function handleRPCInner(
         return {
           id: req.id,
           result: await getScoutMobileSessions(p, resolveMobileCurrentDirectory()),
+        };
+      }
+
+      case "mobile/mesh/status": {
+        return {
+          id: req.id,
+          result: await getMobileMeshStatus(),
         };
       }
 

@@ -12,18 +12,21 @@ public struct DiscoveredScoutMac: Sendable, Equatable, Identifiable {
     public let fingerprint: String
     public let hostName: String
     public let relayPort: Int
-    public let webPort: Int?
     public let scheme: String
+    /// The Mac's web port (where its `/pair` endpoint lives), straight from the
+    /// advertised TXT (`webPort=`). Nil when the advert omits it — the caller then
+    /// falls back to the default. We never assume a port the Mac didn't tell us.
+    public let webPort: Int?
 
     public var id: String { publicKeyHex }
 
-    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, webPort: Int?, scheme: String) {
+    public init(publicKeyHex: String, fingerprint: String, hostName: String, relayPort: Int, scheme: String, webPort: Int? = nil) {
         self.publicKeyHex = publicKeyHex
         self.fingerprint = fingerprint
         self.hostName = hostName
         self.relayPort = relayPort
-        self.webPort = webPort
         self.scheme = scheme
+        self.webPort = webPort
     }
 }
 
@@ -116,13 +119,16 @@ extension BonjourMacDiscovery: NetServiceBrowserDelegate, NetServiceDelegate {
 
         let fingerprint = txt["fp"]?.trimmedNonEmpty ?? String(publicKey.prefix(16))
         let scheme = txt["scheme"] == "wss" ? "wss" : "ws"
+        // The Mac advertises its real web port; honor it so a non-default port
+        // (or a future randomized one) pairs without the client guessing.
+        let webPort = webPortFromBonjourAdvertisement(txt["webPort"])
         let mac = DiscoveredScoutMac(
             publicKeyHex: publicKey,
             fingerprint: fingerprint,
             hostName: Self.normalizedHostName(host),
             relayPort: sender.port,
-            webPort: webPortFromBonjourAdvertisement(txt["webPort"]),
-            scheme: scheme
+            scheme: scheme,
+            webPort: webPort
         )
         // Key by public key so a Mac advertised on multiple interfaces collapses
         // to one row.

@@ -209,7 +209,7 @@ struct AgentsSurface: View {
     }
 
     private var rowDivider: some View {
-        Rectangle().fill(HudPalette.ink.opacity(0.06)).frame(height: 0.5)
+        Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
             .padding(.leading, HudSpacing.xxl)
     }
 
@@ -490,7 +490,7 @@ private struct ProjectSection: View {
                     ) { onTapAgent(agent) }
                 }
             }
-            Rectangle().fill(HudPalette.ink.opacity(0.06)).frame(height: 0.5)
+            Rectangle().fill(HudHairline.subtle).frame(height: 0.5)
                 .padding(.leading, HudSpacing.xxl)
         }
     }
@@ -713,7 +713,7 @@ private struct ProjectDetailSheet: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, HudSpacing.md)
                             .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous)
-                                .fill(harness == h ? HudPalette.accent : HudSurface.inset))
+                                .fill(harness == h ? HudPalette.accent : ScoutSurface.inset))
                     }
                     .buttonStyle(.plain)
                 }
@@ -728,7 +728,7 @@ private struct ProjectDetailSheet: View {
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 88)
                 .padding(HudSpacing.md)
-                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(HudSurface.inset))
+                .background(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).fill(ScoutSurface.inset))
                 .overlay(RoundedRectangle(cornerRadius: HudRadius.standard, style: .continuous).stroke(HudHairline.standard, lineWidth: HudStrokeWidth.standard))
                 .overlay(alignment: .topLeading) {
                     if instructions.isEmpty {

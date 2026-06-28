@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Simulator-only entitlements for headless / ad-hoc simulator builds.
+
+  Why this exists: Xcode's GUI "Run" injects application-identifier /
+  keychain-access-groups for you, but headless `xcodebuild` (without a resolvable
+  signing identity for the project's DEVELOPMENT_TEAM) falls back to bare ad-hoc
+  signing with NO entitlements. The app then launches but every Keychain call fails
+  at runtime with OSStatus -34018 (errSecMissingEntitlement), which surfaces as the
+  red "Identity error: Keychain load failed" on the Connect screen (see
+  ScoutIdentity in scout-ios-core).
+
+  IMPORTANT — no team prefix. The iOS 26 Simulator validates the entitlements in
+  the code SIGNATURE (not just the legacy __TEXT,__entitlements section), and an
+  ad-hoc signature ("-") may only *claim* entitlement values it can prove. A
+  team-prefixed group like "2U83JFPW66.app.openscout.scout" cannot be claimed by an
+  ad-hoc signature, so the app is rejected at launch ("Invalid" identity,
+  NSPOSIXErrorDomain 163). A team-LESS keychain group can be claimed, the section
+  and signature match, the app launches, and ScoutIdentity's default-access-group
+  Keychain calls (it sets no explicit kSecAttrAccessGroup) resolve to this group.
+
+  This is NOT used by device or release builds — those keep Scout/Scout.entitlements
+  with Xcode's automatic application-identifier / keychain-access-groups injection.
+-->
+<plist version="1.0">
+<dict>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>app.openscout.scout</string>
+  </array>
+  <key>com.apple.security.get-task-allow</key>
+  <true/>
+</dict>
+</plist>

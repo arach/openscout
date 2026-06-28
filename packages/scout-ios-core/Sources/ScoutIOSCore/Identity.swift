@@ -147,6 +147,23 @@ public final class ScoutIdentity: Sendable {
         return try JSONDecoder().decode([TrustedBridge].self, from: data)
     }
 
+    /// Adopt a Mac's self-advertised hostname as a paired bridge's label, but only
+    /// when we don't already have a real per-machine name. A name set by hand or a
+    /// learned LAN/tailnet host always wins; we backfill only the empty case or a
+    /// stale mesh relay front-door host (`*.oscout.net`), which never identifies a
+    /// Mac. No-op if the key isn't trusted or the name is empty.
+    public static func adoptBridgeName(publicKey: Data, name: String) throws {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var bridges = try getTrustedBridges()
+        guard let index = bridges.firstIndex(where: { $0.publicKey == publicKey }) else { return }
+        let existing = bridges[index].name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasRealName = !existing.isEmpty && !isOpenScoutNetworkRelayHost(existing)
+        guard !hasRealName, existing != trimmed else { return }
+        bridges[index].name = trimmed
+        try saveTrustedBridges(bridges)
+    }
+
     /// Update the lastSeen timestamp for a trusted bridge.
     public static func touchTrustedBridge(publicKey: Data) throws {
         var bridges = try getTrustedBridges()

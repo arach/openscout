@@ -188,7 +188,9 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return AsyncStream { continuation in
             let task = Task {
                 for await change in upstream {
-                    guard change.conversationId == conversationId else { continue }
+                    guard change.conversationId == conversationId,
+                          change.event != "mobile:conversation:lifecycle"
+                    else { continue }
                     continuation.yield(())
                 }
                 continuation.finish()
@@ -300,6 +302,16 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
         return wire.map { $0.toTailEvent() }
     }
 
+    /// Recent harness-firehose snapshot for the Tail surface, polled while the
+    /// view is open. Served by the resilient `mobile/tail` query — a fresh broker
+    /// read per call — so it survives broker restarts (no stale singleton push)
+    /// and never streams the firehose across cellular when the view is closed.
+    public func recentTail(limit: Int) async throws -> [TailEvent] {
+        let params = MobileTailParams(limit: limit)
+        let wire: [MobileTailEvent] = try await connection.rpc("mobile/tail", params: params)
+        return wire.map { $0.toTailEvent() }
+    }
+
     // MARK: - CommsCapability
 
     public func listConversations(kind: CommsConversation.Kind?, limit: Int) async throws -> [CommsConversation] {
@@ -347,6 +359,10 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             username: wire.username,
             hostKeyFingerprint: wire.hostKeyFingerprint
         )
+    }
+
+    public func mobileMeshStatus() async throws -> MobileMeshStatusResponse {
+        try await connection.rpc("mobile/mesh/status", params: nil)
     }
 }
 
@@ -477,6 +493,24 @@ struct MobileTerminalProvisionResult: Codable, Sendable {
     let hostKeyFingerprint: String?
 }
 
+public struct MobileMeshStatusResponse: Codable, Sendable {
+    public let tailscale: MobileMeshTailscale?
+}
+
+public struct MobileMeshTailscale: Codable, Sendable {
+    public let peers: [MobileMeshTailnetPeer]
+}
+
+public struct MobileMeshTailnetPeer: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let dnsName: String?
+    public let hostName: String?
+    public let addresses: [String]
+    public let online: Bool
+    public let os: String?
+}
+
 // MARK: - Listing wire shapes → contract summaries (best-effort mapping)
 
 /// Input for `mobile.activity`. Only `limit` is sent from the phone — the other
@@ -519,6 +553,57 @@ struct MobileActivityItem: Codable, Sendable {
     private var mappedKind: TailEvent.Kind {
         if kind == "system" { return .system }
         return actorId == "operator" ? .user : .assistant
+    }
+}
+
+struct MobileTailParams: Codable, Sendable {
+    let limit: Int
+}
+
+/// Compact harness tail event from the `mobile/tail` snapshot (broker `TailEvent`
+/// minus the heavy `raw` payload). Harness/kind decode leniently — an unknown
+/// value maps to `.unattributed` / `.other` rather than failing the whole batch,
+/// so one new harness or event kind never blanks the Tail surface.
+struct MobileTailEvent: Codable, Sendable {
+    let id: String
+    let ts: Int
+    let source: String
+    let sessionId: String
+    let pid: Int
+    let parentPid: Int?
+    let project: String
+    let cwd: String
+    let harness: String
+    let kind: String
+    let summary: String
+
+    func toTailEvent() -> TailEvent {
+        let mappedHarness: TailEvent.Harness
+        switch harness {
+        case "scout-managed": mappedHarness = .scoutManaged
+        case "hudson-managed": mappedHarness = .hudsonManaged
+        default: mappedHarness = .unattributed
+        }
+        let mappedKind: TailEvent.Kind
+        switch kind {
+        case "user": mappedKind = .user
+        case "assistant": mappedKind = .assistant
+        case "tool": mappedKind = .tool
+        case "tool-result": mappedKind = .toolResult
+        case "system": mappedKind = .system
+        default: mappedKind = .other
+        }
+        return TailEvent(
+            id: id,
+            tsMs: Int64(scoutEpochMilliseconds(ts)),
+            source: source,
+            harness: mappedHarness,
+            kind: mappedKind,
+            summary: summary,
+            conversationId: sessionId.trimmedNonEmpty,
+            project: project.trimmedNonEmpty,
+            cwd: cwd.trimmedNonEmpty
+        )
     }
 }
 

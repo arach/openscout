@@ -88,7 +88,6 @@ const DESIGN_AGENT: Dossier = {
     { kind: "tool", label: "read" },
     { kind: "tool", label: "edit" },
     { kind: "tool", label: "grep" },
-    { kind: "tool", label: "puppeteer" },
   ],
   context: [
     {

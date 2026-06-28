@@ -10,6 +10,20 @@ import AuthenticationServices
 import UIKit
 #endif
 
+extension HudDictation {
+    func toggleFromUserIntent() {
+        switch state {
+        case .listening:
+            toggle()
+        case .transcribing:
+            break
+        case .idle, .preparing, .unavailable:
+            prepare()
+            toggle()
+        }
+    }
+}
+
 /// App-level state for Scout: the fleet of encrypted bridge clients, the
 /// focused connection lifecycle, and the shared `ConnectionLog` that records
 /// which transport path (LAN / TSN / OSN) was attempted and won. There is no
@@ -23,6 +37,13 @@ final class AppModel {
         case connecting
         case connected(TransportKind)
         case failed(String)
+
+        var keepsTransportWorkAlive: Bool {
+            switch self {
+            case .connecting, .connected: return true
+            case .idle, .failed: return false
+            }
+        }
     }
 
     /// Top-level navigation gate. `connect` is the first-run screen (a single
@@ -69,6 +90,8 @@ final class AppModel {
         let isOnline: Bool
         let os: String?
         let pairLinks: [String]
+        let isScoutReachable: Bool?
+        let scoutProbeStatus: String?
 
         var displayName: String {
             if let hostName = AppModel.cleanTailnetHost(hostName) { return AppModel.prettyMachineName(hostName) }
@@ -77,9 +100,25 @@ final class AppModel {
 
         var detail: String {
             var parts: [String] = [isOnline ? "online" : "offline"]
+            if let scoutProbeStatus, !scoutProbeStatus.isEmpty { parts.append(scoutProbeStatus) }
             if let os, !os.isEmpty { parts.append(os) }
             if let address = addresses.first, !address.isEmpty { parts.append(address) }
             return parts.joined(separator: " · ")
+        }
+
+        func withScoutProbe(isReachable: Bool?, status: String?) -> TailnetPairTarget {
+            TailnetPairTarget(
+                id: id,
+                name: name,
+                dnsName: dnsName,
+                hostName: hostName,
+                addresses: addresses,
+                isOnline: isOnline,
+                os: os,
+                pairLinks: pairLinks,
+                isScoutReachable: isReachable,
+                scoutProbeStatus: status
+            )
         }
     }
 
@@ -87,7 +126,16 @@ final class AppModel {
     var isRefreshingTailnetPairTargets = false
     var tailnetPairError: String?
     var tailnetPairDiscoveryOrigin: String?
+    var tailnetPairDiscoveryHosts: [String] = []
+    var tailnetPairProbeStatus: String?
+    var tailnetPairLastScanAt: Date?
     var tailnetPairingTargetId: String?
+    var tailnetPairAwaitingApproval = false
+
+    private struct TailnetScoutWebProbeResult {
+        let reachable: Bool
+        let status: String
+    }
 
     /// A Scout Mac found on the local network (Bonjour `_oscout-pair._tcp`). The
     /// nicest first-run path: same Wi-Fi, one tap, no QR. Carries the Mac's
@@ -99,6 +147,9 @@ final class AppModel {
         let fingerprint: String
         let hostName: String      // resolved, e.g. "arts-mac-mini.local"
         let relayPort: Int
+        /// The Mac's advertised web port (its `/pair` endpoint). Nil when the
+        /// advert omits it; the pair flow then falls back to the default. We use
+        /// the Mac's own port rather than assuming one.
         let webPort: Int?
 
         var displayName: String { AppModel.prettyMachineName(hostName) }
@@ -139,11 +190,11 @@ final class AppModel {
     /// other observed state, so without this nudge a forget wouldn't re-render.
     private var machinesRevision = 0
     private var dataRevision = 0
-    private var backgroundFleetConnectTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var reconnectAttempt = 0
     private var reconnectMachineId: String?
     private var nextReconnectAt: Date?
+    private var shouldReconnectAfterBackground = false
     private var scenePhase: ScenePhase = .active
     private let networkMonitor = NWPathMonitor()
     private let networkMonitorQueue = DispatchQueue(label: "Scout.NetworkPath")
@@ -212,10 +263,14 @@ final class AppModel {
         switch phase {
         case .active:
             connectionLog.log("App active; reconnect policy resumed", event: .lifecycle, level: .info)
-            if reconnectMachineId != nil || shouldReconnectWhenReady {
+            if shouldReconnectAfterBackground {
+                shouldReconnectAfterBackground = false
+                Task { await connectIfNeeded() }
+            } else if reconnectMachineId != nil || shouldReconnectWhenReady {
                 scheduleReconnect(reason: "app active", immediate: true)
             }
         case .background:
+            suspendForBackground()
             pauseScheduledReconnect(reason: "app backgrounded")
         case .inactive:
             connectionLog.log("App inactive; keeping current connection state", event: .lifecycle, level: .info)
@@ -231,6 +286,27 @@ final class AppModel {
             }
         }
         networkMonitor.start(queue: networkMonitorQueue)
+    }
+
+    private func suspendForBackground() {
+        reconnectTask?.cancel()
+        reconnectTask = nil
+        nextReconnectAt = nil
+
+        if dictation.isListening {
+            dictation.cancel()
+        } else if case .preparing = dictation.state {
+            dictation.cancel()
+        }
+
+        let hadBridgeWork = connectionState.keepsTransportWorkAlive || fleet.hasTransportWork
+        guard hadBridgeWork else { return }
+
+        shouldReconnectAfterBackground = phase == .shell && hasTrustedBridge
+        fleet.disconnectAll()
+        connectionState = .idle
+        machinesRevision += 1
+        connectionLog.log("Bridge connections suspended while app is backgrounded", event: .lifecycle, level: .info)
     }
 
     private func handleNetworkPath(_ path: NWPath) {
@@ -307,7 +383,6 @@ final class AppModel {
             return
         }
 
-        backgroundFleetConnectTask?.cancel()
         reconnectMachineId = key
         fleet.markReconnecting(machineId: key)
         if key == fleet.focusedMachineId {
@@ -443,7 +518,6 @@ final class AppModel {
                 level: .success,
                 route: route
             )
-            connectRemainingMachines(excluding: key)
         case .failed(let message):
             connectionLog.log(
                 "Reconnect attempt \(attempt) failed for \(shortMachineId(key)): \(message)",
@@ -715,28 +789,85 @@ final class AppModel {
         Task { await reconnect() }
     }
 
+    func refreshPairingDiscoveryTargets() async {
+        connectionLog.log("Pairing discovery started", event: .discover, level: .info)
+        await refreshLanPairTargets()
+        if isOpenScoutNetworkSignedIn {
+            await refreshOpenScoutNetworkPairTargets()
+        }
+        if hasTrustedBridge {
+            await refreshTailnetPairTargets()
+        }
+        connectionLog.log(
+            "Pairing discovery found LAN=\(lanPairTargets.count) TSN=\(tailnetPairTargets.count) OSN=\(openScoutNetworkPairTargets.count)",
+            event: .discover,
+            level: .info
+        )
+    }
+
     func refreshTailnetPairTargets() async {
         guard !isRefreshingTailnetPairTargets else { return }
         isRefreshingTailnetPairTargets = true
         tailnetPairError = nil
+        tailnetPairLastScanAt = Date()
+        tailnetPairDiscoveryHosts = tailnetMeshDiscoveryHosts(includeLANFallbacks: false)
+        tailnetPairProbeStatus = fleet.focusedClient.isConnected
+            ? "reading mesh from connected Mac"
+            : "looking for paired Tailnet host"
         defer { isRefreshingTailnetPairTargets = false }
 
+        if fleet.focusedClient.isConnected {
+            do {
+                let mesh = try await loadTailnetMeshStatusFromConnectedBridge()
+                let targets = tailnetTargets(from: mesh)
+                tailnetPairTargets = targets
+                tailnetPairDiscoveryOrigin = "connected Mac"
+                tailnetPairProbeStatus = "found \(targets.filter(\.isOnline).count)/\(targets.count) via connected Mac"
+                connectionLog.log(
+                    "Tailnet discovery found \(targets.filter(\.isOnline).count)/\(targets.count) online pairable Mac(s) via connected Mac over \(fleet.focusedClient.currentRoute.label)",
+                    event: .network,
+                    level: .info,
+                    route: .tailnet
+                )
+                await probeTailnetScoutWebTargets()
+                return
+            } catch {
+                connectionLog.log(
+                    "Tailnet discovery bridge mesh read failed; trying direct hosts: \(error.localizedDescription)",
+                    event: .network,
+                    level: .warning,
+                    route: .tailnet
+                )
+            }
+        }
+
+        if tailnetPairDiscoveryHosts.isEmpty {
+            await refreshLanPairTargets()
+            tailnetPairDiscoveryHosts = tailnetMeshDiscoveryHosts(includeLANFallbacks: false)
+        }
+        tailnetPairProbeStatus = tailnetPairDiscoveryHosts.isEmpty
+            ? "no paired Tailnet relay host"
+            : "probing \(tailnetPairDiscoveryHosts.count) Tailnet host(s)"
+
         do {
-            let (mesh, origin) = try await loadTailnetMeshStatus()
+            let (mesh, origin) = try await loadTailnetMeshStatus(hosts: tailnetPairDiscoveryHosts)
             let targets = tailnetTargets(from: mesh, preferredOrigin: origin)
             tailnetPairTargets = targets
             tailnetPairDiscoveryOrigin = origin.host
+            tailnetPairProbeStatus = "found \(targets.filter(\.isOnline).count)/\(targets.count) via \(origin.host ?? "web")"
             connectionLog.log(
-                "Tailnet repair found \(targets.filter(\.isOnline).count)/\(targets.count) online peer(s) via \(origin.host ?? "web")",
+                "Tailnet discovery found \(targets.filter(\.isOnline).count)/\(targets.count) online pairable Mac(s) via \(origin.host ?? "web")",
                 event: .network,
                 level: .info,
                 route: .tailnet
             )
+            await probeTailnetScoutWebTargets()
         } catch {
             tailnetPairTargets = []
             tailnetPairError = error.localizedDescription
+            tailnetPairProbeStatus = "failed: \(error.localizedDescription)"
             connectionLog.log(
-                "Tailnet repair discovery failed: \(error.localizedDescription)",
+                "Tailnet discovery failed: \(error.localizedDescription)",
                 event: .network,
                 level: .warning,
                 route: .tailnet
@@ -757,7 +888,10 @@ final class AppModel {
 
         tailnetPairingTargetId = target.id
         tailnetPairError = nil
-        defer { tailnetPairingTargetId = nil }
+        defer {
+            tailnetPairingTargetId = nil
+            tailnetPairAwaitingApproval = false
+        }
 
         connectionLog.log(
             "Tailnet repair pairing \(target.displayName) via \(target.dnsName)",
@@ -766,13 +900,45 @@ final class AppModel {
             route: .tailnet
         )
         for link in target.pairLinks {
-            if await pairFromLink(link) {
-                tailnetPairError = nil
-                return true
+            guard let url = URL(string: link) else { continue }
+            switch await resolveDirectPairing(baseURL: url, displayName: target.displayName, route: .tailnet) {
+            case .payload(let payload):
+                if await completePair(source: "Tailnet", inputLength: nil, { payload }) {
+                    tailnetPairError = nil
+                    return true
+                }
+                return false
+            case .denied:
+                tailnetPairError = "\(target.displayName) declined the pairing request"
+                return false
+            case .failed(let message):
+                tailnetPairError = message
+                return false
+            case .unreachable:
+                continue
             }
         }
-        tailnetPairError = "Pairing failed for \(target.displayName)"
+        tailnetPairError = "Couldn’t reach \(target.displayName) over your tailnet"
         return false
+    }
+
+    private func setAwaitingApproval(_ awaiting: Bool, route: TransportKind) {
+        switch route {
+        case .lan:
+            lanPairAwaitingApproval = awaiting
+        case .tailnet:
+            tailnetPairAwaitingApproval = awaiting
+        default:
+            break
+        }
+    }
+
+    private func pairRouteName(_ route: TransportKind) -> String {
+        switch route {
+        case .tailnet: return "tailnet"
+        case .lan: return "network"
+        default: return route.label.isEmpty ? "network" : route.label
+        }
     }
 
     // MARK: - LAN pairing (same Wi-Fi, one tap)
@@ -821,9 +987,10 @@ final class AppModel {
             lanPairAwaitingApproval = false
         }
 
-        // Try the default web port first so the common case is a clean
-        // connecting → connected with no transient failure flicker; fall back to
-        // the bare-port / https variants only if that misses.
+        // Lead with the Mac's OWN advertised web port — the client never assumes a
+        // port the Mac didn't tell us, so a non-default (or future randomized) port
+        // pairs cleanly. The default and bare-port/https variants stay only as a
+        // fallback for older bridges whose advert omits `webPort`.
         let host = Self.cleanTailnetHost(target.hostName) ?? target.hostName
         let advertised = target.webPort.flatMap { scoutWebOrigin(scheme: "http", host: host, port: $0) }
         let preferred = scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort)
@@ -835,7 +1002,7 @@ final class AppModel {
                 queryItems: [URLQueryItem(name: "route", value: "lan")]
             ) else { continue }
 
-            switch await resolveLanPairing(baseURL: url, target: target) {
+            switch await resolveDirectPairing(baseURL: url, displayName: target.displayName, route: .lan) {
             case .payload(let payload):
                 // Reached the Mac and have a live payload — finish the handshake.
                 // Don't fall through to other candidates regardless of outcome.
@@ -858,7 +1025,7 @@ final class AppModel {
         return false
     }
 
-    private enum LanPairResolution {
+    private enum DirectPairResolution {
         case payload(QRPayload)
         case denied
         case unreachable
@@ -867,16 +1034,22 @@ final class AppModel {
 
     /// One `/pair` request: either resolves to a payload now, or — when the Mac
     /// needs to approve — parks and polls until it does.
-    private func resolveLanPairing(baseURL: URL, target: LanPairTarget) async -> LanPairResolution {
+    private func resolveDirectPairing(baseURL: URL, displayName: String, route: TransportKind) async -> DirectPairResolution {
         switch await fetchLanPair(url: baseURL, token: nil) {
         case .redirect(let payload):
             return .payload(payload)
-        case .pending(let token):
-            return await pollLanPairing(baseURL: baseURL, token: token, target: target)
+        case .pending(let token, let pollAfterMs):
+            return await pollDirectPairing(
+                baseURL: baseURL,
+                token: token,
+                initialPollAfterMs: pollAfterMs,
+                displayName: displayName,
+                route: route
+            )
         case .denied:
             return .denied
         case .expired:
-            return .failed("Pairing request expired before \(target.displayName) responded")
+            return .failed("Pairing request expired before \(displayName) responded")
         case .unreachable:
             return .unreachable
         case .failed(let message):
@@ -884,42 +1057,57 @@ final class AppModel {
         }
     }
 
-    private func pollLanPairing(baseURL: URL, token: String, target: LanPairTarget) async -> LanPairResolution {
-        lanPairAwaitingApproval = true
-        defer { lanPairAwaitingApproval = false }
+    private func pollDirectPairing(
+        baseURL: URL,
+        token: String,
+        initialPollAfterMs: Int?,
+        displayName: String,
+        route: TransportKind
+    ) async -> DirectPairResolution {
+        setAwaitingApproval(true, route: route)
+        defer { setAwaitingApproval(false, route: route) }
         connectionLog.log(
-            "Waiting for \(target.displayName) to approve pairing…",
+            "Waiting for \(displayName) to approve \(pairRouteName(route)) pairing…",
             event: .pairing,
             level: .info,
-            route: .lan
+            route: route
         )
         // Generous: a human has to walk to the Mac and approve. The server
         // touch-extends the request on each poll, so a long wait is safe.
         let deadline = Date().addingTimeInterval(300)
+        var pollToken = token
+        var pollDelayMs = directPairPollDelayMs(initialPollAfterMs)
         while Date() < deadline {
-            try? await Task.sleep(for: .milliseconds(1300))
+            try? await Task.sleep(for: .milliseconds(pollDelayMs))
             if Task.isCancelled { return .failed("Pairing cancelled") }
-            switch await fetchLanPair(url: baseURL, token: token) {
+            switch await fetchLanPair(url: baseURL, token: pollToken) {
             case .redirect(let payload):
                 return .payload(payload)
-            case .pending:
+            case .pending(let nextToken, let nextPollAfterMs):
+                pollToken = nextToken
+                pollDelayMs = directPairPollDelayMs(nextPollAfterMs)
                 continue
             case .denied:
                 return .denied
             case .expired:
                 return .failed("Pairing request expired — try pairing again")
             case .unreachable:
-                return .failed("Lost connection to \(target.displayName)")
+                return .failed("Lost connection to \(displayName)")
             case .failed(let message):
                 return .failed(message)
             }
         }
-        return .failed("Timed out waiting for approval on \(target.displayName)")
+        return .failed("Timed out waiting for approval on \(displayName)")
+    }
+
+    private func directPairPollDelayMs(_ value: Int?) -> Int {
+        guard let value else { return 1_300 }
+        return min(10_000, max(750, value))
     }
 
     private enum LanPairFetch {
         case redirect(QRPayload)
-        case pending(String) // polling token
+        case pending(String, Int?) // polling token, optional server cadence
         case denied
         case expired
         case unreachable
@@ -969,7 +1157,7 @@ final class AppModel {
         if let parsed = try? JSONDecoder().decode(LanPairStatusResponse.self, from: data) {
             switch parsed.status {
             case "pending", "approved":
-                if let resolved = parsed.token ?? token { return .pending(resolved) }
+                if let resolved = parsed.token ?? token { return .pending(resolved, parsed.pollAfterMs) }
                 return .failed("Pairing response missing token")
             case "denied":
                 return .denied
@@ -1065,56 +1253,238 @@ final class AppModel {
         }
     }
 
-    private func loadTailnetMeshStatus() async throws -> (TailnetMeshStatusResponse, URL) {
-        guard let host = Self.cleanTailnetHost(fleet.focusedClient.currentHost) else {
+    private func loadTailnetMeshStatus(hosts providedHosts: [String]? = nil) async throws -> (TailnetMeshStatusResponse, URL) {
+        let hosts = providedHosts ?? tailnetMeshDiscoveryHosts(includeLANFallbacks: false)
+        guard !hosts.isEmpty else {
             throw TailnetPairingError.noActiveBridgeHost
         }
 
         var lastError: Error?
-        for origin in scoutWebOriginCandidates(host: host) {
-            guard let url = scoutWebURL(origin: origin, path: Self.scoutWebMeshPath) else { continue }
-            do {
-                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 4)
-                request.httpMethod = "GET"
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse else {
-                    throw TailnetPairingError.invalidMeshResponse(origin: origin.absoluteString)
+        var lastHTTPError: Error?
+        connectionLog.log(
+            "Tailnet discovery probing \(hosts.count) Tailnet host(s): \(hosts.joined(separator: ", "))",
+            event: .network,
+            level: .info,
+            route: .tailnet
+        )
+        for host in hosts {
+            for origin in scoutWebOriginCandidates(host: host) {
+                guard let url = scoutWebURL(origin: origin, path: Self.scoutWebMeshPath) else { continue }
+                do {
+                    tailnetPairProbeStatus = "probing \(origin.host ?? origin.absoluteString)"
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 12)
+                    request.httpMethod = "GET"
+                    request.setValue("application/json", forHTTPHeaderField: "Accept")
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw TailnetPairingError.invalidMeshResponse(origin: origin.absoluteString)
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        throw TailnetPairingError.meshHTTPStatus(origin: origin.absoluteString, status: http.statusCode)
+                    }
+                    return (try JSONDecoder().decode(TailnetMeshStatusResponse.self, from: data), origin)
+                } catch {
+                    if error is TailnetPairingError {
+                        lastHTTPError = error
+                    }
+                    lastError = error
                 }
-                guard (200..<300).contains(http.statusCode) else {
-                    throw TailnetPairingError.meshHTTPStatus(origin: origin.absoluteString, status: http.statusCode)
-                }
-                return (try JSONDecoder().decode(TailnetMeshStatusResponse.self, from: data), origin)
-            } catch {
-                lastError = error
             }
         }
 
-        throw lastError ?? TailnetPairingError.noMeshEndpoint(host: host)
+        throw lastHTTPError ?? lastError ?? TailnetPairingError.noMeshEndpoint(host: hosts.joined(separator: ", "))
+    }
+
+    private func loadTailnetMeshStatusFromConnectedBridge() async throws -> MobileMeshStatusResponse {
+        guard fleet.focusedClient.isConnected else {
+            throw TailnetPairingError.noActiveBridgeHost
+        }
+
+        connectionLog.log(
+            "Tailnet discovery reading mesh status from connected Mac over \(fleet.focusedClient.currentRoute.label)",
+            event: .network,
+            level: .info,
+            route: .tailnet
+        )
+        return try await fleet.focusedClient.mobileMeshStatus()
+    }
+
+    private func tailnetMeshDiscoveryHosts(includeLANFallbacks: Bool) -> [String] {
+        var hosts: [String] = []
+        func append(_ host: String?) {
+            guard let host = Self.cleanTailnetHost(host) else { return }
+            guard !hosts.contains(host) else { return }
+            hosts.append(host)
+        }
+
+        let summary = savedRouteSummary
+        for relayURL in summary.allowedRelayURLs + summary.relayURLs {
+            let route = transportKind(forRelayURL: relayURL)
+            guard route == .tailnet || (includeLANFallbacks && route == .lan) else { continue }
+            append(URLComponents(string: relayURL)?.host)
+        }
+
+        if includeLANFallbacks {
+            for target in lanPairTargets {
+                append(target.hostName)
+            }
+        }
+
+        if let currentHost = Self.cleanTailnetHost(fleet.focusedClient.currentHost) {
+            let route = classifyTransport(host: currentHost)
+            if route == .tailnet || (includeLANFallbacks && route == .lan) {
+                append(currentHost)
+            }
+        }
+
+        return hosts
     }
 
     private func tailnetTargets(from mesh: TailnetMeshStatusResponse, preferredOrigin: URL) -> [TailnetPairTarget] {
         (mesh.tailscale?.peers ?? [])
             .compactMap { peer -> TailnetPairTarget? in
-                guard let dnsName = Self.cleanTailnetHost(peer.dnsName) else { return nil }
-                let pairLinks = scoutWebOriginCandidates(host: dnsName, preferredOrigin: preferredOrigin)
-                    .compactMap { scoutWebURL(origin: $0, path: Self.scoutWebPairPath, queryItems: [
-                        URLQueryItem(name: "route", value: "tsn")
-                    ])?.absoluteString }
-                return TailnetPairTarget(
+                tailnetTarget(
                     id: peer.id,
                     name: peer.name,
-                    dnsName: dnsName,
+                    dnsName: peer.dnsName,
                     hostName: peer.hostName,
                     addresses: peer.addresses,
                     isOnline: peer.online,
                     os: peer.os,
-                    pairLinks: pairLinks
+                    preferredOrigin: preferredOrigin
                 )
             }
             .sorted { a, b in
                 if a.isOnline != b.isOnline { return a.isOnline && !b.isOnline }
                 return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
             }
+    }
+
+    private func tailnetTargets(from mesh: MobileMeshStatusResponse) -> [TailnetPairTarget] {
+        (mesh.tailscale?.peers ?? [])
+            .compactMap { peer -> TailnetPairTarget? in
+                tailnetTarget(
+                    id: peer.id,
+                    name: peer.name,
+                    dnsName: peer.dnsName,
+                    hostName: peer.hostName,
+                    addresses: peer.addresses,
+                    isOnline: peer.online,
+                    os: peer.os,
+                    preferredOrigin: nil
+                )
+            }
+            .sorted { a, b in
+                if a.isOnline != b.isOnline { return a.isOnline && !b.isOnline }
+                return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+    }
+
+    private func tailnetTarget(
+        id: String,
+        name: String,
+        dnsName: String?,
+        hostName: String?,
+        addresses: [String],
+        isOnline: Bool,
+        os: String?,
+        preferredOrigin: URL?
+    ) -> TailnetPairTarget? {
+        guard Self.isPairableTailnetPeerOS(os) else { return nil }
+        guard let dnsName = Self.cleanTailnetHost(dnsName) else { return nil }
+        let pairLinks = scoutWebOriginCandidates(host: dnsName, preferredOrigin: preferredOrigin)
+            .compactMap { scoutWebURL(origin: $0, path: Self.scoutWebPairPath, queryItems: [
+                URLQueryItem(name: "route", value: "tsn")
+            ])?.absoluteString }
+        return TailnetPairTarget(
+            id: id,
+            name: name,
+            dnsName: dnsName,
+            hostName: hostName,
+            addresses: addresses,
+            isOnline: isOnline,
+            os: os,
+            pairLinks: pairLinks,
+            isScoutReachable: nil,
+            scoutProbeStatus: nil
+        )
+    }
+
+    private func probeTailnetScoutWebTargets() async {
+        guard !tailnetPairTargets.isEmpty else { return }
+
+        var targets = tailnetPairTargets
+        var reachableCount = 0
+        let onlineCount = targets.filter(\.isOnline).count
+        guard onlineCount > 0 else {
+            tailnetPairProbeStatus = "no online Tailnet peers to probe"
+            return
+        }
+
+        for index in targets.indices {
+            let target = targets[index]
+            guard target.isOnline else { continue }
+
+            targets[index] = target.withScoutProbe(isReachable: nil, status: "checking Scout")
+            tailnetPairTargets = targets
+            tailnetPairProbeStatus = "probing \(target.displayName)"
+
+            let result = await probeTailnetScoutWebTarget(target)
+            if result.reachable { reachableCount += 1 }
+            targets[index] = target.withScoutProbe(isReachable: result.reachable, status: result.status)
+            tailnetPairTargets = targets
+        }
+
+        tailnetPairProbeStatus = "probed \(reachableCount)/\(onlineCount) online Tailnet peer(s)"
+        connectionLog.log(
+            "Tailnet discovery probed \(reachableCount)/\(onlineCount) online Scout web endpoint(s)",
+            event: .network,
+            level: reachableCount > 0 ? .info : .warning,
+            route: .tailnet
+        )
+    }
+
+    private func probeTailnetScoutWebTarget(_ target: TailnetPairTarget) async -> TailnetScoutWebProbeResult {
+        var lastError: Error?
+        var lastHTTPStatus: Int?
+        var lastHTTPOrigin: URL?
+
+        for origin in scoutWebOriginCandidates(host: target.dnsName) {
+            guard let url = scoutWebURL(origin: origin, path: Self.scoutWebMeshPath) else { continue }
+            do {
+                var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: 3)
+                request.httpMethod = "GET"
+                request.setValue("application/json", forHTTPHeaderField: "Accept")
+                let (_, response) = try await URLSession.shared.data(for: request)
+                guard let http = response as? HTTPURLResponse else {
+                    lastError = TailnetPairingError.invalidMeshResponse(origin: origin.absoluteString)
+                    continue
+                }
+                if (200..<300).contains(http.statusCode) {
+                    return TailnetScoutWebProbeResult(reachable: true, status: "Scout ready")
+                }
+                lastHTTPStatus = http.statusCode
+                lastHTTPOrigin = origin
+                if http.statusCode == 403 {
+                    return TailnetScoutWebProbeResult(reachable: false, status: "Scout rejected host")
+                }
+            } catch {
+                lastError = error
+            }
+        }
+
+        if let status = lastHTTPStatus {
+            return TailnetScoutWebProbeResult(
+                reachable: false,
+                status: "Scout HTTP \(status)\(lastHTTPOrigin.flatMap { " on \($0.host ?? $0.absoluteString)" } ?? "")"
+            )
+        }
+
+        if let urlError = lastError as? URLError {
+            return TailnetScoutWebProbeResult(reachable: false, status: Self.shortNetworkError(urlError))
+        }
+
+        return TailnetScoutWebProbeResult(reachable: false, status: "Scout unreachable")
     }
 
     private func scoutWebOriginCandidates(host: String, preferredOrigin: URL? = nil) -> [URL] {
@@ -1127,10 +1497,10 @@ final class AppModel {
             ].compactMap { $0 })
         }
         candidates.append(contentsOf: [
-            scoutWebOrigin(scheme: "http", host: host, port: nil),
-            scoutWebOrigin(scheme: "https", host: host, port: nil),
             scoutWebOrigin(scheme: "http", host: host, port: Self.defaultScoutWebPort),
+            scoutWebOrigin(scheme: "http", host: host, port: nil),
             scoutWebOrigin(scheme: "https", host: host, port: Self.defaultScoutWebPort),
+            scoutWebOrigin(scheme: "https", host: host, port: nil),
         ].compactMap { $0 })
         return dedupeURLs(candidates)
     }
@@ -1172,6 +1542,13 @@ final class AppModel {
         // shouldn't blink the status bar to "0 agents". Only a successful fetch
         // (even an empty fleet) updates the counts. Mirrors HomeSurface.load().
         guard let agents = try? await client.listAgents(query: nil, limit: 200) else { return }
+        updateFleetStats(from: agents)
+    }
+
+    /// Apply a successful fleet read to the shell counters. Home already fetches
+    /// agents for its own content, so it can share that result instead of making
+    /// Root issue the same RPC immediately after.
+    func updateFleetStats(from agents: [AgentSummary]) {
         agentCount = agents.count
         activeAgentCount = agents.filter { $0.state == .live }.count
     }
@@ -1244,10 +1621,9 @@ final class AppModel {
         phase = .shell
     }
 
-    /// Attempt to connect the focused bridge first, then warm the rest of the
-    /// paired fleet in the background. Unpaired is reported (the Connect screen /
-    /// status chip own the pairing entry point); this never force-presents the
-    /// camera.
+    /// Attempt to connect the focused bridge only. Unpaired is reported (the
+    /// Connect screen / status chip own the pairing entry point); this never
+    /// force-presents the camera or opens sockets to every saved Mac.
     func connectIfNeeded() async {
         resetReconnectState()
         if connectionState == .connecting { return }
@@ -1271,12 +1647,10 @@ final class AppModel {
         let state = await fleet.connect(machineId: focusId)
         connectionState = state
         if case .connected = state { dataRevision += 1 }
-        connectRemainingMachines(excluding: focusId)
     }
 
     func reconnect() async {
         resetReconnectState()
-        backgroundFleetConnectTask?.cancel()
         fleet.disconnectAll()
         connectionState = .idle
         machinesRevision += 1
@@ -1296,7 +1670,7 @@ final class AppModel {
 
     /// Focus one explicit paired Mac. If its keyed bridge client is already
     /// connected, switching is instant; otherwise we connect that client without
-    /// tearing down other live Mac connections.
+    /// opportunistically warming unrelated saved Macs.
     func connect(toMachineId hex: String) async {
         resetReconnectState()
         let machineId = hex.lowercased()
@@ -1307,7 +1681,6 @@ final class AppModel {
             return
         }
 
-        backgroundFleetConnectTask?.cancel()
         fleet.reconcile(trustedMachineIds: trustedMachineIds)
         fleet.focus(machineId: machineId)
         BridgeBrokerClient.setActiveConnectionPublicKeyHex(machineId)
@@ -1318,7 +1691,6 @@ final class AppModel {
         if case .connected = existingState {
             connectionState = existingState
             dataRevision += 1
-            connectRemainingMachines(excluding: machineId)
             return
         }
 
@@ -1326,7 +1698,6 @@ final class AppModel {
         let state = await fleet.connect(machineId: machineId)
         connectionState = state
         if case .connected = state { dataRevision += 1 }
-        connectRemainingMachines(excluding: machineId)
     }
 
     /// Pair from a scanned QR string, then stay connected. Returns true on success.
@@ -1417,7 +1788,6 @@ final class AppModel {
         _ makePayload: () async throws -> QRPayload
     ) async -> Bool {
         resetReconnectState()
-        backgroundFleetConnectTask?.cancel()
         connectionState = .connecting
         connectionLog.log("Pairing from \(channel)…", event: .pairing, level: .info)
         do {
@@ -1454,7 +1824,6 @@ final class AppModel {
             connectionLog.log("Paired & connected via \(route.label)", event: .connected, level: .success, route: route)
             phase = .shell
             showPairing = false
-            connectRemainingMachines(excluding: pairedMachineId)
             return true
         } catch {
             connectionState = .failed(error.localizedDescription)
@@ -1704,13 +2073,19 @@ final class AppModel {
                 let state = fleet.state(machineId: machineId)
                 var route: TransportKind?
                 if case .connected(let r) = state { route = r }
-                // Prefer the Mac's live advertised host for connected machines —
-                // the stored record name can be stale (older pairs saved the
-                // phone's name). Fall back to the record, then a generic label.
-                let rawName = fleet.host(machineId: machineId) ?? record.name
+                // Name the machine from the first source that's an actual
+                // per-machine host — never the shared mesh relay front door
+                // (`mesh.oscout.net`), which would label every mesh-reached Mac
+                // "mesh". Prefer the live advertised host (LAN/tailnet carry the
+                // real hostname), then the paired record, then a stable unique
+                // fallback so two unnamed Macs never collide.
                 return PairedMachine(
                     id: machineId,
-                    name: rawName.map(Self.prettyMachineName) ?? "Mac",
+                    name: Self.machineDisplayName(
+                        liveHost: fleet.host(machineId: machineId),
+                        recordName: record.name,
+                        machineId: machineId
+                    ),
                     lastSeen: record.lastSeen,
                     isActive: isActive,
                     isOnline: route != nil,
@@ -1768,7 +2143,6 @@ final class AppModel {
         if reconnectMachineId == hex.lowercased() {
             resetReconnectState()
         }
-        backgroundFleetConnectTask?.cancel()
         try? ScoutIdentity.removeTrustedBridge(publicKey: record.publicKey)
         fleet.forget(machineId: hex)
         BridgeBrokerClient.removeSavedConnectionInfo(publicKeyHex: hex.lowercased())
@@ -1776,6 +2150,21 @@ final class AppModel {
             fleet.focus(machineId: replacement)
         }
         syncFocusedConnectionState()
+        machinesRevision += 1
+    }
+
+    /// Rename a paired Mac by hand. The mesh relay never tells us a Mac's real
+    /// name, so this is the operator's override — it persists on the trusted-bridge
+    /// record (keychain) and immediately re-labels the rail and status bar. Empty
+    /// input is ignored so we keep the existing/derived label rather than blanking
+    /// it. Because the record name leads the live host in `machineDisplayName`, the
+    /// hand-set name wins even on a LAN/tailnet Mac that advertises its own host.
+    func renameMachine(id hex: String, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let record = ((try? ScoutIdentity.getTrustedBridges()) ?? [])
+                .first(where: { $0.publicKeyHex.lowercased() == hex.lowercased() }) else { return }
+        try? ScoutIdentity.saveTrustedBridge(publicKey: record.publicKey, name: trimmed)
         machinesRevision += 1
     }
 
@@ -1794,12 +2183,66 @@ final class AppModel {
         return label.replacingOccurrences(of: "-", with: " ")
     }
 
+    /// The display name for a paired machine. The OpenScout mesh relay front door
+    /// (`mesh.oscout.net`) is shared rendezvous infrastructure, not a machine's
+    /// identity — when a Mac is reached over the mesh, both its live host and its
+    /// learned record name are that front door, so naming from either yields
+    /// "mesh" for every device. We skip any front-door host and fall through to a
+    /// stable, unique label derived from the public key so collisions read as
+    /// distinct unnamed Macs rather than a wall of "mesh".
+    ///
+    /// The record name leads the live host: it carries the learned LAN/tailnet
+    /// hostname AND any name the operator set by hand (`renameMachine`), so a
+    /// manual rename always wins over the transport's advertised host.
+    nonisolated static func machineDisplayName(liveHost: String?, recordName: String?, machineId: String) -> String {
+        for candidate in [recordName, liveHost] {
+            guard let raw = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty, !isMeshFrontDoorHost(raw) else { continue }
+            return prettyMachineName(raw)
+        }
+        let tag = machineId.filter(\.isHexDigit).suffix(4)
+        return tag.isEmpty ? "Mac" : "Mac \(tag)"
+    }
+
+    /// True for the shared OpenScout mesh relay front door — the rendezvous host
+    /// every mesh-reached Mac connects through, which is never a machine identity.
+    nonisolated static func isMeshFrontDoorHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return h == "oscout.net" || h.hasSuffix(".oscout.net")
+    }
+
     private nonisolated static func cleanTailnetHost(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
         }
         return trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+
+    private nonisolated static func isPairableTailnetPeerOS(_ rawOS: String?) -> Bool {
+        guard let os = rawOS?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !os.isEmpty else {
+            return true
+        }
+        return os.contains("mac") || os == "darwin"
+    }
+
+    private nonisolated static func shortNetworkError(_ error: URLError) -> String {
+        switch error.code {
+        case .timedOut:
+            return "Scout timed out"
+        case .cannotFindHost, .dnsLookupFailed:
+            return "Scout host not found"
+        case .cannotConnectToHost:
+            return "Scout not listening"
+        case .networkConnectionLost, .notConnectedToInternet:
+            return "Scout network lost"
+        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
+             .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
+            return "Scout TLS failed"
+        default:
+            return "Scout unreachable"
+        }
     }
 
     private func hasTrustedMachine(id hex: String) -> Bool {
@@ -1888,25 +2331,6 @@ final class AppModel {
         }
     }
 
-    private func connectRemainingMachines(excluding focusedMachineId: String?) {
-        let remaining = trustedMachineIds.filter { $0 != focusedMachineId }
-        guard !remaining.isEmpty else { return }
-        backgroundFleetConnectTask?.cancel()
-        backgroundFleetConnectTask = Task { @MainActor in
-            for machineId in remaining {
-                guard !Task.isCancelled else { return }
-                let state = await self.fleet.connect(machineId: machineId)
-                if case .connected = state,
-                   case .connected = self.connectionState {
-                    continue
-                } else if case .connected = state {
-                    self.fleet.focus(machineId: machineId)
-                    BridgeBrokerClient.setActiveConnectionPublicKeyHex(machineId)
-                    self.syncFocusedConnectionState()
-                }
-            }
-        }
-    }
 }
 
 private final class PairingWebRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
@@ -2076,6 +2500,10 @@ private final class FleetConnectionManager: @unchecked Sendable {
         let key = machineId.lowercased()
         guard let client = clients[key], case .connected = states[key] else { return nil }
         return client
+    }
+
+    var hasTransportWork: Bool {
+        states.values.contains { $0.keepsTransportWorkAlive }
     }
 
     func hasConnectedRoute(_ route: TransportKind) -> Bool {

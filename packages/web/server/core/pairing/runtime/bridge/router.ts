@@ -49,6 +49,7 @@ import {
   sendScoutMobileComms,
   sendScoutMobileMessage,
 } from "../../../mobile/service.ts";
+import { readScoutBrokerTailRecent } from "../../../broker/service.ts";
 import { provisionMobileTerminalAccess } from "./mobile-terminal-provision.ts";
 import { syncMobilePushRegistrationWithRelay } from "@openscout/runtime/mobile-push";
 import {
@@ -67,6 +68,7 @@ import {
   pairingFileServerOrigin,
   storePairingAttachmentBlob,
 } from "./fileserver.ts";
+import { getMobileMeshStatus } from "./mobile-mesh-status.ts";
 
 import { readFileSync, readdirSync, realpathSync, statSync } from "fs";
 import { execSync } from "child_process";
@@ -202,6 +204,9 @@ function buildMobileEndpointManifest(ctx: BridgeContext) {
       name: nodeName,
       hostName,
     },
+    // The Mac's own hostname, so a mesh-reached phone can label this machine with
+    // its real name — the shared relay front door never identifies the Mac.
+    hostName,
     transport: {
       secure: ctx.secureTransport === true,
       trustedPeer: ctx.trustedPeer === true,
@@ -811,6 +816,9 @@ const mobileRouter = t.router({
   endpoints: protectedMobileProcedure
     .query(({ ctx }) => buildMobileEndpointManifest(ctx)),
 
+  meshStatus: procedure
+    .query(() => getMobileMeshStatus()),
+
   inbox: procedure
     .query(({ ctx }) => ({
       items: queryMobileInboxItems(ctx.bridge),
@@ -1117,6 +1125,17 @@ const mobileRouter = t.router({
     )
     .query(async ({ input }) => {
       return getScoutMobileActivity(input);
+    }),
+
+  // Mobile Tail is a polled snapshot, not a live firehose: the phone fetches a
+  // recent slice every few seconds while the Tail view is open. The query hits
+  // the broker fresh each call (re-resolving the URL), so it survives broker
+  // restarts where the singleton tail-fanout push would silently go stale, and
+  // it never streams the full firehose across cellular when nobody's watching.
+  tail: procedure
+    .input(z.object({ limit: z.number().optional() }).optional())
+    .query(async ({ input }) => {
+      return readScoutBrokerTailRecent(input?.limit ?? 50);
     }),
 
   agentDetail: procedure

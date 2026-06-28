@@ -877,6 +877,62 @@ export async function readScoutBrokerHome(baseUrl = resolveScoutBrokerUrl()): Pr
   }
 }
 
+/** Compact tail event for the mobile snapshot — the broker `TailEvent` minus the
+ *  heavy `raw` harness payload (which the phone never renders). Keeping only the
+ *  fields the iOS Tail surface decodes keeps the poll cheap on cellular. */
+export interface ScoutBrokerTailEvent {
+  id: string;
+  ts: number;
+  source: string;
+  sessionId: string;
+  pid: number;
+  parentPid?: number | null;
+  project: string;
+  cwd: string;
+  harness: string;
+  kind: string;
+  summary: string;
+}
+
+interface ScoutBrokerTailRecentPayload {
+  events?: ScoutBrokerTailEvent[];
+}
+
+/**
+ * Recent tail snapshot for the mobile Tail surface. Queries the broker's
+ * `/v1/tail/recent` endpoint fresh on every call (re-resolving the broker URL),
+ * so it has no long-lived connection that can go stale across a broker restart —
+ * the resilient counterpart to the singleton tail-fanout used for desktop push.
+ * Returns the compact events (no `raw`), newest-last as the broker orders them.
+ */
+export async function readScoutBrokerTailRecent(
+  limit = 50,
+  baseUrl = resolveScoutBrokerUrl(),
+): Promise<ScoutBrokerTailEvent[]> {
+  const safeLimit = Math.min(Math.max(1, Math.trunc(limit) || 50), 200);
+  try {
+    const payload = await brokerReadJson<ScoutBrokerTailRecentPayload>(
+      baseUrl,
+      `/v1/tail/recent?limit=${safeLimit}`,
+    );
+    return (payload.events ?? []).map((event) => ({
+      id: event.id,
+      ts: event.ts,
+      source: event.source,
+      sessionId: event.sessionId,
+      pid: event.pid,
+      parentPid: event.parentPid ?? null,
+      project: event.project,
+      cwd: event.cwd,
+      harness: event.harness,
+      kind: event.kind,
+      summary: event.summary,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerSnapshot | null> {
   try {
     return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot);

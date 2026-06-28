@@ -13,6 +13,7 @@
 // first connection).
 
 import { createHash } from "crypto";
+import { execSync } from "child_process";
 import {
   chmodSync,
   closeSync,
@@ -84,12 +85,46 @@ export function provisionMobileTerminalAccess(
     return result;
   });
 
+  // Pre-warm the persistent `scout` tmux session HERE, in the Mac's GUI login
+  // session (this runs inside the menu-app-spawned controller). The phone's
+  // terminal command is `zsh -lc 'exec tmux new -A -s scout'`: when the session
+  // doesn't exist it CREATES one, whose interactive pane sources ~/.zshrc, which
+  // runs `security unlock-keychain` — a no-op when the login keychain is already
+  // unlocked (GUI session) but a PASSWORD PROMPT over a bare SSH session. By
+  // ensuring the session exists before the phone connects, every iOS connect
+  // becomes a clean ATTACH (no new shell, no .zshrc, no keychain prompt).
+  ensureScoutTmuxSession();
+
   return {
     host: resolveReachableHost(),
     port: 22,
     username: userInfo().username,
     hostKeyFingerprint,
   };
+}
+
+/**
+ * Idempotently ensure the persistent `scout` tmux session exists, created in
+ * this (GUI-session) process so its shell init touches an already-unlocked
+ * keychain. `zsh -lc` restores the login PATH (Homebrew `tmux` on
+ * /opt/homebrew/bin) without sourcing the interactive ~/.zshrc itself (no -i);
+ * the inner `tmux new-session` is what spawns the interactive pane. Best-effort:
+ * if it fails the phone simply falls back to creating the session on connect
+ * (today's behavior), so the terminal still works.
+ */
+function ensureScoutTmuxSession(): void {
+  try {
+    execSync(
+      "zsh -lc 'tmux has-session -t scout 2>/dev/null || tmux new-session -d -s scout'",
+      { stdio: "ignore", timeout: 8_000 },
+    );
+    log.info("terminal", "ensured persistent `scout` tmux session (GUI session)");
+  } catch (error) {
+    log.warn(
+      "terminal",
+      `could not pre-create scout tmux session; phone will create on connect: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
