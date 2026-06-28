@@ -5,8 +5,8 @@ import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
   parseScopeRouteFromUrl,
   preserveLocationSearch,
-  scopeRoutePath,
-} from "../scope/index.ts";
+} from "../scope/paths.ts";
+import { scopeRoutePath } from "../scope/presentation.ts";
 import { normalizeRoute } from "./synthetic-agent-routing.ts";
 import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {

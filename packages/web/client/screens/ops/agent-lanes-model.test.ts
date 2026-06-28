@@ -858,7 +858,7 @@ describe("isAgentLaneWorking", () => {
       windowMs: 5 * 60_000,
     });
 
-    expect(data.events.map((event) => event.text)).toEqual(["grep"]);
+    expect(data.events.map((event) => event.text)).toEqual(["bash · grep foo"]);
     expect(data.metadata?.usage?.inputTokens).toBe(50_000);
     expect(data.metadata?.usage?.cacheReadInputTokens).toBe(30_000);
     expect(data.metadata?.usage?.outputTokens).toBe(800);
@@ -903,7 +903,7 @@ describe("isAgentLaneWorking", () => {
       windowMs: 5 * 60_000,
     });
 
-    expect(data.events.map((event) => event.text)).toEqual(["grep"]);
+    expect(data.events.map((event) => event.text)).toEqual(["bash · grep foo"]);
     expect(data.metadata?.usage).toBeUndefined();
   });
 
