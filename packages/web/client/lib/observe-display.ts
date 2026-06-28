@@ -74,8 +74,13 @@ function mergeToolLifecyclePair(started: ObserveEvent, completed: ObserveEvent):
     && started.arg !== "completed"
     ? started.arg
     : (completed.arg && completed.arg !== "completed" ? completed.arg : undefined);
+  const preview = completed.stream?.join("\n") ?? "";
   const text = command
-    ? (outcome ? `${tool} · ${command} · ${outcome}` : `${tool} · ${command}`)
+    ? (preview.trim()
+      ? `${tool} · ${command} · ${preview}`
+      : outcome
+        ? `${tool} · ${command} · ${outcome}`
+        : `${tool} · ${command}`)
     : (completed.text.trim()
       || (outcome ? `${tool} completed · ${outcome}` : `${tool} completed`));
 
@@ -84,7 +89,60 @@ function mergeToolLifecyclePair(started: ObserveEvent, completed: ObserveEvent):
     tool,
     arg: command ?? "completed",
     text,
+    stream: completed.stream ?? started.stream,
+    diff: completed.diff ?? started.diff,
+    detail: completed.detail ?? started.detail,
     live: completed.live ?? started.live,
+  };
+}
+
+function isShellInvocation(event: ObserveEvent): boolean {
+  if (event.kind !== "tool" || !event.tool) return false;
+  const toolKey = normalized(event.tool).toLowerCase();
+  if (!LANE_BASH_TOOL_NAMES.has(toolKey)) return false;
+  const arg = normalized(event.arg);
+  return arg.length > 0 && arg !== "started" && arg !== "completed";
+}
+
+function isShellResult(event: ObserveEvent): boolean {
+  if (event.kind !== "tool") return false;
+  const toolKey = normalized(event.tool).toLowerCase();
+  if (toolKey === "res") {
+    return Boolean(normalized(event.arg) || (event.stream?.length ?? 0) > 0);
+  }
+  if (!LANE_BASH_TOOL_NAMES.has(toolKey)) return false;
+  return (event.stream?.length ?? 0) > 0;
+}
+
+function shellResultPreview(event: ObserveEvent): string {
+  if ((event.stream?.length ?? 0) > 0) {
+    return event.stream!.join("\n");
+  }
+  if (normalized(event.tool).toLowerCase() === "res") {
+    return event.arg ?? "";
+  }
+  return "";
+}
+
+function mergeShellResultPair(invocation: ObserveEvent, result: ObserveEvent): ObserveEvent {
+  const preview = shellResultPreview(result);
+  const command = normalized(invocation.arg);
+  const tool = invocation.tool ?? result.tool;
+  const text = preview.trim()
+    ? `${tool} · ${command} · ${preview}`
+    : invocation.text;
+
+  return {
+    ...invocation,
+    id: result.id,
+    t: result.t,
+    at: result.at,
+    result: result.result ?? invocation.result,
+    stream: preview.trim() ? [preview] : result.stream ?? invocation.stream,
+    diff: result.diff ?? invocation.diff,
+    detail: result.detail ?? invocation.detail,
+    text,
+    live: result.live ?? invocation.live,
   };
 }
 
@@ -156,6 +214,25 @@ export function collapseObserveDisplayRows(events: ObserveEvent[]): ObserveDispl
       && normalized(current.tool).toLowerCase() === normalized(next.tool).toLowerCase()
     ) {
       const merged = mergeToolLifecyclePair(current, next);
+      const signature = observeEventSignature(merged);
+      const prev = out[out.length - 1];
+      if (prev && observeEventSignature(prev.event) === signature) {
+        prev.repeatCount += 1;
+        prev.event = merged;
+      } else {
+        out.push({ event: merged, repeatCount: 1 });
+      }
+      index += 1;
+      continue;
+    }
+
+    if (
+      next
+      && isShellInvocation(current)
+      && isShellResult(next)
+      && (current.stream?.length ?? 0) === 0
+    ) {
+      const merged = mergeShellResultPair(current, next);
       const signature = observeEventSignature(merged);
       const prev = out[out.length - 1];
       if (prev && observeEventSignature(prev.event) === signature) {

@@ -1265,43 +1265,54 @@ fn process_snapshot_filter(command: &str) -> bool {
         || command_references_process(command, "ScoutMenu")
 }
 
-fn legacy_service_label(config: &Config) -> String {
-    match config.service_mode.as_str() {
-        "prod" => "com.openscout.broker".to_string(),
-        "custom" => "com.openscout.broker.custom".to_string(),
-        _ => "dev.openscout.broker".to_string(),
+fn legacy_service_labels(config: &Config) -> Vec<String> {
+    let primary = match config.service_mode.as_str() {
+        "prod" => "com.openscout.broker",
+        "custom" => "com.openscout.broker.custom",
+        _ => "dev.openscout.broker",
+    };
+    let mut labels = vec![primary.to_string()];
+    if config.service_mode == "dev" {
+        labels.push("dev.openscout.broker-fallback".to_string());
     }
+    labels
 }
 
-fn legacy_service_target(config: &Config) -> String {
-    format!("{}/{}", config.domain_target, legacy_service_label(config))
+fn legacy_service_targets(config: &Config) -> Vec<String> {
+    legacy_service_labels(config)
+        .into_iter()
+        .map(|label| format!("{}/{}", config.domain_target, label))
+        .collect()
 }
 
-fn legacy_launch_agent_path(config: &Config) -> PathBuf {
-    match home_dir() {
-        Ok(home) => home.join(format!(
-            "Library/LaunchAgents/{}.plist",
-            legacy_service_label(config)
-        )),
-        Err(_) => config.launch_agent_path.clone(),
-    }
+fn legacy_launch_agent_paths(config: &Config) -> Vec<PathBuf> {
+    let home = match home_dir() {
+        Ok(home) => home,
+        Err(_) => return Vec::new(),
+    };
+    legacy_service_labels(config)
+        .into_iter()
+        .map(|label| home.join(format!("Library/LaunchAgents/{label}.plist")))
+        .collect()
 }
 
 fn bootout_legacy_service(config: &Config) {
-    let legacy_target = legacy_service_target(config);
-    if legacy_target != config.service_target {
-        let _ = run_command("/bin/launchctl", &["bootout", &legacy_target]);
+    for legacy_target in legacy_service_targets(config) {
+        if legacy_target != config.service_target {
+            let _ = run_command("/bin/launchctl", &["bootout", &legacy_target]);
+        }
     }
     // The legacy plist has RunAtLoad=true, so leaving it on disk lets launchd
     // re-bootstrap the old service at every login. Remove it best-effort,
     // consistent with the bootout above.
-    let legacy_path = legacy_launch_agent_path(config);
-    if legacy_path != config.launch_agent_path && legacy_path.exists() {
-        if let Err(error) = fs::remove_file(&legacy_path) {
-            eprintln!(
-                "[scoutd] failed to remove legacy launch agent {}: {error}",
-                legacy_path.display()
-            );
+    for legacy_path in legacy_launch_agent_paths(config) {
+        if legacy_path != config.launch_agent_path && legacy_path.exists() {
+            if let Err(error) = fs::remove_file(&legacy_path) {
+                eprintln!(
+                    "[scoutd] failed to remove legacy launch agent {}: {error}",
+                    legacy_path.display()
+                );
+            }
         }
     }
 }
@@ -2276,12 +2287,14 @@ fn xml_escape(value: &str) -> String {
 mod tests {
     use super::{
         build_identity_json, build_identity_text, command_invokes_scoutd_daemon,
-        health_body_reports_ok, parse_daemon_state_telemetry, parse_health_response,
-        parse_http_status_code, process_snapshot_filter, read_last_log_line_from,
-        resolve_advertise_scope_value, resolve_broker_host_value, resolve_broker_url_value,
-        restart_telemetry_warnings, rotate_child_log_if_needed, rotated_child_log_path,
-        scoutd_owned_child_log_path, BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME,
-        DEFAULT_BROKER_HOST_MESH, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW, REPO_WATCH_WARM_PATH,
+        health_body_reports_ok, legacy_service_labels, legacy_service_targets,
+        parse_daemon_state_telemetry, parse_health_response, parse_http_status_code,
+        process_snapshot_filter, read_last_log_line_from, resolve_advertise_scope_value,
+        resolve_broker_host_value, resolve_broker_url_value, restart_telemetry_warnings,
+        rotate_child_log_if_needed, rotated_child_log_path, scoutd_owned_child_log_path, Config,
+        BUILD_VERSION, CHILD_LOG_ROTATE_LIMIT, DAEMON_NAME, DEFAULT_BROKER_HOST,
+        DEFAULT_BROKER_HOST_MESH, DEFAULT_BROKER_PORT, LEGACY_DAEMON_NAME, LOG_TAIL_WINDOW,
+        REPO_WATCH_WARM_PATH,
     };
     use std::env;
     use std::fs;
@@ -2358,6 +2371,64 @@ mod tests {
 
         assert_eq!(host, "100.64.0.10");
         assert_eq!(url, "http://mini.tailnet.test:65535");
+    }
+
+    #[test]
+    fn dev_legacy_service_labels_include_pre_scoutd_fallback() {
+        let config = Config {
+            label: "dev.openscout".to_string(),
+            service_mode: "dev".to_string(),
+            domain_target: "gui/501".to_string(),
+            service_target: "gui/501/dev.openscout".to_string(),
+            launch_agent_path: PathBuf::from(
+                "/Users/test/Library/LaunchAgents/dev.openscout.plist",
+            ),
+            support_directory: PathBuf::from("/Users/test/Library/Application Support/OpenScout"),
+            runtime_directory: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/runtime",
+            ),
+            logs_directory: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/broker",
+            ),
+            stdout_log_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/broker/stdout.log",
+            ),
+            stderr_log_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/broker/stderr.log",
+            ),
+            control_home: PathBuf::from("/Users/test/.openscout/control-plane"),
+            runtime_package_dir: PathBuf::from("/repo/packages/runtime"),
+            daemon_executable: PathBuf::from("/repo/packages/cli/bin/scoutd"),
+            daemon_state_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/runtime/scoutd-state.json",
+            ),
+            host_info_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/.host-info",
+            ),
+            bun_executable: "/Users/test/.bun/bin/bun".to_string(),
+            broker_host: DEFAULT_BROKER_HOST.to_string(),
+            broker_port: DEFAULT_BROKER_PORT,
+            broker_url: "http://127.0.0.1:43110".to_string(),
+            broker_socket_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/runtime/broker.sock",
+            ),
+            repo_watch_interval: None,
+        };
+
+        assert_eq!(
+            legacy_service_labels(&config),
+            vec![
+                "dev.openscout.broker".to_string(),
+                "dev.openscout.broker-fallback".to_string(),
+            ]
+        );
+        assert_eq!(
+            legacy_service_targets(&config),
+            vec![
+                "gui/501/dev.openscout.broker".to_string(),
+                "gui/501/dev.openscout.broker-fallback".to_string(),
+            ]
+        );
     }
 
     #[test]

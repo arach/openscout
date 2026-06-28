@@ -1,4 +1,5 @@
 import type { Route } from "../lib/types.ts";
+import { SCOPE_TOP_NAV_ITEMS, scopeTopNavKeyForRoute } from "../scope/nav.ts";
 
 export type TopNavKey =
   | "home"
@@ -9,7 +10,9 @@ export type TopNavKey =
   | "ops"
   | "tail"
   | "dispatch"
-  | "repos";
+  | "repos"
+  | "lanes"
+  | "sessions";
 
 export type TopNavItem = {
   key: TopNavKey;
@@ -33,6 +36,8 @@ export const TOP_NAV_ITEMS: TopNavItem[] = [
 // cluster to the primary bar; Search + the rest of Ops (Control/Mesh/Runtime/
 // Plans) drop off the bar and stay reachable via the Ops subnav + ⌘K palette.
 // Gated by the `nav.clean` flag.
+export { SCOPE_TOP_NAV_ITEMS } from "../scope/nav.ts";
+
 export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Projects", route: { view: "agents-v2" } },
@@ -66,7 +71,8 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   ops: "Ops",
 };
 
-export function topNavItems(opsEnabled: boolean, cleanNav = false): TopNavItem[] {
+export function topNavItems(opsEnabled: boolean, cleanNav = false, scopeNav = false): TopNavItem[] {
+  if (scopeNav) return SCOPE_TOP_NAV_ITEMS;
   // Clean nav is its own fixed layout — the lean core always shows, and there
   // is no Ops top-level entry (ops.control still governs the Ops subnav/routes).
   if (cleanNav) return CLEAN_TOP_NAV_ITEMS;
@@ -79,7 +85,9 @@ export function topNavKeyForRoute(
   route: Route,
   opsEnabled: boolean,
   cleanNav = false,
+  scopeNav = false,
 ): TopNavKey {
+  if (scopeNav) return scopeTopNavKeyForRoute(route);
   if (route.view === "settings" && route.section === "agents") {
     return "agents";
   }

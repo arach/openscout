@@ -35,6 +35,7 @@ describe("isTailNoiseEvent", () => {
     expect(isTailNoiseEvent(event({ summary: "phase · streaming_reasoning" }))).toBe(true);
     expect(isTailNoiseEvent(event({ summary: "phase · streaming_text" }))).toBe(true);
     expect(isTailNoiseEvent(event({ summary: "phase · tool_execution" }))).toBe(true);
+    expect(isTailNoiseEvent(event({ summary: "phase · waiting_for_model" }))).toBe(true);
   });
 
   test("keeps substantive grok tool lines", () => {
@@ -102,6 +103,27 @@ describe("observeToolFieldsFromTailEvent", () => {
     });
   });
 
+  test("classifies codex bare shell commands as bash with the full command line", () => {
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "codex",
+      summary: "sed -n '1,70p' crates/scoutd/src/main.rs",
+      kind: "tool",
+    }))).toEqual({
+      tool: "bash",
+      arg: "sed -n '1,70p' crates/scoutd/src/main.rs",
+    });
+    expect(observeToolFieldsFromTailEvent(event({
+      source: "codex",
+      summary: "sed -n '1,70p' crates/scoutd/src/main.rs -> res: use std::env; use std::fs; fn main() { println!(\"scoutd\"); (5 lines)",
+      kind: "tool-result",
+    }))).toEqual({
+      tool: "bash",
+      arg: "sed -n '1,70p' crates/scoutd/src/main.rs",
+      result: { outcome: "success" },
+      stream: ["use std::env; use std::fs; fn main() { println!(\"scoutd\"); (5 lines)"],
+    });
+  });
+
   test("parses codex-style function calls and plain summaries", () => {
     expect(observeToolFieldsFromTailEvent(event({
       source: "codex",
@@ -139,7 +161,7 @@ describe("observeToolFieldsFromTailEvent", () => {
       source: "codex",
       summary: "grep foo",
       kind: "tool",
-    }))).toEqual({ tool: "grep" });
+    }))).toEqual({ tool: "bash", arg: "grep foo" });
   });
 
   test("matches observe tool kinds case-insensitively", () => {
@@ -197,7 +219,12 @@ describe("observeToolFieldsFromTailEvent", () => {
       source: "claude",
       summary: "res: 0 errors",
       kind: "tool-result",
-    }))).toEqual({ tool: "res", arg: "0 errors", result: { outcome: "success" } });
+    }))).toEqual({
+      tool: "res",
+      arg: "0 errors",
+      result: { outcome: "success" },
+      stream: ["0 errors"],
+    });
     expect(observeToolFieldsFromTailEvent(event({
       source: "claude",
       summary: "res: error: cannot find module 'foo'",
@@ -206,12 +233,18 @@ describe("observeToolFieldsFromTailEvent", () => {
       tool: "res",
       arg: "error: cannot find module 'foo'",
       result: { outcome: "error" },
+      stream: ["error: cannot find module 'foo'"],
     });
     expect(observeToolFieldsFromTailEvent(event({
       source: "claude",
       summary: "res: done",
       kind: "tool-result",
-    }))).toEqual({ tool: "res", arg: "done", result: { outcome: "success" } });
+    }))).toEqual({
+      tool: "res",
+      arg: "done",
+      result: { outcome: "success" },
+      stream: ["done"],
+    });
   });
 });
 
@@ -240,6 +273,12 @@ describe("tailObserveEventDetail", () => {
 });
 
 describe("observeKindFromTailEvent", () => {
+  test("maps grok turns into note rows", () => {
+    expect(observeKindFromTailEvent(event({
+      summary: "turn 24 · grok-composer-2.5-fast",
+    }))).toBe("note");
+  });
+
   test("maps codex lifecycle and reasoning into lane-friendly kinds", () => {
     expect(observeKindFromTailEvent(event({
       source: "codex",

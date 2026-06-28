@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 
+import { isStrReplaceTool, laneDisplayPath } from "../../lib/lane-edit-display.ts";
 import { buildLaneToolDetailModel, fmtLaneSessionOffset } from "../../lib/lane-tool-detail.ts";
 import type { ObserveEvent } from "../../lib/types.ts";
 
-const PRIMARY_SECTIONS = new Set(["detail", "output", "result", "diff"]);
+const PRIMARY_SECTIONS = new Set(["detail", "output", "result", "diff", "change"]);
 
 function CopyButton({
   text,
@@ -74,7 +75,19 @@ export function LaneTraceEventFocus({
       </div>
 
       <div className="s-lane-trace-focus-head">
-        <div className="s-lane-trace-focus-cmd">{model.command}</div>
+        <div className="s-lane-trace-focus-head-copy">
+          <div className="s-lane-trace-focus-cmd">{model.command}</div>
+          {isStrReplaceTool(event.tool) && event.arg?.trim() && (() => {
+            const full = laneDisplayPath(event.arg.trim());
+            const base = full.split("/").pop() ?? full;
+            if (full === base) return null;
+            return (
+              <div className="s-lane-trace-focus-path" title={event.arg.trim()}>
+                {full}
+              </div>
+            );
+          })()}
+        </div>
         <CopyButton text={model.copyText} label="Copy event detail" />
       </div>
 

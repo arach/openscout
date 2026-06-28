@@ -207,7 +207,9 @@ function AgentLaneColumn({
       />
       <AgentLaneCard
         model={agentLaneToCardModel(lane, { isLive, nowMs })}
-        avatar={<AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />}
+        avatar={(
+          <AgentAvatar agent={agent} placement="row" size={44} presence={false} tile={false} />
+        )}
         collapsed={collapsed}
         cockpitHeight={collapsed ? undefined : summaryHeight}
         onToggleCollapsed={() => setCollapsed((value) => !value)}

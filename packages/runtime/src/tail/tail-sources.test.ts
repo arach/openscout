@@ -502,6 +502,99 @@ describe("tail transcript sources", () => {
     expect(completed?.summary).toBe(`Shell · ${shellCommand} · success`);
   });
 
+  test("enriches Grok StrReplace tool events with old/new edit previews", () => {
+    const projectDir = join(
+      process.env.OPENSCOUT_TAIL_GROK_SESSIONS_ROOT!,
+      encodeURIComponent("/Users/art/dev/openscout"),
+    );
+    const sessionDir = join(projectDir, "019edd6b-strreplace-enrich");
+    mkdirSync(sessionDir, { recursive: true });
+    const transcriptPath = join(sessionDir, "events.jsonl");
+    const filePath = "packages/web/client/lib/tail-display.test.ts";
+    writeFileSync(
+      join(sessionDir, "summary.json"),
+      JSON.stringify({
+        info: {
+          id: "019edd6b-strreplace-enrich",
+          cwd: "/Users/art/dev/openscout",
+        },
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      join(sessionDir, "updates.jsonl"),
+      `${JSON.stringify({
+        timestamp: Date.parse("2026-04-27T15:00:01.000Z") / 1000,
+        method: "session/update",
+        params: {
+          sessionId: "019edd6b-strreplace-enrich",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "call-strreplace-fixture",
+            title: "StrReplace",
+            rawInput: {
+              path: filePath,
+              old_string: "const max = 96;",
+              new_string: "const max = 120;",
+            },
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      transcriptPath,
+      [
+        JSON.stringify({
+          ts: "2026-04-27T15:00:01.000Z",
+          type: "tool_started",
+          session_id: "019edd6b-strreplace-enrich",
+          tool_name: "StrReplace",
+        }),
+        JSON.stringify({
+          ts: "2026-04-27T15:00:02.000Z",
+          type: "tool_completed",
+          session_id: "019edd6b-strreplace-enrich",
+          tool_name: "StrReplace",
+          outcome: "success",
+        }),
+      ].join("\n") + "\n",
+      "utf8",
+    );
+
+    const transcripts = GrokSource.discoverTranscripts([]);
+    const transcript = transcripts.find((entry) => entry.sessionId === "019edd6b-strreplace-enrich");
+    expect(transcript).toBeDefined();
+
+    const ctx = makeContext("grok", transcript!);
+    const started = GrokSource.parseLine(
+      JSON.stringify({
+        ts: "2026-04-27T15:00:01.000Z",
+        type: "tool_started",
+        session_id: "019edd6b-strreplace-enrich",
+        tool_name: "StrReplace",
+      }),
+      { ...ctx, lineOffset: 0 },
+    );
+    const completed = GrokSource.parseLine(
+      JSON.stringify({
+        ts: "2026-04-27T15:00:02.000Z",
+        type: "tool_completed",
+        session_id: "019edd6b-strreplace-enrich",
+        tool_name: "StrReplace",
+        outcome: "success",
+      }),
+      { ...ctx, lineOffset: 1 },
+    );
+
+    expect(started?.summary).toBe(
+      "StrReplace · packages/web/client/lib/tail-display.test.ts · edit: -const max = 96; · +const max = 120;",
+    );
+    expect(completed?.summary).toBe(
+      "StrReplace · packages/web/client/lib/tail-display.test.ts · edit: -const max = 96; · +const max = 120; · success",
+    );
+  });
+
   test("discovers and parses OpenCode sessions from message and part storage", () => {
     const storageRoot = process.env.OPENSCOUT_TAIL_OPENCODE_STORAGE_ROOT!;
     const sessionPath = join(storageRoot, "session", "global", "ses_fixture.json");

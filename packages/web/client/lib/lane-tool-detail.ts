@@ -1,3 +1,8 @@
+import {
+  isStrReplaceTool,
+  laneDisplayPath,
+  strReplaceEditFromObserveEvent,
+} from "./lane-edit-display.ts";
 import type { ObserveEvent } from "./types.ts";
 
 export type LaneToolDetailField = {
@@ -21,12 +26,24 @@ function normalized(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
 
+const SHELL_TOOL_NAMES = new Set([
+  "bash", "shell", "terminal", "exec", "run", "command",
+  "exec_command", "shell_command", "local_shell", "container_exec", "container.exec",
+]);
+
 /** Best-effort full command line for a lane tool row. */
 export function laneToolCommandLine(event: Pick<ObserveEvent, "tool" | "arg" | "text">): string {
   const tool = normalized(event.tool);
   const arg = normalized(event.arg);
   const text = normalized(event.text);
 
+  if (tool && SHELL_TOOL_NAMES.has(tool.toLowerCase()) && arg && arg !== "started" && arg !== "completed") {
+    return arg;
+  }
+  if (tool && isStrReplaceTool(tool) && arg && arg !== "started" && arg !== "completed" && arg !== "patch") {
+    const slash = arg.lastIndexOf("/");
+    return slash >= 0 ? arg.slice(slash + 1) : arg;
+  }
   if (tool && arg && arg !== "started" && arg !== "completed" && arg !== tool) {
     return `${tool} · ${arg}`;
   }
@@ -83,8 +100,15 @@ export function buildLaneToolDetailModel(
 
   const tool = normalized(event.tool);
   const arg = normalized(event.arg);
-  if (tool && tool !== command) hoverFields.push({ label: "tool", value: tool });
-  if (arg && arg !== tool && arg !== command) hoverFields.push({ label: "arg", value: arg });
+  const strReplace = isStrReplaceTool(event.tool);
+  const strReplaceEdit = strReplace ? strReplaceEditFromObserveEvent(event) : null;
+
+  if (strReplace && strReplaceEdit?.path) {
+    hoverFields.push({ label: "file", value: laneDisplayPath(strReplaceEdit.path) });
+  } else {
+    if (tool && tool !== command) hoverFields.push({ label: "tool", value: tool });
+    if (arg && arg !== tool && arg !== command) hoverFields.push({ label: "arg", value: arg });
+  }
 
   const outcome = event.result?.outcome;
   if (outcome != null && String(outcome).length > 0) {
@@ -108,7 +132,10 @@ export function buildLaneToolDetailModel(
     });
   }
   if (event.diff?.preview) {
-    sections.push({ title: "diff", content: event.diff.preview });
+    sections.push({
+      title: isStrReplaceTool(event.tool) ? "change" : "diff",
+      content: event.diff.preview,
+    });
   }
   if (event.stream?.length) {
     sections.push({ title: "output", content: event.stream.join("\n") });

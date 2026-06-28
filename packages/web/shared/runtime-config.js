@@ -11,6 +11,8 @@ export const DEFAULT_TAIL_STREAM_PATH = "/ws/tail";
 export const DEFAULT_EVENTS_STREAM_PATH = "/ws/events";
 export const DEFAULT_VITE_HMR_PATH = "/ws/hmr";
 
+import { SCOPE_FLAG_BUNDLE_ALIASES } from "./scope-integration.js";
+
 const OPENSCOUT_WEB_FLAG_BUNDLE_ALIASES = {
   a: "light-prod",
   control: "light-prod",
@@ -23,6 +25,7 @@ const OPENSCOUT_WEB_FLAG_BUNDLE_ALIASES = {
   "max-pro": "max-pro",
   pro: "max-pro",
   treatment: "max-pro",
+  ...SCOPE_FLAG_BUNDLE_ALIASES,
 };
 
 export function normalizeRoutePath(value, fallback) {

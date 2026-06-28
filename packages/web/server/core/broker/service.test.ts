@@ -4,6 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  LOCAL_CONFIG_VERSION,
+  writeLocalConfig,
+} from "@openscout/runtime/local-config";
+import {
   resolveRelayAgentConfig,
   writeOpenScoutSettings,
   writeProjectConfig,
@@ -91,10 +95,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 describe("resolveScoutBrokerUrl", () => {
-  test("prefers the same-machine internal broker URL when present", () => {
+  test("uses local config host and broker port for same-machine broker API", () => {
     useIsolatedOpenScoutHome();
+    writeLocalConfig({
+      version: LOCAL_CONFIG_VERSION,
+      host: "127.0.0.1",
+      ports: { broker: 43110 },
+    });
+    delete process.env.OPENSCOUT_BROKER_INTERNAL_URL;
     process.env.OPENSCOUT_BROKER_URL = "http://mesh.example.test:43110";
-    process.env.OPENSCOUT_BROKER_INTERNAL_URL = "http://127.0.0.1:43110";
 
     expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:43110");
   });

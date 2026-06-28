@@ -9,6 +9,8 @@ import { localMachineLabel } from "../lib/mesh-buckets.ts";
 import type { MeshStatus, Route } from "../lib/types.ts";
 import { MachineScopeControl } from "../components/MachineScopeControl.tsx";
 import { resolveCaptureRouteContext } from "../lib/media-route.ts";
+import { SCOPE_BRAND_LABEL } from "../scope/index.ts";
+import { isScopeOnboardingExempt, isScopePresentation } from "../scope/index.ts";
 import {
   topNavBreadcrumbForRoute,
   topNavItems,
@@ -299,11 +301,13 @@ export function useScoutNavCenter(): ReactNode | null {
   const { route, navigate } = useScout();
   const opsEnabled = useOptionalFlag("ops.control", true);
   const cleanNav = useOptionalFlag("nav.clean", false);
-  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav);
-  const breadcrumb = topNavBreadcrumbForRoute(route);
+  const scopeNav = isScopePresentation();
+  const activeKey = topNavKeyForRoute(route, opsEnabled, cleanNav, scopeNav);
+  const breadcrumb = scopeNav ? null : topNavBreadcrumbForRoute(route);
 
-  return createElement("div", { className: "scout-nav-tabs" },
-    topNavItems(opsEnabled, cleanNav).map(({ key, label, route: tabRoute }) =>
+  return createElement("div", { className: `scout-nav-tabs${scopeNav ? " scout-nav-tabs--scope" : ""}` },
+    scopeNav && createElement("span", { className: "scout-nav-scope-tag" }, SCOPE_BRAND_LABEL),
+    topNavItems(opsEnabled, cleanNav, scopeNav).map(({ key, label, route: tabRoute }) =>
       createElement("button", {
         key,
         className: `scout-nav-tab${activeKey === key ? " active" : ""}`,
@@ -320,9 +324,10 @@ export function useScoutNavActions(): ReactNode | null {
   const { openSettings } = useScout();
   // Lean view puts the machines away — the scope selector is power chrome.
   const cleanNav = useOptionalFlag("nav.clean", false);
+  const scopeNav = isScopePresentation();
   return createElement("div", { className: "scout-nav-actions" },
-    !cleanNav && createElement(MachineScopeControl, { variant: "nav" }),
-    createElement(
+    !cleanNav && !scopeNav && createElement(MachineScopeControl, { variant: "nav" }),
+    !scopeNav && createElement(
       "button",
       {
         onClick: () => openSettings(),
@@ -342,7 +347,7 @@ export function useScoutLayoutMode(): "canvas" | "panel" {
 
 /* ── useTakeover — gate chrome on first-run onboarding ─────────────────── */
 function isOnboardingExemptRoute(route: Route): boolean {
-  return route.view === "ops" && route.mode === "lanes";
+  return (route.view === "ops" && route.mode === "lanes") || isScopeOnboardingExempt();
 }
 
 export function useScoutTakeover(): TakeoverState | null {

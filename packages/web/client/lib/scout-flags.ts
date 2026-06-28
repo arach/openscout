@@ -31,6 +31,17 @@ import {
 } from "hudsonkit/flags";
 
 import { readScoutBootstrapFlagBundle } from "./runtime-config.ts";
+import {
+  SCOPE_FLAG_BUNDLE,
+  SCOPE_FLAG_KEY,
+  SCOPE_LEGACY_FLAG_KEY,
+} from "../../shared/scope-integration.js";
+import {
+  SCOPE_FLAG_BUNDLE_ALIASES,
+  legacyScopeSurfaceFlagDefinition,
+  scopeInstrumentBundleLayer,
+  scopeSurfaceFlagDefinition,
+} from "../scope/flags.ts";
 
 export const SCOUT_AUDIENCE_ORDER = ["everyone", "internal", "power"] as const;
 export type ScoutAudienceTier = (typeof SCOUT_AUDIENCE_ORDER)[number];
@@ -202,10 +213,12 @@ export const scoutFlags = createFlagRegistry({
     owner: "scout-web",
     tags: ["surface", "observability"],
   },
+  [SCOPE_FLAG_KEY]: scopeSurfaceFlagDefinition,
+  [SCOPE_LEGACY_FLAG_KEY]: legacyScopeSurfaceFlagDefinition,
 });
 
 export type ScoutFlagKey = keyof typeof scoutFlags;
-export type ScoutFlagBundle = "light-prod" | "max-pro";
+export type ScoutFlagBundle = "light-prod" | "max-pro" | typeof SCOPE_FLAG_BUNDLE;
 type ScoutFlagBundlePersistenceRequest =
   | { action: "set"; bundle: ScoutFlagBundle }
   | { action: "clear" };
@@ -222,6 +235,7 @@ const SCOUT_FLAG_BUNDLE_ALIASES: Record<string, ScoutFlagBundle> = {
   "max-pro": "max-pro",
   pro: "max-pro",
   treatment: "max-pro",
+  ...SCOPE_FLAG_BUNDLE_ALIASES,
 };
 
 const SCOUT_FLAG_BUNDLE_CLEAR_ALIASES = new Set(["clear", "default", "none", "reset", "unset"]);
@@ -265,6 +279,8 @@ export function scoutFlagBundleLayer(bundle: ScoutFlagBundle): FeatureFlagLayerI
           ...flagValues(SURFACE_FLAG_KEYS, true),
         },
       };
+    case SCOPE_FLAG_BUNDLE:
+      return scopeInstrumentBundleLayer();
   }
 }
 

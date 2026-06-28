@@ -15,6 +15,8 @@ export {
   subscribeTail,
 } from "./service.js";
 
+export { filterTailEventsForDisplay, isTailNoiseEvent } from "./display.js";
+
 export type {
   DiscoveredProcess,
   DiscoveredTranscript,

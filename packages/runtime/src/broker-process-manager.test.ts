@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { LOCAL_CONFIG_VERSION, writeLocalConfig } from "./local-config.ts";
 
 import {
   buildDefaultBrokerUrl,
@@ -14,6 +16,8 @@ import {
   resolveBrokerServiceConfig,
   resolveBrokerHost,
   resolveBrokerUrl,
+  resolveBrokerSocketPathForBaseUrl,
+  resolveScoutBrokerControlUrl,
   resolveAdvertiseScope,
   resolveScoutdCommand,
   runScoutdServiceCommand,
@@ -99,6 +103,38 @@ describe("broker service scoutd adapter", () => {
     expect(buildLocalBrokerControlUrl("0.0.0.0", 43110)).toBe("http://127.0.0.1:43110");
     expect(buildLocalBrokerControlUrl("::", 43110)).toBe("http://127.0.0.1:43110");
     expect(buildLocalBrokerControlUrl("192.168.1.12", 43110)).toBe("http://192.168.1.12:43110");
+  });
+
+  test("resolves the local broker socket for control and advertise URLs on this machine", () => {
+    const previousHome = process.env.HOME;
+    const home = mkdtempSync(join(tmpdir(), "openscout-broker-socket-"));
+    process.env.HOME = home;
+    writeLocalConfig({
+      version: LOCAL_CONFIG_VERSION,
+      host: "127.0.0.1",
+      ports: { broker: DEFAULT_BROKER_PORT },
+    });
+
+    try {
+      const meshConfig: BrokerServiceConfig = {
+        ...config,
+        brokerHost: DEFAULT_BROKER_HOST_MESH,
+        brokerPort: DEFAULT_BROKER_PORT,
+        brokerUrl: "http://mini.tailnet.test:43110",
+        advertiseScope: "mesh",
+      };
+      const controlUrl = resolveScoutBrokerControlUrl(meshConfig);
+
+      expect(controlUrl).toBe("http://127.0.0.1:43110");
+      expect(resolveBrokerSocketPathForBaseUrl(controlUrl, meshConfig))
+        .toBe(meshConfig.brokerSocketPath);
+      expect(resolveBrokerSocketPathForBaseUrl(meshConfig.brokerUrl, meshConfig))
+        .toBe(meshConfig.brokerSocketPath);
+      expect(resolveBrokerSocketPathForBaseUrl("http://peer.example.test:43110", meshConfig))
+        .toBeNull();
+    } finally {
+      process.env.HOME = previousHome ?? homedir();
+    }
   });
 
   test("uses OSN settings over stale local launch environment", async () => {

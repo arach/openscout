@@ -151,6 +151,87 @@ describe("collapseObserveDisplayRows", () => {
     expect(rows[1]?.event.tool).toBe("Shell");
   });
 
+  test("merges shell invocations with following result previews", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({
+        id: "a",
+        t: 1,
+        kind: "tool",
+        tool: "bash",
+        arg: "sed -n '1,70p' crates/scoutd/src/main.rs",
+        text: "bash · sed -n '1,70p' crates/scoutd/src/main.rs",
+      }),
+      observe({
+        id: "b",
+        t: 2,
+        kind: "tool",
+        tool: "bash",
+        arg: "sed -n '1,70p' crates/scoutd/src/main.rs",
+        text: "bash · sed -n '1,70p' crates/scoutd/src/main.rs -> res: use std::env; (5 lines)",
+        stream: ["use std::env; (5 lines)"],
+        result: { outcome: "success" },
+      }),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event.arg).toBe("sed -n '1,70p' crates/scoutd/src/main.rs");
+    expect(rows[0]?.event.stream).toEqual(["use std::env; (5 lines)"]);
+  });
+
+  test("merges grok StrReplace lifecycle pairs and keeps the diff preview", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({
+        id: "a",
+        t: 1,
+        kind: "tool",
+        tool: "StrReplace",
+        arg: "packages/web/client/lib/tail-display.ts",
+        text: "StrReplace · packages/web/client/lib/tail-display.ts",
+        detail: "file: packages/web/client/lib/tail-display.ts\n\nold:\nconst max = 96;\n\nnew:\nconst max = 120;",
+        diff: { add: 1, del: 1, preview: "-const max = 96;\n+const max = 120;" },
+      }),
+      observe({
+        id: "b",
+        t: 2,
+        kind: "tool",
+        tool: "StrReplace",
+        arg: "completed",
+        text: "StrReplace completed · success",
+        result: { outcome: "success" },
+      }),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event.arg).toBe("packages/web/client/lib/tail-display.ts");
+    expect(rows[0]?.event.diff?.preview).toContain("+const max = 120;");
+  });
+
+  test("merges claude bash calls with separate res rows", () => {
+    const rows = collapseObserveDisplayRows([
+      observe({
+        id: "a",
+        t: 1,
+        kind: "tool",
+        tool: "bash",
+        arg: "git status --short",
+        text: "git status --short",
+      }),
+      observe({
+        id: "b",
+        t: 2,
+        kind: "tool",
+        tool: "res",
+        arg: " M packages/web/client/lib/tail-display.ts",
+        stream: [" M packages/web/client/lib/tail-display.ts"],
+        result: { outcome: "success" },
+      }),
+    ]);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.event.tool).toBe("bash");
+    expect(rows[0]?.event.stream).toEqual([" M packages/web/client/lib/tail-display.ts"]);
+  });
+
   test("preserves shell commands when merging grok lifecycle pairs", () => {
     const rows = collapseObserveDisplayRows([
       observe({

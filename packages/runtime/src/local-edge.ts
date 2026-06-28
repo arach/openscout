@@ -138,15 +138,6 @@ export function resolveOpenScoutLocalEdgeConfig(input: {
   };
 }
 
-export function renderCaddyViteHmrHandle(config: Pick<OpenScoutLocalEdgeConfig, "viteUpstream" | "viteHmrPath">): string {
-  if (!config.viteUpstream || !config.viteHmrPath) {
-    return "";
-  }
-  return `  handle ${config.viteHmrPath}* {\n`
-    + `    reverse_proxy ${config.viteUpstream}\n`
-    + `  }\n`;
-}
-
 export function renderOpenScoutStartPage(config: OpenScoutLocalEdgeConfig): string {
   const pageConfig = JSON.stringify({
     startPath: "/__openscout/web/start",
@@ -364,11 +355,10 @@ function renderCaddyDefaultRouteBlock(
     + `    rewrite * /v1/web/status\n`
     + `    reverse_proxy ${config.brokerUpstream}\n`
     + `  }\n`
-    + renderCaddyViteHmrHandle(config)
     + `  handle {\n`
     + `    reverse_proxy ${route.upstream} {\n`
-    + `      lb_try_duration 1s\n`
-    + `      lb_try_interval 250ms\n`
+    + `      lb_try_duration 15s\n`
+    + `      lb_try_interval 500ms\n`
     + `    }\n`
     + `  }\n`
     + `  handle_errors {\n`
@@ -390,8 +380,8 @@ function renderCaddyViteDevRouteBlock(
     + (scheme === "https" ? `  tls internal\n` : "")
     + `  handle {\n`
     + `    reverse_proxy ${route.upstream} {\n`
-    + `      lb_try_duration 1s\n`
-    + `      lb_try_interval 250ms\n`
+    + `      lb_try_duration 15s\n`
+    + `      lb_try_interval 500ms\n`
     + `    }\n`
     + `  }\n`
     + `}`;

@@ -9,6 +9,8 @@ import { PlanView } from "./PlanView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "../shared/TailView.tsx";
 import type { OpsMode, Route } from "../../lib/types.ts";
+import { useScopePresentation, useScopePresentationAttrs } from "../../scope/index.ts";
+import { ScopeLanesView } from "../../scope/views/ScopeLanesView.tsx";
 import { OpsSubnav } from "./OpsSubnav.tsx";
 
 export function OpsScreen({
@@ -24,12 +26,20 @@ export function OpsScreen({
   const selectedPlanDocumentId = route.view === "ops" && route.mode === "plan"
     ? route.planDocumentId
     : undefined;
+  const scopePresentation = useScopePresentation();
+  const scopeAttrs = useScopePresentationAttrs();
+
+  if (scopePresentation && mode === "lanes") {
+    return <ScopeLanesView navigate={navigate} agents={agents} />;
+  }
 
   return (
-    <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={route} navigate={navigate} />
-      </div>
+    <div className="s-ops" {...scopeAttrs}>
+      {mode !== "lanes" ? (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={route} navigate={navigate} />
+        </div>
+      ) : null}
       <div className="s-ops-body">
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}
@@ -49,13 +59,7 @@ export function OpsScreen({
           />
         )}
         {mode === "atop" && <AtopView />}
-        {mode === "lanes" && (
-          <AgentLanesView
-            navigate={navigate}
-            agents={agents}
-            profileId="web.ops"
-          />
-        )}
+        {mode === "lanes" && <AgentLanesView navigate={navigate} agents={agents} />}
       </div>
       <PageStatusBar />
     </div>

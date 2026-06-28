@@ -11,6 +11,14 @@ import {
   observeEventWallMs,
 } from "../../lib/lane-observe.ts";
 import {
+  isStrReplaceTool,
+  strReplaceDetailText,
+  strReplaceDiffFromEdit,
+  strReplaceFromGrokSummary,
+  strReplaceFromObject,
+  type StrReplaceEdit,
+} from "../../lib/lane-edit-display.ts";
+import {
   filterTailEventsForDisplay,
   isTailNoiseEvent,
   observeKindFromTailEvent,
@@ -711,8 +719,45 @@ function diffPreviewFromPatch(patch: string | undefined): ObserveEvent["diff"] |
   return { add, del, preview: previewLines.join("\n") };
 }
 
-function toolDetailFromTailEvent(event: TailEvent): string | undefined {
-  return codexPatchTextFromTailEvent(event);
+function grokToolInputFromTail(event: TailEvent): Record<string, unknown> | null {
+  const raw = metadataRecord(event.raw);
+  if (!raw) return null;
+  return metadataRecord(raw.tool_input);
+}
+
+function strReplaceFromTailEvent(
+  event: TailEvent,
+  toolName: string | undefined,
+): StrReplaceEdit | null {
+  if (!isStrReplaceTool(toolName)) return null;
+
+  if (event.source === "grok") {
+    const fromSummary = strReplaceFromGrokSummary(event.summary);
+    if (fromSummary) return fromSummary;
+    const fromGrok = strReplaceFromObject(grokToolInputFromTail(event));
+    if (fromGrok) return fromGrok;
+  }
+
+  const rawArg = codexToolRawArgument(event);
+  const fromCodex = strReplaceFromObject(parseMaybeJsonRecord(rawArg));
+  if (fromCodex) return fromCodex;
+
+  return null;
+}
+
+function toolDetailFromTailEvent(
+  event: TailEvent,
+  toolName?: string,
+): string | undefined {
+  const patch = codexPatchTextFromTailEvent(event);
+  if (patch) return patch;
+
+  const replace = strReplaceFromTailEvent(event, toolName);
+  if (replace && (replace.oldText || replace.newText)) {
+    return strReplaceDetailText(replace);
+  }
+
+  return undefined;
 }
 
 function rawTailEventsForHorizon(
@@ -752,8 +797,12 @@ export function observeDataFromTail(
 
   const observeEvents = tail.map((event): ObserveEvent => {
     const toolFields = observeToolFieldsFromTailEvent(event);
-    const detail = tailObserveEventDetail(event, transcript) ?? toolDetailFromTailEvent(event);
-    const diff = diffPreviewFromPatch(detail);
+    const strReplace = strReplaceFromTailEvent(event, toolFields.tool);
+    const detail = tailObserveEventDetail(event, transcript)
+      ?? toolDetailFromTailEvent(event, toolFields.tool);
+    const diff = strReplace && (strReplace.oldText || strReplace.newText)
+      ? strReplaceDiffFromEdit(strReplace)
+      : diffPreviewFromPatch(detail);
     return {
       id: event.id,
       t: Math.max(0, Math.round((event.ts - sessionStart) / 1000)),
@@ -763,6 +812,7 @@ export function observeDataFromTail(
       tool: toolFields.tool,
       arg: toolFields.arg,
       result: toolFields.result,
+      stream: toolFields.stream,
       diff,
       detail,
       live: current && event.id === tail[tail.length - 1]?.id,

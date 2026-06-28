@@ -19,6 +19,7 @@ import type {
   TailEventKind,
   TranscriptSource,
 } from "./types.js";
+import { oneLine } from "./tool-format.js";
 
 const SOURCE_NAME = "grok";
 const MAX_SUMMARY_LEN = 200;
@@ -468,6 +469,39 @@ function grokKind(type: string): TailEventKind {
   return "other";
 }
 
+function grokStrReplaceEditClause(toolInput: Record<string, unknown> | null): string | null {
+  if (!toolInput) return null;
+  const oldText = typeof toolInput.old_string === "string" ? toolInput.old_string.trim() : "";
+  const newText = typeof toolInput.new_string === "string" ? toolInput.new_string.trim() : "";
+  if (!oldText && !newText) return null;
+  const parts: string[] = [];
+  if (oldText) parts.push(`-${oneLine(oldText, 72)}`);
+  if (newText) parts.push(`+${oneLine(newText, 72)}`);
+  return `edit: ${parts.join(" · ")}`;
+}
+
+function summarizeGrokToolLine(
+  tool: string,
+  payload: Record<string, unknown>,
+  phase: "started" | "completed",
+): string {
+  const arg = typeof payload.tool_arg === "string" ? payload.tool_arg.trim() : "";
+  const outcome = typeof payload.outcome === "string" ? payload.outcome.trim() : "";
+  const editClause = tool === "StrReplace"
+    ? grokStrReplaceEditClause(metadataRecord(payload.tool_input))
+    : null;
+
+  if (arg && editClause) {
+    return clip(`${tool} · ${arg} · ${editClause}${phase === "completed" && outcome ? ` · ${outcome}` : ""}`);
+  }
+  if (arg) {
+    return clip(`${tool} · ${arg}${phase === "completed" && outcome ? ` · ${outcome}` : ""}`);
+  }
+  return clip(phase === "completed"
+    ? `${tool} completed${outcome ? ` · ${outcome}` : ""}`
+    : `${tool} started`);
+}
+
 function summarizeGrok(type: string, payload: Record<string, unknown>): string {
   if (type === "turn_started") {
     const model = typeof payload.model_id === "string" ? payload.model_id : "";
@@ -482,18 +516,10 @@ function summarizeGrok(type: string, payload: Record<string, unknown>): string {
   }
   if (type === "first_token") return "first token";
   if (type === "tool_started") {
-    const tool = String(payload.tool_name ?? "tool");
-    const arg = typeof payload.tool_arg === "string" ? payload.tool_arg.trim() : "";
-    return arg ? clip(`${tool} · ${arg}`) : clip(`${tool} started`);
+    return summarizeGrokToolLine(String(payload.tool_name ?? "tool"), payload, "started");
   }
   if (type === "tool_completed") {
-    const tool = String(payload.tool_name ?? "tool");
-    const arg = typeof payload.tool_arg === "string" ? payload.tool_arg.trim() : "";
-    const outcome = typeof payload.outcome === "string" ? payload.outcome : "";
-    if (arg) {
-      return clip(`${tool} · ${arg}${outcome ? ` · ${outcome}` : ""}`);
-    }
-    return clip(`${tool} completed${outcome ? ` · ${outcome}` : ""}`);
+    return summarizeGrokToolLine(String(payload.tool_name ?? "tool"), payload, "completed");
   }
   if (type === "permission_requested") return clip(`permission requested · ${String(payload.tool_name ?? "tool")}`);
   if (type === "permission_resolved") {

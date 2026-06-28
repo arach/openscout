@@ -34,7 +34,7 @@
 }
 
 .s-agent-lanes--embedded .s-agent-lanes-bar-leading {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
 }
 
@@ -67,9 +67,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-sm) var(--space-md);
-  padding: var(--space-md) var(--space-2xl);
+  padding: var(--space-sm) var(--space-2xl);
   flex: none;
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 28%, transparent), transparent),
@@ -79,11 +78,11 @@
 
 .s-agent-lanes-bar-leading {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2xs);
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-sm);
   min-width: 0;
-  flex: 1 1 12rem;
+  flex: 0 1 auto;
 }
 
 .s-agent-lanes-bar-controls {
@@ -92,8 +91,13 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-sm);
-  flex: 0 1 auto;
-  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* Full web ops route already names the surface — title + deck debug are noise. */
+.s-agent-lanes[data-lane-profile="web.ops"] .s-agent-lanes-title,
+.s-agent-lanes[data-lane-profile="web.ops"] .s-agent-lanes-meta-detail {
+  display: none;
 }
 
 .s-agent-lanes-horizons {
@@ -2013,8 +2017,8 @@
 }
 
 .s-lane-trace-focus-eyebrow-dot {
-  width: 7px;
-  height: 7px;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
   background: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
@@ -2026,8 +2030,21 @@
   gap: var(--space-md);
 }
 
-.s-lane-trace-focus-cmd {
+.s-lane-trace-focus-head-copy {
   flex: 1;
+  min-width: 0;
+}
+
+.s-lane-trace-focus-path {
+  margin-top: var(--space-2xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.s-lane-trace-focus-cmd {
   min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-lg);

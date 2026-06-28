@@ -17,9 +17,14 @@ function tool(overrides: Partial<ObserveEvent> & Pick<ObserveEvent, "id">): Obse
 }
 
 describe("laneToolCommandLine", () => {
-  test("prefers tool + arg when both are present", () => {
+  test("shows bare shell commands without a tool prefix", () => {
     expect(laneToolCommandLine({ tool: "Shell", arg: "node -v", text: "Shell · node -v" }))
-      .toBe("Shell · node -v");
+      .toBe("node -v");
+  });
+
+  test("prefers tool + arg for non-shell tools", () => {
+    expect(laneToolCommandLine({ tool: "Read", arg: "README.md", text: "Read · README.md" }))
+      .toBe("Read · README.md");
   });
 
   test("uses bare native command names", () => {
@@ -45,6 +50,23 @@ describe("buildLaneToolDetailModel", () => {
     expect(model?.hoverFields.some((field) => field.label === "outcome")).toBe(true);
     expect(model?.sections.some((section) => section.title === "detail")).toBe(true);
     expect(model?.copyText).toContain("pid 12345");
+  });
+
+  test("surfaces merged shell output in an output section", () => {
+    const model = buildLaneToolDetailModel(tool({
+      id: "sed",
+      tool: "bash",
+      arg: "sed -n '1,70p' crates/scoutd/src/main.rs",
+      text: "sed -n '1,70p' crates/scoutd/src/main.rs",
+      stream: ["use std::env; use std::fs; fn main() { println!(\"scoutd\"); (5 lines)"],
+      result: { outcome: "success" },
+    }));
+
+    expect(model?.command).toBe("sed -n '1,70p' crates/scoutd/src/main.rs");
+    expect(model?.sections.some((section) => (
+      section.title === "output"
+      && section.content.includes("use std::env;")
+    ))).toBe(true);
   });
 
   test("returns null for non-tool events", () => {

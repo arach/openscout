@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
+import {
+  canonicalizeScopePathname,
+  parseScopeRouteFromUrl,
+  preserveLocationSearch,
+  scopeRoutePath,
+} from "../scope/index.ts";
 import { normalizeRoute } from "./synthetic-agent-routing.ts";
 import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
 import type {
@@ -125,6 +131,8 @@ function isOpsEnabledForUrl(url: URL): boolean {
 function isTailCoreSurface(mode: string | undefined): boolean {
   return mode === "tail" && isScoutFlagEnabled("nav.clean");
 }
+
+
 
 const MACHINE_SCOPE_PARAM = "machineId";
 const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
@@ -532,6 +540,8 @@ export function routeFromUrl(urlLike: string | URL): Route {
       ...(!parts[1] && terminalSurfaceKey ? { terminalSurfaceKey } : {}),
     };
   }
+  const scopeRoute = parseScopeRouteFromUrl(parts, url, scoped);
+  if (scopeRoute) return scopeRoute;
   if (parts[0] === "ops") {
     const mode = parseOpsMode(parts[1]) ?? "mission";
     if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
@@ -563,14 +573,24 @@ export function routeFromUrl(urlLike: string | URL): Route {
 }
 
 function readRouteFromLocation(): Route {
+  const scopeCanonicalPathname = canonicalizeScopePathname(window.location.pathname);
+  if (scopeCanonicalPathname !== window.location.pathname) {
+    window.history.replaceState(
+      null,
+      "",
+      `${scopeCanonicalPathname}${window.location.search}${window.location.hash}`,
+    );
+  }
   const raw = routeFromUrl(window.location.href);
   const normalized = normalizeRoute(raw);
-  const canonicalPath = routePath(normalized);
+  const canonicalBase = routePath(normalized);
+  const canonicalPath = preserveLocationSearch(canonicalBase, window.location.search);
   const currentPath = `${window.location.pathname}${window.location.search}`;
   const shouldCanonicalize =
     routeKey(raw) !== routeKey(normalized)
     || raw.view === "agents"
-    || normalized.view === "agents-v2";
+    || normalized.view === "agents-v2"
+    || currentPath !== canonicalPath;
   if (shouldCanonicalize && currentPath !== canonicalPath) {
     window.history.replaceState(null, "", `${canonicalPath}${window.location.hash}`);
   }
@@ -582,6 +602,9 @@ function routeFromPath(): Route {
 }
 
 export function routePath(r: Route): string {
+  const scopePath = scopeRoutePath(r);
+  if (scopePath) return scopePath;
+
   switch (r.view) {
     case "inbox":
       return pathWithMachineScope("/", r);

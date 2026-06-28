@@ -652,6 +652,52 @@ describe("isAgentLaneWorking", () => {
     expect(lanes[0]?.agent.id).toBe(agent.id);
   });
 
+  test("enriches Grok StrReplace tail events with old/new preview metadata", () => {
+    const transcript = {
+      source: "grok",
+      transcriptPath: "/tmp/grok-strreplace.jsonl",
+      sessionId: "sess-strreplace",
+      cwd: "/repo",
+      project: "repo",
+      harness: "unattributed" as const,
+      mtimeMs: NOW,
+      size: 100,
+    };
+    const path = "packages/web/client/lib/tail-display.ts";
+    const data = observeDataFromTail(transcript, [
+      {
+        id: "replace",
+        ts: NOW - 2_000,
+        source: "grok",
+        sessionId: "sess-strreplace",
+        pid: 1,
+        parentPid: null,
+        project: "repo",
+        cwd: "/repo",
+        harness: "unattributed",
+        kind: "tool",
+        summary: `StrReplace · ${path} · edit: -const max = 96; · +const max = 120;`,
+        raw: {
+          tool_name: "StrReplace",
+          tool_arg: path,
+          tool_input: {
+            path,
+            old_string: "const max = 96;",
+            new_string: "const max = 120;",
+          },
+        },
+      },
+    ], true);
+
+    expect(data.events).toHaveLength(1);
+    expect(data.events[0]?.tool).toBe("StrReplace");
+    expect(data.events[0]?.arg).toBe(path);
+    expect(data.events[0]?.detail).toContain("old:\nconst max = 96;");
+    expect(data.events[0]?.detail).toContain("new:\nconst max = 120;");
+    expect(data.events[0]?.diff?.preview).toContain("-const max = 96;");
+    expect(data.events[0]?.diff?.preview).toContain("+const max = 120;");
+  });
+
   test("filters grok streaming noise and maps tool names from summaries", () => {
     const transcript = {
       source: "grok",

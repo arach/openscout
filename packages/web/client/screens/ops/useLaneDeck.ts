@@ -10,6 +10,7 @@ import {
   pinSessionLane,
   removeSessionPin,
   saveLaneDeck,
+  setDefaultLaneWidth,
   setLaneWidthOverride,
   type AgentLaneWidthTier,
   type LaneDeckProfileId,
@@ -29,6 +30,7 @@ export function useLaneDeck(
   pinLane: (lane: AgentLane, zone?: LaneDeckZone) => void;
   unpinLane: (laneId: string) => void;
   setLaneWidth: (laneId: string, width: AgentLaneWidthTier | number) => void;
+  setDefaultLaneWidth: (width: AgentLaneWidthTier) => void;
   addHarnessLane: (harness: string, title?: string) => void;
   addAttentionLane: () => void;
   clearPins: () => void;
@@ -68,6 +70,10 @@ export function useLaneDeck(
     persist(setLaneWidthOverride(deck, laneId, width));
   }, [deck, persist]);
 
+  const setDefaultLaneWidthTier = useCallback((width: AgentLaneWidthTier) => {
+    persist(setDefaultLaneWidth(deck, width));
+  }, [deck, persist]);
+
   const addHarnessLane = useCallback((harness: string, title?: string) => {
     persist(addFilterLane(deck, {
       kind: "harness",
@@ -100,6 +106,7 @@ export function useLaneDeck(
     pinLane,
     unpinLane,
     setLaneWidth,
+    setDefaultLaneWidth: setDefaultLaneWidthTier,
     addHarnessLane,
     addAttentionLane,
     clearPins,

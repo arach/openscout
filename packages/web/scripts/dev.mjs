@@ -516,16 +516,7 @@ function renderDevStartPage() {
 </html>`;
 }
 
-function renderCaddyViteHmrHandle(viteUpstream, viteHmrPath) {
-  if (!viteUpstream || !viteHmrPath) {
-    return "";
-  }
-  return `  handle ${viteHmrPath}* {\n`
-    + `    reverse_proxy ${viteUpstream}\n`
-    + `  }\n`;
-}
-
-function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl, viteUpstream, viteHmrPath }) {
+function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl }) {
   const brokerUpstream = new URL(brokerUrl).host;
   const startPage = renderDevStartPage();
   return edgeSchemes(scheme)
@@ -542,11 +533,13 @@ function renderDevCaddyfile({ portalHost, scheme, upstream, brokerUrl, viteUpstr
           + `    rewrite * /v1/web/status\n`
           + `    reverse_proxy ${brokerUpstream}\n`
           + `  }\n`
-          + renderCaddyViteHmrHandle(viteUpstream, viteHmrPath)
+          + `  handle /ws/hmr* {\n`
+          + `    reverse_proxy ${upstream}\n`
+          + `  }\n`
           + `  handle {\n`
           + `    reverse_proxy ${upstream} {\n`
-          + `      lb_try_duration 1s\n`
-          + `      lb_try_interval 250ms\n`
+          + `      lb_try_duration 15s\n`
+          + `      lb_try_interval 500ms\n`
           + `    }\n`
           + `  }\n`
           + `  handle_errors {\n`
@@ -583,8 +576,6 @@ function spawnLocalEdge({
   scheme,
   upstream,
   brokerUrl,
-  viteUpstream,
-  viteHmrPath,
 }) {
   mkdirSync(resolveDevLocalEdgeRoot(), { recursive: true });
   const caddyfilePath = resolve(resolveDevLocalEdgeRoot(), "dev-Caddyfile");
@@ -595,8 +586,6 @@ function spawnLocalEdge({
       scheme,
       upstream,
       brokerUrl,
-      viteUpstream,
-      viteHmrPath,
     }),
     "utf8",
   );
@@ -858,8 +847,6 @@ const localEdge = edgeEnabled
     scheme: edgeScheme,
     upstream: `127.0.0.1:${portLabel(bunPort)}`,
     brokerUrl,
-    viteUpstream: `127.0.0.1:${portLabel(vitePort)}`,
-    viteHmrPath: routes.viteHmrPath,
   })
   : null;
 

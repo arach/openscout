@@ -6,9 +6,10 @@ import type {
   RepoWatchSnapshotOptions,
 } from "./repo-watch/index.js";
 import type { ServerTimingMetric } from "./broker-http-helpers.js";
-import type {
-  DiscoverySnapshot,
-  TailEvent,
+import {
+  filterTailEventsForDisplay,
+  type DiscoverySnapshot,
+  type TailEvent,
 } from "./tail/index.js";
 
 export type BrokerRepoWatchReadOptions = {
@@ -45,7 +46,10 @@ export type BrokerRepoTailServiceOptions<TBrokerSnapshot> = {
   readRecentLiveEvents: (limit: number) => Promise<TailEvent[]>;
   readRecentTranscriptEvents: (
     limit: number,
-    options?: { perTranscriptLineLimit?: number },
+    options?: {
+      discovery?: DiscoverySnapshot | null;
+      perTranscriptLineLimit?: number;
+    },
   ) => Promise<TailEvent[]>;
   repoWatchServeCacheTtlMs: number;
   repoWatchRehydrateAfterMs: number;
@@ -180,19 +184,30 @@ export class BrokerRepoTailService<TBrokerSnapshot> {
       }
     };
     const limit = parseTailLimit(url);
-    const bufferedEvents = await measure("tail-live", () => this.options.readRecentLiveEvents(limit));
+    const includeTranscripts = url.searchParams.get("transcripts") === "true"
+      || url.searchParams.get("transcripts") === "1";
     const eventsById = new Map<string, TailEvent>();
 
-    if (url.searchParams.get("transcripts") === "true" || url.searchParams.get("transcripts") === "1") {
-      const transcriptEvents = await measure("tail-transcripts", () => this.options.readRecentTranscriptEvents(limit, {
-        perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
-      }));
+    if (includeTranscripts) {
+      const discovery = await measure("tail-discover", () => this.options.getTailDiscovery(false));
+      const transcriptEvents = filterTailEventsForDisplay(
+        await measure("tail-transcripts", () => this.options.readRecentTranscriptEvents(
+          Math.max(limit, 800),
+          {
+            discovery,
+            perTranscriptLineLimit: Math.min(200, Math.max(50, limit)),
+          },
+        )),
+      );
       for (const event of transcriptEvents) {
         eventsById.set(event.id, event);
       }
     }
 
     const mergeStart = performance.now();
+    const bufferedEvents = filterTailEventsForDisplay(
+      await measure("tail-live", () => this.options.readRecentLiveEvents(limit)),
+    );
     for (const event of bufferedEvents) {
       eventsById.set(event.id, event);
     }

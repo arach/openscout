@@ -3,13 +3,11 @@ import type { ObserveEvent, TailAttribution, TailEvent } from "./types.ts";
 /** Consumer-side tail presentation policy — the firehose stays complete upstream. */
 export type TailDisplayMode = "work" | "all";
 
+import { strReplaceFromGrokSummary } from "./lane-edit-display.ts";
+import { GROK_LANE_NOISE_PHASES } from "./grok-lane-display.ts";
+
 /** Grok lifecycle phases that flood the tail during streaming without adding signal. */
-const GROK_STREAMING_PHASES = new Set([
-  "streaming_reasoning",
-  "streaming_text",
-  "tool_execution",
-  "permission_prompt",
-]);
+const GROK_STREAMING_PHASES = GROK_LANE_NOISE_PHASES;
 
 function codexPayloadType(event: TailEvent): string | null {
   const raw = event.raw;
@@ -106,6 +104,8 @@ export type TailObserveToolFields = {
   tool?: string;
   arg?: string;
   result?: Record<string, string>;
+  /** Compact tool-output preview from `res:` or `cmd -> res:` tail lines. */
+  stream?: string[];
 };
 
 const GROK_TOOL_STARTED = /^([A-Za-z][\w-]*) started$/;
@@ -206,9 +206,43 @@ function isClaudeToolName(name: string): boolean {
 
 const CLAUDE_RESULT_PREFIX = /^res:\s*([\s\S]*)$/;
 const CLAUDE_TOOL_CALL = /^([A-Za-z][\w-]*)(?:\s+([\s\S]+))?$/;
+/** Runtime `formatToolResult` may fold call + preview into one line. */
+export const TOOL_COMBINED_RESULT = /^([\s\S]+?)\s+->\s+res:\s*([\s\S]+)$/;
 // Conservative failure signals only — a free-text preview like "0 errors" or
 // "no errors" is a SUCCESS, so we never flag the bare word "error(s)".
 const CLAUDE_RESULT_ERROR = /\b(?:failed|failure|exception|fatal|denied|traceback)\b|error:/i;
+
+export function parseToolCombinedResult(summary: string): { command: string; preview: string } | null {
+  const match = summary.trim().match(TOOL_COMBINED_RESULT);
+  if (!match?.[1] || !match[2]) return null;
+  return { command: match[1].trim(), preview: match[2].trim() };
+}
+
+function toolResultOutcome(preview: string): "success" | "error" {
+  return CLAUDE_RESULT_ERROR.test(preview) ? "error" : "success";
+}
+
+function bashToolFields(command: string, preview?: string): TailObserveToolFields {
+  const fields: TailObserveToolFields = { tool: "bash", arg: command };
+  if (preview) {
+    fields.result = { outcome: toolResultOutcome(preview) };
+    fields.stream = [preview];
+  }
+  return fields;
+}
+
+/** Multi-word shell history lines (sed/git/curl) that are not `Tool(args)` calls. */
+function looksLikeBareShellCommand(summary: string): boolean {
+  const trimmed = summary.trim();
+  if (!trimmed || !/\s/u.test(trimmed)) return false;
+  if (TOOL_COMBINED_RESULT.test(trimmed)) return false;
+  if (/^res:\s/i.test(trimmed)) return false;
+  if (CODEX_TOOL_CALL.test(trimmed)) return false;
+  if (/^[A-Za-z_][\w.-]*\(/u.test(trimmed)) return false;
+  const head = trimmed.split(/\s+/)[0] ?? "";
+  if (/^[A-Z][A-Za-z0-9]*$/.test(head) && isClaudeToolName(head)) return false;
+  return true;
+}
 
 export function observeKindFromTailEvent(event: TailEvent): ObserveEvent["kind"] {
   if (event.source === "codex") {
@@ -220,6 +254,12 @@ export function observeKindFromTailEvent(event: TailEvent): ObserveEvent["kind"]
       if (codexPayloadType(event) === "reasoning" && summary !== "[reasoning]") {
         return "think";
       }
+    }
+  }
+
+  if (event.source === "grok" && event.kind === "system") {
+    if (/^turn \d+/u.test(event.summary.trim())) {
+      return "note";
     }
   }
 
@@ -256,6 +296,15 @@ export function observeTextFromTailEvent(
     if (summary.startsWith("turn aborted")) return event.summary.trim();
   }
 
+  if (event.source === "grok" && event.kind === "system") {
+    const turn = event.summary.trim().match(/^turn (\d+)(?: · (.+))?$/i);
+    if (turn?.[1]) {
+      return turn[2]?.trim()
+        ? `turn ${turn[1]} · ${turn[2].trim()}`
+        : `turn ${turn[1]}`;
+    }
+  }
+
   return event.summary;
 }
 
@@ -266,7 +315,23 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
   const summary = event.summary.trim();
   if (!summary) return {};
 
+  const combined = parseToolCombinedResult(summary);
+  if (combined) {
+    return bashToolFields(combined.command, combined.preview);
+  }
+
   if (event.source === "grok") {
+    const strReplace = strReplaceFromGrokSummary(summary);
+    if (strReplace) {
+      const fields: TailObserveToolFields = {
+        tool: "StrReplace",
+        arg: strReplace.path,
+      };
+      if (strReplace.outcome) {
+        fields.result = { outcome: strReplace.outcome };
+      }
+      return fields;
+    }
     const enriched = summary.match(GROK_TOOL_WITH_ARG);
     if (enriched?.[1] && enriched[2]) {
       const fields: TailObserveToolFields = { tool: enriched[1], arg: enriched[2] };
@@ -296,9 +361,12 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
       const preview = result[1].trim();
       const fields: TailObserveToolFields = {
         tool: "res",
-        result: { outcome: CLAUDE_RESULT_ERROR.test(preview) ? "error" : "success" },
+        result: { outcome: toolResultOutcome(preview) },
       };
-      if (preview) fields.arg = preview;
+      if (preview) {
+        fields.arg = preview;
+        fields.stream = [preview];
+      }
       return fields;
     }
     const call = summary.match(CLAUDE_TOOL_CALL);
@@ -341,6 +409,10 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
       }
       return { tool, arg: rawArg || undefined };
     }
+
+    if (looksLikeBareShellCommand(summary)) {
+      return bashToolFields(summary);
+    }
   }
 
   const fnCall = summary.match(CODEX_TOOL_CALL)
@@ -352,6 +424,10 @@ export function observeToolFieldsFromTailEvent(event: TailEvent): TailObserveToo
   const dotSep = summary.match(/^([A-Za-z_][\w.-]*) · (.+)$/);
   if (dotSep?.[1]) {
     return { tool: dotSep[1], arg: dotSep[2] };
+  }
+
+  if (looksLikeBareShellCommand(summary)) {
+    return bashToolFields(summary);
   }
 
   const first = summary.split(/\s+/)[0];

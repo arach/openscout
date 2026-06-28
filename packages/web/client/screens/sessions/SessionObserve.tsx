@@ -20,6 +20,12 @@ import type {
   SessionCatalogWithResume,
 } from "../../lib/types.ts";
 import { collapseObserveDisplayRows, isSimpleLaneToolEvent } from "../../lib/observe-display.ts";
+import {
+  grokLaneGutterLabel,
+  humanizeGrokLanePhase,
+  parseGrokLaneSystemText,
+} from "../../lib/grok-lane-display.ts";
+import { laneDisplayPath } from "../../lib/lane-edit-display.ts";
 import { fmtLaneSessionOffset } from "../../lib/lane-tool-detail.ts";
 import {
   useLaneToolHoverCard,
@@ -506,7 +512,8 @@ const LANE_TOOL_FAMILIES: Record<LaneToolFamily, readonly string[]> = {
   read: ["read", "view", "cat", "readfile", "open", "open_file"],
   file: [
     "write", "writefile", "create", "edit", "multiedit",
-    "str_replace", "str_replace_editor", "apply_patch", "applypatch", "patch", "patch_apply", "update",
+    "str_replace", "strreplace", "str_replace_editor", "apply_patch", "applypatch", "patch", "patch_apply", "update",
+    "delete",
   ],
   search: ["grep", "glob", "search", "rg", "ripgrep", "find", "codebase_search", "file_search"],
   fetch: ["webfetch", "web_fetch", "fetch", "websearch", "web_search", "browse", "url"],
@@ -647,7 +654,8 @@ function laneDecodeArg(family: LaneToolFamily, arg: string | undefined): string 
 }
 
 function LanePath({ path, tone }: { path: string; tone: "read" | "file" }) {
-  const { dir, base } = laneSplitPath(path);
+  const displayPath = laneDisplayPath(path);
+  const { dir, base } = laneSplitPath(displayPath);
   return (
     <span className="s-observe-tool-path" title={path}>
       {dir && <span className="s-observe-tool-path-dir">{laneShortDir(dir)}</span>}
@@ -675,24 +683,30 @@ function LaneBashDir({ path }: { path: string }) {
  * args · plumbing), with a thoughtful `dir` treatment for a cd destination.
  * A leading cd can optionally lift into a powerline segment (off by default —
  * see lib/bash-format.ts). All parsing lives there; this stays presentational.
- * Single line; the full command is on hover (title).
+ * One line via CSS nowrap; full command on hover (title).
  */
 function LaneBashLine({
   command,
   title,
   outcome,
+  outputPreview,
   cwd,
   powerline,
 }: {
   command: string;
   title?: string;
   outcome?: string;
+  /** Compact stdout/stderr preview from a merged tool result. */
+  outputPreview?: string;
   cwd?: string | null;
   powerline?: PowerlineMode;
 }) {
   const { dir, spans } = formatBashLine(command, { cwd, powerline });
   return (
-    <span className="s-observe-bash" title={title ?? command}>
+    <span
+      className="s-observe-bash"
+      title={title ?? command}
+    >
       {dir && (
         <span className="s-observe-bash-pl">
           <span className="s-observe-bash-seg">{dir}</span>
@@ -725,6 +739,12 @@ function LaneBashLine({
         </span>
       ) : (
         !dir && <span className="s-observe-bash-arg">shell</span>
+      )}
+      {outputPreview && (
+        <span className="s-observe-bash-out" title={outputPreview}>
+          {" → "}
+          {laneToolArgSnippet(outputPreview, 88)}
+        </span>
       )}
       {outcome && <span className="s-observe-bash-ok">{outcome}</span>}
     </span>
@@ -764,7 +784,7 @@ function LaneToolContent({ family, event }: { family: LaneToolFamily; event: Ses
         <>
           <span className="s-observe-tool-needle">
             <span className="s-observe-tool-needle-q">"</span>
-            {laneToolArgSnippet(decoded, 64)}
+            {decoded}
             <span className="s-observe-tool-needle-q">"</span>
           </span>
           {count != null && (
@@ -796,7 +816,7 @@ function LaneToolContent({ family, event }: { family: LaneToolFamily; event: Ses
           {hasArg ? (
             <>
               {" "}
-              <span className="s-observe-tool-cmd-arg">{laneToolArgSnippet(decoded, 96)}</span>
+              <span className="s-observe-tool-cmd-arg">{decoded}</span>
             </>
           ) : null}
         </>
@@ -834,16 +854,16 @@ function ToolBlock({
     : "";
   const command = toolArgLabel(event);
   const fullCommand = command ?? event.arg?.trim() ?? "";
-  const laneCommand = laneMode ? laneToolArgSnippet(fullCommand) : fullCommand;
   const outcome = typeof event.result?.outcome === "string"
     ? event.result.outcome.trim()
     : (typeof event.result?.outcome === "number" ? String(event.result.outcome) : undefined);
+  const outputPreview = !laneMode ? (event.stream?.[0]?.trim() || undefined) : undefined;
   const showOutcome = Boolean(outcome && outcome !== "success");
   const hasBody = !!(showOutcome || event.diff || event.stream);
-  const laneExpandable = laneMode && (
-    hasBody
-    || laneTextNeedsExpand(fullCommand, 96, 2)
-    || Boolean(event.diff?.preview && laneTextNeedsExpand(event.diff.preview, 120, 4))
+  // Lane TL: params only (command, path, needle, …). Stream, diff, and full
+  // results open in the detail trace — not inline on the timeline row.
+  const laneExpandable = !laneMode && (
+    hasBody || laneTextNeedsExpand(fullCommand, 120, 2)
   );
 
   const block = (
@@ -861,7 +881,11 @@ function ToolBlock({
             : undefined}
         >
           {useBashPill ? (
-            <LaneBashLine command={bashValid ? bashCommand : ""} title={bashValid ? bashCommand : undefined} />
+            <LaneBashLine
+              command={bashValid ? bashCommand : ""}
+              title={bashValid ? bashCommand : undefined}
+              outputPreview={outputPreview}
+            />
           ) : isLaneBash && simple ? (
             <span className="s-observe-tool-cmd-name">{flatBashProg || "shell"}</span>
           ) : laneMode ? (
@@ -869,10 +893,10 @@ function ToolBlock({
           ) : (
             <>
               <span className="s-observe-tool-cmd-name">{event.tool}</span>
-              {laneCommand ? (
+              {fullCommand ? (
                 <>
                   {" "}
-                  <span className="s-observe-tool-cmd-arg">{laneCommand}</span>
+                  <span className="s-observe-tool-cmd-arg">{fullCommand}</span>
                 </>
               ) : null}
             </>
@@ -882,7 +906,7 @@ function ToolBlock({
               ok
             </span>
           )}
-          {laneMode && event.diff && (
+          {!laneMode && event.diff && (
             <span className="s-observe-tool-diff-inline" aria-label={`${event.diff.add} additions, ${event.diff.del} deletions`}>
               <span className="s-observe-tool-diff-add">+{event.diff.add}</span>
               <span className="s-observe-tool-diff-del">−{event.diff.del}</span>
@@ -895,7 +919,7 @@ function ToolBlock({
         <LaneExpandToggle expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
       )}
 
-      {(!laneMode || expanded) && showOutcome && event.result && (
+      {(showOutcome && (laneMode || expanded)) && event.result && (
         <div className="s-observe-tool-result">
           {Object.entries(event.result)
             .map(([k, v]) => `${k}: ${v}`)
@@ -903,7 +927,7 @@ function ToolBlock({
         </div>
       )}
 
-      {(!laneMode || expanded) && event.diff && (
+      {!laneMode && event.diff && (
         <div className="s-observe-tool-diff">
           <div className="s-observe-tool-diff-stats">
             <span className="s-observe-tool-diff-add">+{event.diff.add}</span>
@@ -916,17 +940,11 @@ function ToolBlock({
               </>
             )}
           </div>
-          {laneMode && !expanded
-            ? null
-            : <DiffPreview preview={event.diff.preview} />}
+          <DiffPreview preview={event.diff.preview} />
         </div>
       )}
 
-      {(!laneMode || expanded) && fullCommand && laneMode && expanded && (
-        <pre className="s-observe-tool-stream s-observe-tool-stream--lane">{fullCommand}</pre>
-      )}
-
-      {(!laneMode || expanded) && event.stream && (
+      {!laneMode && event.stream && (
         <pre className="s-observe-tool-stream">{event.stream.join("\n")}</pre>
       )}
 
@@ -1002,8 +1020,39 @@ function formatLaneNoteLabel(text: string): string {
   return LANE_NOTE_LABELS[raw] ?? raw.replace(/_/g, " ");
 }
 
+function GrokTurnLaneLine({ turn, model }: { turn: number; model?: string }) {
+  return (
+    <div className="s-observe-grok-turn s-observe-block s-observe-block--inline">
+      <span className="s-observe-grok-turn-num">turn {turn}</span>
+      {model ? <span className="s-observe-grok-turn-model">{model}</span> : null}
+    </div>
+  );
+}
+
+function GrokPermissionLaneLine({ tool, decision }: { tool: string; decision: string }) {
+  return (
+    <div className="s-observe-grok-permission s-observe-block s-observe-block--inline">
+      <span className={`s-observe-grok-permission-decision is-${decision}`}>{decision}</span>
+      <span className="s-observe-grok-permission-tool">{tool}</span>
+    </div>
+  );
+}
+
+function GrokPhaseLaneLine({ phase }: { phase: string }) {
+  return (
+    <div className="s-observe-grok-phase s-observe-block s-observe-block--inline">
+      <span className="s-observe-grok-phase-label">{humanizeGrokLanePhase(phase)}</span>
+    </div>
+  );
+}
+
 function NoteLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
   if (laneMode) {
+    const grokTurn = parseGrokLaneSystemText(event.text ?? "");
+    if (grokTurn?.kind === "turn" && typeof grokTurn.turn === "number") {
+      return <GrokTurnLaneLine turn={grokTurn.turn} model={grokTurn.model} />;
+    }
+
     return (
       <div className="s-observe-note s-observe-block s-observe-block--inline s-observe-note--lane">
         <span className="s-observe-note-text">{formatLaneNoteLabel(event.text)}</span>
@@ -1021,6 +1070,14 @@ function NoteLine({ event, laneMode = false }: { event: SessionEvent; laneMode?:
 }
 
 function SystemLine({ event, laneMode = false }: { event: SessionEvent; laneMode?: boolean }) {
+  const grokParts = laneMode ? parseGrokLaneSystemText(event.text ?? "") : null;
+  if (grokParts?.kind === "permission" && grokParts.tool && grokParts.decision) {
+    return <GrokPermissionLaneLine tool={grokParts.tool} decision={grokParts.decision} />;
+  }
+  if (grokParts?.kind === "phase" && grokParts.phase) {
+    return <GrokPhaseLaneLine phase={grokParts.phase} />;
+  }
+
   const showDetail = laneSystemDetailVisible(event.detail, laneMode);
   const copyText = showDetail && event.detail
     ? `${event.text}\n${event.detail}`
@@ -1073,6 +1130,27 @@ function FollowToggle({
 
 /* ── Stream row ── */
 
+const LANE_GUTTER_KIND: Record<SessionEvent["kind"], string> = {
+  think: "think",
+  tool: "tool",
+  ask: "ask",
+  message: "message",
+  note: "note",
+  system: "system",
+  boot: "boot",
+};
+
+function laneGutterLabel(event: SessionEvent): string {
+  const grokLabel = grokLaneGutterLabel(event);
+  if (grokLabel) return grokLabel;
+
+  if (event.kind === "tool") {
+    if (event.tool === "res") return "result";
+    return event.tool?.trim() || "tool";
+  }
+  return LANE_GUTTER_KIND[event.kind] ?? event.kind;
+}
+
 function isObserveInteractiveTarget(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return Boolean(el?.closest("button, a, input, textarea, select, [role='slider'], [contenteditable='true']"));
@@ -1094,6 +1172,7 @@ function StreamRow({
   focusAnchor = false,
   simpleTool = false,
   stackedTool = false,
+  laneGutter = "time",
   onLaneEventSelect,
   laneToolHover,
   hoverPreviewActive = false,
@@ -1113,6 +1192,7 @@ function StreamRow({
   focusAnchor?: boolean;
   simpleTool?: boolean;
   stackedTool?: boolean;
+  laneGutter?: "time" | "label-time";
   onLaneEventSelect?: (event: SessionEvent) => void;
   laneToolHover?: (event: SessionEvent, meta: {
     wallLabel?: string;
@@ -1152,6 +1232,9 @@ function StreamRow({
       {gapLabel ? <div className="s-observe-row-gap">{gapLabel}</div> : null}
 
       <div className="s-observe-row-time" title={rowTime.title}>
+        {laneGutter === "label-time" && !stackedTool ? (
+          <span className="s-observe-row-kind">{laneGutterLabel(event)}</span>
+        ) : null}
         <span className="s-observe-row-clock">{rowTime.label}</span>
         {repeatCount > 1 && (
           <span className="s-observe-row-repeat" title={`${repeatCount} similar events merged`}>
@@ -1260,6 +1343,8 @@ function ReplayStream({
   inlineFocusEventId,
   inlineFocusContent,
   onLaneEventSelect,
+  laneGutter = "time",
+  richSimpleTools = false,
 }: {
   events: SessionEvent[];
   followEnd: boolean;
@@ -1271,6 +1356,8 @@ function ReplayStream({
   inlineFocusEventId?: string | null;
   inlineFocusContent?: ReactNode;
   onLaneEventSelect?: (event: SessionEvent) => void;
+  laneGutter?: "time" | "label-time";
+  richSimpleTools?: boolean;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const prevFollowEndRef = useRef(followEnd);
@@ -1352,7 +1439,7 @@ function ReplayStream({
         const prevWallMs = prevEvent
           ? laneEventWallMs(prevEvent, sessionStartMs)
           : null;
-        const simpleTool = laneMode && isSimpleLaneToolEvent(row.event);
+        const simpleTool = laneMode && !richSimpleTools && isSimpleLaneToolEvent(row.event);
         const stackedTool = simpleTool
           && prevEvent != null
           && isSimpleLaneToolEvent(prevEvent);
@@ -1365,6 +1452,7 @@ function ReplayStream({
             laneMode={laneMode}
             simpleTool={simpleTool}
             stackedTool={stackedTool}
+            laneGutter={laneGutter}
             entering={laneMode && enteringEventIds.has(row.event.id)}
             nudging={laneMode && nudgingEventIds.has(row.event.id)}
             repeatCount={row.repeatCount}
@@ -1872,12 +1960,21 @@ export function SessionObserve({
   inlineFocusEventId,
   inlineFocusContent,
   onLaneEventSelect,
+  surface = "scout",
+  laneGutter,
+  richSimpleTools,
 }: {
   data?: SessionObserveData;
   agentId?: string;
   sessionId?: string | null;
   showRail?: boolean;
   variant?: "default" | "lane";
+  /** Scope instrument: timeline only — no Scout replay chrome, rail, or lane meta bar. */
+  surface?: "scout" | "scope";
+  /** Lane mode: time-only gutter (Scout) or kind/tool label + time (Scope lanes). */
+  laneGutter?: "time" | "label-time";
+  /** Lane mode: render bash pills and per-family tool chrome even for single-token commands. */
+  richSimpleTools?: boolean;
   /** @deprecated Prefer traceWindowMs — lane mode time horizon for visible events. */
   traceLimit?: number;
   /** Lane mode: only render observe events inside this wall-clock window. */
@@ -1897,6 +1994,10 @@ export function SessionObserve({
   onLaneEventSelect?: (event: SessionEvent) => void;
 }) {
   const laneMode = variant === "lane";
+  const scopeSurface = surface === "scope";
+  const effectiveLaneGutter = laneGutter ?? (scopeSurface ? "label-time" : "time");
+  const effectiveRichSimpleTools = richSimpleTools ?? scopeSurface;
+  const effectiveShowRail = showRail && !scopeSurface;
   const observeData = data ?? EMPTY_OBSERVE_DATA;
   const { events, files } = observeData;
   const liveSession = observeData.live === true;
@@ -2167,8 +2268,10 @@ export function SessionObserve({
       ref={observeRootRef}
       className={[
         "s-observe",
-        (!showRail || laneMode) && "s-observe--content-only",
+        (!effectiveShowRail || laneMode) && "s-observe--content-only",
         laneMode && "s-observe--lane",
+        laneMode && effectiveLaneGutter === "label-time" && "s-observe--lane-gutter-label",
+        scopeSurface && "s-observe--scope",
       ].filter(Boolean).join(" ")}
     >
       {/* Main timeline */}
@@ -2181,7 +2284,7 @@ export function SessionObserve({
             sessionId={sessionId ?? null}
           />
         )}
-        {!useHorizonTrace ? (
+        {!scopeSurface && !useHorizonTrace ? (
           <div className="s-observe-live-sticky">
             <FollowToggle
               isFollowing={isFollowing}
@@ -2190,7 +2293,7 @@ export function SessionObserve({
             />
           </div>
         ) : null}
-        {useHorizonTrace && laneTraceStats ? (
+        {!scopeSurface && useHorizonTrace && laneTraceStats ? (
           <div className="s-observe-lane-trace-meta">
             <span className="s-observe-lane-trace-meta-label">Trace</span>
             <span className="s-observe-lane-trace-meta-stats">
@@ -2229,11 +2332,13 @@ export function SessionObserve({
           inlineFocusEventId={inlineFocusEventId}
           inlineFocusContent={inlineFocusContent}
           onLaneEventSelect={onLaneEventSelect}
+          laneGutter={effectiveLaneGutter}
+          richSimpleTools={effectiveRichSimpleTools}
         />
       </main>
 
       {/* Right rail */}
-      {showRail && !laneMode && (
+      {effectiveShowRail && !laneMode && (
         <aside className="s-observe-rail">
           {catalog && catalog.sessions.length > 0 && (
           <div>
@@ -2345,7 +2450,7 @@ export function SessionObserve({
       )}
 
       {/* Scrubber footer */}
-      {!laneMode && (
+      {!scopeSurface && !laneMode && (
       <footer className="s-observe-scrubber">
         <button
           className="s-observe-play-btn"

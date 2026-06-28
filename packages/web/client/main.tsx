@@ -7,6 +7,7 @@ import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
+
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
@@ -17,6 +18,7 @@ import "./styles/tokens.css";
 import "./styles/primitives.css";
 import "./arc-tailwind.css";
 import "./app.css";
+import "./scope/index.ts";
 
 const el = document.getElementById("root");
 if (!el) {

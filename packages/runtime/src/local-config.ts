@@ -162,20 +162,73 @@ function isValidPort(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
 }
 
+function parseEnvPort(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return isValidPort(parsed) ? parsed : undefined;
+}
+
+/** File config merged with process-env overlays (env defines config at runtime). */
+export function resolveEffectiveLocalConfig(): LocalConfig {
+  const file = loadLocalConfig();
+  const host = process.env.OPENSCOUT_BROKER_HOST?.trim()
+    || process.env.OPENSCOUT_HOST?.trim()
+    || file.host;
+  const ports = {
+    broker: parseEnvPort("OPENSCOUT_BROKER_PORT") ?? file.ports?.broker,
+    web: parseEnvPort("OPENSCOUT_WEB_PORT")
+      ?? parseEnvPort("SCOUT_WEB_PORT")
+      ?? file.ports?.web,
+    pairing: parseEnvPort("OPENSCOUT_PAIRING_PORT") ?? file.ports?.pairing,
+  };
+
+  return {
+    version: LOCAL_CONFIG_VERSION,
+    ...(host ? { host } : {}),
+    ...(file.webLocalName ? { webLocalName: file.webLocalName } : {}),
+    ...(ports.broker || ports.web || ports.pairing ? { ports } : {}),
+  };
+}
+
+function localBrokerControlHost(host: string): string {
+  const trimmed = host.trim();
+  if (!trimmed || trimmed === "0.0.0.0" || trimmed === "::" || trimmed === "[::]") {
+    return DEFAULT_LOCAL_CONFIG.host;
+  }
+  return trimmed;
+}
+
+/** Same-machine broker API URL from config (host + broker port). */
+export function resolveBrokerControlUrl(
+  config: LocalConfig = resolveEffectiveLocalConfig(),
+): string {
+  // Ephemeral injection when a parent broker process starts a managed web child.
+  const injected = process.env.OPENSCOUT_BROKER_INTERNAL_URL?.trim();
+  if (injected) {
+    return injected;
+  }
+  const host = config.host ?? DEFAULT_LOCAL_CONFIG.host;
+  const port = config.ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker;
+  return `http://${localBrokerControlHost(host)}:${port}`;
+}
+
 export function resolveBrokerPort(): number {
-  return loadLocalConfig().ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker;
+  return resolveEffectiveLocalConfig().ports?.broker ?? DEFAULT_LOCAL_CONFIG.ports.broker;
 }
 
 export function resolveWebPort(): number {
-  return loadLocalConfig().ports?.web ?? DEFAULT_LOCAL_CONFIG.ports.web;
+  return resolveEffectiveLocalConfig().ports?.web ?? DEFAULT_LOCAL_CONFIG.ports.web;
 }
 
 export function resolvePairingPort(): number {
-  return loadLocalConfig().ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing;
+  return resolveEffectiveLocalConfig().ports?.pairing ?? DEFAULT_LOCAL_CONFIG.ports.pairing;
 }
 
 export function resolveHost(): string {
-  return loadLocalConfig().host ?? DEFAULT_LOCAL_CONFIG.host;
+  return resolveEffectiveLocalConfig().host ?? DEFAULT_LOCAL_CONFIG.host;
 }
 
 export function writeLocalConfig(config: LocalConfig): void {

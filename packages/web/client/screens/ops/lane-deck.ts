@@ -1,6 +1,13 @@
+import { SCOPE_LANE_DECK_PROFILE } from "../../scope/paths.ts";
+import { isScopePresentation } from "../../scope/presentation.ts";
 import type { AgentLaneHorizonKey } from "./agent-lanes-model.ts";
 
-export type LaneDeckProfileId = "web.ops" | "macos.lanes" | "hud.tail" | "web.embed";
+export type LaneDeckProfileId =
+  | "web.ops"
+  | "macos.lanes"
+  | "hud.tail"
+  | "web.embed"
+  | typeof SCOPE_LANE_DECK_PROFILE;
 
 export type AgentLaneWidthTier = "sm" | "md" | "lg";
 
@@ -53,6 +60,7 @@ const LANE_DECK_PROFILE_SET = new Set<LaneDeckProfileId>([
   "macos.lanes",
   "hud.tail",
   "web.embed",
+  SCOPE_LANE_DECK_PROFILE,
 ]);
 const LANE_WIDTH_TIER_SET = new Set<AgentLaneWidthTier>(["sm", "md", "lg"]);
 const LANE_ZONE_ORDER: LaneDeckZone[] = ["pinned_left", "main", "pinned_right"];
@@ -64,6 +72,7 @@ const PROFILE_DEFAULTS: Record<LaneDeckProfileId, ProfileDefaults> = {
   "macos.lanes": { defaultLaneWidth: "md", showAutoLanes: true },
   "hud.tail": { defaultLaneWidth: "sm", showAutoLanes: false, defaultHorizon: "5m" },
   "web.embed": { defaultLaneWidth: "md", showAutoLanes: true },
+  [SCOPE_LANE_DECK_PROFILE]: { defaultLaneWidth: "md", showAutoLanes: true, defaultHorizon: "1h" },
 };
 
 const ZONE_RANK: Record<LaneDeckZone, number> = {
@@ -86,6 +95,7 @@ export function readLaneDeckProfileId(search = window.location.search, pathname 
   if (embed === "app") return "macos.lanes";
 
   if (pathname.includes("/lanes/embed")) return "web.embed";
+  if (isScopePresentation(pathname)) return SCOPE_LANE_DECK_PROFILE;
   if (pathname.includes("/ops/lanes") || pathname.endsWith("/lanes")) return "web.ops";
   return "web.ops";
 }
@@ -422,6 +432,18 @@ export function setLaneWidthOverride(
       ...deck.laneWidths,
       [laneId]: width,
     },
+    updatedAt: Date.now(),
+  };
+}
+
+export function setDefaultLaneWidth(
+  deck: LaneDeckState,
+  width: AgentLaneWidthTier,
+): LaneDeckState {
+  return {
+    ...deck,
+    defaultLaneWidth: width,
+    updatedAt: Date.now(),
   };
 }
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, statSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, statSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
@@ -98,19 +98,19 @@ function getScoutBinPath(): string {
 }
 
 /**
- * Returns the legacy launchd service label for a given service mode.
+ * Returns the legacy launchd service labels for a given service mode.
  *
- * Mirrors crates/scoutd/src/main.rs `legacy_service_label` (~line 805) — keep in sync.
+ * Mirrors crates/scoutd/src/main.rs `legacy_service_labels` — keep in sync.
  */
-function legacyBrokerServiceLabel(mode: BrokerServiceMode): string {
+function legacyBrokerServiceLabels(mode: BrokerServiceMode): string[] {
   switch (mode) {
     case "prod":
-      return "com.openscout.broker";
+      return ["com.openscout.broker"];
     case "custom":
-      return "com.openscout.broker.custom";
+      return ["com.openscout.broker.custom"];
     case "dev":
     default:
-      return "dev.openscout.broker";
+      return ["dev.openscout.broker", "dev.openscout.broker-fallback"];
   }
 }
 
@@ -190,8 +190,14 @@ async function restartBrokerServiceWithLaunchctl(): Promise<void> {
   if (!uid) {
     return;
   }
-  const legacyLabel = legacyBrokerServiceLabel(config.mode);
-  spawnSync("launchctl", ["bootout", `gui/${uid}/${legacyLabel}`], { stdio: "ignore" });
+  for (const legacyLabel of legacyBrokerServiceLabels(config.mode)) {
+    spawnSync("launchctl", ["bootout", `gui/${uid}/${legacyLabel}`], { stdio: "ignore" });
+    try {
+      unlinkSync(join(homedir(), "Library", "LaunchAgents", `${legacyLabel}.plist`));
+    } catch {
+      // Best-effort cleanup: a missing or locked legacy plist should not block restart.
+    }
+  }
   spawnSync("launchctl", ["bootout", `gui/${uid}/${config.label}`], { stdio: "ignore" });
   await new Promise<void>((resolve) => setTimeout(resolve, 1500));
   spawnSync("launchctl", ["bootstrap", `gui/${uid}`, config.launchAgentPath], { stdio: "ignore" });

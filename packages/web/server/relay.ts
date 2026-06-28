@@ -31,6 +31,8 @@ export interface RelayWSData {
   pending: UpstreamPayload[];
   upstreamProtocol: string | null;
   upstreamUrl: string | null;
+  upstreamAttempts?: number;
+  upstreamRetryTimer?: ReturnType<typeof setTimeout>;
 }
 
 function flushPending(ws: RelayProxySocket) {
@@ -66,45 +68,86 @@ function forwardToClient(
   ws.send(data);
 }
 
+const UPSTREAM_CONNECT_MAX_ATTEMPTS = 8;
+const UPSTREAM_CONNECT_RETRY_MS = 250;
+
+function clearUpstreamRetry(ws: RelayProxySocket) {
+  const timer = ws.data.upstreamRetryTimer;
+  if (timer) {
+    clearTimeout(timer);
+    ws.data.upstreamRetryTimer = undefined;
+  }
+}
+
+function closeRelayClient(ws: RelayProxySocket, code?: number, reason?: string) {
+  clearUpstreamRetry(ws);
+  ws.data.pending.length = 0;
+  if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+    ws.close(code, reason);
+  }
+}
+
+function connectRelayUpstream(ws: RelayProxySocket) {
+  const targetUrl = ws.data.upstreamUrl;
+  if (!targetUrl) {
+    closeRelayClient(ws, 1011, "Missing relay upstream");
+    return;
+  }
+
+  const upstream = ws.data.upstreamProtocol
+    ? new WebSocket(targetUrl, ws.data.upstreamProtocol)
+    : new WebSocket(targetUrl);
+  upstream.binaryType = "arraybuffer";
+  ws.data.upstream = upstream;
+  let upstreamOpened = false;
+
+  upstream.onopen = () => {
+    upstreamOpened = true;
+    ws.data.upstreamAttempts = 0;
+    flushPending(ws);
+  };
+
+  upstream.onmessage = (event) => {
+    forwardToClient(ws, event.data);
+  };
+
+  const handleUpstreamDisconnect = () => {
+    if (ws.data.upstream !== upstream) {
+      return;
+    }
+    ws.data.upstream = null;
+    if (upstreamOpened) {
+      closeRelayClient(ws);
+      return;
+    }
+    if (ws.data.upstreamRetryTimer) {
+      return;
+    }
+    const attempts = (ws.data.upstreamAttempts ?? 0) + 1;
+    ws.data.upstreamAttempts = attempts;
+    if (attempts >= UPSTREAM_CONNECT_MAX_ATTEMPTS) {
+      closeRelayClient(ws);
+      return;
+    }
+    if (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING) {
+      return;
+    }
+    ws.data.upstreamRetryTimer = setTimeout(() => {
+      ws.data.upstreamRetryTimer = undefined;
+      connectRelayUpstream(ws);
+    }, UPSTREAM_CONNECT_RETRY_MS);
+  };
+
+  upstream.onerror = handleUpstreamDisconnect;
+  upstream.onclose = handleUpstreamDisconnect;
+}
+
 export function createRelayWebSocketProxy() {
   return {
     open(ws: RelayProxySocket) {
       ws.data.pending = [];
-      const targetUrl = ws.data.upstreamUrl;
-      if (!targetUrl) {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close(1011, "Missing relay upstream");
-        }
-        return;
-      }
-
-      const upstream = ws.data.upstreamProtocol
-        ? new WebSocket(targetUrl, ws.data.upstreamProtocol)
-        : new WebSocket(targetUrl);
-      upstream.binaryType = "arraybuffer";
-      ws.data.upstream = upstream;
-
-      upstream.onopen = () => {
-        flushPending(ws);
-      };
-
-      upstream.onmessage = (event) => {
-        forwardToClient(ws, event.data);
-      };
-
-      upstream.onerror = () => {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
-
-      upstream.onclose = () => {
-        ws.data.upstream = null;
-        ws.data.pending.length = 0;
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-          ws.close();
-        }
-      };
+      ws.data.upstreamAttempts = 0;
+      connectRelayUpstream(ws);
     },
 
     message(
@@ -124,11 +167,13 @@ export function createRelayWebSocketProxy() {
     },
 
     close(ws: RelayProxySocket) {
+      clearUpstreamRetry(ws);
       const upstream = ws.data.upstream;
       ws.data.upstream = null;
       ws.data.pending.length = 0;
       ws.data.upstreamProtocol = null;
       ws.data.upstreamUrl = null;
+      ws.data.upstreamAttempts = undefined;
       if (!upstream) {
         return;
       }
