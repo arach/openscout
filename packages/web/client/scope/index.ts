@@ -9,8 +9,7 @@
  *   1. main.tsx           → import "./scope/index.ts"
  *   2. lib/router.ts      → parseScopeRouteFromUrl + scopeRoutePath
  *   3. lib/scout-flags.ts → scope flag registry + bundle layer
- *   4. scout/topNavConfig.ts → SCOPE_TOP_NAV_ITEMS
- *   5. scout/hooks.ts     → scope nav chrome when on /scope/*
+ *   4. scope/shell-hooks.tsx → wireScopeOntoScout (nav + content slots)
  *
  * Enable via /scope path, flag bundle, or deploy env — see SCOPE_ENABLE_HINTS.
  */
@@ -18,6 +17,7 @@
 import "./presentation.css";
 
 export { SCOPE_ENABLE_HINTS } from "./config.ts";
+export { SCOPE_LANE_DECK_DEFAULTS, SCOPE_LANE_DECK_PROFILE } from "./lane-deck.ts";
 
 export {
   SCOPE_BRAND_LABEL,
@@ -27,7 +27,6 @@ export {
   SCOPE_LEGACY_FLAG_KEY,
   SCOPE_LEGACY_PATH_PREFIX,
   SCOPE_LEGACY_PATH_SEGMENT,
-  SCOPE_LANE_DECK_PROFILE,
   SCOPE_PATH_PREFIX,
   SCOPE_PATH_SEGMENT,
   SCOPE_ROUTE_SEGMENTS,
@@ -70,6 +69,10 @@ export {
   useScopePresentationAttrs,
   useScopeShellChrome,
 } from "./hooks.ts";
+
+export { ScopeAppContent } from "./ScopeAppContent.tsx";
+export { resolveScopeContentPane } from "./resolve-content.tsx";
+export { wireScopeOntoScout } from "./shell-hooks.tsx";
 
 export { ScopeLanesView } from "./views/ScopeLanesView.tsx";
 export { ScopeDirView } from "./views/ScopeDirView.tsx";

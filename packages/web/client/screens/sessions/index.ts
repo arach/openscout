@@ -4,6 +4,7 @@ export { SessionsInspector as SessionsRight } from "./right.tsx";
 /** @deprecated Use SessionsRight */
 export { SessionsInspector } from "./right.tsx";
 
+export { RawSessionsTable } from "./RawSessionsTable.tsx";
 /** @deprecated Use SessionsContent */
 export { SessionsScreen } from "./SessionsScreen.tsx";
 export { SessionRefScreen } from "./SessionRefScreen.tsx";

@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 import type { Route } from "../lib/types.ts";
 import type { useScout } from "../scout/Provider.tsx";
-
-import { ScopeDirView } from "../scope/views/ScopeDirView.tsx";
-import { isProjectAgentProfileRoute } from "./projects/model.ts";
 import { ActivityContent } from "./activity/index.ts";
 import { AgentsContent, AgentsLeft, AgentsRight } from "./agents/index.ts";
 import { ProjectsBrowse, ProjectsDetail, ProjectsScreen } from "./projects/index.ts";
@@ -54,12 +51,7 @@ export function resolveContentPane(
   route: Route,
   navigate: Navigate,
   agents: ReturnType<typeof useScout>["agents"] = [],
-  scopePresentation = false,
 ): ReactNode {
-  if (scopePresentation && route.view === "agents-v2" && !isProjectAgentProfileRoute(route)) {
-    return <ScopeDirView navigate={navigate} agents={agents} />;
-  }
-
   switch (route.view) {
     case "conversation":
     case "messages":

@@ -19,12 +19,13 @@ export {
   SCOPE_LEGACY_FLAG_KEY,
   SCOPE_LEGACY_PATH_PREFIX,
   SCOPE_LEGACY_PATH_SEGMENT,
-  SCOPE_LANE_DECK_PROFILE,
   SCOPE_PATH_PREFIX,
   SCOPE_PATH_SEGMENT,
   SCOPE_ROUTE_SEGMENTS,
   canonicalizeScopePathname,
 } from "../../shared/scope-integration.js";
+
+export { SCOPE_LANE_DECK_PROFILE } from "./lane-deck.ts";
 
 export type ScopeRouteSegment = keyof typeof SCOPE_ROUTE_SEGMENTS;
 

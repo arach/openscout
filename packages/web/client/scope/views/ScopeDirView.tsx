@@ -3,7 +3,6 @@ import "./scope-views.css";
 import { useCallback, useMemo, useState, type KeyboardEvent } from "react";
 
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
-import { SCOPE_LANE_DECK_PROFILE } from "../paths.ts";
 import { useScopePresentationAttrs } from "../hooks.ts";
 import { buildScopeLaneHeader } from "./lane-present.ts";
 import { ScopeLaneTraceSheet, type ScopeLaneTraceTarget } from "./ScopeLaneTraceSheet.tsx";
@@ -93,7 +92,6 @@ export function ScopeDirView({
   const scopeAttrs = useScopePresentationAttrs();
   const { now, horizonLabel, lanes, tailLoading } = useAgentLanesData({
     scoutAgents: agents,
-    profileId: SCOPE_LANE_DECK_PROFILE,
     defaultWidthTier: "md",
   });
 

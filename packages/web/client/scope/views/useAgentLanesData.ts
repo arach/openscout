@@ -20,13 +20,9 @@ import {
   type AgentLaneHorizonKey,
   type AgentLaneRosterIssue,
 } from "../../screens/ops/agent-lanes-model.ts";
-import { useLaneDeck } from "../../screens/ops/useLaneDeck.ts";
-import {
-  readLaneDeckProfileId,
-  type AgentLaneWidthTier,
-  type LaneDeckProfileId,
-} from "../../screens/ops/lane-deck.ts";
-
+import type { AgentLaneWidthTier } from "../../screens/ops/lane-deck.ts";
+import { SCOPE_LANE_DECK_PROFILE } from "../lane-deck.ts";
+import { useScopeLaneDeck } from "../useScopeLaneDeck.ts";
 import { scopeStorageKey } from "../../../shared/scope-integration.js";
 
 const LANE_HORIZON_STORAGE_KEY = scopeStorageKey("lanes-horizon");
@@ -50,18 +46,15 @@ export type AgentLanesEmbedFilters = {
 
 export function useAgentLanesData({
   scoutAgents,
-  profileId: profileIdProp,
   defaultWidthTier = "md",
   harnessFilter,
   projectFilter,
 }: {
   scoutAgents: Agent[];
-  profileId?: LaneDeckProfileId;
   defaultWidthTier?: AgentLaneWidthTier;
   harnessFilter?: string | null;
   projectFilter?: string | null;
 }) {
-  const profileId = profileIdProp ?? readLaneDeckProfileId();
   const [now, setNow] = useState(Date.now());
   const [horizon, setHorizon] = useState<AgentLaneHorizonKey>(readStoredHorizon);
   const [terminalSessions, setTerminalSessions] = useState<TerminalSessionRecord[]>([]);
@@ -172,10 +165,10 @@ export function useAgentLanesData({
     layout,
     setLaneWidth,
     setDefaultLaneWidth,
-  } = useLaneDeck(profileId, defaultWidthTier, filteredLanes);
+  } = useScopeLaneDeck(defaultWidthTier, filteredLanes);
 
   return {
-    profileId,
+    profileId: SCOPE_LANE_DECK_PROFILE,
     now,
     horizon,
     setHorizon,

@@ -1,5 +1,4 @@
 import type { Route } from "../lib/types.ts";
-import { SCOPE_TOP_NAV_ITEMS, scopeTopNavKeyForRoute } from "../scope/nav.ts";
 
 export type TopNavKey =
   | "home"
@@ -36,8 +35,6 @@ export const TOP_NAV_ITEMS: TopNavItem[] = [
 // cluster to the primary bar; Search + the rest of Ops (Control/Mesh/Runtime/
 // Plans) drop off the bar and stay reachable via the Ops subnav + ⌘K palette.
 // Gated by the `nav.clean` flag.
-export { SCOPE_TOP_NAV_ITEMS } from "../scope/nav.ts";
-
 export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Projects", route: { view: "agents-v2" } },
@@ -71,10 +68,7 @@ export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
   ops: "Ops",
 };
 
-export function topNavItems(opsEnabled: boolean, cleanNav = false, scopeNav = false): TopNavItem[] {
-  if (scopeNav) return SCOPE_TOP_NAV_ITEMS;
-  // Clean nav is its own fixed layout — the lean core always shows, and there
-  // is no Ops top-level entry (ops.control still governs the Ops subnav/routes).
+export function topNavItems(opsEnabled: boolean, cleanNav = false): TopNavItem[] {
   if (cleanNav) return CLEAN_TOP_NAV_ITEMS;
   return opsEnabled
     ? TOP_NAV_ITEMS
@@ -85,9 +79,7 @@ export function topNavKeyForRoute(
   route: Route,
   opsEnabled: boolean,
   cleanNav = false,
-  scopeNav = false,
 ): TopNavKey {
-  if (scopeNav) return scopeTopNavKeyForRoute(route);
   if (route.view === "settings" && route.section === "agents") {
     return "agents";
   }
@@ -105,8 +97,6 @@ export function topNavKeyForRoute(
     case "channels":
       return "chat";
     case "search":
-      // Search is a primary tab only in the full nav; in clean nav it's reached
-      // via the palette and highlights nothing of its own.
       return cleanNav ? "home" : "search";
     case "broker":
       return cleanNav ? "dispatch" : opsEnabled ? "ops" : "home";
@@ -115,8 +105,6 @@ export function topNavKeyForRoute(
     case "harnesses":
       return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "ops":
-      // In clean nav only Tail (ops?mode=tail) has its own primary tab; the
-      // other Ops modes (Control/Runtime/Plans) live under the Tail subnav.
       if (cleanNav) return route.mode === "tail" ? "tail" : "home";
       return opsEnabled ? "ops" : "home";
     case "mesh":

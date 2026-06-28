@@ -9,8 +9,6 @@ import { PlanView } from "./PlanView.tsx";
 import { AtopView } from "./AtopView.tsx";
 import { TailView } from "../shared/TailView.tsx";
 import type { OpsMode, Route } from "../../lib/types.ts";
-import { useScopePresentation, useScopePresentationAttrs } from "../../scope/index.ts";
-import { ScopeLanesView } from "../../scope/views/ScopeLanesView.tsx";
 import { OpsSubnav } from "./OpsSubnav.tsx";
 
 export function OpsScreen({
@@ -26,15 +24,9 @@ export function OpsScreen({
   const selectedPlanDocumentId = route.view === "ops" && route.mode === "plan"
     ? route.planDocumentId
     : undefined;
-  const scopePresentation = useScopePresentation();
-  const scopeAttrs = useScopePresentationAttrs();
-
-  if (scopePresentation && mode === "lanes") {
-    return <ScopeLanesView navigate={navigate} agents={agents} />;
-  }
 
   return (
-    <div className="s-ops" {...scopeAttrs}>
+    <div className="s-ops">
       {mode !== "lanes" ? (
         <div className="s-ops-header">
           <OpsSubnav activeRoute={route} navigate={navigate} />

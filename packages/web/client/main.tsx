@@ -21,6 +21,7 @@ import "./styles/primitives.css";
 import "./arc-tailwind.css";
 import "./app.css";
 import "./scope/index.ts";
+import { wireScopeOntoScout } from "./scope/shell-hooks.tsx";
 
 const el = document.getElementById("root");
 if (!el) {
@@ -44,6 +45,7 @@ const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
   || window.location.pathname === "/embed/lanes"
   || window.location.pathname === "/embed/traces";
 const scoutApp = createScoutApp({ initialTheme });
+wireScopeOntoScout(scoutApp);
 registerScoutShellApp(scoutApp);
 
 createRoot(el).render(

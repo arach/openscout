@@ -1,6 +1,6 @@
 import type { Route } from "../lib/types.ts";
+import { SCOPE_LANE_DECK_PROFILE } from "./lane-deck.ts";
 import {
-  SCOPE_LANE_DECK_PROFILE,
   buildScopeRoutePath,
   isScopePath,
   routeToScopeSegment,

@@ -3,24 +3,25 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   addFilterLane,
   clearPinnedLanes,
-  createDefaultLaneDeck,
   isLanePinned,
   lanePinnedZone,
-  loadLaneDeck,
   pinSessionLane,
   removeSessionPin,
-  saveLaneDeck,
   setDefaultLaneWidth,
   setLaneWidthOverride,
   type AgentLaneWidthTier,
   type LaneDeckState,
   type LaneDeckZone,
+} from "../screens/ops/lane-deck.ts";
+import { resolveLaneDeckLayout, type LaneDeckLayout } from "../screens/ops/lane-deck-layout.ts";
+import { lanePrimaryLabel, type AgentLane } from "../screens/ops/agent-lanes-model.ts";
+import {
+  loadScopeLaneDeck,
+  saveScopeLaneDeck,
+  SCOPE_LANE_DECK_PROFILE,
 } from "./lane-deck.ts";
-import { resolveLaneDeckLayout, type LaneDeckLayout } from "./lane-deck-layout.ts";
-import { lanePrimaryLabel, type AgentLane } from "./agent-lanes-model.ts";
 
-export function useLaneDeck(
-  profileId: string,
+export function useScopeLaneDeck(
   defaultWidthTier: AgentLaneWidthTier,
   autoLanes: AgentLane[],
 ): {
@@ -36,16 +37,14 @@ export function useLaneDeck(
   isPinned: (laneId: string) => boolean;
   pinnedZone: (laneId: string) => LaneDeckZone | null;
 } {
-  const [deck, setDeck] = useState<LaneDeckState>(() =>
-    loadLaneDeck(profileId, defaultWidthTier),
-  );
+  const [deck, setDeck] = useState<LaneDeckState>(() => loadScopeLaneDeck(defaultWidthTier));
 
   useEffect(() => {
-    setDeck(loadLaneDeck(profileId, defaultWidthTier));
-  }, [defaultWidthTier, profileId]);
+    setDeck(loadScopeLaneDeck(defaultWidthTier));
+  }, [defaultWidthTier]);
 
   const persist = useCallback((next: LaneDeckState) => {
-    saveLaneDeck(next);
+    saveScopeLaneDeck(next);
     setDeck(next);
   }, []);
 
@@ -116,11 +115,4 @@ export function useLaneDeck(
   };
 }
 
-export function ensureLaneDeck(
-  profileId: string,
-  defaultWidthTier: AgentLaneWidthTier,
-): LaneDeckState {
-  const deck = loadLaneDeck(profileId, defaultWidthTier);
-  if (deck.profileId === profileId) return deck;
-  return createDefaultLaneDeck(profileId, defaultWidthTier);
-}
+export { SCOPE_LANE_DECK_PROFILE };

@@ -13,11 +13,12 @@ export {
   SCOPE_LEGACY_FLAG_KEY,
   SCOPE_LEGACY_PATH_PREFIX,
   SCOPE_LEGACY_PATH_SEGMENT,
-  SCOPE_LANE_DECK_PROFILE,
   SCOPE_PATH_PREFIX,
   SCOPE_PATH_SEGMENT,
   SCOPE_ROUTE_SEGMENTS,
 } from "../../shared/scope-integration.js";
+
+export { SCOPE_LANE_DECK_PROFILE, SCOPE_LANE_DECK_DEFAULTS } from "./lane-deck.ts";
 
 /** Scope opens at /scope/*; the bundle only layers lean nav/ops flags. */
 export const SCOPE_ENABLE_HINTS = {

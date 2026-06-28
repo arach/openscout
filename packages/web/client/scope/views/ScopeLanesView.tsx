@@ -3,7 +3,6 @@ import "./scope-views.css";
 import { useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
-import { SCOPE_LANE_DECK_PROFILE } from "../paths.ts";
 import { useScopePresentationAttrs } from "../hooks.ts";
 import { ScopeLaneColumn } from "./ScopeLaneColumn.tsx";
 import { ScopeLaneSpace } from "./ScopeLaneSpace.tsx";
@@ -48,7 +47,6 @@ export function ScopeLanesView({
     tailLoading,
   } = useAgentLanesData({
     scoutAgents: agents,
-    profileId: SCOPE_LANE_DECK_PROFILE,
     defaultWidthTier: "md",
   });
 
