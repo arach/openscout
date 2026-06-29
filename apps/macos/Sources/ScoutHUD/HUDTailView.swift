@@ -72,6 +72,30 @@ private func copyToPasteboard(_ value: String) {
     NSPasteboard.general.setString(value, forType: .string)
 }
 
+/// How a tail render is framed. The render itself — `HUDTailView`'s LOGS layout
+/// (filter · log · detail) — is identical across surfaces; only theme,
+/// placement, and chrome differ. One render, the surface as the single knob, so
+/// the framing can never half-agree with the content (no overlay-render-with-
+/// panel-dock states).
+enum TailSurface {
+    /// Desktop glass, edge-docked, no message dock — the always-on scan overlay.
+    case overlay
+    /// Solid HUD-panel canvas, in place within the summoned panel, dock present.
+    case panel
+
+    var isGlass: Bool { self == .overlay }
+    var showsDock: Bool { self == .panel }
+
+    /// Fill for the filter / detail side columns, tuned to read against the
+    /// surface's own background.
+    var sidePaneFill: Color {
+        switch self {
+        case .overlay: return HUDChrome.canvas.opacity(0.62)
+        case .panel: return HUDChrome.canvasAlt.opacity(0.55)
+        }
+    }
+}
+
 enum HUDTailTreatment: String, CaseIterable, Identifiable {
     static let storageKey = "scout.hud.tail.treatment.v1"
 
@@ -82,15 +106,15 @@ enum HUDTailTreatment: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .firehose: return "Tail"
-        case .agentLatest: return "Latest"
+        case .firehose: return "Logs"
+        case .agentLatest: return "Agents"
         }
     }
 
     var shortLabel: String {
         switch self {
-        case .firehose: return "TAIL"
-        case .agentLatest: return "AGENT"
+        case .firehose: return "LOGS"
+        case .agentLatest: return "AGENTS"
         }
     }
 
@@ -113,6 +137,9 @@ struct HUDTailView: View {
     @ObservedObject var tail: ScoutTailStore
     let agents: [HudAgent]
     @Binding var treatment: HUDTailTreatment
+    // The framing this render is hosted in. Only theme/chrome reads it — the
+    // layout below is surface-agnostic.
+    var surface: TailSurface = .overlay
 
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var state = HUDState.shared
@@ -126,6 +153,8 @@ struct HUDTailView: View {
     @State private var freshRowIds: Set<String> = []
     @State private var hasPrimedRows = false
     @State private var tailInteractionsLive = false
+    // Left-rail filter: when set, the centre log is scoped to one actor.
+    @State private var filterKey: String? = nil
     @AppStorage(HUDTailAppearance.pathColumnWidthKey) private var pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
     @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
 
@@ -153,6 +182,46 @@ struct HUDTailView: View {
 
     @ViewBuilder
     private var nativeTailContent: some View {
+        // LOGS view — deterministic layout, a pure function of two inputs only
+        // (measured width + whether a line is engaged); no size-tier / dock /
+        // collapse combos:
+        //   • LEFT  — active participants, as a filter   (width ≥ filterMinWidth)
+        //   • CENTRE — the log firehose                  (always)
+        //   • RIGHT — the engaged line's detail          (width ≥ detailMinWidth ∧ engaged)
+        // Below the thresholds the firehose simply has the row to itself, so a
+        // narrow tail never gets squished by panes it can't afford.
+        GeometryReader { geo in
+            let width = geo.size.width
+            let showFilter = width >= HUDTailRail.filterMinWidth
+            let engaged = engagedRow
+            let showDetail = width >= HUDTailRail.detailMinWidth && engaged != nil
+            HStack(spacing: 0) {
+                if showFilter {
+                    TailActiveFilter(rows: allRows, selectedKey: $filterKey, paneFill: surface.sidePaneFill)
+                        .frame(width: HUDTailRail.width)
+                    railDivider
+                }
+                firehosePane
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                if showDetail, let engaged {
+                    railDivider
+                    let (prev, next) = neighbors(of: engaged)
+                    TailEngagedDetail(row: engaged, prev: prev, next: next, paneFill: surface.sidePaneFill) {
+                        engage.unengage()
+                    }
+                    .frame(width: HUDTailDetail.width)
+                }
+            }
+            .frame(width: width, height: geo.size.height, alignment: .topLeading)
+        }
+    }
+
+    private var railDivider: some View {
+        Rectangle().fill(HUDChrome.border).frame(width: 0.5)
+    }
+
+    @ViewBuilder
+    private var firehosePane: some View {
         if let error = tail.lastError, !tail.hasBufferedEvents {
             TailProblemView(message: error)
         } else if tail.isLoading && !tail.hasBufferedEvents {
@@ -252,7 +321,9 @@ struct HUDTailView: View {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 0) {
-                        ForEach(Array(currentRows.enumerated()), id: \.element.id) { idx, row in
+                        // Engaging a row no longer expands it inline — its detail
+                        // opens in the right-hand pane (see nativeTailContent).
+                        ForEach(currentRows) { row in
                             TailRow(
                                 row: row,
                                 size: size,
@@ -270,15 +341,6 @@ struct HUDTailView: View {
                             )
                             .allowsHitTesting(tailInteractionsLive)
                             .id(row.id)
-                            if engage.isEngaged(row.id) {
-                                TailDetailInline(
-                                    row: row,
-                                    prev: idx > 0 ? currentRows[idx - 1] : nil,
-                                    next: idx + 1 < currentRows.count ? currentRows[idx + 1] : nil,
-                                    size: size
-                                )
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                            }
                         }
                     }
                     .padding(.bottom, size == .large ? 14 : 8)
@@ -326,8 +388,26 @@ struct HUDTailView: View {
         }
     }
 
-    private var rows: [TailRowModel] {
+    // Every recent row, unfiltered — the left rail builds its actor list from this.
+    private var allRows: [TailRowModel] {
         ScoutTailContextBuilder.rows(events: tail.displayEvents(limit: 180), agents: agents)
+    }
+
+    // The centre log: all rows, or scoped to the left rail's selected actor.
+    private var rows: [TailRowModel] {
+        guard let key = filterKey else { return allRows }
+        return allRows.filter { tailActorKey($0) == key }
+    }
+
+    private var engagedRow: TailRowModel? {
+        guard let id = engage.engagedId else { return nil }
+        return rows.first { $0.id == id } ?? allRows.first { $0.id == id }
+    }
+
+    private func neighbors(of row: TailRowModel) -> (TailRowModel?, TailRowModel?) {
+        let arr = rows
+        guard let i = arr.firstIndex(where: { $0.id == row.id }) else { return (nil, nil) }
+        return (i > 0 ? arr[i - 1] : nil, i + 1 < arr.count ? arr[i + 1] : nil)
     }
 
     private func resolvedPathColumnWidth(for size: HUDSize) -> CGFloat {
@@ -1127,5 +1207,354 @@ private struct TailEmptyView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Active-agents rail (wide deck companion)
+//
+// The right-hand companion to the firehose at .large. The roster is built FROM
+// the firehose, not a static /api/agents snapshot: by definition, whoever is
+// emitting events right now is a live agent — the broker's `state` field reads
+// "available" even for sessions that are mid-turn, so it lies. Actors are
+// deduped by identity, sorted most-recent-first, and tiered by how fresh their
+// last event is: live (pulsing) → recent → idle. Click a row to open the agent
+// or its session.
+
+enum HUDTailRail {
+    static let width: CGFloat = 308
+    static let filterMinWidth: CGFloat = 620    // show the left filter past this width
+    static let detailMinWidth: CGFloat = 1000   // room for filter + log + detail
+    static let liveWindow: TimeInterval = 90    // pulsing "moving right now"
+    static let recentWindow: TimeInterval = 600 // still counts as present (10m)
+    static let activeWindow: TimeInterval = 120 // counted in the header tally
+}
+
+enum HUDTailDetail {
+    static let width: CGFloat = 360
+}
+
+// Stable identity key for an actor across the firehose. Single source of truth
+// shared by the left-rail list and the centre-log filter, so a selection always
+// matches the rows it scopes to.
+func tailActorKey(_ row: ScoutTailRowContext) -> String {
+    row.agentId ?? row.agentHandle ?? (row.sessionId.isEmpty ? row.source : row.sessionId)
+}
+
+private struct TailRailActor: Identifiable {
+    let id: String
+    let displayName: String
+    let harness: String?
+    let lastTs: TimeInterval
+    let lastSummary: String
+    let project: String?
+    let agentId: String?
+    let sessionId: String
+    let conversationId: String?
+    let hits: Int
+
+    var age: TimeInterval {
+        let then = ScoutRelativeTime.date(lastTs) ?? Date(timeIntervalSince1970: 0)
+        return max(0, Date().timeIntervalSince(then))
+    }
+}
+
+// The one-line "what they're doing" summary for a firehose row — prefer the
+// rendered line, fall back to the raw event summary.
+private func railSummary(for row: ScoutTailRowContext) -> String {
+    let line = row.line.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !line.isEmpty { return line }
+    return row.event.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+// Collapse the recent firehose into one entry per distinct actor. Key priority:
+// agent id → handle → session → raw source, so a session's tool/output spam
+// folds into a single live row.
+private func buildTailRailActors(from rows: [ScoutTailRowContext]) -> [TailRailActor] {
+    var byKey: [String: TailRailActor] = [:]
+    var order: [String] = []
+    for row in rows {
+        let key = tailActorKey(row)
+        let harness = row.provider.trimmingCharacters(in: .whitespaces).isEmpty ? nil : row.provider
+        let project = row.project.trimmingCharacters(in: .whitespaces).isEmpty ? nil : row.project
+        if let existing = byKey[key] {
+            // Keep the freshest event's summary as the actor's headline.
+            let newer = row.event.ts >= existing.lastTs
+            byKey[key] = TailRailActor(
+                id: key,
+                displayName: existing.displayName,
+                harness: existing.harness ?? harness,
+                lastTs: max(existing.lastTs, row.event.ts),
+                lastSummary: newer ? railSummary(for: row) : existing.lastSummary,
+                project: existing.project ?? project,
+                agentId: existing.agentId ?? row.agentId,
+                sessionId: existing.sessionId.isEmpty ? row.sessionId : existing.sessionId,
+                conversationId: existing.conversationId ?? row.conversationId,
+                hits: existing.hits + 1
+            )
+        } else {
+            order.append(key)
+            let name = row.agentName
+                ?? row.agentHandle
+                ?? (row.sessionId.isEmpty ? row.source : row.event.sessionShortLabel)
+            byKey[key] = TailRailActor(
+                id: key,
+                displayName: name,
+                harness: harness,
+                lastTs: row.event.ts,
+                lastSummary: railSummary(for: row),
+                project: project,
+                agentId: row.agentId,
+                sessionId: row.sessionId,
+                conversationId: row.conversationId,
+                hits: 1
+            )
+        }
+    }
+    return order.compactMap { byKey[$0] }.sorted { $0.lastTs > $1.lastTs }
+}
+
+private func railActorURL(_ actor: TailRailActor) -> URL {
+    let base = ScoutWeb.baseURL()
+    func rel(_ path: String) -> URL { URL(string: path, relativeTo: base)?.absoluteURL ?? base }
+    func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? s }
+    if let aid = actor.agentId, !aid.isEmpty { return rel("/agents/\(enc(aid))") }
+    if let cid = actor.conversationId, !cid.isEmpty { return rel("/c/\(enc(cid))") }
+    if !actor.sessionId.isEmpty { return rel("/sessions/\(enc(actor.sessionId))") }
+    return rel("/agents")
+}
+
+// LEFT zone of the LOGS view: the active participants, as a filter. Built from
+// the firehose (whoever's emitting events is live), freshest first. Tapping a
+// row scopes the centre log to that actor; tapping it again clears.
+private struct TailActiveFilter: View {
+    let rows: [ScoutTailRowContext]
+    @Binding var selectedKey: String?
+    var paneFill: Color = HUDChrome.canvas.opacity(0.62)
+
+    private var actors: [TailRailActor] { buildTailRailActors(from: rows) }
+
+    var body: some View {
+        let live = actors.filter { $0.age < HUDTailRail.activeWindow }.count
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                HUDEyebrow(text: "ACTIVE  ·  \(live)", color: HUDChrome.inkFaint)
+                Spacer(minLength: 0)
+                if selectedKey != nil {
+                    Button { selectedKey = nil } label: {
+                        Text("CLEAR")
+                            .font(HUDType.mono(8.5, weight: .bold))
+                            .tracking(HUDType.eyebrowTracking)
+                            .foregroundStyle(HUDChrome.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear filter")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 7)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
+            }
+
+            if actors.isEmpty {
+                VStack(spacing: 6) {
+                    Spacer(minLength: 24)
+                    HUDEyebrow(text: "WIRE  ·  QUIET", color: HUDChrome.inkFaint)
+                    Text("No agents on the wire yet.")
+                        .font(HUDType.body(12))
+                        .foregroundStyle(HUDChrome.inkMuted)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(actors) { actor in
+                            TailFilterRow(actor: actor, selected: selectedKey == actor.id) {
+                                selectedKey = selectedKey == actor.id ? nil : actor.id
+                            }
+                        }
+                    }
+                    .padding(.bottom, 8)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        // A distinctly darker inset column so the rail reads as its own pane
+        // against the firehose's lighter glass — visible even when quiet.
+        .background(paneFill)
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(HUDChrome.border).frame(width: 0.5)
+        }
+    }
+}
+
+private struct TailFilterRow: View {
+    let actor: TailRailActor
+    let selected: Bool
+    var onSelect: () -> Void = {}
+
+    @State private var hovered = false
+
+    private var age: TimeInterval { actor.age }
+    private var isLive: Bool { age < HUDTailRail.liveWindow }
+    private var isRecent: Bool { age < HUDTailRail.recentWindow }
+
+    private var nameColor: Color {
+        if selected { return HUDChrome.ink }
+        return isLive ? HUDChrome.ink : (isRecent ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+    }
+    private var dotColor: Color {
+        isLive ? HUDChrome.ink : (isRecent ? HUDChrome.inkMuted : HUDChrome.inkDeep)
+    }
+    private var rowFill: Color {
+        if selected { return HUDChrome.accent.opacity(0.14) }
+        if hovered { return HUDChrome.canvasLift.opacity(0.30) }
+        return .clear
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 8) {
+                TailRailDot(color: dotColor, filled: isRecent, pulse: isLive)
+
+                Group {
+                    if let harness = actor.harness {
+                        HUDHarnessMark(
+                            harness: harness,
+                            size: 11,
+                            tint: isLive ? HUDChrome.inkMuted : HUDChrome.inkFaint
+                        )
+                    }
+                }
+                .frame(width: 11, height: 11)
+
+                Text(actor.displayName)
+                    .font(HUDType.mono(10.5, weight: .semibold))
+                    .foregroundStyle(nameColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 6)
+
+                Text(ScoutRelativeTime.format(actor.lastTs))
+                    .font(HUDType.mono(8.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(isLive ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+                    .fixedSize()
+            }
+
+            // What they're doing right now — the freshest firehose line for
+            // this actor, dimmed and clamped to two lines.
+            if !actor.lastSummary.isEmpty {
+                Text(actor.lastSummary)
+                    .font(HUDType.mono(8.5))
+                    .foregroundStyle(isRecent ? HUDChrome.inkMuted : HUDChrome.inkFaint)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 19)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(rowFill)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(HUDChrome.borderSoft)
+                .frame(height: 0.5)
+                .padding(.leading, 14)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovered = $0 }
+        .onTapGesture(perform: onSelect)
+        .help(selected ? "Showing only \(actor.displayName) — tap to clear" : "Filter log to \(actor.displayName)")
+        .contextMenu {
+            Button("Open agent / session") { NSWorkspace.shared.open(railActorURL(actor)) }
+            if let aid = actor.agentId, !aid.isEmpty {
+                Button("Copy agent ID") { copyToPasteboard(aid) }
+            }
+            if !actor.sessionId.isEmpty {
+                Button("Copy session ID") { copyToPasteboard(actor.sessionId) }
+            }
+        }
+    }
+}
+
+// The state dot: a filled ink mark for live agents (with a slow breathing halo
+// while working), a hollow ring for everything that's resting.
+private struct TailRailDot: View {
+    let color: Color
+    let filled: Bool
+    let pulse: Bool
+
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        ZStack {
+            if pulse {
+                Circle()
+                    .fill(color.opacity(0.22 * (1 - phase)))
+                    .frame(width: 11, height: 11)
+                    .scaleEffect(0.6 + 0.4 * phase)
+            }
+            if filled {
+                Circle().fill(color).frame(width: 6, height: 6)
+            } else {
+                Circle().strokeBorder(color, lineWidth: 1).frame(width: 6, height: 6)
+            }
+        }
+        .frame(width: 11, height: 11)
+        .onAppear {
+            guard pulse else { return }
+            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) {
+                phase = 1
+            }
+        }
+    }
+}
+
+// RIGHT zone of the LOGS view: the engaged line's detail. Replaces the old
+// inline expansion — clicking a log line opens its detail here, with its
+// neighbours for context.
+private struct TailEngagedDetail: View {
+    let row: ScoutTailRowContext
+    let prev: ScoutTailRowContext?
+    let next: ScoutTailRowContext?
+    var paneFill: Color = HUDChrome.canvas.opacity(0.62)
+    var onClose: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                HUDEyebrow(text: "LINE  ·  DETAIL", color: HUDChrome.inkFaint)
+                Spacer(minLength: 0)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(HUDChrome.inkFaint)
+                .help("Close detail (Esc)")
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+            .padding(.bottom, 7)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(HUDChrome.border).frame(height: 0.5)
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                TailDetailInline(row: row, prev: prev, next: next, size: .medium)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(paneFill)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(HUDChrome.border).frame(width: 0.5)
+        }
     }
 }

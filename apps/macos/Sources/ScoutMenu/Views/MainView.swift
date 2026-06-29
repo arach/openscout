@@ -7,7 +7,7 @@ struct MainView: View {
 
     @State private var showQR: Bool = false
 
-    static let baseHeight: CGFloat = 168
+    static let baseHeight: CGFloat = 232
     static let errorHeight: CGFloat = 240
     static let qrHeight: CGFloat = 484
     static let qrWithErrorHeight: CGFloat = 556
@@ -28,6 +28,8 @@ struct MainView: View {
                     .frame(height: 1)
 
                 VStack(spacing: 10) {
+                    surfaceLauncher
+
                     if let lastError = controller.lastError, !lastError.isEmpty {
                         errorBanner(lastError)
                     }
@@ -209,6 +211,39 @@ struct MainView: View {
         .padding(.horizontal, 14)
         .frame(height: 32)
         .background(ShellPalette.chromeFooter)
+    }
+
+    // MARK: - Surfaces launcher
+    //
+    // The two things you actually *go to* from the menu bar: the full app and
+    // the HUD overlay (plus the tail/logs overlay). Services (broker/relay/web)
+    // live in the deck below — this row is "take me there", up top where it's
+    // the first thing you reach.
+    private var surfaceLauncher: some View {
+        HStack(spacing: 8) {
+            LaunchTile(
+                glyph: "macwindow",
+                label: "APP",
+                help: "Open the OpenScout app",
+                disabled: controller.webActionPending
+            ) {
+                controller.openWebApp()
+            }
+            LaunchTile(
+                glyph: "square.bottomhalf.filled",
+                label: "HUD",
+                help: "Toggle the HUD overlay  ·  ⌃⌥⌘H"
+            ) {
+                ScoutAppBridge.openHUD(command: "toggle")
+            }
+            LaunchTile(
+                glyph: "list.bullet.rectangle",
+                label: "TAIL",
+                help: "Open the tail / logs overlay  ·  ⌃⌥⌘T"
+            ) {
+                ScoutAppBridge.openHUD(command: "tail")
+            }
+        }
     }
 
     // MARK: - Deck strip
@@ -736,6 +771,50 @@ struct MainView: View {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
+}
+
+private struct LaunchTile: View {
+    let glyph: String
+    let label: String
+    let help: String
+    var disabled: Bool = false
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 5) {
+                Image(systemName: glyph)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(label)
+                    .font(MenuType.mono(10, weight: .bold))
+                    .tracking(1.2)
+            }
+            .foregroundStyle(disabled ? ShellPalette.dim : ShellPalette.ink)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(hover && !disabled ? ShellPalette.surfaceFill : ShellPalette.chrome)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .stroke(ShellPalette.line, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .help(help)
+        .onHover { hovering in
+            hover = hovering
+            if hovering && !disabled {
+                NSCursor.pointingHand.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+    }
 }
 
 private struct DeckTileMenuItem {

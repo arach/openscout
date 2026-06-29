@@ -69,7 +69,7 @@ const LANE_ZONE_ORDER: LaneDeckZone[] = ["pinned_left", "main", "pinned_right"];
 const SCOUT_PROFILE_DEFAULTS: Record<LaneDeckProfileId, LaneDeckProfileDefaults> = {
   "web.ops": { defaultLaneWidth: "lg", showAutoLanes: true },
   "macos.lanes": { defaultLaneWidth: "md", showAutoLanes: true },
-  "hud.tail": { defaultLaneWidth: "sm", showAutoLanes: false, defaultHorizon: "5m" },
+  "hud.tail": { defaultLaneWidth: "sm", showAutoLanes: false, defaultHorizon: "30m" },
   "web.embed": { defaultLaneWidth: "md", showAutoLanes: true },
 };
 

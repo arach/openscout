@@ -444,7 +444,9 @@ public final class HUDController {
         case .medium:
             return 540
         case .large:
-            return min(680, max(540, floor(visible.width * 0.34)))
+            // Mirrors HUDSize.contentSize(.tail, .large): a half-screen deck so
+            // the firehose and the native active-agents rail sit side by side.
+            return min(visible.width, max(860, floor(visible.width * 0.5)))
         }
     }
 
