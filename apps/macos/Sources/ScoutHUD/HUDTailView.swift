@@ -1246,11 +1246,9 @@ private struct TailRailActor: Identifiable {
     let harness: String?
     let lastTs: TimeInterval
     let lastSummary: String
-    let project: String?
     let agentId: String?
     let sessionId: String
     let conversationId: String?
-    let hits: Int
 
     var age: TimeInterval {
         let then = ScoutRelativeTime.date(lastTs) ?? Date(timeIntervalSince1970: 0)
@@ -1275,7 +1273,6 @@ private func buildTailRailActors(from rows: [ScoutTailRowContext]) -> [TailRailA
     for row in rows {
         let key = tailActorKey(row)
         let harness = row.provider.trimmingCharacters(in: .whitespaces).isEmpty ? nil : row.provider
-        let project = row.project.trimmingCharacters(in: .whitespaces).isEmpty ? nil : row.project
         if let existing = byKey[key] {
             // Keep the freshest event's summary as the actor's headline.
             let newer = row.event.ts >= existing.lastTs
@@ -1285,11 +1282,9 @@ private func buildTailRailActors(from rows: [ScoutTailRowContext]) -> [TailRailA
                 harness: existing.harness ?? harness,
                 lastTs: max(existing.lastTs, row.event.ts),
                 lastSummary: newer ? railSummary(for: row) : existing.lastSummary,
-                project: existing.project ?? project,
                 agentId: existing.agentId ?? row.agentId,
                 sessionId: existing.sessionId.isEmpty ? row.sessionId : existing.sessionId,
-                conversationId: existing.conversationId ?? row.conversationId,
-                hits: existing.hits + 1
+                conversationId: existing.conversationId ?? row.conversationId
             )
         } else {
             order.append(key)
@@ -1302,11 +1297,9 @@ private func buildTailRailActors(from rows: [ScoutTailRowContext]) -> [TailRailA
                 harness: harness,
                 lastTs: row.event.ts,
                 lastSummary: railSummary(for: row),
-                project: project,
                 agentId: row.agentId,
                 sessionId: row.sessionId,
-                conversationId: row.conversationId,
-                hits: 1
+                conversationId: row.conversationId
             )
         }
     }
