@@ -69,8 +69,17 @@ struct HUDStatusView: View {
     private let minPanelH: CGFloat = 380
     private let cornerRadius: CGFloat = 12
 
+    /// The framing the tail render is hosted in — the single source of truth
+    /// for tail theme / placement / chrome. `nil` when the tail isn't showing.
+    /// Every tail style branch below derives from this, so the framing can never
+    /// half-disagree with the content.
+    private var tailSurface: TailSurface? {
+        guard state.view == .tail else { return nil }
+        return .overlay
+    }
+
     private var isTailOverlay: Bool {
-        state.view == .tail
+        tailSurface == .overlay
     }
 
     private var isTailFullHeight: Bool {
@@ -217,7 +226,7 @@ struct HUDStatusView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .layoutPriority(1)
                     HUDFlashRow()
-                    if !isTailOverlay {
+                    if tailSurface?.showsDock ?? true {
                         HudMessageDock(agents: agents)
                     }
                 }
@@ -585,7 +594,7 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
-                HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding)
+                HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding, surface: tailSurface ?? .overlay)
                     .opacity(tailContentOpacity)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)

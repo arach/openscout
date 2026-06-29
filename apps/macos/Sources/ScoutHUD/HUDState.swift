@@ -85,7 +85,11 @@ public enum HUDSize: Int, CaseIterable, Identifiable, Sendable {
         case .medium:
             return NSSize(width: 540, height: floor(frame.height * tailEdgeCoverage))
         case .large:
-            let width = min(680, max(540, floor(frame.width * 0.34)))
+            // Wide "deck": the firehose keeps the main column and the native
+            // active-agents rail rides the right edge, so the panel claims
+            // roughly half the screen. Never below 860 so the split still fits
+            // on smaller displays.
+            let width = min(frame.width, max(860, floor(frame.width * 0.5)))
             return NSSize(width: width, height: frame.height)
         }
     }
