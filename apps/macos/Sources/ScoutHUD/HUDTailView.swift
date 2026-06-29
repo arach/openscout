@@ -192,9 +192,16 @@ struct HUDTailView: View {
         // narrow tail never gets squished by panes it can't afford.
         GeometryReader { geo in
             let width = geo.size.width
-            let showFilter = width >= HUDTailRail.filterMinWidth
             let engaged = engagedRow
-            let showDetail = width >= HUDTailRail.detailMinWidth && engaged != nil
+            // Detail pane rides along once there's room for it beside a readable
+            // log — sized off the real .large width (≥860), so engaging a line
+            // actually reveals its detail instead of just highlighting. When
+            // detail and filter can't both fit, the filter yields to the detail.
+            let showDetail = engaged != nil && width >= HUDTailRail.detailMinWidth
+            let canFilter = width >= HUDTailRail.filterMinWidth
+            let showFilter = showDetail
+                ? width >= HUDTailRail.filterMinWidth + HUDTailDetail.width
+                : canFilter
             HStack(spacing: 0) {
                 if showFilter {
                     TailActiveFilter(rows: allRows, selectedKey: $filterKey, paneFill: surface.sidePaneFill)
@@ -213,6 +220,13 @@ struct HUDTailView: View {
                 }
             }
             .frame(width: width, height: geo.size.height, alignment: .topLeading)
+            // If the tail is resized too narrow to host the filter at all, drop
+            // any active scope with it — otherwise the log stays silently
+            // filtered with no visible affordance to clear it. (Detail merely
+            // displacing the filter does not clear it; unengage brings it back.)
+            .onChange(of: canFilter) { _, eligible in
+                if !eligible && filterKey != nil { filterKey = nil }
+            }
         }
     }
 
@@ -399,9 +413,12 @@ struct HUDTailView: View {
         return allRows.filter { tailActorKey($0) == key }
     }
 
+    // Resolve the engaged row from the *displayed* (filtered) rows only — so a
+    // detail pane can never show actor A while the log is scoped to actor B.
+    // Filtering away the engaged line simply closes its detail.
     private var engagedRow: TailRowModel? {
         guard let id = engage.engagedId else { return nil }
-        return rows.first { $0.id == id } ?? allRows.first { $0.id == id }
+        return rows.first { $0.id == id }
     }
 
     private func neighbors(of row: TailRowModel) -> (TailRowModel?, TailRowModel?) {
@@ -1223,7 +1240,7 @@ private struct TailEmptyView: View {
 enum HUDTailRail {
     static let width: CGFloat = 308
     static let filterMinWidth: CGFloat = 620    // show the left filter past this width
-    static let detailMinWidth: CGFloat = 1000   // room for filter + log + detail
+    static let detailMinWidth: CGFloat = 700    // engaged-line detail fits beside a readable log (real .large width is ≥860)
     static let liveWindow: TimeInterval = 90    // pulsing "moving right now"
     static let recentWindow: TimeInterval = 600 // still counts as present (10m)
     static let activeWindow: TimeInterval = 120 // counted in the header tally
@@ -1327,8 +1344,17 @@ private struct TailActiveFilter: View {
     private var actors: [TailRailActor] { buildTailRailActors(from: rows) }
 
     var body: some View {
+        // Re-render on a slow cadence so live/recent/age stay honest even when
+        // the firehose is quiet — the status tiers are derived from Date(),
+        // which has no change publisher of its own.
+        TimelineView(.periodic(from: Date(), by: 15)) { _ in
+            rail
+        }
+    }
+
+    private var rail: some View {
         let live = actors.filter { $0.age < HUDTailRail.activeWindow }.count
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             HStack(spacing: 6) {
                 HUDEyebrow(text: "ACTIVE  ·  \(live)", color: HUDChrome.inkFaint)
                 Spacer(minLength: 0)

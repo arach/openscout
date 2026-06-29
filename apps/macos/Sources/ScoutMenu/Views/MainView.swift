@@ -222,9 +222,9 @@ struct MainView: View {
     private var surfaceLauncher: some View {
         HStack(spacing: 8) {
             LaunchTile(
-                glyph: "macwindow",
-                label: "APP",
-                help: "Open the OpenScout app",
+                glyph: "safari",
+                label: "WEB",
+                help: "Open the OpenScout web app",
                 disabled: controller.webActionPending
             ) {
                 controller.openWebApp()
