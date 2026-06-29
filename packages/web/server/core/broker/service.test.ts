@@ -544,7 +544,7 @@ describe("sendScoutMessage", () => {
         naturalKey: "channel:talkie-next",
       }),
     }));
-    expect(conversationPost?.body?.id).toMatch(/^chat_[0-9a-f]{32}$/);
+    expect(conversationPost?.body?.id).toMatch(/^chn-[0-9a-f]{32}$/);
     expect(messagePost?.body).toMatchObject({
       conversationId: conversationPost?.body?.id,
       actorId: "operator",
