@@ -2914,7 +2914,6 @@ enum ScoutDesign {
     static let columnHeaderTopInset = HudSidebarLayout.headerTopPadding
     static let columnHeaderPrimaryRowHeight: CGFloat = 28
     static let columnHeaderLineGap: CGFloat = 2
-    static let columnHeaderTrailingTopOffset: CGFloat = 2
     /// Header horizontal gutters by column class. content > list > panel,
     /// matching the natural column widths so titles never crowd the edge.
     static let columnGutter = HudSpacing.huge   // 28 — primary content columns
@@ -2991,22 +2990,24 @@ struct ScoutColumnHeader<Primary: View, Secondary: View, Trailing: View>: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: HudSpacing.xl) {
-            VStack(alignment: .leading, spacing: ScoutDesign.columnHeaderLineGap) {
+        VStack(alignment: .leading, spacing: ScoutDesign.columnHeaderLineGap) {
+            // Trailing actions ride the title's own row (bottom-aligned to the
+            // primary baseline band) instead of floating at the top of the
+            // taller header band — so the eye/message, Refresh/New, and badge
+            // controls sit on one line with the title rather than ~26pt above it.
+            HStack(alignment: .bottom, spacing: HudSpacing.xl) {
                 primary
                     .frame(
                         maxWidth: .infinity,
                         minHeight: ScoutDesign.columnHeaderPrimaryRowHeight,
                         alignment: .bottomLeading
                     )
-                secondary
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                trailing
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            trailing
-                .padding(.top, ScoutDesign.columnHeaderTrailingTopOffset)
+            secondary
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, ScoutDesign.columnHeaderTopInset)
         .padding(.horizontal, horizontalPadding)
         .frame(height: ScoutDesign.columnHeaderHeight, alignment: .top)
@@ -4381,8 +4382,10 @@ private struct ScoutAgentInspector: View {
     private var runtimeFacts: some View {
         VStack(alignment: .leading, spacing: HudSpacing.sm) {
             ScoutEyebrow(text: "Runtime")
-            ScoutInspectorKVRow("Harness", value: agent.harness?.nilIfEmpty ?? "—", valueColor: agent.harness?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
-            ScoutAgentModelRow(agent: agent)
+            // Harness · model already lead the glyph header (the `cpu` cell), so
+            // Runtime carries only what the header doesn't: transport · role ·
+            // class (+ the bound session id). Repeating harness/model here just
+            // doubled the densest card block.
             ScoutInspectorKVRow("Transport", value: agent.transport?.nilIfEmpty ?? "—", valueColor: agent.transport?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
             ScoutInspectorKVRow("Role", value: agent.roleLabel)
             ScoutInspectorKVRow("Class", value: agent.agentClass?.nilIfEmpty ?? "—", valueColor: agent.agentClass?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink)
@@ -5579,22 +5582,6 @@ private struct ScoutAgentPreviewPanel: View {
             .contentShape(Rectangle())
             .help("Close agent preview")
         }
-    }
-}
-
-private struct ScoutAgentModelRow: View {
-    let agent: ScoutAgent
-
-    var body: some View {
-        // An unset model is conveyed by the muted "Default" value alone; the
-        // "why" lives in a tooltip rather than a wrapping sentence that ate two
-        // lines of the card.
-        ScoutInspectorKVRow(
-            "Model",
-            value: agent.modelDisplayValue,
-            valueColor: agent.model?.nilIfEmpty == nil ? ScoutPalette.muted : ScoutPalette.ink
-        )
-        .help(agent.modelDisplayNote ?? agent.modelDisplayValue)
     }
 }
 
