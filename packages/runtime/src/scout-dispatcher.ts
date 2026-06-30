@@ -57,7 +57,7 @@ export type BrokerLabelResolution =
   | { kind: "resolved_session"; session: ResolvedSessionTarget }
   | { kind: "ambiguous"; label: string; candidates: AgentDefinition[] }
   | { kind: "unparseable"; label: string }
-  | { kind: "unknown"; label: string };
+  | { kind: "unknown"; label: string; detail?: string; candidates?: AgentDefinition[] };
 
 export interface BrokerRouteTargetInput {
   target?: ScoutRouteTarget | null;
@@ -229,6 +229,20 @@ function stripHarnessQualifier(identity: AgentIdentity): AgentIdentity | null {
   });
 }
 
+function stripModelQualifier(identity: AgentIdentity): AgentIdentity | null {
+  if (!identity.model) {
+    return null;
+  }
+
+  return constructAgentIdentity({
+    definitionId: identity.definitionId,
+    workspaceQualifier: identity.workspaceQualifier,
+    profile: identity.profile,
+    harness: identity.harness,
+    nodeQualifier: identity.nodeQualifier,
+  });
+}
+
 function resolutionFromDiagnosis(
   diagnosis: AgentIdentityDiagnosis<BrokerAgentCandidate>,
   label: string,
@@ -244,6 +258,45 @@ function resolutionFromDiagnosis(
     };
   }
   return null;
+}
+
+function unknownModelQualifiedResolution(
+  identity: AgentIdentity,
+  candidates: BrokerAgentCandidate[],
+): BrokerLabelResolution | null {
+  if (!identity.model) {
+    return null;
+  }
+
+  const modelAgnosticIdentity = stripModelQualifier(identity);
+  if (!modelAgnosticIdentity) {
+    return null;
+  }
+
+  const modelAgnosticDiagnosis = diagnoseAgentIdentity(modelAgnosticIdentity, candidates);
+  const matches = modelAgnosticDiagnosis.kind === "resolved"
+    ? [modelAgnosticDiagnosis.match]
+    : modelAgnosticDiagnosis.kind === "ambiguous"
+    ? modelAgnosticDiagnosis.candidates
+    : [];
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const missingModelCount = matches.filter((candidate) => !candidate.model).length;
+  const mismatchCount = matches.length - missingModelCount;
+  const reason = missingModelCount === matches.length
+    ? "matching candidates do not advertise a model"
+    : mismatchCount === matches.length
+    ? "matching candidates advertise a different model"
+    : "matching candidates do not advertise the requested model";
+
+  return {
+    kind: "unknown",
+    label: identity.label,
+    detail: `no exact agent matches ${identity.label}; requested model:${identity.model}, but ${reason}`,
+    candidates: matches.map((candidate) => candidate.agent),
+  };
 }
 
 function resolveSessionHandleLabel(
@@ -341,6 +394,11 @@ export function resolveAgentLabel(
           return prefixedSession;
         }
       }
+    }
+
+    const modelQualifiedResolution = unknownModelQualifiedResolution(identity, candidates);
+    if (modelQualifiedResolution) {
+      return modelQualifiedResolution;
     }
 
     if (harnessAgnosticIdentity) {
@@ -630,11 +688,21 @@ export function buildDispatchEnvelope(
   }
 
   if (resolution.kind === "unknown") {
+    const candidates = (resolution.candidates ?? []).map((agent) =>
+      buildAgentLabelCandidate(snapshot, agent)
+    );
     return {
       kind,
       askedLabel: resolution.label,
-      detail: `no agent matches ${resolution.label}`,
-      candidates: [],
+      detail: resolution.detail ?? `no agent matches ${resolution.label}`,
+      candidates: (resolution.candidates ?? []).map((agent, index) =>
+        summarizeDispatchCandidate(
+          agent,
+          snapshot,
+          helpers,
+          formatMinimalAgentIdentity(candidates[index]!, candidates),
+        ),
+      ),
       dispatchedAt,
       dispatcherNodeId,
     };

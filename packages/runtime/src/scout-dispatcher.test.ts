@@ -130,6 +130,34 @@ describe("resolveAgentLabel", () => {
     expect(result.kind).toBe("unknown");
   });
 
+  test("keeps model-qualified near misses unknown with candidate context", () => {
+    const talkie = makeAgent({
+      id: "talkie.main.node",
+      definitionId: "talkie",
+      workspaceQualifier: "main",
+    });
+    const snapshot = makeSnapshot(
+      [talkie],
+      [
+        makeEndpoint({
+          id: "endpoint-talkie",
+          agentId: talkie.id,
+          harness: "claude",
+          projectRoot: "/Users/art/dev/talkie",
+        }),
+      ],
+    );
+
+    const result = resolveAgentLabel(snapshot, "@talkie.harness:claude.model:sonnet", { helpers });
+
+    expect(result.kind).toBe("unknown");
+    if (result.kind === "unknown") {
+      expect(result.candidates?.map((agent) => agent.id)).toEqual([talkie.id]);
+      expect(result.detail).toContain("requested model:sonnet");
+      expect(result.detail).toContain("do not advertise a model");
+    }
+  });
+
   test("resolves bare provisional handles to project-prefixed session aliases", () => {
     const sessionId = "session-chopin-1";
     const snapshot = makeSnapshot(
@@ -683,6 +711,42 @@ describe("buildDispatchEnvelope", () => {
     expect(envelope.kind).toBe("unknown");
     expect(envelope.candidates).toEqual([]);
     expect(envelope.detail).toContain("@ghost");
+  });
+
+  test("shapes unknown envelope with near-match candidates", () => {
+    const talkie = makeAgent({
+      id: "talkie.main.node",
+      definitionId: "talkie",
+      workspaceQualifier: "main",
+    });
+    const endpoint = makeEndpoint({
+      id: "endpoint-talkie",
+      agentId: talkie.id,
+      harness: "claude",
+      projectRoot: "/Users/art/dev/talkie",
+    });
+    const envelope = buildDispatchEnvelope(
+      {
+        kind: "unknown",
+        label: "@talkie.harness:claude.model:sonnet",
+        detail: "no exact agent matches @talkie.harness:claude.model:sonnet; requested model:sonnet, but matching candidates do not advertise a model",
+        candidates: [talkie],
+      },
+      "@talkie.harness:claude.model:sonnet",
+      "node.local",
+      makeSnapshot([talkie], [endpoint]),
+      {
+        ...helpers,
+        homeEndpointFor: (_snapshot, agentId) => agentId === talkie.id ? endpoint : null,
+      },
+    );
+
+    expect(envelope.kind).toBe("unknown");
+    expect(envelope.detail).toContain("requested model:sonnet");
+    expect(envelope.candidates).toHaveLength(1);
+    expect(envelope.candidates[0].agentId).toBe(talkie.id);
+    expect(envelope.candidates[0].endpointState).toBe("online");
+    expect(envelope.candidates[0].transport).toBe("claude_stream_json");
   });
 
   test("shapes unparseable envelope", () => {

@@ -6,6 +6,7 @@ import { CodexSource } from "./codex-source.js";
 import { CursorSource } from "./cursor-source.js";
 import { GrokSource } from "./grok-source.js";
 import { OpenCodeSource } from "./opencode-source.js";
+import { PiSource } from "./pi-source.js";
 import { sessionRegistryKey } from "./registry.js";
 import type {
   DiscoveredProcess,
@@ -58,7 +59,7 @@ type Watcher = {
   state: Record<string, unknown>;
 };
 
-const sources: TranscriptSource[] = [GrokSource, ClaudeSource, CodexSource, CursorSource, OpenCodeSource];
+const sources: TranscriptSource[] = [GrokSource, ClaudeSource, CodexSource, CursorSource, OpenCodeSource, PiSource];
 
 const watchers = new Map<string, Watcher>(); // key = `${source}:${transcriptPath}` (one watcher per file, regardless of how many processes share it)
 const aggregateBuffer: TailEvent[] = [];
