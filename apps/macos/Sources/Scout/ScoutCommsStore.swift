@@ -40,6 +40,8 @@ final class ScoutCommsStore: ObservableObject {
     private var agentsTask: Task<Void, Never>?
     private var observeTask: Task<Void, Never>?
     private var observeRequestId: UUID?
+    private var selectedFlightIdHint: String?
+    private var selectedAgentNameHint: String?
     private var attemptedInitialChannelsLoad = false
     private var readCursorTask: Task<Void, Never>?
     private var activeTurnTask: Task<Void, Never>?
@@ -125,6 +127,8 @@ final class ScoutCommsStore: ObservableObject {
         observeTask = nil
         readCursorTask = nil
         activeTurnTask = nil
+        selectedFlightIdHint = nil
+        selectedAgentNameHint = nil
         observeRequestId = nil
         setIfChanged(false, to: \.isLoading)
         setIfChanged(false, to: \.isObserveLoading)
@@ -144,6 +148,8 @@ final class ScoutCommsStore: ObservableObject {
     func selectChannel(_ cId: String) {
         let resolvedCId = Self.channel(in: channels, matching: cId)?.cId ?? cId
         guard selectedCId != resolvedCId else { return }
+        selectedFlightIdHint = nil
+        selectedAgentNameHint = nil
         selectedCId = resolvedCId
         selectedAgentId = channels.first(where: { $0.cId == resolvedCId })?.agentId
         messages = []
@@ -157,6 +163,21 @@ final class ScoutCommsStore: ObservableObject {
         // unread clears even before the message list lands; loadMessages() will
         // re-advance to the exact latest id once messages arrive.
         markConversationRead(cId: resolvedCId)
+    }
+
+    func selectPendingConversation(cId: String, flightId: String?, agentId: String?, agentName: String?) {
+        let resolvedCId = Self.channel(in: channels, matching: cId)?.cId ?? cId
+        selectedFlightIdHint = flightId?.nilIfEmpty
+        selectedAgentNameHint = agentName?.nilIfEmpty
+        selectedAgentId = agentId?.nilIfEmpty
+        if selectedCId != resolvedCId {
+            selectedCId = resolvedCId
+            messages = []
+            activeTurn = nil
+            loadMessages()
+            markConversationRead(cId: resolvedCId)
+        }
+        loadActiveTurn(cId: resolvedCId)
     }
 
     func selectAgent(_ agentId: String) {
@@ -381,8 +402,13 @@ final class ScoutCommsStore: ObservableObject {
                 setIfChanged(canonical.cId, to: \.selectedCId)
                 setIfChanged(canonical.agentId, to: \.selectedAgentId)
             }
-            let shouldSelectFallback = selectedCId.map { !incomingIds.contains($0) } ?? true
-            if shouldSelectFallback {
+            // Only auto-pick a conversation when nothing is selected yet (first
+            // load). A deliberate selection that simply isn't in this poll's
+            // list — a just-started or externally-created chat that
+            // /api/channels hasn't surfaced yet — must be kept, not yanked to
+            // the first row. The detail loads its messages by cId directly, and
+            // the next poll fills in the channel once it lands.
+            if selectedCId == nil {
                 setIfChanged(next.first?.cId, to: \.selectedCId)
                 setIfChanged(next.first?.agentId, to: \.selectedAgentId)
             }
@@ -463,11 +489,13 @@ final class ScoutCommsStore: ObservableObject {
     private func loadActiveTurn(cId: String) {
         activeTurnTask?.cancel()
         let agentId = selectedAgentId
+        let flightId = selectedFlightIdHint
         let agentName = selectedAgent?.displayName
             ?? selectedChannel?.agentName?.nilIfEmpty
+            ?? selectedAgentNameHint
             ?? "agent"
         activeTurnTask = Task { [weak self] in
-            await self?.fetchActiveTurn(cId: cId, agentId: agentId, agentName: agentName)
+            await self?.fetchActiveTurn(cId: cId, flightId: flightId, agentId: agentId, agentName: agentName)
         }
     }
 
@@ -479,15 +507,20 @@ final class ScoutCommsStore: ObservableObject {
     /// call only fires while a non-terminal flight exists, so an idle
     /// conversation costs just the lightweight flights read. Failures are
     /// swallowed — an absent in-flight turn is the common, non-error case.
-    private func fetchActiveTurn(cId: String, agentId: String?, agentName: String) async {
+    private func fetchActiveTurn(cId: String, flightId: String?, agentId: String?, agentName: String) async {
         defer { activeTurnTask = nil }
         let base = ScoutWeb.baseURL()
+        var queryItems = [
+            URLQueryItem(name: "active", value: "false"),
+        ]
+        if let flightId = flightId?.nilIfEmpty {
+            queryItems.append(URLQueryItem(name: "flightId", value: flightId))
+        } else {
+            queryItems.append(URLQueryItem(name: "conversationId", value: cId))
+        }
         let flightsURL = base
             .appending(path: "api/flights")
-            .appending(queryItems: [
-                URLQueryItem(name: "conversationId", value: cId),
-                URLQueryItem(name: "active", value: "false"),
-            ])
+            .appending(queryItems: queryItems)
         let flights = (try? await fetch([ScoutPendingFlightStatus].self, from: flightsURL)) ?? []
         guard selectedCId == cId else { return }
         guard let live = flights.first(where: { !$0.isTerminal }) else {
@@ -584,4 +617,3 @@ struct ScoutBlobUploadResponse: Decodable {
     let mediaType: String
     let fileName: String?
 }
-

@@ -27,6 +27,7 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
     public var seedPreview: String?
     public var harness: String?
     public var model: String?
+    public var reasoningEffort: String
     public var agentName: String
     public var displayName: String
 
@@ -43,6 +44,7 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
         seedPreview: String? = nil,
         harness: String? = nil,
         model: String? = nil,
+        reasoningEffort: String = "medium",
         agentName: String = "",
         displayName: String = ""
     ) {
@@ -58,6 +60,7 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
         self.seedPreview = seedPreview
         self.harness = harness
         self.model = model
+        self.reasoningEffort = reasoningEffort
         self.agentName = agentName
         self.displayName = displayName
     }
@@ -81,10 +84,14 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
             .init(projectPath: trimmedNonEmpty(projectPath))
         }
 
-        let sessionMode: SessionInitiationSpec.SessionMode = mode == .continueContext ? .existing : .new
+        let sessionMode: SessionInitiationSpec.SessionMode = {
+            if mode == .continueContext { return .existing }
+            return .new
+        }()
         let execution = SessionInitiationSpec.Execution(
             harness: trimmedNonEmpty(harness),
             model: trimmedNonEmpty(model),
+            reasoningEffort: trimmedNonEmpty(reasoningEffort),
             session: sessionMode,
             targetSessionId: mode == .continueContext ? trimmedNonEmpty(agent?.harnessSessionId) : nil
         )

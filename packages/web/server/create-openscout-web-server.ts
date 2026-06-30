@@ -5724,16 +5724,17 @@ export async function createOpenScoutWebServer(
   });
   // Flexible session initiation. A single payload expresses every modality —
   // start fresh in a project, start "the same agent" fresh, continue an
-  // agent's existing harness session with full context, or seed a new
-  // conversation from a message — by setting different fields. See
-  // docs/agent for the modality matrix; `seed.branchFrom` is accepted now and
-  // reserved for forthcoming context-forking work (currently inert).
+  // agent's existing harness session with full context, seed a new
+  // conversation from a message — by setting different fields. See docs/agent
+  // for the modality matrix; `seed.branchFrom` is accepted now and reserved
+  // for forthcoming context-forking work (currently inert).
   app.post("/api/sessions", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       target?: { agentId?: string; projectPath?: string };
       execution?: {
         harness?: string;
         model?: string;
+        reasoningEffort?: string;
         session?: string;
         targetSessionId?: string;
       };
@@ -5777,6 +5778,7 @@ export async function createOpenScoutWebServer(
       optionalString(body.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
+    const reasoningEffort = optionalString(body.execution?.reasoningEffort)?.trim();
     let targetSessionId = optionalString(body.execution?.targetSessionId)?.trim();
     if (session === "existing" && !targetSessionId) {
       targetSessionId = agent?.harnessSessionId?.trim() || undefined;
@@ -5790,7 +5792,6 @@ export async function createOpenScoutWebServer(
         400,
       );
     }
-
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
     let agentHandle =
@@ -5827,6 +5828,7 @@ export async function createOpenScoutWebServer(
       body: instructions && instructions.length > 0 ? instructions : "New session started.",
       ...(harness ? { executionHarness: harness } : {}),
       ...(model ? { executionModel: model } : {}),
+      ...(reasoningEffort ? { executionReasoningEffort: reasoningEffort } : {}),
       ...(session ? { executionSession: session } : {}),
       ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
       projectAgent: {
@@ -6284,6 +6286,7 @@ export async function createOpenScoutWebServer(
     );
   });
   app.get("/api/flights", (c) => {
+    const flightId = c.req.query("flightId");
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
     const collaborationRecordId = c.req.query("collaborationRecordId");
@@ -6293,6 +6296,7 @@ export async function createOpenScoutWebServer(
     }
     return c.json(
       queryFlights({
+        flightId: flightId || undefined,
         agentId: agentId || undefined,
         conversationId: conversationId || undefined,
         collaborationRecordId: collaborationRecordId || undefined,

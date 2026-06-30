@@ -26,11 +26,19 @@ public struct SessionInitiationSpec: Codable, Sendable, Equatable {
     public struct Execution: Codable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
+        public var reasoningEffort: String?
         public var session: SessionMode?
         public var targetSessionId: String?
-        public init(harness: String? = nil, model: String? = nil, session: SessionMode? = nil, targetSessionId: String? = nil) {
+        public init(
+            harness: String? = nil,
+            model: String? = nil,
+            reasoningEffort: String? = nil,
+            session: SessionMode? = nil,
+            targetSessionId: String? = nil
+        ) {
             self.harness = harness
             self.model = model
+            self.reasoningEffort = reasoningEffort
             self.session = session
             self.targetSessionId = targetSessionId
         }
