@@ -389,6 +389,12 @@ struct HUDTailView: View {
                     }
                 }
                 .onChange(of: motionKey) { _, _ in
+                    // Don't let a folded-out id latch if its row rolled off /
+                    // was filtered away — that would freeze follow-mode scroll.
+                    if let folded = foldedOutTurnId,
+                       !currentRows.contains(where: { $0.id == folded }) {
+                        foldedOutTurnId = nil
+                    }
                     if motionActive {
                         absorbRowsWithoutFresh(currentRows)
                         return
@@ -871,6 +877,11 @@ private struct TailRow: View {
             }
             .onChange(of: hovered) { _, isHovered in
                 onFoldOut(isTurnMessage && isHovered)
+            }
+            .onDisappear {
+                // Row left the viewport / was removed — release any fold-out
+                // hold it owned so follow-mode scroll can resume.
+                if isTurnMessage { onFoldOut(false) }
             }
             .onTapGesture(perform: onTap)
             .onAppear {
