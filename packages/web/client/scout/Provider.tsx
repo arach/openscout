@@ -192,7 +192,7 @@ export const DARK_THEME_VARS: ThemeVars = {
   "--hud-font-accent-title": "'Inter Tight', var(--hud-font-sans)",
 };
 
-const LIGHT_THEME_VARS: ThemeVars = {
+export const LIGHT_THEME_VARS: ThemeVars = {
   "--hud-bg": "oklch(0.978 0.004 85)",
   "--hud-surface": "oklch(0.992 0.003 85)",
   "--hud-ink": "oklch(0.24 0.01 80)",

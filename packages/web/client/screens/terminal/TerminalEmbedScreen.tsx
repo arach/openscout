@@ -5,7 +5,17 @@ import { api } from "../../lib/api.ts";
 import { friendlyApiError } from "../../lib/api-errors.ts";
 import { isAgentOnline } from "../../lib/agent-state.ts";
 import { routeFromUrl, routePath } from "../../lib/router.ts";
-import { ScoutContext, DARK_THEME_VARS, type ApiConnectionState, type ScoutContextValue } from "../../scout/Provider.tsx";
+import {
+  resolveScoutNativeThemeVars,
+  resolveScoutStartupTheme,
+} from "../../lib/theme.ts";
+import {
+  ScoutContext,
+  DARK_THEME_VARS,
+  LIGHT_THEME_VARS,
+  type ApiConnectionState,
+  type ScoutContextValue,
+} from "../../scout/Provider.tsx";
 import type { Agent, Route } from "../../lib/types.ts";
 import { TerminalContent, type TerminalRoute } from "./Terminal.tsx";
 
@@ -36,7 +46,10 @@ export function TerminalEmbedScreen() {
 
   const navigate = useCallback((next: Route) => {
     if (next.view !== "terminal") {
-      window.location.assign(routePath(next));
+      const terminalHome: TerminalRoute = { view: "terminal" };
+      const href = embedHrefForTerminalRoute(terminalHome);
+      window.history.pushState(null, "", href);
+      setRoute(terminalHome);
       return;
     }
     const href = embedHrefForTerminalRoute(next);
@@ -69,6 +82,15 @@ function TerminalEmbedScoutProvider({
     lastCheckedAt: null,
   });
   const reloadInFlightRef = useRef<Promise<void> | null>(null);
+  const initialTheme = useMemo(() => resolveScoutStartupTheme(), []);
+  const nativeThemeVars = useMemo(() => resolveScoutNativeThemeVars(), []);
+  const themeVars = useMemo(
+    () => ({
+      ...(initialTheme === "light" ? LIGHT_THEME_VARS : DARK_THEME_VARS),
+      ...(nativeThemeVars ?? {}),
+    }),
+    [initialTheme, nativeThemeVars],
+  );
 
   const markOnline = useCallback(() => {
     setApiConnection({ status: "online", message: null, lastCheckedAt: Date.now() });
@@ -155,7 +177,7 @@ function TerminalEmbedScoutProvider({
 
   return (
     <ScoutContext.Provider value={value}>
-      <div data-scout-theme="dark" data-scout-theme-mode="dark" style={DARK_THEME_VARS}>
+      <div data-scout-theme={initialTheme} data-scout-theme-mode={initialTheme} style={themeVars}>
         <ContextMenuProvider>{children}</ContextMenuProvider>
       </div>
     </ScoutContext.Provider>

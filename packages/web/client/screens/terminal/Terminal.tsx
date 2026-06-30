@@ -523,7 +523,7 @@ function TerminalPlaceholder({
       <div className="s-term-bar">
         <BackToPicker
           slot="terminal"
-          fallback={agentId ? { view: "agents-v2", agentId } : { view: "inbox" }}
+          fallback={{ view: "terminal" }}
           navigate={navigate}
           className="s-term-back"
         />
@@ -583,6 +583,12 @@ function TerminalSummary({
     <div className="s-term s-term--summary">
       <div className="s-term-summary">
         <div className="s-term-summary-main">
+          <BackToPicker
+            slot="terminal"
+            fallback={{ view: "terminal" }}
+            navigate={navigate}
+            className="s-term-back"
+          />
           <div className="s-term-summary-mark">
             <TerminalIcon size={18} strokeWidth={1.7} />
             <span>Terminal</span>
@@ -660,14 +666,12 @@ function TerminalRelayCanvas({
     <div className="s-term">
       <div className="s-term-bar s-term-bar--takeover">
         <div className="s-term-bar-left">
-          {!registeredTarget && (
-            <BackToPicker
-              slot="terminal"
-              fallback={agentId ? { view: "agents-v2", agentId } : { view: "terminal" }}
-              navigate={navigate}
-              className="s-term-back"
-            />
-          )}
+          <BackToPicker
+            slot="terminal"
+            fallback={{ view: "terminal" }}
+            navigate={navigate}
+            className="s-term-back"
+          />
           {agent && (
             <div className="s-term-agent">
               <div
@@ -1175,7 +1179,7 @@ function ResolvingAgent({ navigate }: { navigate: TerminalNavigate }) {
       <div className="s-term-bar">
         <BackToPicker
           slot="terminal"
-          fallback={{ view: "agents-v2" }}
+          fallback={{ view: "terminal" }}
           navigate={navigate}
           className="s-term-back"
         />
