@@ -54,6 +54,20 @@ bun --cwd packages/web dev
 
 `bun dev` prefers the standard Scout ports in the main checkout and worktree-specific port bands in extra git worktrees. If a preferred port is already taken, it increments until it finds an open one.
 
+### HudsonKit source
+
+Source builds use a sibling Hudson checkout automatically when
+`../hudson/packages/web/hudsonkit` exists. That lets Scout pick up current
+HudsonKit UI primitives without waiting for an npm publish. To force the
+published package instead:
+
+```bash
+OPENSCOUT_WEB_HUDSONKIT_SOURCE=package bun --cwd packages/web dev
+```
+
+Set `HUDSON_SDK_PATH=/path/to/hudson/packages/web/hudsonkit` to point at a
+non-sibling checkout.
+
 To run the app through the local Scout names in one process, use:
 
 ```bash

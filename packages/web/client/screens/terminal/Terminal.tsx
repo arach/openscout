@@ -1,7 +1,7 @@
 import "./terminal-screen.css";
 
 import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
-import { Eye, LogIn, MoreHorizontal, Power, Square, Terminal as TerminalIcon, Zap } from "lucide-react";
+import { Eye, LogIn, MoreHorizontal, Power, RefreshCw, Square, Terminal as TerminalIcon, Zap } from "lucide-react";
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -46,6 +46,7 @@ import {
 } from "../../lib/terminal-sessions.ts";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../../lib/vantage.ts";
+import { agentStateLabel } from "../../lib/agent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { BackToPicker } from "../../scout/slots/BackToPicker.tsx";
 import { TmuxPeekPanel } from "../../scout/inspector/TmuxPeek.tsx";
@@ -870,6 +871,274 @@ function RegisteredTerminalSessions({
   );
 }
 
+function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
+  const { agents } = useScout();
+  const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
+
+  const loadSessions = useCallback((options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setState((current) => ({ state: "loading", sessions: current.sessions }));
+    }
+    void fetchTerminalSessions()
+      .then((sessions) => setState({ state: "ready", sessions }))
+      .catch((error) => {
+        if (options.silent) return;
+        setState((current) => ({
+          state: "failed",
+          sessions: current.sessions,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+  }, []);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") loadSessions({ silent: true });
+    };
+    const interval = window.setInterval(refreshIfVisible, 8_000);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [loadSessions]);
+
+  const terminalItems = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
+  const terminalAgents = useMemo(() => sortTerminalAgents(agents), [agents]);
+  const boundAgentCount = useMemo(
+    () => terminalAgents.filter((agent) => resolveAgentTerminalSurface(agent)).length,
+    [terminalAgents],
+  );
+  const liveTerminalCount = terminalItems.filter((item) => item.surface.state !== "exited").length;
+  const sessionError = state.state === "failed" ? state.error : null;
+
+  return (
+    <div className="s-term s-term--home">
+      <div className="s-term-home">
+        <header className="s-term-home-head">
+          <div className="s-term-summary-mark">
+            <TerminalIcon size={18} strokeWidth={1.7} />
+            <span>Terminals</span>
+          </div>
+          <div className="s-term-home-titleline">
+            <h1>Terminal Control</h1>
+            <button
+              type="button"
+              className="s-term-home-refresh"
+              onClick={() => loadSessions()}
+              disabled={state.state === "loading"}
+              title="Refresh terminals"
+              aria-label="Refresh terminals"
+            >
+              <RefreshCw size={14} strokeWidth={1.8} />
+            </button>
+          </div>
+          <div className="s-term-home-stats" aria-label="Terminal inventory">
+            <Stat label="Live" value={liveTerminalCount} />
+            <Stat label="Registered" value={terminalItems.length} />
+            <Stat label="Agents" value={terminalAgents.length} />
+            <Stat label="Bound" value={boundAgentCount} />
+          </div>
+        </header>
+
+        {sessionError && (
+          <div className="s-term-home-error">
+            <span>Terminal registry unavailable</span>
+            <code>{sessionError}</code>
+          </div>
+        )}
+
+        <div className="s-term-home-grid">
+          <section className="s-term-home-section" aria-labelledby="terminal-home-sessions">
+            <div className="s-term-home-section-head">
+              <h2 id="terminal-home-sessions">Live Sessions</h2>
+              <span>{state.state === "loading" ? "syncing" : `${terminalItems.length}`}</span>
+            </div>
+            <div className="s-term-home-list">
+              {terminalItems.length === 0 && state.state !== "loading" ? (
+                <div className="s-term-home-empty">No registered terminals</div>
+              ) : (
+                terminalItems.map((item) => (
+                  <TerminalHomeSessionRow key={item.id} item={item} navigate={navigate} />
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="s-term-home-section" aria-labelledby="terminal-home-agents">
+            <div className="s-term-home-section-head">
+              <h2 id="terminal-home-agents">Agents</h2>
+              <span>{terminalAgents.length}</span>
+            </div>
+            <div className="s-term-home-list">
+              {terminalAgents.length === 0 ? (
+                <div className="s-term-home-empty">No known agents</div>
+              ) : (
+                terminalAgents.map((agent) => (
+                  <TerminalHomeAgentRow key={agent.id} agent={agent} navigate={navigate} />
+                ))
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TerminalHomeSessionRow({
+  item,
+  navigate,
+}: {
+  item: ReturnType<typeof terminalListItems>[number];
+  navigate: TerminalNavigate;
+}) {
+  const routeBase = {
+    view: "terminal" as const,
+    terminalSessionId: item.session.id,
+    terminalSurfaceKey: surfaceKey(item.surface),
+  };
+
+  return (
+    <div className="s-term-home-row">
+      <button
+        type="button"
+        className="s-term-home-row-main"
+        onClick={() => navigate(routeBase)}
+      >
+        <span className="s-term-home-row-icon">
+          <TerminalIcon size={15} strokeWidth={1.8} />
+        </span>
+        <span className="s-term-home-row-copy">
+          <span className="s-term-home-row-title">{item.title}</span>
+          <span className="s-term-home-row-detail" title={item.detail}>{item.detail || item.session.sourceSessionId}</span>
+        </span>
+        <span className="s-term-home-row-badges">
+          <span>{item.surface.backend}</span>
+          <span>{item.condition}</span>
+        </span>
+      </button>
+      <div className="s-term-home-row-actions">
+        <button
+          type="button"
+          className="s-term-summary-action s-term-summary-action--primary"
+          onClick={() => navigate(withTerminalMode(routeBase, "takeover"))}
+        >
+          <LogIn size={13} strokeWidth={1.8} />
+          <span>Enter</span>
+        </button>
+        <button
+          type="button"
+          className="s-term-summary-action"
+          onClick={() => navigate(withTerminalMode(routeBase, "observe"))}
+        >
+          <Eye size={13} strokeWidth={1.8} />
+          <span>Observe</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TerminalHomeAgentRow({
+  agent,
+  navigate,
+}: {
+  agent: Agent;
+  navigate: TerminalNavigate;
+}) {
+  const terminalSurface = resolveAgentTerminalSurface(agent);
+  const routeBase = { view: "terminal" as const, agentId: agent.id };
+  const detail = terminalAgentDetail(agent);
+
+  return (
+    <div className="s-term-home-row">
+      <button
+        type="button"
+        className="s-term-home-row-main"
+        onClick={() => navigate(withTerminalMode(routeBase, "takeover"))}
+      >
+        <span className={`s-term-agent-dot${terminalSurface ? " s-term-agent-dot--bound" : ""}`} aria-hidden />
+        <span className="s-term-home-row-copy">
+          <span className="s-term-home-row-title">{agent.name}</span>
+          <span className="s-term-home-row-detail" title={detail}>{detail}</span>
+        </span>
+        <span className="s-term-home-row-badges">
+          <span>{terminalSurface?.backend ?? agent.harness ?? "agent"}</span>
+          <span>{terminalSurface ? "bound" : agentStateLabel(agent.state)}</span>
+        </span>
+      </button>
+      <div className="s-term-home-row-actions">
+        <button
+          type="button"
+          className="s-term-summary-action s-term-summary-action--primary"
+          onClick={() => navigate(withTerminalMode(routeBase, "takeover"))}
+        >
+          <LogIn size={13} strokeWidth={1.8} />
+          <span>Enter</span>
+        </button>
+        {terminalSurface && (
+          <button
+            type="button"
+            className="s-term-summary-action"
+            onClick={() => navigate(withTerminalMode(routeBase, "observe"))}
+          >
+            <Eye size={13} strokeWidth={1.8} />
+            <span>Observe</span>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="s-term-home-stat">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function sortTerminalAgents(agents: Agent[]): Agent[] {
+  return [...agents]
+    .filter((agent) => !agent.retiredFromFleet)
+    .sort((a, b) => {
+      const surfaceRank = Number(Boolean(resolveAgentTerminalSurface(b))) - Number(Boolean(resolveAgentTerminalSurface(a)));
+      if (surfaceRank !== 0) return surfaceRank;
+      const updatedRank = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+      if (updatedRank !== 0) return updatedRank;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+function terminalAgentDetail(agent: Agent): string {
+  const workspace = agent.project
+    ?? basename(agent.cwd)
+    ?? basename(agent.projectRoot)
+    ?? agent.definitionId;
+  const parts = [
+    agent.handle ? `@${agent.handle}` : null,
+    agent.harness,
+    workspace,
+    agent.branch,
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+function basename(path: string | null | undefined): string | null {
+  const trimmed = path?.trim().replace(/\/+$/u, "");
+  if (!trimmed) return null;
+  return trimmed.split("/").pop() || trimmed;
+}
+
 function TerminalTakeoverGate({
   agentId,
   agent,
@@ -922,6 +1191,9 @@ export function TerminalContent({ route, navigate }: TerminalContentProps) {
   const { agents } = useScout();
 
   if (!agentId) {
+    if (!terminalSessionId && !terminalSurfaceKey) {
+      return <TerminalHome navigate={navigate} />;
+    }
     return (
       <RegisteredTerminalSessions
         terminalSessionId={terminalSessionId}

@@ -96,6 +96,11 @@ export function useScoutCommands(): CommandOption[] {
         action: () => navigate({ view: "sessions" }),
       },
       {
+        id: "nav:terminals",
+        label: "Open Terminals",
+        action: () => navigate({ view: "terminal" }),
+      },
+      {
         id: "nav:search",
         label: "Go to Search",
         action: () => navigate({ view: "search" }),
