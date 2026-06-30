@@ -73,4 +73,38 @@ describe("planMessageDeliveries", () => {
       policy: "must_ack",
     }));
   });
+
+  test("coalesces direct visibility and notify into one must-ack direct delivery", () => {
+    const directConversation: ConversationDefinition = {
+      ...conversation,
+      id: "dm.operator.fabric",
+      kind: "direct",
+      visibility: "private",
+      participantIds: ["operator", "fabric"],
+    };
+
+    const deliveries = planMessageDeliveries({
+      localNodeId: "node-1",
+      message: {
+        ...baseMessage,
+        conversationId: directConversation.id,
+        visibility: "private",
+        audience: {
+          notify: ["fabric"],
+          reason: "direct_message",
+        },
+        mentions: [{ actorId: "fabric", label: "@fabric" }],
+      },
+      conversation: directConversation,
+      participantRoutes: [route],
+    });
+
+    expect(deliveries).toEqual([
+      expect.objectContaining({
+        targetId: "fabric",
+        reason: "direct_message",
+        policy: "must_ack",
+      }),
+    ]);
+  });
 });
