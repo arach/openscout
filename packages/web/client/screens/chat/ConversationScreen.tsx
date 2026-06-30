@@ -863,15 +863,21 @@ export function ConversationScreen({
   );
 
   useEffect(() => {
-    if (!shouldPollOutstandingTurn) {
+    // Active turn (we sent, or one is already showing) → poll fast. Otherwise,
+    // for an open DM, still poll slowly so work the agent starts from an
+    // *external* trigger (another agent or CLI dispatch) surfaces as "Working"
+    // here too — the broker already knows about the flight; we just have to
+    // keep looking even when we didn't initiate the turn.
+    const intervalMs = shouldPollOutstandingTurn ? 5000 : isDm ? 12000 : 0;
+    if (intervalMs === 0) {
       return;
     }
 
     const timer = setInterval(() => {
       void load();
-    }, 5000);
+    }, intervalMs);
     return () => clearInterval(timer);
-  }, [shouldPollOutstandingTurn, load]);
+  }, [shouldPollOutstandingTurn, isDm, load]);
 
   useEffect(() => {
     const refreshIfVisible = () => {
