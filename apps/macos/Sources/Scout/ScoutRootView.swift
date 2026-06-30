@@ -5703,8 +5703,8 @@ private struct ScoutInspectorSessionRow: View {
     }
 
     /// Per-session verbs as equal, single-line cells in a 2×2: Observe · Take
-    /// over on top, Message · Fork below. Take over pushes to the web's live
-    /// terminal (no native backend yet), so it's real, not faked.
+    /// over on top, Message · Fork below. Take over still pushes to the web's
+    /// live relay controller; the Terminals section hosts the native PTY grid.
     private var actionGrid: some View {
         VStack(spacing: HudSpacing.xs) {
             HStack(spacing: HudSpacing.xs) {

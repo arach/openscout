@@ -26,7 +26,7 @@ bun bin/scout-app.ts dev-build
 ```
 
 The local scripts read `hudson-package.json` and translate declared Hudson
-features such as `"voice"` into the SwiftPM build environment. If you call
+features such as `"terminal"` and `"voice"` into the SwiftPM build environment. If you call
 `swift build` / `swift run` directly, SwiftPM still needs those feature env vars
 in the shell because it does not consume the Hudson package manifest itself.
 You can also open `Package.swift` directly in Xcode.
