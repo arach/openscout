@@ -60,6 +60,10 @@ struct ScoutKeyboardCheatsheet: View {
                 kbd("⌘O", "observe agent")
             }
 
+            keyGroup("Terminals", active: section == .terminals) {
+                kbd("web controls", "search sessions, Enter, or Observe")
+            }
+
             keyGroup("Repos", active: section == .repos) {
                 kbd("j  k  ·  ↑ ↓", "walk repo · worktree")
                 kbd("l  ·  h", "expand · collapse / parent")

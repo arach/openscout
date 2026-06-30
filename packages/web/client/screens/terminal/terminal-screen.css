@@ -9,6 +9,14 @@
   container-type: inline-size;
 }
 
+.s-terminal-embed {
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: #0d0d0d;
+}
+
 .s-term-bar {
   display: flex;
   align-items: center;

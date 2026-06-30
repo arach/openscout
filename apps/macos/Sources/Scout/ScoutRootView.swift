@@ -552,7 +552,7 @@ struct ScoutRootView: View {
             treeMove(delta)
         case .repos:
             reposTreeMove(delta)
-        case .tail, .lanes, .settings:
+        case .terminals, .tail, .lanes, .settings:
             break
         }
     }
@@ -568,7 +568,7 @@ struct ScoutRootView: View {
             treeEdge(last: last)
         case .repos:
             reposTreeEdge(last: last)
-        case .tail, .lanes, .settings:
+        case .terminals, .tail, .lanes, .settings:
             break
         }
     }
@@ -1094,6 +1094,7 @@ struct ScoutRootView: View {
         [
             .item(HudSidebarItem(id: .comms, title: "Comms", icon: "bubble.left.and.bubble.right", selectedIcon: "bubble.left.and.bubble.right.fill")),
             .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
+            .item(HudSidebarItem(id: .terminals, title: "Terminals", icon: "terminal", selectedIcon: "terminal")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
             .item(HudSidebarItem(id: .lanes, title: "Lanes", icon: "rectangle.split.3x1", selectedIcon: "rectangle.split.3x1.fill")),
             .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
@@ -1117,7 +1118,7 @@ struct ScoutRootView: View {
                 }
             }
         ]
-        if section != .settings {
+        if section != .settings && section != .terminals {
             actions.append(HudChromeTitlebarAction(
                 id: "scout.inspector",
                 placement: .trailing,
@@ -1151,6 +1152,8 @@ struct ScoutRootView: View {
             commsContent(layout: layout)
         case .agents:
             agentsContent
+        case .terminals:
+            terminalContent
         case .repos:
             reposContent
         case .tail:
@@ -1164,6 +1167,10 @@ struct ScoutRootView: View {
 
     private var settingsContent: some View {
         ScoutSettingsView(appearance: appearance)
+    }
+
+    private var terminalContent: some View {
+        ScoutTerminalContent()
     }
 
     private func commsContent(layout: ScoutShellLayout) -> some View {
@@ -2394,6 +2401,8 @@ struct ScoutRootView: View {
 
     private func inspectorTitle(multiAgent: Bool) -> String {
         switch section {
+        case .terminals:
+            return "Terminal"
         case .tail:
             return "Distribution"
         case .repos:
@@ -2530,6 +2539,7 @@ struct ScoutRootView: View {
     }
 
     private func showsDefaultInspector(layout: ScoutShellLayout) -> Bool {
+        guard section != .terminals else { return false }
         guard !inspectorCollapsed else { return false }
         return !layout.autoHidesInspector || compactInspectorPresented
     }

@@ -9,6 +9,7 @@ import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
+import { TerminalEmbedScreen } from "./screens/terminal/TerminalEmbedScreen.tsx";
 
 import {
   applyScoutThemeToDocument,
@@ -39,6 +40,10 @@ const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
 // Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
 // chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
 const isSessionEmbed = window.location.pathname === "/embed/session";
+// Content-only terminal cockpit for the native macOS Scout app. The selected
+// terminal route rides in `?route=/terminal/...` so in-embed navigation stays
+// inside the WKWebView instead of re-entering the full web shell.
+const isTerminalEmbed = window.location.pathname === "/embed/terminal";
 // Content-only agent lanes embed for the HUD Tail content area. `/embed/traces`
 // keeps compatibility with the older root-level trace embed shape.
 const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
@@ -64,6 +69,8 @@ createRoot(el).render(
       <scoutApp.Provider>
         <SessionEmbedScreen />
       </scoutApp.Provider>
+    ) : isTerminalEmbed ? (
+      <TerminalEmbedScreen />
     ) : isAgentLanesEmbed ? (
       <scoutApp.Provider>
         <AgentLanesEmbedScreen />
