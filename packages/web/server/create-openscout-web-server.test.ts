@@ -1801,7 +1801,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.agent-1",
-        senderId: "operator",
+        senderId: expect.any(String),
         body: "Status update",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -1838,7 +1838,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.arach-agent-1",
-        senderId: "operator",
+        senderId: expect.any(String),
         body: "Status update",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -2784,6 +2784,53 @@ describe("createOpenScoutWebServer", () => {
         executionModel: "gpt-test",
         source: "scout-web",
         currentDirectory: "/tmp/openscout",
+      },
+    ]);
+  });
+
+  test("routes session initiation effort through askScoutQuestion", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        execution: {
+          harness: "codex",
+          model: "gpt-5.5",
+          reasoningEffort: "high",
+          session: "new",
+        },
+        agent: { persistence: "sticky", handle: "hudson" },
+        seed: { instructions: "Start the high-effort run." },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      ok: true,
+      conversationId: "c.agent-1",
+      flightId: "flt-ask-1",
+      handle: "hudson",
+    }));
+    expect(askScoutQuestionCalls).toEqual([
+      {
+        senderId: expect.any(String),
+        target: { kind: "project_path", projectPath: "/tmp/openscout" },
+        body: "Start the high-effort run.",
+        executionHarness: "codex",
+        executionModel: "gpt-5.5",
+        executionReasoningEffort: "high",
+        executionSession: "new",
+        projectAgent: { persistence: "sticky", handle: "hudson" },
+        currentDirectory: "/tmp/openscout",
+        source: "scout-session-initiation",
       },
     ]);
   });

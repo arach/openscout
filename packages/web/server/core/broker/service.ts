@@ -2652,6 +2652,7 @@ export async function askScoutQuestion(input: {
   createdAtMs?: number;
   executionHarness?: AgentHarness;
   executionModel?: string;
+  executionReasoningEffort?: string;
   executionSession?: "new" | "existing" | "any";
   executionTargetSessionId?: string;
   projectAgent?: ScoutProjectAgentSpec;
@@ -2714,6 +2715,9 @@ export async function askScoutQuestion(input: {
     execution: {
       ...(input.executionHarness ? { harness: input.executionHarness } : {}),
       ...(input.executionModel?.trim() ? { model: input.executionModel.trim() } : {}),
+      ...(input.executionReasoningEffort?.trim()
+        ? { reasoningEffort: input.executionReasoningEffort.trim() }
+        : {}),
       session: input.executionSession ?? "new",
       ...(input.executionTargetSessionId?.trim()
         ? { targetSessionId: input.executionTargetSessionId.trim() }

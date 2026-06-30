@@ -787,7 +787,12 @@ struct ScoutRootView: View {
         if let channel = store.channels.first(where: { channelMatchesSessionResult($0, result) }) {
             store.selectChannel(channel.cId)
         } else if let selectionRef {
-            store.selectChannel(selectionRef)
+            store.selectPendingConversation(
+                cId: selectionRef,
+                flightId: result.flightId?.nilIfEmpty,
+                agentId: result.agentId?.nilIfEmpty,
+                agentName: pendingConversationTitle(for: submittedDraft)
+            )
         }
         if let agentId = result.agentId?.nilIfEmpty {
             store.selectAgent(agentId)
@@ -838,6 +843,10 @@ struct ScoutRootView: View {
         return pendingConversations.filter { pending in
             channel(matching: pending) == nil
         }
+    }
+
+    private var selectedPendingConversation: ScoutPendingConversation? {
+        pendingConversations.first { $0.matchesSelection(store.selectedCId) }
     }
 
     private func addPendingConversation(_ result: ScoutSessionStartResult, draft submittedDraft: ScoutSessionDraft) {
@@ -894,7 +903,12 @@ struct ScoutRootView: View {
             return
         }
         if let ref = pending.conversationId?.nilIfEmpty ?? pending.sessionId?.nilIfEmpty {
-            store.selectChannel(ref)
+            store.selectPendingConversation(
+                cId: ref,
+                flightId: pending.flightId?.nilIfEmpty,
+                agentId: pending.draft.agent?.id.nilIfEmpty,
+                agentName: pending.title.nilIfEmpty
+            )
         }
     }
 
@@ -948,7 +962,7 @@ struct ScoutRootView: View {
 
     private func startPendingFlightMonitor(for pending: ScoutPendingConversation) {
         pendingFlightTasks[pending.id]?.cancel()
-        guard pending.conversationId?.nilIfEmpty != nil else { return }
+        guard pending.conversationId?.nilIfEmpty != nil || pending.flightId?.nilIfEmpty != nil else { return }
         pendingFlightTasks[pending.id] = Task { [pending] in
             for _ in 0..<30 {
                 if Task.isCancelled { return }
@@ -1004,13 +1018,18 @@ struct ScoutRootView: View {
     }
 
     private static func fetchPendingFlightStatus(for pending: ScoutPendingConversation) async throws -> ScoutPendingFlightStatus? {
-        guard let conversationId = pending.conversationId?.nilIfEmpty else { return nil }
+        guard pending.conversationId?.nilIfEmpty != nil || pending.flightId?.nilIfEmpty != nil else { return nil }
+        var queryItems = [
+            URLQueryItem(name: "active", value: "false"),
+        ]
+        if let flightId = pending.flightId?.nilIfEmpty {
+            queryItems.append(URLQueryItem(name: "flightId", value: flightId))
+        } else if let conversationId = pending.conversationId?.nilIfEmpty {
+            queryItems.append(URLQueryItem(name: "conversationId", value: conversationId))
+        }
         let url = ScoutWeb.baseURL()
             .appending(path: "api/flights")
-            .appending(queryItems: [
-                URLQueryItem(name: "conversationId", value: conversationId),
-                URLQueryItem(name: "active", value: "false"),
-            ])
+            .appending(queryItems: queryItems)
         let (data, response) = try await URLSession.shared.data(from: url)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             return nil
@@ -1023,6 +1042,7 @@ struct ScoutRootView: View {
         if let flight = flights.first {
             return flight
         }
+        guard let conversationId = pending.conversationId?.nilIfEmpty else { return nil }
         return try await fetchPendingFailureMessageStatus(conversationId: conversationId, pending: pending)
     }
 
@@ -1188,7 +1208,22 @@ struct ScoutRootView: View {
 
     private var chatDetail: some View {
         Group {
-            if store.selectedChannel == nil {
+            if let channel = store.selectedChannel {
+                VStack(spacing: 0) {
+                    chatHeader
+                    if channel.isObserverThread {
+                        ScoutObservingBanner(channel: channel)
+                    }
+                    if let ask = channel.ask {
+                        ScoutPinnedAskBand(ask: ask)
+                    }
+                    messageList
+                    HudDivider(color: ScoutDesign.hairline)
+                    composer
+                }
+            } else if let pending = selectedPendingConversation {
+                pendingConversationDetail(pending)
+            } else {
                 ScoutQuickChatSurface(
                     recentChannels: Array(commsListChannels.prefix(6)),
                     stagedAttachments: pendingImages,
@@ -1204,21 +1239,78 @@ struct ScoutRootView: View {
                         pendingImages.removeAll { $0.id == attachment.id }
                     }
                 )
-            } else {
-                VStack(spacing: 0) {
-                    chatHeader
-                    if let channel = store.selectedChannel, channel.isObserverThread {
-                        ScoutObservingBanner(channel: channel)
-                    }
-                    if let ask = store.selectedChannel?.ask {
-                        ScoutPinnedAskBand(ask: ask)
-                    }
-                    messageList
-                    HudDivider(color: ScoutDesign.hairline)
-                    composer
-                }
             }
         }
+    }
+
+    private func pendingConversationDetail(_ pending: ScoutPendingConversation) -> some View {
+        VStack(spacing: 0) {
+            pendingConversationHeader(pending)
+            if store.messages.isEmpty {
+                pendingConversationThread(pending)
+            } else {
+                messageList
+            }
+            HudDivider(color: ScoutDesign.hairline)
+            composer
+        }
+    }
+
+    private func pendingConversationHeader(_ pending: ScoutPendingConversation) -> some View {
+        ScoutColumnHeader {
+            Text(pending.title)
+                .font(HudFont.ui(HudTextSize.lg, weight: .semibold))
+                .foregroundStyle(ScoutPalette.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } secondary: {
+            pendingConversationHeaderFacts(pending)
+        } trailing: {
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func pendingConversationHeaderFacts(_ pending: ScoutPendingConversation) -> some View {
+        HStack(spacing: HudSpacing.xl) {
+            if let project = pendingProjectName(pending) {
+                headerFact("folder", project)
+            }
+            if let execution = pendingExecutionLabel(pending) {
+                headerFact("cpu", execution)
+            }
+            if let reference = pendingReferenceLabel(pending) {
+                headerFact("number", reference)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func pendingConversationThread(_ pending: ScoutPendingConversation) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: HudSpacing.xxxl) {
+                ScoutPendingOperatorTurnRow(
+                    text: pendingOperatorPrompt(pending),
+                    baseDirectory: pending.draft.projectPath.nilIfEmpty
+                )
+                if let activeTurn = store.activeTurn {
+                    ScoutInFlightTurnRow(turn: activeTurn)
+                } else {
+                    ScoutPendingConversationProgressRow(pending: pending)
+                }
+            }
+            .padding(EdgeInsets(
+                top: HudSpacing.huge,
+                leading: HudSpacing.huge,
+                bottom: HudSpacing.huge,
+                trailing: HudSpacing.md
+            ))
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .scoutOverlayScrollers()
+        }
+        .scrollIndicators(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ScoutDesign.bg)
     }
 
     // One clean line: just the chat's handle. Chat identity and
@@ -1297,6 +1389,37 @@ struct ScoutRootView: View {
     private func channelRepoName(_ channel: ScoutChannel) -> String? {
         guard let root = channel.workspaceRoot?.nilIfEmpty else { return nil }
         return (root as NSString).lastPathComponent.nilIfEmpty ?? root
+    }
+
+    private func pendingProjectName(_ pending: ScoutPendingConversation) -> String? {
+        guard let path = pending.draft.projectPath.nilIfEmpty else { return nil }
+        return (path as NSString).lastPathComponent.nilIfEmpty ?? path
+    }
+
+    private func pendingExecutionLabel(_ pending: ScoutPendingConversation) -> String? {
+        let parts = [
+            pending.draft.harness?.nilIfEmpty,
+            pending.draft.model?.nilIfEmpty,
+            pending.draft.reasoningEffort.nilIfEmpty.map { "effort \($0)" },
+        ].compactMap { $0 }
+        return parts.joined(separator: " · ").nilIfEmpty
+    }
+
+    private func pendingReferenceLabel(_ pending: ScoutPendingConversation) -> String? {
+        if let cId = pending.conversationId?.nilIfEmpty {
+            return cId.count > 16 ? "chat \(String(cId.prefix(12)))" : "chat \(cId)"
+        }
+        if let sessionId = pending.sessionId?.nilIfEmpty {
+            return sessionId.count > 18 ? "session \(String(sessionId.prefix(14)))" : "session \(sessionId)"
+        }
+        if let flightId = pending.flightId?.nilIfEmpty {
+            return "flight \(String(flightId.prefix(8)))"
+        }
+        return nil
+    }
+
+    private func pendingOperatorPrompt(_ pending: ScoutPendingConversation) -> String {
+        pending.draft.instructions.nilIfEmpty ?? "New session started."
     }
 
     /// The agent backing the open conversation, if any — drives the header's
@@ -1801,6 +1924,9 @@ struct ScoutRootView: View {
         if let title = store.selectedChannel?.displayHandle, !title.isEmpty {
             return "Message \(title)"
         }
+        if let pending = selectedPendingConversation {
+            return "Message \(pending.title)"
+        }
         return "Message"
     }
 
@@ -1854,7 +1980,7 @@ struct ScoutRootView: View {
 
     private var composerStatusText: String? {
         if let captureDropHint { return captureDropHint }
-        if store.selectedChannel == nil { return "Select a chat to message" }
+        if store.selectedCId == nil { return "Select a chat to message" }
         if isDictating { return voiceStatusLine }
         if let reason = voiceUnavailableReason { return reason }
         if store.isSending { return "Sending..." }
@@ -2274,6 +2400,9 @@ struct ScoutRootView: View {
             if repos.worktree(id: reposTree.selectedWorktreeID) != nil { return "Worktree" }
             if repos.project(id: reposTree.selectedProjectID) != nil { return "Repo" }
             return "Context"
+        case .comms:
+            if selectedPendingConversation != nil { return "Conversation" }
+            return multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")
         default:
             return multiAgent ? "Agents" : (store.selectedAgent == nil ? "Context" : "Agent")
         }
@@ -2504,6 +2633,11 @@ struct ScoutRootView: View {
                     } else {
                         HudEmptyState(title: "Nothing selected", subtitle: "Select an agent to inspect context.", icon: "sidebar.right")
                     }
+                } else if let pending = selectedPendingConversation {
+                    ScoutPendingConversationInspector(
+                        pending: pending,
+                        onRetry: { retryPendingConversation(pending) }
+                    )
                 } else if channelAgentMembers.count >= 2 {
                     ScoutAgentCardStack(
                         agents: channelAgentMembers,
@@ -3880,6 +4014,311 @@ private struct ScoutPinnedAskBand: View {
         .padding(.horizontal, HudSpacing.huge)
         .padding(.top, HudSpacing.md)
         .padding(.bottom, HudSpacing.xs)
+    }
+}
+
+private struct ScoutPendingOperatorTurnRow: View {
+    let text: String
+    let baseDirectory: String?
+
+    private let turnHeadBodyGap: CGFloat = HudSpacing.xs
+    private let messageReadingMeasure: CGFloat = 600
+    private let bubbleRadius: CGFloat = 11
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            SpriteAvatarView(name: "Operator", size: 28, tile: true)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
+                        .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
+                )
+
+            VStack(alignment: .leading, spacing: turnHeadBodyGap) {
+                HStack(alignment: .firstTextBaseline, spacing: HudSpacing.md) {
+                    Text("Operator")
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    Text("queued")
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(ScoutPalette.dim)
+                }
+                ScoutMarkdownView(
+                    text: text,
+                    baseDirectory: baseDirectory,
+                    inkColor: Color.white,
+                    mutedColor: Color.white.opacity(0.82),
+                    accentColor: Color.white,
+                    hug: true
+                )
+                .padding(.horizontal, HudSpacing.lg)
+                .padding(.vertical, HudSpacing.md)
+                .background(
+                    RoundedRectangle(cornerRadius: bubbleRadius, style: .continuous)
+                        .fill(ScoutPalette.accent)
+                )
+            }
+            .frame(maxWidth: messageReadingMeasure, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct ScoutPendingConversationProgressRow: View {
+    let pending: ScoutPendingConversation
+
+    private let turnHeadBodyGap: CGFloat = HudSpacing.xs
+    private let messageReadingMeasure: CGFloat = 600
+
+    var body: some View {
+        HStack(alignment: .top, spacing: HudSpacing.xl) {
+            SpriteAvatarView(name: actorName, size: 28, tile: true)
+
+            VStack(alignment: .leading, spacing: turnHeadBodyGap) {
+                HStack(alignment: .center, spacing: HudSpacing.md) {
+                    Text(actorName)
+                        .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    statusGlyph
+                    Text(statusLabel)
+                        .font(HudFont.mono(HudTextSize.xxs))
+                        .foregroundStyle(statusTint)
+                }
+                Text(detailText)
+                    .font(HudFont.ui(HudTextSize.sm))
+                    .foregroundStyle(ScoutPalette.muted)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: messageReadingMeasure, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var statusGlyph: some View {
+        switch pending.state {
+        case .starting:
+            ScoutBrailleSpinner(size: 11, tint: ScoutPalette.accent)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                .foregroundStyle(ScoutPalette.statusError)
+        }
+    }
+
+    private var actorName: String {
+        pending.draft.displayName.nilIfEmpty
+            ?? pending.draft.agentName.nilIfEmpty
+            ?? pending.draft.agent?.displayName
+            ?? pending.title
+    }
+
+    private var statusLabel: String {
+        switch pending.state {
+        case .starting: return "Starting..."
+        case .failed: return "Failed"
+        }
+    }
+
+    private var statusTint: Color {
+        switch pending.state {
+        case .starting: return ScoutPalette.dim
+        case .failed: return ScoutPalette.statusError
+        }
+    }
+
+    private var detailText: String {
+        switch pending.state {
+        case .starting:
+            return pending.subtitle
+        case .failed(let message):
+            return message
+        }
+    }
+}
+
+private struct ScoutPendingConversationInspector: View {
+    let pending: ScoutPendingConversation
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: HudSpacing.xl) {
+            identity
+
+            section("State") {
+                fact(statusIcon, statusLabel, tint: statusTint, glyphTint: statusTint)
+                if case .failed(let message) = pending.state {
+                    Text(message)
+                        .font(HudFont.ui(HudTextSize.xs))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ScoutInspectorActionButton(icon: "arrow.clockwise", title: "Retry", filled: false, action: onRetry)
+                }
+            }
+
+            section("Conversation") {
+                if let cId = pending.conversationId?.nilIfEmpty {
+                    fact("bubble.left", shortConversationId(cId))
+                }
+                if let sessionId = pending.sessionId?.nilIfEmpty {
+                    fact("terminal", shortSessionId(sessionId))
+                }
+                if let flightId = pending.flightId?.nilIfEmpty {
+                    fact("paperplane", "flight \(String(flightId.prefix(8)))")
+                }
+            }
+
+            section("Target") {
+                fact("folder", projectLabel)
+                if let target = targetLabel {
+                    fact("person.crop.circle", target)
+                }
+                fact("arrow.triangle.branch", sessionModeLabel)
+            }
+
+            if pending.draft.harness?.nilIfEmpty != nil || pending.draft.model?.nilIfEmpty != nil || pending.draft.reasoningEffort.nilIfEmpty != nil {
+                section("Execution") {
+                    if let harness = pending.draft.harness?.nilIfEmpty {
+                        fact("cpu", harness)
+                    }
+                    if let model = pending.draft.model?.nilIfEmpty {
+                        fact("slider.horizontal.3", model)
+                    }
+                    if let effort = pending.draft.reasoningEffort.nilIfEmpty {
+                        fact("brain.head.profile", "effort \(effort)")
+                    }
+                }
+            }
+
+            section("Operator request") {
+                Text(promptText)
+                    .font(HudFont.ui(HudTextSize.xs))
+                    .foregroundStyle(ScoutPalette.muted)
+                    .lineLimit(8)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var identity: some View {
+        HStack(spacing: HudSpacing.md) {
+            SpriteAvatarView(name: pending.title, size: 32, tile: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(pending.title)
+                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                    .foregroundStyle(ScoutPalette.ink)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(referenceLabel ?? "starting")
+                    .font(HudFont.mono(HudTextSize.micro))
+                    .foregroundStyle(ScoutPalette.dim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: HudSpacing.sm) {
+            Text(title.uppercased())
+                .font(HudFont.mono(HudTextSize.micro, weight: .bold))
+                .tracking(1.4)
+                .foregroundStyle(ScoutPalette.dim)
+            content()
+        }
+    }
+
+    private func fact(
+        _ icon: String,
+        _ text: String,
+        tint: Color = ScoutPalette.muted,
+        glyphTint: Color = ScoutPalette.dim
+    ) -> some View {
+        HStack(spacing: HudSpacing.sm) {
+            Image(systemName: icon)
+                .font(.system(size: 10))
+                .foregroundStyle(glyphTint)
+                .frame(width: 14, alignment: .center)
+            Text(text)
+                .font(HudFont.mono(HudTextSize.xs))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var statusIcon: String {
+        switch pending.state {
+        case .starting: return "clock"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var statusLabel: String {
+        switch pending.state {
+        case .starting: return pending.subtitle
+        case .failed: return "Failed"
+        }
+    }
+
+    private var statusTint: Color {
+        switch pending.state {
+        case .starting: return ScoutPalette.muted
+        case .failed: return ScoutPalette.statusError
+        }
+    }
+
+    private var projectLabel: String {
+        guard let path = pending.draft.projectPath.nilIfEmpty else { return "Project pending" }
+        return (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private var targetLabel: String? {
+        pending.draft.displayName.nilIfEmpty
+            ?? pending.draft.agentName.nilIfEmpty
+            ?? pending.draft.agent?.displayName
+    }
+
+    private var sessionModeLabel: String {
+        if pending.draft.mode == .continueContext {
+            return "Continue full context"
+        }
+        return "Fresh session"
+    }
+
+    private var promptText: String {
+        pending.draft.instructions.nilIfEmpty ?? "New session started."
+    }
+
+    private var referenceLabel: String? {
+        if let cId = pending.conversationId?.nilIfEmpty {
+            return shortConversationId(cId)
+        }
+        if let sessionId = pending.sessionId?.nilIfEmpty {
+            return shortSessionId(sessionId)
+        }
+        if let flightId = pending.flightId?.nilIfEmpty {
+            return "flight \(String(flightId.prefix(8)))"
+        }
+        return nil
+    }
+
+    private func shortConversationId(_ cId: String) -> String {
+        if cId.hasPrefix("c.") {
+            return "chat \(String(cId.dropFirst(2).prefix(8)))"
+        }
+        return cId.count > 16 ? "chat \(String(cId.prefix(12)))" : "chat \(cId)"
+    }
+
+    private func shortSessionId(_ sessionId: String) -> String {
+        sessionId.count > 18 ? "session \(String(sessionId.prefix(14)))" : "session \(sessionId)"
     }
 }
 
