@@ -58,13 +58,14 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 // MARK: - Root
 
 private enum SettingsTab: String, CaseIterable, Identifiable {
-    case network, diagnostics, about
+    case network, voice, diagnostics, about
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
         case .network:     return "Network"
+        case .voice:       return "Voice"
         case .diagnostics: return "Diagnostics"
         case .about:       return "About"
         }
@@ -73,6 +74,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .network:     return "network"
+        case .voice:       return "mic"
         case .diagnostics: return "stethoscope"
         case .about:       return "info.circle"
         }
@@ -104,6 +106,7 @@ struct SettingsRootView: View {
                         Group {
                             switch selected {
                             case .network:     NetworkTab(controller: controller)
+                            case .voice:       VoiceSettingsTab()
                             case .diagnostics: DiagnosticsTab(controller: controller)
                             case .about:       AboutTab(controller: controller)
                             }
@@ -419,7 +422,7 @@ private struct DiagnosticsTab: View {
     }
 }
 
-private struct KVEntry {
+struct KVEntry {
     let key: String
     let value: String
     /// If non-nil, the value renders with a "reveal in Finder" affordance.
@@ -432,7 +435,7 @@ private struct KVEntry {
     }
 }
 
-private struct DiagnosticsCard: View {
+struct DiagnosticsCard: View {
     let label: String
     let status: ServiceLightStatus
     let summary: String
@@ -530,7 +533,7 @@ private struct DiagnosticsCard: View {
     }
 }
 
-private struct KVRow: View {
+struct KVRow: View {
     let entry: KVEntry
 
     var body: some View {
@@ -818,7 +821,7 @@ private struct NetworkTab: View {
     }
 }
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     let content: Content
 
     init(@ViewBuilder content: () -> Content) {

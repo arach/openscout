@@ -1,7 +1,7 @@
-import type { CSSProperties, Dispatch, RefObject, SetStateAction } from "react";
+import { useState, type CSSProperties, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { actorColor } from "../../lib/colors.ts";
 import { isComposerSendShortcut } from "../../lib/compose-shortcuts.ts";
-import { DictationMic } from "../../components/DictationMic.tsx";
+import { DictationMic, type MicStatus } from "../../components/DictationMic.tsx";
 import { SendIcon, StopIcon } from "./conversation-icons.tsx";
 import type {
   ComposeAction,
@@ -54,6 +54,9 @@ export function ConversationComposer({
   onSend: () => void;
   onInterrupt: () => void;
 }) {
+  const [voiceStatus, setVoiceStatus] = useState<MicStatus | null>(null);
+  const showVoiceStatus = voiceStatus && voiceStatus.state !== "idle" && voiceStatus.message;
+
   return (
     <form
       className="s-thread-compose"
@@ -249,6 +252,7 @@ export function ConversationComposer({
             onAppend={(text) =>
               setDraft((prev) => (prev.trim() ? `${prev.trimEnd()} ${text}` : text))
             }
+            onStatus={setVoiceStatus}
           />
 
           {isStopMode ? (
@@ -280,6 +284,18 @@ export function ConversationComposer({
             </button>
           )}
         </div>
+        {showVoiceStatus ? (
+          <div
+            className={[
+              "s-thread-compose-voice-status",
+              voiceStatus.state === "recording" ? "s-thread-compose-voice-status--recording" : "",
+              voiceStatus.state === "processing" ? "s-thread-compose-voice-status--processing" : "",
+            ].filter(Boolean).join(" ")}
+            aria-live="polite"
+          >
+            {voiceStatus.message}
+          </div>
+        ) : null}
       </div>
     </form>
   );

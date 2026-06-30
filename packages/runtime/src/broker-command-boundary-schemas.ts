@@ -1,0 +1,158 @@
+import { z } from "zod";
+
+import {
+  SCOUT_PERMISSION_PROFILES,
+  validateInvocationExecutionPreference,
+  type AgentHarness,
+  type InvocationRequest,
+  type ScoutRouteTarget,
+} from "@openscout/protocol";
+
+import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
+
+const AGENT_HARNESSES = [
+  "codex",
+  "claude",
+  "grok",
+  "grok-acp",
+  "flue",
+  "cursor",
+  "native",
+  "worker",
+  "bridge",
+  "http",
+  "pi",
+] as const satisfies readonly AgentHarness[];
+
+const INVOCATION_ACTIONS = [
+  "consult",
+  "execute",
+  "summarize",
+  "status",
+  "wake",
+] as const;
+
+const INVOCATION_SESSION_POLICIES = [
+  "new",
+  "reuse",
+  "existing",
+  "fork",
+  "any",
+] as const;
+
+const ROUTE_AMBIGUOUS_POLICIES = ["reject", "ask"] as const;
+
+const nonEmptyString = z.string().refine((value) => value.trim().length > 0, {
+  message: "Required",
+});
+
+const optionalNonEmptyString = nonEmptyString.optional();
+
+const metadataMapSchema = z.record(z.string(), z.unknown());
+
+const scoutRoutePolicySchema = z.object({
+  preferLocalNodeId: optionalNonEmptyString,
+  ambiguous: z.enum(ROUTE_AMBIGUOUS_POLICIES).optional(),
+  allowHistoricalDirectId: z.boolean().optional(),
+  allowStaleDirectId: z.boolean().optional(),
+}).passthrough();
+
+const routeTargetValueSchema = {
+  value: optionalNonEmptyString,
+};
+
+const scoutRouteTargetSchema: z.ZodType<ScoutRouteTarget> = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("agent_id"),
+    agentId: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("agent_label"),
+    label: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("session_id"),
+    sessionId: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("binding_ref"),
+    ref: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("project_path"),
+    projectPath: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("channel"),
+    channel: nonEmptyString,
+    ...routeTargetValueSchema,
+  }).passthrough(),
+  z.object({
+    kind: z.literal("broadcast"),
+    ...routeTargetValueSchema,
+  }).passthrough(),
+]);
+
+const invocationForkContextOptionsSchema = z.object({
+  maxMessages: z.number().int().positive().optional(),
+  maxBytes: z.number().int().positive().optional(),
+  includeBrokerRecords: z.boolean().optional(),
+  includeObservedHarnessMaterial: z.boolean().optional(),
+}).passthrough();
+
+const invocationSessionLineageSchema = z.object({
+  parentSessionId: optionalNonEmptyString,
+  parentHarnessThreadId: optionalNonEmptyString,
+  forkSourceKind: z.enum(["native_thread_clone", "scout_state_snapshot"]).optional(),
+  forkSourceId: optionalNonEmptyString,
+  forkedAt: z.number().int().nonnegative().optional(),
+  metadata: metadataMapSchema.optional(),
+}).passthrough();
+
+const invocationExecutionPreferenceSchema = z.object({
+  harness: z.enum(AGENT_HARNESSES).optional(),
+  model: optionalNonEmptyString,
+  permissionProfile: z.enum(SCOUT_PERMISSION_PROFILES).optional(),
+  session: z.enum(INVOCATION_SESSION_POLICIES).optional(),
+  targetSessionId: optionalNonEmptyString,
+  forkFromStateId: optionalNonEmptyString,
+  forkFromSessionId: optionalNonEmptyString,
+  forkContext: invocationForkContextOptionsSchema.optional(),
+  lineage: invocationSessionLineageSchema.optional(),
+}).passthrough().superRefine((execution, ctx) => {
+  for (const message of validateInvocationExecutionPreference(execution)) {
+    ctx.addIssue({ code: "custom", message });
+  }
+});
+
+export const brokerInvocationRequestSchema: z.ZodType<
+  InvocationRequest & BrokerRouteTargetInput
+> = z.object({
+  id: nonEmptyString,
+  requesterId: nonEmptyString,
+  requesterNodeId: nonEmptyString,
+  targetAgentId: nonEmptyString,
+  targetNodeId: optionalNonEmptyString,
+  action: z.enum(INVOCATION_ACTIONS),
+  task: z.string().min(1),
+  collaborationRecordId: optionalNonEmptyString,
+  conversationId: optionalNonEmptyString,
+  messageId: optionalNonEmptyString,
+  context: metadataMapSchema.optional(),
+  execution: invocationExecutionPreferenceSchema.optional(),
+  ensureAwake: z.boolean(),
+  stream: z.boolean(),
+  timeoutMs: z.number().int().positive().optional(),
+  labels: z.array(nonEmptyString).optional(),
+  createdAt: z.number().int().nonnegative(),
+  metadata: metadataMapSchema.optional(),
+  target: scoutRouteTargetSchema.nullish(),
+  targetSessionId: nonEmptyString.nullish(),
+  targetLabel: nonEmptyString.nullish(),
+  routePolicy: scoutRoutePolicySchema.nullish(),
+}).passthrough();

@@ -92,6 +92,7 @@
   justify-content: flex-end;
   gap: var(--space-sm);
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 /* Full web ops route already names the surface — title + deck debug are noise. */

@@ -39,9 +39,10 @@ const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
 // Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
 // chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
 const isSessionEmbed = window.location.pathname === "/embed/session";
-// Content-only agent lanes embed for the HUD Tail content area. `/embed/traces`
-// keeps compatibility with the older root-level trace embed shape.
-const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
+// Content-only agent lanes embed for native/macOS and HUD hosts. The /ops alias
+// stays for older app builds; new callers should use /embed/agent-lanes.
+const isAgentLanesEmbed = window.location.pathname === "/embed/agent-lanes"
+  || window.location.pathname === "/ops/lanes/embed"
   || window.location.pathname === "/embed/lanes"
   || window.location.pathname === "/embed/traces";
 const scoutApp = createScoutApp({ initialTheme });

@@ -253,6 +253,8 @@ mock.module("./core/observe/service.ts", () => ({
 
 const { createOpenScoutWebServer } =
   await import("./create-openscout-web-server.ts");
+const { resetScoutVoiceSessionStateForTests } =
+  await import("./scout-voice-session.ts");
 
 function makeStaticRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "openscout-web-static-"));
@@ -744,6 +746,8 @@ afterEach(() => {
     process.env.OPENSCOUT_SCOUTBOT_ASSISTANT_MODEL = originalScoutbotAssistantModel;
   }
 
+  resetScoutVoiceSessionStateForTests();
+
   for (const directory of testDirectories) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -909,29 +913,74 @@ describe("createOpenScoutWebServer", () => {
   });
 
   test("keeps strict voice health 503 while serving quiet browser probes as handled readiness", async () => {
-    const originalVoiceAsrUrl = process.env.OPENSCOUT_VOICE_ASR_URL;
-    process.env.OPENSCOUT_VOICE_ASR_URL = "http://127.0.0.1:1";
-    try {
-      const server = await createOpenScoutWebServer({
-        currentDirectory: "/tmp/openscout",
-        assetMode: "static",
-        staticRoot: makeStaticRoot(),
-      });
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
 
-      const strictResponse = await server.app.request("http://localhost/api/voice/health");
-      expect(strictResponse.status).toBe(503);
-      await expect(strictResponse.json()).resolves.toMatchObject({ ok: false });
+    const strictResponse = await server.app.request("http://localhost/api/voice/health");
+    expect(strictResponse.status).toBe(503);
+    await expect(strictResponse.json()).resolves.toMatchObject({
+      ok: false,
+      adapter: "hudson-dictation",
+      capture: "native",
+    });
 
-      const quietResponse = await server.app.request("http://localhost/api/voice/health?quiet=1");
-      expect(quietResponse.status).toBe(200);
-      await expect(quietResponse.json()).resolves.toMatchObject({ ok: false });
-    } finally {
-      if (originalVoiceAsrUrl === undefined) {
-        delete process.env.OPENSCOUT_VOICE_ASR_URL;
-      } else {
-        process.env.OPENSCOUT_VOICE_ASR_URL = originalVoiceAsrUrl;
-      }
-    }
+    const quietResponse = await server.app.request("http://localhost/api/voice/health?quiet=1");
+    expect(quietResponse.status).toBe(200);
+    await expect(quietResponse.json()).resolves.toMatchObject({ ok: false });
+  });
+
+  test("bridges native voice sessions between the web client and scout voice host", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const registerResponse = await server.app.request("http://localhost/api/voice/host/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        hostId: "scout-menu",
+        platform: "macos",
+        bundle: "app.openscout.scout.menu",
+      }),
+    });
+    expect(registerResponse.status).toBe(200);
+
+    const sessionResponse = await server.app.request("http://localhost/api/voice/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        clientId: "openscout-web",
+        surface: "chat-composer",
+      }),
+    });
+    expect(sessionResponse.status).toBe(200);
+    const { sessionId } = await sessionResponse.json() as { sessionId: string };
+    expect(sessionId).toMatch(/^scout-voice:/);
+
+    const commandResponse = await server.app.request(
+      "http://localhost/api/voice/host/commands?hostId=scout-menu&timeoutMs=1000",
+    );
+    expect(commandResponse.status).toBe(200);
+    await expect(commandResponse.json()).resolves.toMatchObject({
+      command: { type: "session.start", sessionId },
+    });
+
+    const eventResponse = await server.app.request("http://localhost/api/voice/host/events", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        hostId: "scout-menu",
+        sessionId,
+        event: "session.final",
+        data: { text: "Hello from HudsonKit.", durationMs: 512 },
+      }),
+    });
+    expect(eventResponse.status).toBe(200);
   });
 
   test("serves and writes global material heuristics", async () => {
@@ -1426,6 +1475,74 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("routes failed dispatch review to a project-scoped Codex ask", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    const failedDelivery = {
+      id: "delivery:del-msg-1-talkie-mention-local_socket",
+      kind: "failed_delivery",
+      status: "failed",
+      ts: 1_700_000_000_000,
+      actorName: "Talkie",
+      target: "talkie.codex-agent",
+      route: "local_socket",
+      detail: "mention",
+      conversationId: "chat-1",
+      messageId: "msg-1",
+      deliveryId: "del-msg-1-talkie-mention-local_socket",
+      invocationId: null,
+      metadata: {
+        source: "deliveries",
+        targetId: "talkie.codex-agent",
+        transport: "local_socket",
+        reason: "mention",
+        failureReason: "local_socket_unreachable",
+        failureDetail: "connect ENOENT /tmp/talkie.sock",
+      },
+    };
+    brokerDiagnosticsResult = makeBrokerDiagnostics({
+      failedDeliveries: [failedDelivery],
+      attempts: [failedDelivery],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/broker/dispatch-review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ attemptId: failedDelivery.id }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      conversationId: "c.agent-1",
+      messageId: "msg-ask-1",
+      flightId: "flt-ask-1",
+      dedupeFingerprint: "failed_delivery|msg-1|talkie.codex-agent|local_socket",
+      rootCauseFingerprint: "failed_delivery|talkie.codex-agent|local_socket|local_socket_unreachable|connect enoent /tmp/talkie.sock",
+    });
+    expect(askScoutQuestionCalls).toHaveLength(1);
+    expect(askScoutQuestionCalls[0]).toMatchObject({
+      senderId: expect.any(String),
+      target: { kind: "project_path", projectPath: "/tmp/openscout" },
+      executionHarness: "codex",
+      projectAgent: { persistence: "one_time" },
+      currentDirectory: "/tmp/openscout",
+      source: "scout-dispatch-review",
+      messageMetadata: {
+        dispatchAttemptId: failedDelivery.id,
+        deliveryId: failedDelivery.deliveryId,
+        dedupeFingerprint: "failed_delivery|msg-1|talkie.codex-agent|local_socket",
+        rootCauseFingerprint: "failed_delivery|talkie.codex-agent|local_socket|local_socket_unreachable|connect enoent /tmp/talkie.sock",
+      },
+    });
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("OpenScout dispatch failure context");
+    expect(String(askScoutQuestionCalls[0]?.body)).toContain("del-msg-1-talkie-mention-local_socket");
+  });
+
   test("suggests the current Scout MCP ask permission only for the current tool", async () => {
     brokerDiagnosticsResult = makeBrokerDiagnostics({
       totals: {
@@ -1776,7 +1893,7 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
-  test("steers direct DM sends in an existing chatId", async () => {
+  test("posts direct DM sends in an existing chatId as messages by default", async () => {
     querySessionByIdImpl = () => ({
       kind: "direct",
       agentId: "agent-1",
@@ -1798,11 +1915,48 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
+    expect(sendScoutConversationMessageCalls).toEqual([
       {
         conversationId: "c.agent-1",
         senderId: "operator",
         body: "Status update",
+        currentDirectory: "/tmp/openscout",
+        source: "scout-web",
+      },
+    ]);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
+    expect(sendScoutDirectMessageCalls).toHaveLength(0);
+    expect(sendScoutMessageCalls).toHaveLength(0);
+  });
+
+  test("honors explicit steer mode in direct DMs", async () => {
+    querySessionByIdImpl = () => ({
+      kind: "direct",
+      agentId: "agent-1",
+      participantIds: ["operator", "agent-1"],
+    });
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+    const response = await server.app.request("http://localhost/api/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        body: "Use the existing turn context",
+        chatId: "c.agent-1",
+        intent: "steer",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(sendScoutConversationSteerCalls).toEqual([
+      {
+        conversationId: "c.agent-1",
+        senderId: "operator",
+        body: "Use the existing turn context",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
       },
@@ -1812,7 +1966,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutMessageCalls).toHaveLength(0);
   });
 
-  test("steers configured-operator direct DM sends in an existing conversationId", async () => {
+  test("posts configured-operator direct DM sends in an existing conversationId by default", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "arach";
     querySessionByIdImpl = () => ({
       kind: "direct",
@@ -1835,7 +1989,7 @@ describe("createOpenScoutWebServer", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(sendScoutConversationSteerCalls).toEqual([
+    expect(sendScoutConversationMessageCalls).toEqual([
       {
         conversationId: "c.arach-agent-1",
         senderId: "operator",
@@ -1844,7 +1998,7 @@ describe("createOpenScoutWebServer", () => {
         source: "scout-web",
       },
     ]);
-    expect(sendScoutConversationMessageCalls).toHaveLength(0);
+    expect(sendScoutConversationSteerCalls).toHaveLength(0);
     expect(sendScoutDirectMessageCalls).toHaveLength(0);
     expect(sendScoutMessageCalls).toHaveLength(0);
   });

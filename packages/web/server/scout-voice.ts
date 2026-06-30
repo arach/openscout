@@ -1,6 +1,10 @@
 import { createVoxdClient } from "@voxd/client";
 
 import {
+  getScoutVoiceHealthSnapshot,
+  type ScoutVoiceHealthSnapshot,
+} from "./scout-voice-session.ts";
+import {
   ensureOpenScoutVoxOrigins,
   resolveVoxSpeechDefaults,
   synthesizeVoxSpeech,
@@ -9,12 +13,7 @@ import {
   type VoxSpeechTimingRequest,
 } from "./vox.ts";
 
-export type ScoutVoiceHealth = {
-  ok: boolean;
-  service: "scout-voice";
-  adapter: "hudson-voice";
-  detail: string | null;
-};
+export type ScoutVoiceHealth = ScoutVoiceHealthSnapshot;
 
 export type ScoutVoiceTranscriptionResult = {
   text: string;
@@ -31,31 +30,7 @@ const SCOUT_VOICE_CLIENT_ID = "openscout-web";
 const DEFAULT_SCOUT_VOICE_ASR_URL = "http://127.0.0.1:43115";
 
 export async function getScoutVoiceHealth(): Promise<ScoutVoiceHealth> {
-  try {
-    const client = createScoutVoiceAsrClient(1200);
-    const ok = await client.probe();
-    if (!ok) {
-      return {
-        ok: false,
-        service: "scout-voice",
-        adapter: "hudson-voice",
-        detail: "Scout voice capture adapter is unavailable.",
-      };
-    }
-    return {
-      ok: true,
-      service: "scout-voice",
-      adapter: "hudson-voice",
-      detail: null,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      service: "scout-voice",
-      adapter: "hudson-voice",
-      detail: error instanceof Error ? error.message : "Scout voice service is unavailable.",
-    };
-  }
+  return getScoutVoiceHealthSnapshot();
 }
 
 export async function transcribeScoutVoiceAudio(input: {

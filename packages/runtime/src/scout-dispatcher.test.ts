@@ -159,6 +159,62 @@ describe("resolveAgentLabel", () => {
     }
   });
 
+  test("resolves repeated cardless handles to the latest reachable session", () => {
+    const olderSessionId = "session-chopin-old";
+    const newerSessionId = "session-chopin-new";
+    const snapshot = makeSnapshot(
+      [],
+      [
+        makeEndpoint({
+          id: "endpoint-chopin-old",
+          agentId: olderSessionId,
+          harness: "codex",
+          sessionId: olderSessionId,
+          projectRoot: "/Users/art/dev/scope",
+          metadata: {
+            cardless: true,
+            handle: "project-chopin",
+            lastStartedAt: 1_000,
+          },
+        }),
+        makeEndpoint({
+          id: "endpoint-chopin-new",
+          agentId: newerSessionId,
+          harness: "codex",
+          sessionId: newerSessionId,
+          projectRoot: "/Users/art/dev/scope",
+          metadata: {
+            cardless: true,
+            handle: "project-chopin",
+            lastStartedAt: 5_000,
+          },
+        }),
+      ],
+      {},
+      {
+        [olderSessionId]: makeSessionActor({
+          id: olderSessionId,
+          handle: "project-chopin",
+        }),
+        [newerSessionId]: makeSessionActor({
+          id: newerSessionId,
+          handle: "project-chopin",
+        }),
+      },
+    );
+
+    const result = resolveBrokerRouteTarget(
+      snapshot,
+      { target: { kind: "agent_label", label: "@project-chopin" } },
+      { helpers },
+    );
+
+    expect(result.kind).toBe("resolved_session");
+    if (result.kind === "resolved_session") {
+      expect(result.session.actorId).toBe(newerSessionId);
+    }
+  });
+
   test("returns resolved when a single candidate matches", () => {
     const snapshot = makeSnapshot([makeAgent({ id: "arc.main", definitionId: "arc" })]);
     const result = resolveAgentLabel(snapshot, "@arc", { helpers });

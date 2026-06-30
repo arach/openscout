@@ -140,7 +140,15 @@ function isTailCoreSurface(mode: string | undefined): boolean {
   return mode === "tail" && isScoutFlagEnabled("nav.clean");
 }
 
+// Lanes is shared with the native app and chrome-free embeds, so direct links are
+// not gated with the broader Ops cluster.
+function isLanesCoreSurface(mode: string | undefined): boolean {
+  return mode === "lanes";
+}
 
+function isUngatedOpsSurface(mode: string | undefined): boolean {
+  return isTailCoreSurface(mode) || isLanesCoreSurface(mode);
+}
 
 const MACHINE_SCOPE_PARAM = "machineId";
 const MACHINE_SCOPED_VIEWS = new Set<Route["view"]>([
@@ -552,7 +560,7 @@ export function routeFromUrl(urlLike: string | URL): Route {
   }
   if (parts[0] === "ops") {
     const mode = parseOpsMode(parts[1]) ?? "mission";
-    if (!isTailCoreSurface(mode) && !isOpsEnabledForUrl(url)) {
+    if (!isUngatedOpsSurface(mode) && !isOpsEnabledForUrl(url)) {
       return scoped({ view: "inbox" });
     }
     const tailQuery = mode === "tail" ? url.searchParams.get("q")?.trim() : "";
@@ -875,7 +883,7 @@ export function useRouter() {
 
   const navigate = useCallback((r: Route) => {
     const requestedRoute: Route = normalizeRoute(
-      r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
+      r.view === "ops" && !isOpsEnabled() && !isUngatedOpsSurface(r.mode)
         ? { view: "inbox" }
         : r,
     );
