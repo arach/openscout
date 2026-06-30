@@ -744,9 +744,19 @@ private struct TailRow: View {
     @State private var scopeHovered = false
     @State private var hasPoppedIn = false
 
+    // The conversational turn boundaries — the human's message and the agent's
+    // reply — as opposed to tool/output/event/system chatter. These are the
+    // rows worth making legible at a glance.
+    private var isTurnMessage: Bool {
+        switch row.kind {
+        case .user, .prompt, .assistant, .message: return true
+        default: return false
+        }
+    }
+
     private var body1: Color {
         if engaged || cursored { return HUDChrome.ink }
-        return row.emphasized ? HUDChrome.ink : HUDChrome.inkMuted
+        return (row.emphasized || isTurnMessage) ? HUDChrome.ink : HUDChrome.inkMuted
     }
 
     private var timeColor: Color {
@@ -763,7 +773,10 @@ private struct TailRow: View {
     }
 
     private var padY: CGFloat {
-        size == .compact ? 1 : 1.5
+        let base: CGFloat = size == .compact ? 1 : 1.5
+        // Turn messages get extra breathing room so they read as the spine of
+        // the stream rather than another dense log line.
+        return isTurnMessage ? base + 3 : base
     }
 
     private var timeWidth: CGFloat {
@@ -791,7 +804,17 @@ private struct TailRow: View {
             .padding(.horizontal, padX)
             .padding(.vertical, padY)
             .background {
-                TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+                ZStack {
+                    // Distinct band behind turn messages so the conversation
+                    // stands out from the tool/event chatter around it.
+                    if isTurnMessage {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(HUDChrome.canvasLift.opacity(0.16))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 0.5)
+                    }
+                    TailRowHighlight(cursored: cursored, engaged: engaged, hovered: hovered)
+                }
             }
             .overlay(alignment: .bottom) {
                 selectedDivider
@@ -880,11 +903,15 @@ private struct TailRow: View {
     }
 
     private var lineText: some View {
+        // Turn messages fold out to their full text on hover — a quick read of
+        // the whole prompt/reply without engaging the detail pane. Everything
+        // else stays a single dense line.
         Text(styledLine(row.line, base: body1, mono: HUDType.mono(fontSize)))
-            .lineLimit(1)
+            .lineLimit(isTurnMessage && hovered ? 10 : 1)
             .truncationMode(lineTruncation)
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
+            .animation(.easeOut(duration: 0.12), value: hovered)
     }
 
     @ViewBuilder
