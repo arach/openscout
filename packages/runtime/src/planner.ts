@@ -96,6 +96,7 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
   const notifyIds = new Set(resolveNotifyAudience(input.message));
   const invokeIds = new Set(resolveInvocationAudience(input.message));
   const deliveries = new Map<string, DeliveryIntent>();
+  const isDirectConversation = input.conversation.kind === "direct" || input.conversation.kind === "group_direct";
 
   for (const route of input.participantRoutes) {
     if (visibilityIds.has(route.targetId)) {
@@ -107,15 +108,16 @@ export function planMessageDeliveries(input: DeliveryPlanningInput): DeliveryInt
             ? "peer_broker"
             : route.transport,
         },
-        input.conversation.kind === "direct" || input.conversation.kind === "group_direct"
-          ? "direct_message"
-          : "conversation_visibility",
-        "durable",
+        isDirectConversation ? "direct_message" : "conversation_visibility",
+        isDirectConversation && notifyIds.has(route.targetId) ? "must_ack" : "durable",
       );
       deliveries.set(intent.id, intent);
     }
 
     if (notifyIds.has(route.targetId)) {
+      if (isDirectConversation && visibilityIds.has(route.targetId)) {
+        continue;
+      }
       const reason = notifyDeliveryReason(input.message);
       const intent = planTargetDelivery(
         input.message,
