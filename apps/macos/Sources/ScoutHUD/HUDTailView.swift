@@ -155,6 +155,10 @@ struct HUDTailView: View {
     @State private var tailInteractionsLive = false
     // Left-rail filter: when set, the centre log is scoped to one actor.
     @State private var filterKey: String? = nil
+    // The turn row currently folded out under the pointer, if any. While set,
+    // the live stream stops auto-scrolling so reading a folded-out line isn't
+    // yanked out from under the cursor in follow mode.
+    @State private var foldedOutTurnId: String? = nil
     @AppStorage(HUDTailAppearance.pathColumnWidthKey) private var pathColumnWidth = HUDTailAppearance.defaultPathColumnWidth
     @AppStorage(HUDTailAppearance.kindColumnWidthKey) private var kindColumnWidth = HUDTailAppearance.defaultKindColumnWidth
 
@@ -351,6 +355,13 @@ struct HUDTailView: View {
                                     withAnimation(.easeOut(duration: 0.10)) {
                                         engage.toggle(row.id)
                                     }
+                                },
+                                onFoldOut: { expanded in
+                                    if expanded {
+                                        foldedOutTurnId = row.id
+                                    } else if foldedOutTurnId == row.id {
+                                        foldedOutTurnId = nil
+                                    }
                                 }
                             )
                             .allowsHitTesting(tailInteractionsLive)
@@ -378,12 +389,20 @@ struct HUDTailView: View {
                     }
                 }
                 .onChange(of: motionKey) { _, _ in
+                    // Don't let a folded-out id latch if its row rolled off /
+                    // was filtered away — that would freeze follow-mode scroll.
+                    if let folded = foldedOutTurnId,
+                       !currentRows.contains(where: { $0.id == folded }) {
+                        foldedOutTurnId = nil
+                    }
                     if motionActive {
                         absorbRowsWithoutFresh(currentRows)
                         return
                     }
                     markFreshRows(currentRows)
-                    guard following, let last = currentRows.last?.id else { return }
+                    // Hold position while a turn row is folded out for reading —
+                    // don't yank the stream to the bottom under the pointer.
+                    guard following, foldedOutTurnId == nil, let last = currentRows.last?.id else { return }
                     withAnimation(.easeOut(duration: 0.18)) {
                         proxy.scrollTo(last, anchor: .bottom)
                     }
@@ -739,6 +758,9 @@ private struct TailRow: View {
     var cursored: Bool = false
     let engaged: Bool
     var onTap: () -> Void = {}
+    // Reports whether this row is folded out (turn message + hovered) so the
+    // parent can hold the stream steady while it's being read.
+    var onFoldOut: (Bool) -> Void = { _ in }
 
     @State private var hovered = false
     @State private var scopeHovered = false
@@ -746,10 +768,12 @@ private struct TailRow: View {
 
     // The conversational turn boundaries — the human's message and the agent's
     // reply — as opposed to tool/output/event/system chatter. These are the
-    // rows worth making legible at a glance.
+    // rows worth making legible at a glance. `.message` is excluded on purpose:
+    // it's summary-derived (message/reply/sent/wire) and would band delivery
+    // noise; only the true user/prompt/assistant boundaries qualify.
     private var isTurnMessage: Bool {
         switch row.kind {
-        case .user, .prompt, .assistant, .message: return true
+        case .user, .prompt, .assistant: return true
         default: return false
         }
     }
@@ -850,6 +874,14 @@ private struct TailRow: View {
                     hovered = false
                     scopeHovered = false
                 }
+            }
+            .onChange(of: hovered) { _, isHovered in
+                onFoldOut(isTurnMessage && isHovered)
+            }
+            .onDisappear {
+                // Row left the viewport / was removed — release any fold-out
+                // hold it owned so follow-mode scroll can resume.
+                if isTurnMessage { onFoldOut(false) }
             }
             .onTapGesture(perform: onTap)
             .onAppear {
