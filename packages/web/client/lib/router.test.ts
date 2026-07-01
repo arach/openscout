@@ -355,6 +355,29 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "search", mode: "indexer" })).toBe("/search/indexer");
   });
 
+  test("briefings routes round-trip (TanStack adoption pilot prefix)", () => {
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings")).toEqual({
+      view: "briefings",
+    });
+    expect(routePath({ view: "briefings" })).toBe("/briefings");
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings/brief-42")).toEqual({
+      view: "briefings",
+      briefingId: "brief-42",
+    });
+    expect(routePath({ view: "briefings", briefingId: "brief-42" })).toBe(
+      "/briefings/brief-42",
+    );
+    // Encoded ids survive the round trip — the TanStack $briefingId param and
+    // the canonical parser must agree on decoding.
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings/b%2F1")).toEqual({
+      view: "briefings",
+      briefingId: "b/1",
+    });
+    expect(routePath({ view: "briefings", briefingId: "b/1" })).toBe(
+      "/briefings/b%2F1",
+    );
+  });
+
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread",
