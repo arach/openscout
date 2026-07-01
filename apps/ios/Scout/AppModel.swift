@@ -169,9 +169,24 @@ final class AppModel {
 
         var id: String { candidate.id }
         var displayName: String { AppModel.prettyMachineName(candidate.nodeName) }
+        var routePlan: OpenScoutNetworkPairingRoutePlan {
+            openScoutNetworkPairingRoutePlan(for: candidate)
+        }
+        var preferredPairingPayload: QRPayload {
+            openScoutNetworkPairingPayload(for: candidate)
+        }
+        var preferredRoute: TransportKind {
+            routePlan.preferredRoute
+        }
         var detail: String {
-            let host = URLComponents(string: candidate.entrypoint.relay)?.host ?? "mesh.oscout.net"
-            return "OSN · \(host)"
+            let relayURL = routePlan.preferredRelayURL ?? candidate.entrypoint.relay
+            let host = URLComponents(string: relayURL)?.host ?? "mesh.oscout.net"
+            let preferred = preferredRoute.label.isEmpty ? "WAN" : preferredRoute.label
+            let fallbacks = routePlan.routeLabels.filter { $0 != preferred }
+            if let fallback = fallbacks.first {
+                return "\(preferred) · \(host) · \(fallback) fallback"
+            }
+            return "\(preferred) · \(host)"
         }
     }
 
@@ -1214,8 +1229,9 @@ final class AppModel {
 
         openScoutNetworkRoutingEnabled = true
         BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true)
+        let payload = target.preferredPairingPayload
         return await completePair(source: "OpenScout Network", machineName: target.displayName) {
-            target.candidate.qrPayload
+            payload
         }
     }
 

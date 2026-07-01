@@ -82,6 +82,17 @@ describe("broker delivery routing", () => {
       harness: "claude",
       model: "gpt-5",
     });
+
+    expect(executionWithRouteParams(testPayload({
+      target: {
+        kind: "session_id",
+        sessionId: "native-thread-123",
+        harness: "codex",
+        value: "session:codex:native-thread-123",
+      },
+    }))).toEqual({
+      harness: "codex",
+    });
   });
 
   test("captures implicit project-card materialization policy", () => {
