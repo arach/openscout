@@ -265,7 +265,11 @@
 .terminal-nav-row:hover .terminal-nav-badges,
 .terminal-nav-row:focus-within .terminal-nav-badges,
 .terminal-nav-row--active .terminal-nav-badges {
+  width: 0;
+  max-width: 0;
+  gap: 0;
   opacity: 0;
+  visibility: hidden;
 }
 
 .terminal-nav-action {

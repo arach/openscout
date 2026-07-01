@@ -22,6 +22,7 @@ import type {
 
 import type { ActiveScoutBrokerService } from "./broker-api.js";
 import { a2aJsonRpcError, type BrokerA2AService } from "./broker-a2a-service.js";
+import { brokerInvocationRequestSchema } from "./broker-command-boundary-schemas.js";
 import {
   parseInboxReasons,
   parseInboxStatuses,
@@ -47,6 +48,7 @@ import {
   parseBooleanQueryParam,
   parseLimit,
   parseSince,
+  readValidatedRequestBody,
   readRequestBody,
   requestAbortSignal,
   serverTimingHeader,
@@ -967,7 +969,7 @@ export function createBrokerHttpRouter(
 
   if (method === "POST" && url.pathname === "/v1/invocations") {
     try {
-      const payload = await readRequestBody<InvocationRequest & BrokerRouteTargetInput>(request);
+      const payload = await readValidatedRequestBody(request, brokerInvocationRequestSchema);
       const result = brokerService.invokeAgent
         ? await brokerService.invokeAgent(payload)
         : await handleInvocationRequest(payload);

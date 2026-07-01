@@ -22,9 +22,21 @@ import type {
   ProvisionalAgentNamesMode,
 } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
+import {
+  fetchScoutVoiceHistory,
+  fetchScoutVoiceSettings,
+  saveScoutVoiceSettings,
+  type ScoutVoiceInputDevice,
+  type ScoutVoicePermissionStatus,
+  type ScoutVoicePreference,
+  type ScoutVoiceSessionHistoryEntry,
+  type ScoutVoiceSettings,
+} from "../../lib/scout-voice.ts";
+import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissionsPanel.tsx";
 import "./settings-drawer.css";
+import "./voice-permissions-panel.css";
 
-type Section = "operator" | "comms" | "credentials" | "devices";
+type Section = "operator" | "comms" | "credentials" | "voice" | "devices";
 
 const HUE_PRESETS = [195, 125, 300, 45, 355, 210];
 
@@ -430,6 +442,222 @@ function CredentialsSection({
   );
 }
 
+// ── Voice section ─────────────────────────────────────────────────────
+
+const VOICE_ENGINE_OPTIONS: { id: ScoutVoicePreference; label: string; sub: string }[] = [
+  { id: "auto", label: "Auto", sub: "Parakeet when warm, Apple fallback" },
+  { id: "parakeet", label: "Parakeet", sub: "on-device, best quality" },
+  { id: "apple", label: "Apple Speech", sub: "instant, no model warmup" },
+];
+
+function VoiceSection() {
+  const [settings, setSettings] = useState<ScoutVoiceSettings | null>(null);
+  const [devices, setDevices] = useState<ScoutVoiceInputDevice[]>([]);
+  const [history, setHistory] = useState<ScoutVoiceSessionHistoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [snapshot, sessions] = await Promise.all([
+        fetchScoutVoiceSettings(),
+        fetchScoutVoiceHistory(12).catch(() => []),
+      ]);
+      setSettings(snapshot.settings);
+      setDevices(snapshot.devices);
+      setHistory(sessions);
+      setError(null);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const apply = useCallback(async (
+    patch: Partial<Pick<ScoutVoiceSettings, "preference" | "inputDeviceId">>,
+  ) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const snapshot = await saveScoutVoiceSettings(patch);
+      setSettings(snapshot.settings);
+      setDevices(snapshot.devices);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  if (loading && !settings) {
+    return <div className="s-settings-field-hint">Loading voice settings…</div>;
+  }
+
+  const selectedDeviceId = settings?.inputDeviceId
+    ?? devices.find((device) => device.isDefault)?.id
+    ?? "";
+  const micPermission = settings?.permissions?.find((entry) => entry.kind === "microphone") ?? null;
+  const speechPermission = settings?.permissions?.find((entry) => entry.kind === "speechRecognition") ?? null;
+  const hostOnline = (settings?.permissions?.length ?? 0) > 0 || devices.length > 0;
+
+  const troubleshootingTips = [
+    !hostOnline
+      ? "Scout voice host is offline. Launch Scout Menu on this Mac — the browser does not capture audio."
+      : null,
+    micPermission?.status === "denied" || micPermission?.status === "restricted"
+      ? micPermission?.status === "restricted"
+        ? "Microphone access is restricted on this Mac."
+        : "Microphone access is off for Scout Menu. Open Privacy & Security → Microphone to change it."
+      : micPermission?.canRequest
+        ? "Microphone has not been requested yet. Request access or tap the mic in chat to show the macOS prompt."
+        : null,
+    !speechPermission?.granted && (speechPermission?.status === "denied" || speechPermission?.status === "restricted")
+      ? speechPermission?.status === "restricted"
+        ? "Speech recognition is restricted on this Mac."
+        : "Speech recognition is off for Scout Menu. Open Privacy & Security → Speech Recognition to change it."
+      : null,
+    settings?.modelReady
+      ? null
+      : "Parakeet may download on first use. Apple Speech stays available while the model warms.",
+    "Dictation requires Scout Menu running. The browser does not capture audio.",
+    "If transcription hangs on Processing, wait up to 60 seconds or tap the mic again to cancel.",
+  ].filter((tip): tip is string => Boolean(tip));
+
+  return (
+    <div className="s-settings-col-gap">
+      {error && <div className="s-settings-field-hint" style={{ color: "var(--amber)" }}>{error}</div>}
+
+      <VoiceHostStatusBanner
+        hostOnline={hostOnline}
+        micPermission={micPermission}
+        speechPermission={speechPermission}
+        modelReady={settings?.modelReady}
+      />
+
+      <SectionRule label="Scout Menu permissions" right="voice host" />
+      <VoicePermissionsPanel
+        permissions={settings?.permissions}
+        hostOnline={hostOnline}
+        disabled={saving || loading}
+        onError={(message) => setError(message)}
+        onRefresh={load}
+      />
+
+      <SectionRule label="Transcription" />
+      <Field
+        label="Engine"
+        hint={
+          settings?.modelReady
+            ? "Parakeet is warm and ready."
+            : settings?.modelInstalled
+              ? "Parakeet is installed; first dictation may warm the model."
+              : "Parakeet downloads on first use. Apple Speech stays available meanwhile."
+        }
+      >
+        <OptionRow<ScoutVoicePreference>
+          value={settings?.preference ?? "auto"}
+          onChange={(preference) => {
+            setSettings((prev) => (prev ? { ...prev, preference } : prev));
+            void apply({ preference });
+          }}
+          options={VOICE_ENGINE_OPTIONS}
+          columns={3}
+        />
+      </Field>
+
+      <Field
+        label="Microphone input"
+        hint="Scout Menu uses the macOS system default input unless you pick a device here. The browser never captures audio."
+      >
+        {devices.length > 0 ? (
+          <select
+            className="s-settings-input"
+            value={selectedDeviceId}
+            disabled={saving}
+            onChange={(event) => {
+              const inputDeviceId = event.target.value || null;
+              setSettings((prev) => (
+                prev
+                  ? {
+                      ...prev,
+                      inputDeviceId,
+                      inputDeviceName: devices.find((device) => device.id === inputDeviceId)?.name ?? null,
+                    }
+                  : prev
+              ));
+              void apply({ inputDeviceId });
+            }}
+          >
+            {devices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.name}{device.isDefault ? " (system default)" : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="s-settings-field-hint">
+            Scout Menu is not reporting microphones. Launch Scout Menu, grant mic access, then refresh.
+          </div>
+        )}
+      </Field>
+
+      <SectionRule label="Diagnostics" />
+      <ul className="s-settings-field-hint" style={{ margin: 0, paddingLeft: "1.1rem", display: "grid", gap: "0.35rem" }}>
+        {troubleshootingTips.map((tip) => (
+          <li key={tip}>{tip}</li>
+        ))}
+      </ul>
+
+      <SectionRule label="Recent sessions" right={history.length ? `${history.length} shown` : "none"} />
+      {history.length === 0 ? (
+        <div className="s-settings-field-hint">
+          No recent dictation sessions on this web server. History fills as you use the mic in chat.
+        </div>
+      ) : (
+        <div className="s-settings-col-gap" style={{ gap: "0.35rem" }}>
+          {history.map((session) => (
+            <div key={session.sessionId} className="s-settings-device-row" style={{ alignItems: "flex-start" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="s-settings-device-name" style={{ fontFamily: "var(--mono)" }}>
+                  {session.status}
+                  {" · "}
+                  {session.lastEvent ?? "started"}
+                </div>
+                <div className="s-settings-device-meta">
+                  {session.surface}
+                  {" · "}
+                  {timeAgo(session.updatedAt)}
+                  {session.error ? ` · ${session.error}` : ""}
+                </div>
+                {session.lastTranscript ? (
+                  <div className="s-settings-field-hint" style={{ marginTop: "0.2rem" }}>
+                    {session.lastTranscript.length > 96
+                      ? `${session.lastTranscript.slice(0, 96)}…`
+                      : session.lastTranscript}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="s-settings-button-row">
+        <button type="button" className="s-btn" disabled={loading || saving} onClick={() => void load()}>
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Devices section ───────────────────────────────────────────────────
 
 type PeerDevice = {
@@ -519,6 +747,7 @@ function DevicesSection({ pairing }: { pairing: PairingState | null }) {
 const SECTIONS: { id: Section; label: string; sub: string }[] = [
   { id: "operator", label: "Operator", sub: "identity · bio · hours" },
   { id: "comms", label: "Communication", sub: "how agents reach you" },
+  { id: "voice", label: "Voice", sub: "permissions · dictation" },
   { id: "credentials", label: "Credentials", sub: "model provider keys" },
   { id: "devices", label: "Paired devices", sub: "relay · connected" },
 ];
@@ -526,6 +755,7 @@ const SECTIONS: { id: Section; label: string; sub: string }[] = [
 const SECTION_TITLES: Record<Section, string> = {
   operator: "Operator identity",
   comms: "Communication",
+  voice: "Voice",
   credentials: "Credentials",
   devices: "Paired devices",
 };
@@ -667,6 +897,7 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
                   reloadCredentials={loadCredentials}
                 />
               )}
+              {section === "voice" && <VoiceSection />}
               {section === "devices" && <DevicesSection pairing={pairing} />}
             </>
           )}

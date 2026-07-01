@@ -670,6 +670,92 @@ describe("web db query broker diagnostics", () => {
     }
   });
 
+  test("can scope broker rows to the health window and include delivery failure metadata", () => {
+    const store = createSeededStore();
+    const now = Date.now();
+    const old = now - 2 * 60 * 60_000;
+
+    try {
+      store.recordMessage({
+        id: "msg-failed-recent",
+        conversationId: "c.conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Recent failed dispatch.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: now - 5_000,
+        metadata: { source: "scout-cli", relayTarget: "agent-1" },
+      });
+      store.recordMessage({
+        id: "msg-failed-old",
+        conversationId: "c.conv-1",
+        actorId: "operator",
+        originNodeId: "node-1",
+        class: "operator",
+        body: "Old failed dispatch.",
+        visibility: "private",
+        policy: "durable",
+        createdAt: old,
+        metadata: { source: "scout-cli", relayTarget: "agent-1" },
+      });
+      store.recordDeliveries([
+        {
+          id: "delivery-failed-recent",
+          messageId: "msg-failed-recent",
+          targetId: "agent-1",
+          targetKind: "agent",
+          transport: "local_socket",
+          reason: "mention",
+          policy: "durable",
+          status: "failed",
+          metadata: {
+            failureReason: "local_socket_unreachable",
+            failureDetail: "connect ENOENT /tmp/agent.sock",
+            reconciledReason: "agent_endpoint_stale",
+          },
+        },
+        {
+          id: "delivery-failed-old",
+          messageId: "msg-failed-old",
+          targetId: "agent-1",
+          targetKind: "agent",
+          transport: "local_socket",
+          reason: "mention",
+          policy: "durable",
+          status: "failed",
+          metadata: { failureReason: "stale_old_failure" },
+        },
+      ]);
+
+      const diagnostics = queryBrokerDiagnostics({
+        limit: 10,
+        windowMs: 30 * 60_000,
+        scopeRowsToWindow: true,
+      });
+
+      expect(diagnostics.failedDeliveries.map((attempt) => attempt.id))
+        .toEqual(["delivery:delivery-failed-recent"]);
+      expect(diagnostics.attempts.map((attempt) => attempt.id))
+        .not.toContain("delivery:delivery-failed-old");
+      expect(diagnostics.failedDeliveries[0]?.metadata).toMatchObject({
+        failureReason: "local_socket_unreachable",
+        failureDetail: "connect ENOENT /tmp/agent.sock",
+        reconciledReason: "agent_endpoint_stale",
+        raw: {
+          delivery: {
+            metadata: {
+              failureReason: "local_socket_unreachable",
+            },
+          },
+        },
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   test("paginates the merged dispatch ledger with a stable cursor", () => {
     const store = createSeededStore();
     const old = Date.now() - 2 * 24 * 60 * 60_000;

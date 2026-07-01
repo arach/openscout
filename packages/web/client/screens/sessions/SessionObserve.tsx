@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ExternalLink } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 
 import type {
   ObserveData,
@@ -376,18 +376,27 @@ function buildToolCopyText(event: SessionEvent): string {
 function LaneExpandToggle({
   expanded,
   onToggle,
+  label,
 }: {
   expanded: boolean;
   onToggle: () => void;
+  label?: string;
 }) {
+  const text = expanded ? "less" : (label ?? "more");
   return (
     <button
       type="button"
       className="s-observe-lane-expand"
       onClick={onToggle}
       aria-expanded={expanded}
+      aria-label={expanded ? "Show less" : "Show more"}
     >
-      {expanded ? "Less" : "More"}
+      {expanded ? (
+        <ChevronUp size={11} strokeWidth={2} aria-hidden="true" />
+      ) : (
+        <ChevronDown size={11} strokeWidth={2} aria-hidden="true" />
+      )}
+      <span>{text}</span>
     </button>
   );
 }
@@ -424,16 +433,18 @@ function LaneExpandableText({
 
   return (
     <div className={`s-observe-lane-expandable${expanded ? " s-observe-lane-expandable--open" : ""}`}>
-      <div className={className}>
-        {body}
-        {live && <span className="s-observe-cursor" />}
+      <div className={`${className} s-observe-lane-expandable-body`}>
+        <span className="s-observe-lane-expandable-text">
+          {body}
+          {live && <span className="s-observe-cursor" />}
+        </span>
+        {needsExpand && (
+          <LaneExpandToggle
+            expanded={expanded}
+            onToggle={() => setExpanded((value) => !value)}
+          />
+        )}
       </div>
-      {needsExpand && (
-        <LaneExpandToggle
-          expanded={expanded}
-          onToggle={() => setExpanded((value) => !value)}
-        />
-      )}
     </div>
   );
 }
@@ -866,6 +877,10 @@ function ToolBlock({
   const laneExpandable = !laneMode && (
     hasBody || laneTextNeedsExpand(fullCommand, 120, 2)
   );
+  const showBody = !laneExpandable || expanded;
+  const streamPreview = !laneMode && laneExpandable && !expanded && event.stream
+    ? laneSnippetText(event.stream.join("\n"), 180, 2)
+    : null;
 
   const block = (
     <div
@@ -914,13 +929,20 @@ function ToolBlock({
             </span>
           )}
         </span>
+        {laneExpandable && (
+          <LaneExpandToggle
+            expanded={expanded}
+            onToggle={() => setExpanded((value) => !value)}
+            label={event.stream ? "output" : "details"}
+          />
+        )}
       </div>
 
-      {laneExpandable && (
-        <LaneExpandToggle expanded={expanded} onToggle={() => setExpanded((value) => !value)} />
+      {streamPreview && (
+        <pre className="s-observe-tool-stream-preview">{streamPreview}</pre>
       )}
 
-      {(showOutcome && (laneMode || expanded)) && event.result && (
+      {(showOutcome && (laneMode || showBody)) && event.result && (
         <div className="s-observe-tool-result">
           {Object.entries(event.result)
             .map(([k, v]) => `${k}: ${v}`)
@@ -928,7 +950,7 @@ function ToolBlock({
         </div>
       )}
 
-      {!laneMode && event.diff && (
+      {!laneMode && event.diff && showBody && (
         <div className="s-observe-tool-diff">
           <div className="s-observe-tool-diff-stats">
             <span className="s-observe-tool-diff-add">+{event.diff.add}</span>
@@ -945,7 +967,7 @@ function ToolBlock({
         </div>
       )}
 
-      {!laneMode && event.stream && (
+      {!laneMode && event.stream && showBody && (
         <pre className="s-observe-tool-stream">{event.stream.join("\n")}</pre>
       )}
 

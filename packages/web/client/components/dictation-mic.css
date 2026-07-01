@@ -30,6 +30,33 @@
   cursor: not-allowed;
 }
 
+.s-dictation-mic--needs-permission {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
+}
+
+.s-dictation-mic--needs-permission:not(:disabled):hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.s-dictation-mic--unavailable {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--border));
+}
+
+.s-dictation-mic--unavailable:not(:disabled):hover {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 65%, var(--border));
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+}
+
+.s-dictation-mic--error {
+  color: var(--red, #ef4444);
+  border-color: color-mix(in srgb, var(--red, #ef4444) 45%, var(--border));
+}
+
 .s-dictation-mic--recording {
   color: var(--green);
   border-color: color-mix(in srgb, var(--green) 55%, var(--border));

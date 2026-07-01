@@ -27,11 +27,9 @@ export function OpsScreen({
 
   return (
     <div className="s-ops">
-      {mode !== "lanes" ? (
-        <div className="s-ops-header">
-          <OpsSubnav activeRoute={route} navigate={navigate} />
-        </div>
-      ) : null}
+      <div className="s-ops-header">
+        <OpsSubnav activeRoute={route} navigate={navigate} />
+      </div>
       <div className="s-ops-body">
         {mode === "mission" && <MissionControlView navigate={navigate} agents={agents} />}
         {mode === "agents" && <OpsAgentsView navigate={navigate} agents={agents} />}

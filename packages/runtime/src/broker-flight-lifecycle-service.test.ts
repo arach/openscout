@@ -272,6 +272,51 @@ describe("broker flight lifecycle helpers", () => {
     expect(harness.forwardedFlights).toEqual([completed]);
   });
 
+  test("turns completed consult flights without visible output into failures", async () => {
+    const invocation = testInvocation({ action: "consult" });
+    const delivery = testDelivery({ status: "running" });
+    const completed = testFlight({
+      state: "completed",
+      completedAt: 4_000,
+      output: "",
+    });
+    const harness = createHarness({
+      invocation,
+      deliveries: [delivery],
+      now: 20_000,
+    });
+
+    await harness.service.recordFlight(completed);
+
+    expect(harness.committedFlights).toEqual([
+      expect.objectContaining({
+        id: "flight-1",
+        state: "failed",
+        completedAt: 4_000,
+        error: "Consult flight flight-1 completed without broker-visible output.",
+        metadata: expect.objectContaining({
+          failureStage: "empty_completed_output",
+        }),
+      }),
+    ]);
+    expect(harness.updatedDeliveries).toEqual([
+      expect.objectContaining({
+        deliveryId: "delivery-1",
+        status: "failed",
+        metadata: expect.objectContaining({
+          flightState: "failed",
+          failureDetail: "Consult flight flight-1 completed without broker-visible output.",
+        }),
+      }),
+    ]);
+    expect(harness.promoted).toEqual([
+      expect.objectContaining({
+        invocation,
+        output: "Consult flight flight-1 completed without broker-visible output.",
+      }),
+    ]);
+  });
+
   test("fails deliveries when every local endpoint for the target is stale", async () => {
     const endpoint = testEndpoint();
     const delivery = testDelivery({ status: "pending" });
@@ -300,6 +345,40 @@ describe("broker flight lifecycle helpers", () => {
           staleLocalRegistration: true,
           reconciledStaleDelivery: true,
           reconciledAt: 30_000,
+        }),
+      }),
+    ]);
+  });
+
+  test("fails deliveries when every local endpoint for the target is offline", async () => {
+    const endpoint = testEndpoint({
+      metadata: {},
+      state: "offline",
+    });
+    const delivery = testDelivery({ status: "pending" });
+    const snapshot = testSnapshot({
+      agents: { "agent-1": testAgent() },
+      endpoints: { [endpoint.id]: endpoint },
+    });
+    const harness = createHarness({
+      snapshot,
+      deliveries: [delivery],
+      now: 40_000,
+    });
+
+    expect(staleLocalDeliveryReason(snapshot, delivery)).toBe("endpoint endpoint-1 is offline");
+
+    await harness.service.reconcileStaleLocalDeliveries();
+
+    expect(harness.updatedDeliveries).toEqual([
+      expect.objectContaining({
+        deliveryId: "delivery-1",
+        status: "failed",
+        metadata: expect.objectContaining({
+          failureReason: "agent_offline",
+          failureDetail: "Stale local delivery reconciled: endpoint endpoint-1 is offline",
+          reconciledStaleDelivery: true,
+          reconciledAt: 40_000,
         }),
       }),
     ]);

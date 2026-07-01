@@ -540,6 +540,26 @@ function bestEndpointForActor(
     )[0];
 }
 
+function isSteerAvailableEndpoint(endpoint: ScoutBrokerEndpointRecord | undefined): boolean {
+  switch (endpoint?.state) {
+    case "active":
+    case "working":
+    case "waiting":
+    case "idle":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function bestSteerAvailableEndpointForActor(
+  snapshot: ScoutBrokerSnapshot,
+  actorId: string,
+): ScoutBrokerEndpointRecord | undefined {
+  const endpoint = bestEndpointForActor(snapshot, actorId);
+  return isSteerAvailableEndpoint(endpoint) ? endpoint : undefined;
+}
+
 function buildScoutReturnAddress(
   snapshot: ScoutBrokerSnapshot,
   actorId: string,
@@ -629,12 +649,11 @@ function isSteerableParticipant(
   if (snapshot.agents[actorId]) {
     return true;
   }
-  if (bestEndpointForActor(snapshot, actorId)) {
+  if (bestSteerAvailableEndpointForActor(snapshot, actorId)) {
     return true;
   }
   const actorKind = snapshot.actors[actorId]?.kind;
   return actorKind === "agent"
-    || actorKind === "session"
     || actorKind === "helper"
     || actorKind === "bridge";
 }
@@ -649,7 +668,7 @@ async function ensureSteerTargetAvailable(
   currentDirectory: string,
 ): Promise<boolean> {
   if (!broker.snapshot.agents[targetActorId]) {
-    return Boolean(bestEndpointForActor(broker.snapshot, targetActorId));
+    return Boolean(bestSteerAvailableEndpointForActor(broker.snapshot, targetActorId));
   }
   return await ensureTargetRelayAgentRegistered(
     broker.baseUrl,
@@ -677,7 +696,7 @@ function invocationExecutionForSteer(
   snapshot: ScoutBrokerSnapshot,
   actorId: string,
 ): InvocationRequest["execution"] {
-  const sessionId = endpointSessionId(bestEndpointForActor(snapshot, actorId));
+  const sessionId = endpointSessionId(bestSteerAvailableEndpointForActor(snapshot, actorId));
   return sessionId
     ? { session: "existing", targetSessionId: sessionId }
     : { session: "reuse" };

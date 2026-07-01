@@ -35,6 +35,7 @@ class FakeResponse extends EventEmitter {
 type Harness = {
   cursorBodies: unknown[];
   deliverCalls: Array<{ payload: unknown; signal?: AbortSignal }>;
+  invocationCalls: unknown[];
   deps: BrokerHttpRouterDeps;
   routed: ReturnType<typeof createBrokerHttpRouter>;
 };
@@ -42,6 +43,7 @@ type Harness = {
 function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
   const cursorBodies: unknown[] = [];
   const deliverCalls: Array<{ payload: unknown; signal?: AbortSignal }> = [];
+  const invocationCalls: unknown[] = [];
   const node = {
     id: "node-1",
     name: "Node 1",
@@ -152,7 +154,10 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
       streamWatch: async () => {},
     },
     handleCommand: async () => ({ ok: true }),
-    handleInvocationRequest: async () => ({ ok: true }),
+    handleInvocationRequest: async (payload: unknown) => {
+      invocationCalls.push(payload);
+      return { ok: true };
+    },
     recordFlight: async () => {},
     listReadCursorsForConversation: () => [cursor],
     resolveReadCursor: async (_conversationId: string, body: unknown) => {
@@ -170,6 +175,7 @@ function createHarness(overrides: Partial<BrokerHttpRouterDeps> = {}): Harness {
   return {
     cursorBodies,
     deliverCalls,
+    invocationCalls,
     deps,
     routed: createBrokerHttpRouter(deps),
   };
@@ -260,6 +266,72 @@ describe("createBrokerHttpRouter", () => {
     expect(harness.deliverCalls).toHaveLength(3);
     expect(harness.deliverCalls[0]?.payload).toEqual({ target: "agent-1", body: "hello" });
     expect(harness.deliverCalls[0]?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("validates invocation requests before dispatch", async () => {
+    const harness = createHarness();
+
+    const accepted = await requestRouter(harness, "POST", "/v1/invocations", {
+      body: {
+        id: "inv-1",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "help",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 100,
+      },
+    });
+    expect(accepted.response.status).toBe(202);
+    expect(accepted.body).toEqual({ ok: true });
+    expect(harness.invocationCalls).toEqual([
+      expect.objectContaining({
+        id: "inv-1",
+        action: "consult",
+        task: "help",
+      }),
+    ]);
+
+    const invalidShape = await requestRouter(harness, "POST", "/v1/invocations", {
+      body: {
+        id: "inv-2",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "dance",
+        task: "help",
+        ensureAwake: true,
+        stream: false,
+        createdAt: 100,
+      },
+    });
+    expect(invalidShape.response.status).toBe(400);
+    expect(invalidShape.body).toMatchObject({
+      error: "invalid_request",
+    });
+
+    const invalidContinuation = await requestRouter(harness, "POST", "/v1/invocations", {
+      body: {
+        id: "inv-3",
+        requesterId: "operator",
+        requesterNodeId: "node-1",
+        targetAgentId: "agent-1",
+        action: "consult",
+        task: "help",
+        execution: { session: "existing" },
+        ensureAwake: true,
+        stream: false,
+        createdAt: 100,
+      },
+    });
+    expect(invalidContinuation.response.status).toBe(400);
+    expect(invalidContinuation.body).toMatchObject({
+      error: "invalid_request",
+      detail: expect.stringContaining("session existing requires targetSessionId"),
+    });
+    expect(harness.invocationCalls).toHaveLength(1);
   });
 
   test("returns JSON-RPC parse errors on malformed A2A requests", async () => {

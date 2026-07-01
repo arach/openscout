@@ -151,12 +151,14 @@ final class OpenScoutAppController: ObservableObject {
             return
         }
 
+        ScoutVoiceHostRunner.shared.start()
         requestRefresh(reason: .startup)
         scheduleRefreshTimer()
         schedulePairingRequestsTimer()
     }
 
     func stop() {
+        ScoutVoiceHostRunner.shared.stop()
         refreshTimer?.invalidate()
         refreshTimer = nil
         pairingRequestsTimer?.invalidate()

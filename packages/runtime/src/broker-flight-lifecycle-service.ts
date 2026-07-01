@@ -4,10 +4,15 @@ import type {
   FlightRecord,
   InvocationRequest,
   AgentDefinition,
+  AgentEndpoint,
 } from "@openscout/protocol";
 
 import type { BrokerJournalEntry } from "./broker-journal.js";
-import { endpointStartedAt } from "./broker-endpoint-selection.js";
+import {
+  endpointCandidateState,
+  endpointLifecycleAt,
+  endpointStartedAt,
+} from "./broker-endpoint-selection.js";
 import {
   isTerminalFlightState,
   staleLocalEndpointReason,
@@ -104,66 +109,115 @@ export function staleLocalDeliveryReason(
   if (endpoints.length === 0) {
     return null;
   }
-  if (endpoints.some((endpoint) => staleLocalEndpointReason(endpoint) === null)) {
+
+  const unavailableEndpoints = endpoints
+    .map((endpoint) => ({
+      endpoint,
+      reason: localEndpointUnavailableReason(endpoint),
+    }));
+  if (unavailableEndpoints.some((entry) => entry.reason === null)) {
     return null;
   }
 
-  const staleEndpoints = endpoints
-    .filter((endpoint) => staleLocalEndpointReason(endpoint) !== null)
-    .sort((left, right) => endpointStartedAt(right) - endpointStartedAt(left));
-  const transportMatch = staleEndpoints.find((endpoint) => endpoint.transport === delivery.transport);
-  return staleLocalEndpointReason(transportMatch ?? staleEndpoints[0] ?? null);
+  const rankedUnavailable = unavailableEndpoints
+    .sort((left, right) => endpointLifecycleAt(right.endpoint) - endpointLifecycleAt(left.endpoint));
+  const transportMatch = rankedUnavailable.find((entry) => entry.endpoint.transport === delivery.transport);
+  return (transportMatch ?? rankedUnavailable[0] ?? null)?.reason ?? null;
+}
+
+function localEndpointUnavailableReason(endpoint: AgentEndpoint): string | null {
+  const staleReason = staleLocalEndpointReason(endpoint);
+  if (staleReason) {
+    return staleReason;
+  }
+
+  if (endpointCandidateState(endpoint.state) === "offline") {
+    return `endpoint ${endpoint.id} is ${endpoint.state}`;
+  }
+
+  return null;
+}
+
+function normalizeRecordedFlight(
+  flight: FlightRecord,
+  invocation: InvocationRequest | undefined,
+  now: number,
+): FlightRecord {
+  if (
+    invocation?.action !== "consult"
+    || flight.state !== "completed"
+    || flight.output?.trim()
+  ) {
+    return flight;
+  }
+
+  const error = `Consult flight ${flight.id} completed without broker-visible output.`;
+  return {
+    ...flight,
+    state: "failed",
+    output: undefined,
+    summary: flight.summary?.trim()
+      ? `${flight.summary.trim()} No broker-visible reply was posted.`
+      : "The target completed without a broker-visible reply.",
+    error,
+    completedAt: flight.completedAt ?? now,
+    metadata: {
+      ...(flight.metadata ?? {}),
+      failureStage: "empty_completed_output",
+    },
+  };
 }
 
 export class BrokerFlightLifecycleService {
   constructor(private readonly options: BrokerFlightLifecycleServiceOptions) {}
 
   readonly recordFlight = async (flight: FlightRecord): Promise<void> => {
-    let recordedFlight: FlightRecord | null = null;
+    const invocation = this.options.invocationFor(flight.invocationId)
+      ?? this.options.runtime.snapshot().invocations[flight.invocationId];
+    const flightToRecord = normalizeRecordedFlight(flight, invocation, this.now());
+    let didRecordFlight = false;
     await this.options.durableStore.runWrite(async () => {
-      const previous = this.options.runtime.snapshot().flights[flight.id];
-      if (previous && shouldIgnoreFlightUpdate(previous, flight)) {
+      const previous = this.options.runtime.snapshot().flights[flightToRecord.id];
+      if (previous && shouldIgnoreFlightUpdate(previous, flightToRecord)) {
         this.options.warn?.(
-          `[openscout-runtime] ignored stale flight update ${flight.id}: ${previous.state} -> ${flight.state}`,
+          `[openscout-runtime] ignored stale flight update ${flightToRecord.id}: ${previous.state} -> ${flightToRecord.state}`,
         );
         return;
       }
 
       const entries = await this.options.durableStore.commitEntries(
-        { kind: "flight.record", flight },
+        { kind: "flight.record", flight: flightToRecord },
         async () => {
-          await this.options.runtime.upsertFlight(flight);
+          await this.options.runtime.upsertFlight(flightToRecord);
         },
         { enqueueProjection: false },
       );
       await this.options.durableStore.applyProjectedEntries(entries);
-      recordedFlight = flight;
+      didRecordFlight = true;
     });
-    if (!recordedFlight) return;
+    if (!didRecordFlight) return;
 
-    const invocation = this.options.invocationFor(flight.invocationId)
-      ?? this.options.runtime.snapshot().invocations[flight.invocationId];
-    await this.reconcileMessageDeliveriesForFlight(flight, invocation);
-    if (invocation && isTerminalFlightState(flight.state)) {
+    await this.reconcileMessageDeliveriesForFlight(flightToRecord, invocation);
+    if (invocation && isTerminalFlightState(flightToRecord.state)) {
       try {
         await this.options.promoteInvocationFlightToWork(
           invocation,
-          flight,
-          flight.output ?? flight.error ?? flight.summary,
+          flightToRecord,
+          flightToRecord.output ?? flightToRecord.error ?? flightToRecord.summary,
         );
       } catch (error) {
         this.options.warn?.(
-          `[openscout-runtime] failed to update work item for flight ${flight.id}:`,
+          `[openscout-runtime] failed to update work item for flight ${flightToRecord.id}:`,
           error instanceof Error ? error.message : String(error),
         );
       }
     }
 
     try {
-      await this.options.maybeForwardFlightToAuthority(flight);
+      await this.options.maybeForwardFlightToAuthority(flightToRecord);
     } catch (error) {
       this.options.warn?.(
-        `[openscout-runtime] failed to forward flight ${flight.id} to conversation authority:`,
+        `[openscout-runtime] failed to forward flight ${flightToRecord.id} to conversation authority:`,
         error instanceof Error ? error.message : String(error),
       );
     }

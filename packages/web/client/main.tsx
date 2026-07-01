@@ -44,9 +44,10 @@ const isSessionEmbed = window.location.pathname === "/embed/session";
 // terminal route rides in `?route=/terminal/...` so in-embed navigation stays
 // inside the WKWebView instead of re-entering the full web shell.
 const isTerminalEmbed = window.location.pathname === "/embed/terminal";
-// Content-only agent lanes embed for the HUD Tail content area. `/embed/traces`
-// keeps compatibility with the older root-level trace embed shape.
-const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
+// Content-only agent lanes embed for native/macOS and HUD hosts. The /ops alias
+// stays for older app builds; new callers should use /embed/agent-lanes.
+const isAgentLanesEmbed = window.location.pathname === "/embed/agent-lanes"
+  || window.location.pathname === "/ops/lanes/embed"
   || window.location.pathname === "/embed/lanes"
   || window.location.pathname === "/embed/traces";
 const scoutApp = createScoutApp({ initialTheme });
