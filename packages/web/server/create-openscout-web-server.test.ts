@@ -195,6 +195,18 @@ mock.module("./core/broker/service.ts", () => ({
   loadScoutReadCursors: async () => ({}),
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
   markScoutConversationRead: async () => null,
+  normalizeOutgoingAttachments: (attachments: Array<Record<string, unknown>> | undefined) => {
+    const normalized = attachments
+      ?.filter((attachment) => typeof attachment.mediaType === "string" && (attachment.url || attachment.blobKey))
+      .map((attachment, index) => ({
+        id: typeof attachment.id === "string" && attachment.id.trim() ? attachment.id : `att-test-${index}`,
+        mediaType: attachment.mediaType,
+        fileName: attachment.fileName,
+        url: attachment.url,
+        blobKey: attachment.blobKey,
+      }));
+    return normalized?.length ? normalized : undefined;
+  },
   readScoutUnblockRequests: async () => readUnblockRequestsResult,
   registerScoutLocalAgentBinding: async () => null,
   readScoutBrokerHealth: async () => ({

@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
+import { loadLocalConfig } from "@openscout/runtime/local-config";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -129,7 +130,7 @@ export function parseCLIFlags(): Partial<PairingConfig> & { pair?: boolean } {
 }
 
 // ---------------------------------------------------------------------------
-// Resolve final config: defaults <- file <- CLI
+// Resolve final config: defaults <- legacy file <- local config/env <- CLI
 // ---------------------------------------------------------------------------
 
 export interface ResolvedConfig extends PairingConfig {
@@ -140,9 +141,11 @@ export interface ResolvedConfig extends PairingConfig {
 export function resolveConfigLayers(
   file: Partial<PairingConfig>,
   cli: Partial<PairingConfig> & { pair?: boolean },
+  env: NodeJS.ProcessEnv = process.env,
 ): ResolvedConfig {
+  const filePort = isValidPort(file.port) ? file.port : undefined;
   return {
-    port: cli.port ?? file.port ?? DEFAULTS.port,
+    port: cli.port ?? parseEnvPort(env) ?? loadLocalConfig().ports?.pairing ?? filePort ?? DEFAULTS.port,
     secure: cli.secure ?? file.secure ?? DEFAULTS.secure ?? false,
     relay: cli.relay ?? file.relay,
     adapters: file.adapters,
@@ -150,6 +153,19 @@ export function resolveConfigLayers(
     workspace: file.workspace,
     pair: cli.pair ?? false,
   };
+}
+
+function parseEnvPort(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env.OPENSCOUT_PAIRING_PORT?.trim() || env.SCOUT_PAIRING_PORT?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return isValidPort(parsed) ? parsed : undefined;
+}
+
+function isValidPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
 }
 
 export function resolveConfig(): ResolvedConfig {

@@ -132,6 +132,26 @@ struct PeersGlyph: Shape {
     }
 }
 
+// MARK: - Terminal
+
+/// Tiny prompt window: a cornered pane with a command chevron.
+struct TerminalGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let bounds = rect.insetBy(dx: rect.width / glyphGrid * 1.8, dy: rect.height / glyphGrid * 2.2)
+        path.addRoundedRect(in: bounds, cornerSize: CGSize(width: 1.4, height: 1.4))
+        let a = mapped(CGPoint(x: 4.2, y: 6.0), in: rect)
+        let b = mapped(CGPoint(x: 6.0, y: 7.0), in: rect)
+        let c = mapped(CGPoint(x: 4.2, y: 8.0), in: rect)
+        path.move(to: a)
+        path.addLine(to: b)
+        path.addLine(to: c)
+        path.move(to: mapped(CGPoint(x: 7.4, y: 8.1), in: rect))
+        path.addLine(to: mapped(CGPoint(x: 10.0, y: 8.1), in: rect))
+        return path
+    }
+}
+
 // MARK: - Relay
 
 /// Two endpoint dots with a flowing dashed line between them.
@@ -175,7 +195,7 @@ struct RelayGlyph: View {
 /// Standard call site: glyph at 14pt, 1.5px stroke, tinted by `color`.
 struct ServiceGlyph: View {
     enum Kind {
-        case broker, mesh, web, peers, relay
+        case broker, mesh, terminal, web, peers, relay
     }
 
     let kind: Kind
@@ -190,6 +210,8 @@ struct ServiceGlyph: View {
                 BrokerGlyph().stroke(color, lineWidth: lineWidth)
             case .mesh:
                 MeshGlyph().stroke(color, lineWidth: lineWidth)
+            case .terminal:
+                TerminalGlyph().stroke(color, lineWidth: lineWidth)
             case .web:
                 WebGlyph().stroke(color, lineWidth: lineWidth)
             case .peers:
@@ -205,6 +227,7 @@ struct ServiceGlyph: View {
         switch id {
         case "broker": return .broker
         case "relay":  return .relay
+        case "terminal": return .terminal
         case "web":    return .web
         case "peers":  return .peers
         case "mesh":   return .mesh

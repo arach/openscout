@@ -14,7 +14,7 @@ ports, while staying well above privileged system ports.
 | Web app server | `43120` | `OPENSCOUT_WEB_PORT` / `SCOUT_WEB_PORT` override |
 | Web terminal relay | `43121` | Defaults to web port + 1 |
 | Vite asset server | `43122` | `OPENSCOUT_WEB_VITE_URL` or dev flags override |
-| Pairing bridge | `43130` | `OPENSCOUT_PAIRING_PORT` / config override |
+| Pairing bridge | `43130` | `OPENSCOUT_PAIRING_PORT` / `SCOUT_PAIRING_PORT` / `~/.openscout/config.json` override |
 | Pairing relay | `43131` | Defaults to pairing bridge + 1 |
 | Pairing file server | `43132` | Defaults to pairing bridge + 2 |
 | Design studio | `43140` | `design/studio` Next dev server |
@@ -37,9 +37,16 @@ In dev mode with Vite enabled, `/ws/hmr` stays on the Bun app server
 server (`43122` by default), so hot reload works through `scout.local` without
 opening the raw Vite port in the browser.
 
-Existing `~/.openscout/config.json` values and environment variables are still
+`scout setup` creates missing local config as part of bootstrap. Use
+`scout init --force --broker-port <n> --web-port <n> --pairing-port <n>` when
+you only want to rewrite `~/.openscout/config.json`. Existing
+`~/.openscout/config.json` values and environment variables are still
 authoritative. Delete or update local port overrides if you want an existing
 machine to move to these defaults.
+
+Pairing's legacy `~/.scout/pairing/config.json` can still provide a port for old
+runtime flows, but it sits below the shared `~/.openscout/config.json` machine
+port.
 
 Mobile clients should not treat every port in the initial pairing payload as
 permanent. The QR/deep link is only the bootstrap route for establishing the

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -58,6 +58,36 @@ afterEach(() => {
 });
 
 describe("setup inventory", () => {
+  test("reads settings without running the clean-slate migration", async () => {
+    const home = join(tmpdir(), `openscout-settings-read-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    const supportDirectory = join(home, "Library", "Application Support", "OpenScout");
+    const controlHome = join(home, ".openscout", "control-plane");
+    const relayHub = join(home, ".openscout", "relay");
+
+    testDirectories.add(home);
+    mkdirSync(supportDirectory, { recursive: true });
+    mkdirSync(controlHome, { recursive: true });
+    mkdirSync(relayHub, { recursive: true });
+    writeFileSync(join(controlHome, "keep.txt"), "control\n", "utf8");
+    writeFileSync(join(relayHub, "keep.txt"), "relay\n", "utf8");
+    writeFileSync(join(supportDirectory, "settings.json"), JSON.stringify({
+      version: 1,
+      profile: { operatorName: "Existing Operator" },
+    }), "utf8");
+
+    process.env.HOME = home;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = supportDirectory;
+    process.env.OPENSCOUT_CONTROL_HOME = controlHome;
+    process.env.OPENSCOUT_RELAY_HUB = relayHub;
+
+    const settings = await readOpenScoutSettings();
+
+    expect(settings.profile.operatorName).toBe("Existing Operator");
+    expect(existsSync(join(controlHome, "keep.txt"))).toBe(true);
+    expect(existsSync(join(relayHub, "keep.txt"))).toBe(true);
+    expect(existsSync(join(supportDirectory, "rpc-runtime-cutover-v1"))).toBe(false);
+  });
+
   test("persists OpenScout Network discovery settings", async () => {
     const home = join(tmpdir(), `openscout-osn-settings-test-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 

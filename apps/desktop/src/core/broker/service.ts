@@ -65,7 +65,7 @@ import {
   type ScoutBrokerJsonRequestTrace,
 } from "@openscout/runtime/broker-api";
 import {
-  resolveBrokerServiceConfig,
+  resolveScoutBrokerControlUrl,
   resolveBrokerSocketPathForBaseUrl,
 } from "@openscout/runtime/broker-process-manager";
 import {
@@ -555,7 +555,9 @@ function relayHubDirectory(): string {
 }
 
 export function resolveScoutBrokerUrl(): string {
-  return resolveBrokerServiceConfig().brokerUrl;
+  const explicit = process.env.OPENSCOUT_BROKER_URL?.trim();
+  if (explicit) return explicit;
+  return resolveScoutBrokerControlUrl();
 }
 
 export function parseScoutHarness(

@@ -36,6 +36,8 @@ function defaultLabel(route: Route): string {
       return "Back to inbox";
     case "sessions":
       return "Back to sessions";
+    case "terminal":
+      return "Terminal Control";
     case "channels":
       return "Back to conversations";
     case "fleet":

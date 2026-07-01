@@ -88,6 +88,7 @@ After that, choose the role-specific next read:
 - "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
 - "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
 - "Which local ports does Scout own?" Read [`local-ports.md`](./local-ports.md).
+- "Where do Scout settings live?" Read [`settings.md`](./settings.md).
 - "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).
 - "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
 - "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).

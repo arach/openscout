@@ -28,6 +28,7 @@ import {
   parseScoutLocalHarness,
   readScoutCapabilityMatrix,
   readScoutBrokerHealth,
+  resolveScoutBrokerUrl,
   resolveHumanAskSenderName,
   resolveScoutSenderId,
   scoutConversationIdForChannel,
@@ -46,6 +47,10 @@ const originalSupportDirectory = process.env.OPENSCOUT_SUPPORT_DIRECTORY;
 const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
+const originalBrokerHost = process.env.OPENSCOUT_BROKER_HOST;
+const originalBrokerPort = process.env.OPENSCOUT_BROKER_PORT;
+const originalNetworkDiscovery =
+  process.env.OPENSCOUT_NETWORK_DISCOVERY_ENABLED;
 const originalSkipUserProjectHints =
   process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
 const originalOpenScoutAgent = process.env.OPENSCOUT_AGENT;
@@ -79,6 +84,22 @@ afterEach(() => {
     delete process.env.OPENSCOUT_BROKER_URL;
   } else {
     process.env.OPENSCOUT_BROKER_URL = originalBrokerUrl;
+  }
+  if (originalBrokerHost === undefined) {
+    delete process.env.OPENSCOUT_BROKER_HOST;
+  } else {
+    process.env.OPENSCOUT_BROKER_HOST = originalBrokerHost;
+  }
+  if (originalBrokerPort === undefined) {
+    delete process.env.OPENSCOUT_BROKER_PORT;
+  } else {
+    process.env.OPENSCOUT_BROKER_PORT = originalBrokerPort;
+  }
+  if (originalNetworkDiscovery === undefined) {
+    delete process.env.OPENSCOUT_NETWORK_DISCOVERY_ENABLED;
+  } else {
+    process.env.OPENSCOUT_NETWORK_DISCOVERY_ENABLED =
+      originalNetworkDiscovery;
   }
   if (originalSkipUserProjectHints === undefined) {
     delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
@@ -437,6 +458,37 @@ describe("parseScoutHarness", () => {
       `Unsupported local agent harness "flue". Use one of: ${SUPPORTED_LOCAL_AGENT_HARNESSES.join(", ")}`,
     );
     expect(parseScoutLocalHarness("pi")).toBe("pi");
+  });
+});
+
+describe("resolveScoutBrokerUrl", () => {
+  test("uses the configured broker port when no URL env override is set", () => {
+    const home = mkdtempSync(join(tmpdir(), "openscout-broker-url-"));
+    testDirectories.add(home);
+    const openScoutHome = join(home, ".openscout");
+    mkdirSync(openScoutHome, { recursive: true });
+    writeFileSync(
+      join(openScoutHome, "config.json"),
+      JSON.stringify({
+        version: 1,
+        host: "0.0.0.0",
+        ports: { broker: 45678 },
+      }),
+    );
+    process.env.HOME = home;
+    process.env.OPENSCOUT_HOME = openScoutHome;
+    process.env.OPENSCOUT_SUPPORT_DIRECTORY = join(
+      home,
+      "Library",
+      "Application Support",
+      "OpenScout",
+    );
+    delete process.env.OPENSCOUT_BROKER_URL;
+    delete process.env.OPENSCOUT_BROKER_HOST;
+    delete process.env.OPENSCOUT_BROKER_PORT;
+    process.env.OPENSCOUT_NETWORK_DISCOVERY_ENABLED = "0";
+
+    expect(resolveScoutBrokerUrl()).toBe("http://127.0.0.1:45678");
   });
 });
 

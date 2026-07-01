@@ -53,8 +53,8 @@ export function deriveContextBudgetGauge(
     budget,
     pct,
     overLimit: used > budget,
-    usedLabel: formatContextTokenCount(used),
-    budgetLabel: formatContextTokenCount(budget),
+    usedLabel: formatContextTokenCount(used)!,
+    budgetLabel: formatContextTokenCount(budget)!,
   };
 }
 

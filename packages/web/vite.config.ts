@@ -17,7 +17,8 @@ function resolveHudsonSdkSource(): string | null {
   if (process.env.HUDSON_SDK_PATH) {
     return resolve(process.env.HUDSON_SDK_PATH);
   }
-  if (sourceMode !== "local" && sourceMode !== "auto") {
+  const localSourceMode = sourceMode || "auto";
+  if (localSourceMode !== "local" && localSourceMode !== "auto") {
     return null;
   }
   const direct = resolve(__dirname, "../../..", "hudson/packages/web/hudsonkit");

@@ -351,6 +351,15 @@ struct MainView: View {
                 )
                 deckDivider
                 DeckTileButton(
+                    glyph: .terminal,
+                    label: "TERM",
+                    value: terminalValue,
+                    tint: terminalTint,
+                    action: terminalAction,
+                    helpText: terminalHelp
+                )
+                deckDivider
+                DeckTileButton(
                     glyph: .mesh,
                     label: "MESH",
                     value: meshValue,
@@ -480,6 +489,27 @@ struct MainView: View {
 
     private var meshAction: (() -> Void)? {
         return { controller.openWebPath("/mesh") }
+    }
+
+    private var terminalValue: String {
+        if controller.webActionPending { return "BOOT" }
+        return controller.webReachable ? "OPEN" : "START"
+    }
+
+    private var terminalTint: Color {
+        if controller.webActionPending { return ShellPalette.warning }
+        return controller.webReachable ? ShellPalette.ink : ShellPalette.error
+    }
+
+    private var terminalAction: (() -> Void)? {
+        return { controller.openWebPath("/terminal") }
+    }
+
+    private var terminalHelp: String {
+        if !controller.webReachable && !controller.webActionPending {
+            return "Start web app and open terminals"
+        }
+        return "Open terminals"
     }
 
     private var webValue: String {

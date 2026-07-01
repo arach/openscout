@@ -45,7 +45,10 @@ scout setup --source-root ~/dev --default-harness codex
 scout runtimes
 ```
 
-`scout init` writes `~/.openscout/config.json` with the broker, web, and pairing ports that every Scout component reads. Run it once after install, or with `--force` to overwrite.
+`scout setup` creates `~/.openscout/config.json` when it is missing. Use
+`scout init` when you only want to rewrite the local host/port config, for
+example `scout init --force --broker-port 43110 --web-port 43120
+--pairing-port 43130`.
 
 When the input is not a known subcommand and includes exactly one `@agent` mention, Scout treats it as an implicit `ask`: it records durable work with the broker, waits for the target to acknowledge or complete immediately, and leaves later completion visible through the conversation or flight follow-up. For example:
 

@@ -4,7 +4,7 @@ import {
   type AgentLaneWidthTier,
 } from "./lane-deck.ts";
 
-export type { AgentLaneWidthTier };
+export type { AgentLaneWidthTier, AgentLaneWidthTier as AgentLaneSize };
 
 export { AGENT_LANE_WIDTH_TIERS, readDefaultLaneWidthTier as readAgentLaneSize };
 

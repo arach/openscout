@@ -4,12 +4,13 @@
     "packageJson": "../../package.json",
     "distDir": "dist",
     "minimumSystemVersion": "14.0",
+    "features": ["terminal", "voice"],
     "builds": [
       {
         "command": "swift",
         "args": ["build", "-c", "release"],
         "cwd": ".",
-        "features": ["voice"]
+        "features": ["terminal", "voice"]
       }
     ],
     "signing": {

@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { AgentEssentialsGlyph } from "../agents/agent-essentials.tsx";
 import type { LocalAgentConfigState, Route } from "../../lib/types.ts";
-import { harnessOf, openProjectAgentConfig, openProjectAgentProfile } from "./model.ts";
-import type { AgentFacetRow } from "./project-overview-helpers.ts";
+import { harnessOf, openProjectAgentConfig, openProjectAgentProfile, registryAgentSubline } from "./model.ts";
+import type { AgentOverviewRow } from "./project-overview-helpers.ts";
 
 export type FacetLaunch = {
   label: string;
@@ -78,13 +78,14 @@ export function AgentFacetEmbed({
   navigate,
   permissionLabel,
 }: {
-  row: AgentFacetRow;
+  row: AgentOverviewRow;
   route: Extract<Route, { view: "agents-v2" }>;
   navigate: (route: Route) => void;
   permissionLabel: (profile: LocalAgentConfigState["permissionProfile"]) => string;
 }) {
-  const { leadAgent } = row;
+  const leadAgent = row.entry.leadAgent;
   const config = row.config;
+  const subline = registryAgentSubline(row.entry);
   const prompt =
     config?.systemPrompt?.trim()
     || config?.templateHint
@@ -110,8 +111,8 @@ export function AgentFacetEmbed({
       <header className="av2-embedHead">
         <div className="av2-embedIdent">
           <span className="av2-embedTitle">@{row.handle}</span>
-          <span className="av2-embedSub" title={row.subline}>
-            {row.subline}
+          <span className="av2-embedSub" title={subline}>
+            {subline}
           </span>
         </div>
         {leadAgent.harness ? (

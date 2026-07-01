@@ -17,6 +17,7 @@ import {
   type SessionSummary,
 } from "@openscout/agent-sessions";
 import { findNearestProjectRoot } from "@openscout/runtime/setup";
+import { loadLocalConfig } from "@openscout/runtime/local-config";
 import { resolveBunExecutable as resolveResolvedBunExecutable } from "@openscout/runtime/tool-resolution";
 
 import { resolveScoutAppRoot } from "../../shared/paths.ts";
@@ -428,14 +429,31 @@ function saveScoutPairingConfig(config: ScoutPairingConfig): void {
   writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
+function isValidPairingPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
+}
+
+function resolvePairingPortFromEnv(): number | null {
+  const raw = process.env.OPENSCOUT_PAIRING_PORT?.trim()
+    || process.env.SCOUT_PAIRING_PORT?.trim();
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return isValidPairingPort(parsed) ? parsed : null;
+}
+
 function resolveScoutPairingConfig(): ScoutPairingResolvedConfig {
   const config = loadScoutPairingConfig();
+  const portFromEnv = resolvePairingPortFromEnv();
+  const portFromLocalConfig = loadLocalConfig().ports?.pairing;
+  const portFromPairingFile = isValidPairingPort(config.port) ? config.port : null;
   return {
     relay: typeof config.relay === "string" && config.relay.trim().length > 0
       ? config.relay.trim()
       : null,
     secure: config.secure !== false,
-    port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : SCOUT_PAIRING_DEFAULT_PORT,
+    port: portFromEnv ?? portFromLocalConfig ?? portFromPairingFile ?? SCOUT_PAIRING_DEFAULT_PORT,
     workspaceRoot: typeof config.workspace?.root === "string" && config.workspace.root.trim().length > 0
       ? config.workspace.root.trim()
       : null,

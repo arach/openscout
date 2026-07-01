@@ -20,7 +20,9 @@ export function startPairingRendezvousPublisher(
   snapshot: () => PairingRuntimeSnapshot,
   options: PairingRendezvousPublisherOptions = {},
 ): MeshRendezvousPublisher | null {
-  const config = resolveMeshRendezvousPublishConfig(options.env);
+  const config = resolveMeshRendezvousPublishConfig(options.env, {
+    includeSettings: options.env === undefined,
+  });
   if (!config) {
     return null;
   }

@@ -70,6 +70,43 @@
   padding: var(--space-xs) 0 var(--space-lg);
 }
 
+.terminal-nav-section {
+  padding: var(--space-xs) 0 var(--space-sm);
+}
+
+.terminal-nav-section + .terminal-nav-section {
+  border-top: 1px solid color-mix(in srgb, var(--ink) 7%, transparent);
+  padding-top: var(--space-md);
+}
+
+.terminal-nav-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-lg) var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-xl);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.terminal-nav-section-title span:last-child {
+  color: var(--muted);
+  letter-spacing: var(--tracking-sm);
+}
+
+.terminal-nav-empty {
+  padding: var(--space-md) var(--space-lg);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-md);
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
 .terminal-nav-row {
   width: 100%;
   position: relative;
@@ -118,6 +155,22 @@
 
 .terminal-nav-row-icon {
   color: color-mix(in srgb, var(--ink) 44%, transparent);
+}
+
+.terminal-nav-agent-dot {
+  width: 10px;
+  height: 10px;
+  justify-self: center;
+  border: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+.terminal-nav-agent-dot--bound {
+  border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  background: color-mix(in srgb, var(--accent) 62%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 .terminal-nav-row-main {

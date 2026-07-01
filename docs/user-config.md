@@ -48,8 +48,9 @@ Scout resolves your operator name in this order:
 
 1. `~/.openscout/user.json` → `name` field
 2. `OPENSCOUT_OPERATOR_NAME` environment variable
-3. `$USER` environment variable
-4. `"operator"` (hardcoded fallback)
+3. `~/Library/Application Support/OpenScout/settings.json` → `profile.operatorName`
+4. `$USER` environment variable
+5. `"operator"` (hardcoded fallback)
 
 The first non-empty value wins.
 

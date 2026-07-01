@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
-import type { WebSocket as NodeWebSocket } from "ws";
 import {
   attachSession,
   createSession,
@@ -25,7 +24,7 @@ import type {
 process.title = "scout-relay";
 
 const require = createRequire(import.meta.url);
-const { WebSocketServer } = require("ws") as typeof import("ws");
+const { WebSocketServer } = require("ws") as any;
 
 const hostname =
   process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HOST?.trim()
@@ -215,7 +214,7 @@ const server = createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ server });
 
-wss.on("connection", (ws: NodeWebSocket) => {
+wss.on("connection", (ws: any) => {
   let sessionId: string | null = null;
 
   ws.on("message", (raw: Buffer | string) => {

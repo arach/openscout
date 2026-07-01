@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
+import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 
 import { createScoutApp } from "./scout";
 import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
@@ -9,6 +9,7 @@ import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
+import { TerminalEmbedScreen } from "./screens/terminal/TerminalEmbedScreen.tsx";
 
 import {
   applyScoutThemeToDocument,
@@ -39,6 +40,10 @@ const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
 // Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
 // chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
 const isSessionEmbed = window.location.pathname === "/embed/session";
+// Content-only terminal cockpit for the native macOS Scout app. The selected
+// terminal route rides in `?route=/terminal/...` so in-embed navigation stays
+// inside the WKWebView instead of re-entering the full web shell.
+const isTerminalEmbed = window.location.pathname === "/embed/terminal";
 // Content-only agent lanes embed for native/macOS and HUD hosts. The /ops alias
 // stays for older app builds; new callers should use /embed/agent-lanes.
 const isAgentLanesEmbed = window.location.pathname === "/embed/agent-lanes"
@@ -54,21 +59,31 @@ createRoot(el).render(
     {isScoutbotFxLab ? (
       <ScoutbotFxLab />
     ) : observeEmbedMatch ? (
-      <scoutApp.Provider>
-        <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : isRepoDiffEmbed ? (
-      <scoutApp.Provider>
-        <RepoDiffEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <RepoDiffEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : isSessionEmbed ? (
-      <scoutApp.Provider>
-        <SessionEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <SessionEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
+    ) : isTerminalEmbed ? (
+      <TerminalEmbedScreen />
     ) : isAgentLanesEmbed ? (
-      <scoutApp.Provider>
-        <AgentLanesEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <AgentLanesEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : (
       <RouterProvider router={scoutTanstackRouter} />
     )}

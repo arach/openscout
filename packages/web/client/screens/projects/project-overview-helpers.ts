@@ -132,7 +132,6 @@ export function sessionLinesForRow(row: AgentOverviewRow, limit = 4): Array<{
 }
 
 export function permissionLabel(profile: LocalAgentConfigState["permissionProfile"]): string {
-  if (!profile) return "—";
-  if (typeof profile === "string") return profile;
-  return profile.name ?? profile.id ?? "custom";
+  if (typeof profile === "string" && profile) return profile;
+  return "—";
 }

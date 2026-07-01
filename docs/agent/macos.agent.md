@@ -89,7 +89,7 @@ Discipline: every store publishes through `setIfChanged`/`scoutSetIfChanged` (no
 |---|---|
 | dev build | `cd apps/macos && bun bin/scout-app.ts dev-build` (path Hudson, debug; `dev` also relaunches) |
 | release-ish build | `bun apps/macos/bin/scout-app.ts build` (git Hudson, release) |
-| raw swift | `HUDSONKIT_WITH_VOICE=1 swift build` — voice flag is mandatory |
+| raw swift | `HUDSONKIT_WITH_TERMINAL=1 swift build` — enables the native Hudson/Termini terminal surface |
 | helper bundle | `bun apps/macos/bin/openscout-menu.ts build|launch|restart|status` |
 | HUD CLI | `bun apps/macos/bin/openscout-menu.ts hud state|show|hide|toggle|tab <t>|size <s>|capture|matrix` (actions via `open -g scout://hud/*`, queries via state file) |
 | installer | `apps/macos/scripts/build-dmg.sh` → Hudson `hkit` (`HUDSON_DIR`/`HKIT_BIN`), contract `hudson-package.json`, embeds ScoutMenu.app under LoginItems; `SKIP_NOTARIZE=1` for local |

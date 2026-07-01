@@ -6,6 +6,7 @@ import SwiftUI
 enum ScoutSection: String, CaseIterable, Identifiable {
     case comms
     case agents
+    case terminals
     case tail
     case lanes
     case repos
@@ -17,6 +18,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         switch self {
         case .comms: return "Comms"
         case .agents: return "Agents"
+        case .terminals: return "Terminals"
         case .tail: return "Tail"
         case .lanes: return "Lanes"
         case .repos: return "Repos"
@@ -28,6 +30,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         switch self {
         case .comms: return "bubble.left.and.bubble.right"
         case .agents: return "person.2"
+        case .terminals: return "terminal"
         case .tail: return "waveform.path.ecg"
         case .lanes: return "rectangle.split.3x1"
         case .repos: return "arrow.triangle.branch"
@@ -39,7 +42,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         switch self {
         case .comms: return "bubble.left.and.bubble.right.fill"
         case .agents: return "person.2.fill"
-        case .tail, .lanes, .repos: return icon
+        case .terminals, .tail, .lanes, .repos: return icon
         case .settings: return "gearshape.fill"
         }
     }

@@ -50,7 +50,7 @@ export function useTailFeed(options?: {
   const discoveryIntervalMs = options?.discoveryIntervalMs ?? DEFAULT_DISCOVERY_INTERVAL_MS;
   const includeTranscriptReplay = options?.includeTranscriptReplay ?? false;
 
-  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(() => emptyTailDiscoverySnapshot());
+  const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [events, setEvents] = useState<TailEvent[]>([]);
 
   useTailEvents((event) => {

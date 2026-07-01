@@ -25,7 +25,6 @@ import {
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
   resolveProjectProvisionalAgentName,
-  resolveOpenScoutSupportPaths,
 } from "@openscout/runtime";
 
 import {
@@ -7380,6 +7379,7 @@ export async function createOpenScoutWebServer(
         const result = await scoutbotRunner.postOperatorMessage({
           body: messageBody,
           threadId,
+          attachments,
         });
         if (!result.usedBroker) {
           return c.json({ error: "broker unreachable" }, 502);
@@ -7400,6 +7400,7 @@ export async function createOpenScoutWebServer(
           const result = await scoutbotRunner.postOperatorMessage({
             body: messageBody,
             threadId,
+            attachments,
           });
           if (!result.usedBroker) {
             return c.json({ error: "broker unreachable" }, 502);
