@@ -938,7 +938,7 @@ export function ConversationScreen({
     };
 
     setSending(true);
-    if (isDm) {
+    if (isDm && action !== "tell") {
       setAwaitingResponseSince(optimisticCreatedAt);
     }
     setError(null);
@@ -949,7 +949,11 @@ export function ConversationScreen({
         action === "ask" ? "/api/ask" : "/api/send",
         {
           method: "POST",
-          body: JSON.stringify({ body: trimmed, conversationId }),
+          body: JSON.stringify({
+            body: trimmed,
+            conversationId,
+            ...(action !== "ask" ? { intent: action } : {}),
+          }),
         },
       );
       const routedConversationId = result.conversationId?.trim();
@@ -968,6 +972,8 @@ export function ConversationScreen({
         );
         setTurnActivity([]);
         setTurnAsk(null);
+      } else if (action !== "tell") {
+        setAwaitingResponseSince(null);
       }
     } catch (cause) {
       setMessages((previous) =>

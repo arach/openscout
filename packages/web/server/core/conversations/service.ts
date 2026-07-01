@@ -20,6 +20,7 @@ export type ScoutConversationListFilters = {
   query?: string;
   limit?: number;
   kinds?: ConversationKind[];
+  conversationId?: string;
 };
 
 /// Per-conversation ask signal surfaced to the comms list. `state` is "pending"
@@ -591,8 +592,14 @@ export async function getScoutConversations(
   const readAtByConversation = operatorReadAtByConversation(snapshot);
   const askByConversation = latestQuestionAskByConversation(snapshot);
 
+  const conversationIdFilter = filters.conversationId?.trim() || null;
+
   const summaries = Object.values(snapshot.conversations)
     .flatMap((conversation): ScoutConversationSummary[] => {
+      if (conversationIdFilter && conversation.id !== conversationIdFilter) {
+        return [];
+      }
+
       if (!isOpaqueChannelId(conversation.id)) {
         return [];
       }
@@ -711,4 +718,15 @@ export async function getScoutConversations(
     ? Math.floor(filters.limit)
     : null;
   return limit ? summaries.slice(0, limit) : summaries;
+}
+
+export async function getScoutConversationById(
+  conversationId: string,
+): Promise<ScoutConversationSummary | null> {
+  const normalizedId = conversationId.trim();
+  if (!normalizedId || !isOpaqueChannelId(normalizedId)) {
+    return null;
+  }
+  const matches = await getScoutConversations({ conversationId: normalizedId, limit: 1 });
+  return matches[0] ?? null;
 }

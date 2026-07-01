@@ -271,6 +271,16 @@ describe("agents route parsing", () => {
     expect(routePath(route)).toBe("/ops/tail?q=019ddb1b-test-thread");
   });
 
+  test("agent lanes bypass the broad ops feature gate", () => {
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/lanes?no-ops")).toEqual({
+      view: "ops",
+      mode: "lanes",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/control?no-ops")).toEqual({
+      view: "inbox",
+    });
+  });
+
   test("terminal routes tolerate trailing punctuation on mode deep links", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/terminal/hero.master?mode=takeover.")).toEqual({
       view: "terminal",

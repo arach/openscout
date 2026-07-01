@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 
 import { ThreadWatchProtocolError } from "./thread-events.js";
 import {
@@ -15,6 +16,7 @@ import {
   parseLimit,
   parseSince,
   readRequestBody,
+  readValidatedRequestBody,
   requestAbortSignal,
   serverTimingHeader,
   threadWatchError,
@@ -72,6 +74,27 @@ describe("broker http helpers", () => {
       status: 415,
       code: "unsupported_media_type",
     });
+  });
+
+  test("validates JSON request bodies with a schema", async () => {
+    const schema = z.object({
+      id: z.string().min(1),
+      count: z.number().int().positive(),
+    });
+
+    const validRequest = new PassThrough();
+    const valid = readValidatedRequestBody(validRequest as never, schema);
+    validRequest.end(JSON.stringify({ id: "item-1", count: 2 }));
+    await expect(valid).resolves.toEqual({ id: "item-1", count: 2 });
+
+    const invalidRequest = new PassThrough();
+    const invalid = readValidatedRequestBody(invalidRequest as never, schema);
+    invalidRequest.end(JSON.stringify({ id: "", count: 0 }));
+    await expect(invalid).rejects.toMatchObject({
+      status: 400,
+      code: "invalid_request",
+    });
+    await expect(invalid).rejects.toThrow("id:");
   });
 
   test("aborts active request work on caller disconnect", () => {

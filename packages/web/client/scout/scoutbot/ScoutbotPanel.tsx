@@ -21,9 +21,10 @@ import {
   isScoutSpeechStopped,
   playPreparedScoutSpeechWithEffects,
   prepareScoutSpeech,
-  shouldAutoProbeScoutVoice,
+  ensureScoutVoiceAutoProbe,
+  getSharedScoutVoiceClient,
   startScoutSpeechWithEffects,
-  ScoutVoiceClient,
+  subscribeScoutVoiceProbe,
   type ScoutVoiceLiveHandle,
   type ScoutVoiceSessionState,
   type ScoutSpeechHandle,
@@ -120,7 +121,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
   const [chatExpanded, setChatExpanded] = useState(false);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(null);
-  const clientRef = useRef<ScoutVoiceClient | null>(null);
+  const clientRef = useRef(getSharedScoutVoiceClient());
   const liveRef = useRef<ScoutVoiceLiveHandle | null>(null);
   const liveCancelReasonRef = useRef<ScoutVoiceCancelReason | null>(null);
   const speechRef = useRef<ScoutSpeechHandle | null>(null);
@@ -445,45 +446,46 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
     }
   }, [archivingSessionId, stopSpeech, syncLastMessages]);
 
-  const probeVoice = useCallback(async () => {
-    const client = clientRef.current ?? new ScoutVoiceClient();
-    clientRef.current = client;
-    setVoiceProbeState("probing");
-
-    const ok = await client.probe();
+  const applyProbeState = useCallback((client: ReturnType<typeof getSharedScoutVoiceClient>, ok: boolean) => {
     setVoiceAvailable(ok);
     setVoiceIssue(ok ? null : client.lastUnavailableReason ?? "Scout voice service is not reachable.");
     setVoiceProbeState("idle");
-    return ok;
   }, []);
 
+  const probeVoice = useCallback(async (force = false) => {
+    const client = clientRef.current;
+    setVoiceProbeState((state) => (state === "launching" ? state : "probing"));
+
+    const ok = await client.probe(force ? { force: true } : undefined);
+    applyProbeState(client, ok);
+    return ok;
+  }, [applyProbeState]);
+
   useEffect(() => {
-    if (!shouldAutoProbeScoutVoice()) {
+    ensureScoutVoiceAutoProbe();
+    const client = clientRef.current;
+    const unsubscribe = subscribeScoutVoiceProbe((snapshot) => {
+      setVoiceAvailable(snapshot.ok);
+      setVoiceIssue(snapshot.ok ? null : snapshot.reason);
       setVoiceProbeState("idle");
-      return;
+    });
+
+    if (client.connectionState === "unknown") {
+      void probeVoice();
+    } else {
+      applyProbeState(client, client.connectionState === "connected");
     }
 
-    void probeVoice();
-    const onFocus = () => { void probeVoice(); };
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") void probeVoice();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [probeVoice]);
+    return unsubscribe;
+  }, [applyProbeState, probeVoice]);
 
   const launchScoutVoice = useCallback(() => {
-    const client = clientRef.current ?? new ScoutVoiceClient();
-    clientRef.current = client;
+    const client = clientRef.current;
     setError(null);
     setVoiceProbeState("launching");
     void client.launch({ source: "openscout", context: makeScoutAudioLaunchContext() });
     window.setTimeout(() => {
-      void probeVoice();
+      void probeVoice(true);
     }, 2400);
   }, [probeVoice]);
 
@@ -877,15 +879,14 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
 
   const startVoice = useCallback(async () => {
     if (recording) return;
-    const client = clientRef.current ?? new ScoutVoiceClient();
-    clientRef.current = client;
+    const client = clientRef.current;
     liveCancelReasonRef.current = null;
     setError(null);
     setPartial("");
     setVoiceState("starting");
 
     if (voiceAvailable !== true) {
-      const ok = await probeVoice();
+      const ok = await probeVoice(true);
       if (!ok) {
         setVoiceState(null);
         return;
@@ -1296,7 +1297,7 @@ export function ScoutbotPanel({ height }: { height?: number } = {}) {
             issue={voiceIssue}
             probeState={voiceProbeState}
             onLaunch={launchScoutVoice}
-            onRetry={() => void probeVoice()}
+            onRetry={() => void probeVoice(true)}
             onSettings={() => setSettingsOpen(true)}
           />
         )}

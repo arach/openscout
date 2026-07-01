@@ -131,8 +131,8 @@ func scoutLanesEmbedURL(
     let override = ProcessInfo.processInfo.environment["OPENSCOUT_LANES_EMBED_URL"]?
         .trimmingCharacters(in: .whitespacesAndNewlines)
     let base = override.flatMap(URL.init(string:))
-        ?? ScoutWeb.url(path: "/ops/lanes/embed")
-        ?? ScoutWeb.baseURL().appending(path: "ops/lanes/embed")
+        ?? ScoutWeb.url(path: "/embed/agent-lanes")
+        ?? ScoutWeb.baseURL().appending(path: "embed/agent-lanes")
 
     guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
         return base
@@ -292,6 +292,22 @@ private struct ScoutLanesEmbedWebView: NSViewRepresentable {
             waitForLanesRender(in: webView, url: currentURL, token: navigationToken)
         }
 
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+        ) {
+            if navigationResponse.isForMainFrame,
+               let response = navigationResponse.response as? HTTPURLResponse,
+               !(200..<400).contains(response.statusCode) {
+                setPhase(.failed(Self.httpMessage(statusCode: response.statusCode)))
+                decisionHandler(.cancel)
+                return
+            }
+
+            decisionHandler(.allow)
+        }
+
         private func waitForLanesRender(in webView: WKWebView, url: URL, token: UUID) {
             guard token == navigationToken, readyURL != url else { return }
 
@@ -304,11 +320,13 @@ private struct ScoutLanesEmbedWebView: NSViewRepresentable {
               const tailLoading = emptyText.includes('Loading tail stream');
               const lanes = document.querySelectorAll('.s-agent-lane').length;
               const bodyText = document.body?.innerText || '';
+              const viteUnavailable = bodyText.includes('Vite dev server unavailable');
               const shellReady = bar && (scroll || empty);
               const contentReady = shellReady && !tailLoading && (lanes > 0 || Boolean(empty));
               return {
                 ready: contentReady,
-                hasText: bodyText.trim().length > 8
+                hasText: bodyText.trim().length > 8,
+                viteUnavailable
               };
             })()
             """
@@ -320,6 +338,10 @@ private struct ScoutLanesEmbedWebView: NSViewRepresentable {
                     let payload = result as? [String: Any]
                     let rendered = payload?["ready"] as? Bool ?? false
                     let hasText = payload?["hasText"] as? Bool ?? false
+                    if payload?["viteUnavailable"] as? Bool == true {
+                        self.setPhase(.failed("Scout web could not load the Agent lanes assets."))
+                        return
+                    }
                     let canReveal = rendered && hasText && elapsed >= self.minimumLoaderDwell
                     if canReveal || elapsed >= self.maximumRenderWait {
                         self.markReady(url)
@@ -355,6 +377,13 @@ private struct ScoutLanesEmbedWebView: NSViewRepresentable {
 
         private static func message(for error: Error) -> String {
             ScoutAppError.userFacing(error, connectionMessage: "Could not connect to the Scout web app.")
+        }
+
+        private static func httpMessage(statusCode: Int) -> String {
+            if statusCode == 502 {
+                return "Scout web could not load the Agent lanes assets."
+            }
+            return "Scout web returned HTTP \(statusCode) while loading Agent lanes."
         }
     }
 }

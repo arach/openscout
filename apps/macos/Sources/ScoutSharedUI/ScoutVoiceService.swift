@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 import os.log
@@ -28,6 +29,7 @@ public final class ScoutVoiceService: ObservableObject {
     private var deliveredFinalCount = 0
 
     private init() {
+        dictation.preference = ScoutVoiceSettingsStore.loadPreference()
         dictation.onFinal = { [weak self] text in
             Task { @MainActor [weak self] in
                 self?.deliverFinal(text)
@@ -37,19 +39,69 @@ public final class ScoutVoiceService: ObservableObject {
         syncFromDictation()
     }
 
+    public var preference: HudDictation.Preference {
+        get { dictation.preference }
+        set {
+            dictation.preference = newValue
+            ScoutVoiceSettingsStore.savePreference(newValue)
+            if newValue == .apple {
+                dictation.prepare()
+            }
+        }
+    }
+
+    public var modelReady: Bool { dictation.modelReady }
+    public var modelInstalled: Bool { dictation.modelInstalled }
+    public var lastEngine: HudDictation.Engine { dictation.lastEngine }
+
+    public func applySettings(
+        preference: HudDictation.Preference?,
+        inputDeviceId: String?
+    ) {
+        if let preference {
+            self.preference = preference
+        }
+        if let inputDeviceId {
+            ScoutVoiceSettingsStore.saveInputDeviceId(inputDeviceId.isEmpty ? nil : inputDeviceId)
+        }
+        dictation.prepare()
+    }
+
     // MARK: - Readiness
 
     /// Warm HudsonKit's preferred model when possible. Capture can still start
     /// while the model warms; HudsonKit falls back to Apple Speech when needed.
     public func probe() async {
+        refreshPermissionState()
         dictation.prepare()
         await dictation.refreshStatus()
         syncFromDictation()
     }
 
+    /// Requests macOS microphone access when needed. HudsonKit skips this on macOS,
+    /// so Scout must prompt before capture begins.
+    public func ensureCaptureAccess() async -> Bool {
+        refreshPermissionState()
+
+        let micGranted = await ScoutVoicePermissions.ensureMicrophoneAccess()
+        if !micGranted {
+            let message = ScoutVoicePermissions.microphoneStatusMessage(
+                for: AVCaptureDevice.authorizationStatus(for: .audio)
+            )
+            setIfChanged(.unavailable(reason: message), to: \.state)
+            return false
+        }
+
+        _ = await ScoutVoicePermissions.ensureSpeechRecognitionAccess()
+        refreshPermissionState()
+        return true
+    }
+
     // MARK: - Session
 
-    public func start() {
+    public func start(inputDeviceId: String? = nil) {
+        let deviceId = inputDeviceId ?? ScoutVoiceSettingsStore.loadInputDeviceId()
+        ScoutVoiceInputDeviceRouting.applyPreferredInput(deviceId: deviceId)
         setIfChanged("", to: \.partial)
         setIfChanged(.starting, to: \.state)
         log.info("start() — HudsonKit dictation")
@@ -128,6 +180,25 @@ public final class ScoutVoiceService: ObservableObject {
     private func setIfChanged<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<ScoutVoiceService, T>) {
         if self[keyPath: keyPath] != value {
             self[keyPath: keyPath] = value
+        }
+    }
+
+    private func refreshPermissionState() {
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        switch micStatus {
+        case .authorized:
+            if case .unavailable = state {
+                setIfChanged(.idle, to: \.state)
+            }
+        case .denied, .restricted:
+            setIfChanged(
+                .unavailable(reason: ScoutVoicePermissions.microphoneStatusMessage(for: micStatus)),
+                to: \.state
+            )
+        case .notDetermined:
+            break
+        @unknown default:
+            break
         }
     }
 

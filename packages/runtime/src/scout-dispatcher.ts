@@ -25,6 +25,7 @@ import {
 import type { createInMemoryControlRuntime } from "./broker.js";
 import {
   endpointAvailabilityScore,
+  endpointLifecycleAt,
   endpointCandidateState,
   endpointMatchesTargetSession,
   homeEndpointForAgent,
@@ -335,11 +336,15 @@ function resolveSessionHandleLabel(
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
-  if (matches.length !== 1) {
+  if (matches.length === 0) {
     return null;
   }
 
-  const { actor, endpoint } = matches[0]!;
+  const { actor, endpoint } = [...matches].sort((left, right) => (
+    endpointAvailabilityScore(right.endpoint) - endpointAvailabilityScore(left.endpoint)
+    || endpointLifecycleAt(right.endpoint) - endpointLifecycleAt(left.endpoint)
+    || right.actor.id.localeCompare(left.actor.id)
+  ))[0]!;
   const sessionId = actor.id;
   return {
     kind: "resolved_session",

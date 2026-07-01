@@ -64,6 +64,7 @@ type DeliveryRow = {
   created_at: number;
   conversation_id: string | null;
   actor_name: string | null;
+  metadata_json: string | null;
 };
 
 type DeliveryAttemptRow = {
@@ -107,6 +108,11 @@ function metadataRoute(metadata: Record<string, unknown> | null): string | null 
   return typeof relayChannel === "string" && relayChannel.trim()
     ? relayChannel.trim()
     : null;
+}
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isBrokerRoutedMessage(metadata: Record<string, unknown> | null): boolean {
@@ -409,6 +415,7 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
          d.reason,
          d.status,
          d.created_at,
+         d.metadata_json,
          m.conversation_id,
          ac.display_name AS actor_name
        FROM deliveries d
@@ -422,6 +429,11 @@ function queryFailedDeliveryRows(limit: number, cursor: BrokerCursor | null, sin
 }
 
 function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
+  const deliveryMetadata = parseJson<Record<string, unknown> | null>(row.metadata_json, null);
+  const failureReason = metadataString(deliveryMetadata, "failureReason");
+  const failureDetail = metadataString(deliveryMetadata, "failureDetail");
+  const reconciledReason = metadataString(deliveryMetadata, "reconciledReason");
+
   return {
     id: `delivery:${row.id}`,
     kind: "failed_delivery",
@@ -437,9 +449,34 @@ function failedDeliveryFromRow(row: DeliveryRow): WebBrokerRouteAttempt {
     invocationId: row.invocation_id,
     metadata: {
       source: "deliveries",
+      deliveryId: row.id,
+      messageId: row.message_id,
+      conversationId: row.conversation_id,
+      invocationId: row.invocation_id,
       targetId: row.target_id,
       transport: row.transport,
       reason: row.reason,
+      status: row.status,
+      createdAt: row.created_at,
+      actorName: row.actor_name,
+      ...(failureReason ? { failureReason } : {}),
+      ...(failureDetail ? { failureDetail } : {}),
+      ...(reconciledReason ? { reconciledReason } : {}),
+      raw: {
+        delivery: {
+          id: row.id,
+          messageId: row.message_id,
+          invocationId: row.invocation_id,
+          targetId: row.target_id,
+          transport: row.transport,
+          reason: row.reason,
+          status: row.status,
+          createdAt: row.created_at,
+          conversationId: row.conversation_id,
+          actorName: row.actor_name,
+          metadata: deliveryMetadata,
+        },
+      },
     },
   };
 }
@@ -517,12 +554,14 @@ export function queryBrokerDiagnostics(opts?: {
   limit?: number;
   windowMs?: number;
   cursor?: string | null;
+  scopeRowsToWindow?: boolean;
 }): WebBrokerDiagnostics {
   const limit = opts?.limit ?? 120;
   const windowMs = opts?.windowMs ?? DEFAULT_BROKER_WINDOW_MS;
   const cursor = decodeBrokerCursor(opts?.cursor);
   const now = Date.now();
   const since = now - windowMs;
+  const rowSince = opts?.scopeRowsToWindow ? since : undefined;
   const messageCreatedAtExpression = sqlTimestampMsExpression("m.created_at");
   const dispatchAtExpression = sqlTimestampMsExpression("sd.dispatched_at");
   const deliveryCreatedAtExpression = sqlTimestampMsExpression("d.created_at");
@@ -532,23 +571,24 @@ export function queryBrokerDiagnostics(opts?: {
     queryMessageRows({
       limit: limit + 1,
       cursor,
+      since: rowSince,
       sortIdExpression: "m.id",
     }).map(dialogueItemFromRow),
     limit,
   );
 
-  const successfulDispatches = queryRoutedMessageAttempts(limit, cursor);
-  const failedQueries = queryDispatchRows(limit + 1, cursor).map(failedQueryFromRow);
+  const successfulDispatches = queryRoutedMessageAttempts(limit, cursor, rowSince);
+  const failedQueries = queryDispatchRows(limit + 1, cursor, rowSince).map(failedQueryFromRow);
   const failedQueriesPage = paginateHistory(
     failedQueries,
     limit,
   );
-  const failedDeliveries = queryFailedDeliveryRows(limit + 1, cursor).map(failedDeliveryFromRow);
+  const failedDeliveries = queryFailedDeliveryRows(limit + 1, cursor, rowSince).map(failedDeliveryFromRow);
   const failedDeliveriesPage = paginateHistory(
     failedDeliveries,
     limit,
   );
-  const deliveryAttempts = queryDeliveryAttemptRows(limit + 1, cursor).map(deliveryAttemptFromRow);
+  const deliveryAttempts = queryDeliveryAttemptRows(limit + 1, cursor, rowSince).map(deliveryAttemptFromRow);
 
   const attempts = [
     ...successfulDispatches,

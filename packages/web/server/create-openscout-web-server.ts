@@ -113,7 +113,7 @@ import {
   upsertScoutUnblockRequest,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
-import { getScoutConversations } from "./core/conversations/service.ts";
+import { getScoutConversationById, getScoutConversations } from "./core/conversations/service.ts";
 import {
   loadAgentObservePayload,
   loadAgentObserveSummaries,
@@ -219,6 +219,25 @@ import {
   transcribeScoutVoiceAudio,
   type ScoutSpeechTimingRequest,
 } from "./scout-voice.ts";
+import {
+  ScoutVoiceSessionError,
+  awaitScoutVoiceHostCommand,
+  cancelScoutVoiceSession,
+  createScoutVoiceSession,
+  formatScoutVoiceSessionSse,
+  getScoutVoiceSettingsSnapshot,
+  isTerminalScoutVoiceSessionEvent,
+  listScoutVoiceSessionHistory,
+  openScoutVoicePrivacySettings,
+  requestScoutVoicePermissions,
+  pushScoutVoiceHostEvent,
+  registerScoutVoiceHost,
+  stopScoutVoiceSession,
+  subscribeScoutVoiceSession,
+  updateScoutVoiceSettings,
+  type ScoutVoiceSessionEventName,
+} from "./scout-voice-session.ts";
+import { engageScoutVoiceDictation } from "./scout-voice-engage.ts";
 import {
   createOpenScoutVantageHandoff,
   type OpenScoutVantageHandoff,
@@ -3005,6 +3024,14 @@ function parseScoutSpeechTimingRequest(value: unknown): ScoutSpeechTimingRequest
   };
 }
 
+function jsonScoutVoiceSessionError(error: unknown): Response {
+  if (error instanceof ScoutVoiceSessionError) {
+    return Response.json({ error: error.message, code: error.code }, { status: error.status });
+  }
+  const message = error instanceof Error ? error.message : "Scout voice session failed";
+  return Response.json({ error: message }, { status: 500 });
+}
+
 function parseScoutVoiceAudioFormat(value: string | undefined): "mp3" | "wav" | "aac" | "opus" | "pcm16" | null | undefined {
   const normalized = value?.trim().toLowerCase();
   if (!normalized) return undefined;
@@ -3089,6 +3116,24 @@ function inferDirectSenderId(
   // Web-originated sends must use the canonical operator actor id so direct
   // chat membership stays stable while the chat id itself remains opaque.
   return "operator";
+}
+
+function sessionIncludesOperatorParticipant(session: { participantIds: string[] } | null): boolean {
+  if (!session) return false;
+  const operatorIds = new Set([
+    "operator",
+    process.env.OPENSCOUT_OPERATOR_NAME?.trim(),
+    ...configuredOperatorActorIds(),
+  ].filter((value): value is string => Boolean(value)));
+  return session.participantIds.some((participantId) => operatorIds.has(participantId));
+}
+
+function defaultSendModeForConversationSession(
+  session: { kind: string; participantIds: string[] } | null,
+): "tell" | "steer" {
+  return session?.kind === "direct" && sessionIncludesOperatorParticipant(session)
+    ? "tell"
+    : "steer";
 }
 
 function inferChannelName(
@@ -3511,6 +3556,140 @@ function compactScoutbotText(value: string | null | undefined, max = 280): strin
     return null;
   }
   return compacted.length > max ? `${compacted.slice(0, max - 1)}...` : compacted;
+}
+
+type BrokerDispatchReviewAttempt = ReturnType<typeof queryBrokerDiagnostics>["attempts"][number];
+
+function normalizeBrokerFingerprintPart(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
+function brokerReviewMetadata(attempt: BrokerDispatchReviewAttempt): Record<string, unknown> {
+  return recordInput(attempt.metadata) ?? {};
+}
+
+function brokerReviewRawDeliveryMetadata(attempt: BrokerDispatchReviewAttempt): Record<string, unknown> | null {
+  const metadata = brokerReviewMetadata(attempt);
+  const raw = recordInput(metadata.raw);
+  const delivery = recordInput(raw?.delivery);
+  return recordInput(delivery?.metadata);
+}
+
+function brokerAttemptReviewFingerprint(attempt: BrokerDispatchReviewAttempt): string {
+  const metadata = brokerReviewMetadata(attempt);
+  const messageId = attempt.messageId ?? metadataStringValue(metadata, "messageId");
+  const target = attempt.target ?? metadataStringValue(metadata, "targetId");
+  const transport = attempt.route ?? metadataStringValue(metadata, "transport");
+  if (attempt.kind === "failed_delivery" && messageId && target && transport) {
+    return ["failed_delivery", messageId, target, transport].join("|");
+  }
+
+  return [
+    attempt.kind,
+    messageId ?? attempt.deliveryId ?? attempt.invocationId ?? attempt.id,
+    target,
+    transport,
+    metadataStringValue(metadata, "failureReason")
+      ?? metadataStringValue(metadata, "reconciledReason")
+      ?? metadataStringValue(metadata, "reason")
+      ?? metadataStringValue(metadata, "error")
+      ?? attempt.detail,
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map(normalizeBrokerFingerprintPart)
+    .join("|");
+}
+
+function brokerAttemptReviewRootCauseFingerprint(attempt: BrokerDispatchReviewAttempt): string {
+  const metadata = brokerReviewMetadata(attempt);
+  const deliveryMetadata = brokerReviewRawDeliveryMetadata(attempt);
+  return [
+    attempt.kind,
+    attempt.target ?? metadataStringValue(metadata, "targetId"),
+    attempt.route ?? metadataStringValue(metadata, "transport"),
+    metadataStringValue(metadata, "failureReason")
+      ?? metadataStringValue(metadata, "reconciledReason")
+      ?? metadataStringValue(metadata, "error")
+      ?? metadataStringValue(deliveryMetadata, "failureReason")
+      ?? metadataStringValue(deliveryMetadata, "reconciledReason")
+      ?? metadataStringValue(deliveryMetadata, "error")
+      ?? attempt.status,
+    metadataStringValue(metadata, "failureDetail")
+      ?? metadataStringValue(deliveryMetadata, "failureDetail")
+      ?? metadataStringValue(metadata, "reason")
+      ?? attempt.detail,
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map((value) => normalizeBrokerFingerprintPart(value).toLowerCase())
+    .join("|");
+}
+
+function brokerAttemptReviewContextText(input: {
+  attempt: BrokerDispatchReviewAttempt;
+  related: BrokerDispatchReviewAttempt[];
+  windowMs: number;
+}): string {
+  const fingerprint = brokerAttemptReviewFingerprint(input.attempt);
+  const rootCauseFingerprint = brokerAttemptReviewRootCauseFingerprint(input.attempt);
+  const context = {
+    generatedAt: new Date().toISOString(),
+    windowMs: input.windowMs,
+    dedupeFingerprint: fingerprint,
+    rootCauseFingerprint,
+    attempt: input.attempt,
+    relatedAttempts: input.related,
+  };
+  return [
+    "OpenScout dispatch failure context",
+    "",
+    `id: ${input.attempt.id}`,
+    `kind: ${input.attempt.kind}`,
+    `status: ${input.attempt.status}`,
+    `time: ${new Date(input.attempt.ts).toISOString()}`,
+    `target: ${input.attempt.target ?? "none"}`,
+    `transport/route: ${input.attempt.route ?? "none"}`,
+    `messageId: ${input.attempt.messageId ?? "none"}`,
+    `deliveryId: ${input.attempt.deliveryId ?? "none"}`,
+    `invocationId: ${input.attempt.invocationId ?? "none"}`,
+    `conversationId: ${input.attempt.conversationId ?? "none"}`,
+    `detail: ${input.attempt.detail}`,
+    `dedupeFingerprint: ${fingerprint}`,
+    `rootCauseFingerprint: ${rootCauseFingerprint}`,
+    "",
+    "Full JSON:",
+    JSON.stringify(context, null, 2),
+  ].join("\n");
+}
+
+function brokerDispatchReviewPrompt(input: {
+  attempt: BrokerDispatchReviewAttempt;
+  related: BrokerDispatchReviewAttempt[];
+  windowMs: number;
+}): string {
+  return [
+    "Review this from first principles, then inspect the relevant implementation.",
+    "",
+    "Topic: OpenScout failed dispatch / failed delivery",
+    "Workspace: /Users/art/dev/openscout",
+    "",
+    "User goal:",
+    "- Diagnose this failed dispatch from the Dispatch screen.",
+    "- Identify the root cause and the narrowest fix.",
+    "- Explain how to avoid readdressing the same failure cluster in the recurring triage loop.",
+    "",
+    "Observed failed dispatch context:",
+    "```text",
+    brokerAttemptReviewContextText(input),
+    "```",
+    "",
+    "Please answer:",
+    "1. What is the likely root cause? Distinguish symptom from cause.",
+    "2. Is this a duplicate of an already-known failure cluster? Use the dedupe fingerprint and related rows.",
+    "3. What code change, config fix, or operational action should resolve it?",
+    "4. What checks would prove the fix?",
+    "",
+    "Return findings by severity with file/line or command evidence where possible. Do not edit files unless the user explicitly asks in a follow-up.",
+  ].join("\n");
 }
 
 function buildScoutEntityId(prefix: string, createdAtMs: number): string {
@@ -6083,9 +6262,105 @@ export async function createOpenScoutWebServer(
         limit: parseOptionalPositiveInt(c.req.query("limit"), 120),
         windowMs: parseOptionalPositiveInt(c.req.query("windowMs")),
         cursor: c.req.query("cursor") ?? null,
+        scopeRowsToWindow: c.req.query("scopeRowsToWindow") === "1"
+          || c.req.query("scopeRowsToWindow") === "true",
       }),
     ),
   );
+  app.post("/api/broker/dispatch-review", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      attemptId?: string;
+      attempt?: BrokerDispatchReviewAttempt;
+    };
+    const attemptId = optionalString(body.attemptId)?.trim()
+      || optionalString(body.attempt?.id)?.trim();
+    const windowMs = 30 * 60_000;
+    const diagnostics = queryBrokerDiagnostics({
+      limit: 240,
+      windowMs,
+      scopeRowsToWindow: true,
+    });
+    const candidates = [
+      ...diagnostics.failedDeliveries,
+      ...diagnostics.failedQueries,
+      ...diagnostics.attempts,
+    ];
+    const attempt = attemptId
+      ? candidates.find((entry) => entry.id === attemptId)
+      : body.attempt;
+    if (!attempt?.id) {
+      return c.json({ error: "attemptId or attempt is required" }, 400);
+    }
+    if (attempt.kind !== "failed_delivery" && attempt.kind !== "failed_query" && attempt.status !== "failed") {
+      return c.json({ error: "dispatch review requires a failed dispatch row" }, 400);
+    }
+
+    const dedupeFingerprint = brokerAttemptReviewFingerprint(attempt);
+    const rootCauseFingerprint = brokerAttemptReviewRootCauseFingerprint(attempt);
+    const related = candidates
+      .filter((entry) => entry.id !== attempt.id)
+      .filter((entry) =>
+        brokerAttemptReviewFingerprint(entry) === dedupeFingerprint
+        || brokerAttemptReviewRootCauseFingerprint(entry) === rootCauseFingerprint
+        || Boolean(attempt.messageId && entry.messageId === attempt.messageId)
+        || Boolean(attempt.conversationId && entry.conversationId === attempt.conversationId)
+        || (
+          Boolean(attempt.target && entry.target === attempt.target)
+          && Boolean(attempt.route && entry.route === attempt.route)
+          && entry.kind === attempt.kind
+        )
+      )
+      .slice(0, 12);
+    const requestMetadata = {
+      source: "scout-dispatch-review",
+      dispatchAttemptId: attempt.id,
+      ...(attempt.deliveryId ? { deliveryId: attempt.deliveryId } : {}),
+      ...(attempt.messageId ? { messageId: attempt.messageId } : {}),
+      ...(attempt.conversationId ? { conversationId: attempt.conversationId } : {}),
+      ...(attempt.target ? { targetId: attempt.target } : {}),
+      ...(attempt.route ? { transport: attempt.route } : {}),
+      dedupeFingerprint,
+      rootCauseFingerprint,
+    };
+
+    const result = await askScoutQuestion({
+      senderId: resolveOperatorName().trim() || "operator",
+      target: { kind: "project_path", projectPath: currentDirectory },
+      body: brokerDispatchReviewPrompt({ attempt, related, windowMs }),
+      executionHarness: "codex",
+      projectAgent: {
+        persistence: "one_time",
+      },
+      currentDirectory,
+      source: "scout-dispatch-review",
+      messageMetadata: requestMetadata,
+      invocationMetadata: requestMetadata,
+    });
+
+    if (!result.usedBroker) {
+      return c.json({ error: "broker unreachable" }, 502);
+    }
+    if (result.unresolvedTarget) {
+      return c.json(
+        {
+          error: `could not route dispatch review to ${result.unresolvedTarget}`,
+          targetDiagnostic: result.targetDiagnostic ?? null,
+        },
+        409,
+      );
+    }
+
+    return c.json({
+      ok: true,
+      conversationId: result.conversationId ?? null,
+      messageId: result.messageId ?? null,
+      flightId: result.flight?.id ?? null,
+      targetAgentId: result.flight?.targetAgentId ?? result.targetAgentId ?? null,
+      targetLabel: result.targetLabel ?? null,
+      dedupeFingerprint,
+      rootCauseFingerprint,
+    });
+  });
   app.get("/api/heartrate", (c) => c.json(queryHeartrate()));
   app.get("/api/service-budgets", async (c) => {
     const refresh = c.req.query("refresh");
@@ -6557,13 +6832,17 @@ export async function createOpenScoutWebServer(
     }
     return c.json(sessionTouchedResponse(payload, refId));
   });
-  app.get("/api/session/:id", (c) => {
+  app.get("/api/session/:id", async (c) => {
     const chatId = c.req.param("id");
     if (!isOpaqueChannelId(chatId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
     const session = querySessionById(chatId);
-    return session ? c.json(session) : c.json({ error: "not found" }, 404);
+    if (session) {
+      return c.json(session);
+    }
+    const conversation = await getScoutConversationById(chatId);
+    return conversation ? c.json(conversation) : c.json({ error: "not found" }, 404);
   });
   app.get("/api/mesh", async (c) => {
     try {
@@ -7091,7 +7370,8 @@ export async function createOpenScoutWebServer(
     if (routeCId && !isOpaqueChannelId(routeCId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
-    if (routeCId && !querySessionById(routeCId)) {
+    const routeSession = routeCId ? querySessionById(routeCId) : null;
+    if (routeCId && !routeSession) {
       return c.json({ error: "chat not found" }, 404);
     }
 
@@ -7143,8 +7423,8 @@ export async function createOpenScoutWebServer(
     if (routedConversationId) {
       const sendMode = (optionalString(intent)?.trim()
         || optionalString(mode)?.trim()
-        || "steer").toLowerCase();
-      const shouldCommentOnly = sendMode === "comment" || !messageBody;
+        || defaultSendModeForConversationSession(routeSession)).toLowerCase();
+      const shouldCommentOnly = sendMode === "comment" || sendMode === "tell" || !messageBody;
       const scopedTargetParticipantIds = Array.isArray(targetParticipantIds)
         ? targetParticipantIds.filter((targetId): targetId is string => typeof targetId === "string")
         : undefined;
@@ -7282,6 +7562,243 @@ export async function createOpenScoutWebServer(
     const health = await getScoutVoiceHealth();
     const quietProbe = c.req.query("quiet") === "1";
     return c.json(health, health.ok || quietProbe ? 200 : 503);
+  });
+
+  app.get("/api/voice/settings", (c) => {
+    return c.json(getScoutVoiceSettingsSnapshot());
+  });
+
+  app.post("/api/voice/engage", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      surface?: string;
+      requestPermissions?: boolean;
+    };
+    try {
+      return c.json(engageScoutVoiceDictation(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/history", (c) => {
+    const limit = parseOptionalPositiveInt(c.req.query("limit"), 20) ?? 20;
+    return c.json({ sessions: listScoutVoiceSessionHistory(limit) });
+  });
+
+  app.put("/api/voice/settings", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      preference?: "auto" | "parakeet" | "apple";
+      inputDeviceId?: string | null;
+    };
+    try {
+      return c.json(updateScoutVoiceSettings(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/permissions/open", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: "microphone" | "speechRecognition";
+    };
+    try {
+      return c.json(openScoutVoicePrivacySettings(body.kind ?? "microphone"));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/permissions/request", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      kind?: "microphone" | "speechRecognition";
+    };
+    try {
+      return c.json(requestScoutVoicePermissions(body.kind ?? "microphone"));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/host/register", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      hostId?: string;
+      platform?: string;
+      bundle?: string;
+      settings?: {
+        preference?: "auto" | "parakeet" | "apple";
+        inputDeviceId?: string | null;
+        inputDeviceName?: string | null;
+        modelReady?: boolean;
+        modelInstalled?: boolean;
+        permissions?: Array<{
+          kind?: "microphone" | "speechRecognition";
+          status?: string;
+          granted?: boolean;
+          canRequest?: boolean;
+        }>;
+      };
+      devices?: Array<{ id?: string; name?: string; isDefault?: boolean }>;
+    };
+    try {
+      return c.json(registerScoutVoiceHost({
+        hostId: body.hostId ?? "",
+        platform: body.platform ?? "unknown",
+        bundle: body.bundle,
+        settings: body.settings,
+        devices: (body.devices ?? [])
+          .map((device) => ({
+            id: device.id?.trim() ?? "",
+            name: device.name?.trim() ?? "Microphone",
+            isDefault: Boolean(device.isDefault),
+          }))
+          .filter((device) => device.id.length > 0),
+      }));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/host/commands", async (c) => {
+    const hostId = c.req.query("hostId")?.trim();
+    if (!hostId) {
+      return c.json({ error: "hostId is required" }, 400);
+    }
+    const timeoutMs = parseOptionalPositiveInt(c.req.query("timeoutMs"), 25_000) ?? 25_000;
+    try {
+      return c.json(await awaitScoutVoiceHostCommand(hostId, timeoutMs));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/host/events", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      hostId?: string;
+      sessionId?: string;
+      event?: string;
+      data?: Record<string, unknown>;
+    };
+    const hostId = body.hostId?.trim();
+    const sessionId = body.sessionId?.trim();
+    const event = body.event?.trim() as ScoutVoiceSessionEventName | undefined;
+    if (!hostId || !sessionId || !event) {
+      return c.json({ error: "hostId, sessionId, and event are required" }, 400);
+    }
+    try {
+      return c.json(pushScoutVoiceHostEvent({
+        hostId,
+        sessionId,
+        event,
+        data: body.data,
+      }));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      clientId?: string;
+      surface?: string;
+      language?: string;
+      sessionId?: string;
+    };
+    try {
+      return c.json(createScoutVoiceSession(body));
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.get("/api/voice/session/:sessionId/events", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+
+    const encoder = new TextEncoder();
+    const signal = c.req.raw.signal;
+
+    try {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          let closed = false;
+          const safeEnqueue = (chunk: Uint8Array) => {
+            if (closed) return;
+            try {
+              controller.enqueue(chunk);
+            } catch {
+              closed = true;
+            }
+          };
+
+          let heartbeat: ReturnType<typeof setInterval> | null = null;
+          let unsubscribe = () => undefined;
+
+          const close = () => {
+            if (closed) return;
+            closed = true;
+            if (heartbeat) clearInterval(heartbeat);
+            unsubscribe();
+            try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+          };
+
+          heartbeat = setInterval(() => {
+            safeEnqueue(encoder.encode(`: keep-alive ${Date.now()}\n\n`));
+          }, 15_000);
+
+          unsubscribe = subscribeScoutVoiceSession(sessionId, (event) => {
+            safeEnqueue(encoder.encode(formatScoutVoiceSessionSse(event)));
+            if (isTerminalScoutVoiceSessionEvent(event)) {
+              close();
+            }
+          });
+
+          signal.addEventListener("abort", close, { once: true });
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-accel-buffering": "no",
+        },
+      });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session/:sessionId/stop", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+    try {
+      stopScoutVoiceSession(sessionId);
+      return c.json({ ok: true, sessionId });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
+  });
+
+  app.post("/api/voice/session/:sessionId/cancel", (c) => {
+    const sessionId = c.req.param("sessionId")?.trim();
+    if (!sessionId) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+    try {
+      cancelScoutVoiceSession(sessionId);
+      return c.json({ ok: true, sessionId });
+    } catch (error) {
+      return jsonScoutVoiceSessionError(error);
+    }
   });
 
   app.post("/api/voice/transcribe", async (c) => {

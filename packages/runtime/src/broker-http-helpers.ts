@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { A2A_JSON_RPC_CONTENT_TYPE } from "@openscout/protocol";
+import type { z } from "zod";
 
 import { ThreadWatchProtocolError } from "./thread-events.js";
 
@@ -65,6 +66,37 @@ export function readRequestBody<T>(
     });
     request.on("error", reject);
   });
+}
+
+function formatZodPath(path: Array<PropertyKey>): string {
+  return path.length > 0 ? path.map((part) => String(part)).join(".") : "body";
+}
+
+function formatZodIssues(error: z.ZodError): string {
+  const issues = error.issues.slice(0, 5).map((issue) =>
+    `${formatZodPath(issue.path)}: ${issue.message}`
+  );
+  const suffix = error.issues.length > issues.length
+    ? `; ${error.issues.length - issues.length} more issue(s)`
+    : "";
+  return `${issues.join("; ")}${suffix}`;
+}
+
+export async function readValidatedRequestBody<T>(
+  request: IncomingMessage,
+  schema: z.ZodType<T>,
+  options: { maxBytes?: number; requireJsonContentType?: boolean } = {},
+): Promise<T> {
+  const value = await readRequestBody<unknown>(request, options);
+  const result = schema.safeParse(value);
+  if (!result.success) {
+    throw new BrokerHttpRequestError(
+      400,
+      "invalid_request",
+      formatZodIssues(result.error),
+    );
+  }
+  return result.data;
 }
 
 export function requestAbortSignal(request: IncomingMessage, response: ServerResponse): AbortSignal {

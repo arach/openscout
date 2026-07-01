@@ -121,6 +121,11 @@ export function useScoutCommands(): CommandOption[] {
         label: "Open Providers",
         action: () => navigate({ view: "harnesses" }),
       },
+      {
+        id: "nav:ops-lanes",
+        label: "Open Agent Lanes",
+        action: () => navigate({ view: "ops", mode: "lanes" }),
+      },
       ...(opsEnabled ? [{
         id: "nav:ops",
         label: "Go to Ops",
@@ -130,10 +135,6 @@ export function useScoutCommands(): CommandOption[] {
         id: "nav:ops-atop",
         label: "Open Runtime",
         action: () => navigate({ view: "ops", mode: "atop" }),
-      }, {
-        id: "nav:ops-lanes",
-        label: "Open Agent Lanes",
-        action: () => navigate({ view: "ops", mode: "lanes" }),
       }, {
         id: "nav:workflow-topology",
         label: "Open Workflow Topology",

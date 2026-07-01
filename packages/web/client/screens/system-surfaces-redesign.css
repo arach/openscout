@@ -510,6 +510,38 @@
   white-space: nowrap;
 }
 
+.sys-broker-row--failure .sys-broker-cell-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  align-self: stretch;
+}
+
+.sys-broker-row--failure .sys-broker-title {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.sys-broker-status--error {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.sys-broker-error-detail {
+  margin: 0;
+  color: color-mix(in srgb, var(--danger) 78%, var(--muted));
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sys-broker-row--ledger .sys-broker-meta {
   flex-wrap: nowrap;
   gap: var(--space-md);
@@ -607,9 +639,60 @@
   gap: var(--space-2xl);
 }
 
+.sys-broker-inspector-error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-left: 3px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+.sys-broker-inspector-error-label {
+  color: var(--danger);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.sys-broker-inspector-error p {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+}
+
 .sys-broker-inspector-grid {
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--space-md);
+}
+
+.sys-broker-review-status {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.sys-broker-review-status--sent {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  color: color-mix(in srgb, var(--success) 78%, var(--ink));
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.sys-broker-review-status--failed {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
+  color: color-mix(in srgb, var(--danger) 78%, var(--ink));
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 
 .sys-broker-metadata {
@@ -631,6 +714,95 @@
   background: color-mix(in srgb, var(--surface) 92%, transparent);
 }
 
+.sys-broker-metadata-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.sys-broker-metadata-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.sys-broker-metadata-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.sys-broker-metadata-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.sys-broker-metadata-tree,
+.sys-broker-metadata-children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.sys-broker-metadata-group-toggle,
+.sys-broker-metadata-raw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.sys-broker-metadata-group-label,
+.sys-broker-metadata-raw-toggle {
+  color: var(--ink);
+}
+
+.sys-broker-metadata-count {
+  color: var(--dim);
+}
+
+.sys-broker-metadata-row {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.35fr) minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+}
+
+.sys-broker-metadata-key {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.sys-broker-metadata-value {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.sys-broker-metadata-empty {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.sys-broker-metadata-raw,
 .sys-broker-metadata pre {
   margin: 0;
   max-height: 360px;

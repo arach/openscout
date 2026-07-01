@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, Hash, Megaphone, MessageCircle } from "lucide-react";
+import { Bot, Check, Copy, ExternalLink, Hash, Megaphone, MessageCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { StatusPill } from "../../components/StatusPill.tsx";
@@ -11,6 +11,15 @@ import type { BrokerDiagnostics, BrokerDialogueItem, BrokerHistoryKey, BrokerRou
 import { useScout } from "../../scout/Provider.tsx";
 import { openContent } from "../../scout/slots/openContent.ts";
 import { OpsSubnav } from "../ops/OpsSubnav.tsx";
+import {
+  brokerAttemptDetailLimit,
+  brokerAttemptErrorSummary,
+  brokerAttemptIsFailure,
+  brokerAttemptContextText,
+  brokerMetadataJson,
+  clippedText,
+} from "./broker-display.ts";
+import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
 import "../system-surfaces-redesign.css";
 
 type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
@@ -30,18 +39,12 @@ const TAB_HISTORY_KEY: Record<BrokerTab, BrokerHistoryKey> = {
 };
 
 const BROKER_PAGE_LIMIT = 160;
+const BROKER_WINDOW_MS = 30 * 60_000;
 
 function shortId(value: string | null): string {
   if (!value) return "none";
   if (value.length <= 18) return value;
   return `${value.slice(0, 10)}...${value.slice(-5)}`;
-}
-
-const BROKER_DETAIL_SNIPPET_CHARS = 92;
-
-function clippedText(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
-  return `${value.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
 }
 
 function attemptKindLabel(kind: BrokerRouteAttempt["kind"]): string {
@@ -107,7 +110,11 @@ function RouteGlyph({ route }: { route: string | null }) {
 }
 
 function brokerDiagnosticsUrl(cursor?: string | null): string {
-  const params = new URLSearchParams({ limit: String(BROKER_PAGE_LIMIT) });
+  const params = new URLSearchParams({
+    limit: String(BROKER_PAGE_LIMIT),
+    windowMs: String(BROKER_WINDOW_MS),
+    scopeRowsToWindow: "1",
+  });
   if (cursor) params.set("cursor", cursor);
   return `/api/broker?${params.toString()}`;
 }
@@ -398,7 +405,9 @@ function BrokerAttemptList({
         {attempts.map((attempt) => {
           const tone = brokerAttemptTone(attempt.kind, attempt.status);
           const kindLabel = attemptKindLabel(attempt.kind);
-          const detailSnippet = clippedText(attempt.detail, BROKER_DETAIL_SNIPPET_CHARS);
+          const isFailure = brokerAttemptIsFailure(attempt);
+          const errorSummary = brokerAttemptErrorSummary(attempt);
+          const detailSnippet = clippedText(attempt.detail, brokerAttemptDetailLimit(attempt));
           const inspect = () => {
             onInspect(attempt);
             window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
@@ -409,7 +418,7 @@ function BrokerAttemptList({
             <article
               key={attempt.id}
               role="row"
-              className={`sys-broker-row sys-broker-row--ledger${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
+              className={`sys-broker-row sys-broker-row--ledger${isFailure ? " sys-broker-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
               tabIndex={0}
               aria-label={`Inspect ${attempt.detail}`}
               onClick={inspect}
@@ -422,8 +431,10 @@ function BrokerAttemptList({
             >
               <div className="sys-broker-cell sys-broker-cell-state" role="cell">
                 <StatusPill tone={tone}>{kindLabel}</StatusPill>
-                {attempt.status !== kindLabel && (
-                  <span className="sys-broker-status">{attempt.status}</span>
+                {(isFailure || attempt.status !== kindLabel) && (
+                  <span className={`sys-broker-status${isFailure ? " sys-broker-status--error" : ""}`}>
+                    {attempt.status}
+                  </span>
                 )}
               </div>
               <div className="sys-broker-cell sys-broker-cell-time" role="cell">
@@ -431,6 +442,9 @@ function BrokerAttemptList({
               </div>
               <div className="sys-broker-cell sys-broker-cell-detail" role="cell">
                 <h3 className="sys-broker-title" title={attempt.detail}>{detailSnippet}</h3>
+                {errorSummary && (
+                  <p className="sys-broker-error-detail" title={errorSummary}>{errorSummary}</p>
+                )}
               </div>
               <div className="sys-broker-cell sys-broker-cell-party" role="cell">
                 <span title={attempt.actorName ?? "unknown"}>{attempt.actorName ?? "unknown"}</span>
@@ -481,13 +495,6 @@ function brokerInspectorRows(attempt: BrokerRouteAttempt): Array<{ label: string
   ].filter((row) => row.value);
 }
 
-function metadataJson(value: Record<string, unknown> | null | undefined): string {
-  if (!value || Object.keys(value).length === 0) {
-    return "{}";
-  }
-  return JSON.stringify(value, null, 2);
-}
-
 function MetadataCopyButton({ value }: { value: string }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -528,6 +535,17 @@ function MetadataCopyButton({ value }: { value: string }) {
   );
 }
 
+type DispatchReviewResponse = {
+  ok: true;
+  conversationId: string | null;
+  messageId: string | null;
+  flightId: string | null;
+  targetAgentId: string | null;
+  targetLabel: string | null;
+  dedupeFingerprint: string;
+  rootCauseFingerprint: string;
+};
+
 export function BrokerAttemptInspector({
   attempt,
   navigate,
@@ -539,15 +557,81 @@ export function BrokerAttemptInspector({
 }) {
   const { route } = useScout();
   const rows = brokerInspectorRows(attempt);
-  const metadata = metadataJson(attempt.metadata);
+  const metadata = brokerMetadataJson(attempt.metadata);
+  const isFailure = brokerAttemptIsFailure(attempt);
+  const errorSummary = brokerAttemptErrorSummary(attempt);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [reviewStatus, setReviewStatus] = useState<"idle" | "running" | "sent" | "failed">("idle");
+  const [reviewMessage, setReviewMessage] = useState<string | null>(null);
+  const contextText = useMemo(() => brokerAttemptContextText(attempt), [attempt]);
+
+  useEffect(() => {
+    setCopyStatus("idle");
+    setReviewStatus("idle");
+    setReviewMessage(null);
+  }, [attempt.id]);
+
+  const copyEverything = useCallback(async () => {
+    const copied = await copyTextToClipboard(contextText);
+    setCopyStatus(copied ? "copied" : "failed");
+    window.setTimeout(() => setCopyStatus("idle"), 1500);
+  }, [contextText]);
+
+  const invokeCodex = useCallback(async () => {
+    setReviewStatus("running");
+    setReviewMessage(null);
+    try {
+      const result = await api<DispatchReviewResponse>("/api/broker/dispatch-review", {
+        method: "POST",
+        body: JSON.stringify({ attemptId: attempt.id }),
+      });
+      setReviewStatus("sent");
+      setReviewMessage(
+        `Codex asked${result.flightId ? ` · ${result.flightId}` : ""}${result.targetLabel ? ` · ${result.targetLabel}` : ""}`,
+      );
+    } catch (error) {
+      setReviewStatus("failed");
+      setReviewMessage(error instanceof Error ? error.message : String(error));
+    }
+  }, [attempt]);
+
   return (
     <aside className="sys-panel sys-broker-inspector" aria-label="Dispatch route inspector">
       <div className="sys-broker-inspector-head">
         <div>
           <div className="sys-kicker">Inspector</div>
           <h3 className="sys-state-title">{attempt.detail}</h3>
+          {isFailure && (
+            <div className="sys-broker-inspector-error" role="status">
+              <span className="sys-broker-inspector-error-label">Error</span>
+              <p>{errorSummary ?? attempt.status}</p>
+            </div>
+          )}
         </div>
         <div className="sys-inline-actions">
+          {isFailure && (
+            <>
+              <button
+                type="button"
+                className="s-btn s-btn-sm"
+                onClick={() => void copyEverything()}
+                title="Copy the full dispatch failure context"
+              >
+                {copyStatus === "copied" ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+                {copyStatus === "copied" ? "Copied" : copyStatus === "failed" ? "Copy failed" : "Copy everything"}
+              </button>
+              <button
+                type="button"
+                className="s-btn s-btn-sm"
+                disabled={reviewStatus === "running"}
+                onClick={() => void invokeCodex()}
+                title="Ask an OpenScout Codex agent to review this failed dispatch"
+              >
+                <Bot size={12} aria-hidden="true" />
+                {reviewStatus === "running" ? "Invoking..." : "Invoke Codex"}
+              </button>
+            </>
+          )}
           {attempt.conversationId && (
             <button
               type="button"
@@ -562,6 +646,11 @@ export function BrokerAttemptInspector({
           </button>
         </div>
       </div>
+      {reviewMessage && (
+        <div className={`sys-broker-review-status sys-broker-review-status--${reviewStatus}`} role="status">
+          {reviewMessage}
+        </div>
+      )}
       <div className="sys-detail-grid sys-broker-inspector-grid">
         {rows.map((row) => (
           <div key={row.label} className="sys-detail-card">
@@ -575,7 +664,7 @@ export function BrokerAttemptInspector({
           <span className="sys-detail-label">Metadata</span>
           <MetadataCopyButton value={metadata} />
         </div>
-        <pre>{metadata}</pre>
+        <BrokerMetadataPanel metadata={attempt.metadata} rawJson={metadata} />
       </div>
     </aside>
   );

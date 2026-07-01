@@ -849,6 +849,106 @@ describe("sendScoutConversationSteer", () => {
     expect(requests.filter((request) => request.path === "/v1/invocations").map((request) => request.body.targetAgentId))
       .toEqual(["hudson.main.mini"]);
   }, 15000);
+
+  test("does not steer an offline cardless session participant", async () => {
+    const home = useIsolatedOpenScoutHome();
+    const requests: Array<{ method: string; path: string; body?: any }> = [];
+    globalThis.fetch = (async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const url = new URL(request.url);
+      const body = request.method === "POST" ? await request.json() : undefined;
+      requests.push({ method: request.method, path: url.pathname, body });
+
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse({ ok: true, nodeId: "node-1", meshId: "mesh-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/node") {
+        return jsonResponse({ id: "node-1" });
+      }
+      if (request.method === "GET" && url.pathname === "/v1/snapshot") {
+        return jsonResponse({
+          actors: {
+            operator: {
+              id: "operator",
+              kind: "person",
+              displayName: "Operator",
+            },
+            "session-lattices": {
+              id: "session-lattices",
+              kind: "session",
+              displayName: "lattices-schubert",
+              handle: "project-schubert",
+              metadata: {
+                cardless: true,
+                handle: "project-schubert",
+                projectRoot: "/Users/art/dev/lattices",
+              },
+            },
+          },
+          agents: {},
+          endpoints: {
+            "endpoint-lattices": {
+              id: "endpoint-lattices",
+              agentId: "session-lattices",
+              nodeId: "node-1",
+              harness: "codex",
+              transport: "codex_app_server",
+              state: "offline",
+              sessionId: "session-lattices",
+              projectRoot: "/Users/art/dev/lattices",
+              cwd: "/Users/art/dev/lattices",
+              metadata: {
+                cardless: true,
+                handle: "project-schubert",
+              },
+            },
+          },
+          conversations: {
+            "c.session-lattices": {
+              id: "c.session-lattices",
+              kind: "direct",
+              title: "lattices-schubert",
+              visibility: "private",
+              authorityNodeId: "node-1",
+              participantIds: ["operator", "session-lattices"],
+            },
+          },
+          messages: {},
+          flights: {},
+        });
+      }
+      if (request.method === "POST" && url.pathname === "/v1/messages") {
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse({ error: "not found" }, 404);
+    }) as typeof fetch;
+
+    const result = await sendScoutConversationSteer({
+      conversationId: "c.session-lattices",
+      senderId: "operator",
+      body: "still there?",
+      targetParticipantIds: ["session-lattices"],
+      currentDirectory: home,
+      source: "scout-web",
+    });
+
+    expect(result).toMatchObject({
+      usedBroker: true,
+      conversationId: "c.session-lattices",
+      invokedTargets: [],
+      unresolvedTargets: ["session-lattices"],
+    });
+    expect(requests.filter((request) => request.path === "/v1/invocations")).toHaveLength(0);
+    expect(requests.find((request) => request.path === "/v1/messages")?.body)
+      .toMatchObject({
+        conversationId: "c.session-lattices",
+        metadata: {
+          intent: "steer",
+          relayTargetIds: [],
+        },
+      });
+  }, 15000);
 });
 
 describe("loadScoutMessages", () => {

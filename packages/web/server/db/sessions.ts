@@ -402,6 +402,76 @@ export function querySessions(limit = 80): MobileSessionSummary[] {
   });
 }
 
+function querySessionFallbackFromMessages(conversationId: string): MobileSessionSummary | null {
+  const messageCreatedAtExpression = sqlTimestampMsExpression("created_at");
+  const stats = db().prepare(
+    `SELECT
+       COUNT(*) AS message_count,
+       MAX(${messageCreatedAtExpression}) AS last_message_at
+     FROM messages
+     WHERE conversation_id = ?`,
+  ).get(conversationId) as { message_count: number; last_message_at: number | null } | null;
+  if (!stats || stats.message_count <= 0) {
+    return null;
+  }
+
+  const previewRow = db().prepare(
+    `SELECT body
+     FROM messages m
+     WHERE conversation_id = ?
+       AND ${transientBrokerWorkingStatusPredicate("m")}
+     ORDER BY ${messageCreatedAtExpression} DESC
+     LIMIT 1`,
+  ).get(conversationId) as { body: string | null } | null;
+
+  const agentRow = db().prepare(
+    `SELECT
+       m.actor_id AS agent_id,
+       ac.display_name,
+       ep.harness,
+       ep.project_root,
+       ep.session_id,
+       ep.metadata_json AS endpoint_metadata_json
+     FROM messages m
+     JOIN agents a ON a.id = m.actor_id
+     JOIN actors ac ON ac.id = a.id
+     ${LATEST_AGENT_ENDPOINT_JOIN}
+     WHERE m.conversation_id = ?
+       AND m.actor_id != 'operator'
+     ORDER BY ${messageCreatedAtExpression} DESC
+     LIMIT 1`,
+  ).get(conversationId) as {
+    agent_id: string;
+    display_name: string;
+    harness: string | null;
+    project_root: string | null;
+    session_id: string | null;
+    endpoint_metadata_json: string | null;
+  } | null;
+
+  const endpointMetadata = parseMetadataJson(agentRow?.endpoint_metadata_json);
+  const title = agentRow?.display_name?.trim() || conversationId;
+
+  return {
+    id: conversationId,
+    kind: "direct",
+    title,
+    participantIds: ["operator", ...(agentRow?.agent_id ? [agentRow.agent_id] : [])],
+    agentId: agentRow?.agent_id ?? null,
+    agentName: agentRow?.display_name ?? null,
+    harness: agentRow?.harness ?? null,
+    harnessSessionId: resolveHarnessSessionId(agentRow?.session_id, endpointMetadata),
+    harnessLogPath: agentRow?.agent_id
+      ? resolveHarnessLogPath(agentRow.agent_id, agentRow.harness, agentRow.session_id, endpointMetadata)
+      : null,
+    currentBranch: metadataString(endpointMetadata, "branch"),
+    preview: previewRow?.body?.trim() || null,
+    messageCount: stats.message_count,
+    lastMessageAt: stats.last_message_at,
+    workspaceRoot: agentRow?.project_root ?? null,
+  };
+}
+
 export function querySessionById(conversationId: string): MobileSessionSummary | null {
   if (!isOpaqueChannelId(conversationId)) {
     return null;
@@ -433,5 +503,5 @@ export function querySessionById(conversationId: string): MobileSessionSummary |
     return existing;
   }
 
-  return null;
+  return querySessionFallbackFromMessages(conversationId);
 }
