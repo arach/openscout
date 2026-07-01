@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { useLocation, useRouter as useTanStackRouter } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
 import {
@@ -848,7 +847,75 @@ function locationHashSuffix(hash: string): string {
   return hash ? `#${hash}` : "";
 }
 
+function isStandaloneEmbedPath(pathname: string): boolean {
+  return pathname.startsWith("/embed/") || pathname === "/ops/lanes/embed";
+}
+
+type BrowserLocationState = {
+  pathname: string;
+  searchStr: string;
+  hash: string;
+};
+
+const SCOUT_LOCATION_EVENT = "scout:locationchange";
+
+function readBrowserLocation(): BrowserLocationState {
+  if (typeof window === "undefined") {
+    const url = new URL(APP_URL_BASE);
+    return {
+      pathname: url.pathname,
+      searchStr: url.search,
+      hash: url.hash.replace(/^#/, ""),
+    };
+  }
+  return {
+    pathname: window.location.pathname,
+    searchStr: window.location.search,
+    hash: window.location.hash.replace(/^#/, ""),
+  };
+}
+
+function isSameBrowserLocation(a: BrowserLocationState, b: BrowserLocationState): boolean {
+  return a.pathname === b.pathname && a.searchStr === b.searchStr && a.hash === b.hash;
+}
+
+function useBrowserLocationState(): BrowserLocationState {
+  const [locationState, setLocationState] = useState(readBrowserLocation);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const refreshLocation = () => {
+      setLocationState((current) => {
+        const next = readBrowserLocation();
+        return isSameBrowserLocation(current, next) ? current : next;
+      });
+    };
+    window.addEventListener("popstate", refreshLocation);
+    window.addEventListener("hashchange", refreshLocation);
+    window.addEventListener(SCOUT_LOCATION_EVENT, refreshLocation);
+    return () => {
+      window.removeEventListener("popstate", refreshLocation);
+      window.removeEventListener("hashchange", refreshLocation);
+      window.removeEventListener(SCOUT_LOCATION_EVENT, refreshLocation);
+    };
+  }, []);
+
+  return locationState;
+}
+
+function navigateBrowser(href: string, replace = false): void {
+  if (typeof window === "undefined") return;
+  if (replace) {
+    window.history.replaceState(window.history.state, "", href);
+  } else {
+    window.history.pushState(window.history.state, "", href);
+  }
+  window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
+  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+}
+
 function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
+  if (isStandaloneEmbedPath(pathname)) return null;
   const routeUrl = `${pathname}${searchStr}`;
   const raw = routeFromUrl(routeUrl);
   const normalized = normalizeRoute(raw);
@@ -863,8 +930,7 @@ function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string
 }
 
 export function useRouter() {
-  const tanstackRouter = useTanStackRouter();
-  const { pathname, searchStr, hash } = useLocation();
+  const { pathname, searchStr, hash } = useBrowserLocationState();
   const routeUrl = `${pathname}${searchStr}`;
   const route = useMemo(() => routeFromLocation(pathname, searchStr), [pathname, searchStr]);
   const scrollMap = useRef<Record<string, number>>({});
@@ -873,9 +939,9 @@ export function useRouter() {
   useEffect(() => {
     const canonicalHref = canonicalHrefForRoute(pathname, searchStr, hash);
     if (canonicalHref) {
-      void tanstackRouter.navigate({ href: canonicalHref, replace: true });
+      navigateBrowser(canonicalHref, true);
     }
-  }, [pathname, searchStr, hash, tanstackRouter]);
+  }, [pathname, searchStr, hash]);
 
   useEffect(() => {
     if (prevRouteUrl.current === routeUrl) return;
@@ -896,11 +962,11 @@ export function useRouter() {
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
     const canonicalPath = preserveLocationSearch(routePath(nextRoute, pathname), searchStr);
-    void tanstackRouter.navigate({ href: `${canonicalPath}${locationHashSuffix(hash)}` });
+    navigateBrowser(`${canonicalPath}${locationHashSuffix(hash)}`);
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });
-  }, [pathname, searchStr, hash, tanstackRouter]);
+  }, [pathname, searchStr, hash]);
 
   return { route, navigate };
 }

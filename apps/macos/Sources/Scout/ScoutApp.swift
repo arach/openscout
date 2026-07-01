@@ -86,6 +86,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         installScoutURLHandler()
         installHUDCommandObserver()
         HUDStateFile.shared.start()
+        TailModeStateFile.shared.start()
         registerHUDHotkey()
         if ScoutLaunchOptions.hudRequested {
             showHUDFromLaunchArguments()
@@ -229,7 +230,7 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
                 HUDController.shared.dismiss()
                 return
             }
-            if command == "tail" {
+            if command == "tail" || command.hasPrefix("tail-") {
                 _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
             } else if command == "show" || command == "toggle" {
                 _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)

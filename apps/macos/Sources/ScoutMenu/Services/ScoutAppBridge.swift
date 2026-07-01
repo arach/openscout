@@ -21,7 +21,7 @@ enum ScoutAppBridge {
 
     static func openHUD(command: String, value: String? = nil) {
         if runningScoutApp == nil {
-            guard command != "hide" else { return }
+            guard command != "hide", command != "tail-hide" else { return }
             launchScoutIfNeeded(activates: false, arguments: hudLaunchArguments(command: command, value: value)) {}
             return
         }

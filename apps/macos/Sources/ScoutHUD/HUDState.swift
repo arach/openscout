@@ -17,6 +17,10 @@ public enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     // tab and on every Scout message.
     case assistant = 5
 
+    public static var allCases: [HUDView] {
+        [.agents, .activity, .sessions, .assistant]
+    }
+
     public var id: Int { rawValue }
 
     public var label: String {
@@ -30,7 +34,13 @@ public enum HUDView: Int, CaseIterable, Identifiable, Sendable {
     }
 
     public var keyLabel: String {
-        String(rawValue)
+        switch self {
+        case .agents: return "1"
+        case .activity: return "2"
+        case .sessions: return "3"
+        case .assistant: return "4"
+        case .tail: return "T"
+        }
     }
 }
 
@@ -219,7 +229,13 @@ public final class HUDState: ObservableObject {
     }
 
     public func select(viewIndex raw: Int) {
-        if let v = HUDView(rawValue: raw) { select(v) }
+        switch raw {
+        case 1: select(.agents)
+        case 2: select(.activity)
+        case 3: select(.sessions)
+        case 4: select(.assistant)
+        default: break
+        }
     }
 
     public func setSize(_ size: HUDSize) {

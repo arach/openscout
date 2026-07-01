@@ -594,7 +594,7 @@ struct HUDStatusView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .transition(.opacity)
             case .tail:
-                HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding, surface: tailSurface ?? .overlay)
+                HUDTailView(tail: tail, agents: agents, treatment: tailTreatmentBinding, size: state.size, surface: tailSurface ?? .overlay)
                     .opacity(tailContentOpacity)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
@@ -806,7 +806,7 @@ private struct LiveDot: View {
 // Tiny `?` chip in the masthead — clicking or pressing `?` opens the
 // keymap cheatsheet. Lives here so the discovery affordance never
 // scrolls off-screen with the content.
-private struct CheatsheetChip: View {
+struct CheatsheetChip: View {
     var filled = false
 
     @ObservedObject private var sheet = HUDCheatsheetState.shared
@@ -832,7 +832,7 @@ private struct CheatsheetChip: View {
     }
 }
 
-private struct TailCollapseButton: View {
+struct TailCollapseButton: View {
     let expanded: Bool
     var collapsedSystemName = "chevron.left"
     let action: () -> Void
@@ -861,7 +861,7 @@ private struct TailCollapseButton: View {
     }
 }
 
-private struct TailDismissButton: View {
+struct TailDismissButton: View {
     var compact = false
     let action: () -> Void
 
@@ -889,7 +889,7 @@ private struct TailDismissButton: View {
     }
 }
 
-private struct HUDTailTreatmentToggle: View {
+struct HUDTailTreatmentToggle: View {
     @Binding var selection: HUDTailTreatment
 
     var body: some View {
@@ -927,7 +927,7 @@ private struct HUDTailTreatmentToggle: View {
     }
 }
 
-private struct HUDTailAppearanceButton: View {
+struct HUDTailAppearanceButton: View {
     @Binding var blurOpacity: Double
     @Binding var passiveBlurOpacity: Double
     @Binding var passiveOpacity: Double
@@ -1182,7 +1182,7 @@ private struct HUDTailAppearanceSlider: View {
     }
 }
 
-private struct AttentionPip: View {
+struct AttentionPip: View {
     @State private var phase: CGFloat = 0
 
     var body: some View {
@@ -1203,7 +1203,7 @@ private struct AttentionPip: View {
     }
 }
 
-private struct BrokerOfflinePip: View {
+struct BrokerOfflinePip: View {
     var body: some View {
         HStack(spacing: 4) {
             Circle()
