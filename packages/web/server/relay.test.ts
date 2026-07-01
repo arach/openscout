@@ -1,5 +1,23 @@
 import { afterEach, expect, test } from "bun:test";
-import { createRelayWebSocketProxy, type RelayWSData } from "./relay.ts";
+import {
+  createRelayWebSocketProxy,
+  sanitizeUploadName,
+  type RelayWSData,
+} from "./relay.ts";
+
+test("sanitizeUploadName strips directory traversal and separators", () => {
+  // Traversal / absolute paths must not escape the upload dir.
+  expect(sanitizeUploadName("../../../../etc/authorized_keys")).toBe("authorized_keys");
+  expect(sanitizeUploadName("/etc/passwd")).toBe("passwd");
+  expect(sanitizeUploadName("a/b/c.png")).toBe("c.png");
+  // Names that reduce to nothing usable are rejected.
+  expect(sanitizeUploadName("..")).toBeNull();
+  expect(sanitizeUploadName(".")).toBeNull();
+  expect(sanitizeUploadName("/")).toBeNull();
+  expect(sanitizeUploadName("   ")).toBeNull();
+  // Ordinary names pass through.
+  expect(sanitizeUploadName("screenshot.png")).toBe("screenshot.png");
+});
 
 const servers: Array<ReturnType<typeof Bun.serve>> = [];
 

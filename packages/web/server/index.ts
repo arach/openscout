@@ -8,6 +8,7 @@ import {
   createOpenScoutWebServer,
 } from "./create-openscout-web-server.ts";
 import { resolveScoutBrokerUrl } from "./core/broker/service.ts";
+import { isTrustedWebSocketOrigin } from "./server-core.ts";
 import { resolveOpenScoutWebApplicationServerIdentity } from "./app-server-origin.ts";
 import {
   createRelayWebSocketProxy,
@@ -169,6 +170,22 @@ try {
 
       if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
         let upstreamUrl: string | null = null;
+
+        // Block cross-origin (drive-by) upgrades to the privileged proxy sockets.
+        // The vite HMR socket is exempt (dev-only, its own origin).
+        const guardsOrigin =
+          url.pathname === routes.terminalRelayPath
+          || url.pathname === routes.tailStreamPath
+          || url.pathname === routes.eventsStreamPath;
+        if (
+          guardsOrigin
+          && !isTrustedWebSocketOrigin(req.headers.get("origin"), url.host, {
+            trustedHosts: applicationServerIdentity.trustedHosts,
+            trustedOrigins: applicationServerIdentity.trustedOrigins,
+          })
+        ) {
+          return new Response("Forbidden", { status: 403 });
+        }
 
         if (url.pathname === routes.terminalRelayPath) {
           const relay = await ensureTerminalRelay();

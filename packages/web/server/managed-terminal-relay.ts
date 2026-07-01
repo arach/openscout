@@ -44,7 +44,15 @@ function relayPortPreferenceForWebPort(webPort: number): { port: number; configu
 }
 
 function relayHostForWebHost(hostname: string): string {
-  return process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HOST?.trim() || hostname;
+  const override = process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HOST?.trim();
+  if (override) {
+    return override;
+  }
+  // The terminal relay spawns login-shell PTYs and is only ever consumed by the
+  // co-located web server, which connects over loopback (see relayLoopbackHost).
+  // Never inherit the web server's LAN bind (0.0.0.0) — doing so would expose an
+  // unauthenticated PTY-spawning WebSocket to the network. Force loopback.
+  return relayLoopbackHost(hostname);
 }
 
 function relayLoopbackHost(hostname: string): string {

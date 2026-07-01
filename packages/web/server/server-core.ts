@@ -1,5 +1,5 @@
 import type { Context, Hono } from "hono";
-import { serveStatic } from "hono/bun";
+import { getConnInfo, serveStatic } from "hono/bun";
 
 export type ScoutWebAssetMode = "vite-proxy" | "static";
 
@@ -8,6 +8,14 @@ const LOOPBACK_IPV4_HOST_PATTERN = /^127(?:\.\d{1,3}){3}$/;
 export type ScoutApiTrustOptions = {
   trustedHosts?: string[];
   trustedOrigins?: string[];
+  /**
+   * Resolve the peer (socket) address of the request. The Host header is
+   * client-controlled and cannot be used to prove a request is local; the socket
+   * peer address can. Overridable for tests; defaults to the Bun connection info
+   * and returns undefined when the peer is unavailable (e.g. the Hono test
+   * harness, which has no socket).
+   */
+  resolvePeerAddress?: (c: Context) => string | undefined;
 };
 
 function normalizeHostname(hostname: string): string {
@@ -55,10 +63,45 @@ function isTrustedApiHostname(hostname: string, options: ScoutApiTrustOptions): 
   return isTrustedLoopbackHostname(hostname) || trustedHostSet(options).has(normalizeHostname(hostname));
 }
 
+function isLoopbackAddress(address: string): boolean {
+  const normalized = normalizeHostname(address);
+  if (normalized === "::1" || normalized === "localhost") {
+    return true;
+  }
+  // Unwrap IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1).
+  const mapped = normalized.startsWith("::ffff:") ? normalized.slice(7) : normalized;
+  return LOOPBACK_IPV4_HOST_PATTERN.test(mapped);
+}
+
+function defaultPeerAddress(c: Context): string | undefined {
+  try {
+    return getConnInfo(c).remote.address;
+  } catch {
+    return undefined;
+  }
+}
+
 function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean {
   const requestUrl = new URL(c.req.url);
-  if (!isTrustedApiHostname(requestUrl.hostname, options)) {
+  const hostname = normalizeHostname(requestUrl.hostname);
+  const hostIsLoopbackName = isTrustedLoopbackHostname(hostname);
+  const hostIsTrustedName = trustedHostSet(options).has(hostname);
+  if (!hostIsLoopbackName && !hostIsTrustedName) {
     return false;
+  }
+
+  // A request presenting a loopback Host (localhost / 127.x / 0.0.0.0) is only
+  // trusted when it actually originates from a loopback peer. Otherwise a LAN
+  // client can send `Host: localhost` to a 0.0.0.0-bound port and pass this gate
+  // with no Origin / Sec-Fetch-Site headers. The socket peer address is
+  // authoritative because the client cannot forge it. When the peer is unknown
+  // (the Hono test harness has no socket) we fall back to the header check;
+  // production requests always carry a peer address.
+  if (hostIsLoopbackName && !hostIsTrustedName) {
+    const peer = (options.resolvePeerAddress ?? defaultPeerAddress)(c);
+    if (peer !== undefined && !isLoopbackAddress(peer)) {
+      return false;
+    }
   }
 
   const origin = c.req.header("origin");
@@ -85,6 +128,37 @@ function isTrustedApiRequest(c: Context, options: ScoutApiTrustOptions): boolean
   }
 
   return true;
+}
+
+/**
+ * Whether a WebSocket upgrade may be accepted, given its Origin and the request
+ * host. Browsers always send Origin on WS handshakes, so this blocks a malicious
+ * page (drive-by) from opening privileged proxy sockets (terminal / tail /
+ * events) in the user's browser. Non-browser clients send no Origin and are
+ * allowed through — the WS transport itself is not same-origin-protected by the
+ * browser, so this is the drive-by defense, not a network-position gate.
+ */
+export function isTrustedWebSocketOrigin(
+  origin: string | null | undefined,
+  requestHost: string,
+  options: ScoutApiTrustOptions = {},
+): boolean {
+  if (!origin) {
+    return true;
+  }
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (originUrl.host.toLowerCase() === requestHost.toLowerCase()) {
+    return true;
+  }
+  return (
+    isTrustedApiHostname(originUrl.hostname, options)
+    || trustedOriginSet(options).has(originUrl.origin.toLowerCase())
+  );
 }
 
 export function coalesce<T>(fn: () => Promise<T>, ttlMs = 2000): () => Promise<T> {
