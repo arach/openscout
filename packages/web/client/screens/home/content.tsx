@@ -1,23 +1,23 @@
 import "./fleet-home.css";
 import "./activity-stream.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Send } from "lucide-react";
 import HomeHero, {
   type ServiceGauge,
 } from "./HomeHero.tsx";
 import { TailView } from "../shared/TailView.tsx";
 import { api } from "../../lib/api.ts";
+import { useObservePolling } from "../../lib/observe.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import {
   compareTimestampsDesc,
   normalizeTimestampMs,
   timeAgo,
 } from "../../lib/time.ts";
-import { formatLabel } from "../../lib/text.ts";
 import { actorColor } from "../../lib/colors.ts";
 import { useOptionalFlag } from "hudsonkit/flags";
-import { normalizeAgentState, isAgentBusy } from "../../lib/agent-state.ts";
+import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { usePersistentNumber } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { routeMachineId } from "../../lib/router.ts";
@@ -32,37 +32,27 @@ import type {
   FleetAsk,
   FleetState,
   Route,
+  TailDiscoverySnapshot,
   TailEvent,
 } from "../../lib/types.ts";
+import {
+  buildHomeNativeMovingLanes,
+  HOME_MOVING_CARD_LIMIT,
+  HOME_MOVING_WINDOW_MS,
+  homeMovingDisplayCounts,
+  homeMovingRecencyMs,
+  isFreshHomeMovingTimestamp,
+  isHomeAgentMoving,
+  isHomeObserveCandidate,
+  workingContextFromLane,
+  workingContextFromObserve,
+  type WorkingAgentContext,
+} from "./home-moving.ts";
+import { homeMovingGridClass, homeMovingLayout } from "./home-moving-layout.ts";
+import { NowCard } from "./home-now-card.tsx";
+import { isAgentLaneLive, type AgentLane } from "../ops/agent-lanes-model.ts";
 
 type LookbackOption = { label: string; value: number; activityLimit: number };
-
-// Live context for a working agent, pulled from the observe summary endpoint
-// (the bulk /api/agents list doesn't carry session/model/token usage).
-type WorkingAgentContext = {
-  sessionId: string | null;
-  model: string | null;
-  contextPct: number | null;
-};
-
-type ObserveAgentSummary = {
-  agentId: string;
-  data?: {
-    metadata?: {
-      session?: {
-        externalSessionId?: string | null;
-        model?: string | null;
-        turnCount?: number | null;
-      };
-      // Real token usage. `data.contextUsage` is deliberately ignored — it's a
-      // synthetic ramp (syntheticContextUsage), not actual window utilization.
-      usage?: {
-        contextInputTokens?: number | null;
-        contextWindowTokens?: number | null;
-      };
-    };
-  };
-};
 
 const LOOKBACK_WINDOWS: LookbackOption[] = [
   { label: "30m", value: 30 * 60_000, activityLimit: 80 },
@@ -75,7 +65,6 @@ const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
 // and doesn't change minute-to-minute. Refresh once an hour; the server
 // caches the same window. Easy to tune later if we want fresher numbers.
 const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
-const MOVING_ACTIVE_WINDOW_MS = 30 * 60_000;
 const LOCAL_TAIL_RECENT_LIMIT = 1000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
@@ -219,173 +208,10 @@ function combineHeartrateWithTailEvents(
   }));
 }
 
-function isFreshMovingTimestamp(
-  timestamp: number | null | undefined,
-  nowMs: number,
-): boolean {
-  const timestampMs = normalizeTimestampMs(timestamp);
-  return timestampMs !== null && nowMs - timestampMs <= MOVING_ACTIVE_WINDOW_MS;
-}
-
 function routeForFleetAsk(ask: FleetAsk): Route {
   if (ask.conversationId) return { view: "conversation", conversationId: ask.conversationId };
   if (ask.collaborationRecordId) return { view: "work", workId: ask.collaborationRecordId };
   return { view: "agents-v2", agentId: ask.agentId };
-}
-
-// ── Working-agent card helpers ──────────────────────────────────────────────
-function middleTruncate(value: string, max = 118): string {
-  if (value.length <= max) return value;
-  const head = Math.ceil((max - 1) * 0.58);
-  const tail = Math.floor((max - 1) * 0.42);
-  return `${value.slice(0, head).trimEnd()}…${value.slice(value.length - tail).trimStart()}`;
-}
-
-function compactPath(path: string | null | undefined): string | null {
-  if (!path) return null;
-  if (path.startsWith("/Users/")) return `~/${path.split("/").slice(3).join("/")}`;
-  return path;
-}
-
-function compactSessionId(value: string | null | undefined): string | null {
-  const raw = value?.trim();
-  if (!raw) return null;
-  const withoutExtension = raw.endsWith(".jsonl") ? raw.slice(0, -".jsonl".length) : raw;
-  const segment = withoutExtension.split(/[/:]/u).filter(Boolean).pop() ?? withoutExtension;
-  // UUID-like ids read best as head…tail (e.g. 019e93aa…ee4f07), matching the
-  // observe panel; everything else falls back to a middle truncation.
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-/iu.test(segment)) {
-    return `${segment.slice(0, 8)}…${segment.slice(-6)}`;
-  }
-  return middleTruncate(segment, 22);
-}
-
-function shortModelLabel(value: string | null | undefined): string | null {
-  const model = value?.trim();
-  if (!model) return null;
-  return model
-    .replace(/^claude-/iu, "")
-    .replace(/^gpt-/iu, "gpt ")
-    .replace(/\s*\([^)]*\)\s*/u, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function contextLabelFromModel(value: string | null | undefined): string | null {
-  const match = value?.match(/(\d+(?:\.\d+)?\s*[km])\s*context/iu);
-  return match?.[1]?.replace(/\s+/g, "").toUpperCase() ?? null;
-}
-
-function compactNode(value: string | null | undefined): string | null {
-  const raw = value?.trim();
-  if (!raw) return null;
-  return raw.replace(/\.local$/iu, "").replace(/-local$/iu, "");
-}
-
-function handleContextCardKey(event: KeyboardEvent<HTMLElement>, action: () => void) {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  event.preventDefault();
-  action();
-}
-
-type WorkingCardTaskStatus = FleetAsk["status"] | "working";
-type WorkingCardExecutionState = "working" | "idle" | "queued" | "delivered" | "failed";
-
-type AgentWorkingCardData = {
-  agentId: string;
-  agentName: string;
-  agentHandle: string | null;
-  harness: string | null;
-  model: string | null;
-  branch: string | null;
-  cwd: string | null;
-  task: {
-    invocationId: string | null;
-    title: string;
-    summary: string | null;
-    openedAt: number | null;
-    status: WorkingCardTaskStatus;
-  };
-  execution: {
-    state: WorkingCardExecutionState;
-    lastEventAt: number | null;
-    startedAt: number | null;
-  };
-  checkpoint: { line: string; at: number } | null;
-  reply: { state: "none" | "delivered"; deliveredAt: number | null };
-};
-
-function meaningfulCheckpoint(
-  ask: FleetAsk | null | undefined,
-  taskTitle: string,
-): AgentWorkingCardData["checkpoint"] {
-  const raw = ask?.summary?.trim();
-  if (!raw) return null;
-  const compact = raw.replace(/\s+/g, " ");
-  if (!compact || compact === taskTitle) return null;
-  if (/acknowledged via|queued for local execution|received the message/i.test(compact)) return null;
-  const at = normalizeTimestampMs(ask?.updatedAt) ?? Date.now();
-  return { line: summarize(compact, 120), at };
-}
-
-function buildAgentWorkingCardData(
-  agent: Agent,
-  ask: FleetAsk | null | undefined,
-  nowMs: number,
-): AgentWorkingCardData {
-  const openedAt = normalizeTimestampMs(ask?.startedAt)
-    ?? normalizeTimestampMs(ask?.acknowledgedAt)
-    ?? normalizeTimestampMs(ask?.updatedAt)
-    ?? null;
-  const lastEventAt = normalizeTimestampMs(agent.updatedAt);
-  const startedAt = normalizeTimestampMs(ask?.startedAt) ?? normalizeTimestampMs(agent.createdAt);
-  const taskTitle = ask?.task?.trim()
-    || agent.cwd
-    || agent.project
-    || `Working in ${agent.project ?? "workspace"}`;
-  const askStatus: WorkingCardTaskStatus = ask?.status ?? "working";
-  const agentWorking = isAgentBusy(agent.state);
-  const executionState: WorkingCardExecutionState =
-    askStatus === "completed" ? "delivered"
-      : askStatus === "failed" ? "failed"
-        : askStatus === "queued" ? "queued"
-          : agentWorking ? "working"
-            : "idle";
-
-  return {
-    agentId: agent.id,
-    agentName: agent.name,
-    agentHandle: agent.handle,
-    harness: ask?.harness ?? agent.harness,
-    model: agent.model,
-    branch: agent.branch ?? "main",
-    cwd: agent.cwd,
-    task: {
-      invocationId: ask?.invocationId ?? null,
-      title: taskTitle,
-      summary: ask?.summary ?? null,
-      openedAt,
-      status: askStatus,
-    },
-    execution: { state: executionState, lastEventAt, startedAt },
-    checkpoint: meaningfulCheckpoint(ask, taskTitle),
-    reply: {
-      state: askStatus === "completed" ? "delivered" : "none",
-      deliveredAt: normalizeTimestampMs(ask?.completedAt),
-    },
-  };
-}
-
-function workingCardLiveLabel(card: AgentWorkingCardData, nowMs: number): string {
-  if (card.reply.state === "delivered") {
-    const age = card.reply.deliveredAt ? formatAge(card.reply.deliveredAt, nowMs) : null;
-    return age ? `delivered · ${age}` : "delivered";
-  }
-  if (card.execution.state === "queued") return "queued";
-  if (card.execution.state === "failed") return "failed";
-  const age = card.execution.lastEventAt ? formatAge(card.execution.lastEventAt, nowMs) : null;
-  if (card.execution.state === "idle") return age ? `idle · ${age}` : "idle";
-  return age ? `live · ${age}` : "live";
 }
 
 type HeartrateBucketView = {
@@ -431,6 +257,7 @@ export function HomeContent({
   const [heartrateWindow, setHeartrateWindow] = useState("trailing 7d");
   const [heartrateBucketLabel, setHeartrateBucketLabel] = useState("3h buckets");
   const [tailEvents, setTailEvents] = useState<TailEvent[]>([]);
+  const [tailDiscovery, setTailDiscovery] = useState<TailDiscoverySnapshot | null>(null);
   const [serviceGauges, setServiceGauges] = useState<ServiceGauge[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -559,8 +386,12 @@ export function HomeContent({
         limit: String(LOCAL_TAIL_RECENT_LIMIT),
         transcripts: "true",
       });
-      const recent = await api<{ events: TailEvent[] }>(`/api/tail/recent?${params.toString()}`);
+      const [recent, discovery] = await Promise.all([
+        api<{ events: TailEvent[] }>(`/api/tail/recent?${params.toString()}`),
+        api<TailDiscoverySnapshot>("/api/tail/discover").catch(() => null),
+      ]);
       setTailEvents(recent.events ?? []);
+      if (discovery) setTailDiscovery(discovery);
     } catch {
       // Silent: the embedded Tail view owns the visible error/empty state.
     }
@@ -618,7 +449,7 @@ export function HomeContent({
     [scopedFleet],
   );
   const freshMovingAsks = useMemo(
-    () => movingAsks.filter((ask) => isFreshMovingTimestamp(ask.updatedAt, nowMs)),
+    () => movingAsks.filter((ask) => isFreshHomeMovingTimestamp(ask.updatedAt, nowMs)),
     [movingAsks, nowMs],
   );
   const movingAskByAgent = useMemo(() => {
@@ -633,59 +464,70 @@ export function HomeContent({
     }
     return byAgent;
   }, [freshMovingAsks]);
-  const workingAgents = useMemo(
+  const observeCandidates = useMemo(
     () =>
       agents.filter((agent) =>
-        isAgentBusy(agent.state) &&
-        (isFreshMovingTimestamp(agent.updatedAt, nowMs) || movingAskByAgent.has(agent.id))
+        isHomeObserveCandidate(
+          agent,
+          nowMs,
+          movingAskByAgent.has(agent.id),
+          tailEvents,
+        ),
       ),
-    [movingAskByAgent, agents, nowMs],
+    [agents, movingAskByAgent, nowMs, tailEvents],
   );
-
-  // Enrich working cards with live session id, model, and context-window usage.
-  // One batched observe-summary call covers every working agent (only a handful).
-  const workingAgentIdsKey = useMemo(
-    () => workingAgents.map((agent) => agent.id).sort().join(","),
+  const observeCache = useObservePolling(observeCandidates);
+  const workingAgents = useMemo(() => {
+    const moving = agents.filter((agent) =>
+      isHomeAgentMoving({
+        agent,
+        observeEntry: observeCache[agent.id],
+        tailEvents,
+        nowMs,
+        movingAsk: movingAskByAgent.get(agent.id),
+        windowMs: HOME_MOVING_WINDOW_MS,
+      }),
+    );
+    return moving
+      .sort((left, right) =>
+        homeMovingRecencyMs(right, {
+          observeEntry: observeCache[right.id],
+          tailEvents,
+          nowMs,
+          movingAsk: movingAskByAgent.get(right.id),
+        })
+        - homeMovingRecencyMs(left, {
+          observeEntry: observeCache[left.id],
+          tailEvents,
+          nowMs,
+          movingAsk: movingAskByAgent.get(left.id),
+        }),
+      );
+  }, [agents, movingAskByAgent, observeCache, tailEvents, nowMs]);
+  const workingContext = useMemo(() => {
+    const next: Record<string, WorkingAgentContext> = {};
+    for (const agent of workingAgents) {
+      next[agent.id] = workingContextFromObserve(observeCache[agent.id]?.data);
+    }
+    return next;
+  }, [observeCache, workingAgents]);
+  const workingAgentIds = useMemo(
+    () => new Set(workingAgents.map((agent) => agent.id)),
     [workingAgents],
   );
-  const [workingContext, setWorkingContext] = useState<Record<string, WorkingAgentContext>>({});
-  useEffect(() => {
-    if (!workingAgentIdsKey) {
-      setWorkingContext({});
-      return;
-    }
-    let cancelled = false;
-    const load = async () => {
-      const summaries = await api<ObserveAgentSummary[]>(
-        `/api/observe/agents?ids=${encodeURIComponent(workingAgentIdsKey)}`,
-      ).catch(() => null);
-      if (cancelled || !summaries) return;
-      const next: Record<string, WorkingAgentContext> = {};
-      for (const summary of summaries) {
-        const session = summary?.data?.metadata?.session;
-        const usage = summary?.data?.metadata?.usage;
-        // Only a REAL window utilization (tokens-in-context / window) — never the
-        // synthetic ramp. Null when the harness doesn't report both numbers.
-        const contextInput = usage?.contextInputTokens;
-        const window = usage?.contextWindowTokens;
-        const contextPct = typeof contextInput === "number" && typeof window === "number" && window > 0
-          ? Math.min(100, Math.round((contextInput / window) * 100))
-          : null;
-        next[summary.agentId] = {
-          sessionId: session?.externalSessionId ?? null,
-          model: session?.model ?? null,
-          contextPct,
-        };
-      }
-      setWorkingContext(next);
-    };
-    void load();
-    const timer = setInterval(load, 15_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [workingAgentIdsKey]);
+  const nativeMovingLanes = useMemo<AgentLane[]>(() => {
+    const lanes = buildHomeNativeMovingLanes({
+      agents,
+      tailEvents,
+      transcripts: tailDiscovery?.transcripts ?? [],
+      processes: tailDiscovery?.processes ?? [],
+      observeCache,
+      nowMs,
+    });
+    return lanes
+      .filter((lane) => !workingAgentIds.has(lane.agent.id))
+      .sort((left, right) => right.lastActiveAt - left.lastActiveAt);
+  }, [agents, observeCache, nowMs, tailDiscovery, tailEvents, workingAgentIds]);
   const movingAsksWithoutWorkingAgent = useMemo(
     () =>
       freshMovingAsks.filter(
@@ -819,6 +661,23 @@ export function HomeContent({
     liveActivity.length > 0 ||
     Boolean(error) ||
     !hideEmptyActivityModule;
+  const movingDisplayCounts = homeMovingDisplayCounts({
+    working: workingAgents.length,
+    native: nativeMovingLanes.length,
+    observed: observedMovingActors.length,
+    movingAsks: movingAsksWithoutWorkingAgent.length,
+    limit: HOME_MOVING_CARD_LIMIT,
+  });
+  const visibleWorkingAgents = workingAgents.slice(0, movingDisplayCounts.working);
+  const visibleNativeMovingLanes = nativeMovingLanes.slice(0, movingDisplayCounts.native);
+  const visibleObservedMovingActors = observedMovingActors.slice(0, movingDisplayCounts.observed);
+  const movingCardCount = movingDisplayCounts.cardCount;
+  const totalMovingCount = movingDisplayCounts.totalCount;
+  const movingSectionLabel =
+    totalMovingCount > movingCardCount && movingCardCount > 0
+      ? `What's moving · ${movingCardCount} of ${totalMovingCount}`
+      : `What's moving · ${totalMovingCount}`;
+  const movingLayout = homeMovingLayout(movingCardCount);
 
   return (
     <div className="s-fleet-home">
@@ -827,10 +686,10 @@ export function HomeContent({
         <HomeHero {...heroProps} />
 
         {/* ── What's moving ──────────────────────────────────────── */}
-        {(workingAgents.length > 0 || observedMovingActors.length > 0 || movingAsksWithoutWorkingAgent.length > 0) && (
+        {totalMovingCount > 0 && (
           <div className="s-fleet-section">
             <SectionRule
-              label={`What's moving · ${workingAgents.length + observedMovingActors.length + movingAsksWithoutWorkingAgent.length}`}
+              label={movingSectionLabel}
               right={
                 <button
                   className="s-link-btn"
@@ -840,24 +699,35 @@ export function HomeContent({
                 </button>
               }
             />
-            {(workingAgents.length > 0 || observedMovingActors.length > 0) && (
-              <div
-                className="s-now-grid"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.min(workingAgents.length + observedMovingActors.length, 3)}, 1fr)`,
-                }}
-              >
-                {workingAgents.map((agent) => (
+            {movingCardCount > 0 && (
+              <div className={homeMovingGridClass(movingLayout)}>
+                {visibleWorkingAgents.map((agent) => (
                   <NowCard
                     key={agent.id}
                     agent={agent}
                     ask={movingAskByAgent.get(agent.id) ?? null}
                     context={workingContext[agent.id] ?? null}
+                    observeData={observeCache[agent.id]?.data ?? null}
+                    observeLive={isAgentLaneLive(observeCache[agent.id]?.data)}
+                    layout={movingLayout}
                     nowMs={nowMs}
                     navigate={navigate}
                   />
                 ))}
-                {observedMovingActors.map((actor) => (
+                {visibleNativeMovingLanes.map((lane) => (
+                  <NowCard
+                    key={lane.id}
+                    agent={lane.agent}
+                    ask={null}
+                    context={workingContextFromLane(lane)}
+                    observeData={lane.observe}
+                    observeLive={isAgentLaneLive(lane.observe)}
+                    layout={movingLayout}
+                    nowMs={nowMs}
+                    navigate={navigate}
+                  />
+                ))}
+                {visibleObservedMovingActors.map((actor) => (
                   <ObservedActorCard
                     key={actor.id}
                     actor={actor}
@@ -977,154 +847,6 @@ function SectionRule({
   );
 }
 
-function NowCard({
-  agent,
-  ask,
-  context,
-  nowMs,
-  navigate,
-}: {
-  agent: Agent;
-  ask?: FleetAsk | null;
-  context?: WorkingAgentContext | null;
-  nowMs: number;
-  navigate: (r: Route) => void;
-}) {
-  const card = buildAgentWorkingCardData(agent, ask, nowMs);
-  const fullRoot = agent.projectRoot ?? agent.cwd ?? undefined;
-  const rootLabel = compactPath(fullRoot) ?? "no workspace";
-  const branchLabel = card.branch ?? "no branch";
-  const runtimeLabel = card.harness ?? null;
-  // Model + the real harness session id come from the live observe summary;
-  // the bulk agent record may only carry a runtime descriptor in harnessSessionId.
-  const modelLabel = shortModelLabel(context?.model ?? card.model);
-  const sessionLabel = compactSessionId(context?.sessionId ?? agent.harnessSessionId);
-  const contextPct = context?.contextPct ?? null;
-  const machineLabel = compactNode(agent.homeNodeName ?? agent.nodeQualifier);
-  const uptime = agent.createdAt ? formatAge(agent.createdAt, nowMs) : null;
-  const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
-  const liveLabel = workingCardLiveLabel(card, nowMs);
-  const liveTone = card.execution.state === "failed"
-    ? "failed"
-    : card.reply.state === "delivered"
-      ? "delivered"
-      : card.execution.state === "queued"
-        ? "queued"
-        : card.execution.state === "idle"
-          ? "idle"
-          : "live";
-  const checkpoint = card.reply.state === "delivered" && card.reply.deliveredAt
-    ? `reply ready · ${formatAge(card.reply.deliveredAt, nowMs)}`
-    : card.checkpoint?.line ?? null;
-
-  // Identity meta, inline next to the name — path · branch · runtime · model · context.
-  // Branch renders in full (no truncation cap); the row wraps when it needs the room.
-  const metaParts: { key: string; text: string; title?: string; mono?: boolean }[] = [
-    { key: "root", text: rootLabel, title: fullRoot, mono: true },
-    { key: "branch", text: branchLabel, title: branchLabel, mono: true },
-  ];
-  if (runtimeLabel) metaParts.push({ key: "runtime", text: runtimeLabel });
-  if (agent.role) metaParts.push({ key: "role", text: formatLabel(agent.role) ?? agent.role });
-  if (modelLabel) metaParts.push({ key: "model", text: modelLabel });
-
-  // Relevant at-a-glance tiles — only the signals we actually have data for.
-  // Liveness is carried by the pulse + border tone, so no redundant state tile.
-  const tiles: { key: string; label: string; value: string; tone?: "work" | "warn" | "dim" }[] = [
-    { key: "turn", label: "turn", value: turnAge, tone: card.task.openedAt ? "work" : "dim" },
-  ];
-  if (contextPct !== null) {
-    tiles.push({
-      key: "context",
-      label: "context",
-      value: `${contextPct}%`,
-      tone: contextPct >= 80 ? "warn" : "work",
-    });
-  } else if (uptime) {
-    tiles.push({ key: "uptime", label: "up", value: uptime });
-  }
-  if (sessionLabel) tiles.push({ key: "session", label: "session", value: sessionLabel });
-  if (machineLabel) tiles.push({ key: "machine", label: "machine", value: machineLabel });
-
-  const open = () =>
-    navigate({
-      view: "agents-v2",
-      agentId: agent.id,
-      tab: "observe",
-    });
-
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      className={`s-now-card s-now-card--${liveTone}`}
-      onClick={open}
-      onKeyDown={(event) => handleContextCardKey(event, open)}
-    >
-      <div className="s-now-card-top">
-        <span
-          className={`s-now-card-pulse s-now-card-pulse--${liveTone}`}
-          aria-hidden="true"
-        />
-        <span className="s-now-card-name" title={card.agentName}>
-          {card.agentName}
-        </span>
-      </div>
-
-      <div className="s-now-card-idline">
-        {metaParts.map((part, index) => (
-          <span key={part.key} className="s-now-card-idgroup">
-            {index > 0 && (
-              <span className="s-now-card-idsep" aria-hidden="true">·</span>
-            )}
-            <span
-              className={`s-now-card-idpart${part.mono ? " s-now-card-idpart--mono" : ""}`}
-              title={part.title}
-            >
-              {part.text}
-            </span>
-          </span>
-        ))}
-      </div>
-
-      <div className="s-now-card-task">{card.task.title}</div>
-
-      {checkpoint && (
-        <div className="s-now-card-checkpoint">
-          <span aria-hidden="true">↳</span>
-          <span>{checkpoint}</span>
-        </div>
-      )}
-
-      <div
-        className="s-now-card-metrics"
-        style={{ gridTemplateColumns: `repeat(${tiles.length}, minmax(0, 1fr))` }}
-        aria-label={`${card.agentName} signals`}
-      >
-        {tiles.map((tile) => (
-          <MetricTile key={tile.key} label={tile.label} value={tile.value} tone={tile.tone} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function MetricTile({
-  label,
-  value,
-  tone = "dim",
-}: {
-  label: string;
-  value: string;
-  tone?: "work" | "warn" | "dim";
-}) {
-  return (
-    <span className={`s-metric-tile s-metric-tile--${tone}`}>
-      <strong>{value}</strong>
-      <span>{label}</span>
-    </span>
-  );
-}
-
 function ObservedActorCard({
   actor,
   nowMs,
@@ -1196,6 +918,7 @@ function inferActorSource(name: string): string | null {
   const lower = name.toLowerCase();
   if (lower.includes("claude")) return "claude";
   if (lower.includes("codex")) return "codex";
+  if (lower.includes("grok")) return "grok";
   if (lower.includes("gemini")) return "gemini";
   if (lower.includes("hudson")) return "hudson";
   return null;
