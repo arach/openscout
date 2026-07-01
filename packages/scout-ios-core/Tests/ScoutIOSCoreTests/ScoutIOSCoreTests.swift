@@ -224,6 +224,28 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertNil(webPortFromBonjourAdvertisement("43120.5"))
     }
 
+    func testQRPayloadCarriesScoutWebPort() throws {
+        let key = String(repeating: "a", count: 64)
+        let json = """
+        {
+          "v": 1,
+          "relay": "ws://mac.tailnet.ts.net:7889",
+          "room": "room-a",
+          "publicKey": "\(key)",
+          "expiresAt": 70000,
+          "webPort": 4311
+        }
+        """
+
+        let payload = try QRPayload.parse(from: json)
+        let linkPayload = try QRPayload.parse(
+            fromLink: "scout://pair?relay=ws://mac.tailnet.ts.net:7889&room=room-a&publicKey=\(key)&expiresAt=70000&webPort=4311"
+        )
+
+        XCTAssertEqual(payload.webPort, 4311)
+        XCTAssertEqual(linkPayload.webPort, 4311)
+    }
+
     func testRouteSummaryReportsSavedAndAllowedTailnetRoutes() {
         let defaults = makeDefaults()
         let relays = [
@@ -369,6 +391,42 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(candidates[0].qrPayload.room, "room-a")
     }
 
+    func testOpenScoutNetworkPairingPrefersTailnetFallbackBeforeMeshRelay() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true, userDefaults: defaults)
+        let candidate = openScoutNetworkPairingCandidate(
+            relay: "wss://mesh.oscout.net/v1/relay",
+            fallbackRelays: ["wss://mac.tailnet.ts.net:43131"]
+        )
+
+        let plan = openScoutNetworkPairingRoutePlan(for: candidate, userDefaults: defaults)
+        let payload = openScoutNetworkPairingPayload(for: candidate, userDefaults: defaults)
+
+        XCTAssertEqual(plan.routeLabels, ["TSN", "OSN"])
+        XCTAssertEqual(plan.preferredRoute, .tailnet)
+        XCTAssertEqual(payload.relay, "wss://mac.tailnet.ts.net:43131")
+        XCTAssertEqual(payload.fallbackRelays, ["wss://mesh.oscout.net/v1/relay"])
+        XCTAssertEqual(payload.room, "room-a")
+    }
+
+    func testOpenScoutNetworkPairingKeepsMeshRelayFirstWhenTailnetDisabled() {
+        let defaults = makeDefaults()
+        BridgeRoutePreferences.setTailnetRoutingEnabled(false, userDefaults: defaults)
+        BridgeRoutePreferences.setOpenScoutNetworkRoutingEnabled(true, userDefaults: defaults)
+        let candidate = openScoutNetworkPairingCandidate(
+            relay: "wss://mesh.oscout.net/v1/relay",
+            fallbackRelays: ["wss://mac.tailnet.ts.net:43131"]
+        )
+
+        let plan = openScoutNetworkPairingRoutePlan(for: candidate, userDefaults: defaults)
+        let payload = openScoutNetworkPairingPayload(for: candidate, userDefaults: defaults)
+
+        XCTAssertEqual(plan.routeLabels, ["OSN", "TSN"])
+        XCTAssertEqual(plan.preferredRoute, .oscout)
+        XCTAssertEqual(payload.relay, "wss://mesh.oscout.net/v1/relay")
+        XCTAssertEqual(payload.fallbackRelays, ["wss://mac.tailnet.ts.net:43131"])
+    }
+
     func testOpenScoutNetworkPairingPayloadCanRefreshSavedConnectionInfo() {
         let defaults = makeDefaults()
         let key = String(repeating: "a", count: 64)
@@ -385,7 +443,8 @@ final class ScoutIOSCoreTests: XCTestCase {
                 fallbackRelays: ["wss://mac.tailnet.ts.net:43131"],
                 room: "osn-room",
                 publicKey: key,
-                expiresAt: 70_000
+                expiresAt: 70_000,
+                webPort: 4311
             ),
             promoteActive: true,
             userDefaults: defaults
@@ -395,7 +454,27 @@ final class ScoutIOSCoreTests: XCTestCase {
         XCTAssertEqual(refreshed?.relayURL, "wss://mesh.oscout.net/v1/relay")
         XCTAssertEqual(refreshed?.roomId, "osn-room")
         XCTAssertEqual(refreshed?.fallbackRelayURLs, ["wss://mac.tailnet.ts.net:43131"])
+        XCTAssertEqual(refreshed?.webPort, 4311)
         XCTAssertEqual(BridgeConnectionInfo.activePublicKeyHex(userDefaults: defaults), key)
+    }
+
+    private func openScoutNetworkPairingCandidate(
+        relay: String,
+        fallbackRelays: [String]?
+    ) -> OpenScoutNetworkPairingCandidate {
+        OpenScoutNetworkPairingCandidate(
+            nodeId: "mac-a",
+            nodeName: "Mac A",
+            observedAt: 12_000,
+            entrypoint: MobilePairingMeshEntrypoint(
+                relay: relay,
+                fallbackRelays: fallbackRelays,
+                room: "room-a",
+                publicKey: String(repeating: "a", count: 64),
+                expiresAt: 70_000,
+                lastSeenAt: 11_000
+            )
+        )
     }
 
     private func makeDefaults() -> UserDefaults {

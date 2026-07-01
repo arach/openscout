@@ -26,18 +26,21 @@ export type AgentCapability =
   | "review"
   | "execute";
 
-export type AgentHarness =
-  | "codex"
-  | "claude"
-  | "grok"
-  | "grok-acp"
-  | "flue"
-  | "cursor"
-  | "native"
-  | "worker"
-  | "bridge"
-  | "http"
-  | "pi";
+export const AGENT_HARNESSES = [
+  "codex",
+  "claude",
+  "grok",
+  "grok-acp",
+  "flue",
+  "cursor",
+  "native",
+  "worker",
+  "bridge",
+  "http",
+  "pi",
+] as const;
+
+export type AgentHarness = typeof AGENT_HARNESSES[number];
 
 export type WakePolicy = "manual" | "on_demand" | "keep_warm";
 

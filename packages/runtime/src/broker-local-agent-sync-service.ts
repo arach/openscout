@@ -173,22 +173,9 @@ export class BrokerLocalAgentSyncService {
         continue;
       }
 
-      this.registeredLocalAgentsSyncInFlight = (async () => {
-        const latestSignature = await this.options.registrySignature();
-        if (latestSignature === this.registeredLocalAgentsRegistrySignature) {
-          return;
-        }
-
-        this.options.clearGitBranchCache();
-        this.options.log?.(`[openscout-runtime] local agent registry changed (${reason}); refreshing registered agents`);
-        await this.syncToSignature(latestSignature);
-      })();
-
-      try {
-        await this.registeredLocalAgentsSyncInFlight;
-      } finally {
-        this.registeredLocalAgentsSyncInFlight = null;
-      }
+      this.options.clearGitBranchCache();
+      this.options.log?.(`[openscout-runtime] local agent registry changed (${reason}); refreshing registered agents`);
+      await this.sync();
     }
   }
 
@@ -206,8 +193,7 @@ export class BrokerLocalAgentSyncService {
       return;
     }
 
-    const signature = await this.options.registrySignature();
-    this.registeredLocalAgentsSyncInFlight = this.syncToSignature(signature);
+    this.registeredLocalAgentsSyncInFlight = this.syncUntilRegistryStable();
     try {
       await this.registeredLocalAgentsSyncInFlight;
     } finally {
@@ -215,7 +201,20 @@ export class BrokerLocalAgentSyncService {
     }
   }
 
-  private async syncToSignature(registrySignature: string | null): Promise<void> {
+  private async syncUntilRegistryStable(): Promise<void> {
+    while (true) {
+      const startedSignature = await this.options.registrySignature();
+      await this.syncSnapshot();
+      const finishedSignature = await this.options.registrySignature();
+      if (finishedSignature === startedSignature) {
+        this.registeredLocalAgentsRegistrySignature = finishedSignature;
+        return;
+      }
+      this.options.log?.("[openscout-runtime] local agent registry changed during sync; refreshing registered agents again");
+    }
+  }
+
+  private async syncSnapshot(): Promise<void> {
     const bindings = await this.options.loadRegisteredLocalAgentBindings(this.options.nodeId);
     this.options.log?.(
       `[openscout-runtime] local agent sync found ${bindings.length} registered agent${bindings.length === 1 ? "" : "s"}`,
@@ -237,8 +236,6 @@ export class BrokerLocalAgentSyncService {
     await this.options.reconcileStaleWorkingFlights();
     await this.options.reconcileStaleLocalDeliveries();
     await this.reconcileLocalEndpointStates();
-
-    this.registeredLocalAgentsRegistrySignature = registrySignature;
   }
 
   async archiveStaleRegisteredLocalAgents(bindings: LocalAgentBinding[]): Promise<void> {

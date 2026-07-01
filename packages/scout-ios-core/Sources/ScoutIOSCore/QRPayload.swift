@@ -26,13 +26,17 @@ public struct QRPayload: Codable, Sendable {
     /// Expiry timestamp in milliseconds since Unix epoch.
     public let expiresAt: Int64
 
+    /// Scout web HTTP port advertised by the bridge, when known.
+    public let webPort: Int?
+
     public init(
         v: Int,
         relay: String,
         fallbackRelays: [String]?,
         room: String,
         publicKey: String,
-        expiresAt: Int64
+        expiresAt: Int64,
+        webPort: Int? = nil
     ) {
         self.v = v
         self.relay = relay
@@ -40,6 +44,7 @@ public struct QRPayload: Codable, Sendable {
         self.room = room
         self.publicKey = publicKey
         self.expiresAt = expiresAt
+        self.webPort = webPort
     }
 }
 
@@ -69,6 +74,9 @@ extension QRPayload {
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         if nowMs > expiresAt {
             return "QR code has expired. Please generate a new one on the bridge."
+        }
+        if let webPort, !(1...65_535).contains(webPort) {
+            return "Invalid Scout web port: \(webPort)"
         }
         return nil
     }
@@ -156,7 +164,8 @@ extension QRPayload {
             fallbackRelays: fallbacks.isEmpty ? nil : fallbacks,
             room: room,
             publicKey: publicKey,
-            expiresAt: value("expiresAt").flatMap(Int64.init) ?? 0
+            expiresAt: value("expiresAt").flatMap(Int64.init) ?? 0,
+            webPort: value("webPort").flatMap(Int.init)
         )
     }
 }

@@ -39,8 +39,10 @@ long-lived sibling only after the route is known good.
 When routing by an agent card, label, or exact agent id, Scout treats the target
 as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
 when the caller intentionally wants to continue one concrete prior harness
-session. Historical session records and reachability diagnostics are for that
-explicit session path, not fallback candidates for normal card routing.
+session. The id may be a Scout id or a harness-native id already known to the
+broker. Use `session:<harness>:<native-id>` or `execution.harness` when a native
+id needs scope. Historical session records and reachability diagnostics are for
+that explicit session path, not fallback candidates for normal card routing.
 
 Specialized profiles may become first-class over time. For example,
 `@scout.profile:investigator` could name a profile with a dedicated tool set

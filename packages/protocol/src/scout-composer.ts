@@ -1,4 +1,5 @@
 import { parseAgentIdentity } from "./agent-identity.js";
+import { AGENT_HARNESSES, type AgentHarness } from "./actors.js";
 import type { ScoutRouteTarget } from "./scout-dispatch.js";
 
 export const SCOUT_COMPOSER_ROUTE_OPERATOR = ">>" as const;
@@ -34,6 +35,7 @@ const WHITESPACE_PATTERN = /\s/;
 const TRAILING_TARGET_PUNCTUATION_PATTERN = /[.,!?;)\]}]+$/;
 const ROUTE_VALUE_PATTERN = /^\S+$/;
 const AGENT_LABEL_START_PATTERN = /^[A-Za-z0-9]/;
+const SESSION_ROUTE_HARNESSES = new Set<AgentHarness>(AGENT_HARNESSES);
 
 function findRouteOperator(input: string): { start: number; end: number } | null {
   let searchFrom = 0;
@@ -83,6 +85,29 @@ function parseAgentLabelTarget(value: string): ScoutRouteTarget | null {
   return { kind: "agent_label", label, value };
 }
 
+function parseSessionRouteTarget(rawValue: string): ScoutRouteTarget | null {
+  const value = rawValue.replace(/^@+/, "");
+  if (!isRouteValue(value)) {
+    return null;
+  }
+
+  const harnessSeparator = value.indexOf(":");
+  if (harnessSeparator > 0) {
+    const maybeHarness = value.slice(0, harnessSeparator) as AgentHarness;
+    const sessionId = value.slice(harnessSeparator + 1);
+    if (SESSION_ROUTE_HARNESSES.has(maybeHarness) && isRouteValue(sessionId)) {
+      return {
+        kind: "session_id",
+        sessionId,
+        harness: maybeHarness,
+        value: `session:${maybeHarness}:${sessionId}`,
+      };
+    }
+  }
+
+  return { kind: "session_id", sessionId: value, value: `session:${value}` };
+}
+
 function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteTarget | null {
   const value = rawValue.replace(/^@+/, "");
   if (!isRouteValue(value)) {
@@ -102,7 +127,7 @@ function parsePrefixedRouteTarget(prefix: string, rawValue: string): ScoutRouteT
     return { kind: "agent_id", agentId: value, value: `id:${value}` };
   }
   if (prefix === "session" || prefix === "session-id" || prefix === "session_id" || prefix === "sid" || prefix === "s") {
-    return { kind: "session_id", sessionId: value, value: `session:${value}` };
+    return parseSessionRouteTarget(rawValue);
   }
   if (prefix === "channel" || prefix === "chan" || prefix === "ch") {
     return { kind: "channel", channel: value, value: `channel:${value}` };
