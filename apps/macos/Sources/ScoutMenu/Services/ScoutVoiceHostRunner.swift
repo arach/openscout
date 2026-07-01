@@ -258,7 +258,6 @@ final class ScoutVoiceHostRunner {
                 let trimmed = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
                 guard self.deliveredFinalForSession != sessionId else { return }
-                self.deliveredFinalForSession = sessionId
                 let durationMs = Int((self.sessionStartedAt.map { Date().timeIntervalSince($0) } ?? 0) * 1000)
                 Task {
                     await self.deliverFinal(sessionId: sessionId, text: trimmed, durationMs: durationMs)
