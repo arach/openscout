@@ -117,31 +117,26 @@ public enum ScoutVoiceInputDeviceRouting {
     }
 
     private static func deviceUID(for deviceId: AudioDeviceID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceUID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var uid: CFString = "" as CFString
-        var dataSize = UInt32(MemoryLayout<CFString>.size)
-        guard AudioObjectGetPropertyData(deviceId, &address, 0, nil, &dataSize, &uid) == noErr else {
-            return nil
-        }
-        return uid as String
+        stringProperty(for: deviceId, selector: kAudioDevicePropertyDeviceUID)
     }
 
     private static func deviceName(for deviceId: AudioDeviceID) -> String? {
+        stringProperty(for: deviceId, selector: kAudioDevicePropertyDeviceNameCFString)
+    }
+
+    private static func stringProperty(for deviceId: AudioDeviceID, selector: AudioObjectPropertySelector) -> String? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceNameCFString,
+            mSelector: selector,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        var name: CFString = "" as CFString
-        var dataSize = UInt32(MemoryLayout<CFString>.size)
-        guard AudioObjectGetPropertyData(deviceId, &address, 0, nil, &dataSize, &name) == noErr else {
+        var value: Unmanaged<CFString>?
+        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(deviceId, &address, 0, nil, &dataSize, &value) == noErr,
+              let value else {
             return nil
         }
-        return name as String
+        return value.takeUnretainedValue() as String
     }
     #endif
 }
