@@ -14,8 +14,6 @@ import type {
   ThreadWatchCloseRequest,
   ThreadWatchOpenRequest,
   ThreadWatchRenewRequest,
-  UnblockRequestEvent,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type { ActiveScoutBrokerService } from "./broker-api.js";
@@ -189,33 +187,6 @@ export async function handleBrokerHttpEntityWriteRoute(
     return true;
   }
 
-  if (method === "POST" && url.pathname === "/v1/unblock-requests") {
-    try {
-      const requestRecord = await readRequestBody<UnblockRequestRecord>(request);
-      const result = await brokerService.executeCommand({
-        kind: "unblock_request.upsert",
-        request: requestRecord,
-      });
-      json(response, 200, result);
-    } catch (error) {
-      badRequest(response, error);
-    }
-    return true;
-  }
-
-  if (method === "POST" && url.pathname === "/v1/unblock-requests/events") {
-    try {
-      const event = await readRequestBody<UnblockRequestEvent>(request);
-      const result = await brokerService.executeCommand({
-        kind: "unblock_request.event.append",
-        event,
-      });
-      json(response, 200, result);
-    } catch (error) {
-      badRequest(response, error);
-    }
-    return true;
-  }
 
   if (method === "POST" && url.pathname === "/v1/flights") {
     try {

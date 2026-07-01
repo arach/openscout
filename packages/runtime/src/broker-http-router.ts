@@ -498,27 +498,6 @@ export function createBrokerHttpRouter(
     return;
   }
 
-  if (method === "GET" && url.pathname === "/v1/unblock-requests") {
-    json(response, 200, await brokerService.readUnblockRequests?.({
-      limit: parseLimit(url),
-      kind: url.searchParams.get("kind") ?? undefined,
-      state: url.searchParams.get("state") ?? undefined,
-      ownerId: url.searchParams.get("ownerId") ?? undefined,
-      source: url.searchParams.get("source") ?? undefined,
-      sourceRef: url.searchParams.get("sourceRef") ?? undefined,
-      active: url.searchParams.get("active") === "true" ? true : undefined,
-    }));
-    return;
-  }
-
-  if (method === "GET" && url.pathname === "/v1/unblock-requests/events") {
-    json(response, 200, await brokerService.readUnblockRequestEvents?.({
-      limit: parseLimit(url),
-      requestId: url.searchParams.get("requestId") ?? undefined,
-    }));
-    return;
-  }
-
   if (method === "GET" && url.pathname === "/v1/inbox") {
     try {
       json(response, 200, await deliveryHttpService.readInboxItems({

@@ -84,7 +84,6 @@ function testSnapshot(input: {
     invocations: {},
     flights: {},
     collaborationRecords: {},
-    unblockRequests: {},
   };
 }
 

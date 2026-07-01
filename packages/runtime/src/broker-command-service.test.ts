@@ -173,8 +173,6 @@ function createHarness(input: {
       appendedEvents.push({ event, options });
       return [{ kind: "collaboration.event.record", event }];
     },
-    recordUnblockRequest: async (request) => [{ kind: "unblock_request.record", request }],
-    appendUnblockRequestEvent: async (event) => [{ kind: "unblock_request.event.record", event }],
     async recordMessage(nextMessage, options) {
       recordedMessages.push({ message: nextMessage, options });
       return {

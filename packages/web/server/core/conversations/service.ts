@@ -6,7 +6,6 @@ import type {
   FlightRecord,
   InvocationRequest,
   MessageRecord,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
 import { channelNaturalKeyFromMetadata, epochMs, isOpaqueChannelId } from "@openscout/protocol";
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
@@ -530,49 +529,6 @@ function unreadCountForConversation(
   return count;
 }
 
-/// Index the most recent "question"-kind unblock request per conversation. These
-/// are the broker's record of an agent blocked on the operator (the same records
-/// that drive operator-attention), so they are the cleanest per-conversation ask
-/// signal available in the snapshot we already hold. Keyed by `conversationId`,
-/// newest by `updatedAt` wins so a fresh ask supersedes a resolved one.
-function latestQuestionAskByConversation(
-  snapshot: ScoutBrokerSnapshot,
-): Map<string, UnblockRequestRecord> {
-  const latest = new Map<string, UnblockRequestRecord>();
-  for (const request of Object.values(snapshot.unblockRequests ?? {})) {
-    if (request.kind !== "question") continue;
-    const conversationId = request.conversationId;
-    if (!conversationId) continue;
-    const prev = latest.get(conversationId);
-    if (!prev || request.updatedAt > prev.updatedAt) {
-      latest.set(conversationId, request);
-    }
-  }
-  return latest;
-}
-
-/// Map a question unblock request into the wire `ask`. `state` is "pending" while
-/// the request is still active (broker state "open"/"snoozed"), "answered" once it
-/// has reached a terminal state. `from` is the asker's display name (the agent /
-/// actor that created the request), `text` the ask itself (summary preferred over
-/// the shorter title).
-function askFromUnblockRequest(
-  snapshot: ScoutBrokerSnapshot,
-  request: UnblockRequestRecord,
-): ScoutConversationAsk | null {
-  const text = (request.summary?.trim() || request.title?.trim()) ?? "";
-  if (!text) return null;
-  const askerId = request.createdById || request.agentId || "";
-  const from = (askerId
-    && (snapshot.agents[askerId]?.displayName
-      ?? snapshot.actors[askerId]?.displayName))
-    || askerId
-    || "Agent";
-  const state: ScoutConversationAsk["state"] =
-    request.state === "open" || request.state === "snoozed" ? "pending" : "answered";
-  return { from, text, state };
-}
-
 export async function getScoutConversations(
   filters: ScoutConversationListFilters = {},
 ): Promise<ScoutConversationSummary[]> {
@@ -590,7 +546,6 @@ export async function getScoutConversations(
   const query = normalizeQuery(filters.query);
   const operatorIds = new Set(configuredOperatorActorIds());
   const readAtByConversation = operatorReadAtByConversation(snapshot);
-  const askByConversation = latestQuestionAskByConversation(snapshot);
 
   const conversationIdFilter = filters.conversationId?.trim() || null;
 
@@ -619,9 +574,7 @@ export async function getScoutConversations(
         readAtByConversation.get(conversation.id),
         operatorIds,
       );
-      const askRequest = askByConversation.get(conversation.id);
-      const ask = askRequest ? askFromUnblockRequest(snapshot, askRequest) : null;
-      const askField = ask ? { ask } : {};
+      const askField = {};
       const participants = buildScopedParticipants(
         snapshot,
         conversation.id,

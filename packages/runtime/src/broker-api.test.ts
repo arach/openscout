@@ -106,7 +106,6 @@ describe("active broker service helpers", () => {
             deliveries: 0,
             deliveryAttempts: 0,
             dispatches: 0,
-            unblockRequests: 0,
             errors: 0,
             warnings: 0,
           },

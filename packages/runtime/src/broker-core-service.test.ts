@@ -26,8 +26,6 @@ function createReadOnlyBrokerCoreService(snapshot: RuntimeRegistrySnapshot) {
     journal: {
       listCollaborationRecords: () => [],
       listCollaborationEvents: () => [],
-      listUnblockRequests: () => [],
-      listUnblockRequestEvents: () => [],
       listDeliveries: () => [],
       listDeliveryAttempts: () => [],
       listScoutDispatches: () => [],
@@ -138,8 +136,6 @@ describe("createBrokerCoreService", () => {
       journal: {
         listCollaborationRecords: () => Object.values(snapshot.collaborationRecords),
         listCollaborationEvents: () => [],
-        listUnblockRequests: () => [],
-        listUnblockRequestEvents: () => [],
         listDeliveries: () => [],
         listDeliveryAttempts: () => [],
         listScoutDispatches: () => [],
@@ -639,24 +635,6 @@ describe("createBrokerCoreService", () => {
       journal: {
         listCollaborationRecords: () => [],
         listCollaborationEvents: () => [],
-        listUnblockRequests: () => [
-          {
-            id: "unblock-1",
-            kind: "flight",
-            state: "open",
-            source: "broker",
-            sourceRef: "flight-1",
-            title: "Flight needs attention",
-            ownerId: "agent-1",
-            createdById: "operator",
-            agentId: "agent-1",
-            severity: "warning",
-            createdAt: 160,
-            updatedAt: 160,
-            actions: [{ kind: "open", label: "Open" }],
-          },
-        ],
-        listUnblockRequestEvents: () => [],
         listDeliveries: () => [
           {
             id: "delivery-1",
@@ -745,7 +723,7 @@ describe("createBrokerCoreService", () => {
     expect(feed?.status.pendingDeliveryIds).toEqual(["delivery-1"]);
     expect(feed?.counts.errors).toBeGreaterThanOrEqual(2);
     expect(feed?.items.map((item) => item.kind)).toEqual(
-      expect.arrayContaining(["message", "invocation", "flight", "delivery", "delivery_attempt", "dispatch", "unblock_request"]),
+      expect.arrayContaining(["message", "invocation", "flight", "delivery", "delivery_attempt", "dispatch"]),
     );
     expect(feed?.items.find((item) => item.kind === "flight")).toMatchObject({
       severity: "error",

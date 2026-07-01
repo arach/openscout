@@ -29,11 +29,8 @@ const openScoutDirectSessionCalls: Array<Record<string, unknown>> = [];
 const upsertScoutConversationCalls: Array<Record<string, unknown>> = [];
 const queryRunsCalls: Array<Record<string, unknown>> = [];
 const decidePairingApprovalCalls: Array<Record<string, unknown>> = [];
-const upsertUnblockRequestCalls: Array<Record<string, unknown>> = [];
-const appendUnblockRequestEventCalls: Array<Record<string, unknown>> = [];
 const lanBeaconSuppressPredicates: Array<() => boolean | Promise<boolean>> = [];
 const testDirectories = new Set<string>();
-let readUnblockRequestsResult: Array<Record<string, unknown>> = [];
 let scoutBrokerContextResult: unknown = null;
 let agentObservePayloadResult: unknown = null;
 let sessionRefObservePayloadResult: unknown = null;
@@ -188,9 +185,6 @@ mock.module("./pairing-lan-beacon.ts", () => ({
 
 mock.module("./core/broker/service.ts", () => ({
   appendScoutCollaborationEvent: async () => null,
-  appendScoutUnblockRequestEvent: async (input: Record<string, unknown>) => {
-    appendUnblockRequestEventCalls.push(input);
-  },
   loadScoutBrokerContext: async () => scoutBrokerContextResult,
   loadScoutReadCursors: async () => ({}),
   loadScoutRelayConfig: async () => scoutRelayConfigResult,
@@ -207,7 +201,6 @@ mock.module("./core/broker/service.ts", () => ({
       }));
     return normalized?.length ? normalized : undefined;
   },
-  readScoutUnblockRequests: async () => readUnblockRequestsResult,
   registerScoutLocalAgentBinding: async () => null,
   readScoutBrokerHealth: async () => ({
     baseUrl: "http://broker.test",
@@ -252,9 +245,6 @@ mock.module("./core/broker/service.ts", () => ({
     upsertScoutConversationCalls.push(input);
   },
   upsertScoutFlight: async () => null,
-  upsertScoutUnblockRequest: async (input: Record<string, unknown>) => {
-    upsertUnblockRequestCalls.push(input);
-  },
 }));
 
 mock.module("./core/observe/service.ts", () => ({
@@ -693,7 +683,6 @@ beforeEach(() => {
   queryAgentsResult = [];
   queryTerminalSessionsResult = [];
   queryDiscoveredTerminalSessionsResult = [];
-  readUnblockRequestsResult = [];
   pairingStateResult = makePairingState();
   pairingSessionSnapshotsResult = [];
   sendScoutMessageCalls.length = 0;
@@ -705,8 +694,6 @@ beforeEach(() => {
   upsertScoutConversationCalls.length = 0;
   queryRunsCalls.length = 0;
   decidePairingApprovalCalls.length = 0;
-  upsertUnblockRequestCalls.length = 0;
-  appendUnblockRequestEventCalls.length = 0;
   lanBeaconSuppressPredicates.length = 0;
 });
 
@@ -1697,44 +1684,6 @@ describe("createOpenScoutWebServer", () => {
           }),
         }),
       ]);
-  });
-
-  test("renders broker unblock requests without dead approval actions", async () => {
-    const createdAt = 1_700_000_000_000;
-    readUnblockRequestsResult = [{
-      id: "unblock-1",
-      kind: "permission",
-      state: "open",
-      source: "test-permission-source",
-      sourceRef: "permission:req-1",
-      title: "Tool permission needed",
-      ownerId: "operator",
-      createdById: "system",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
-        { kind: "open", label: "Open settings", route: { view: "settings" } },
-      ],
-      createdAt,
-      updatedAt: createdAt,
-    }];
-
-    const server = await createOpenScoutWebServer({
-      currentDirectory: "/tmp/openscout",
-      assetMode: "static",
-      staticRoot: makeStaticRoot(),
-    });
-    const response = await server.app.request("http://localhost/api/operator-attention");
-
-    expect(response.status).toBe(200);
-    const body = await response.json() as {
-      items: Array<{
-        id: string;
-        actions: Array<{ kind: string }>;
-      }>;
-    };
-    expect(body.items.find((item) => item.id === "unblock-1")?.actions.map((action) => action.kind))
-      .toEqual(["open", "dismiss"]);
   });
 
   test("renders Claude Scout permission hints without a settings detour", async () => {
