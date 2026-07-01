@@ -94,7 +94,6 @@ function snapshot(input: {
     invocations: {},
     flights: {},
     collaborationRecords: {},
-    unblockRequests: {},
   };
 }
 

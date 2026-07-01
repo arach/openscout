@@ -216,26 +216,6 @@ function projectFlightStatus(
 }
 
 function projectCollaborationStatus(record: CollaborationRecord, agentId: ScoutId): StatusCandidate {
-  const updatedAt = record.updatedAt;
-  if (record.kind === "question") {
-    const isActive = record.state === "open" || record.state === "answered";
-    return {
-      subjectKind: "question",
-      subjectId: record.id,
-      agentId,
-      phase: isActive ? "running" : "closed",
-      activity: isActive ? "waiting_for_input" : "completed",
-      detail: {
-        title: record.title,
-        summary: record.summary,
-      },
-      provenance: collaborationProvenance(record, 0.95),
-      confidence: 0.95,
-      updatedAt,
-      rank: isActive ? 88 : 40,
-    };
-  }
-
   return projectWorkItemStatus(record, agentId);
 }
 
@@ -315,7 +295,6 @@ function workItemWaitingActivity(record: WorkItemRecord): ObservedActivity {
     case "actor":
       return "waiting_on_actor";
     case "approval":
-    case "question":
       return "waiting_for_input";
     case "artifact":
     case "condition":

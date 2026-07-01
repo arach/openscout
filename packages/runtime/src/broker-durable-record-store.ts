@@ -1,8 +1,6 @@
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
-  assertValidUnblockRequestEvent,
-  assertValidUnblockRequestRecord,
   type ActorIdentity,
   type AgentDefinition,
   type AgentEndpoint,
@@ -15,8 +13,6 @@ import {
   type InvocationRequest,
   type MessageRecord,
   type NodeDefinition,
-  type UnblockRequestEvent,
-  type UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type { BrokerJournalEntry } from "./broker-journal.js";
@@ -50,9 +46,6 @@ type RuntimeRecordStore = {
   upsertCollaboration(record: CollaborationRecord): Promise<void>;
   collaborationRecord(recordId: string): CollaborationRecord | undefined;
   appendCollaborationEvent(event: CollaborationEvent): Promise<void>;
-  upsertUnblockRequest(request: UnblockRequestRecord): Promise<void>;
-  unblockRequest(requestId: string): UnblockRequestRecord | undefined;
-  appendUnblockRequestEvent(event: UnblockRequestEvent): Promise<void>;
   planMessage(message: MessageRecord, options?: { localOnly?: boolean }): DeliveryIntent[];
   commitMessage(message: MessageRecord, deliveries: DeliveryIntent[]): Promise<void>;
   planInvocation(invocation: InvocationRequest): FlightRecord;
@@ -247,43 +240,6 @@ export class BrokerDurableRecordStore {
         { kind: "collaboration.event.record", event },
         async () => {
           await this.options.runtime.appendCollaborationEvent(event);
-        },
-        options,
-      );
-    });
-  };
-
-  readonly recordUnblockRequest = async (
-    request: UnblockRequestRecord,
-    options: DurableCommitOptions = {},
-  ): Promise<BrokerJournalEntry[]> => {
-    assertValidUnblockRequestRecord(request);
-    return this.options.durableStore.runWrite(async () => {
-      return this.options.durableStore.commitEntries(
-        { kind: "unblock_request.record", request },
-        async () => {
-          await this.options.runtime.upsertUnblockRequest(request);
-        },
-        options,
-      );
-    });
-  };
-
-  readonly appendUnblockRequestEvent = async (
-    event: UnblockRequestEvent,
-    options: DurableCommitOptions = {},
-  ): Promise<BrokerJournalEntry[]> => {
-    return this.options.durableStore.runWrite(async () => {
-      const request = this.options.runtime.unblockRequest(event.requestId);
-      if (!request) {
-        throw new Error(`unknown unblock request: ${event.requestId}`);
-      }
-      assertValidUnblockRequestEvent(event, request);
-
-      return this.options.durableStore.commitEntries(
-        { kind: "unblock_request.event.record", event },
-        async () => {
-          await this.options.runtime.appendUnblockRequestEvent(event);
         },
         options,
       );

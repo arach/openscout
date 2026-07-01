@@ -373,7 +373,7 @@ export type FleetAsk = {
 };
 
 export type FleetAttentionItem = {
-  kind: "question" | "work_item";
+  kind: "work_item";
   recordId: string;
   title: string;
   summary: string | null;
@@ -453,9 +453,8 @@ export type OperatorAttentionAction = {
   route?: Route;
   value?: string;
   recordId?: string;
-  recordKind?: "question" | "work_item";
+  recordKind?: "work_item";
   flightId?: string;
-  unblockRequestId?: string;
 };
 
 export type OperatorAttentionItem = {
@@ -471,13 +470,6 @@ export type OperatorAttentionItem = {
   severity: "critical" | "warning" | "info";
   sourceLabel: string;
   approval?: PairingApprovalRequest;
-  unblockRequest?: {
-    id: string;
-    kind: string;
-    state: string;
-    source: string;
-    sourceRef: string;
-  };
   actions: OperatorAttentionAction[];
 };
 

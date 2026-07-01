@@ -12,7 +12,6 @@ export * from "./mesh.js";
 export * from "./conversations.js";
 export * from "./channel-identity.js";
 export * from "./collaboration.js";
-export * from "./unblock-requests.js";
 export * from "./messages.js";
 export * from "./read-receipts.js";
 export * from "./invocations.js";

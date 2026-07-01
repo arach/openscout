@@ -118,7 +118,6 @@ function testSnapshot(input: {
     invocations: input.invocations ?? {},
     flights: input.flights ?? {},
     collaborationRecords: {},
-    unblockRequests: {},
   };
 }
 

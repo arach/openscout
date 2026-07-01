@@ -244,8 +244,6 @@ describe("SQLiteControlPlaneStore", () => {
         "budget_usage_events",
         "budget_quota_window_snapshots",
         "invocations",
-        "unblock_requests",
-        "unblock_request_events",
         "runtime_sessions",
         "runtime_session_aliases",
       ]);
@@ -267,9 +265,6 @@ describe("SQLiteControlPlaneStore", () => {
       expect(indexNames).toContain("idx_budget_quota_windows_session_captured");
       expect(indexNames).toContain("idx_budget_quota_windows_provider_label");
       expect(indexNames).toContain("idx_invocations_requester_created_at");
-      expect(indexNames).toContain("idx_unblock_requests_state_owner_updated_at");
-      expect(indexNames).toContain("idx_unblock_requests_source_ref");
-      expect(indexNames).toContain("idx_unblock_request_events_request_created_at");
       expect(indexNames).toContain("idx_runtime_sessions_agent_last_seen");
       expect(indexNames).toContain("idx_runtime_sessions_endpoint_last_seen");
       expect(indexNames).toContain("idx_runtime_sessions_external");
@@ -677,54 +672,6 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
-  test("persists and reloads durable unblock requests", () => {
-    const store = createStore();
-
-    try {
-      store.recordUnblockRequest({
-        id: "unblock-1",
-        kind: "permission",
-        state: "open",
-        source: "test-permission-source",
-        sourceRef: "permission:req-1",
-        title: "Allow tool: Bash",
-        ownerId: "operator",
-        createdById: "system",
-        severity: "warning",
-        actions: [
-          { kind: "approve", label: "Allow" },
-          { kind: "deny", label: "Deny" },
-        ],
-        createdAt: 100,
-        updatedAt: 100,
-      });
-      store.recordUnblockRequestEvent({
-        id: "evt-1",
-        requestId: "unblock-1",
-        kind: "created",
-        actorId: "system",
-        at: 100,
-      });
-
-      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.sourceRef).toBe("permission:req-1");
-      expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(1);
-      expect(store.listUnblockRequestEvents({ requestId: "unblock-1" })).toHaveLength(1);
-
-      store.recordUnblockRequest({
-        ...store.loadSnapshot().unblockRequests["unblock-1"]!,
-        state: "resolved",
-        updatedAt: 140,
-        resolvedAt: 140,
-        actions: undefined,
-      });
-
-      expect(store.listUnblockRequests({ ownerId: "operator", active: true })).toHaveLength(0);
-      expect(store.loadSnapshot().unblockRequests["unblock-1"]?.state).toBe("resolved");
-    } finally {
-      store.close();
-    }
-  });
-
   test("persists invocation collaboration record ids, including context fallback", () => {
     const { store, dbPath } = createStoreWithPath();
     const db = new Database(dbPath, { readonly: true });
@@ -957,42 +904,6 @@ describe("SQLiteControlPlaneStore", () => {
         completedAt: 150,
       });
       expect(countRows(db, "collaboration_events", "record_id", "work-1")).toBe(1);
-
-      const unblockRequest = {
-        id: "unblock-1",
-        kind: "permission" as const,
-        state: "open" as const,
-        source: "test",
-        sourceRef: "test:req-1",
-        title: "Approve test",
-        ownerId: "operator",
-        createdById: "operator",
-        createdAt: 160,
-        updatedAt: 160,
-      };
-      store.recordUnblockRequest(unblockRequest);
-      store.recordUnblockRequestEvent({
-        id: "unblock-event-1",
-        requestId: "unblock-1",
-        kind: "created",
-        actorId: "operator",
-        at: 170,
-      });
-      store.recordUnblockRequest({
-        ...unblockRequest,
-        state: "resolved",
-        updatedAt: 180,
-        resolvedAt: 180,
-      });
-      store.recordUnblockRequest({
-        ...unblockRequest,
-        id: "unblock-duplicate-source",
-        state: "resolved",
-        updatedAt: 190,
-        resolvedAt: 190,
-      });
-      expect(countRows(db, "unblock_request_events", "request_id", "unblock-1")).toBe(1);
-      expect(countRows(db, "unblock_requests", "id", "unblock-duplicate-source")).toBe(0);
 
       store.recordDurableAction({
         id: "action-1",

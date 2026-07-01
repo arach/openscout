@@ -93,7 +93,7 @@ type FleetAskRow = {
 };
 
 type FleetAttentionRow = {
-  record_kind: "question" | "work_item";
+  record_kind: "work_item";
   record_id: string;
   title: string;
   summary: string | null;

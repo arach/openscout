@@ -194,38 +194,6 @@ describe("InMemoryControlRuntime", () => {
     expect(runtime.recentEvents()).toHaveLength(eventCount);
   });
 
-  test("records broker-owned unblock requests and emits events", async () => {
-    const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
-
-    await runtime.upsertUnblockRequest({
-      id: "unblock-1",
-      kind: "permission",
-      state: "open",
-      source: "test-permission-source",
-      sourceRef: "permission:req-1",
-      title: "Allow tool: Bash",
-      ownerId: "operator",
-      createdById: "system",
-      actions: [
-        { kind: "approve", label: "Allow" },
-        { kind: "deny", label: "Deny" },
-      ],
-      createdAt: 100,
-      updatedAt: 100,
-    });
-    await runtime.appendUnblockRequestEvent({
-      id: "evt-1",
-      requestId: "unblock-1",
-      kind: "created",
-      actorId: "system",
-      at: 100,
-    });
-
-    expect(runtime.snapshot().unblockRequests["unblock-1"]?.state).toBe("open");
-    expect(runtime.recentEvents().map((event) => event.kind)).toContain("unblock_request.upserted");
-    expect(runtime.recentEvents().map((event) => event.kind)).toContain("unblock_request.event.appended");
-  });
-
   test("can plan and commit a message separately", async () => {
     const runtime = createInMemoryControlRuntime({}, { localNodeId: "node-1" });
 

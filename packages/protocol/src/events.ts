@@ -7,7 +7,6 @@ import type { MessageRecord } from "./messages.js";
 import type { ConversationReadCursor } from "./read-receipts.js";
 import type { AgentDefinition, AgentEndpoint, ActorIdentity } from "./actors.js";
 import type { CollaborationEvent, CollaborationRecord } from "./collaboration.js";
-import type { UnblockRequestEvent, UnblockRequestRecord } from "./unblock-requests.js";
 import type { ScoutDispatchRecord } from "./scout-dispatch.js";
 
 export interface ControlEventBase<K extends string, P> {
@@ -84,14 +83,6 @@ export type CollaborationEventAppendedEvent = ControlEventBase<"collaboration.ev
   event: CollaborationEvent;
 }>;
 
-export type UnblockRequestUpsertedEvent = ControlEventBase<"unblock_request.upserted", {
-  request: UnblockRequestRecord;
-}>;
-
-export type UnblockRequestEventAppendedEvent = ControlEventBase<"unblock_request.event.appended", {
-  event: UnblockRequestEvent;
-}>;
-
 export type ScoutDispatchedEvent = ControlEventBase<"scout.dispatched", {
   dispatch: ScoutDispatchRecord;
 }>;
@@ -113,6 +104,4 @@ export type ControlEvent =
   | DeliveryStateChangedEvent
   | CollaborationUpsertedEvent
   | CollaborationEventAppendedEvent
-  | UnblockRequestUpsertedEvent
-  | UnblockRequestEventAppendedEvent
   | ScoutDispatchedEvent;

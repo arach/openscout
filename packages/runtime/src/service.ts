@@ -13,8 +13,6 @@ import type {
   InvocationRequest,
   MessageRecord,
   NodeDefinition,
-  UnblockRequestEvent,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 
@@ -31,8 +29,6 @@ export interface ControlRuntime {
   upsertFlight(flight: FlightRecord): Promise<void>;
   upsertCollaboration(record: CollaborationRecord): Promise<void>;
   appendCollaborationEvent(event: CollaborationEvent): Promise<void>;
-  upsertUnblockRequest(request: UnblockRequestRecord): Promise<void>;
-  appendUnblockRequestEvent(event: UnblockRequestEvent): Promise<void>;
   postMessage(message: MessageRecord, options?: { localOnly?: boolean }): Promise<DeliveryIntent[]>;
   invokeAgent(invocation: InvocationRequest): Promise<FlightRecord>;
   subscribe(listener: (event: ControlEvent) => void): () => void;

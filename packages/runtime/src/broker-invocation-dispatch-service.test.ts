@@ -156,7 +156,6 @@ function createHarness(input: {
         invocations: {},
         flights,
         collaborationRecords: {},
-        unblockRequests: {},
       }),
       actor: (actorId) => actors[actorId],
       agent: (agentId) => agents[agentId],

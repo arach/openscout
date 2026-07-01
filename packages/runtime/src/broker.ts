@@ -17,14 +17,10 @@ import type {
   MessageRecord,
   NodeDefinition,
   ScoutId,
-  UnblockRequestEvent,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
 import {
   assertValidCollaborationEvent,
   assertValidCollaborationRecord,
-  assertValidUnblockRequestEvent,
-  assertValidUnblockRequestRecord,
 } from "@openscout/protocol";
 
 import { planMessageDeliveries, type DeliveryRoute } from "./planner.js";
@@ -184,7 +180,6 @@ export class InMemoryControlRuntime implements ControlRuntime {
       invocations: { ...this.registry.invocations },
       flights: { ...this.registry.flights },
       collaborationRecords: { ...this.registry.collaborationRecords },
-      unblockRequests: { ...this.registry.unblockRequests },
     });
   }
 
@@ -219,10 +214,6 @@ export class InMemoryControlRuntime implements ControlRuntime {
 
   collaborationRecord(recordId: ScoutId): CollaborationRecord | undefined {
     return this.registry.collaborationRecords[recordId];
-  }
-
-  unblockRequest(requestId: ScoutId): UnblockRequestRecord | undefined {
-    return this.registry.unblockRequests[requestId];
   }
 
   flightForInvocation(invocationId: ScoutId): FlightRecord | undefined {
@@ -309,12 +300,6 @@ export class InMemoryControlRuntime implements ControlRuntime {
         return;
       case "collaboration.event.append":
         await this.appendCollaborationEvent(command.event);
-        return;
-      case "unblock_request.upsert":
-        await this.upsertUnblockRequest(command.request);
-        return;
-      case "unblock_request.event.append":
-        await this.appendUnblockRequestEvent(command.event);
         return;
       case "conversation.post":
         await this.postMessage(command.message);
@@ -548,36 +533,6 @@ export class InMemoryControlRuntime implements ControlRuntime {
     this.emit({
       id: createRuntimeId("evt"),
       kind: "collaboration.event.appended",
-      ts: Date.now(),
-      actorId: event.actorId,
-      nodeId: this.localNodeId,
-      payload: { event },
-    });
-  }
-
-  async upsertUnblockRequest(request: UnblockRequestRecord): Promise<void> {
-    assertValidUnblockRequestRecord(request);
-    this.registry.unblockRequests[request.id] = request;
-    this.emit({
-      id: createRuntimeId("evt"),
-      kind: "unblock_request.upserted",
-      ts: Date.now(),
-      actorId: request.createdById,
-      nodeId: this.localNodeId,
-      payload: { request },
-    });
-  }
-
-  async appendUnblockRequestEvent(event: UnblockRequestEvent): Promise<void> {
-    const request = this.registry.unblockRequests[event.requestId];
-    if (!request) {
-      throw new Error(`unknown unblock request: ${event.requestId}`);
-    }
-
-    assertValidUnblockRequestEvent(event, request);
-    this.emit({
-      id: createRuntimeId("evt"),
-      kind: "unblock_request.event.appended",
       ts: Date.now(),
       actorId: event.actorId,
       nodeId: this.localNodeId,

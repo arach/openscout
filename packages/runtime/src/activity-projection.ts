@@ -13,9 +13,7 @@ import type {
   ScoutAgentActivitySummary,
   ScoutFleetActivitySummary,
   ScoutId,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
-import { isActiveUnblockRequest } from "@openscout/protocol";
 
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import { projectObservedStatusForAgent } from "./observed-status-projection.js";
@@ -29,10 +27,9 @@ export interface ActivityProjectionOptions {
 
 export type ActivityProjectionSnapshot = Pick<
   RuntimeRegistrySnapshot,
-  "agents" | "endpoints" | "invocations" | "flights" | "collaborationRecords" | "unblockRequests" | "messages"
+  "agents" | "endpoints" | "invocations" | "flights" | "collaborationRecords" | "messages"
 >;
 
-const DEFAULT_OPERATOR_ID = "operator";
 const DEFAULT_LATEST_EVENTS_LIMIT = 8;
 
 export function projectAgentActivityFromRuntimeSnapshot(
@@ -40,16 +37,12 @@ export function projectAgentActivityFromRuntimeSnapshot(
   agentId: ScoutId,
   options: ActivityProjectionOptions = {},
 ): ScoutAgentActivitySummary {
-  const operatorId = options.operatorId ?? DEFAULT_OPERATOR_ID;
   const status = projectObservedStatusForAgent(snapshot, agentId, options);
-  const activeUnblocks = activeUnblockRequestsForAgent(snapshot, agentId);
-  const needsYou = activeUnblocks.some((request) => request.ownerId === operatorId);
   const latestEvents = collectActivityEventsForAgent(snapshot, agentId, options.latestEventsLimit);
   const latestEvent = latestEvents[0];
   const updatedAt = Math.max(
     status.updatedAt,
     latestEvent?.at ?? 0,
-    ...activeUnblocks.map((request) => request.updatedAt),
   );
 
   return {
@@ -57,9 +50,9 @@ export function projectAgentActivityFromRuntimeSnapshot(
     displayName: snapshot.agents[agentId]?.displayName,
     phase: status.phase,
     activity: status.activity,
-    motion: needsYou ? "blocked" : motionForObservedStatus(status),
-    needsYou,
-    currentWork: currentWorkForAgent(snapshot, agentId, status, activeUnblocks, operatorId),
+    motion: motionForObservedStatus(status),
+    needsYou: false,
+    currentWork: currentWorkForAgent(snapshot, agentId, status),
     latestEvent,
     updatedAt,
     staleAt: status.staleAt,
@@ -134,11 +127,6 @@ export function collectActivityEventsForAgent(
     events.push(collaborationActivityEvent(record, agentId));
   }
 
-  for (const request of Object.values(snapshot.unblockRequests)) {
-    if (!unblockRequestTouchesAgent(snapshot, request, agentId)) continue;
-    events.push(unblockRequestActivityEvent(request, agentId));
-  }
-
   for (const message of Object.values(snapshot.messages)) {
     if (!messageTouchesAgent(message, agentId)) continue;
     events.push(messageActivityEvent(message, agentId));
@@ -164,23 +152,8 @@ function collectActivityAgentIds(snapshot: ActivityProjectionSnapshot): ScoutId[
   for (const record of Object.values(snapshot.collaborationRecords)) {
     if (record.ownerId) agentIds.add(record.ownerId);
     if (record.nextMoveOwnerId) agentIds.add(record.nextMoveOwnerId);
-    if (record.kind === "question") {
-      if (record.askedById) agentIds.add(record.askedById);
-      if (record.askedOfId) agentIds.add(record.askedOfId);
-    } else if (record.requestedById) {
+    if (record.requestedById) {
       agentIds.add(record.requestedById);
-    }
-  }
-  for (const request of Object.values(snapshot.unblockRequests)) {
-    if (request.agentId) agentIds.add(request.agentId);
-    if (request.flightId) {
-      const flight = snapshot.flights[request.flightId];
-      if (flight) agentIds.add(flight.targetAgentId);
-    }
-    if (request.collaborationRecordId) {
-      const record = snapshot.collaborationRecords[request.collaborationRecordId];
-      if (record?.ownerId) agentIds.add(record.ownerId);
-      if (record?.nextMoveOwnerId) agentIds.add(record.nextMoveOwnerId);
     }
   }
   for (const message of Object.values(snapshot.messages)) {
@@ -212,37 +185,11 @@ function collectFleetActivityEvents(
   return [...eventsById.values()].sort(compareEvents).slice(0, limit);
 }
 
-function activeUnblockRequestsForAgent(
-  snapshot: ActivityProjectionSnapshot,
-  agentId: ScoutId,
-): UnblockRequestRecord[] {
-  return Object.values(snapshot.unblockRequests)
-    .filter((request) => isActiveUnblockRequest(request))
-    .filter((request) => unblockRequestTouchesAgent(snapshot, request, agentId))
-    .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id));
-}
-
 function currentWorkForAgent(
   snapshot: ActivityProjectionSnapshot,
   agentId: ScoutId,
   status: ObservedStatusProjection,
-  activeUnblocks: UnblockRequestRecord[],
-  operatorId: ScoutId,
 ): ScoutActivityWorkSummary | undefined {
-  const operatorUnblock = activeUnblocks.find((request) => request.ownerId === operatorId);
-  const activeUnblock = operatorUnblock ?? activeUnblocks[0];
-  if (activeUnblock) {
-    return {
-      title: activeUnblock.title,
-      summary: activeUnblock.summary ?? activeUnblock.detail,
-      source: { kind: "unblock_request", refId: activeUnblock.id },
-      metadata: {
-        kind: activeUnblock.kind,
-        severity: activeUnblock.severity,
-      },
-    };
-  }
-
   if (status.detail?.title || status.detail?.summary) {
     return {
       title: status.detail.title,
@@ -415,26 +362,6 @@ function collaborationActivityEvent(record: CollaborationRecord, agentId: ScoutI
   };
 }
 
-function unblockRequestActivityEvent(request: UnblockRequestRecord, agentId: ScoutId): ScoutActivityEvent {
-  return {
-    id: `unblock:${request.id}`,
-    kind: unblockRequestEventKind(request),
-    agentId,
-    sessionId: request.sessionId,
-    conversationId: request.conversationId,
-    title: request.title,
-    summary: request.summary ?? request.detail ?? request.sourceLabel ?? request.title,
-    at: request.updatedAt,
-    severity: request.severity,
-    source: { kind: "unblock_request", refId: request.id },
-    metadata: {
-      state: request.state,
-      kind: request.kind,
-      ownerId: request.ownerId,
-    },
-  };
-}
-
 function messageActivityEvent(message: MessageRecord, agentId: ScoutId): ScoutActivityEvent {
   return {
     id: `message:${message.id}`,
@@ -463,41 +390,9 @@ function flightEventKind(flight: FlightRecord): ScoutActivityEventKind {
   }
 }
 
-function unblockRequestEventKind(request: UnblockRequestRecord): ScoutActivityEventKind {
-  switch (request.kind) {
-    case "approval":
-    case "permission":
-    case "question":
-    case "work_item":
-    case "flight":
-    case "session":
-      return request.kind;
-    case "configuration":
-    default:
-      return "session";
-  }
-}
-
-function unblockRequestTouchesAgent(
-  snapshot: ActivityProjectionSnapshot,
-  request: UnblockRequestRecord,
-  agentId: ScoutId,
-): boolean {
-  if (request.agentId === agentId) return true;
-  if (request.flightId && snapshot.flights[request.flightId]?.targetAgentId === agentId) return true;
-  if (request.collaborationRecordId) {
-    const record = snapshot.collaborationRecords[request.collaborationRecordId];
-    if (record && collaborationTouchesAgent(record, agentId)) return true;
-  }
-  return false;
-}
-
 function collaborationTouchesAgent(record: CollaborationRecord, agentId: ScoutId): boolean {
   if (record.ownerId === agentId || record.nextMoveOwnerId === agentId || record.createdById === agentId) {
     return true;
-  }
-  if (record.kind === "question") {
-    return record.askedById === agentId || record.askedOfId === agentId;
   }
   return record.requestedById === agentId;
 }
