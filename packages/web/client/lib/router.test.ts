@@ -378,6 +378,43 @@ describe("agents route parsing", () => {
     );
   });
 
+  test("round-2 adopted prefixes round-trip (TanStack adoption)", () => {
+    // Simple static views: URL and Route must round-trip exactly — these pin
+    // the contract behind EXPECTED_SCOUT_VIEW_BY_ROUTE_ID in route-tree.ts.
+    for (const view of [
+      "fleet",
+      "conversations",
+      "repos",
+      "harnesses",
+      "mesh",
+      "broker",
+      "activity",
+    ] as const) {
+      expect(routeFromUrl(`http://127.0.0.1:43120/${view}`)).toEqual({ view });
+      expect(routePath({ view })).toBe(`/${view}`);
+    }
+    expect(routeFromUrl("http://127.0.0.1:43120/channels/chan-1")).toEqual({
+      view: "channels",
+      channelId: "chan-1",
+    });
+    expect(routePath({ view: "channels", channelId: "chan-1" })).toBe("/channels/chan-1");
+    expect(routeFromUrl("http://127.0.0.1:43120/work/w-1")).toEqual({
+      view: "work",
+      workId: "w-1",
+    });
+    expect(routePath({ view: "work", workId: "w-1" })).toBe("/work/w-1");
+    // Bare /work is NOT adopted: the parser sends it to the inbox default.
+    expect(routeFromUrl("http://127.0.0.1:43120/work")).toEqual({ view: "inbox" });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/agents/a-1")).toEqual({
+      view: "settings",
+      section: "agents",
+      agentId: "a-1",
+    });
+    expect(routePath({ view: "settings", section: "agents", agentId: "a-1" })).toBe(
+      "/settings/agents/a-1",
+    );
+  });
+
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread",

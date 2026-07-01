@@ -68,30 +68,47 @@ const scopeAgentsRoute = createRoute({
  * Adopted Scout prefixes — explicit TanStack routes over the same URLs the
  * canonical parser owns. beforeLoad parses the canonical Route and exposes it
  * in router context; the dev parity oracle in router.ts asserts TanStack's
- * match and routeFromUrl() agree. When adopting a new prefix, add its routes
- * here and its expected view to EXPECTED_SCOUT_VIEW_BY_ROUTE_ID.
+ * match and routeFromUrl() agree (via EXPECTED_SCOUT_VIEW_BY_ROUTE_ID, derived
+ * from this list). Adopting a new prefix = adding one entry here.
+ *
+ * Note: bare /work is deliberately absent — the canonical parser sends it to
+ * the inbox default, so only /work/$workId is adopted.
  */
-const briefingsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "briefings",
-  beforeLoad: ({ location }) => ({
-    scoutRoute: scoutRouteFromLocation(location.pathname, location.searchStr),
-  }),
-});
+const ADOPTED_SCOUT_PREFIXES: ReadonlyArray<{ path: string; view: Route["view"] }> = [
+  { path: "briefings", view: "briefings" },
+  { path: "briefings/$briefingId", view: "briefings" },
+  { path: "fleet", view: "fleet" },
+  { path: "conversations", view: "conversations" },
+  { path: "repos", view: "repos" },
+  { path: "harnesses", view: "harnesses" },
+  { path: "mesh", view: "mesh" },
+  { path: "broker", view: "broker" },
+  { path: "activity", view: "activity" },
+  { path: "search", view: "search" },
+  { path: "search/$searchMode", view: "search" },
+  { path: "channels", view: "channels" },
+  { path: "channels/$channelId", view: "channels" },
+  { path: "work/$workId", view: "work" },
+  { path: "settings", view: "settings" },
+  { path: "settings/agents", view: "settings" },
+  { path: "settings/agents/$agentId", view: "settings" },
+];
 
-const briefingDetailRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "briefings/$briefingId",
-  beforeLoad: ({ location }) => ({
-    scoutRoute: scoutRouteFromLocation(location.pathname, location.searchStr),
+const adoptedScoutRoutes = ADOPTED_SCOUT_PREFIXES.map(({ path }) =>
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    beforeLoad: ({ location }) => ({
+      scoutRoute: scoutRouteFromLocation(location.pathname, location.searchStr),
+    }),
   }),
-});
+);
 
 /** routeId → the Route view the canonical parser must produce for that match. */
-export const EXPECTED_SCOUT_VIEW_BY_ROUTE_ID: Record<string, Route["view"]> = {
-  "/briefings": "briefings",
-  "/briefings/$briefingId": "briefings",
-};
+export const EXPECTED_SCOUT_VIEW_BY_ROUTE_ID: Record<string, Route["view"]> =
+  Object.fromEntries(
+    ADOPTED_SCOUT_PREFIXES.map(({ path, view }) => [`/${path}`, view]),
+  );
 
 /** Legacy /scout/* → canonical /scope/* */
 const scoutLegacyRoute = createRoute({
@@ -120,8 +137,7 @@ export const scoutRouteTree = rootRoute.addChildren([
     scopeTailRoute,
     scopeAgentsRoute,
   ]),
-  briefingsRoute,
-  briefingDetailRoute,
+  ...adoptedScoutRoutes,
   scoutLegacyRoute,
   scoutSplatRoute,
 ]);
