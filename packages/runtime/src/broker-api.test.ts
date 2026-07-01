@@ -11,7 +11,6 @@ import type {
   ScoutDeliverRequest,
   ScoutDeliverResponse,
   ScoutCapabilityMatrixSnapshot,
-  ScoutInvocationLifecycle,
 } from "@openscout/protocol";
 
 import {
@@ -22,6 +21,7 @@ import {
   requestScoutBrokerJsonWithTrace,
   type ActiveScoutBrokerService,
 } from "./broker-api.js";
+import type { InvocationLifecycleSummary } from "./invocation-lifecycle-read-model.js";
 import { createRuntimeRegistrySnapshot } from "./registry.js";
 
 afterEach(() => {
@@ -117,7 +117,7 @@ describe("active broker service helpers", () => {
         return {
           invocationId: query.invocationId,
           state: "completed",
-        } satisfies ScoutInvocationLifecycle;
+        } satisfies InvocationLifecycleSummary;
       },
       executeCommand: async () => ({ ok: true }),
     };
@@ -165,7 +165,7 @@ describe("active broker service helpers", () => {
     const feed = await maybeReadJsonFromActiveScoutBrokerService<{
       agentId: string;
     }>("http://broker.test", "/v1/broker/messages?agentId=agent-1&limit=5&since=50&includeAcknowledged=1");
-    const lifecycle = await maybeReadJsonFromActiveScoutBrokerService<ScoutInvocationLifecycle>(
+    const lifecycle = await maybeReadJsonFromActiveScoutBrokerService<InvocationLifecycleSummary>(
       "http://broker.test",
       "/v1/invocations/inv-1/lifecycle",
     );

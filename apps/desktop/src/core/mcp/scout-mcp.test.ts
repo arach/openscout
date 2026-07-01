@@ -1891,18 +1891,8 @@ describe("createScoutMcpServer", () => {
       getInvocationLifecycle: async (_baseUrl, invocationId) => ({
         invocationId,
         flightId: "flight-1",
-        state: "working",
+        state: "running",
         targetAgentId: "hudson.main",
-        deliveries: [
-          {
-            deliveryId: "delivery-1",
-            subjectKind: "invocation",
-            subjectId: invocationId,
-            transport: "peer_broker",
-            state: "retrying",
-            attemptCount: 2,
-          },
-        ],
       }),
       waitForFlight: async () => {
         throw new Error("invocations_get should not wait");
@@ -1927,7 +1917,7 @@ describe("createScoutMcpServer", () => {
       waitStatus: string;
       output: string | null;
       flight: { state: string } | null;
-      lifecycle: { state: string; deliveries?: Array<{ state: string }> } | null;
+      lifecycle: { state?: string; targetAgentId?: string } | null;
       links: {
         follow: string | null;
         observe: string | null;
@@ -1940,8 +1930,7 @@ describe("createScoutMcpServer", () => {
     expect(structured.waitStatus).toBe("not_requested");
     expect(structured.output).toBe("Reviewing auth module");
     expect(structured.flight?.state).toBe("running");
-    expect(structured.lifecycle?.state).toBe("working");
-    expect(structured.lifecycle?.deliveries?.[0]?.state).toBe("retrying");
+    expect(structured.lifecycle?.state).toBe("running");
     const observeUrl = "http://scout.test/agents/hudson.main?tab=observe";
     const tailUrl =
       "http://scout.test/follow?view=tail&flightId=flight-1&invocationId=inv-1&targetAgentId=hudson.main";
@@ -1985,18 +1974,8 @@ describe("createScoutMcpServer", () => {
       getInvocationLifecycle: async (_baseUrl, invocationId) => ({
         invocationId,
         flightId: "flight-1",
-        state: "working",
+        state: "running",
         targetAgentId: "hudson.main",
-        deliveries: [
-          {
-            deliveryId: "delivery-1",
-            subjectKind: "invocation",
-            subjectId: invocationId,
-            transport: "peer_broker",
-            state: "dead_lettered",
-            attemptCount: 3,
-          },
-        ],
       }),
       waitForFlight: async () => {
         throw new Error("Timed out waiting for flight flight-1.");
@@ -2022,7 +2001,7 @@ describe("createScoutMcpServer", () => {
       waitStatus: string;
       output: string | null;
       flight: { state: string } | null;
-      lifecycle: { state: string; deliveries?: Array<{ state: string }> } | null;
+      lifecycle: { state?: string; targetAgentId?: string } | null;
     };
 
     expect(structured.found).toBe(true);
@@ -2030,7 +2009,7 @@ describe("createScoutMcpServer", () => {
     expect(structured.waitStatus).toBe("pending");
     expect(structured.output).toBe("Still working");
     expect(structured.flight?.state).toBe("running");
-    expect(structured.lifecycle?.deliveries?.[0]?.state).toBe("dead_lettered");
+    expect(structured.lifecycle?.state).toBe("running");
     const content = result.content as Array<{ type: string; text: string }> | undefined;
     expect(content?.[0]?.text).toContain("Flight flight-1 is still running.");
   });
