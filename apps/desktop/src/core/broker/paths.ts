@@ -1,53 +1,14 @@
-// Paths for the local broker HTTP API (see packages/runtime/src/broker-daemon.ts routeRequest).
+// Paths for the local broker HTTP API. The canonical map lives in
+// @openscout/protocol (broker-routes.ts); this file is a thin re-export so
+// existing imports keep working.
 
-export const scoutBrokerPaths = {
-  health: "/health",
-  v1: {
-    home: "/v1/home",
-    node: "/v1/node",
-    snapshot: "/v1/snapshot",
-    capabilities: "/v1/capabilities",
-    messages: "/v1/messages",
-    brokerMessages: "/v1/broker/messages",
-    eventsStream: "/v1/events/stream",
-    actors: "/v1/actors",
-    agents: "/v1/agents",
-    endpoints: "/v1/endpoints",
-    conversations: "/v1/conversations",
-    invocations: "/v1/invocations",
-    deliver: "/v1/deliver",
-    activity: "/v1/activity",
-    collaborationRecords: "/v1/collaboration/records",
-    collaborationEvents: "/v1/collaboration/events",
-    pairingAttach: "/v1/pairing/attach",
-    pairingDetach: "/v1/pairing/detach",
-    localSessionsAttach: "/v1/local-sessions/attach",
-    localSessionsDetach: "/v1/local-sessions/detach",
-  },
-} as const;
-
-export function scoutBrokerMessagesListPath(search: URLSearchParams): string {
-  const q = search.toString();
-  return q ? `${scoutBrokerPaths.v1.messages}?${q}` : scoutBrokerPaths.v1.messages;
-}
-
-export function scoutBrokerMessagesPath(search: URLSearchParams): string {
-  const q = search.toString();
-  return q
-    ? `${scoutBrokerPaths.v1.brokerMessages}?${q}`
-    : scoutBrokerPaths.v1.brokerMessages;
-}
-
-export function scoutBrokerInvocationPath(invocationId: string): string {
-  return `${scoutBrokerPaths.v1.invocations}/${encodeURIComponent(invocationId)}`;
-}
-
-export function scoutBrokerInvocationStreamPath(invocationId: string): string {
-  return `${scoutBrokerInvocationPath(invocationId)}/stream`;
-}
-
-export function scoutBrokerInvocationLifecyclePath(invocationId: string): string {
-  return `${scoutBrokerInvocationPath(invocationId)}/lifecycle`;
-}
+export {
+  scoutBrokerPaths,
+  scoutBrokerMessagesListPath,
+  scoutBrokerMessagesPath,
+  scoutBrokerInvocationPath,
+  scoutBrokerInvocationStreamPath,
+  scoutBrokerInvocationLifecyclePath,
+} from "@openscout/protocol";
 
 export const openAiAudioSpeechUrl = "https://api.openai.com/v1/audio/speech" as const;
