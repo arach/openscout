@@ -10,9 +10,17 @@ import ScoutAppCore
 ///   scout://hud/show          — present the panel
 ///   scout://hud/hide          — dismiss
 ///   scout://hud/toggle        — flip current state
-///   scout://hud/tail[/size]   — enter intentional Tail mode
-///   scout://hud/tab/<name>    — agents | activity | tail | sessions | assistant
+///   scout://hud/tail[/size]   — compatibility alias for Tail mode
+///   scout://hud/tab/<name>    — agents | activity | sessions | assistant
 ///   scout://hud/size/<name>   — compact | medium | large  (also accepts s | m | l)
+///
+/// Supported paths (host = `tail`):
+///   scout://tail/show[/size]  — present Tail mode
+///   scout://tail/hide         — dismiss Tail mode
+///   scout://tail/toggle       — flip Tail mode
+///   scout://tail/attach       — attach Tail mode to the nearest screen edge
+///   scout://tail/float        — keep Tail mode as a free-floating panel
+///   scout://tail/size/<name>  — compact | medium | large  (also accepts s | m | l)
 ///
 /// Supported paths (host = `services`):
 ///   scout://services/restart/broker  — restart the local broker
@@ -39,6 +47,9 @@ enum HUDURLRouter {
         case "hud":
             guard let head else { return }
             forwardHUD(head: head, tail: tail)
+        case "tail":
+            guard let head else { return }
+            forwardTail(head: head, tail: tail)
         case "services":
             guard let head else { return }
             handleServices(url: url, head: head, tail: tail)
@@ -49,6 +60,10 @@ enum HUDURLRouter {
 
     private static func forwardHUD(head: String, tail: [String]) {
         ScoutAppBridge.openHUD(command: head, value: tail.first)
+    }
+
+    private static func forwardTail(head: String, tail: [String]) {
+        ScoutAppBridge.openHUD(command: "tail-\(head)", value: tail.first)
     }
 
     private static func handleServices(url: URL, head: String, tail: [String]) {

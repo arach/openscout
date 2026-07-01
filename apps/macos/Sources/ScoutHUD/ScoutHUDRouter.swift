@@ -6,13 +6,17 @@ public enum ScoutHUDRouter {
 
     public static func handle(url: URL) -> Bool {
         guard url.scheme?.lowercased() == "scout",
-              url.host?.lowercased() == "hud" else {
+              let host = url.host?.lowercased(),
+              host == "hud" || host == "tail" else {
             return false
         }
 
         let parts = url.pathComponents.filter { $0 != "/" }
         guard let head = parts.first?.lowercased() else { return false }
         let value = parts.dropFirst().first
+        if host == "tail" {
+            return handleTail(command: head, value: value)
+        }
         return handle(command: head, value: value)
     }
 
@@ -34,14 +38,50 @@ public enum ScoutHUDRouter {
             }
             return true
         case "tail":
-            HUDState.shared.select(.tail)
+            TailModeController.shared.show(size: value.flatMap(parseSize), expand: true)
+            return true
+        case "tail-show":
+            TailModeController.shared.show(size: value.flatMap(parseSize), expand: true)
+            return true
+        case "tail-hide":
+            TailModeController.shared.hide()
+            return true
+        case "tail-toggle":
             if let value, let size = parseSize(value) {
-                HUDState.shared.setSize(size)
-            } else {
-                HUDState.shared.setSize(.large)
+                TailModeState.shared.setSize(size)
             }
-            HUDState.shared.setTailCollapsed(false)
-            HUDController.shared.show()
+            TailModeController.shared.toggle()
+            return true
+        case "tail-size":
+            guard let value, let size = parseSize(value) else { return false }
+            TailModeState.shared.setSize(size)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "tail-attach", "tail-attached", "tail-edge":
+            TailModeState.shared.setPlacement(.attached)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "tail-float", "tail-floating", "tail-free":
+            TailModeState.shared.setPlacement(.floating)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "tail-collapse":
+            TailModeState.shared.setCollapsed(true)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "tail-expand":
+            TailModeState.shared.setCollapsed(false)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
             return true
         case "tab":
             guard let value, let view = parseView(value) else { return false }
@@ -66,12 +106,16 @@ public enum ScoutHUDRouter {
 
     public static func distributedUserInfo(url: URL) -> [AnyHashable: Any]? {
         guard url.scheme?.lowercased() == "scout",
-              url.host?.lowercased() == "hud" else {
+              let host = url.host?.lowercased(),
+              host == "hud" || host == "tail" else {
             return nil
         }
 
         let parts = url.pathComponents.filter { $0 != "/" }
         guard let command = parts.first?.lowercased() else { return nil }
+        if host == "tail" {
+            return distributedUserInfo(command: "tail-\(command)", value: parts.dropFirst().first)
+        }
         return distributedUserInfo(command: command, value: parts.dropFirst().first)
     }
 
@@ -86,7 +130,6 @@ public enum ScoutHUDRouter {
         switch raw.lowercased() {
         case "agents": return .agents
         case "activity": return .activity
-        case "tail": return .tail
         case "sessions": return .sessions
         case "assistant": return .assistant
         default: return nil
@@ -99,6 +142,60 @@ public enum ScoutHUDRouter {
         case "medium", "m": return .medium
         case "large", "l": return .large
         default: return nil
+        }
+    }
+
+    private static func handleTail(command: String, value: String?) -> Bool {
+        switch command.lowercased() {
+        case "show":
+            TailModeController.shared.show(size: value.flatMap(parseSize), expand: true)
+            return true
+        case "hide":
+            TailModeController.shared.hide()
+            return true
+        case "toggle":
+            if let value, let size = parseSize(value) {
+                TailModeState.shared.setSize(size)
+            }
+            TailModeController.shared.toggle()
+            return true
+        case "attach", "attached", "edge":
+            TailModeState.shared.setPlacement(.attached)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "float", "floating", "free":
+            TailModeState.shared.setPlacement(.floating)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "size":
+            guard let value, let size = parseSize(value) else { return false }
+            TailModeState.shared.setSize(size)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "collapse":
+            TailModeState.shared.setCollapsed(true)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "expand":
+            TailModeState.shared.setCollapsed(false)
+            if !TailModeController.shared.isVisible {
+                TailModeController.shared.show(expand: false)
+            }
+            return true
+        case "compact", "medium", "large", "s", "m", "l":
+            guard let size = parseSize(command) else { return false }
+            TailModeController.shared.show(size: size, expand: true)
+            return true
+        default:
+            return false
         }
     }
 }

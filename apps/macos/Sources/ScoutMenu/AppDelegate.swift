@@ -62,6 +62,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             }
         }
 
+        HotkeyManager.shared.register(
+            id: 3,
+            keyCode: CarbonKeyCode.t,
+            modifiers: CarbonModifier.hyper
+        ) {
+            Task { @MainActor in
+                ScoutAppBridge.openHUD(command: "tail-toggle")
+            }
+        }
+
         controller.$menuBarSymbolName
             .combineLatest(controller.$menuBarTooltip)
             .sink { [weak self] symbolName, tooltip in
@@ -162,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         hudItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(hudItem)
 
-        let tailItem = NSMenuItem(title: "Show Tail Mode", action: #selector(showTailMode), keyEquivalent: "t")
+        let tailItem = NSMenuItem(title: "Toggle Tail Mode", action: #selector(showTailMode), keyEquivalent: "t")
         tailItem.target = self
         tailItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(tailItem)
@@ -283,7 +293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func showTailMode() {
-        ScoutAppBridge.openHUD(command: "tail")
+        ScoutAppBridge.openHUD(command: "tail-toggle")
     }
 
     @objc
