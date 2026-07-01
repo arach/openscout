@@ -157,7 +157,7 @@ public final class HUDController {
     /// that bypasses this guard (it cascades regardless).
     private var isDockFocused: Bool {
         guard let panel else { return false }
-        return (panel.firstResponder as? NSText)?.isEditable == true
+        return HUDKeyboardInput.isTextEditing(panel.firstResponder)
     }
 
     /// Toggle voice dictation; if native voice capture is unavailable,
@@ -273,6 +273,9 @@ public final class HUDController {
 
     public func dismiss() {
         guard let p = panel else { return }
+        if HUDRunnerState.shared.isPresented {
+            HUDRunnerState.shared.dismiss()
+        }
         if HUDMotionState.shared.phase == .idle {
             HUDMotionState.shared.begin(.moving)
         }
@@ -539,6 +542,7 @@ public final class HUDController {
     private var globalKeyMonitor: Any?
     private var globalFlagsMonitor: Any?
     private var globalMouseUpMonitor: Any?
+    private var appActivationObserver: NSObjectProtocol?
     private var outsideDismissTask: Task<Void, Never>?
 
     private func installMonitors() {
@@ -570,6 +574,22 @@ public final class HUDController {
                 self?.scheduleOutsideClickDismiss()
             }
         }
+
+        appActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refocusPanelAfterActivation()
+            }
+        }
+    }
+
+    private func refocusPanelAfterActivation() {
+        guard let panel, panel.isVisible else { return }
+        panel.orderFrontRegardless()
+        panel.makeKey()
     }
 
     private func shouldHandleGlobalKey(_ event: NSEvent) -> Bool {
@@ -612,8 +632,12 @@ public final class HUDController {
            HUDNavBus.shared.cycleTreatment != nil {
             return true
         }
+        if event.keyCode == 46 {
+            return HUDKeyboardInput.isUnmodifiedCharacterShortcut(event)
+                && !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel)
+        }
         switch event.keyCode {
-        case 18, 19, 20, 21, 23, 36, 38, 40, 34, 125, 126, 46, 5, 3, 44, 33, 30, 124, 123:
+        case 18, 19, 20, 21, 23, 36, 38, 40, 34, 125, 126, 5, 3, 44, 33, 30, 124, 123:
             return true
         default:
             return false
@@ -676,6 +700,8 @@ public final class HUDController {
                 Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
             }
         case 46: // m — toggle voice dictation
+            guard HUDKeyboardInput.isUnmodifiedCharacterShortcut(event),
+                  !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel) else { break }
             Task { @MainActor in await Self.toggleMicWithFlash() }
         case 5: // g — top; G with shift = bottom
             if event.modifierFlags.contains(.shift) {
@@ -809,6 +835,10 @@ public final class HUDController {
         if let m = globalMouseUpMonitor {
             NSEvent.removeMonitor(m)
             globalMouseUpMonitor = nil
+        }
+        if let observer = appActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            appActivationObserver = nil
         }
         HUDMotionState.shared.setModifierLift(false)
     }

@@ -1,13 +1,15 @@
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 
 import { createScoutApp } from "./scout";
+import { ScoutProvider } from "./scout/Provider.tsx";
 import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
 import { scoutTanstackRouter } from "./router/tanstack/router.ts";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
 import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
+import { BrokerEmbedScreen } from "./screens/broker/BrokerEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
 
 import {
@@ -16,6 +18,7 @@ import {
 } from "./lib/theme.ts";
 import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
 import { DevErrorOverlay } from "./dev/DevErrorOverlay.tsx";
+import type { Route } from "./lib/types.ts";
 import "./styles/tokens.css";
 import "./styles/primitives.css";
 import "./arc-tailwind.css";
@@ -44,30 +47,35 @@ const isSessionEmbed = window.location.pathname === "/embed/session";
 const isAgentLanesEmbed = window.location.pathname === "/ops/lanes/embed"
   || window.location.pathname === "/embed/lanes"
   || window.location.pathname === "/embed/traces";
+// Chrome-free dispatch (broker) ledger for the macOS "Dispatch" section.
+// See screens/broker/BrokerEmbedScreen.tsx.
+const isBrokerEmbed = window.location.pathname === "/embed/broker";
 const scoutApp = createScoutApp({ initialTheme });
 wireScopeOntoScout(scoutApp);
 registerScoutShellApp(scoutApp);
+
+function renderEmbed(children: ReactNode, initialRoute?: Route) {
+  return (
+    <ScoutProvider initialTheme={initialTheme} embedded initialRoute={initialRoute}>
+      {children}
+    </ScoutProvider>
+  );
+}
 
 createRoot(el).render(
   <StrictMode>
     {isScoutbotFxLab ? (
       <ScoutbotFxLab />
     ) : observeEmbedMatch ? (
-      <scoutApp.Provider>
-        <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-      </scoutApp.Provider>
+      renderEmbed(<ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />)
     ) : isRepoDiffEmbed ? (
-      <scoutApp.Provider>
-        <RepoDiffEmbedScreen />
-      </scoutApp.Provider>
+      renderEmbed(<RepoDiffEmbedScreen />)
     ) : isSessionEmbed ? (
-      <scoutApp.Provider>
-        <SessionEmbedScreen />
-      </scoutApp.Provider>
+      renderEmbed(<SessionEmbedScreen />, { view: "sessions" })
     ) : isAgentLanesEmbed ? (
-      <scoutApp.Provider>
-        <AgentLanesEmbedScreen />
-      </scoutApp.Provider>
+      renderEmbed(<AgentLanesEmbedScreen />, { view: "ops", mode: "lanes" })
+    ) : isBrokerEmbed ? (
+      renderEmbed(<BrokerEmbedScreen />, { view: "broker" })
     ) : (
       <RouterProvider router={scoutTanstackRouter} />
     )}

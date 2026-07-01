@@ -12,7 +12,7 @@ import Foundation
 /// agent's session with full context, seed-from-message) is expressed by which
 /// fields are set rather than by a dedicated endpoint.
 public struct SessionInitiationSpec: Codable, Sendable, Equatable {
-    public enum SessionMode: String, Codable, Sendable { case new, existing, any }
+    public enum SessionMode: String, Codable, Sendable { case new, existing, any, fork }
 
     public struct Target: Codable, Sendable, Equatable {
         public var agentId: String?
@@ -26,13 +26,27 @@ public struct SessionInitiationSpec: Codable, Sendable, Equatable {
     public struct Execution: Codable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
+        public var reasoningEffort: String?
         public var session: SessionMode?
         public var targetSessionId: String?
-        public init(harness: String? = nil, model: String? = nil, session: SessionMode? = nil, targetSessionId: String? = nil) {
+        public var forkFromSessionId: String?
+        public var forkFromStateId: String?
+        public init(
+            harness: String? = nil,
+            model: String? = nil,
+            reasoningEffort: String? = nil,
+            session: SessionMode? = nil,
+            targetSessionId: String? = nil,
+            forkFromSessionId: String? = nil,
+            forkFromStateId: String? = nil
+        ) {
             self.harness = harness
             self.model = model
+            self.reasoningEffort = reasoningEffort
             self.session = session
             self.targetSessionId = targetSessionId
+            self.forkFromSessionId = forkFromSessionId
+            self.forkFromStateId = forkFromStateId
         }
     }
 

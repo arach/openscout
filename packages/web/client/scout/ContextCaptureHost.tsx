@@ -35,6 +35,14 @@ export function ContextCaptureHost({
     });
   }, [onOpenCapture, routeContext]);
 
+  const openQuickCapture = useCallback(() => {
+    onOpenCapture({
+      agentId: routeContext.agentId ?? undefined,
+      conversationId: routeContext.conversationId ?? undefined,
+      preferExistingChat: routeContext.canUseExistingChat,
+    });
+  }, [onOpenCapture, routeContext]);
+
   useEffect(() => {
     const onDragEnter = (event: DragEvent) => {
       if (!readRoutableFiles(event.dataTransfer).length) return;
@@ -66,20 +74,38 @@ export function ContextCaptureHost({
       event.preventDefault();
       openCapture(files);
     };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (request || isEditableTarget(event.target)) return;
+      const isCaptureShortcut =
+        (event.metaKey || event.ctrlKey)
+        && event.shiftKey
+        && !event.altKey
+        && event.key.toLowerCase() === "n";
+      if (!isCaptureShortcut) return;
+      event.preventDefault();
+      openQuickCapture();
+    };
+    const onQuickCapture = () => {
+      if (!request) openQuickCapture();
+    };
 
     window.addEventListener("dragenter", onDragEnter);
     window.addEventListener("dragover", onDragOver);
     window.addEventListener("dragleave", onDragLeave);
     window.addEventListener("drop", onDrop);
     window.addEventListener("paste", onPaste);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scout:quick-capture", onQuickCapture);
     return () => {
       window.removeEventListener("dragenter", onDragEnter);
       window.removeEventListener("dragover", onDragOver);
       window.removeEventListener("dragleave", onDragLeave);
       window.removeEventListener("drop", onDrop);
       window.removeEventListener("paste", onPaste);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scout:quick-capture", onQuickCapture);
     };
-  }, [openCapture]);
+  }, [openCapture, openQuickCapture, request]);
 
   const dropActive = dragDepth > 0 && !request;
 

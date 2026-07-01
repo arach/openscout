@@ -1176,6 +1176,70 @@ describe("createOpenScoutWebServer", () => {
     });
   });
 
+  test("keeps remote broker cards out of the default agents API unless scope requests them", async () => {
+    queryAgentsResult = [
+      {
+        id: "local-agent",
+        definitionId: "local-agent",
+        name: "Local Agent",
+        handle: "local-agent",
+        conversationId: "c.local-agent",
+        authorityNodeId: "node-1",
+        homeNodeId: "node-1",
+      },
+    ];
+    const remoteContext = makeA2aBrokerContext({
+      agent: {
+        homeNodeId: "node-remote",
+        authorityNodeId: "node-remote",
+      },
+      endpoint: {
+        nodeId: "node-remote",
+      },
+    }) as {
+      snapshot: {
+        nodes: Record<string, Record<string, unknown>>;
+      };
+    };
+    remoteContext.snapshot.nodes["node-remote"] = {
+      id: "node-remote",
+      meshId: "mesh-1",
+      name: "Remote node",
+      advertiseScope: "mesh",
+      registeredAt: 1_700_000_010_000,
+    };
+    scoutBrokerContextResult = remoteContext;
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const defaultResponse = await server.app.request("http://localhost/api/agents");
+    const allResponse = await server.app.request("http://localhost/api/agents?scope=all");
+    const remoteResponse = await server.app.request("http://localhost/api/agents?scope=remote");
+
+    expect(defaultResponse.status).toBe(200);
+    expect(allResponse.status).toBe(200);
+    expect(remoteResponse.status).toBe(200);
+    const defaultAgents = await defaultResponse.json() as Array<Record<string, unknown>>;
+    const allAgents = await allResponse.json() as Array<Record<string, unknown>>;
+    const remoteAgents = await remoteResponse.json() as Array<Record<string, unknown>>;
+    expect(defaultAgents.map((agent) => agent.id)).toEqual(["local-agent"]);
+    expect(allAgents.map((agent) => agent.id)).toEqual([
+      "local-agent",
+      "weather-a2a.local",
+    ]);
+    expect(remoteAgents.map((agent) => agent.id)).toEqual(["weather-a2a.local"]);
+    expect(remoteAgents[0]).toMatchObject({
+      id: "weather-a2a.local",
+      authorityNodeId: "node-remote",
+      authorityNodeName: "Remote node",
+      homeNodeId: "node-remote",
+      homeNodeName: "Remote node",
+    });
+  });
+
   test("keeps database agent rows authoritative when broker cards share an id", async () => {
     queryAgentsResult = [
       {
@@ -1801,7 +1865,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.agent-1",
-        senderId: "operator",
+        senderId: expect.any(String),
         body: "Status update",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -1838,7 +1902,7 @@ describe("createOpenScoutWebServer", () => {
     expect(sendScoutConversationSteerCalls).toEqual([
       {
         conversationId: "c.arach-agent-1",
-        senderId: "operator",
+        senderId: expect.any(String),
         body: "Status update",
         currentDirectory: "/tmp/openscout",
         source: "scout-web",
@@ -2786,6 +2850,197 @@ describe("createOpenScoutWebServer", () => {
         currentDirectory: "/tmp/openscout",
       },
     ]);
+  });
+
+  test("routes session initiation effort and fork source through askScoutQuestion", async () => {
+    process.env.OPENSCOUT_OPERATOR_NAME = "operator";
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        execution: {
+          harness: "codex",
+          model: "gpt-5.5",
+          reasoningEffort: "high",
+          session: "fork",
+          forkFromSessionId: "session-source-1",
+        },
+        agent: { persistence: "sticky", handle: "hudson" },
+        seed: {
+          instructions: "Pick this up from the prior run.",
+          attachments: [
+            {
+              mediaType: "text/markdown",
+              url: "http://127.0.0.1:3200/api/blobs/blob-1",
+              fileName: "notes.md",
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      ok: true,
+      conversationId: "c.agent-1",
+      flightId: "flt-ask-1",
+      handle: "hudson",
+    }));
+    expect(askScoutQuestionCalls).toEqual([
+      {
+        senderId: expect.any(String),
+        target: { kind: "project_path", projectPath: "/tmp/openscout" },
+        body: "Pick this up from the prior run.",
+        executionHarness: "codex",
+        executionModel: "gpt-5.5",
+        executionReasoningEffort: "high",
+        executionSession: "fork",
+        executionForkFromSessionId: "session-source-1",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+            fileName: "notes.md",
+          },
+        ],
+        projectAgent: { persistence: "sticky", handle: "hudson" },
+        currentDirectory: "/tmp/openscout",
+        source: "scout-session-initiation",
+      },
+    ]);
+  });
+
+  test("serves HUD runner options for the command box", async () => {
+    const home = useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_HOME = join(home, ".openscout");
+    const projectRoot = mkdtempSync(join(tmpdir(), "openscout-runner-project-"));
+    testDirectories.add(projectRoot);
+    writeFileSync(join(projectRoot, "package.json"), "{\"name\":\"runner-project\"}\n", "utf8");
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Agent One",
+        handle: "agent-one",
+        state: "working",
+        harness: "claude",
+        model: "claude-opus-4-8",
+        projectRoot,
+        cwd: projectRoot,
+        harnessSessionId: "session-1",
+      },
+    ];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: projectRoot,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/runner/options");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      defaults: { directory: string; harness: string; model: string; persistence: string };
+      runners: Array<{ id: string; supports: string[] }>;
+      harnesses: Array<{ id: string; label: string }>;
+      models: Array<{ id: string; harnesses: string[] }>;
+      projects: Array<{ title: string; root: string }>;
+      agents: Array<{ id: string; projectRoot: string | null; harnessSessionId: string | null }>;
+    };
+    expect(payload.defaults).toEqual(expect.objectContaining({
+      directory: projectRoot,
+      harness: "claude",
+      model: "claude-opus-4-8",
+      persistence: "sticky",
+    }));
+    expect(payload.runners).toContainEqual(expect.objectContaining({
+      id: "scout",
+      supports: expect.arrayContaining(["claude", "codex"]),
+    }));
+    expect(payload.harnesses.map((entry) => entry.id)).toEqual(expect.arrayContaining(["claude", "codex"]));
+    expect(payload.models.map((entry) => entry.id)).toEqual(expect.arrayContaining(["claude-opus-4-8", "gpt-5.5"]));
+    expect(payload.models.some((entry) => entry.id.startsWith("gpt-5.4"))).toBe(false);
+    expect(payload.projects).toContainEqual(expect.objectContaining({
+      root: projectRoot,
+    }));
+    expect(payload.agents).toContainEqual(expect.objectContaining({
+      id: "agent-1",
+      projectRoot,
+      harnessSessionId: "session-1",
+    }));
+  });
+
+  test("defaults HUD runner options to a known project when process cwd is not a project", async () => {
+    const home = useIsolatedOpenScoutHome();
+    process.env.OPENSCOUT_HOME = join(home, ".openscout");
+    const launcherDirectory = mkdtempSync(join(tmpdir(), "openscout-runner-launcher-"));
+    testDirectories.add(launcherDirectory);
+    const projectRoot = join(home, "dev", "runner-project");
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(join(projectRoot, "package.json"), "{\"name\":\"runner-project\"}\n", "utf8");
+    queryAgentsResult = [
+      {
+        id: "agent-1",
+        name: "Agent One",
+        handle: "agent-one",
+        state: "working",
+        harness: "claude",
+        model: "claude-opus-4-8",
+        projectRoot,
+        cwd: projectRoot,
+        harnessSessionId: "session-1",
+      },
+    ];
+    const server = await createOpenScoutWebServer({
+      currentDirectory: launcherDirectory,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/runner/options");
+
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      defaults: { directory: string };
+      projects: Array<{ root: string }>;
+      agents: Array<{ projectRoot: string | null; cwd: string | null }>;
+    };
+    expect(payload.defaults.directory).toBe(projectRoot);
+    expect(payload.projects).toContainEqual(expect.objectContaining({ root: projectRoot }));
+    expect(payload.projects.some((project) => project.root === launcherDirectory)).toBe(false);
+    expect(payload.agents).toContainEqual(expect.objectContaining({
+      projectRoot,
+      cwd: projectRoot,
+    }));
+  });
+
+  test("rejects session initiation fork without a source", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        execution: { session: "fork", harness: "codex" },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "session 'fork' requires execution.forkFromSessionId or execution.forkFromStateId",
+    });
+    expect(askScoutQuestionCalls).toEqual([]);
   });
 
   test("routes Scoutbot ask actions through askScoutQuestion", async () => {

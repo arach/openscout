@@ -13,7 +13,7 @@ Purpose: dense context for coding agents working in this repo.
 | Trust posture | high-trust local developer pilots |
 | Not ready for | enterprise, compliance, untrusted multi-tenant runtime |
 | CLI | `scout` |
-| Runtime | Bun |
+| Runtime | Bun for the full local app/toolchain; Node for headless CLI/runtime paths |
 | Primary state owner | local broker |
 | Protocol package | `@openscout/protocol` |
 

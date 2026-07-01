@@ -61,21 +61,52 @@ final class OverlayPanel: NSPanel {
     }
 
     private var firstResponderIsTextEditing: Bool {
-        // SwiftUI TextField bridges to NSTextView via the field editor.
-        // The field editor is the firstResponder when a TextField has
-        // focus inside an NSHostingView.
-        if let responder = firstResponder as? NSText, responder.isEditable {
-            return true
-        }
-        if firstResponder is NSTextView {
-            return true
-        }
-        return false
+        HUDKeyboardInput.isTextEditing(firstResponder)
     }
 
     override func flagsChanged(with event: NSEvent) {
         onFlagsChanged?(event)
         super.flagsChanged(with: event)
+    }
+}
+
+@MainActor
+enum HUDKeyboardInput {
+    static func isTextEditing(_ responder: NSResponder?) -> Bool {
+        if let text = responder as? NSText, text.isEditable {
+            return true
+        }
+        if let textView = responder as? NSTextView, textView.isEditable {
+            return true
+        }
+        if let control = responder as? NSControl,
+           control.currentEditor()?.isEditable == true {
+            return true
+        }
+        return false
+    }
+
+    static func isTextEditingInKeyWindow(panel: NSWindow?) -> Bool {
+        if isTextEditing(panel?.firstResponder) {
+            return true
+        }
+        guard let keyWindow = NSApp.keyWindow, keyWindow !== panel else {
+            return false
+        }
+        return isTextEditing(keyWindow.firstResponder)
+    }
+
+    static func isTextEditingTarget(for event: NSEvent, panel: NSWindow?) -> Bool {
+        if isTextEditing(event.window?.firstResponder) {
+            return true
+        }
+        return isTextEditingInKeyWindow(panel: panel)
+    }
+
+    static func isUnmodifiedCharacterShortcut(_ event: NSEvent) -> Bool {
+        var flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        flags.remove(.capsLock)
+        return flags.isEmpty
     }
 }
 

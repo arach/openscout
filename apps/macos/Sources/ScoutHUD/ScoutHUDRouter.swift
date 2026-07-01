@@ -43,6 +43,11 @@ public enum ScoutHUDRouter {
             HUDState.shared.setTailCollapsed(false)
             HUDController.shared.show()
             return true
+        case "compose", "input", "command-box", "commandbox", "capture", "quick-capture":
+            prepareCommandBox(value: value)
+            HUDController.shared.show()
+            HUDRunnerState.shared.open()
+            return true
         case "tab":
             guard let value, let view = parseView(value) else { return false }
             HUDState.shared.select(view)
@@ -78,6 +83,16 @@ public enum ScoutHUDRouter {
     private static func prepareGenericHUD() {
         if HUDState.shared.view == .tail {
             HUDState.shared.select(.agents)
+        }
+        HUDState.shared.setTailCollapsed(false)
+    }
+
+    private static func prepareCommandBox(value: String?) {
+        HUDState.shared.select(.agents)
+        if let value, let size = parseSize(value) {
+            HUDState.shared.setSize(size)
+        } else {
+            HUDState.shared.setSize(.compact)
         }
         HUDState.shared.setTailCollapsed(false)
     }

@@ -19,6 +19,10 @@ enum ScoutAppBridge {
         }
     }
 
+    static func openQuickCapture() {
+        openHUD(command: "compose")
+    }
+
     static func openHUD(command: String, value: String? = nil) {
         if runningScoutApp == nil {
             guard command != "hide" else { return }

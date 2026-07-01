@@ -6,7 +6,8 @@ import ScoutHUD
 import SwiftUI
 
 private enum ScoutLaunchOptions {
-    static let hudRequested = CommandLine.arguments.contains("--hud")
+    static let quickCaptureRequested = CommandLine.arguments.contains("--quick-capture")
+    static let hudRequested = CommandLine.arguments.contains("--hud") || quickCaptureRequested
     static let hudCommand = value(after: "--hud-command")
     static let hudValue = value(after: "--hud-value")
     static let channelId = value(after: "--channel")
@@ -87,7 +88,9 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         installHUDCommandObserver()
         HUDStateFile.shared.start()
         registerHUDHotkey()
-        if ScoutLaunchOptions.hudRequested {
+        if ScoutLaunchOptions.quickCaptureRequested {
+            showHUDCommandBox()
+        } else if ScoutLaunchOptions.hudRequested {
             showHUDFromLaunchArguments()
         }
         if let channelId = ScoutLaunchOptions.channelId?.nilIfEmpty {
@@ -160,6 +163,9 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         if handleOpenScoutNetworkAuth(url) {
             return
         }
+        if handleAppURL(url) {
+            return
+        }
         if url.host?.lowercased() == "services" {
             forwardServiceURLToHelper(url)
         } else {
@@ -201,11 +207,24 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    private func handleAppURL(_ url: URL) -> Bool {
+        let host = url.host?.lowercased()
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        guard host == "capture" || host == "quick-capture" || path == "capture" || path == "quick-capture" else {
+            return false
+        }
+        showHUDCommandBox()
+        return true
+    }
+
     private func handleAppCommand(command: String, value: String?) -> Bool {
         switch command.lowercased() {
         case "channel", "open-channel":
             guard let cId = value?.nilIfEmpty else { return false }
             ScoutExternalCommand.openChannel(cId)
+            return true
+        case "compose", "input", "command-box", "commandbox", "capture", "quick-capture":
+            showHUDCommandBox()
             return true
         default:
             return false
@@ -237,6 +256,13 @@ final class ScoutAppDelegate: NSObject, NSApplicationDelegate {
                 _ = ScoutHUDRouter.handle(command: "show")
                 _ = ScoutHUDRouter.handle(command: command, value: ScoutLaunchOptions.hudValue)
             }
+        }
+    }
+
+    private func showHUDCommandBox() {
+        DispatchQueue.main.async { [weak self] in
+            self?.hideMainWindowsForHUDLaunch()
+            _ = ScoutHUDRouter.handle(command: "compose")
         }
     }
 

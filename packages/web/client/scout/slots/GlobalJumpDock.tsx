@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, Compass, Database, GitBranch, MessageSquare, ScrollText } from "lucide-react";
+import { Activity, Compass, Database, GitBranch, MessageSquare, PenLine, ScrollText } from "lucide-react";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -28,7 +28,7 @@ function persistMode(mode: DockMode): void {
 }
 
 export function GlobalJumpDock() {
-  const { route, navigate } = useScout();
+  const { route, navigate, openContextCapture } = useScout();
   const minimapAvailable = route.view === "mesh";
 
   // Defaults: mesh → minimap, everywhere else → jump. Stored preference wins
@@ -54,6 +54,16 @@ export function GlobalJumpDock() {
 
   return (
     <div className="gjd">
+      <button
+        type="button"
+        className="gjd-hotzone"
+        onClick={() => openContextCapture()}
+        title="Quick Capture"
+        aria-label="Quick Capture"
+      >
+        <PenLine size={14} strokeWidth={1.8} />
+        <span>Capture</span>
+      </button>
       <div className="gjd-head">
         <span className="gjd-ear" aria-hidden />
         <div className="gjd-mode" role="group" aria-label="Bottom dock mode">

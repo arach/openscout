@@ -3,6 +3,7 @@ import SwiftUI
 
 enum ScoutAppCommand: String {
     case newConversation
+    case quickCapture
     case moveDown
     case moveUp
     case focusSearch
@@ -38,6 +39,11 @@ struct ScoutCommands: Commands {
                 ScoutAppCommand.newConversation.post()
             }
             .keyboardShortcut("n", modifiers: .command)
+
+            Button("Quick Capture") {
+                ScoutAppCommand.quickCapture.post()
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
         }
 
         CommandGroup(replacing: .appSettings) {

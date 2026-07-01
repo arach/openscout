@@ -58,7 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             modifiers: CarbonModifier.hyper
         ) {
             Task { @MainActor in
-                OpenScoutAppController.shared.openComms()
+                OpenScoutAppController.shared.openQuickCapture()
             }
         }
 
@@ -134,7 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let commsItem = NSMenuItem(title: "Open Scout", action: #selector(openComms), keyEquivalent: "c")
+        let commsItem = NSMenuItem(title: "Command Box", action: #selector(openQuickCapture), keyEquivalent: "c")
         commsItem.target = self
         commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(commsItem)
@@ -249,6 +249,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc
     private func openComms() {
         controller.openComms()
+    }
+
+    @objc
+    private func openQuickCapture() {
+        controller.openQuickCapture()
     }
 
     @objc

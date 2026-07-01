@@ -11,7 +11,7 @@
  *   - `observe`      → SessionObserve (history/live trace; rail hidden)
  *   - `conversation` → ConversationScreen (embedded, no back nav)
  *
- * Wrapped in `scoutApp.Provider` upstream in main.tsx (supplies the
+ * Wrapped in the standalone ScoutProvider upstream in main.tsx (supplies the
  * `[data-scout-theme]` token scope, theme honored via `?theme=`). Mirrors
  * ObserveEmbedScreen + RepoDiffEmbedScreen.
  */

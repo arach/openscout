@@ -20,6 +20,10 @@ import ScoutAppCore
 ///   scout://services/restart/web     — restart the web server
 ///   scout://services/restart/all     — restart broker, relay, and web
 ///
+/// Supported app actions:
+///   scout://quick-capture            — open the HUD command box
+///   scout://capture                  — alias for the HUD command box
+///
 /// HUD actions are forwarded to Scout, which owns the panel and mirrors
 /// current state to `/tmp/openscout-hud-state.json`.
 @MainActor
@@ -36,6 +40,8 @@ enum HUDURLRouter {
         switch host {
         case "osn-auth":
             handleOpenScoutNetworkAuth(url: url)
+        case "capture", "quick-capture":
+            OpenScoutAppController.shared.openQuickCapture()
         case "hud":
             guard let head else { return }
             forwardHUD(head: head, tail: tail)

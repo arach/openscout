@@ -1205,7 +1205,7 @@ describe("SQLiteControlPlaneStore", () => {
     }
   });
 
-  test("round-trips deliveries and delivery attempts through the Drizzle proof path", () => {
+  test("round-trips deliveries and delivery attempts through the portable SQLite path", () => {
     const store = createStore();
 
     try {

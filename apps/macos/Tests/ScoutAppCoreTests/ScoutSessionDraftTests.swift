@@ -19,6 +19,7 @@ final class ScoutSessionDraftTests: XCTestCase {
         XCTAssertNil(spec.target?.agentId)
         XCTAssertEqual(spec.execution?.session, .new)
         XCTAssertNil(spec.execution?.targetSessionId)
+        XCTAssertEqual(spec.execution?.reasoningEffort, "medium")
         XCTAssertEqual(spec.agent?.persistence, "sticky")
         XCTAssertNil(spec.agent?.handle)
         XCTAssertNil(spec.agent?.displayName)
@@ -39,6 +40,39 @@ final class ScoutSessionDraftTests: XCTestCase {
         XCTAssertEqual(spec.agent?.persistence, "sticky")
         XCTAssertEqual(spec.agent?.handle, "build-runner")
         XCTAssertEqual(spec.agent?.displayName, "Build Runner")
+    }
+
+    func testProjectDraftCanRequestOneTimeAgentCard() {
+        let draft = ScoutSessionDraft(
+            title: "Command box",
+            target: .project,
+            projectPath: "/repo",
+            agentPersistence: "one_time"
+        )
+
+        let spec = draft.spec()
+
+        XCTAssertEqual(spec.agent?.persistence, "one_time")
+    }
+
+    func testProjectDraftIncludesSeedAttachments() {
+        let attachment = MessageAttachment(
+            id: "att-1",
+            mediaType: "text/markdown",
+            fileName: "notes.md",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1"
+        )
+        let draft = ScoutSessionDraft(
+            title: "Command box",
+            target: .project,
+            projectPath: "/repo",
+            instructions: "Read this.",
+            attachments: [attachment]
+        )
+
+        let spec = draft.spec()
+
+        XCTAssertEqual(spec.seed?.attachments, [attachment])
     }
 
     func testAgentContinueUsesExistingSessionTarget() {
@@ -68,6 +102,8 @@ final class ScoutSessionDraftTests: XCTestCase {
         XCTAssertEqual(spec.execution?.targetSessionId, "session-123")
         XCTAssertEqual(spec.execution?.harness, "codex")
         XCTAssertEqual(spec.execution?.model, "gpt-5")
+        XCTAssertEqual(spec.execution?.reasoningEffort, "medium")
+        XCTAssertNil(spec.execution?.forkFromSessionId)
         XCTAssertNil(spec.agent)
         XCTAssertEqual(spec.seed?.instructions, "Keep going")
         XCTAssertEqual(spec.seed?.fromMessageId, "m.1")

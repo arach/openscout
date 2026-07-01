@@ -45,6 +45,28 @@ final class ScoutEndpointsTests: XCTestCase {
         }
     }
 
+    func testHostInfoPrefersLocalServiceEndpointOverAdvertisedMeshURL() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+        try writeHostInfo(
+            supportDirectory: supportDirectory,
+            updatedAtMs: Date().timeIntervalSince1970 * 1000,
+            brokerURL: "http://mini.tailnet.test:65535",
+            webURL: "http://web.tailnet.test:3200",
+            brokerServiceHost: "0.0.0.0",
+            brokerServicePort: 65535,
+            webServiceHost: "127.0.0.1",
+            webServicePort: 3200
+        )
+
+        withEndpointEnvironment(supportDirectory: supportDirectory) {
+            XCTAssertEqual(ScoutWeb.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutWeb.baseURL().port, 3200)
+            XCTAssertEqual(ScoutBroker.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutBroker.baseURL().port, 65535)
+        }
+    }
+
     func testStaleHostInfoIsIgnored() throws {
         let supportDirectory = try makeSupportDirectory()
         defer { removeDirectory(supportDirectory) }
@@ -95,8 +117,35 @@ private func writeHostInfo(
     supportDirectory: URL,
     updatedAtMs: Double,
     brokerURL: String,
-    webURL: String
+    webURL: String,
+    brokerServiceHost: String? = nil,
+    brokerServicePort: Int? = nil,
+    webServiceHost: String? = nil,
+    webServicePort: Int? = nil
 ) throws {
+    let services: String
+    if let brokerServiceHost,
+       let brokerServicePort,
+       let webServiceHost,
+       let webServicePort {
+        services = """
+          ,
+          "services": {
+            "broker": {
+              "url": "\(brokerURL)",
+              "host": "\(brokerServiceHost)",
+              "port": \(brokerServicePort)
+            },
+            "web": {
+              "url": "\(webURL)",
+              "host": "\(webServiceHost)",
+              "port": \(webServicePort)
+            }
+          }
+        """
+    } else {
+        services = ""
+    }
     let body = """
     {
       "schemaVersion": 1,
@@ -104,6 +153,7 @@ private func writeHostInfo(
       "updatedAtMs": \(updatedAtMs),
       "brokerUrl": "\(brokerURL)",
       "webUrl": "\(webURL)"
+    \(services)
     }
     """
     try body.write(

@@ -227,14 +227,8 @@ private enum ScoutEndpointResolver {
         service: OpenScoutHostInfo.Service?,
         port: Int?
     ) -> URL? {
-        if let url = httpURL(explicitURL) {
-            return url
-        }
-
-        if let url = httpURL(service?.url) {
-            return url
-        }
-
+        // The host-info file can include both same-machine bind details and
+        // advertised mesh URLs; native clients should call the local service.
         if let servicePort = service?.port,
            let url = httpURL(host: service?.host, port: servicePort) {
             return url
@@ -242,6 +236,14 @@ private enum ScoutEndpointResolver {
 
         if let port,
            let url = httpURL(host: service?.host, port: port) {
+            return url
+        }
+
+        if let url = httpURL(service?.url) {
+            return url
+        }
+
+        if let url = httpURL(explicitURL) {
             return url
         }
 

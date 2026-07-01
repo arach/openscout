@@ -49,6 +49,7 @@ export interface InvocationSessionLineage {
 export interface InvocationExecutionPreference {
   harness?: AgentHarness;
   model?: string;
+  reasoningEffort?: string;
   permissionProfile?: ScoutPermissionProfile;
   /**
    * Controls whether work should enter fresh model context, opportunistically

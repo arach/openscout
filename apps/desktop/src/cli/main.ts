@@ -23,6 +23,7 @@ import { runNativeScoutdJson } from "./scoutd.ts";
 import { SCOUT_APP_VERSION } from "../shared/product.ts";
 import {
   resolveBrokerServiceConfig,
+  resolveBrokerServiceAdapter,
   type BrokerServiceMode,
 } from "@openscout/runtime/broker-process-manager";
 
@@ -185,6 +186,10 @@ function writeCliMtimeCheckpointIfAvailable(): void {
 }
 
 async function restartBrokerServiceWithLaunchctl(): Promise<void> {
+  if (resolveBrokerServiceAdapter() !== "macos-scoutd") {
+    return;
+  }
+
   const config = resolveBrokerServiceConfig();
   const uid = config.uid;
   if (!uid) {

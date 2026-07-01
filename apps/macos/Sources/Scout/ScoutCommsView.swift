@@ -54,6 +54,28 @@ private enum ScoutCommsMetrics {
     static let bubbleRadius: CGFloat = 11
 }
 
+struct ScoutTimelineAvatarView: View {
+    let name: String
+    let size: CGFloat
+    var ring: Color?
+
+    var body: some View {
+        SpriteAvatarView(name: name, size: size, tile: true)
+            .background(
+                RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                    .fill(ScoutDesign.bg)
+            )
+            .overlay(
+                Group {
+                    if let ring {
+                        RoundedRectangle(cornerRadius: size * 0.26, style: .continuous)
+                            .stroke(ring, lineWidth: HudStrokeWidth.thin)
+                    }
+                }
+            )
+    }
+}
+
 struct ScoutComposerInputFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
 
@@ -193,7 +215,7 @@ struct ScoutInFlightTurnRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: HudSpacing.xl) {
-            SpriteAvatarView(name: turn.agentName, size: 28, tile: true)
+            ScoutTimelineAvatarView(name: turn.agentName, size: 28)
 
             VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
                 HStack(alignment: .center, spacing: HudSpacing.md) {
@@ -1147,15 +1169,11 @@ struct ScoutMessageRow: View {
     /// the same deterministic sprite as any agent; a thin accent ring marks "you".
     @ViewBuilder
     private var turnAvatar: some View {
-        SpriteAvatarView(name: message.actorName, size: 28, tile: true)
-            .overlay(
-                Group {
-                    if message.isOperator {
-                        RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                            .stroke(ScoutPalette.accent.opacity(0.5), lineWidth: HudStrokeWidth.thin)
-                    }
-                }
-            )
+        ScoutTimelineAvatarView(
+            name: message.actorName,
+            size: 28,
+            ring: message.isOperator ? ScoutPalette.accent.opacity(0.5) : nil
+        )
     }
 
     /// The turn body, wrapped in a bubble. Long prose wraps at the reading

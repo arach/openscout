@@ -1,3 +1,4 @@
+import AppKit
 import ScoutAppCore
 import ScoutSharedUI
 import SwiftUI
@@ -11,6 +12,7 @@ struct HUDRunnerOverlay: View {
     @ObservedObject private var runner = HUDRunnerState.shared
     @ObservedObject private var voice = HudVoiceService.shared
     @FocusState private var focusedField: HUDRunnerFocusedField?
+    @State private var attachmentsDropTargeted = false
 
     var body: some View {
         if runner.isPresented {
@@ -26,10 +28,12 @@ struct HUDRunnerOverlay: View {
                         ScrollView(.vertical, showsIndicators: true) {
                             VStack(alignment: .leading, spacing: 12) {
                                 projectSection
+                                runnerModelSection
                                 if runner.showAdvanced {
                                     advancedSection
                                 }
                                 instructionsSection
+                                attachmentsSection
                                 statusSection
                             }
                             .padding(14)
@@ -39,16 +43,38 @@ struct HUDRunnerOverlay: View {
                     }
                     .frame(
                         width: max(320, min(620, proxy.size.width - 36)),
-                        height: max(340, min(450, proxy.size.height - 36))
+                        height: max(430, min(640, proxy.size.height - 36))
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(HUDChrome.canvas)
+                    .background {
+                        HUDRunnerPasteCatcher(
+                            isActive: { runner.isPresented },
+                            onPasteAttachments: { runner.stageAttachments($0) }
+                        )
+                    }
                     .overlay(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .strokeBorder(HUDChrome.borderRim, lineWidth: 1)
                     )
+                    .overlay {
+                        if attachmentsDropTargeted {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(HUDChrome.accent.opacity(0.08))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .strokeBorder(HUDChrome.accent.opacity(0.72), lineWidth: 1.5)
+                                )
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .padding(18)
+                    .dropDestination(for: URL.self) { urls, _ in
+                        runner.stageAttachments(ScoutMediaIntake.fromFileURLs(urls))
+                    } isTargeted: { targeted in
+                        attachmentsDropTargeted = targeted
+                    }
                 }
             }
             .transition(.opacity)
@@ -123,7 +149,12 @@ struct HUDRunnerOverlay: View {
                     .onChange(of: runner.projectQuery) { _, value in
                         runner.updateProjectQuery(value)
                     }
-                runnerPresetMenu
+                Button(action: { runner.browseForDirectory() }) {
+                    Image(systemName: "folder")
+                        .frame(width: 14, height: 14)
+                }
+                .help("Choose project folder")
+                .buttonStyle(HUDRunnerButtonStyle())
                 Button(action: { runner.showAdvanced.toggle() }) {
                     Image(systemName: "slider.horizontal.3")
                         .frame(width: 14, height: 14)
@@ -133,12 +164,53 @@ struct HUDRunnerOverlay: View {
             }
             if runner.shouldShowProjectMatches {
                 projectMatches
+            } else {
+                projectQuickPicks
             }
             if let hint = agentHint {
                 Text(hint)
                     .font(HUDType.body(11))
                     .foregroundStyle(HUDChrome.inkMuted)
                     .lineLimit(2)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var projectQuickPicks: some View {
+        let projects = quickProjects
+        if !projects.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(projects) { project in
+                        Button {
+                            runner.chooseProject(project)
+                        } label: {
+                            let selected = runner.selectedProject?.id == project.id
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(project.title)
+                                    .font(HUDType.body(10.5, weight: .semibold))
+                                    .foregroundStyle(selected ? HUDChrome.accent : HUDChrome.inkMuted)
+                                    .lineLimit(1)
+                                Text(runner.pathLabel(for: project.root))
+                                    .font(HUDType.mono(8.5))
+                                    .foregroundStyle(HUDChrome.inkFaint)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .frame(width: 128, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(selected ? HUDChrome.accentSoft.opacity(0.55) : HUDChrome.canvasLift.opacity(0.24))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(selected ? HUDChrome.accent.opacity(0.45) : HUDChrome.borderSoft, lineWidth: 0.75)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
         }
     }
@@ -178,25 +250,78 @@ struct HUDRunnerOverlay: View {
         .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 1))
     }
 
-    private var runnerPresetMenu: some View {
-        Menu {
-            ForEach(runnerPresets) { preset in
-                Button {
-                    runner.selectHarness(preset.harnessId)
-                    runner.selectedModel = preset.modelId
-                } label: {
-                    HStack {
-                        Text(preset.label)
-                        if preset.harnessId == runner.selectedHarness && preset.modelId == runner.selectedModel {
-                            Image(systemName: "checkmark")
+    private var runnerModelSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                runnerLabel("RUNNER")
+                Spacer(minLength: 0)
+                Text(runner.runnerPresetLabel)
+                    .font(HUDType.mono(9))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(harnesses) { harness in
+                        Button {
+                            runner.selectHarness(harness.id)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Circle()
+                                    .fill(harness.ready == false ? HUDChrome.inkFaint : HUDChrome.accent)
+                                    .frame(width: 5, height: 5)
+                                Text(harnessShortLabel(harness))
+                                    .lineLimit(1)
+                            }
+                            .font(HUDType.mono(9.5, weight: .bold))
+                            .foregroundStyle(harness.id == runner.selectedHarness ? HUDChrome.canvas : HUDChrome.inkMuted)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 6)
+                            .background(harness.id == runner.selectedHarness ? HUDChrome.accent : HUDChrome.canvasLift.opacity(0.30))
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
                         }
+                        .buttonStyle(.plain)
+                        .help(harness.detail ?? harness.description ?? harness.label)
                     }
                 }
             }
-        } label: {
-            runnerMenuLabel(runner.runnerPresetLabel)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(runner.availableModels) { model in
+                        Button {
+                            runner.selectedModel = model.id
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(model.label)
+                                    .font(HUDType.body(10.5, weight: .semibold))
+                                    .lineLimit(1)
+                                Text(model.id.isEmpty ? runner.selectedHarness : model.id)
+                                    .font(HUDType.mono(8))
+                                    .foregroundStyle(runner.selectedModel == model.id ? HUDChrome.canvas.opacity(0.72) : HUDChrome.inkFaint)
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(runner.selectedModel == model.id ? HUDChrome.canvas : HUDChrome.inkMuted)
+                            .frame(width: 108, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(runner.selectedModel == model.id ? HUDChrome.accent.opacity(0.92) : HUDChrome.canvasLift.opacity(0.24))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .stroke(runner.selectedModel == model.id ? HUDChrome.accent.opacity(0.55) : HUDChrome.borderSoft, lineWidth: 0.75)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
-        .menuStyle(.borderlessButton)
+        .padding(10)
+        .background(HUDChrome.canvasLift.opacity(0.18))
+        .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 1))
     }
 
     private var advancedSection: some View {
@@ -235,6 +360,12 @@ struct HUDRunnerOverlay: View {
             HStack {
                 runnerLabel("INSTRUCTIONS")
                 Spacer()
+                Button(action: { runner.browseForAttachments() }) {
+                    Image(systemName: "paperclip")
+                        .frame(width: 14, height: 14)
+                }
+                .help("Attach files")
+                .buttonStyle(HUDRunnerButtonStyle())
                 Button(action: { Task { await runner.toggleDictation() } }) {
                     HStack(spacing: 5) {
                         Image(systemName: voice.state == .recording ? "stop.fill" : "mic.fill")
@@ -255,6 +386,104 @@ struct HUDRunnerOverlay: View {
         }
     }
 
+    private var attachmentsSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                runnerLabel("ATTACHMENTS")
+                Spacer()
+                if !runner.attachments.isEmpty {
+                    Text("\(runner.attachments.count)")
+                        .font(HUDType.mono(9, weight: .semibold))
+                        .foregroundStyle(HUDChrome.inkFaint)
+                }
+            }
+
+            if runner.attachments.isEmpty {
+                Button(action: { runner.browseForAttachments() }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text("No files")
+                            .font(HUDType.body(11, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(HUDChrome.canvasLift.opacity(0.18))
+                    .overlay(Rectangle().stroke(HUDChrome.borderSoft, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help("Attach files")
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 7) {
+                        ForEach(runner.attachments) { attachment in
+                            attachmentChip(attachment)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+            }
+        }
+    }
+
+    private func attachmentChip(_ attachment: ScoutComposerImage) -> some View {
+        HStack(spacing: 7) {
+            attachmentPreview(attachment)
+                .frame(width: 24, height: 24)
+                .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.fileName)
+                    .font(HUDType.body(10.5, weight: .semibold))
+                    .foregroundStyle(HUDChrome.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(attachment.mediaType)
+                    .font(HUDType.mono(8.5))
+                    .foregroundStyle(HUDChrome.inkFaint)
+                    .lineLimit(1)
+            }
+            Button(action: { runner.removeAttachment(attachment.id) }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .frame(width: 16, height: 16)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(HUDChrome.inkMuted)
+            .help("Remove")
+        }
+        .padding(.leading, 7)
+        .padding(.trailing, 5)
+        .padding(.vertical, 6)
+        .frame(width: 176, alignment: .leading)
+        .background(HUDChrome.canvasLift.opacity(0.30))
+        .overlay(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .stroke(HUDChrome.borderSoft, lineWidth: 0.75)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func attachmentPreview(_ attachment: ScoutComposerImage) -> some View {
+        if attachment.isImage, let image = NSImage(data: attachment.data) {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+        } else {
+            ZStack {
+                HUDChrome.canvasAlt.opacity(0.9)
+                Image(systemName: attachmentIconName(attachment))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(HUDChrome.inkMuted)
+            }
+        }
+    }
+
     @ViewBuilder
     private var statusSection: some View {
         if runner.isLoading {
@@ -262,16 +491,23 @@ struct HUDRunnerOverlay: View {
                 .font(HUDType.mono(10))
                 .foregroundStyle(HUDChrome.inkFaint)
         } else if let error = runner.lastError {
-            Text(error)
-                .font(HUDType.body(11))
-                .foregroundStyle(HUDChrome.accent)
-                .lineLimit(2)
+            HStack(alignment: .center, spacing: 8) {
+                Text(runnerErrorLabel(error))
+                    .font(HUDType.body(11))
+                    .foregroundStyle(HUDChrome.accent)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+                Button("Retry") {
+                    Task { await runner.reloadOptions() }
+                }
+                .buttonStyle(HUDRunnerButtonStyle())
+            }
         }
     }
 
     private var footer: some View {
         HStack {
-            Text(runner.persistence == "sticky" ? "uses a matching agent card; session context is fresh" : "uses a one-time agent card; session context is fresh")
+            Text(footerHint)
                 .font(HUDType.mono(10))
                 .foregroundStyle(HUDChrome.inkFaint)
             Spacer()
@@ -287,6 +523,15 @@ struct HUDRunnerOverlay: View {
         .padding(.vertical, 10)
     }
 
+    private var footerHint: String {
+        let route = runner.persistence == "sticky" ? "uses a matching agent card" : "uses a one-time agent card"
+        guard !runner.attachments.isEmpty else {
+            return "\(route); session context is fresh"
+        }
+        let noun = runner.attachments.count == 1 ? "file" : "files"
+        return "\(route); \(runner.attachments.count) \(noun) staged"
+    }
+
     private var harnesses: [HudRunnerHarnessOption] {
         let loaded = runner.options?.harnesses ?? []
         if !loaded.isEmpty { return loaded }
@@ -294,6 +539,31 @@ struct HUDRunnerOverlay: View {
             HudRunnerHarnessOption(id: "claude", name: "claude", label: "Claude Code", description: nil, state: nil, ready: nil, detail: nil),
             HudRunnerHarnessOption(id: "codex", name: "codex", label: "Codex", description: nil, state: nil, ready: nil, detail: nil),
         ]
+    }
+
+    private var quickProjects: [HudRunnerProjectOption] {
+        var result: [HudRunnerProjectOption] = []
+        if let selected = runner.selectedProject {
+            result.append(selected)
+        }
+        for project in runner.options?.projects ?? [] where !result.contains(where: { $0.id == project.id }) {
+            result.append(project)
+            if result.count >= 5 { break }
+        }
+        return result
+    }
+
+    private func harnessShortLabel(_ harness: HudRunnerHarnessOption) -> String {
+        switch harness.id {
+        case "claude": return "CLAUDE"
+        case "codex": return "CODEX"
+        default:
+            return harness.label
+                .split(separator: " ")
+                .first
+                .map { String($0).uppercased() }
+                ?? harness.id.uppercased()
+        }
     }
 
     private var runnerPresets: [HUDRunnerPreset] {
@@ -385,6 +655,21 @@ struct HUDRunnerOverlay: View {
         return lower == "gpt-5.3-codex-spark" || lower.hasPrefix("gpt-5.4")
     }
 
+    private func runnerErrorLabel(_ error: String) -> String {
+        let lower = error.lowercased()
+        if lower.contains("unknown api route") && lower.contains("/api/runner/options") {
+            return "Runner options API is unavailable on the current Scout web server."
+        }
+        return error
+    }
+
+    private func attachmentIconName(_ attachment: ScoutComposerImage) -> String {
+        if attachment.isVideo { return "film" }
+        if attachment.isMarkdown { return "doc.richtext" }
+        if attachment.isCode { return "chevron.left.forwardslash.chevron.right" }
+        return "doc"
+    }
+
     private func runnerLabel(_ value: String) -> some View {
         Text(value)
             .font(HUDType.mono(9, weight: .semibold))
@@ -439,5 +724,61 @@ private struct HUDRunnerButtonStyle: ButtonStyle {
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(isAccent ? HUDChrome.accent.opacity(configuration.isPressed ? 0.75 : 0.95) : HUDChrome.canvasLift.opacity(configuration.isPressed ? 0.60 : 0.38))
+    }
+}
+
+private struct HUDRunnerPasteCatcher: NSViewRepresentable {
+    var isActive: () -> Bool
+    var onPasteAttachments: ([ScoutComposerImage]) -> Bool
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.install()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+        context.coordinator.onPasteAttachments = onPasteAttachments
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isActive: isActive, onPasteAttachments: onPasteAttachments)
+    }
+
+    final class Coordinator {
+        var isActive: () -> Bool
+        var onPasteAttachments: ([ScoutComposerImage]) -> Bool
+        private var monitor: Any?
+
+        init(
+            isActive: @escaping () -> Bool,
+            onPasteAttachments: @escaping ([ScoutComposerImage]) -> Bool
+        ) {
+            self.isActive = isActive
+            self.onPasteAttachments = onPasteAttachments
+        }
+
+        func install() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self, self.isActive() else { return event }
+                guard event.modifierFlags.contains(.command),
+                      event.charactersIgnoringModifiers?.lowercased() == "v" else { return event }
+                let attachments = ScoutMediaIntake.fromPasteboard()
+                guard !attachments.isEmpty else { return event }
+                return self.onPasteAttachments(attachments) ? nil : event
+            }
+        }
+
+        func uninstall() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
     }
 }

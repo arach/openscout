@@ -379,6 +379,7 @@ export function queryRuns(opts?: {
 }
 
 export function queryFlights(opts?: {
+  flightId?: string;
   agentId?: string;
   conversationId?: string;
   collaborationRecordId?: string;
@@ -391,6 +392,7 @@ export function queryFlights(opts?: {
   const where = sqlJoinClauses([
     opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
     opts?.activeOnly ? `${flightActiveAtExpression} >= ?` : null,
+    opts?.flightId ? `f.id = ?` : null,
     opts?.agentId ? `f.target_agent_id = ?` : null,
     conversationIds.length > 0
       ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
@@ -421,6 +423,7 @@ export function queryFlights(opts?: {
 
   const params: Array<string | number> = [];
   if (opts?.activeOnly) params.push(Date.now() - ACTIVE_FLIGHT_MAX_AGE_MS);
+  if (opts?.flightId) params.push(opts.flightId);
   if (opts?.agentId) params.push(opts.agentId);
   if (conversationIds.length > 0) params.push(...conversationIds);
   if (opts?.collaborationRecordId) params.push(opts.collaborationRecordId);

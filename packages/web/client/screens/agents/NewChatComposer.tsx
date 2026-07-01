@@ -8,6 +8,7 @@ import {
 import { resolveCaptureRouteContext } from "../../lib/media-route.ts";
 import {
   routeCaptureToAgent,
+  sendConversationAttachments,
   startAgentSession,
   type CaptureDeliveryMode,
 } from "../../lib/session-start.ts";
@@ -89,6 +90,9 @@ export function NewChatComposer({
   const [agentId, setAgentId] = useState(
     () => initialAgentId ?? routeContext.agentId ?? sorted[0]?.id ?? "",
   );
+  const [exactConversationTarget, setExactConversationTarget] = useState(
+    () => initialConversationId ?? routeContext.conversationId ?? null,
+  );
   const [message, setMessage] = useState(() => initialMessage ?? "");
   const [files, setFiles] = useState<File[]>(() => [...(initialFiles ?? [])]);
   const [mode, setMode] = useState<CaptureDeliveryMode>(() => {
@@ -103,9 +107,14 @@ export function NewChatComposer({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const agent = sorted.find((candidate) => candidate.id === agentId) ?? null;
+  const recentTargets = sorted.slice(0, 5);
   const hasAttachments = files.length > 0;
-  const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
-  const title = hasAttachments ? "Route capture" : "New session";
+  const exactExistingConversationId = (exactConversationTarget ?? "").trim() || null;
+  const canUseExistingChat = Boolean(agent?.conversationId || exactExistingConversationId);
+  const canSubmit = mode === "existing-chat" && exactExistingConversationId
+    ? hasAttachments || message.trim().length > 0
+    : Boolean(agent) && (mode !== "existing-chat" || hasAttachments || message.trim().length > 0);
+  const title = hasAttachments ? "Route capture" : mode === "existing-chat" ? "New message" : "New session";
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -129,7 +138,7 @@ export function NewChatComposer({
   };
 
   const start = async () => {
-    if (!agent || state === "starting") return;
+    if (state === "starting") return;
     setState("starting");
     setError(null);
     try {
@@ -139,10 +148,37 @@ export function NewChatComposer({
       }
 
       const trimmed = message.trim();
-      if (hasAttachments) {
-        const resolvedMode = mode === "existing-chat" && canUseExistingChat
-          ? "existing-chat"
-          : "new-session";
+      const resolvedMode = mode === "existing-chat" && canUseExistingChat
+        ? "existing-chat"
+        : "new-session";
+
+      if (resolvedMode === "existing-chat") {
+        if (!trimmed && !hasAttachments) {
+          setError("Write a message or attach a capture.");
+          setState("idle");
+          return;
+        }
+
+        if (exactExistingConversationId) {
+          await sendConversationAttachments({
+            conversationId: exactExistingConversationId,
+            body: trimmed || "Shared capture",
+            attachments,
+          });
+          navigate({
+            view: "conversation",
+            conversationId: exactExistingConversationId,
+          });
+          onClose();
+          return;
+        }
+      }
+
+      if (!agent) {
+        throw new Error("Pick an agent before starting a session.");
+      }
+
+      if (hasAttachments || resolvedMode === "existing-chat") {
         const result = await routeCaptureToAgent(agent, {
           mode: resolvedMode,
           message: trimmed,
@@ -206,7 +242,10 @@ export function NewChatComposer({
             <select
               className="s-newchat-select"
               value={agentId}
-              onChange={(event) => setAgentId(event.target.value)}
+              onChange={(event) => {
+                setAgentId(event.target.value);
+                setExactConversationTarget(null);
+              }}
             >
               {sorted.length === 0 ? (
                 <option value="">No agents available</option>
@@ -229,7 +268,30 @@ export function NewChatComposer({
             </div>
           )}
 
-          {hasAttachments && canUseExistingChat ? (
+          {recentTargets.length > 1 ? (
+            <div className="s-newchat-recent" aria-label="Recent targets">
+              {recentTargets.map((candidate) => (
+                <button
+                  key={candidate.id}
+                  type="button"
+                  className={`s-newchat-recent-btn${candidate.id === agentId ? " s-newchat-recent-btn--on" : ""}`}
+                  onClick={() => {
+                    setAgentId(candidate.id);
+                    setExactConversationTarget(null);
+                    if (candidate.conversationId) setMode("existing-chat");
+                  }}
+                >
+                  <span className="s-newchat-recent-dot" data-state={candidate.state ?? undefined} />
+                  <span className="s-newchat-recent-name">{candidate.name}</span>
+                  <span className="s-newchat-recent-meta">
+                    {candidate.project || candidate.harness || "agent"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {canUseExistingChat ? (
             <div className="s-newchat-mode" role="group" aria-label="Delivery mode">
               <button
                 type="button"
@@ -282,7 +344,13 @@ export function NewChatComposer({
           <textarea
             ref={textRef}
             className="s-newchat-well"
-            placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
+            placeholder={
+              hasAttachments
+                ? "What should the agent do with this?"
+                : mode === "existing-chat"
+                  ? "Message…"
+                  : "First message…"
+            }
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={(event) => {
@@ -297,19 +365,25 @@ export function NewChatComposer({
 
           <div className="s-newchat-foot">
             <span className="s-newchat-hint">
-              {hasAttachments ? "⌘↵ to route" : "⌘↵ to start"} · paste or drop captures anywhere
+              {hasAttachments
+                ? "⌘↵ to route"
+                : mode === "existing-chat"
+                  ? "⌘↵ to send"
+                  : "⌘↵ to start"} · paste or drop captures anywhere
             </span>
             <button
               type="button"
               className="s-newchat-start"
-              disabled={!agent || state === "starting"}
+              disabled={!canSubmit || state === "starting"}
               onClick={() => void start()}
             >
               {state === "starting"
                 ? "Sending…"
                 : hasAttachments
                   ? "Route"
-                  : "Start"}
+                  : mode === "existing-chat"
+                    ? "Send"
+                    : "Start"}
             </button>
           </div>
         </div>

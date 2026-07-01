@@ -14,53 +14,215 @@ import SwiftUI
 // feedback_no_dim_text_in_menu and feedback_no_white_alpha_dividers is
 // honored. Scout-only colors: warm-dark canvas + lime accent.
 
+public enum HUDSkin: String, CaseIterable, Identifiable, Sendable {
+    case current
+    case metal
+    case glass
+
+    public static let storageKey = "scout.hud.skin.v1"
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .current: return "Default"
+        case .metal:   return "Matte"
+        case .glass:   return "Glass"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .current: return "D"
+        case .metal:   return "M"
+        case .glass:   return "G"
+        }
+    }
+
+    public var help: String {
+        switch self {
+        case .current: return "Default HUD skin"
+        case .metal:   return "Matte metallic HUD skin"
+        case .glass:   return "Liquid glass HUD skin"
+        }
+    }
+
+    public static func stored(in defaults: UserDefaults = .standard) -> HUDSkin {
+        guard let raw = defaults.string(forKey: storageKey),
+              let skin = HUDSkin(rawValue: raw)
+        else { return .current }
+        return skin
+    }
+}
+
+@MainActor
+public final class HUDSkinState: ObservableObject {
+    public static let shared = HUDSkinState()
+
+    @Published public private(set) var skin: HUDSkin
+    private let defaults: UserDefaults
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.skin = HUDSkin.stored(in: defaults)
+    }
+
+    public func setSkin(_ skin: HUDSkin) {
+        guard self.skin != skin else { return }
+        defaults.set(skin.rawValue, forKey: HUDSkin.storageKey)
+        self.skin = skin
+    }
+
+    public func step() {
+        let all = HUDSkin.allCases
+        guard let index = all.firstIndex(of: skin) else {
+            setSkin(.current)
+            return
+        }
+        setSkin(all[(index + 1) % all.count])
+    }
+}
+
+private struct HUDSkinPalette {
+    let canvas: Color
+    let canvasAlt: Color
+    let canvasLift: Color
+    let glassTop: Color
+    let glassBottom: Color
+    let ink: Color
+    let inkMuted: Color
+    let inkFaint: Color
+    let inkDeep: Color
+    let border: Color
+    let borderSoft: Color
+    let borderStrong: Color
+    let borderRim: Color
+    let accent: Color
+    let accentDim: Color
+    let accentSoftOpacity: Double
+    let accentWhisperOpacity: Double
+    let paperGrainOpacity: Double
+    let metalTextureOpacity: Double
+    let materialOpacity: Double
+    let rimIntensity: Double
+}
+
+private extension HUDSkin {
+    var palette: HUDSkinPalette {
+        switch self {
+        case .current:
+            return HUDSkinPalette(
+                canvas: Color(red: 0.045, green: 0.040, blue: 0.035),
+                canvasAlt: Color(red: 0.080, green: 0.072, blue: 0.062),
+                canvasLift: Color(red: 0.155, green: 0.142, blue: 0.122),
+                glassTop: Color(red: 0.075, green: 0.068, blue: 0.058).opacity(0.96),
+                glassBottom: Color(red: 0.030, green: 0.026, blue: 0.022).opacity(0.97),
+                ink: Color(red: 0.905, green: 0.892, blue: 0.862),
+                inkMuted: Color(red: 0.700, green: 0.680, blue: 0.646),
+                inkFaint: Color(red: 0.500, green: 0.485, blue: 0.455),
+                inkDeep: Color(red: 0.380, green: 0.365, blue: 0.342),
+                border: Color(red: 0.255, green: 0.240, blue: 0.215),
+                borderSoft: Color(red: 0.155, green: 0.142, blue: 0.122),
+                borderStrong: Color(red: 0.380, green: 0.355, blue: 0.318),
+                borderRim: Color(red: 0.395, green: 0.370, blue: 0.320),
+                accent: Color(red: 0.580, green: 0.890, blue: 0.420),
+                accentDim: Color(red: 0.470, green: 0.720, blue: 0.340),
+                accentSoftOpacity: 0.14,
+                accentWhisperOpacity: 0.06,
+                paperGrainOpacity: 0.045,
+                metalTextureOpacity: 0,
+                materialOpacity: 0,
+                rimIntensity: 1.0
+            )
+        case .metal:
+            return HUDSkinPalette(
+                canvas: Color(red: 0.092, green: 0.095, blue: 0.092),
+                canvasAlt: Color(red: 0.132, green: 0.136, blue: 0.128),
+                canvasLift: Color(red: 0.235, green: 0.232, blue: 0.214),
+                glassTop: Color(red: 0.180, green: 0.184, blue: 0.170).opacity(0.94),
+                glassBottom: Color(red: 0.055, green: 0.058, blue: 0.055).opacity(0.98),
+                ink: Color(red: 0.890, green: 0.884, blue: 0.842),
+                inkMuted: Color(red: 0.675, green: 0.668, blue: 0.618),
+                inkFaint: Color(red: 0.475, green: 0.472, blue: 0.438),
+                inkDeep: Color(red: 0.330, green: 0.332, blue: 0.314),
+                border: Color(red: 0.320, green: 0.320, blue: 0.290),
+                borderSoft: Color(red: 0.205, green: 0.205, blue: 0.188),
+                borderStrong: Color(red: 0.470, green: 0.460, blue: 0.405),
+                borderRim: Color(red: 0.560, green: 0.535, blue: 0.445),
+                accent: Color(red: 0.580, green: 0.890, blue: 0.420),
+                accentDim: Color(red: 0.470, green: 0.720, blue: 0.340),
+                accentSoftOpacity: 0.14,
+                accentWhisperOpacity: 0.06,
+                paperGrainOpacity: 0.030,
+                metalTextureOpacity: 0.115,
+                materialOpacity: 0,
+                rimIntensity: 0.78
+            )
+        case .glass:
+            return HUDSkinPalette(
+                canvas: Color(red: 0.034, green: 0.047, blue: 0.049),
+                canvasAlt: Color(red: 0.066, green: 0.094, blue: 0.098),
+                canvasLift: Color(red: 0.118, green: 0.165, blue: 0.170),
+                glassTop: Color(red: 0.165, green: 0.230, blue: 0.222).opacity(0.58),
+                glassBottom: Color(red: 0.030, green: 0.044, blue: 0.048).opacity(0.50),
+                ink: Color(red: 0.905, green: 0.955, blue: 0.930),
+                inkMuted: Color(red: 0.700, green: 0.790, blue: 0.770),
+                inkFaint: Color(red: 0.500, green: 0.610, blue: 0.600),
+                inkDeep: Color(red: 0.350, green: 0.455, blue: 0.450),
+                border: Color(red: 0.250, green: 0.365, blue: 0.350),
+                borderSoft: Color(red: 0.145, green: 0.230, blue: 0.225),
+                borderStrong: Color(red: 0.470, green: 0.620, blue: 0.585),
+                borderRim: Color(red: 0.600, green: 0.840, blue: 0.770),
+                accent: Color(red: 0.580, green: 0.890, blue: 0.420),
+                accentDim: Color(red: 0.470, green: 0.720, blue: 0.340),
+                accentSoftOpacity: 0.14,
+                accentWhisperOpacity: 0.06,
+                paperGrainOpacity: 0.018,
+                metalTextureOpacity: 0,
+                materialOpacity: 0.88,
+                rimIntensity: 1.12
+            )
+        }
+    }
+}
+
 public enum HUDChrome {
-    // ── Canvas (hard black, faint warmth) ──────────────────────────────
-    // Pivot away from the warm-dark scout brand toward near-pure black.
-    // The operator asked for "very very very hard black" with softer
-    // tones reserved for hierarchy. A whisper of warmth (~+1% in r/g)
-    // keeps it from reading as a cold UI surface, but the visual
-    // intent is: black means black.
-    public static let canvas      = Color(red: 0.045, green: 0.040, blue: 0.035)
-    public static let canvasAlt   = Color(red: 0.080, green: 0.072, blue: 0.062)
-    public static let canvasLift  = Color(red: 0.155, green: 0.142, blue: 0.122)
-    // Legacy glass tokens — still referenced by the panel background.
-    // Pulled down into the new near-black range so the panel reads as
-    // a single hard surface rather than the old warm gradient.
-    public static let glassTop    = Color(red: 0.075, green: 0.068, blue: 0.058).opacity(0.96)
-    public static let glassBottom = Color(red: 0.030, green: 0.026, blue: 0.022).opacity(0.97)
+    private static var palette: HUDSkinPalette {
+        HUDSkin.stored().palette
+    }
 
-    // ── Ink (warm, never pure white) ───────────────────────────────────
-    // Pulled back from the harder-white pass — pure white reads as
-    // clinical, "blunt and out of place" per the operator. We sit
-    // around the 0.88-0.92 range with a faint warm tint so the names
-    // read as printed ink, not chrome lettering.
-    public static let ink         = Color(red: 0.905, green: 0.892, blue: 0.862)
-    public static let inkMuted    = Color(red: 0.700, green: 0.680, blue: 0.646)
-    public static let inkFaint    = Color(red: 0.500, green: 0.485, blue: 0.455)
-    public static let inkDeep     = Color(red: 0.380, green: 0.365, blue: 0.342)
+    public static var activeSkin: HUDSkin { HUDSkin.stored() }
 
-    // ── Borders (sharper against the harder canvas) ────────────────────
-    public static let border      = Color(red: 0.255, green: 0.240, blue: 0.215)
-    public static let borderSoft  = Color(red: 0.155, green: 0.142, blue: 0.122)
-    public static let borderStrong = Color(red: 0.380, green: 0.355, blue: 0.318)
+    // ── Canvas ────────────────────────────────────────────────────────
+    public static var canvas: Color { palette.canvas }
+    public static var canvasAlt: Color { palette.canvasAlt }
+    public static var canvasLift: Color { palette.canvasLift }
+    public static var glassTop: Color { palette.glassTop }
+    public static var glassBottom: Color { palette.glassBottom }
 
-    // ── Rim (warm-cream hairline used on the panel edge) ──────────────
-    // The Lattices voice-mode reference: a single restrained, thin
-    // border cuts the panel out of the desktop without needing
-    // decorative brackets. Sits between border and ink — warm enough
-    // to feel like printed-paper edging, dim enough not to read as a
-    // glowing UI rectangle. Pair with an ambient halo shadow
-    // (HUDStatusView) — together they do the job that the now-removed
-    // corner brackets were doing badly.
-    public static let borderRim   = Color(red: 0.395, green: 0.370, blue: 0.320)
+    // ── Ink ───────────────────────────────────────────────────────────
+    public static var ink: Color { palette.ink }
+    public static var inkMuted: Color { palette.inkMuted }
+    public static var inkFaint: Color { palette.inkFaint }
+    public static var inkDeep: Color { palette.inkDeep }
 
-    // ── Accent (scout lime — single accent, no cyan/rose) ──────────────
-    // oklch(0.86 0.17 125)
-    public static let accent      = Color(red: 0.580, green: 0.890, blue: 0.420)
-    public static let accentDim   = Color(red: 0.470, green: 0.720, blue: 0.340)
-    public static let accentSoft  = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.14)
-    public static let accentWhisper = Color(red: 0.580, green: 0.890, blue: 0.420).opacity(0.06)
+    // ── Borders ───────────────────────────────────────────────────────
+    public static var border: Color { palette.border }
+    public static var borderSoft: Color { palette.borderSoft }
+    public static var borderStrong: Color { palette.borderStrong }
+    public static var borderRim: Color { palette.borderRim }
+
+    // ── Accent ────────────────────────────────────────────────────────
+    public static var accent: Color { palette.accent }
+    public static var accentDim: Color { palette.accentDim }
+    public static var accentSoft: Color { palette.accent.opacity(palette.accentSoftOpacity) }
+    public static var accentWhisper: Color { palette.accent.opacity(palette.accentWhisperOpacity) }
+
+    // ── Surface treatment knobs ───────────────────────────────────────
+    public static var paperGrainOpacity: Double { palette.paperGrainOpacity }
+    public static var metalTextureOpacity: Double { palette.metalTextureOpacity }
+    public static var materialOpacity: Double { palette.materialOpacity }
+    public static var rimIntensity: Double { palette.rimIntensity }
 
     // ── Per-agent hue helper ───────────────────────────────────────────
     //
@@ -195,6 +357,54 @@ public struct HUDPaperGrain: View {
         Image(nsImage: Self.image)
             .resizable(resizingMode: .tile)
             .blendMode(.softLight)
+            .opacity(opacity)
+            .allowsHitTesting(false)
+    }
+}
+
+// MARK: - Brushed metal grain (cached directional texture)
+
+public struct HUDMetalGrain: View {
+    var opacity: Double = 0.08
+
+    static let image: NSImage = {
+        let size = NSSize(width: 240, height: 240)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        defer { img.unlockFocus() }
+        NSColor.clear.set()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+
+        var generator = SystemRandomNumberGenerator()
+        for y in stride(from: 0, to: 240, by: 2) {
+            let lum = CGFloat(UInt(generator.next() % 100)) / 100.0
+            let alpha = 0.055 + (lum * 0.065)
+            let white = 0.52 + (lum * 0.20)
+            let x = CGFloat(Int(generator.next() % 36)) - 24
+            let length = CGFloat(96 + Int(generator.next() % 190))
+            NSColor(white: white, alpha: alpha).set()
+            NSBezierPath(rect: NSRect(x: x, y: CGFloat(y), width: length, height: 0.55)).fill()
+        }
+
+        for _ in 0..<520 {
+            let x = CGFloat(UInt(generator.next() % 240))
+            let y = CGFloat(UInt(generator.next() % 240))
+            let lum = CGFloat(UInt(generator.next() % 100)) / 100.0
+            NSColor(white: 0.38 + lum * 0.24, alpha: 0.030).set()
+            NSBezierPath(rect: NSRect(x: x, y: y, width: 1, height: 1)).fill()
+        }
+
+        return img
+    }()
+
+    public init(opacity: Double = 0.08) {
+        self.opacity = opacity
+    }
+
+    public var body: some View {
+        Image(nsImage: Self.image)
+            .resizable(resizingMode: .tile)
+            .blendMode(.overlay)
             .opacity(opacity)
             .allowsHitTesting(false)
     }

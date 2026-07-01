@@ -13,6 +13,7 @@ import { brokerRouter } from "./broker-trpc-router.js";
 import {
   type ActorIdentity,
   type AgentEndpoint,
+  type AgentHarness,
   type ControlCommand,
   type ConversationDefinition,
   type DeliveryIntent,
@@ -75,6 +76,7 @@ import {
   invokePairingSessionEndpoint,
   listPairingSessions,
 } from "./pairing-session-agents.js";
+import { normalizeCodexAppServerLaunchArgs } from "./codex-app-server.js";
 import { RecoverableSQLiteProjection } from "./sqlite-projection.js";
 import { ThreadEventPlane } from "./thread-events.js";
 import { invokeA2AHttpEndpoint } from "./a2a-http-endpoint.js";
@@ -857,6 +859,7 @@ async function createCardlessProjectSessionForDelivery(input: {
     : harness === "grok-acp"
       ? "grok_acp"
       : "claude_stream_json";
+  const launchArgs = launchArgsForCardlessSession(harness, input.execution);
   const sessionId = createRuntimeId("session");
   const projectName = basename(projectRoot) || projectRoot;
   const snapshot = runtime.snapshot();
@@ -894,6 +897,8 @@ async function createCardlessProjectSessionForDelivery(input: {
     projectRoot,
     nodeId,
     ...(input.execution?.model?.trim() ? { model: input.execution.model.trim() } : {}),
+    ...(input.execution?.reasoningEffort?.trim() ? { reasoningEffort: input.execution.reasoningEffort.trim() } : {}),
+    ...(launchArgs.length > 0 ? { launchArgs } : {}),
   });
   const endpoint = runtime.snapshot().endpoints[registered.endpointId];
   if (!endpoint) {
@@ -909,6 +914,24 @@ async function createCardlessProjectSessionForDelivery(input: {
       nodeId: endpoint.nodeId,
     },
   };
+}
+
+function launchArgsForCardlessSession(
+  harness: AgentHarness,
+  execution: InvocationRequest["execution"] | undefined,
+): string[] {
+  const model = execution?.model?.trim();
+  const reasoningEffort = execution?.reasoningEffort?.trim();
+  if (harness === "codex") {
+    return normalizeCodexAppServerLaunchArgs([
+      ...(model ? ["--model", model] : []),
+      ...(reasoningEffort ? ["--reasoning-effort", reasoningEffort] : []),
+    ]);
+  }
+  if (harness === "claude") {
+    return model ? ["--model", model] : [];
+  }
+  return [];
 }
 
 async function ensureBrokerActorForDelivery(actorId: string): Promise<void> {

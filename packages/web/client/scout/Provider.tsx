@@ -9,7 +9,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter } from "../lib/router.ts";
+import { routeMachineId, useRouter, useStandaloneRouter, type ScoutRouterState } from "../lib/router.ts";
 import { api } from "../lib/api.ts";
 import { friendlyApiError } from "../lib/api-errors.ts";
 import { useBrokerEvents } from "../lib/sse.ts";
@@ -236,14 +236,56 @@ export function useScout() {
   return ctx;
 }
 
-export function ScoutProvider({
-  children,
-  initialTheme = "dark",
-}: {
+export function ScoutProvider(props: {
+  children: ReactNode;
+  initialTheme?: ScoutTheme;
+  embedded?: boolean;
+  initialRoute?: Route;
+}) {
+  const { children, initialTheme } = props;
+  if (props.embedded) {
+    return (
+      <StandaloneScoutProvider initialTheme={initialTheme} initialRoute={props.initialRoute}>
+        {children}
+      </StandaloneScoutProvider>
+    );
+  }
+  return <RoutedScoutProvider initialTheme={initialTheme}>{children}</RoutedScoutProvider>;
+}
+
+function RoutedScoutProvider(props: {
   children: ReactNode;
   initialTheme?: ScoutTheme;
 }) {
-  const { route, navigate } = useRouter();
+  const router = useRouter();
+  return <ScoutProviderInner {...props} router={router} embedded={false} />;
+}
+
+function StandaloneScoutProvider(props: {
+  children: ReactNode;
+  initialTheme?: ScoutTheme;
+  initialRoute?: Route;
+}) {
+  const router = useStandaloneRouter(props.initialRoute);
+  return (
+    <ScoutProviderInner initialTheme={props.initialTheme} router={router} embedded>
+      {props.children}
+    </ScoutProviderInner>
+  );
+}
+
+function ScoutProviderInner({
+  children,
+  initialTheme = "dark",
+  embedded,
+  router,
+}: {
+  children: ReactNode;
+  initialTheme?: ScoutTheme;
+  embedded: boolean;
+  router: ScoutRouterState;
+}) {
+  const { route, navigate } = router;
   const [agents, setAgents] = useState<Agent[]>([]);
   const [apiConnection, setApiConnection] = useState<ApiConnectionState>({
     status: "checking",
@@ -294,7 +336,12 @@ export function ScoutProvider({
   const scoutbotAgent = useMemo(() => resolveScoutbotAgent(agents), [agents]);
   const scoutbotAgentId = scoutbotAgent?.id ?? resolveScoutbotAgentId(agents);
   const scoutbotDmConversationId = scoutbotAgent?.conversationId ?? null;
-  const reloadInFlightRef = useRef<Promise<void> | null>(null);
+  const reloadInFlightRef = useRef<{ endpoint: string; promise: Promise<void> } | null>(null);
+  const reloadSequenceRef = useRef(0);
+  const agentsEndpoint = useMemo(
+    () => route.view === "mesh" || routeMachineId(route) ? "/api/agents?scope=all" : "/api/agents",
+    [route],
+  );
 
   const markApiOnline = useCallback(() => {
     setApiConnection({
@@ -313,27 +360,33 @@ export function ScoutProvider({
   }, []);
 
   const reload = useCallback(async () => {
-    if (reloadInFlightRef.current) {
-      return reloadInFlightRef.current;
+    if (reloadInFlightRef.current?.endpoint === agentsEndpoint) {
+      return reloadInFlightRef.current.promise;
     }
 
+    const requestEndpoint = agentsEndpoint;
+    const requestId = ++reloadSequenceRef.current;
     const request = (async () => {
       try {
-        const agentsResult = await api<Agent[]>("/api/agents");
-        setAgents((previous) => keepPreviousIfJsonEqual(previous, agentsResult));
+        const agentsResult = await api<Agent[]>(requestEndpoint);
+        if (requestId === reloadSequenceRef.current) {
+          setAgents((previous) => keepPreviousIfJsonEqual(previous, agentsResult));
+        }
         markApiOnline();
       } catch (cause) {
         markApiOffline(cause);
       }
     })();
 
-    reloadInFlightRef.current = request;
+    reloadInFlightRef.current = { endpoint: requestEndpoint, promise: request };
     try {
       await request;
     } finally {
-      reloadInFlightRef.current = null;
+      if (reloadInFlightRef.current?.promise === request) {
+        reloadInFlightRef.current = null;
+      }
     }
-  }, [markApiOffline, markApiOnline]);
+  }, [agentsEndpoint, markApiOffline, markApiOnline]);
 
   const refreshOnboarding = useCallback(async () => {
     try {
@@ -474,6 +527,7 @@ export function ScoutProvider({
   return (
     <ScoutContext.Provider value={value}>
       <div
+        className={embedded ? "s-scout-provider s-scout-provider--embedded" : "s-scout-provider"}
         data-scout-theme={initialTheme}
         data-scout-theme-mode={initialTheme}
         style={{

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRouter as useTanStackRouter } from "@tanstack/react-router";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
@@ -827,6 +827,11 @@ function routeKey(r: Route): string {
 
 /* ── Router hook ── */
 
+export type ScoutRouterState = {
+  route: Route;
+  navigate: (r: Route) => void;
+};
+
 function routeFromLocation(pathname: string, searchStr: string): Route {
   return normalizeRoute(routeFromUrl(`${pathname}${searchStr}`));
 }
@@ -849,7 +854,22 @@ function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string
   return `${canonicalPath}${locationHashSuffix(hash)}`;
 }
 
-export function useRouter() {
+function currentBrowserRouteUrl(): { pathname: string; searchStr: string; hash: string } {
+  return {
+    pathname: window.location.pathname,
+    searchStr: window.location.search,
+    hash: window.location.hash.replace(/^#/, ""),
+  };
+}
+
+function routeOrFallback(route: Route, fallbackRoute: Route | undefined, pathname: string): Route {
+  if (fallbackRoute && route.view === "inbox" && pathname.startsWith("/embed/")) {
+    return fallbackRoute;
+  }
+  return route;
+}
+
+export function useRouter(): ScoutRouterState {
   const tanstackRouter = useTanStackRouter();
   const { pathname, searchStr, hash } = useLocation();
   const routeUrl = `${pathname}${searchStr}`;
@@ -888,6 +908,62 @@ export function useRouter() {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
     });
   }, [pathname, searchStr, hash, tanstackRouter]);
+
+  return { route, navigate };
+}
+
+export function useStandaloneRouter(fallbackRoute?: Route): ScoutRouterState {
+  const [{ pathname, searchStr }, setLocation] = useState(currentBrowserRouteUrl);
+  const routeUrl = `${pathname}${searchStr}`;
+  const route = useMemo(
+    () => routeOrFallback(routeFromLocation(pathname, searchStr), fallbackRoute, pathname),
+    [fallbackRoute, pathname, searchStr],
+  );
+  const scrollMap = useRef<Record<string, number>>({});
+  const prevRouteUrl = useRef(routeUrl);
+
+  useEffect(() => {
+    const syncLocation = () => setLocation(currentBrowserRouteUrl());
+    window.addEventListener("popstate", syncLocation);
+    window.addEventListener("hashchange", syncLocation);
+    return () => {
+      window.removeEventListener("popstate", syncLocation);
+      window.removeEventListener("hashchange", syncLocation);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (prevRouteUrl.current === routeUrl) return;
+    const r = routeOrFallback(routeFromLocation(pathname, searchStr), fallbackRoute, pathname);
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollMap.current[routeKey(r)] ?? 0);
+    });
+    prevRouteUrl.current = routeUrl;
+  }, [fallbackRoute, routeUrl, pathname, searchStr]);
+
+  const navigate = useCallback((r: Route) => {
+    const requestedRoute: Route = normalizeRoute(
+      r.view === "ops" && !isOpsEnabled() && !isTailCoreSurface(r.mode)
+        ? { view: "inbox" }
+        : r,
+    );
+    const currentRoute = routeOrFallback(
+      routeFromLocation(window.location.pathname, window.location.search),
+      fallbackRoute,
+      window.location.pathname,
+    );
+    const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
+    scrollMap.current[routeKey(currentRoute)] = window.scrollY;
+    const canonicalPath = preserveLocationSearch(
+      routePath(nextRoute, window.location.pathname),
+      window.location.search,
+    );
+    window.history.pushState(null, "", `${canonicalPath}${locationHashSuffix(window.location.hash.replace(/^#/, ""))}`);
+    setLocation(currentBrowserRouteUrl());
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);
+    });
+  }, [fallbackRoute]);
 
   return { route, navigate };
 }

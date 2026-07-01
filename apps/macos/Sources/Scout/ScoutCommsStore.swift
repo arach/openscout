@@ -601,19 +601,3 @@ enum ScoutCommsError: LocalizedError {
         }
     }
 }
-
-/// An image staged in the composer, ready to upload as an attachment. Holds
-/// raw bytes (not an NSImage) so it stays Sendable across the upload task.
-struct ScoutComposerImage: Identifiable, Sendable {
-    let id = UUID()
-    let data: Data
-    let mediaType: String
-    let fileName: String
-}
-
-/// Response from POST /api/blobs — the link-backed attachment to send.
-struct ScoutBlobUploadResponse: Decodable {
-    let url: String
-    let mediaType: String
-    let fileName: String?
-}

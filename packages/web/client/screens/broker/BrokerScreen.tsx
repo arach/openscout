@@ -137,7 +137,7 @@ function mergeBrokerPage(
   };
 }
 
-export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
+export function BrokerScreen({ navigate, embedded = false }: { navigate: (r: Route) => void; embedded?: boolean }) {
   const { selectedBrokerAttempt, inspectBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
@@ -262,9 +262,11 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
 
   return (
     <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
-      </div>
+      {!embedded && (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
+        </div>
+      )}
 
       <div className="s-ops-body">
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">

@@ -51,6 +51,7 @@ struct HUDStatusView: View {
 
     @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
+    @ObservedObject private var skinState = HUDSkinState.shared
     @StateObject private var agentsStore = ScoutAgentsStore()
     @StateObject private var activityStore = ScoutActivityStore()
     @StateObject private var tail = ScoutTailStore()
@@ -142,7 +143,9 @@ struct HUDStatusView: View {
     }
 
     private var tailMaterialOpacity: Double {
-        tailPresenceLifted ? resolvedTailBlurOpacity : resolvedTailPassiveBlurOpacity
+        let base = tailPresenceLifted ? resolvedTailBlurOpacity : resolvedTailPassiveBlurOpacity
+        guard HUDChrome.activeSkin == .glass else { return base }
+        return max(base, HUDChrome.materialOpacity)
     }
 
     private var tailVeilOpacity: Double {
@@ -200,7 +203,7 @@ struct HUDStatusView: View {
                 tailReadabilityVeil
                     .opacity(tailPresenceOpacity)
             } else {
-                HUDChrome.canvas
+                hudSkinSubstrate
             }
 
             // ── Content stack ───────────────────────────────────────
@@ -278,6 +281,7 @@ struct HUDStatusView: View {
         .onChange(of: isTailOverlay) { _, active in
             if !active { tailHovered = false }
         }
+        .animation(.easeInOut(duration: 0.16), value: skinState.skin)
         .onAppear {
             agentsStore.start()
             activityStore.start()
@@ -302,12 +306,58 @@ struct HUDStatusView: View {
 
     private var tailCollapseSlab: some View {
         RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
-            .fill(Color(red: 0.105, green: 0.108, blue: 0.108).opacity(0.88))
+            .fill(HUDChrome.canvasAlt.opacity(HUDChrome.activeSkin == .glass ? 0.72 : 0.88))
             .overlay {
                 RoundedRectangle(cornerRadius: activeCornerRadius, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.055), lineWidth: 0.5)
+                    .strokeBorder(HUDChrome.borderRim.opacity(0.22), lineWidth: 0.5)
             }
             .allowsHitTesting(false)
+    }
+
+    @ViewBuilder
+    private var hudSkinSubstrate: some View {
+        switch skinState.skin {
+        case .current:
+            HUDChrome.canvas
+        case .metal:
+            ZStack {
+                HUDChrome.canvas
+                LinearGradient(
+                    colors: [
+                        HUDChrome.canvasLift.opacity(0.24),
+                        HUDChrome.canvasAlt.opacity(0.10),
+                        HUDChrome.canvas.opacity(0.02),
+                        Color.black.opacity(0.20),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                HUDMetalGrain(opacity: HUDChrome.metalTextureOpacity)
+                HUDPaperGrain(opacity: HUDChrome.paperGrainOpacity)
+            }
+        case .glass:
+            ZStack {
+                VisualEffectBackground(
+                    material: .hudWindow,
+                    blendingMode: .behindWindow,
+                    state: .active,
+                    cornerRadius: activeCornerRadius
+                )
+                .opacity(HUDChrome.materialOpacity)
+                HUDChrome.canvas.opacity(0.38)
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.085),
+                        HUDChrome.glassTop.opacity(0.72),
+                        Color.clear,
+                        HUDChrome.glassBottom.opacity(0.82),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                HUDPaperGrain(opacity: HUDChrome.paperGrainOpacity)
+            }
+        }
     }
 
     private var tailReadabilityVeil: some View {
@@ -368,7 +418,7 @@ struct HUDStatusView: View {
 
             // Right cluster: attention pip (when something needs eyes) ·
             // dismissed-flash pip (when an alert was dismissed but the
-            // condition lingers) · 3-pill size toggle · `?` cheatsheet hint.
+            // condition lingers) · skin toggle · size toggle · `?` hint.
             HStack(spacing: 8) {
                 if attentionCount > 0 {
                     AttentionPip()
@@ -377,6 +427,8 @@ struct HUDStatusView: View {
                     BrokerOfflinePip()
                 }
                 DismissedFlashPip()
+                HUDSkinToggle()
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 HUDSizeToggle()
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 CheatsheetChip()
@@ -423,6 +475,8 @@ struct HUDStatusView: View {
                         .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 3 }
                 }
                 DismissedFlashPip()
+                HUDSkinToggle(filled: true)
+                    .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 HUDTailTreatmentToggle(selection: tailTreatmentBinding)
                     .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                 HUDTailAppearanceButton(
@@ -829,6 +883,47 @@ private struct CheatsheetChip: View {
         }
         .buttonStyle(.plain)
         .help("Show keymap")
+    }
+}
+
+private struct HUDSkinToggle: View {
+    var filled = false
+
+    @ObservedObject private var skinState = HUDSkinState.shared
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(HUDSkin.allCases) { skin in
+                Button(action: { skinState.setSkin(skin) }) {
+                    Text(skin.shortLabel)
+                        .font(HUDType.mono(8.5, weight: .bold))
+                        .tracking(0.35)
+                        .foregroundStyle(skinState.skin == skin ? HUDChrome.accent : HUDChrome.inkFaint)
+                        .frame(width: 17, height: 16)
+                        .background(
+                            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
+                                .fill(
+                                    skinState.skin == skin
+                                        ? HUDChrome.canvasLift.opacity(filled ? 0.50 : 1.0)
+                                        : Color.clear
+                                )
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(skin.help)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(filled ? HUDChrome.canvasAlt.opacity(0.62) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .stroke(HUDChrome.border.opacity(filled ? 0.92 : 1.0), lineWidth: 0.75)
+        )
+        .help("HUD skin: \(skinState.skin.label)")
     }
 }
 

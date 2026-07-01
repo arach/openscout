@@ -17,6 +17,11 @@ const originalPath = process.env.PATH;
 const originalGhBin = process.env.OPENSCOUT_GH_BIN;
 const originalGhRateLimitJson = process.env.OPENSCOUT_GH_RATE_LIMIT_JSON;
 const tempPaths = new Set<string>();
+const HOUR_MS = 60 * 60 * 1000;
+
+function stableQuotaFixtureNow(): number {
+  return Math.floor((Date.now() - 2 * HOUR_MS) / HOUR_MS) * HOUR_MS + 30 * 60 * 1000;
+}
 
 afterEach(() => {
   closeDb();
@@ -106,7 +111,7 @@ describe("service budgets", () => {
 
     const statuslineDir = join(home, "Library", "Application Support", "OpenScout", "runtime", "statusline");
     mkdirSync(statuslineDir, { recursive: true });
-    const now = Date.now();
+    const now = stableQuotaFixtureNow();
     const latest = {
       session_id: "claude-statusline-session",
       cwd: "/repo",

@@ -74,9 +74,10 @@ Observed harness material can be tailed, linked, summarized, or lightly indexed.
 
 A realistic local install can involve:
 
-- Bun for the CLI/runtime toolchain
-- a Scout broker service
-- macOS launch agent setup
+- Node for the headless CLI/runtime path
+- Bun for the full CLI, web server, and repo-local toolchain
+- a Scout broker service or foreground `openscout-runtime broker` process
+- macOS launch agent setup for the native service path
 - support files under `~/Library/Application Support/OpenScout`
 - optional Caddy for the local web edge
 - optional Tailscale or manually configured mesh seeds for multi-machine discovery

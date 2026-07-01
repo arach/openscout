@@ -22,6 +22,7 @@ import {
   type OpenScoutLocalEdgeScheme,
 } from "./local-edge.js";
 import { openScoutNetworkServiceEnvironment } from "./open-scout-network.js";
+import { ensureProviderTelemetryBootstrap } from "./provider-telemetry-bootstrap.js";
 import { readTailscaleSelfWebHostsSync } from "./tailscale.js";
 
 const RESTART_MIN_DELAY_MS = 1_000;
@@ -111,6 +112,13 @@ function runtimeEntrypoint(config: BrokerServiceConfig): string {
 
 function spawnBroker(): void {
   if (shuttingDown || brokerProcess) {
+    return;
+  }
+  if (!config.bunExecutable) {
+    warn("broker supervisor cannot start broker without Bun", {
+      hint: "Use the headless broker entrypoint under Node or install Bun for the macOS base supervisor.",
+    });
+    scheduleBrokerRestart();
     return;
   }
 
@@ -346,6 +354,7 @@ async function startWebWhenBrokerIsReady(): Promise<void> {
   }
 
   try {
+    await ensureBaseProviderTelemetry();
     const edgeConfig = resolveEdgeConfig();
     const scheme = forwardedProtoForEdgeScheme(edgeConfig.scheme);
     const response = await fetch(new URL("/v1/web/start", brokerControlUrl), {
@@ -402,6 +411,7 @@ function startMenuBarApp(): void {
     return;
   }
 
+  void ensureBaseProviderTelemetry();
   const explicitBundle = process.env.OPENSCOUT_MENU_BUNDLE_PATH?.trim();
   const repoBundle = explicitBundle && existsSync(explicitBundle) ? explicitBundle : findRepoMenuBundle();
   const args = repoBundle ? [repoBundle] : ["-b", MENU_BUNDLE_ID];
@@ -415,6 +425,20 @@ function startMenuBarApp(): void {
     }
     warn("menu bar app launch failed", { target: repoBundle ?? MENU_BUNDLE_ID, code });
   });
+}
+
+async function ensureBaseProviderTelemetry(): Promise<void> {
+  try {
+    const report = await ensureProviderTelemetryBootstrap({ env: process.env });
+    if (process.env.OPENSCOUT_DEBUG_SERVICE_BUDGETS === "1") {
+      log("provider telemetry bootstrap", {
+        claude: report.claude.status,
+        statuslineLatest: report.statuslineLatest.status,
+      });
+    }
+  } catch (error) {
+    warn("provider telemetry bootstrap failed", error instanceof Error ? error.message : String(error));
+  }
 }
 
 function stopMenuBarApp(): void {

@@ -1,9 +1,12 @@
-import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { connect as connectHttp2 } from "node:http2";
 import { createPrivateKey, sign as signWithKey } from "node:crypto";
 import { dirname, join } from "node:path";
 
+import {
+  openControlPlaneSqliteDatabase,
+  type ControlPlaneSqliteDatabase as Database,
+} from "./sqlite-adapter.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export type MobilePushPlatform = "ios";
@@ -154,12 +157,12 @@ function ensureMobilePushSchema(database: Database): void {
 function writeDb(): Database {
   const nextPath = resolveControlPlaneDbPath();
   if (dbHandle && dbPath !== nextPath) {
-    dbHandle.close();
+    dbHandle.close?.();
     dbHandle = null;
   }
   if (!dbHandle) {
     mkdirSync(dirname(nextPath), { recursive: true });
-    dbHandle = new Database(nextPath, { create: true });
+    dbHandle = openControlPlaneSqliteDatabase(nextPath, { create: true });
     dbPath = nextPath;
     ensureMobilePushSchema(dbHandle);
   }
@@ -167,7 +170,7 @@ function writeDb(): Database {
 }
 
 export function closeMobilePushDb(): void {
-  dbHandle?.close();
+  dbHandle?.close?.();
   dbHandle = null;
   dbPath = null;
 }

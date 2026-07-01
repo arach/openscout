@@ -253,7 +253,7 @@ import {
   saveOpenScoutOnboardingProject,
   skipOpenScoutOnboarding,
 } from "@openscout/runtime/onboarding";
-import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
+import { relayAgentLogsDirectory, relayAgentRuntimeDirectory } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import {
   invokeCodexAppServerAgent,
@@ -1896,14 +1896,14 @@ function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const EXECUTION_SESSION_PREFERENCES = new Set(["new", "existing", "any"]);
+const EXECUTION_SESSION_PREFERENCES = new Set(["new", "existing", "any", "fork"]);
 
 function normalizeExecutionSession(
   value: unknown,
-): "new" | "existing" | "any" | undefined {
+): "new" | "existing" | "any" | "fork" | undefined {
   const normalized = optionalString(value)?.trim();
   return normalized && EXECUTION_SESSION_PREFERENCES.has(normalized)
-    ? (normalized as "new" | "existing" | "any")
+    ? (normalized as "new" | "existing" | "any" | "fork")
     : undefined;
 }
 
@@ -2486,6 +2486,46 @@ function isBrokerAgentVisibleInWeb(agent: ScoutBrokerContext["snapshot"]["agents
     && !metadataBooleanValue(metadata, "retiredFromFleet");
 }
 
+type AgentDirectoryScope = "local" | "remote" | "all";
+
+function parseAgentDirectoryScope(value: string | null | undefined): AgentDirectoryScope {
+  switch (value?.trim().toLowerCase()) {
+    case "all":
+      return "all";
+    case "remote":
+      return "remote";
+    default:
+      return "local";
+  }
+}
+
+function isLocalAgentRegistration(
+  agent: Pick<WebAgent, "authorityNodeId" | "homeNodeId">,
+  localNodeId: string | null | undefined,
+): boolean {
+  if (!localNodeId) {
+    return true;
+  }
+  const authorityNodeId = agent.authorityNodeId?.trim();
+  const homeNodeId = agent.homeNodeId?.trim();
+  if (!authorityNodeId && !homeNodeId) {
+    return true;
+  }
+  return authorityNodeId === localNodeId || homeNodeId === localNodeId;
+}
+
+function agentMatchesDirectoryScope(
+  agent: Pick<WebAgent, "authorityNodeId" | "homeNodeId">,
+  localNodeId: string | null | undefined,
+  scope: AgentDirectoryScope,
+): boolean {
+  if (scope === "all") {
+    return true;
+  }
+  const local = isLocalAgentRegistration(agent, localNodeId);
+  return scope === "local" ? local : !local;
+}
+
 function latestBrokerAgentTimestamp(
   agent: ScoutBrokerContext["snapshot"]["agents"][string],
   endpoint: AgentEndpoint | null,
@@ -2765,19 +2805,25 @@ function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
     );
 }
 
-async function queryAgentsIncludingBrokerCards(): Promise<WebAgent[]> {
+async function queryAgentsIncludingBrokerCards(scope: AgentDirectoryScope = "local"): Promise<WebAgent[]> {
   const { listArchivedLocalAgentIds } = await import("@openscout/runtime/local-agents");
   const archivedIds = new Set(await listArchivedLocalAgentIds().catch(() => [] as string[]));
+  const broker = await loadScoutBrokerContext().catch(() => null);
+  const localNodeId = broker?.node.id ?? null;
   const agents = queryAgents()
     .map(withResolvedHarnessSessionIdentity)
-    .filter((agent) => !archivedIds.has(agent.id));
-  const broker = await loadScoutBrokerContext().catch(() => null);
+    .filter((agent) => !archivedIds.has(agent.id))
+    .filter((agent) => agentMatchesDirectoryScope(agent, localNodeId, scope));
   if (!broker) {
     return agents;
   }
   const existingIds = new Set(agents.map((agent) => agent.id));
   const brokerAgents = brokerCardAgentsForWeb(broker)
-    .filter((agent) => !existingIds.has(agent.id) && !archivedIds.has(agent.id))
+    .filter((agent) =>
+      !existingIds.has(agent.id)
+      && !archivedIds.has(agent.id)
+      && agentMatchesDirectoryScope(agent, broker.node.id, scope)
+    )
     .map(withResolvedHarnessSessionIdentity);
   return [...agents, ...brokerAgents];
 }
@@ -4558,6 +4604,218 @@ function isProviderConfigured(envKeys: readonly string[]): boolean {
   return envKeys.some((key) => Boolean(process.env[key]?.trim()));
 }
 
+type HudRunnerHarnessOption = {
+  id: string;
+  name: string | null;
+  label: string;
+  description: string | null;
+  state: string | null;
+  ready: boolean | null;
+  detail: string | null;
+};
+
+type HudRunnerModelOption = {
+  id: string;
+  label: string;
+  harnesses: string[];
+  source: string;
+};
+
+type HudRunnerProjectOption = {
+  id: string;
+  title: string;
+  root: string;
+  source: string | null;
+  registrationKind: string | null;
+  defaultHarness: string | null;
+};
+
+type HudRunnerAgentOption = {
+  id: string;
+  name: string;
+  handle: string | null;
+  status: string | null;
+  harness: string | null;
+  model: string | null;
+  projectRoot: string | null;
+  cwd: string | null;
+  harnessSessionId: string | null;
+};
+
+const HUD_PROJECT_MARKERS = [
+  ".git",
+  ".openscout/project.json",
+  "AGENTS.md",
+  "package.json",
+  "Package.swift",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+] as const;
+
+const HUD_RUNNER_MODEL_OPTIONS: HudRunnerModelOption[] = [
+  { id: "claude-opus-4-8", label: "Opus 4.8", harnesses: ["claude"], source: "default" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6", harnesses: ["claude"], source: "default" },
+  { id: "claude-haiku-4-5", label: "Haiku 4.5", harnesses: ["claude"], source: "default" },
+  { id: "gpt-5.5", label: "GPT-5.5", harnesses: ["codex"], source: "default" },
+  { id: "gpt-5.5-mini", label: "GPT-5.5 mini", harnesses: ["codex"], source: "default" },
+];
+
+function defaultHudRunnerModel(harness: string | null | undefined): string {
+  switch (harness) {
+    case "codex":
+      return "gpt-5.5";
+    case "claude":
+    default:
+      return "claude-opus-4-8";
+  }
+}
+
+function normalizeHudRunnerRoot(root: string): string {
+  return resolve(expandHomePath(root.trim()));
+}
+
+function isLikelyHudProjectRoot(root: string): boolean {
+  const normalized = normalizeHudRunnerRoot(root);
+  try {
+    if (!statSync(normalized).isDirectory()) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return HUD_PROJECT_MARKERS.some((marker) => existsSync(join(normalized, marker)));
+}
+
+function currentDirectoryProjectOption(currentDirectory: string, defaultHarness: string): HudRunnerProjectOption | null {
+  const trimmed = currentDirectory.trim();
+  if (!trimmed || !isLikelyHudProjectRoot(trimmed)) return null;
+  const root = normalizeHudRunnerRoot(trimmed);
+  return {
+    id: `current:${root}`,
+    title: basename(root) || root,
+    root,
+    source: "currentDirectory",
+    registrationKind: "current",
+    defaultHarness,
+  };
+}
+
+function dedupeHudRunnerProjects(projects: HudRunnerProjectOption[]): HudRunnerProjectOption[] {
+  const seen = new Set<string>();
+  const result: HudRunnerProjectOption[] = [];
+  for (const project of projects) {
+    const key = normalizeHudRunnerRoot(project.root);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push({ ...project, root: key });
+  }
+  return result;
+}
+
+async function buildHudRunnerOptions(currentDirectory: string) {
+  const [settingsResult, catalogResult] = await Promise.allSettled([
+    readOpenScoutSettings({ currentDirectory }),
+    loadHarnessCatalogSnapshot(),
+  ]);
+  const settings = settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const catalog = catalogResult.status === "fulfilled" ? catalogResult.value : null;
+  const agents = queryAgents(50);
+  const defaultHarness = settings?.agents.defaultHarness ?? "claude";
+
+  const harnessesById = new Map<string, HudRunnerHarnessOption>();
+  for (const entry of catalog?.entries ?? []) {
+    const id = String(entry.harness || entry.name || "").trim();
+    if (!id) continue;
+    harnessesById.set(id, {
+      id,
+      name: entry.name,
+      label: entry.label || id,
+      description: entry.description || null,
+      state: entry.readinessReport.state,
+      ready: entry.readinessReport.ready,
+      detail: entry.readinessReport.detail,
+    });
+  }
+  for (const fallback of [
+    { id: "claude", label: "Claude Code" },
+    { id: "codex", label: "Codex" },
+  ]) {
+    if (!harnessesById.has(fallback.id)) {
+      harnessesById.set(fallback.id, {
+        id: fallback.id,
+        name: fallback.id,
+        label: fallback.label,
+        description: null,
+        state: null,
+        ready: null,
+        detail: null,
+      });
+    }
+  }
+
+  const projectOptions: HudRunnerProjectOption[] = agents
+    .map((agent) => agent.projectRoot ?? agent.cwd)
+    .filter((root): root is string => typeof root === "string" && root.trim().length > 0)
+    .map((root) => {
+      const normalizedRoot = normalizeHudRunnerRoot(root);
+      return {
+        id: `agent:${normalizedRoot}`,
+        title: basename(normalizedRoot) || normalizedRoot,
+        root: normalizedRoot,
+        source: "agent",
+        registrationKind: null,
+        defaultHarness: defaultHarness,
+      };
+    });
+  const currentProject = currentDirectoryProjectOption(currentDirectory, defaultHarness);
+  if (currentProject) {
+    projectOptions.unshift(currentProject);
+  }
+  const projects = dedupeHudRunnerProjects(projectOptions);
+  const defaultDirectory = projects[0]?.root ?? normalizeHudRunnerRoot(currentDirectory);
+
+  const harnesses = Array.from(harnessesById.values()).sort((left, right) => {
+    const rank = (id: string) => id === defaultHarness ? 0 : id === "claude" ? 1 : id === "codex" ? 2 : 3;
+    const leftRank = rank(left.id);
+    const rightRank = rank(right.id);
+    if (leftRank !== rightRank) return leftRank - rightRank;
+    return left.label.localeCompare(right.label);
+  });
+
+  return {
+    defaults: {
+      runner: "scout",
+      directory: defaultDirectory,
+      harness: defaultHarness,
+      model: defaultHudRunnerModel(defaultHarness),
+      persistence: "sticky",
+    },
+    runners: [
+      {
+        id: "scout",
+        label: "Scout",
+        description: "Start a broker-owned Scout session",
+        supports: harnesses.map((harness) => harness.id),
+      },
+    ],
+    harnesses,
+    models: HUD_RUNNER_MODEL_OPTIONS,
+    projects,
+    agents: agents.map((agent): HudRunnerAgentOption => ({
+      id: agent.id,
+      name: agent.name,
+      handle: agent.handle,
+      status: agent.state,
+      harness: agent.harness,
+      model: agent.model,
+      projectRoot: agent.projectRoot ? normalizeHudRunnerRoot(agent.projectRoot) : null,
+      cwd: agent.cwd ? normalizeHudRunnerRoot(agent.cwd) : null,
+      harnessSessionId: agent.harnessSessionId,
+    })),
+  };
+}
+
 async function buildAgentConfigurationSnapshot(currentDirectory: string) {
   const [settingsResult, setupResult, catalogResult, shellResult] = await Promise.allSettled([
     readOpenScoutSettings({ currentDirectory }),
@@ -5605,7 +5863,12 @@ export async function createOpenScoutWebServer(
   app.get("/api/agent-config/snapshot", async (c) =>
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
-  app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
+  app.get("/api/runner/options", async (c) =>
+    c.json(await buildHudRunnerOptions(currentDirectory)),
+  );
+  app.get("/api/agents", async (c) =>
+    c.json(await queryAgentsIncludingBrokerCards(parseAgentDirectoryScope(c.req.query("scope"))))
+  );
   app.get("/api/terminal-sessions", (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
@@ -5724,18 +5987,20 @@ export async function createOpenScoutWebServer(
   });
   // Flexible session initiation. A single payload expresses every modality —
   // start fresh in a project, start "the same agent" fresh, continue an
-  // agent's existing harness session with full context, or seed a new
-  // conversation from a message — by setting different fields. See
-  // docs/agent for the modality matrix; `seed.branchFrom` is accepted now and
-  // reserved for forthcoming context-forking work (currently inert).
+  // agent's existing harness session with full context, seed a new
+  // conversation from a message, or fork from a known execution session — by
+  // setting different fields. See docs/agent for the modality matrix.
   app.post("/api/sessions", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       target?: { agentId?: string; projectPath?: string };
       execution?: {
         harness?: string;
         model?: string;
+        reasoningEffort?: string;
         session?: string;
         targetSessionId?: string;
+        forkFromSessionId?: string;
+        forkFromStateId?: string;
       };
       agent?: {
         persistence?: string;
@@ -5745,6 +6010,7 @@ export async function createOpenScoutWebServer(
         instructions?: string;
         fromMessageId?: string;
         fromConversationId?: string;
+        attachments?: OutgoingAttachmentInput[];
         branchFrom?: { sessionId?: string; messageId?: string };
       };
     };
@@ -5777,6 +6043,7 @@ export async function createOpenScoutWebServer(
       optionalString(body.execution?.model)?.trim() ||
       agent?.model?.trim() ||
       undefined;
+    const reasoningEffort = optionalString(body.execution?.reasoningEffort)?.trim();
     let targetSessionId = optionalString(body.execution?.targetSessionId)?.trim();
     if (session === "existing" && !targetSessionId) {
       targetSessionId = agent?.harnessSessionId?.trim() || undefined;
@@ -5787,6 +6054,16 @@ export async function createOpenScoutWebServer(
           error:
             "session 'existing' requires execution.targetSessionId or an agent with a resolvable session",
         },
+        400,
+      );
+    }
+    const forkFromSessionId =
+      optionalString(body.execution?.forkFromSessionId)?.trim()
+      || optionalString(body.seed?.branchFrom?.sessionId)?.trim();
+    const forkFromStateId = optionalString(body.execution?.forkFromStateId)?.trim();
+    if (session === "fork" && !forkFromSessionId && !forkFromStateId) {
+      return c.json(
+        { error: "session 'fork' requires execution.forkFromSessionId or execution.forkFromStateId" },
         400,
       );
     }
@@ -5815,6 +6092,9 @@ export async function createOpenScoutWebServer(
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
+    const seedAttachments = Array.isArray(body.seed?.attachments)
+      ? body.seed.attachments
+      : undefined;
     const branchFrom = body.seed?.branchFrom;
 
     const result = await askScoutQuestion({
@@ -5827,8 +6107,12 @@ export async function createOpenScoutWebServer(
       body: instructions && instructions.length > 0 ? instructions : "New session started.",
       ...(harness ? { executionHarness: harness } : {}),
       ...(model ? { executionModel: model } : {}),
+      ...(reasoningEffort ? { executionReasoningEffort: reasoningEffort } : {}),
       ...(session ? { executionSession: session } : {}),
       ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
+      ...(forkFromSessionId ? { executionForkFromSessionId: forkFromSessionId } : {}),
+      ...(forkFromStateId ? { executionForkFromStateId: forkFromStateId } : {}),
+      ...(seedAttachments?.length ? { attachments: seedAttachments } : {}),
       projectAgent: {
         persistence,
         ...(agentHandle ? { handle: agentHandle } : {}),
@@ -6284,6 +6568,7 @@ export async function createOpenScoutWebServer(
     );
   });
   app.get("/api/flights", (c) => {
+    const flightId = c.req.query("flightId");
     const agentId = c.req.query("agentId");
     const conversationId = c.req.query("conversationId");
     const collaborationRecordId = c.req.query("collaborationRecordId");
@@ -6293,6 +6578,7 @@ export async function createOpenScoutWebServer(
     }
     return c.json(
       queryFlights({
+        flightId: flightId || undefined,
         agentId: agentId || undefined,
         conversationId: conversationId || undefined,
         collaborationRecordId: collaborationRecordId || undefined,

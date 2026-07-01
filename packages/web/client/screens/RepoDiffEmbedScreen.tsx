@@ -6,8 +6,8 @@
  * absolute worktree `path` from the query string (`/embed/repo-diff?path=…`).
  *
  * Lazy-loaded (so Pierre is only fetched when the sheet opens). The page is
- * wrapped in `scoutApp.Provider` upstream in main.tsx, which supplies the
- * `[data-scout-theme]` token scope the viewer reads.
+ * wrapped in the standalone ScoutProvider upstream in main.tsx, which supplies
+ * the `[data-scout-theme]` token scope the viewer reads.
  */
 
 import { RepoDiffViewerLazy } from "../scout/repo-diff/RepoDiffViewerLazy.tsx";

@@ -50,10 +50,14 @@ export function useScoutCommands(): CommandOption[] {
     const commands: CommandOption[] = [
       {
         id: "session:new",
-        label: "New Session",
+        label: "Quick Capture",
         action: () => {
           const context = resolveCaptureRouteContext(route, agents);
-          openContextCapture({ agentId: context.agentId ?? undefined });
+          openContextCapture({
+            agentId: context.agentId ?? undefined,
+            conversationId: context.conversationId ?? undefined,
+            preferExistingChat: context.canUseExistingChat,
+          });
         },
         shortcut: "Cmd+Shift+N",
       },

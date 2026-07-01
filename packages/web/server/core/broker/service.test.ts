@@ -218,7 +218,12 @@ describe("askScoutQuestion", () => {
         return jsonResponse({ ok: true });
       }
       if (request.method === "POST" && url.pathname === "/v1/deliver") {
-        const body = await request.json() as { requesterId: string; targetLabel: string; body: string };
+        const body = await request.json() as {
+          requesterId: string;
+          targetLabel: string;
+          body: string;
+          attachments?: Array<{ mediaType: string; url: string; fileName?: string; id?: string }>;
+        };
         requests[requests.length - 1]!.body = body;
         return jsonResponse({
           kind: "delivery",
@@ -262,6 +267,13 @@ describe("askScoutQuestion", () => {
       senderId: "operator",
       targetLabel: "talkie",
       body: "build it for me",
+      attachments: [
+        {
+          mediaType: "text/markdown",
+          url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          fileName: "notes.md",
+        },
+      ],
       currentDirectory: workspaceRoot,
     });
 
@@ -276,6 +288,15 @@ describe("askScoutQuestion", () => {
     expect(requests.some((request) => request.path === "/v1/deliver")).toBe(true);
     expect(requests.find((request) => request.path === "/v1/deliver")?.body?.execution)
       .toEqual({ session: "new" });
+    expect(requests.find((request) => request.path === "/v1/deliver")?.body?.attachments)
+      .toEqual([
+        expect.objectContaining({
+          mediaType: "text/markdown",
+          url: "http://127.0.0.1:3200/api/blobs/blob-1",
+          fileName: "notes.md",
+          id: expect.any(String),
+        }),
+      ]);
     expect(requests.some((request) => request.path === "/v1/endpoints")).toBe(false);
   }, 15000);
 

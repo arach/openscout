@@ -13,8 +13,9 @@ Related first-read docs:
 
 ## Prerequisites
 
-- Bun 1.3 or newer
-- macOS for the full desktop/service bootstrap path
+- Node.js for the headless CLI package path
+- Bun 1.3 or newer for the full CLI, web server, and repo-local development path
+- macOS for the native desktop/service bootstrap path
 - Homebrew on macOS if `scout setup` needs to install Caddy
 - A trusted local developer machine
 
@@ -31,12 +32,26 @@ runtime changes, or building a host integration against the current checkout.
 ## Install From The Published CLI Package
 
 ```bash
-bun add -g @openscout/scout
+npm install -g @openscout/scout
 scout setup
 scout doctor
 ```
 
-`scout setup` bootstraps local settings, discovers known projects, writes project metadata when needed, installs or updates the local launch agent, starts the broker service, and ensures the local web edge can run.
+The published package also works with `bun add -g @openscout/scout` when Bun is
+available. Bun remains the richer local optimization path; npm plus Node now
+supports the headless onboarding commands.
+
+`scout setup` bootstraps local settings, discovers known projects, writes
+project metadata when needed, and checks the broker service adapter. In Node
+headless mode, the next step is to run the broker under your shell, container,
+or process manager:
+
+```bash
+openscout-runtime broker
+```
+
+The macOS native service path still uses the `scoutd` adapter and can install or
+restart the local service when the native prerequisites are available.
 
 `scout doctor` verifies that the local broker is installed, reachable, and writing expected support files.
 
@@ -82,6 +97,7 @@ A healthy local pilot install has these properties:
 
 - `scout --help` prints the CLI help.
 - `scout doctor` reports the broker as reachable.
+- `openscout-runtime broker` can run the foreground broker in Node headless installs.
 - Local support files exist under `~/Library/Application Support/OpenScout`.
 - `scout whoami` reports the sender identity for the current directory.
 - `scout who` can list known, configured, or recently active agents.

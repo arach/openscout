@@ -19,7 +19,9 @@ import {
   resolveBrokerSocketPathForBaseUrl,
   resolveScoutBrokerControlUrl,
   resolveAdvertiseScope,
+  resolveBrokerServiceAdapter,
   resolveScoutdCommand,
+  runHeadlessForegroundServiceCommand,
   runScoutdServiceCommand,
   selectLastRelevantLogLine,
   type BrokerServiceConfig,
@@ -99,6 +101,31 @@ function restore(previous: Map<string, string | undefined>): void {
 }
 
 describe("broker service scoutd adapter", () => {
+  test("selects platform service adapters without requiring scoutd off macOS", () => {
+    expect(resolveBrokerServiceAdapter({}, "darwin")).toBe("macos-scoutd");
+    expect(resolveBrokerServiceAdapter({}, "linux")).toBe("headless-foreground");
+    expect(resolveBrokerServiceAdapter({ OPENSCOUT_SERVICE_ADAPTER: "systemd-user" }, "linux"))
+      .toBe("linux-systemd-user");
+    expect(resolveBrokerServiceAdapter({ OPENSCOUT_SERVICE_ADAPTER: "headless" }, "darwin"))
+      .toBe("headless-foreground");
+  });
+
+  test("resolves headless service config without requiring Bun on PATH", async () => {
+    const root = mkdtempSync(join(tmpdir(), "openscout-headless-no-bun-"));
+    await withEnv({
+      HOME: root,
+      PATH: "",
+      OPENSCOUT_SERVICE_ADAPTER: "headless-foreground",
+      OPENSCOUT_BUN_BIN: undefined,
+      SCOUT_BUN_BIN: undefined,
+      BUN_BIN: undefined,
+    }, () => {
+      const serviceConfig = resolveBrokerServiceConfig();
+      expect(serviceConfig.bunExecutable === null || typeof serviceConfig.bunExecutable === "string").toBe(true);
+      expect(serviceConfig.runtimeDirectory).toContain("OpenScout");
+    });
+  });
+
   test("builds local broker control URLs from wildcard bind hosts", () => {
     expect(buildLocalBrokerControlUrl("0.0.0.0", 43110)).toBe("http://127.0.0.1:43110");
     expect(buildLocalBrokerControlUrl("::", 43110)).toBe("http://127.0.0.1:43110");
@@ -309,6 +336,67 @@ describe("broker service scoutd adapter", () => {
         "$ bun run src/broker-daemon.ts",
       ]),
     ).toBe("$ bun run src/broker-daemon.ts");
+  });
+});
+
+describe("headless foreground broker service adapter", () => {
+  test("reports broker health without launchd or scoutd", async () => {
+    const result = await runHeadlessForegroundServiceCommand("status", config, async (serviceConfig) => {
+      expect(serviceConfig).toBe(config);
+      return {
+        trace: {
+          transport: "unix_socket",
+          socketPath: config.brokerSocketPath,
+        },
+        health: {
+          ok: true,
+          nodeId: "node-headless",
+          meshId: "mesh-headless",
+          counts: {
+            nodes: 1,
+            actors: 2,
+            agents: 3,
+            conversations: 4,
+            messages: 5,
+            flights: 6,
+            collaborationRecords: 7,
+          },
+          build: {
+            packageName: "@openscout/runtime",
+            version: "0.test",
+          },
+        },
+      };
+    });
+
+    expect(result.serviceAdapter).toBe("headless-foreground");
+    expect(result.usesLaunchAgent).toBe(false);
+    expect(result.installed).toBe(false);
+    expect(result.loaded).toBe(true);
+    expect(result.reachable).toBe(true);
+    expect(result.health.ok).toBe(true);
+    expect(result.health.transport).toBe("unix_socket");
+    expect(result.health.nodeId).toBe("node-headless");
+    expect(result.health.counts?.agents).toBe(3);
+    expect(result.bootoutCommand).toContain("does not use launchd");
+  });
+
+  test("returns an unreachable status when the foreground broker is not running", async () => {
+    const result = await runHeadlessForegroundServiceCommand("status", config, async () => {
+      throw new Error("connect ECONNREFUSED 127.0.0.1:43110");
+    });
+
+    expect(result.serviceAdapter).toBe("headless-foreground");
+    expect(result.loaded).toBe(false);
+    expect(result.reachable).toBe(false);
+    expect(result.health.ok).toBe(false);
+    expect(result.health.error).toContain("ECONNREFUSED");
+  });
+
+  test("does not pretend to manage a background process", async () => {
+    await expect(
+      runHeadlessForegroundServiceCommand("start", config),
+    ).rejects.toThrow(/Next step: run `openscout-runtime broker`/);
   });
 });
 

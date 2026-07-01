@@ -210,6 +210,23 @@ describe("web db query flights", () => {
     }
   });
 
+  test("filters flights by exact flight id", () => {
+    const store = createSeededStore();
+
+    try {
+      const flights = queryFlights({ flightId: "flight-1" });
+
+      expect(flights).toHaveLength(1);
+      expect(flights[0]).toEqual(expect.objectContaining({
+        id: "flight-1",
+        invocationId: "inv-1",
+        conversationId: "c.conv-1",
+      }));
+    } finally {
+      store.close();
+    }
+  });
+
   test("normalizes recent active flights stored as milliseconds or seconds", () => {
     const store = createSeededStore();
     const recentMs = Date.now() - 1_000;

@@ -28,9 +28,12 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(scriptDirectory, "..");
 const repoRoot = getOpenScoutRepoRoot();
 const entryFile = resolve(packageDirectory, "src/main.ts");
+const nodeEntryFile = resolve(packageDirectory, "src/node-main.ts");
 const statuslineEntryFile = resolve(packageDirectory, "src/statusline.ts");
 const outputDirectory = resolve(packageDirectory, "dist");
 const outputFile = resolve(outputDirectory, "main.mjs");
+const nodeOutputDirectory = resolve(outputDirectory, "node");
+const nodeOutputFile = resolve(nodeOutputDirectory, "main.mjs");
 const statuslineOutput = resolve(outputDirectory, "statusline.mjs");
 const webServerOutput = resolve(outputDirectory, "scout-web-server.mjs");
 const controlPlaneWebOutput = resolve(outputDirectory, "scout-control-plane-web.mjs");
@@ -72,6 +75,18 @@ const statuslineResult = spawnSync(
 
 if ((statuslineResult.status ?? 1) !== 0) {
   process.exit(statuslineResult.status ?? 1);
+}
+
+rmSync(nodeOutputDirectory, { recursive: true, force: true });
+mkdirSync(nodeOutputDirectory, { recursive: true });
+const nodeResult = spawnSync(
+  "bun",
+  ["build", nodeEntryFile, "--target=node", "--outdir", nodeOutputDirectory],
+  { cwd: packageDirectory, stdio: "inherit" },
+);
+
+if ((nodeResult.status ?? 1) !== 0) {
+  process.exit(nodeResult.status ?? 1);
 }
 
 if (!bundleScoutTerminalRelayNode(repoRoot, terminalRelayOutput)) {
@@ -260,6 +275,10 @@ const bunOutput = resolve(outputDirectory, "main.js");
 if (existsSync(bunOutput) && bunOutput !== outputFile) {
   renameSync(bunOutput, outputFile);
 }
+const nodeOutput = resolve(nodeOutputDirectory, "node-main.js");
+if (existsSync(nodeOutput) && nodeOutput !== nodeOutputFile) {
+  renameSync(nodeOutput, nodeOutputFile);
+}
 
 function normalizeBunExecutable(path) {
   const built = readFileSync(path, "utf8");
@@ -271,10 +290,21 @@ function normalizeBunExecutable(path) {
   chmodSync(path, 0o755);
 }
 
+function normalizeNodeExecutable(path) {
+  const built = readFileSync(path, "utf8");
+  const normalized = built
+    .replace(/^#![^\n]*\n/, "")
+    .replace(/^\/\/ @bun\n/, "");
+
+  writeFileSync(path, `#!/usr/bin/env node\n${normalized}`);
+  chmodSync(path, 0o755);
+}
+
 normalizeBunExecutable(outputFile);
 normalizeBunExecutable(statuslineOutput);
+normalizeNodeExecutable(nodeOutputFile);
 
-for (const built of [outputFile, statuslineOutput, pairingRuntimeControllerOutput, terminalRelayOutput]) {
+for (const built of [outputFile, statuslineOutput, nodeOutputFile, pairingRuntimeControllerOutput, terminalRelayOutput]) {
   if (!verifyBundleStaticChecks(built)) {
     process.exit(1);
   }

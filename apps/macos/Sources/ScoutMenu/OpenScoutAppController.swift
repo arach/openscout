@@ -402,6 +402,12 @@ final class OpenScoutAppController: ObservableObject {
         }
     }
 
+    func openQuickCapture() {
+        Task {
+            await openQuickCaptureNow()
+        }
+    }
+
     func openWebPath(_ path: String) {
         Task {
             await openWebSurfaceNow(path: path)
@@ -853,6 +859,28 @@ final class OpenScoutAppController: ObservableObject {
         do {
             try await ensureWebServerRunning()
             ScoutAppBridge.openScout(channelId: cId)
+        } catch {
+            lastError = error.localizedDescription
+        }
+
+        requestRefresh(reason: .manual)
+    }
+
+    private func openQuickCaptureNow() async {
+        guard !webActionPending else {
+            return
+        }
+
+        webActionPending = true
+        defer {
+            webActionPending = false
+        }
+
+        lastError = nil
+
+        do {
+            try await ensureWebServerRunning()
+            ScoutAppBridge.openQuickCapture()
         } catch {
             lastError = error.localizedDescription
         }

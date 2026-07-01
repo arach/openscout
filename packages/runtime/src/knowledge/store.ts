@@ -2,8 +2,12 @@ import { mkdirSync, statSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 
-import { Database } from "bun:sqlite";
-
+import {
+  openRuntimeSqliteDatabase,
+  type ControlPlaneSqliteBinding as SQLiteBinding,
+  type ControlPlaneSqliteDatabase as Database,
+  type ControlPlaneSqliteTransactionalDatabase as SQLiteTransactionalDatabase,
+} from "../sqlite-adapter.js";
 import { resolveOpenScoutKnowledgePaths, type OpenScoutKnowledgePaths } from "./paths.js";
 import type {
   KnowledgeChunk,
@@ -19,14 +23,6 @@ import type {
   KnowledgeSourceRef,
   KnowledgeStatus,
 } from "./types.js";
-
-type SQLiteBinding = string | number | bigint | boolean | null | Uint8Array;
-
-type SQLiteTransactionalDatabase = Database & {
-  transaction<TArgs extends unknown[], TResult>(
-    callback: (...args: TArgs) => TResult
-  ): (...args: TArgs) => TResult;
-};
 
 type CollectionRow = {
   id: string;
@@ -357,7 +353,7 @@ export class SQLiteKnowledgeStore {
     this.paths = { ...resolvedPaths, sqlitePath };
     mkdirSync(dirname(sqlitePath), { recursive: true });
     mkdirSync(this.paths.qmdRoot, { recursive: true });
-    this.db = new Database(sqlitePath, { create: true });
+    this.db = openRuntimeSqliteDatabase(sqlitePath, { create: true });
     this.db.exec("PRAGMA busy_timeout = 5000;");
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec("PRAGMA synchronous = NORMAL;");
@@ -365,7 +361,7 @@ export class SQLiteKnowledgeStore {
   }
 
   close(): void {
-    this.db.close();
+    this.db.close?.();
   }
 
   upsertCollection(collection: KnowledgeCollection): void {

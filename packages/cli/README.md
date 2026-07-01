@@ -1,15 +1,21 @@
 # scout
 
-> **Requires [Bun](https://bun.sh).** Scout uses Bun as its runtime. If you don't have it: `brew install bun`
-
 Install:
 
 ```bash
-bun add -g @openscout/scout
+npm install -g @openscout/scout
 scout --help
 ```
 
-`@openscout/scout` is the public package name. It installs the `scout` command and carries the bundled broker/runtime and web UI. Installing it does not start services; commands such as `scout setup`, `scout up`, and `scout server start` activate them explicitly.
+`@openscout/scout` is the public package name. It installs `scout` plus the
+`openscout-runtime` foreground broker command and carries the bundled
+broker/runtime and web UI. Installing it does not start services; commands such
+as `scout setup`, `scout up`, and `scout server start` activate them explicitly.
+
+The Node/npm path supports headless onboarding commands such as `init`, `config
+set name`, `setup`, `doctor`, `runtimes`, and `service status`. Bun remains the
+full CLI/runtime path for desktop, web server, pairing, and macOS native service
+commands.
 
 ## Canonical Flow
 
@@ -30,6 +36,14 @@ scout ask --project ../talkie --harness claude "can you review our docs?"
 - `.openscout/project.json` for the current repo when needed
 
 It also discovers local and project-backed agents from your configured workspace roots, installs the base Scout service, attempts to start it, and ensures Caddy is available for the local `scout.local` edge. On macOS, setup installs missing Caddy with `brew install caddy`; otherwise install Caddy yourself or set `OPENSCOUT_CADDY_BIN`.
+
+In Node headless mode, `setup` records the same local support files. The next
+step is to run the broker in the foreground under your shell, container, or
+process manager:
+
+```bash
+openscout-runtime broker
+```
 
 `scout doctor --fix` asks the native `scoutd` daemon to run conservative repairs
 when that daemon version exposes them. Use `scout doctor --fix --yes` for

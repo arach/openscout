@@ -141,14 +141,14 @@ struct MainView: View {
                 .help(showQR ? "Hide pairing QR" : "Show pairing QR")
 
                 Button {
-                    controller.openComms()
+                    controller.openQuickCapture()
                 } label: {
-                    Image(systemName: "bubble.left.and.bubble.right")
+                    Image(systemName: "square.and.pencil")
                         .font(.system(size: 11, weight: .semibold))
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .disabled(controller.webActionPending)
-                .help("Open Scout")
+                .help("Command Box")
 
                 Button {
                     controller.openWebApp()

@@ -300,6 +300,35 @@ describe("BrokerDeliveryAcceptanceService", () => {
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
   });
 
+  test("preserves requested fork execution when accepting a consult", async () => {
+    const harness = createHarness({ now: 21_000 });
+
+    const result = await harness.service.accept({
+      id: "deliver-fork",
+      body: "continue from the prior run",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      execution: {
+        harness: "codex",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        session: "fork",
+        forkFromSessionId: "session-source-1",
+      },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(harness.acceptedInvocations).toHaveLength(1);
+    expect(harness.acceptedInvocations[0]?.execution).toEqual({
+      harness: "codex",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      session: "fork",
+      forkFromSessionId: "session-source-1",
+    });
+  });
+
   test("unresolved targets record a dispatch and operator issue", async () => {
     const harness = createHarness({
       resolution: { kind: "unknown", label: "@missing" },

@@ -108,6 +108,69 @@
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.s-newchat-recent {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-2xs);
+}
+
+.s-newchat-recent-btn {
+  min-width: 0;
+  height: 54px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 1fr 1fr;
+  column-gap: var(--space-2xs);
+  align-items: center;
+  padding: var(--space-xs);
+  border: 1px solid color-mix(in srgb, var(--ink) 9%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  text-align: left;
+}
+
+.s-newchat-recent-btn:hover,
+.s-newchat-recent-btn--on {
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--ink);
+}
+
+.s-newchat-recent-dot {
+  grid-row: 1 / span 2;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+.s-newchat-recent-dot[data-state="working"],
+.s-newchat-recent-dot[data-state="needs_attention"] {
+  background: var(--accent);
+}
+
+.s-newchat-recent-name,
+.s-newchat-recent-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.s-newchat-recent-name {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.s-newchat-recent-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--dim);
+}
+
 .s-newchat-attach-btn {
   align-self: flex-start;
   padding: var(--space-2xs) var(--space-sm);

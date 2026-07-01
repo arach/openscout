@@ -587,6 +587,61 @@
   }
 }
 
+/* ── Dispatch (broker) embed — macOS WKWebView "Dispatch" section ── */
+.s-broker-embed {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.s-broker-embed > .s-ops {
+  height: 100%;
+}
+
+/* Inspector slides in as a right-edge drawer; the standalone embed has no
+   shell inspector slot, so BrokerEmbedScreen renders it inline. */
+.s-broker-embed-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  background: color-mix(in srgb, var(--bg) 38%, transparent);
+  animation: s-broker-embed-fade 0.16s ease-out;
+}
+
+.s-broker-embed-inspector {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: min(420px, 84vw);
+  border-left: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--surface);
+  box-shadow: -18px 0 48px -28px rgb(0 0 0 / 0.55);
+  animation: s-broker-embed-slide 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.s-broker-embed-inspector .sys-broker-inspector {
+  padding: var(--space-2xl);
+}
+
+@keyframes s-broker-embed-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes s-broker-embed-slide {
+  from { transform: translateX(12px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
 .sys-broker-inspector {
   display: flex;
   width: 100%;

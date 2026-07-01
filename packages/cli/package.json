@@ -14,7 +14,8 @@
   },
   "homepage": "https://github.com/arach/openscout#readme",
   "bin": {
-    "scout": "./bin/scout.mjs"
+    "scout": "./bin/scout.mjs",
+    "openscout-runtime": "./bin/openscout-runtime.mjs"
   },
   "files": [
     "bin",

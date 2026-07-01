@@ -348,6 +348,9 @@ function preferredAnnounceHost(self: TailscaleSelfCandidate | null, currentBroke
 }
 
 function scheduleBrokerServiceRestart(config: BrokerServiceConfig): void {
+  if (!config.bunExecutable) {
+    return;
+  }
   const delayMs = Number.parseInt(process.env.OPENSCOUT_MESH_ANNOUNCE_RESTART_DELAY_MS ?? "1200", 10);
   const restartScript = `
 const delayMs = Number.parseInt(process.env.OPENSCOUT_MESH_ANNOUNCE_RESTART_DELAY_MS ?? "1200", 10);

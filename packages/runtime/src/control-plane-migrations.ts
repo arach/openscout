@@ -1,17 +1,19 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Database } from "bun:sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
-
-import { openControlPlaneDrizzle } from "./drizzle-client.js";
+import { openControlPlaneDrizzle, type ControlPlaneDrizzleDatabase } from "./drizzle-client.js";
 import {
   CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA,
   CONTROL_PLANE_SCHEMA_VERSION,
   CONTROL_PLANE_SQLITE_SCHEMA,
   CONTROL_PLANE_TERMINAL_SESSION_SQLITE_SCHEMA,
 } from "./schema.js";
+import {
+  controlPlaneSqliteAdapterKind,
+  type ControlPlaneSqliteDatabase as Database,
+} from "./sqlite-adapter.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 
 export type ControlPlaneSchemaMigration = {
@@ -19,6 +21,12 @@ export type ControlPlaneSchemaMigration = {
   description: string;
   apply: (database: Database) => void;
 };
+
+type BunSqliteMigratorModule = {
+  migrate(db: ControlPlaneDrizzleDatabase, config: { migrationsFolder: string }): void;
+};
+
+const require = createRequire(import.meta.url);
 
 function hasColumn(database: Database, tableName: string, columnName: string): boolean {
   const escapedTableName = tableName.replaceAll("'", "''");
@@ -98,13 +106,35 @@ export function resolveControlPlaneDrizzleMigrationsFolder(): string {
   return fileURLToPath(new URL("../drizzle", import.meta.url));
 }
 
+function hasControlPlaneDrizzleMigrationEntries(journalPath: string): boolean {
+  try {
+    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+      entries?: unknown[];
+    };
+    return Array.isArray(journal.entries) && journal.entries.length > 0;
+  } catch {
+    return true;
+  }
+}
+
 export function applyControlPlaneDrizzleMigrations(database: Database): boolean {
   const migrationsFolder = resolveControlPlaneDrizzleMigrationsFolder();
   const journalPath = join(migrationsFolder, "meta", "_journal.json");
   if (!existsSync(journalPath)) {
     return false;
   }
+  if (!hasControlPlaneDrizzleMigrationEntries(journalPath)) {
+    return false;
+  }
 
+  if (controlPlaneSqliteAdapterKind() !== "bun-sqlite") {
+    throw new Error(
+      "The node-sqlite Drizzle migration adapter is not implemented yet. "
+      + "Run control-plane migrations with Bun until the Node SQLite adapter lands.",
+    );
+  }
+
+  const { migrate } = require("drizzle-orm/bun-sqlite/migrator") as BunSqliteMigratorModule;
   migrate(openControlPlaneDrizzle(database), { migrationsFolder });
   return true;
 }

@@ -25,10 +25,13 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
     public var fromConversationId: String?
     public var seedSourceName: String?
     public var seedPreview: String?
+    public var attachments: [MessageAttachment]
     public var harness: String?
     public var model: String?
+    public var reasoningEffort: String
     public var agentName: String
     public var displayName: String
+    public var agentPersistence: String
 
     public init(
         id: UUID = UUID(),
@@ -41,10 +44,13 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
         fromConversationId: String? = nil,
         seedSourceName: String? = nil,
         seedPreview: String? = nil,
+        attachments: [MessageAttachment] = [],
         harness: String? = nil,
         model: String? = nil,
+        reasoningEffort: String = "medium",
         agentName: String = "",
-        displayName: String = ""
+        displayName: String = "",
+        agentPersistence: String = "sticky"
     ) {
         self.id = id
         self.title = title
@@ -56,10 +62,13 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
         self.fromConversationId = fromConversationId
         self.seedSourceName = seedSourceName
         self.seedPreview = seedPreview
+        self.attachments = attachments
         self.harness = harness
         self.model = model
+        self.reasoningEffort = reasoningEffort
         self.agentName = agentName
         self.displayName = displayName
+        self.agentPersistence = agentPersistence
     }
 
     public var agent: ScoutAgent? {
@@ -81,10 +90,14 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
             .init(projectPath: trimmedNonEmpty(projectPath))
         }
 
-        let sessionMode: SessionInitiationSpec.SessionMode = mode == .continueContext ? .existing : .new
+        let sessionMode: SessionInitiationSpec.SessionMode = {
+            if mode == .continueContext { return .existing }
+            return .new
+        }()
         let execution = SessionInitiationSpec.Execution(
             harness: trimmedNonEmpty(harness),
             model: trimmedNonEmpty(model),
+            reasoningEffort: trimmedNonEmpty(reasoningEffort),
             session: sessionMode,
             targetSessionId: mode == .continueContext ? trimmedNonEmpty(agent?.harnessSessionId) : nil
         )
@@ -93,7 +106,7 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
             guard case .project = target else { return nil }
             let handle = trimmedNonEmpty(agentName)
             return .init(
-                persistence: "sticky",
+                persistence: trimmedNonEmpty(agentPersistence) ?? "sticky",
                 handle: handle,
                 displayName: handle == nil ? nil : trimmedNonEmpty(displayName)
             )
@@ -106,7 +119,8 @@ public struct ScoutSessionDraft: Identifiable, Equatable {
             seed: .init(
                 instructions: trimmedNonEmpty(instructions),
                 fromMessageId: trimmedNonEmpty(fromMessageId),
-                fromConversationId: trimmedNonEmpty(fromConversationId)
+                fromConversationId: trimmedNonEmpty(fromConversationId),
+                attachments: attachments.isEmpty ? nil : attachments
             )
         )
     }

@@ -9,69 +9,6 @@ import SwiftUI
 import AppKit
 #endif
 
-typealias ScoutSessionStartResult = SessionInitiationResult
-
-// MARK: - Network service
-
-enum SessionInitiationError: LocalizedError {
-    case invalidResponse
-    case httpStatus(Int, String)
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidResponse:
-            return "Scout returned an invalid response."
-        case .httpStatus(let status, let message):
-            return message.isEmpty ? "Scout returned HTTP \(status)." : message
-        }
-    }
-}
-
-enum SessionInitiationService {
-    static func start(_ spec: SessionInitiationSpec) async throws -> ScoutSessionStartResult {
-        let url = ScoutWeb.baseURL().appending(path: "api/sessions")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(spec)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw SessionInitiationError.invalidResponse
-        }
-        guard (200..<300).contains(http.statusCode) else {
-            throw SessionInitiationError.httpStatus(http.statusCode, Self.decodeError(data))
-        }
-        return try JSONDecoder().decode(ScoutSessionStartResult.self, from: data)
-    }
-
-    static func userFacingError(_ error: Error) -> String {
-        if let localized = error as? LocalizedError,
-           let description = localized.errorDescription,
-           !description.isEmpty {
-            return description
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain {
-            switch nsError.code {
-            case NSURLErrorCannotConnectToHost, NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut:
-                return "Scout web server isn't running. Start Scout services, then try again."
-            default:
-                break
-            }
-        }
-        return error.localizedDescription
-    }
-
-    private static func decodeError(_ data: Data) -> String {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let message = object["error"] as? String else {
-            return ""
-        }
-        return message
-    }
-}
-
 // MARK: - Composer
 
 struct ScoutSessionProjectOption: Identifiable, Equatable {
@@ -113,6 +50,23 @@ private struct ScoutSessionHarnessCatalog: Identifiable, Equatable {
     ]
 }
 
+private struct ScoutSessionEffortChoice: Identifiable, Equatable {
+    var value: String
+    var label: String
+    var detail: String?
+
+    var id: String { value }
+
+    static let all: [ScoutSessionEffortChoice] = [
+        .init(value: "none", label: "None", detail: "No extra thinking"),
+        .init(value: "minimal", label: "Minimal", detail: "Smallest reasoning budget"),
+        .init(value: "low", label: "Low", detail: "Quick pass"),
+        .init(value: "medium", label: "Medium", detail: "Default"),
+        .init(value: "high", label: "High", detail: "Deeper pass"),
+        .init(value: "xhigh", label: "XHigh", detail: "Highest supported"),
+    ]
+}
+
 /// Modal sheet that turns a `ScoutSessionDraft` into a session-initiation call.
 /// Renders its own dimmed backdrop so the host only needs `if let draft`.
 struct ScoutSessionComposer: View {
@@ -123,6 +77,7 @@ struct ScoutSessionComposer: View {
     @State private var isSubmitting = false
     @State private var errorText: String?
     @State private var openDropdown: String?
+    @State private var advancedOpen = false
     @State private var agentQuery: String = ""
     @State private var agentHighlight: Int = 0
     @State private var agentFieldHovering = false
@@ -278,6 +233,7 @@ struct ScoutSessionComposer: View {
         VStack(alignment: .leading, spacing: HudSpacing.xxl) {
             header
             targetSection
+            advancedSection
             messageSection
             if let errorText {
                 Text(errorText)
@@ -387,6 +343,19 @@ struct ScoutSessionComposer: View {
                     }
                 }
             }
+        case "effort":
+            ScoutDropdownPanel {
+                ForEach(ScoutSessionEffortChoice.all) { effort in
+                    ScoutDropdownRow(
+                        label: effort.label,
+                        detail: effort.detail,
+                        selected: draft.reasoningEffort == effort.value
+                    ) {
+                        draft.reasoningEffort = effort.value
+                        openDropdown = nil
+                    }
+                }
+            }
         case "agent":
             ScoutDropdownPanel {
                 if agentFlat.isEmpty {
@@ -482,7 +451,6 @@ struct ScoutSessionComposer: View {
             if isProjectTarget {
                 HudSectionLabel("Project", tint: ScoutPalette.dim)
                 projectModelHarnessRow
-                contactSection
             } else {
                 HudSectionLabel("Agent", tint: ScoutPalette.dim)
                 agentComboField
@@ -492,17 +460,57 @@ struct ScoutSessionComposer: View {
         }
     }
 
-    private var contactSection: some View {
+    private var advancedSection: some View {
         VStack(alignment: .leading, spacing: HudSpacing.md) {
-            HudSectionLabel("Alias (optional)", tint: ScoutPalette.dim)
-            aliasTextField(
-                key: "@",
-                placeholder: "Leave blank to assign later",
-                text: $draft.agentName,
-                mono: true
-            )
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    advancedOpen.toggle()
+                }
+            } label: {
+                HStack(spacing: HudSpacing.sm) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(HudFont.ui(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.accent)
+                        .frame(width: 18)
+                    Text("Advanced")
+                        .font(HudFont.mono(HudTextSize.xs, weight: .semibold))
+                        .foregroundStyle(ScoutPalette.ink)
+                    Spacer(minLength: HudSpacing.sm)
+                    Text(advancedSummary)
+                        .font(HudFont.mono(HudTextSize.micro))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(HudFont.ui(HudTextSize.micro, weight: .bold))
+                        .foregroundStyle(ScoutPalette.dim)
+                        .rotationEffect(.degrees(advancedOpen ? 180 : 0))
+                }
+                .padding(.horizontal, HudSpacing.md)
+                .frame(height: 34)
+                .background(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).fill(ScoutSurface.inset))
+                .overlay(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous).stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin))
+                .contentShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+            }
+            .buttonStyle(.plain).scoutPointerCursor()
+
+            if advancedOpen {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    HStack(spacing: HudSpacing.sm) {
+                        effortChip
+                        Spacer(minLength: 0)
+                    }
+                    if isProjectTarget {
+                        aliasTextField(
+                            key: "@",
+                            placeholder: "Alias",
+                            text: $draft.agentName,
+                            mono: true
+                        )
+                    }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
-        .padding(.top, HudSpacing.xs)
     }
 
     private func aliasTextField(key: String, placeholder: String, text: Binding<String>, mono: Bool = false) -> some View {
@@ -967,6 +975,10 @@ struct ScoutSessionComposer: View {
         }
     }
 
+    private var advancedSummary: String {
+        effortDisplayName(draft.reasoningEffort)
+    }
+
     private var projectChip: some View {
         ScoutDropdownTrigger(
             id: "project",
@@ -983,6 +995,15 @@ struct ScoutSessionComposer: View {
             value: effectiveModelLabel,
             isOpen: openDropdown == "model"
         ) { toggleDropdown("model") }
+    }
+
+    private var effortChip: some View {
+        ScoutDropdownTrigger(
+            id: "effort",
+            key: "Effort",
+            value: effortDisplayName(draft.reasoningEffort),
+            isOpen: openDropdown == "effort"
+        ) { toggleDropdown("effort") }
     }
 
     private var harnessChip: some View {
@@ -1014,6 +1035,13 @@ struct ScoutSessionComposer: View {
             ?? draft.agent?.harness?.nilIfEmpty
             ?? ScoutSessionHarnessCatalog.all.first?.id
             ?? "claude"
+    }
+
+    private func effortDisplayName(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Medium" }
+        return ScoutSessionEffortChoice.all.first { $0.value == trimmed }?.label
+            ?? trimmed.prefix(1).uppercased() + String(trimmed.dropFirst())
     }
 
     // Curated current model names, plus any models observed in the local roster.
@@ -1201,6 +1229,12 @@ struct ScoutSessionComposer: View {
         guard !trimmed.isEmpty else { return "Choose a project" }
         let name = URL(fileURLWithPath: trimmed).lastPathComponent
         return name.isEmpty ? trimmed : name
+    }
+
+    private func shortSessionLabel(_ sessionId: String) -> String {
+        let trimmed = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Session" }
+        return trimmed.count <= 12 ? trimmed : String(trimmed.suffix(12))
     }
 
     private func projectLabel(for agent: ScoutAgent) -> String {
