@@ -15,6 +15,9 @@ import type {
   MessagesFilter,
   MessagesSort,
   OpsMode,
+  ProjectSet,
+  ProjectsIndexView,
+  ProjectStateFilter,
   Route,
   SearchMode,
 } from "./types.ts";
@@ -243,17 +246,19 @@ export function routeFromUrl(urlLike: string | URL): Route {
   const agentsV2Harness = url.searchParams.get("harness")?.trim() || undefined;
   const agentsV2Node = url.searchParams.get("node")?.trim() || undefined;
   const agentsV2SetRaw = url.searchParams.get("set")?.trim();
-  const agentsV2Set =
+  const agentsV2Set: ProjectSet | undefined =
     agentsV2SetRaw === "live" || agentsV2SetRaw === "ephemeral" || agentsV2SetRaw === "archived"
-      ? agentsV2SetRaw
+      ? (agentsV2SetRaw as ProjectSet)
       : undefined;
   const agentsV2IndexRaw = url.searchParams.get("view")?.trim();
-  const agentsV2IndexView =
-    agentsV2IndexRaw === "sessions" ? "sessions" : agentsV2IndexRaw === "agents" ? "agents" : undefined;
+  const agentsV2IndexView: ProjectsIndexView | undefined =
+    agentsV2IndexRaw === "sessions" || agentsV2IndexRaw === "agents"
+      ? (agentsV2IndexRaw as ProjectsIndexView)
+      : undefined;
   const agentsV2StateRaw = url.searchParams.get("state")?.trim();
-  const agentsV2StateFilter =
+  const agentsV2StateFilter: ProjectStateFilter | undefined =
     agentsV2StateRaw === "needs" || agentsV2StateRaw === "live" || agentsV2StateRaw === "idle"
-      ? agentsV2StateRaw
+      ? (agentsV2StateRaw as ProjectStateFilter)
       : undefined;
   const agentsV2ShowEphemeral = url.searchParams.get("ephemeral") === "1";
   const agentsV2SessionParam = url.searchParams.get("session")?.trim() || undefined;

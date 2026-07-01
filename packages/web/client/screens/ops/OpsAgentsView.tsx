@@ -433,7 +433,7 @@ export function OpsAgentsView({
   const [observePayloads, setObservePayloads] = useState<AgentObservePayload[]>([]);
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => Date.now());
-  const brokerRefreshTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const brokerRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     const ids = agents.map((agent) => agent.id).join(",");
@@ -456,7 +456,7 @@ export function OpsAgentsView({
   }, [load]);
   const scheduleBrokerRefresh = useCallback(() => {
     if (brokerRefreshTimer.current) return;
-    brokerRefreshTimer.current = window.setTimeout(() => {
+    brokerRefreshTimer.current = setTimeout(() => {
       brokerRefreshTimer.current = null;
       void load();
     }, BROKER_EVENT_REFRESH_DELAY_MS);
@@ -465,7 +465,7 @@ export function OpsAgentsView({
   useEffect(() => {
     return () => {
       if (brokerRefreshTimer.current) {
-        window.clearTimeout(brokerRefreshTimer.current);
+        clearTimeout(brokerRefreshTimer.current);
         brokerRefreshTimer.current = null;
       }
     };

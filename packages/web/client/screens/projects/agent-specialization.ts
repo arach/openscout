@@ -39,24 +39,24 @@ export function isHangoutGeneralist(spec: AgentSpecialization): boolean {
   return spec.isGeneralist;
 }
 
-export function partitionProjectRoster(rows: Array<{
+export function partitionProjectRoster<Row extends {
   entry: { leadAgent: Agent; group: { lastActivityAt: number; needs: boolean } };
   config: LocalAgentConfigState | null;
   tone: "needs" | "live" | "idle";
-}>): { hangout: typeof rows; experts: typeof rows } {
-  const hangout: typeof rows = [];
-  const experts: typeof rows = [];
+}>(rows: Row[]): { hangout: Row[]; experts: Row[] } {
+  const hangout: Row[] = [];
+  const experts: Row[] = [];
   for (const row of rows) {
     const spec = agentSpecialization(row.entry.leadAgent, row.config);
     if (isHangoutGeneralist(spec)) hangout.push(row);
     else experts.push(row);
   }
-  const rank = (row: (typeof rows)[number]) => {
+  const rank = (row: Row) => {
     if (row.tone === "needs") return 0;
     if (row.tone === "live") return 1;
     return 2;
   };
-  const sorter = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
+  const sorter = (a: Row, b: Row) =>
     rank(a) - rank(b)
     || b.entry.group.lastActivityAt - a.entry.group.lastActivityAt;
   hangout.sort(sorter);

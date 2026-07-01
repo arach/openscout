@@ -51,7 +51,7 @@ import {
 } from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
-  resolveBrokerServiceConfig,
+  resolveScoutBrokerControlUrl,
   resolveBrokerSocketPathForBaseUrl,
 } from "./broker-process-manager.js";
 import { endpointAvailabilityScore } from "./broker-endpoint-selection.js";
@@ -241,7 +241,9 @@ function relayHubDirectory(): string {
 }
 
 export function resolveScoutBrokerUrl(): string {
-  return resolveBrokerServiceConfig().brokerUrl;
+  const explicit = process.env.OPENSCOUT_BROKER_URL?.trim();
+  if (explicit) return explicit;
+  return resolveScoutBrokerControlUrl();
 }
 
 export function resolveScoutAgentName(agentName?: string | null): string {

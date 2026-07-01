@@ -14,7 +14,7 @@ export const SCOPE_LANE_DECK_PROFILE = "scope.lanes" as const;
 export const SCOPE_LANE_DECK_DEFAULTS: LaneDeckProfileDefaults = {
   defaultLaneWidth: "md",
   showAutoLanes: true,
-  defaultHorizon: "1h",
+  defaultHorizon: "30m",
 };
 
 const LANE_DECK_STORAGE_PREFIX = "openscout:lane-deck:v1";

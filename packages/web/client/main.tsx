@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { RouterProvider } from "@tanstack/react-router";
+import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 
 import { createScoutApp } from "./scout";
 import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
@@ -58,23 +58,31 @@ createRoot(el).render(
     {isScoutbotFxLab ? (
       <ScoutbotFxLab />
     ) : observeEmbedMatch ? (
-      <scoutApp.Provider>
-        <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : isRepoDiffEmbed ? (
-      <scoutApp.Provider>
-        <RepoDiffEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <RepoDiffEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : isSessionEmbed ? (
-      <scoutApp.Provider>
-        <SessionEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <SessionEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : isTerminalEmbed ? (
       <TerminalEmbedScreen />
     ) : isAgentLanesEmbed ? (
-      <scoutApp.Provider>
-        <AgentLanesEmbedScreen />
-      </scoutApp.Provider>
+      <RouterContextProvider router={scoutTanstackRouter}>
+        <scoutApp.Provider>
+          <AgentLanesEmbedScreen />
+        </scoutApp.Provider>
+      </RouterContextProvider>
     ) : (
       <RouterProvider router={scoutTanstackRouter} />
     )}

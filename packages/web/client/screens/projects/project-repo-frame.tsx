@@ -10,6 +10,8 @@ import type { ProjectOverviewPayload } from "./project-overview-helpers.ts";
 
 export type RepoArtifact = ProjectOverviewPayload["artifacts"][number];
 
+export type ViewableProjectFile = Pick<RepoArtifact, "relativePath" | "absolutePath" | "excerpt">;
+
 type TreeDir = {
   type: "dir";
   name: string;
@@ -94,7 +96,7 @@ function defaultArtifact(artifacts: RepoArtifact[]): RepoArtifact | null {
 }
 
 function documentFromArtifact(
-  artifact: RepoArtifact,
+  artifact: ViewableProjectFile,
   content: string,
   truncated: boolean,
 ) {
@@ -184,12 +186,6 @@ function TreeRow({
     </>
   );
 }
-
-export type ViewableProjectFile = {
-  relativePath: string;
-  absolutePath: string;
-  excerpt: string | null;
-};
 
 export function FileViewerPane({
   artifact,

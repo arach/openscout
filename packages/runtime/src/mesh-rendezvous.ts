@@ -39,13 +39,15 @@ const DEFAULT_RENDEZVOUS_INTERVAL_MS = 30_000;
 
 export function resolveMeshRendezvousPublishConfig(
   env: NodeJS.ProcessEnv = process.env,
+  options: { includeSettings?: boolean } = {},
 ): MeshRendezvousPublishConfig | undefined {
   const explicitUrl = env.OPENSCOUT_MESH_RENDEZVOUS_URL?.trim();
   if (explicitUrl?.toLowerCase() === "false" || explicitUrl === "0") {
     return undefined;
   }
-  const settings = readOpenScoutNetworkSettingsSync();
-  const rawUrl = explicitUrl || (settings.discoveryEnabled ? settings.rendezvousUrl : "");
+  const includeSettings = options.includeSettings ?? true;
+  const settings = includeSettings ? readOpenScoutNetworkSettingsSync() : null;
+  const rawUrl = explicitUrl || (settings?.discoveryEnabled ? settings.rendezvousUrl : "");
   if (!rawUrl) {
     return undefined;
   }

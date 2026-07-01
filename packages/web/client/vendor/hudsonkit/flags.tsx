@@ -130,7 +130,7 @@ export function createFlagResolver<
   const audience = resolveAudience(input);
   const includes = input.audienceIncludes ?? createAudienceIncludes(input.audienceOrder);
   const warned = new Set<string>();
-  const registry = input.registry as Record<string, FeatureFlagDefinition<TAudience>>;
+  const registry = input.registry as unknown as Record<string, FeatureFlagDefinition<TAudience>>;
 
   function warnUnknown(key: string) {
     if (!input.warnOnUnknown || warned.has(key)) return;

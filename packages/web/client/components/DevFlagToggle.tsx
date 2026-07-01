@@ -10,7 +10,6 @@ const BUNDLE_LABELS: Record<ScoutFlagBundle, string> = {
   "light-prod": "lean",
   "max-pro": "max",
   "scope-instrument": "scope",
-  "scout-instrument": "scope",
 };
 
 export function DevFlagToggle({

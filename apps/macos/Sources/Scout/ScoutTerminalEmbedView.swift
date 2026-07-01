@@ -33,6 +33,10 @@ struct ScoutTerminalContent: View {
 #if HUDSON_TERMINAL
 private struct ScoutNativeTerminalContent: View {
     @StateObject private var model = ScoutNativeTerminalGridModel()
+    @AppStorage("scout.terminals.native.showHeaders") private var showHeaders = true
+    @AppStorage("scout.terminals.native.maxColumns") private var maxColumns: Int = 0  // 0 = auto
+    @AppStorage("scout.terminals.native.maxRows") private var maxRows: Int = 0  // 0 = auto (for "N by 2" etc, set to 2 and high cols + scroll)
+    @AppStorage("scout.terminals.native.localShellMode") private var localShellMode: String = "shell"  // "shell" or "tmux" for New shell
 
     var body: some View {
         VStack(spacing: 0) {
@@ -57,8 +61,8 @@ private struct ScoutNativeTerminalContent: View {
                 .lineLimit(1)
         } trailing: {
             HStack(spacing: HudSpacing.sm) {
-                ScoutTerminalHeaderButton(title: "New shell", icon: "plus") {
-                    model.addLocalShell()
+                ScoutTerminalHeaderButton(title: "New shell", icon: "plus", disabled: model.isAddingShell) {
+                    model.addLocalShell(mode: localShellMode)
                 }
                 ScoutTerminalHeaderButton(title: model.isLoading ? "Loading" : "Refresh", icon: "arrow.clockwise") {
                     Task { await model.reload() }
@@ -66,6 +70,73 @@ private struct ScoutNativeTerminalContent: View {
                 ScoutTerminalHeaderButton(title: "Open web", icon: "safari") {
                     ScoutWeb.open(path: "/terminal")
                 }
+                ScoutTerminalHeaderButton(
+                    title: showHeaders ? "Compact" : "Headers",
+                    icon: "rectangle"
+                ) {
+                    showHeaders.toggle()
+                }
+
+                // Grid columns control: auto grows the layout (e.g. 3 cols for 5+ terminals so you can have bigger space than 2x2).
+                // Click numbers to set fixed #cols. With fixed cols, adding keeps the structure; drag edges resizes the col/row splits.
+                HStack(spacing: 2) {
+                    Text("cols").font(HudFont.mono(HudTextSize.micro)).foregroundStyle(ScoutPalette.dim)
+                    ForEach([0, 1, 2, 3, 4, 5, 6, 7, 8], id: \.self) { c in
+                        Button(action: { maxColumns = c }) {
+                            Text(c == 0 ? "auto" : "\(c)")
+                                .font(HudFont.mono(HudTextSize.micro))
+                                .foregroundStyle(maxColumns == c ? ScoutPalette.ink : ScoutPalette.muted)
+                                .padding(.horizontal, 4)
+                                .background(
+                                    maxColumns == c ?
+                                    RoundedRectangle(cornerRadius: 3).fill(ScoutSurface.hover) : nil
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(c == 0 ? "Auto columns (grows with more terminals)" : "Lock to \(c) columns")
+                    }
+                }
+                .padding(.leading, 4)
+
+                // Row control for explicit row count (e.g. set 2 for "N by 2" horizontal scrolling layout when many terminals)
+                HStack(spacing: 2) {
+                    Text("rows").font(HudFont.mono(HudTextSize.micro)).foregroundStyle(ScoutPalette.dim)
+                    ForEach([0, 1, 2, 3, 4], id: \.self) { r in
+                        Button(action: { maxRows = r }) {
+                            Text(r == 0 ? "auto" : "\(r)")
+                                .font(HudFont.mono(HudTextSize.micro))
+                                .foregroundStyle(maxRows == r ? ScoutPalette.ink : ScoutPalette.muted)
+                                .padding(.horizontal, 4)
+                                .background(
+                                    maxRows == r ?
+                                    RoundedRectangle(cornerRadius: 3).fill(ScoutSurface.hover) : nil
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(r == 0 ? "Auto rows" : "Lock to \(r) rows")
+                    }
+                }
+                .padding(.leading, 4)
+
+                // New shell mode: plain login shell vs tmux (persistent session)
+                HStack(spacing: 2) {
+                    Text("new").font(HudFont.mono(HudTextSize.micro)).foregroundStyle(ScoutPalette.dim)
+                    ForEach(["shell", "tmux"], id: \.self) { m in
+                        Button(action: { localShellMode = m }) {
+                            Text(m)
+                                .font(HudFont.mono(HudTextSize.micro))
+                                .foregroundStyle(localShellMode == m ? ScoutPalette.ink : ScoutPalette.muted)
+                                .padding(.horizontal, 4)
+                                .background(
+                                    localShellMode == m ?
+                                    RoundedRectangle(cornerRadius: 3).fill(ScoutSurface.hover) : nil
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(m == "shell" ? "Plain $SHELL -l" : "tmux new-session -A -s scout-N (attach/create)")
+                    }
+                }
+                .padding(.leading, 4)
             }
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -84,28 +155,164 @@ private struct ScoutNativeTerminalContent: View {
             if model.tiles.isEmpty {
                 ScoutNativeTerminalEmptyView(
                     isLoading: model.isLoading,
-                    onNewShell: model.addLocalShell,
-                    onRefresh: { Task { await model.reload() } }
+                    onNewShell: { model.addLocalShell(mode: localShellMode) },
+                    onRefresh: { Task { await model.reload() } },
+                    newShellDisabled: model.isAddingShell
                 )
             } else {
-                HudTiling(
-                    items: model.tiles,
-                    constraints: TilingConstraints(
-                        gap: HudSpacing.md,
-                        minItemWidth: ScoutTerminalMetrics.tileMinWidth,
-                        minItemHeight: ScoutTerminalMetrics.tileMinHeight,
-                        fillStrategy: .maximize,
-                        alignLastRow: .stretch,
-                        preferMoreColumns: true
-                    )
-                ) { tile in
-                    ScoutNativeTerminalTileView(
-                        tile: tile,
-                        onRestart: { model.restart(tile) },
-                        onClose: { model.close(tile) }
-                    )
+                // Scrolling + shape controls for when you have more terminals than fit comfortably.
+                //
+                // Core idea (rigid grid + scrolling):
+                // - The cols/rows pickers let you control the "shape" of the grid (e.g. 2 rows + many
+                //   columns = wide horizontal strip at good cell size; higher rows = taller arrangement).
+                // - We use a target cell size (360x240) to compute a virtual content area. This keeps
+                //   terminals usable instead of shrinking them to fit.
+                // - Bidirectional ScrollView lets you reach everything that doesn't fit on screen.
+                // - Edge chevrons give immediate visual understanding that more terminals exist off-screen.
+                //
+                // We deliberately avoided a free canvas + minimap + zoom for now because it felt
+                // overcomplicated. The shape controls + good scrolling + clear "more" cues feels more
+                // realistic for terminal use.
+                //
+                // .id(...) forces HudTiling to reset when the logical shape changes.
+                GeometryReader { geo in
+                    let n = model.tiles.count
+                    let effRows = maxRows == 0 ? max(1, (n + 1) / 2) : maxRows   // default reasonable rows
+                    let effCols = maxColumns == 0 ? max(2, (n + effRows - 1) / effRows ) : maxColumns
+                    let targetCellW: CGFloat = 360
+                    let targetCellH: CGFloat = 240
+                    let gap = showHeaders ? HudSpacing.md : HudSpacing.sm
+                    // Outer gutter matches the header's horizontalPadding (pageGutter) so the
+                    // terminals' left/right bounds align with the header content and window.
+                    // Inter-tile gap stays smaller. This prevents right-edge protrusion that
+                    // clips the top-right close button in two-up (and similar) views.
+                    let hGutter = ScoutTerminalMetrics.pageGutter
+                    let vGutter = gap
+                    let virtualW = CGFloat(effCols) * targetCellW + CGFloat(max(0, effCols-1)) * gap
+                    let virtualH = CGFloat(effRows) * targetCellH + CGFloat(max(0, effRows-1)) * gap
+                    let innerW = max(geo.size.width - 2 * hGutter, virtualW)
+                    let innerH = max(geo.size.height - 2 * vGutter, virtualH)
+
+                    // has*More flags for visual "there is more off-screen" hints
+                    let hasHMore = virtualW > (geo.size.width - 2 * hGutter)
+                    let hasVMore = virtualH > (geo.size.height - 2 * vGutter)
+
+                    ZStack {
+                        ScrollView([.horizontal, .vertical]) {
+                            HudTiling(
+                                items: model.tiles,
+                                constraints: TilingConstraints(
+                                    maxColumns: effCols,
+                                    maxRows: maxRows == 0 ? nil : maxRows,
+                                    gap: gap,
+                                    minItemWidth: ScoutTerminalMetrics.tileMinWidth,
+                                    minItemHeight: showHeaders ? ScoutTerminalMetrics.tileMinHeight : 160,
+                                    fillStrategy: .maximize,
+                                    alignLastRow: .stretch,
+                                    preferMoreColumns: true
+                                ),
+                                resizable: true
+                            ) { tile in
+                                ScoutNativeTerminalTileView(
+                                    tile: tile,
+                                    showHeader: showHeaders,
+                                    onRestart: { model.restart(tile) },
+                                    onClose: { model.close(tile) }
+                                )
+                            }
+                            .id("grid-\(maxColumns)-\(maxRows)")
+                            .frame(width: innerW, height: innerH)
+                            .padding(.horizontal, hGutter)
+                            .padding(.vertical, vGutter)
+                            .fixedSize(horizontal: true, vertical: true)   // ensure SwiftUI respects the large virtual size for scrolling
+                        }
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .scrollIndicators(.visible)
+
+                        // "There is more off-screen" cues on the viewport edges.
+                        // These are always viewport-relative (they don't scroll with content).
+                        // We show them on the "far" side when the virtual grid is larger than the window.
+                        // This gives clear understanding that more terminals exist without needing a minimap.
+
+                        // Horizontal
+                        if hasHMore {
+                            // Right side
+                            HStack {
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(ScoutPalette.muted)
+                                    .padding(.trailing, 6)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(ScoutSurface.inset.opacity(0.8))
+                                            .frame(width: 22, height: 22)
+                                    )
+                                    .help("More terminals to the right — scroll horizontally")
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                            .padding(.trailing, 4)
+                            .allowsHitTesting(false)
+
+                            // Left side (symmetric cue)
+                            HStack {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(ScoutPalette.muted)
+                                    .padding(.leading, 6)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(ScoutSurface.inset.opacity(0.8))
+                                            .frame(width: 22, height: 22)
+                                    )
+                                    .help("More terminals to the left — scroll horizontally")
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                            .padding(.leading, 4)
+                            .allowsHitTesting(false)
+                        }
+
+                        // Vertical
+                        if hasVMore {
+                            // Bottom
+                            VStack {
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(ScoutPalette.muted)
+                                    .padding(.bottom, 6)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(ScoutSurface.inset.opacity(0.8))
+                                            .frame(width: 22, height: 22)
+                                    )
+                                    .help("More terminals below — scroll vertically")
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                            .padding(.bottom, 4)
+                            .allowsHitTesting(false)
+
+                            // Top (symmetric)
+                            VStack {
+                                Image(systemName: "chevron.up")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(ScoutPalette.muted)
+                                    .padding(.top, 6)
+                                    .background(
+                                        Capsule(style: .continuous)
+                                            .fill(ScoutSurface.inset.opacity(0.8))
+                                            .frame(width: 22, height: 22)
+                                    )
+                                    .help("More terminals above — scroll vertically")
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .padding(.top, 4)
+                            .allowsHitTesting(false)
+                        }
+                    }
                 }
-                .padding(ScoutTerminalMetrics.pageGutter)
             }
 
             if model.isLoading, !model.tiles.isEmpty {
@@ -141,11 +348,16 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
 
     private var didLoad = false
     private var localShellCounter = 0
+    private var lastAddTime = Date.distantPast
+    @Published private(set) var isAddingShell = false
 
     func loadIfNeeded() async {
         guard !didLoad else { return }
         didLoad = true
         await reload()
+        if tiles.isEmpty {
+            addLocalShell(mode: "shell")  // first one on load is always a plain shell
+        }
     }
 
     func reload() async {
@@ -162,31 +374,44 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
             let targets = payload.sessions.flatMap(\.nativeTargets)
             merge(targets)
             errorMessage = nil
-            if tiles.isEmpty {
-                addLocalShell()
-            }
+            // No auto-add here; only on initial loadIfNeeded if still empty.
+            // "New shell" button is the user action for adding locals.
         } catch {
             errorMessage = ScoutAppError.userFacing(
                 error,
                 connectionMessage: "Could not reach Scout terminal sessions."
             )
-            if tiles.isEmpty {
-                addLocalShell()
-            }
         }
     }
 
-    func addLocalShell() {
+    func addLocalShell(mode: String = "shell") {
+        let now = Date()
+        guard now.timeIntervalSince(lastAddTime) > 0.15 else { return } // debounce rapid clicks / double fires
+        guard !isAddingShell else { return }
+        lastAddTime = now
+        isAddingShell = true
+
         localShellCounter += 1
-        let target = ScoutNativeTerminalTarget.localShell(index: localShellCounter)
+        let target = ScoutNativeTerminalTarget.localShell(index: localShellCounter, mode: mode)
+        // dedup guard (in case of any re-entrancy or model updates)
+        guard !tiles.contains(where: { $0.id == target.id }) else {
+            isAddingShell = false
+            return
+        }
         tiles.append(ScoutNativeTerminalTile(target: target))
+
+        // Rate limit creation of new PTY workspaces to avoid crashes on high-speed adds
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            isAddingShell = false
+        }
     }
 
-    func restart(_ tile: ScoutNativeTerminalTile) {
+    fileprivate func restart(_ tile: ScoutNativeTerminalTile) {
         tile.restart()
     }
 
-    func close(_ tile: ScoutNativeTerminalTile) {
+    fileprivate func close(_ tile: ScoutNativeTerminalTile) {
         tile.stop()
         tiles.removeAll { $0.id == tile.id }
     }
@@ -194,22 +419,34 @@ private final class ScoutNativeTerminalGridModel: ObservableObject {
     private func merge(_ targets: [ScoutNativeTerminalTarget]) {
         guard !targets.isEmpty else { return }
 
-        var existing = Dictionary(uniqueKeysWithValues: tiles.map { ($0.id, $0) })
+        // Preserve previous order as much as possible for stability (so adding new doesn't reshuffle and "lose" previous terminals visually)
         var next: [ScoutNativeTerminalTile] = []
-        next.reserveCapacity(targets.count + tiles.count)
+        var seen = Set<String>()
 
-        for target in targets {
-            if let tile = existing.removeValue(forKey: target.id) {
-                tile.update(target)
-                next.append(tile)
+        // Keep existing tiles that are still relevant, in their original relative order
+        for old in tiles {
+            if old.target.isRegistryBacked {
+                if let matching = targets.first(where: { $0.id == old.id }) {
+                    old.update(matching)
+                    next.append(old)
+                    seen.insert(old.id)
+                }
+                // drop registry-backed that are no longer present
             } else {
-                next.append(ScoutNativeTerminalTile(target: target))
+                // always keep local shells
+                next.append(old)
+                seen.insert(old.id)
             }
         }
 
-        let targetIDs = Set(targets.map(\.id))
-        let localShells = tiles.filter { !targetIDs.contains($0.id) && !$0.target.isRegistryBacked }
-        next.append(contentsOf: localShells)
+        // Append any new registry-backed targets (in the order they appear in the API response)
+        for target in targets {
+            if !seen.contains(target.id) {
+                next.append(ScoutNativeTerminalTile(target: target))
+                seen.insert(target.id)
+            }
+        }
+
         tiles = next
     }
 }
@@ -290,27 +527,69 @@ private final class ScoutNativeTerminalTile: ObservableObject, Identifiable, @un
 
 private struct ScoutNativeTerminalTileView: View {
     @ObservedObject var tile: ScoutNativeTerminalTile
+    let showHeader: Bool
     let onRestart: () -> Void
     let onClose: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovering = false
 
     var body: some View {
         VStack(spacing: 0) {
-            titleBar
+            if showHeader {
+                titleBar
+            }
             HudTerminalSurface(
                 controller: tile.workspace.controller,
                 showsSystemKeyboard: true,
                 appearance: HudTerminalAppearance(fontSize: 12),
                 onTap: tile.focus
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(terminalBackground)
-        .clipShape(RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(showHeader ? terminalBackground : Color.clear)
+        .clipShape(RoundedRectangle(
+            cornerRadius: showHeader ? HudRadius.card : 0,
+            style: .continuous
+        ))
         .overlay(
-            RoundedRectangle(cornerRadius: HudRadius.card, style: .continuous)
-                .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
+            RoundedRectangle(
+                cornerRadius: showHeader ? HudRadius.card : 0,
+                style: .continuous
+            )
+            .stroke(ScoutDesign.hairlineStrong, lineWidth: HudStrokeWidth.thin)
         )
+        .overlay(alignment: .topTrailing) {
+            if !showHeader && isHovering {
+                HStack(spacing: 2) {
+                    ScoutTerminalIconButton(systemName: "arrow.clockwise", help: "Restart terminal", action: onRestart)
+                    ScoutTerminalIconButton(systemName: "xmark", help: "Close terminal", action: onClose)
+                }
+                .padding(4)
+                .background(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .fill(ScoutSurface.control.opacity(0.9))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: HudRadius.tight, style: .continuous)
+                        .stroke(ScoutDesign.hairline, lineWidth: HudStrokeWidth.thin)
+                )
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // Resize grip for the bespoke grid resizer (visible on hover or always for discoverability)
+            if isHovering || !showHeader {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.6))
+                    .frame(width: 12, height: 12)
+                    .offset(x: -2, y: -2)
+                    .help("Drag to resize tile (bespoke split)")
+            }
+        }
+        .onHover { hovering in
+            isHovering = hovering
+        }
         .onAppear {
             tile.startIfNeeded()
         }
@@ -344,7 +623,7 @@ private struct ScoutNativeTerminalTileView: View {
             ScoutTerminalIconButton(systemName: "xmark", help: "Close terminal", action: onClose)
         }
         .frame(height: HudLayout.rowHeightRegular)
-        .padding(.horizontal, HudSpacing.md)
+        .padding(.horizontal, HudSpacing.xl)
         .background(ScoutSurface.control)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -363,6 +642,7 @@ private struct ScoutNativeTerminalEmptyView: View {
     let isLoading: Bool
     let onNewShell: () -> Void
     let onRefresh: () -> Void
+    let newShellDisabled: Bool
 
     var body: some View {
         VStack(spacing: HudSpacing.lg) {
@@ -380,7 +660,7 @@ private struct ScoutNativeTerminalEmptyView: View {
             }
 
             HStack(spacing: HudSpacing.sm) {
-                ScoutTerminalHeaderButton(title: "New shell", icon: "plus", action: onNewShell)
+                ScoutTerminalHeaderButton(title: "New shell", icon: "plus", disabled: newShellDisabled, action: onNewShell)
                 ScoutTerminalHeaderButton(title: "Refresh", icon: "arrow.clockwise", action: onRefresh)
             }
         }
@@ -523,16 +803,38 @@ private struct ScoutNativeTerminalTarget: Hashable, Sendable {
         self.isRegistryBacked = isRegistryBacked
     }
 
-    static func localShell(index: Int) -> ScoutNativeTerminalTarget {
+    static func localShell(index: Int, mode: String = "shell") -> ScoutNativeTerminalTarget {
         let shellPath = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
         let home = ProcessInfo.processInfo.environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
+
+        let attachCommand: [String]
+        let title: String
+        let subtitle: String
+        let backendLabel: String
+        let commandLabel: String
+
+        if mode == "tmux" {
+            let session = "scout-local-\(index)"
+            attachCommand = ["tmux", "new-session", "-A", "-s", session]
+            title = index == 1 ? "tmux" : "tmux \(index)"
+            subtitle = "\(session) · \(Self.shortPath(home))"
+            backendLabel = "tmux"
+            commandLabel = "tmux"
+        } else {
+            attachCommand = [shellPath, "-l"]
+            title = index == 1 ? "Local shell" : "Local shell \(index)"
+            subtitle = "\(shellPath) · \(Self.shortPath(home))"
+            backendLabel = "pty"
+            commandLabel = shellPath
+        }
+
         return ScoutNativeTerminalTarget(
             id: "local-shell-\(UUID().uuidString)",
-            title: index == 1 ? "Local shell" : "Local shell \(index)",
-            subtitle: "\(shellPath) · \(Self.shortPath(home))",
-            backendLabel: "pty",
-            commandLabel: shellPath,
-            attachCommand: [shellPath, "-l"],
+            title: title,
+            subtitle: subtitle,
+            backendLabel: backendLabel,
+            commandLabel: commandLabel,
+            attachCommand: attachCommand,
             workingDirectoryPath: home,
             isRegistryBacked: false
         )
@@ -560,7 +862,7 @@ private struct ScoutNativeTerminalTarget: Hashable, Sendable {
             arguments: arguments,
             environment: [
                 "TERM": "xterm-256color",
-                "OPENSCOUT_NATIVE_TERMINAL": "1",
+                "OPENSCOUT_NATIVE_TERMINAL": "1",   // allow shell rc files to detect Scout native tiles (e.g. skip auto-tmux)
             ],
             workingDirectoryURL: workingDirectoryURL
         )
@@ -910,8 +1212,16 @@ private struct ScoutTerminalHeaderButton: View {
     let title: String
     let icon: String
     let action: () -> Void
+    let disabled: Bool
 
     @State private var hovering = false
+
+    init(title: String, icon: String, disabled: Bool = false, action: @escaping () -> Void) {
+        self.title = title
+        self.icon = icon
+        self.disabled = disabled
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {
@@ -938,7 +1248,9 @@ private struct ScoutTerminalHeaderButton: View {
         }
         .buttonStyle(.plain)
         .scoutPointerCursor()
-        .onHover { hovering = $0 }
+        .onHover { if !disabled { hovering = $0 } }
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1.0)
         .help(title)
     }
 }

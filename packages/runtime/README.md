@@ -36,7 +36,9 @@ scout doctor
 - install the broker launch agent
 - attempt to start the broker service immediately
 
-`scout init` remains available as a deprecated compatibility alias.
+`scout setup` creates missing local config as part of normal onboarding.
+`scout init` remains available as a focused host/port config writer for
+operators who need to change only `~/.openscout/config.json`.
 
 `scout doctor` is the operator-facing check that the support paths, service state, broker reachability, and logs line up.
 

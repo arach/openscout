@@ -1775,7 +1775,6 @@ async function seedWorkspaceRoots(options: {
 }
 
 export async function readOpenScoutSettings(options: { currentDirectory?: string } = {}): Promise<OpenScoutSettings> {
-  ensureOpenScoutCleanSlateSync();
   const supportPaths = resolveOpenScoutSupportPaths();
   const legacyRelayConfig = await readLegacyRelayConfig();
   const legacyAgents = await readLegacyAgentRegistry();

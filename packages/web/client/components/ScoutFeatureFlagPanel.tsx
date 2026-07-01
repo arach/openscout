@@ -15,7 +15,6 @@ const BUNDLE_LABELS: Record<ScoutFlagBundle, string> = {
   "light-prod": "Lean launch",
   "max-pro": "Max pro",
   "scope-instrument": "Scope",
-  "scout-instrument": "Scope (legacy)",
 };
 
 function localSelectValue(value: FeatureFlagOverride): "default" | "on" | "off" {

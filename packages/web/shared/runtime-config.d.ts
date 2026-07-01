@@ -7,6 +7,8 @@ export declare const DEFAULT_UPLOAD_PATH: string;
 export declare const DEFAULT_RELAY_UPLOAD_PATH: string;
 export declare const DEFAULT_TERMINAL_RELAY_PATH: string;
 export declare const DEFAULT_TERMINAL_RELAY_HEALTH_PATH: string;
+export declare const DEFAULT_TAIL_STREAM_PATH: string;
+export declare const DEFAULT_EVENTS_STREAM_PATH: string;
 export declare const DEFAULT_VITE_HMR_PATH: string;
 
 export type OpenScoutWebRoutes = {
@@ -19,6 +21,8 @@ export type OpenScoutWebRoutes = {
   relayUploadPath: string;
   terminalRelayPath: string;
   terminalRelayHealthPath: string;
+  tailStreamPath: string;
+  eventsStreamPath: string;
   viteHmrPath: string;
 };
 

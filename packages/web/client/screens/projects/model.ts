@@ -503,11 +503,11 @@ export function projectSessionMeta(entry: ProjectSessionEntry): string {
 
 /** Best recent session story across every broker row folded into this agent group. */
 export function bestSessionPreviewForEntry(entry: RegistryAgentEntry): string | null {
-  let best: { text: string; at: number } | null = null;
+  const candidates: Array<{ text: string; at: number }> = [];
   const consider = (text: string | null | undefined, at: number) => {
     const clean = humanizeWorkText(text);
     if (!clean || clean === "Untitled session") return;
-    if (!best || at > best.at) best = { text: clean, at };
+    candidates.push({ text: clean, at });
   };
 
   for (const node of entry.group.nodes) {
@@ -518,7 +518,9 @@ export function bestSessionPreviewForEntry(entry: RegistryAgentEntry): string | 
       consider(sn.detail ?? sn.label, sn.lastActivityAt ?? 0);
     }
   }
-  return best?.text ?? null;
+  if (candidates.length === 0) return null;
+  const best = candidates.reduce((a, b) => (b.at > a.at ? b : a));
+  return best.text;
 }
 
 export function registryWorkLine(

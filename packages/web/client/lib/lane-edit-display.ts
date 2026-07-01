@@ -133,7 +133,7 @@ export function strReplaceFromDetail(detail: string | undefined): Pick<StrReplac
 }
 
 export function strReplaceEditFromObserveEvent(
-  event: Pick<ObserveEvent, "tool" | "arg" | "detail">,
+  event: Pick<ObserveEvent, "tool" | "arg" | "detail" | "diff">,
 ): StrReplaceEdit | null {
   if (!isStrReplaceTool(event.tool)) return null;
 

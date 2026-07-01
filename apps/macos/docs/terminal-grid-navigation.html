@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal Grid Navigation — Design Prototype</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600&amp;display=swap');
+    
+    :root {
+      --hud-ink: #E5E7EB;
+    }
+    
+    body {
+      font-family: 'Inter', system_ui, sans-serif;
+    }
+    
+    .title-font {
+      font-family: 'Space Grotesk', 'Inter', system_ui, sans-serif;
+      font-weight: 600;
+    }
+
+    .terminal-tile {
+      background: #0a0c10;
+      border: 1px solid #272a33;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+    
+    .terminal-tile:hover {
+      box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    }
+
+    .tile-header {
+      background: #111318;
+      border-bottom: 1px solid #272a33;
+      font-size: 12px;
+      height: 36px;
+    }
+
+    .terminal-body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.3;
+      color: #a3a3a3;
+    }
+
+    .scroll-viewport {
+      background: #050607;
+      border: 1px solid #272a33;
+      box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.02);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .virtual-canvas {
+      background: 
+        linear-gradient(#272a33 1px, transparent 1px),
+        linear-gradient(90deg, #272a33 1px, transparent 1px);
+      background-size: 24px 24px;
+      opacity: 0.6;
+      position: relative;
+    }
+
+    .grid-tile {
+      box-sizing: border-box;
+    }
+
+    .edge-hint {
+      position: absolute;
+      z-index: 30;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(to left, rgba(17, 19, 24, 0.85), transparent);
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      transition: opacity 0.2s ease;
+    }
+
+    .edge-hint.right {
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 42px;
+      background: linear-gradient(to left, rgba(17, 19, 24, 0.9), transparent);
+    }
+    
+    .edge-hint.bottom {
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 42px;
+      background: linear-gradient(to top, rgba(17, 19, 24, 0.9), transparent);
+      flex-direction: column;
+    }
+
+    .hud-button {
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 3px;
+      transition: all 0.1s ease;
+    }
+    
+    .hud-button.active {
+      background-color: #272a33;
+      color: #e5e7eb;
+      font-weight: 600;
+    }
+
+    .mock-terminal {
+      box-shadow: 0 0 0 1px #272a33;
+    }
+
+    .design-note {
+      font-size: 10px;
+      line-height: 1.25;
+    }
+
+    .section-title {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+    }
+
+    .stat {
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-200">
+  <div class="max-w-[1280px] mx-auto p-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-5">
+      <div>
+        <div class="flex items-center gap-x-3">
+          <div class="flex items-center gap-x-2">
+            <i class="fa-solid fa-terminal text-emerald-400"></i>
+            <h1 class="title-font text-2xl font-semibold tracking-tighter">Terminal Grid Navigation</h1>
+          </div>
+          <div class="px-2.5 py-px text-[10px] font-medium bg-zinc-900 border border-zinc-800 rounded text-zinc-400">Design Exploration</div>
+        </div>
+        <p class="text-xs text-zinc-500 mt-0.5">Native macOS Scout • HudTiling + ScrollView model</p>
+      </div>
+      
+      <div class="flex items-center gap-x-2 text-xs">
+        <div class="px-3 py-1 bg-zinc-900 border border-zinc-800 rounded text-zinc-400 flex items-center gap-x-1.5">
+          <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+          <span>Interactive prototype</span>
+        </div>
+        <button onclick="resetToDefaults()" 
+                class="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 rounded text-xs flex items-center gap-x-1.5 transition-colors">
+          <i class="fa-solid fa-undo text-xs"></i>
+          <span>Reset</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-5">
+      
+      <!-- Controls -->
+      <div class="col-span-12 lg:col-span-3 space-y-4">
+        
+        <!-- New shell mode (from recent work) -->
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+          <div class="section-title mb-2 px-1">New shell mode</div>
+          <div class="flex gap-1">
+            <button onclick="setShellMode('shell')" id="mode-shell"
+                    class="flex-1 px-3 py-1.5 text-xs rounded-lg font-medium hud-button active bg-zinc-800">
+              <i class="fa-solid fa-terminal mr-1.5"></i> Shell
+            </button>
+            <button onclick="setShellMode('tmux')" id="mode-tmux"
+                    class="flex-1 px-3 py-1.5 text-xs rounded-lg font-medium hud-button bg-zinc-950 hover:bg-zinc-800 border border-zinc-700">
+              <i class="fa-solid fa-layer-group mr-1.5"></i> tmux
+            </button>
+          </div>
+          <div class="text-[10px] text-zinc-500 mt-1.5 px-1">Affects what "New shell" creates. Current: <span id="current-mode" class="font-medium text-emerald-400">shell</span></div>
+        </div>
+
+        <!-- Shape controls -->
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+          <div class="section-title mb-2 px-1">Grid shape (cols × rows)</div>
+          
+          <!-- Cols -->
+          <div class="mb-3">
+            <div class="flex items-baseline justify-between text-xs mb-1 px-1">
+              <div class="font-medium text-zinc-400">Columns</div>
+              <div id="cols-value" class="font-mono text-emerald-400">auto</div>
+            </div>
+            <div class="flex flex-wrap gap-1" id="cols-buttons">
+              <!-- populated by JS -->
+            </div>
+          </div>
+          
+          <!-- Rows -->
+          <div>
+            <div class="flex items-baseline justify-between text-xs mb-1 px-1">
+              <div class="font-medium text-zinc-400">Rows</div>
+              <div id="rows-value" class="font-mono text-emerald-400">auto</div>
+            </div>
+            <div class="flex flex-wrap gap-1" id="rows-buttons">
+              <!-- populated by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Target cell size -->
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+          <div class="section-title mb-2 px-1">Target cell size</div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-zinc-500 block mb-1">Width</label>
+              <input type="range" id="target-w" min="260" max="520" step="10" value="360"
+                     oninput="updateLayout()" class="w-full accent-emerald-400">
+              <div class="flex justify-between text-xs font-mono mt-0.5">
+                <span id="target-w-val">360</span><span class="text-zinc-500">px</span>
+              </div>
+            </div>
+            <div>
+              <label class="text-xs text-zinc-500 block mb-1">Height</label>
+              <input type="range" id="target-h" min="160" max="340" step="10" value="240"
+                     oninput="updateLayout()" class="w-full accent-emerald-400">
+              <div class="flex justify-between text-xs font-mono mt-0.5">
+                <span id="target-h-val">240</span><span class="text-zinc-500">px</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminals count -->
+        <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
+          <div class="flex justify-between items-center mb-2 px-1">
+            <div class="section-title">Terminals</div>
+            <div id="count-value" class="font-mono text-lg font-semibold text-white tabular-nums">6</div>
+          </div>
+          
+          <div class="flex items-center gap-2">
+            <button onclick="addTerminal()" 
+                    class="flex-1 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-600 transition-colors text-white text-xs font-medium py-1.5 rounded-lg flex items-center justify-center gap-x-2">
+              <i class="fa-solid fa-plus text-xs"></i>
+              <span>Add</span>
+            </button>
+            <button onclick="removeTerminal()" 
+                    class="flex-1 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-800 border border-zinc-700 transition-colors text-xs font-medium py-1.5 rounded-lg flex items-center justify-center gap-x-2">
+              <i class="fa-solid fa-minus text-xs"></i>
+              <span>Remove</span>
+            </button>
+          </div>
+          
+          <input type="range" id="count-slider" min="1" max="20" value="6" step="1"
+                 oninput="setTerminalCount(this.value)" class="w-full accent-emerald-400 mt-3">
+        </div>
+
+        <div class="px-1">
+          <button onclick="simulateRefresh()" 
+                  class="w-full text-xs flex items-center justify-center gap-x-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 py-2 rounded-xl transition-colors">
+            <i class="fa-solid fa-sync fa-sm"></i>
+            <span>Simulate Refresh (sometimes "helps")</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Preview / Viewport -->
+      <div class="col-span-12 lg:col-span-6">
+        <div class="flex items-center gap-x-2 mb-2 px-1">
+          <div class="section-title">Preview (viewport)</div>
+          <div class="flex-1 h-px bg-zinc-800"></div>
+          <div class="text-[10px] text-zinc-500 font-mono" id="viewport-size">800 × 520</div>
+        </div>
+        
+        <!-- The actual preview -->
+        <div id="preview-container" 
+             class="scroll-viewport mx-auto rounded-2xl overflow-hidden shadow-2xl border border-zinc-700"
+             style="width: 800px; height: 520px; max-width: 100%;">
+          
+          <div id="scroll-area" 
+               class="w-full h-full overflow-auto relative bg-[#050607]"
+               style="scroll-behavior: smooth;">
+            
+            <!-- Virtual canvas -->
+            <div id="virtual-canvas" 
+                 class="virtual-canvas relative"
+                 style="min-width: 800px; min-height: 520px;">
+              
+              <!-- Tiles injected here by JS -->
+              <div id="tiles-layer" class="relative w-full h-full"></div>
+            </div>
+          </div>
+          
+          <!-- Viewport edge hints (overlay on the preview container) -->
+          <div id="hint-right" class="edge-hint right hidden">
+            <div class="flex items-center text-emerald-400 pr-2">
+              <i class="fa-solid fa-chevron-right mr-1"></i>
+              <span class="font-semibold text-xs tracking-tight">MORE</span>
+            </div>
+          </div>
+          
+          <div id="hint-bottom" class="edge-hint bottom hidden">
+            <div class="flex items-center text-emerald-400 pt-1">
+              <i class="fa-solid fa-chevron-down mr-1"></i>
+              <span class="font-semibold text-xs tracking-tight">MORE</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="mt-2 flex items-center justify-between gap-3">
+          <!-- Workspace tabs (new model) -->
+          <div class="flex items-center gap-1 text-xs">
+            <span class="text-zinc-400 mr-1">Workspaces:</span>
+            <div id="workspace-tabs" class="flex gap-1"></div>
+            <button onclick="createNewWorkspace()" 
+                    class="ml-2 px-2 py-0.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[10px] flex items-center gap-1">
+              <i class="fa-solid fa-plus text-[9px]"></i> New
+            </button>
+          </div>
+          
+          <div class="text-center text-[10px] text-zinc-500">Rigid grid per workspace — no overflow, create new context when needed</div>
+        </div>
+        
+        <div class="mt-1 flex justify-center gap-2 text-xs">
+          <button onclick="simulateBrokenMode()" class="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded text-zinc-400">Simulate "no real scrolling"</button>
+          <button onclick="simulateGoodMode()" class="px-2 py-1 bg-emerald-900 hover:bg-emerald-800 border border-emerald-700 rounded text-emerald-300">Proper scroll + hints</button>
+        </div>
+
+        <!-- Minimap -->
+        <div class="mt-3 flex justify-center">
+          <div>
+            <div class="text-[10px] text-zinc-400 mb-1 flex items-center gap-1">
+              <span>Minimap</span> 
+              <span class="text-emerald-500/70">(drag the green rect to pan)</span>
+            </div>
+            <div id="minimap" 
+                 class="relative bg-zinc-900 border border-zinc-700 rounded overflow-hidden cursor-crosshair"
+                 style="width: 220px; height: 145px;"
+                 onmousedown="startMinimapDrag(event)"
+                 onmousemove="minimapDrag(event)"
+                 onmouseup="endMinimapDrag()"
+                 onmouseleave="endMinimapDrag()">
+              <canvas id="minimap-canvas" width="220" height="145" class="absolute top-0 left-0"></canvas>
+              <div id="minimap-viewport" 
+                   class="absolute border-2 border-emerald-400 bg-emerald-400/10 pointer-events-auto"
+                   style="box-shadow: 0 0 0 1px rgba(0,0,0,0.4);"
+                   onmousedown="startMinimapDrag(event, true)"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inspector / Live stats -->
+      <div class="col-span-12 lg:col-span-3">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sticky top-6">
+          <div class="section-title mb-3 px-1">Live stats</div>
+          
+          <div class="space-y-2 text-sm">
+            <div class="flex justify-between items-baseline border-b border-zinc-800 pb-1.5">
+              <div class="text-zinc-400 text-xs">Effective shape</div>
+              <div id="eff-shape" class="font-mono font-semibold text-lg leading-none text-white">3 × 2</div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-x-3 gap-y-1 pt-1 text-xs">
+              <div>
+                <div class="text-zinc-500">Virtual width</div>
+                <div id="virtual-w" class="font-mono text-emerald-300">1080 px</div>
+              </div>
+              <div>
+                <div class="text-zinc-500">Virtual height</div>
+                <div id="virtual-h" class="font-mono text-emerald-300">496 px</div>
+              </div>
+              <div>
+                <div class="text-zinc-500">Overflow H</div>
+                <div id="overflow-h" class="font-medium">—</div>
+              </div>
+              <div>
+                <div class="text-zinc-500">Overflow V</div>
+                <div id="overflow-v" class="font-medium">—</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="my-4 h-px bg-zinc-800"></div>
+
+          <div class="text-xs">
+            <div class="section-title mb-1.5">Current problems (as experienced)</div>
+            <ul class="space-y-1 text-zinc-400 text-[11.5px]">
+              <li class="flex gap-1.5"><span class="text-rose-400">•</span> No reliable scrolling (even with ScrollView in code)</li>
+              <li class="flex gap-1.5"><span class="text-rose-400">•</span> Terminals off-screen are unreachable</li>
+              <li class="flex gap-1.5"><span class="text-rose-400">•</span> Refresh sometimes makes it "less worse"</li>
+              <li class="flex gap-1.5"><span class="text-rose-400">•</span> No indication that more terminals exist</li>
+            </ul>
+          </div>
+
+          <div class="mt-4">
+            <div class="section-title mb-1.5">Design goals (per discussion)</div>
+            <div class="flex flex-wrap gap-1">
+              <div class="text-[10px] px-2 py-px bg-zinc-800 border border-zinc-700 rounded">Excellent bidirectional scrolling</div>
+              <div class="text-[10px] px-2 py-px bg-zinc-800 border border-zinc-700 rounded">Clear "more exists" cues</div>
+              <div class="text-[10px] px-2 py-px bg-zinc-800 border border-zinc-700 rounded">Comfortable cell size preserved</div>
+              <div class="text-[10px] px-2 py-px bg-zinc-800 border border-zinc-700 rounded">Shape controls (cols/rows) stay primary</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Design notes -->
+      <div class="col-span-12 mt-2">
+        <div class="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-4 text-xs">
+          <div class="font-semibold text-zinc-300 mb-1.5 flex items-center gap-x-2">
+            <i class="fa-solid fa-lightbulb"></i> 
+            <span>Notes for this exploration</span>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-zinc-400">
+            <div>
+              <strong class="text-zinc-300">New direction:</strong><br>
+              Rigid grid that maximizes space inside one "context" / workspace. No overflow, no complex scrolling within a workspace. When you outgrow the comfortable grid, create another workspace/context instead of one giant canvas.
+            </div>
+            <div>
+              <strong class="text-zinc-300">Benefits:</strong><br>
+              No overlapping, viewport always in context, simple maximize. Switch contexts (tabs/workspaces) to see more terminals.
+            </div>
+            <div class="md:col-span-2 text-[11px] pt-2 border-t border-zinc-800 text-zinc-500">
+              This prototype mirrors the current Swift implementation (virtualW/H based on target cell × effCols/effRows, max(available, virtual) logic, gutters, HudTiling row-major placement).
+              The goal is to quickly explore what "excellent scrolling + awareness" should feel like before more SwiftUI work.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind script
+    function initTailwind() {
+      document.querySelectorAll('script').forEach(s => {
+        if (s.src.includes('tailwind')) {
+          // already loaded
+        }
+      });
+    }
+    
+    // State - new workspaces model (rigid grids, multiple contexts)
+    let workspaces = [];
+    let currentWorkspaceId = null;
+    let currentMaxCols = 0;   // 0 = auto (per workspace or global for now)
+    let currentMaxRows = 0;
+    let shellMode = 'shell';
+    let terminalCounter = 0;
+    let targetCellW = 360;
+    let targetCellH = 240;
+
+    function init() {
+      initTailwind();
+      setupColRowButtons();
+      setupRangeListeners();
+      
+      // New model: start with one workspace
+      workspaces = [];
+      const first = createNewWorkspace('Main');
+      currentWorkspaceId = first.id;
+      
+      // Seed some terminals into the first workspace
+      for (let i = 0; i < 4; i++) {
+        addTerminal(true);
+      }
+      
+      renderWorkspaceTabs();
+      
+      // Default shape
+      currentMaxCols = 0;
+      currentMaxRows = 0;
+      updatePickerVisuals();
+      
+      // Initial layout (rigid per workspace)
+      setTimeout(() => {
+        updateLayout();
+      }, 50);
+
+      // Make preview viewport size adjustable
+      makeViewportResizable();
+      
+      // Keyboard hints
+      document.addEventListener('keydown', (e) => {
+        if (e.key === '?') {
+          document.getElementById('preview-container').classList.toggle('ring-1', 'ring-emerald-500');
+          setTimeout(() => {
+            document.getElementById('preview-container').classList.remove('ring-1', 'ring-emerald-500');
+          }, 800);
+        }
+      });
+    }
+
+    function setupColRowButtons() {
+      const colsContainer = document.getElementById('cols-buttons');
+      const rowsContainer = document.getElementById('rows-buttons');
+      
+      colsContainer.innerHTML = '';
+      for (let c = 0; c <= 8; c++) {
+        const btn = document.createElement('button');
+        btn.textContent = c === 0 ? 'auto' : c;
+        btn.className = `hud-button px-2 py-px text-xs border border-zinc-700 ${c === 0 ? 'active' : 'bg-zinc-950 hover:bg-zinc-800'}`;
+        btn.onclick = () => {
+          currentMaxCols = c;
+          updatePickerVisuals();
+          updateLayout();
+        };
+        colsContainer.appendChild(btn);
+      }
+      
+      rowsContainer.innerHTML = '';
+      for (let r = 0; r <= 4; r++) {
+        const btn = document.createElement('button');
+        btn.textContent = r === 0 ? 'auto' : r;
+        btn.className = `hud-button px-2 py-px text-xs border border-zinc-700 ${r === 0 ? 'active' : 'bg-zinc-950 hover:bg-zinc-800'}`;
+        btn.onclick = () => {
+          currentMaxRows = r;
+          updatePickerVisuals();
+          updateLayout();
+        };
+        rowsContainer.appendChild(btn);
+      }
+    }
+
+    function updatePickerVisuals() {
+      // Cols
+      const colsBtns = document.getElementById('cols-buttons').children;
+      for (let i = 0; i < colsBtns.length; i++) {
+        const val = (i === 0) ? 0 : i;
+        colsBtns[i].classList.toggle('active', val === currentMaxCols);
+        colsBtns[i].classList.toggle('bg-zinc-800', val === currentMaxCols);
+        colsBtns[i].classList.toggle('bg-zinc-950', val !== currentMaxCols);
+      }
+      document.getElementById('cols-value').textContent = currentMaxCols === 0 ? 'auto' : currentMaxCols;
+      
+      // Rows
+      const rowsBtns = document.getElementById('rows-buttons').children;
+      for (let i = 0; i < rowsBtns.length; i++) {
+        const val = (i === 0) ? 0 : i;
+        rowsBtns[i].classList.toggle('active', val === currentMaxRows);
+        rowsBtns[i].classList.toggle('bg-zinc-800', val === currentMaxRows);
+      }
+      document.getElementById('rows-value').textContent = currentMaxRows === 0 ? 'auto' : currentMaxRows;
+    }
+
+    function setupRangeListeners() {
+      const tw = document.getElementById('target-w');
+      const th = document.getElementById('target-h');
+      const countSlider = document.getElementById('count-slider');
+      
+      tw.oninput = () => {
+        document.getElementById('target-w-val').textContent = tw.value;
+        updateLayout();
+      };
+      th.oninput = () => {
+        document.getElementById('target-h-val').textContent = th.value;
+        updateLayout();
+      };
+      
+      countSlider.oninput = () => {
+        setTerminalCount(countSlider.value);
+      };
+      
+      // initial values display
+      document.getElementById('target-w-val').textContent = tw.value;
+      document.getElementById('target-h-val').textContent = th.value;
+    }
+
+    function setShellMode(mode) {
+      shellMode = mode;
+      document.getElementById('current-mode').textContent = mode;
+      document.getElementById('mode-shell').classList.toggle('active', mode === 'shell');
+      document.getElementById('mode-shell').classList.toggle('bg-zinc-800', mode === 'shell');
+      document.getElementById('mode-tmux').classList.toggle('active', mode === 'tmux');
+      document.getElementById('mode-tmux').classList.toggle('bg-zinc-800', mode === 'tmux');
+      
+      // Update existing tile labels (demo only)
+      updateTileLabels();
+    }
+
+    // Workspace helpers (rigid grid model)
+    function getCurrentWorkspace() {
+      return workspaces.find(w => w.id === currentWorkspaceId);
+    }
+
+    function createNewWorkspace(name = null) {
+      const id = Date.now();
+      const ws = {
+        id,
+        name: name || `Workspace ${workspaces.length + 1}`,
+        terminals: []
+      };
+      workspaces.push(ws);
+      currentWorkspaceId = id;
+      renderWorkspaceTabs();
+      updateLayout();
+      return ws;
+    }
+
+    function switchWorkspace(id) {
+      currentWorkspaceId = id;
+      renderWorkspaceTabs();
+      updateLayout();
+    }
+
+    function addTerminal(silent = false) {
+      terminalCounter++;
+      const id = terminalCounter;
+      const isTmux = shellMode === 'tmux';
+      
+      const term = {
+        id: id,
+        label: isTmux ? `tmux ${id}` : `Local shell ${id}`,
+        backend: isTmux ? 'tmux' : 'pty',
+        session: isTmux ? `scout-local-${id}` : null
+      };
+      
+      const ws = getCurrentWorkspace();
+      if (!ws) {
+        createNewWorkspace();
+      }
+      ws.terminals.push(term);
+      
+      document.getElementById('count-slider').value = ws.terminals.length;
+      updateLayout();
+      
+      if (!silent) {
+        // For rigid grids we don't scroll, but we can flash the new tile
+        setTimeout(() => {
+          const tiles = document.querySelectorAll('#tiles-layer .grid-tile');
+          const last = tiles[tiles.length-1];
+          if (last) {
+            last.style.boxShadow = '0 0 0 3px rgb(163 163 172 / 0.5)';
+            setTimeout(() => last.style.boxShadow = '', 650);
+          }
+        }, 50);
+      }
+    }
+
+    function removeTerminal() {
+      const ws = getCurrentWorkspace();
+      if (ws && ws.terminals.length > 0) {
+        ws.terminals.pop();
+        document.getElementById('count-slider').value = ws.terminals.length;
+        updateLayout();
+      }
+    }
+
+    function setTerminalCount(newCount) {
+      const count = parseInt(newCount);
+      const ws = getCurrentWorkspace();
+      if (!ws) return;
+      while (ws.terminals.length < count) {
+        addTerminal(true);
+      }
+      while (ws.terminals.length > count) {
+        ws.terminals.pop();
+      }
+      updateLayout();
+    }
+
+    function updateTileLabels() {
+      const layer = document.getElementById('tiles-layer');
+      const isTmux = shellMode === 'tmux';
+      
+      Array.from(layer.children).forEach((tileEl, index) => {
+        if (terminals[index]) {
+          const t = terminals[index];
+          const header = tileEl.querySelector('.tile-header');
+          if (header) {
+            header.querySelector('.title').textContent = isTmux ? `tmux ${t.id}` : `Local shell ${t.id}`;
+            header.querySelector('.backend').textContent = isTmux ? 'tmux' : 'pty';
+          }
+        }
+      });
+    }
+
+    function createTileElement(index) {
+      const t = terminals[index];
+      const isTmux = shellMode === 'tmux';
+      
+      const div = document.createElement('div');
+      div.className = `grid-tile terminal-tile rounded-xl overflow-hidden flex flex-col`;
+      div.style.width = '100%';
+      div.style.height = '100%';
+      
+      div.innerHTML = `
+        <div class="tile-header flex items-center px-2.5 text-xs text-zinc-400">
+          <div class="flex items-center gap-x-1.5 flex-1 min-w-0">
+            <div class="w-1.5 h-1.5 rounded-full ${isTmux ? 'bg-violet-400' : 'bg-emerald-400'} flex-shrink-0"></div>
+            <span class="title font-medium text-zinc-200 truncate">${isTmux ? `tmux ${t.id}` : `Local shell ${t.id}`}</span>
+          </div>
+          <div class="flex items-center gap-x-1 text-[10px]">
+            <span class="backend px-1 py-px bg-zinc-800 rounded text-zinc-500 font-mono">${isTmux ? 'tmux' : 'pty'}</span>
+            <div class="w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-zinc-300 cursor-pointer">
+              <i class="fa-solid fa-redo text-[9px]"></i>
+            </div>
+            <div class="w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-rose-400 cursor-pointer">
+              <i class="fa-solid fa-times text-[9px]"></i>
+            </div>
+          </div>
+        </div>
+        
+        <div class="terminal-body flex-1 p-2 overflow-hidden bg-[#0a0c10]">
+          <div class="opacity-70">user@host ~ % </div>
+          <div class="text-emerald-400/70">echo "terminal ${t.id}"</div>
+          <div class="text-xs text-zinc-600 mt-1">→ terminal ${t.id} running</div>
+        </div>
+      `;
+      
+      // Click focuses / highlights (demo)
+      div.addEventListener('click', () => {
+        document.querySelectorAll('.grid-tile').forEach(el => el.style.boxShadow = '');
+        div.style.boxShadow = '0 0 0 2px rgb(163 163 172 / 0.3)';
+        setTimeout(() => {
+          if (div.parentNode) div.style.boxShadow = '';
+        }, 900);
+      });
+      
+      return div;
+    }
+
+    function updateLayout() {
+      const ws = getCurrentWorkspace();
+      if (!ws) return;
+      
+      const n = ws.terminals.length;
+      
+      // Rigid grid: calculate columns/rows that *fit* the viewport at comfortable size (no overflow)
+      const targetW = parseInt(document.getElementById('target-w').value);
+      const targetH = parseInt(document.getElementById('target-h').value);
+      const gap = 8;
+      
+      const scrollArea = document.getElementById('scroll-area');
+      const viewportW = scrollArea ? scrollArea.clientWidth : 800;
+      const viewportH = scrollArea ? scrollArea.clientHeight : 520;
+      
+      // Max columns that fit comfortably
+      let fitCols = Math.max(1, Math.floor( (viewportW + gap) / (targetW + gap) ));
+      // Max rows that fit
+      let fitRows = Math.max(1, Math.floor( (viewportH + gap) / (targetH + gap) ));
+      
+      // Respect user max if set
+      if (currentMaxCols > 0) fitCols = Math.min(fitCols, currentMaxCols);
+      if (currentMaxRows > 0) fitRows = Math.min(fitRows, currentMaxRows);
+      
+      // For the current N, choose a good grid that uses the available space
+      let effCols = Math.min(fitCols, n);
+      let effRows = Math.ceil(n / effCols);
+      
+      // If too many rows, increase cols up to the fit limit
+      if (effRows > fitRows && effCols < fitCols) {
+        effCols = Math.min(fitCols, Math.ceil(n / fitRows));
+        effRows = Math.ceil(n / effCols);
+      }
+      
+      // Clamp
+      effCols = Math.min(effCols, n);
+      effRows = Math.min(effRows, Math.ceil(n / effCols));
+      
+      // Update stats (now representing the *fitted* grid)
+      document.getElementById('eff-shape').textContent = `${effCols} × ${effRows}`;
+      const virtualW = effCols * targetW + Math.max(0, effCols-1) * gap;
+      const virtualH = effRows * targetH + Math.max(0, effRows-1) * gap;
+      document.getElementById('virtual-w').textContent = virtualW + ' px';
+      document.getElementById('virtual-h').textContent = virtualH + ' px';
+      
+      const hasH = virtualW > viewportW;
+      const hasV = virtualH > viewportH;
+      document.getElementById('overflow-h').innerHTML = hasH 
+        ? `<span class="text-amber-400 font-medium">overflow (+${Math.round(virtualW - viewportW)})</span>` 
+        : '<span class="text-emerald-400">fits</span>';
+      document.getElementById('overflow-v').innerHTML = hasV 
+        ? `<span class="text-amber-400 font-medium">overflow (+${Math.round(virtualH - viewportH)})</span>` 
+        : '<span class="text-emerald-400">fits</span>';
+      
+      document.getElementById('viewport-size').textContent = `${Math.round(viewportW)} × ${Math.round(viewportH)}`;
+      
+      // Render as rigid CSS grid that fills the viewport
+      const canvas = document.getElementById('virtual-canvas');
+      const layer = document.getElementById('tiles-layer');
+      
+      if (canvas) {
+        canvas.style.width = '100%';
+        canvas.style.height = '100%';
+        canvas.style.transform = 'none';
+      }
+      if (layer) {
+        layer.innerHTML = '';
+        layer.style.position = 'absolute';
+        layer.style.inset = '0';
+        layer.style.display = 'grid';
+        layer.style.gap = gap + 'px';
+        layer.style.padding = '8px';
+        layer.style.gridTemplateColumns = `repeat(${effCols}, 1fr)`;
+        layer.style.gridAutoRows = `minmax(${targetH}px, 1fr)`;
+        layer.style.alignItems = 'stretch';
+      }
+      
+      const currentTerminals = ws.terminals;
+      for (let i = 0; i < currentTerminals.length; i++) {
+        const t = currentTerminals[i];
+        const tile = createTileElementForTerm(t);  // use term directly
+        layer.appendChild(tile);
+      }
+      
+      // Hide old edge hints in this model (no overflow by design, or warn)
+      const hr = document.getElementById('hint-right');
+      const hb = document.getElementById('hint-bottom');
+      if (hr) hr.classList.add('hidden');
+      if (hb) hb.classList.add('hidden');
+      
+      // If this workspace is getting cramped, gently suggest new context
+      const cellArea = (targetW * targetH);
+      const approxCell = (viewportW * viewportH) / Math.max(1, currentTerminals.length);
+      if (approxCell < cellArea * 0.7 && currentTerminals.length > 3) {
+        // could show a small toast in real UI
+      }
+    }
+
+    // Helper to create tile from term object (for workspace model)
+    function createTileElementForTerm(t) {
+      const isTmux = shellMode === 'tmux';
+      const div = document.createElement('div');
+      div.className = `grid-tile terminal-tile rounded-xl overflow-hidden flex flex-col`;
+      
+      div.innerHTML = `
+        <div class="tile-header flex items-center px-2.5 text-xs text-zinc-400">
+          <div class="flex items-center gap-x-1.5 flex-1 min-w-0">
+            <div class="w-1.5 h-1.5 rounded-full ${isTmux ? 'bg-violet-400' : 'bg-emerald-400'} flex-shrink-0"></div>
+            <span class="title font-medium text-zinc-200 truncate">${t.label}</span>
+          </div>
+          <div class="flex items-center gap-x-1 text-[10px]">
+            <span class="backend px-1 py-px bg-zinc-800 rounded text-zinc-500 font-mono">${t.backend}</span>
+            <div class="w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-zinc-300 cursor-pointer">
+              <i class="fa-solid fa-redo text-[9px]"></i>
+            </div>
+            <div class="w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-rose-400 cursor-pointer" onclick="event.stopImmediatePropagation(); removeTerminalFromCurrent();">
+              <i class="fa-solid fa-times text-[9px]"></i>
+            </div>
+          </div>
+        </div>
+        
+        <div class="terminal-body flex-1 p-2 overflow-hidden bg-[#0a0c10]">
+          <div class="opacity-70">user@host ~ % </div>
+          <div class="text-emerald-400/70">echo "terminal ${t.id}"</div>
+          <div class="text-xs text-zinc-600 mt-1">→ terminal ${t.id} running</div>
+        </div>
+      `;
+      
+      div.addEventListener('click', () => {
+        document.querySelectorAll('.grid-tile').forEach(el => el.style.boxShadow = '');
+        div.style.boxShadow = '0 0 0 2px rgb(163 163 172 / 0.3)';
+        setTimeout(() => { if (div.parentNode) div.style.boxShadow = ''; }, 700);
+      });
+      
+      return div;
+    }
+
+    function removeTerminalFromCurrent() {
+      const ws = getCurrentWorkspace();
+      if (ws && ws.terminals.length > 0) {
+        ws.terminals.pop();
+        updateLayout();
+      }
+    }
+
+    function renderWorkspaceTabs() {
+      const container = document.getElementById('workspace-tabs');
+      if (!container) return;
+      container.innerHTML = '';
+      
+      workspaces.forEach(ws => {
+        const btn = document.createElement('button');
+        btn.className = `px-2.5 py-0.5 text-xs rounded border ${ws.id === currentWorkspaceId 
+          ? 'bg-emerald-700 border-emerald-500 text-white' 
+          : 'bg-zinc-800 border-zinc-700 hover:bg-zinc-700 text-zinc-300'}`;
+        btn.textContent = ws.name;
+        btn.onclick = () => switchWorkspace(ws.id);
+        container.appendChild(btn);
+      });
+    }
+
+    function updateEdgeHints(hasH, hasV) {
+      const hintRight = document.getElementById('hint-right');
+      const hintBottom = document.getElementById('hint-bottom');
+      
+      hintRight.classList.toggle('hidden', !hasH);
+      hintBottom.classList.toggle('hidden', !hasV);
+    }
+
+    function makeViewportResizable() {
+      const container = document.getElementById('preview-container');
+      
+      // Double-click to reset size
+      container.addEventListener('dblclick', () => {
+        container.style.width = '800px';
+        container.style.height = '520px';
+        updateLayout();
+      });
+      
+      // Simple drag handle on the bottom-right corner
+      const handle = document.createElement('div');
+      handle.className = 'absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-40 hover:opacity-90';
+      handle.innerHTML = `<i class="fa-solid fa-arrows-alt-h text-[10px] absolute bottom-0.5 right-0.5"></i>`;
+      container.style.position = 'relative';
+      container.appendChild(handle);
+      
+      let isDragging = false;
+      let startX, startY, startW, startH;
+      
+      handle.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = container.offsetWidth;
+        startH = container.offsetHeight;
+        e.preventDefault();
+      });
+      
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        const newW = Math.max(420, startW + (e.clientX - startX));
+        const newH = Math.max(280, startH + (e.clientY - startY));
+        container.style.width = newW + 'px';
+        container.style.height = newH + 'px';
+        updateLayout();
+      });
+      
+      document.addEventListener('mouseup', () => {
+        isDragging = false;
+      });
+    }
+
+    function scrollToLastTerminal() {
+      const scrollArea = document.getElementById('scroll-area');
+      scrollArea.scrollTo({
+        left: scrollArea.scrollWidth,
+        top: scrollArea.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+
+    function simulateRefresh() {
+      // Simulates the "refresh sometimes makes things better" behavior
+      const scrollArea = document.getElementById('scroll-area');
+      const currentScroll = { left: scrollArea.scrollLeft, top: scrollArea.scrollTop };
+      
+      // Force re-layout (sometimes this "fixes" measurement in the real app)
+      const layer = document.getElementById('tiles-layer');
+      layer.style.transition = 'none';
+      
+      updateLayout();
+      
+      // Occasionally "recover" scroll position
+      setTimeout(() => {
+        scrollArea.scrollLeft = currentScroll.left;
+        scrollArea.scrollTop = currentScroll.top;
+        layer.style.transition = '';
+      }, 40);
+      
+      // Flash the viewport to show something changed
+      const container = document.getElementById('preview-container');
+      container.style.transition = 'box-shadow 80ms';
+      container.style.boxShadow = '0 0 0 1px rgb(163 163 172 / 0.6)';
+      setTimeout(() => {
+        container.style.boxShadow = '0 25px 50px -12px rgb(0 0 0 / 0.25)';
+      }, 280);
+    }
+
+    function setTerminalCountDirect(n) {
+      while (terminals.length < n) addTerminal(true);
+      while (terminals.length > n) terminals.pop();
+      updateLayout();
+    }
+
+    function resetToDefaults() {
+      workspaces = [];
+      terminalCounter = 0;
+      currentMaxCols = 0;
+      currentMaxRows = 0;
+      shellMode = 'shell';
+      
+      const ws = createNewWorkspace('Main');
+      currentWorkspaceId = ws.id;
+      
+      document.getElementById('current-mode').textContent = 'shell';
+      document.getElementById('mode-shell').classList.add('active', 'bg-zinc-800');
+      document.getElementById('mode-tmux').classList.remove('active', 'bg-zinc-800');
+      
+      for (let i = 0; i < 4; i++) {
+        addTerminal(true);
+      }
+      
+      renderWorkspaceTabs();
+      
+      document.getElementById('count-slider').value = 4;
+      document.getElementById('target-w').value = 360;
+      document.getElementById('target-h').value = 240;
+      document.getElementById('target-w-val').textContent = '360';
+      document.getElementById('target-h-val').textContent = '240';
+      
+      updatePickerVisuals();
+      updateLayout();
+    }
+
+    function updateAllDisplays() {
+      // Called after major changes
+      const ws = getCurrentWorkspace();
+      if (ws) document.getElementById('count-slider').value = ws.terminals.length;
+    }
+
+    // Boot
+    window.onload = () => {
+      init();
+      
+      // Make the count display update
+      const slider = document.getElementById('count-slider');
+      slider.addEventListener('input', () => {
+        document.getElementById('count-value').textContent = slider.value;
+      });
+      
+      // Initial count display
+      const ws = getCurrentWorkspace();
+      document.getElementById('count-value').textContent = ws ? ws.terminals.length : 0;
+      
+      // Allow direct editing of count via the value display
+      const countEl = document.getElementById('count-value');
+      countEl.style.cursor = 'pointer';
+      countEl.title = 'Click to set exact count';
+      countEl.addEventListener('click', () => {
+        const currentWs = getCurrentWorkspace();
+        const currentLen = currentWs ? currentWs.terminals.length : 0;
+        const val = prompt('Set number of terminals in current workspace', currentLen);
+        if (val !== null) {
+          const num = Math.max(1, Math.min(30, parseInt(val) || 1));
+          setTerminalCount(num);
+        }
+      });
+      
+      // Helpful initial hint
+      setTimeout(() => {
+        const hint = document.getElementById('hint-right');
+        if (hint && !hint.classList.contains('hidden')) {
+          hint.style.transition = 'all 0.4s';
+        }
+      }, 1200);
+      
+      // Keyboard support for design exploration
+      console.log('%c[Prototype] Press "?" while focused on preview to highlight viewport. Use the controls above.', 'color:#3f3f46');
+    };
+    
+    // Expose a few things for console tinkering during design
+    window.DESIGN = {
+      addMany: (n) => { for(let i=0; i<n; i++) window.addTerminal ? window.addTerminal(true) : null; updateLayout(); },
+      setShape: (c, r) => { currentMaxCols = c; currentMaxRows = r; updatePickerVisuals(); updateLayout(); }
+    };
+
+    // Quick simulation helpers for design discussion
+    function simulateBrokenMode() {
+      const canvas = document.getElementById('virtual-canvas');
+      const layer = document.getElementById('tiles-layer');
+      const scroll = document.getElementById('scroll-area');
+      
+      // Force content to not exceed viewport (mimics the "no real scrolling" experience)
+      const vw = scroll.clientWidth;
+      const vh = scroll.clientHeight;
+      canvas.style.width = vw + 'px';
+      canvas.style.height = vh + 'px';
+      layer.style.width = vw + 'px';
+      layer.style.height = vh + 'px';
+      
+      // Hide hints
+      document.getElementById('hint-right').classList.add('hidden');
+      document.getElementById('hint-bottom').classList.add('hidden');
+      
+      alert("Simulating current symptom: content clamped to viewport size. Scrolling effectively does nothing for off-screen terminals.");
+    }
+    
+    function simulateGoodMode() {
+      // Restore proper virtual sizing + hints
+      updateLayout();
+    }
+
+    // === New: Zoom + Smart Canvas + Minimap ===
+
+    let zoomLevel = 1.0;
+    let isDraggingMinimap = false;
+    let minimapDragOffset = { x: 0, y: 0 };
+
+    function setZoom(z) {
+      zoomLevel = Math.max(0.4, Math.min(2.5, z));
+      document.getElementById('zoom-slider').value = zoomLevel;
+      document.getElementById('zoom-value').textContent = Math.round(zoomLevel * 100) + '%';
+      
+      // Apply visual zoom to the canvas (affects rendering, not logical size)
+      const canvas = document.getElementById('virtual-canvas');
+      canvas.style.transform = `scale(${zoomLevel})`;
+      canvas.style.transformOrigin = 'top left';
+      
+      // Re-render minimap to reflect current view
+      renderMinimap();
+    }
+
+    function resetZoom() {
+      setZoom(1.0);
+    }
+
+    function fitAll() {
+      const scroll = document.getElementById('scroll-area');
+      const vw = scroll.clientWidth;
+      const vh = scroll.clientHeight;
+      
+      // Compute the zoom that makes the entire virtual grid fit inside the viewport
+      // (while respecting current virtualW/H from the shape)
+      const canvas = document.getElementById('virtual-canvas');
+      // We read the logical size from style (set by updateLayout)
+      const logicalW = parseFloat(canvas.style.width) || 1000;
+      const logicalH = parseFloat(canvas.style.height) || 600;
+      
+      const scaleX = vw / logicalW;
+      const scaleY = vh / logicalH;
+      const fitScale = Math.min(scaleX, scaleY, 1.8); // don't over-zoom too much
+      
+      setZoom(Math.max(0.35, fitScale));
+      
+      // Also scroll to top-left so everything is visible
+      scroll.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+      
+      // After scroll settles, refresh minimap
+      setTimeout(renderMinimap, 120);
+    }
+
+    function updateZoomFromLayout() {
+      // Keep current zoom when layout changes (re-apply transform)
+      const canvas = document.getElementById('virtual-canvas');
+      if (canvas) canvas.style.transform = `scale(${zoomLevel})`;
+      renderMinimap();
+    }
+
+    // Minimap rendering
+    function renderMinimap() {
+      const minimap = document.getElementById('minimap');
+      const canvasEl = document.getElementById('minimap-canvas');
+      const vpRect = document.getElementById('minimap-viewport');
+      const scroll = document.getElementById('scroll-area');
+      const content = document.getElementById('virtual-canvas');
+      
+      if (!minimap || !canvasEl || !vpRect || !scroll || !content) return;
+      
+      const ctx = canvasEl.getContext('2d');
+      const mw = canvasEl.width;
+      const mh = canvasEl.height;
+      
+      ctx.clearRect(0, 0, mw, mh);
+      
+      // Logical size from current content
+      const logicalW = parseFloat(content.style.width) || 1000;
+      const logicalH = parseFloat(content.style.height) || 600;
+      
+      const scale = Math.min(mw / logicalW, mh / logicalH);
+      const drawW = logicalW * scale;
+      const drawH = logicalH * scale;
+      const offsetX = (mw - drawW) / 2;
+      const offsetY = (mh - drawH) / 2;
+      
+      // Draw faint grid background
+      ctx.strokeStyle = '#272a33';
+      ctx.lineWidth = 1;
+      const step = Math.max(8, drawW / 12);
+      for (let x = offsetX; x < offsetX + drawW; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, offsetY); ctx.lineTo(x, offsetY + drawH); ctx.stroke();
+      }
+      for (let y = offsetY; y < offsetY + drawH; y += step) {
+        ctx.beginPath(); ctx.moveTo(offsetX, y); ctx.lineTo(offsetX + drawW, y); ctx.stroke();
+      }
+      
+      // Draw tiny terminal tiles
+      ctx.fillStyle = '#22c55e33';
+      ctx.strokeStyle = '#22c55e66';
+      ctx.lineWidth = 1;
+      
+      const tiles = document.querySelectorAll('#tiles-layer > div');
+      tiles.forEach(tile => {
+        const x = parseFloat(tile.style.left) || 0;
+        const y = parseFloat(tile.style.top) || 0;
+        const w = parseFloat(tile.style.width) || 120;
+        const h = parseFloat(tile.style.height) || 80;
+        
+        const mx = offsetX + (x / logicalW) * drawW;
+        const my = offsetY + (y / logicalH) * drawH;
+        const mwTile = (w / logicalW) * drawW;
+        const mhTile = (h / logicalH) * drawH;
+        
+        ctx.fillRect(mx, my, Math.max(2, mwTile), Math.max(2, mhTile));
+        ctx.strokeRect(mx, my, Math.max(2, mwTile), Math.max(2, mhTile));
+      });
+      
+      // Position the viewport rectangle
+      const scrollW = scroll.clientWidth;
+      const scrollH = scroll.clientHeight;
+      const scrollLeft = scroll.scrollLeft;
+      const scrollTop = scroll.scrollTop;
+      
+      // Account for current zoom in visual mapping
+      const visZoom = zoomLevel || 1;
+      
+      const vpX = offsetX + (scrollLeft / logicalW) * drawW;
+      const vpY = offsetY + (scrollTop / logicalH) * drawH;
+      const vpW = (scrollW / (logicalW * visZoom)) * drawW;
+      const vpH = (scrollH / (logicalH * visZoom)) * drawH;
+      
+      vpRect.style.left = `${vpX}px`;
+      vpRect.style.top = `${vpY}px`;
+      vpRect.style.width = `${Math.max(8, vpW)}px`;
+      vpRect.style.height = `${Math.max(8, vpH)}px`;
+    }
+
+    // Minimap drag handling
+    function startMinimapDrag(e, fromViewportRect = false) {
+      isDraggingMinimap = true;
+      const minimap = document.getElementById('minimap');
+      const rect = minimap.getBoundingClientRect();
+      
+      const logicalW = parseFloat(document.getElementById('virtual-canvas').style.width) || 1000;
+      const logicalH = parseFloat(document.getElementById('virtual-canvas').style.height) || 600;
+      const scale = Math.min(rect.width / logicalW, rect.height / logicalH);
+      const offX = (rect.width - logicalW * scale) / 2;
+      const offY = (rect.height - logicalH * scale) / 2;
+      
+      let clickX = e.clientX - rect.left;
+      let clickY = e.clientY - rect.top;
+      
+      const scroll = document.getElementById('scroll-area');
+      
+      const targetLogicalX = ((clickX - offX) / scale);
+      const targetLogicalY = ((clickY - offY) / scale);
+      
+      // Center the viewport on the clicked point (accounting for zoom)
+      const visZoom = zoomLevel || 1;
+      const halfViewW = (scroll.clientWidth / visZoom) / 2;
+      const halfViewH = (scroll.clientHeight / visZoom) / 2;
+      
+      scroll.scrollLeft = Math.max(0, targetLogicalX - halfViewW);
+      scroll.scrollTop  = Math.max(0, targetLogicalY - halfViewH);
+      
+      minimapDragOffset = { x: clickX, y: clickY };
+      renderMinimap();
+    }
+
+    function minimapDrag(e) {
+      if (!isDraggingMinimap) return;
+      startMinimapDrag(e); // reuse the positioning logic
+    }
+
+    function endMinimapDrag() {
+      isDraggingMinimap = false;
+    }
+
+    // Hook into existing layout updates
+    const originalUpdateLayout = updateLayout;
+    updateLayout = function() {
+      originalUpdateLayout.apply(this, arguments);
+      // After layout, refresh zoom visual + minimap
+      setTimeout(() => {
+        const canvas = document.getElementById('virtual-canvas');
+        if (canvas) canvas.style.transform = `scale(${zoomLevel})`;
+        renderMinimap();
+      }, 10);
+    };
+
+    // Keep minimap in sync while scrolling the main area
+    function attachScrollSync() {
+      const scroll = document.getElementById('scroll-area');
+      if (!scroll) return;
+      let raf = null;
+      scroll.addEventListener('scroll', () => {
+        if (raf) cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => renderMinimap());
+      });
+    }
+
+    // Initialize minimap + zoom listeners once
+    function initMinimapAndZoom() {
+      // Zoom slider default
+      const zoomSlider = document.getElementById('zoom-slider');
+      if (zoomSlider) {
+        zoomSlider.addEventListener('change', () => renderMinimap());
+      }
+      
+      // Initial render after first layout
+      setTimeout(() => {
+        renderMinimap();
+        attachScrollSync();
+      }, 150);
+      
+      // Re-render minimap on window resize (viewport might change)
+      window.addEventListener('resize', () => {
+        setTimeout(renderMinimap, 50);
+      });
+    }
+
+    // Call initializer
+    window.addEventListener('load', () => {
+      setTimeout(initMinimapAndZoom, 400);
+    });
+  </script>
+</body>
+</html>

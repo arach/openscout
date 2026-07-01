@@ -5,11 +5,13 @@ import type {
   ScoutBrokerFlightRecord,
   ScoutBrokerMessageRecord,
   ScoutBrokerSnapshot,
+  OutgoingAttachmentInput,
 } from "../core/broker/service.ts";
 import type { ActorIdentity } from "@openscout/protocol";
 import {
   loadScoutBrokerContext,
   resolveScoutBrokerUrl,
+  normalizeOutgoingAttachments,
 } from "../core/broker/service.ts";
 import {
   parseScoutbotDirectives,
@@ -36,7 +38,7 @@ import {
 export interface ScoutbotRunnerHandle {
   stop(): Promise<void>;
   getThreads(): Promise<ScoutbotThreadListResponse>;
-  postOperatorMessage(input: { body: string; threadId?: string | null }): Promise<ScoutbotThreadMessageResult>;
+  postOperatorMessage(input: { body: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }): Promise<ScoutbotThreadMessageResult>;
 }
 
 export type ScoutbotThreadMessageResult = {
@@ -65,6 +67,7 @@ export type PostScoutbotOperatorMessageInput = {
   currentDirectory: string;
   body: string;
   threadId?: string | null;
+  attachments?: OutgoingAttachmentInput[];
   source?: string;
   clientMessageId?: string | null;
   replyToMessageId?: string | null;
@@ -152,6 +155,7 @@ export async function startScoutbotRunner(
         currentDirectory: options.currentDirectory,
         body: input.body,
         threadId: input.threadId,
+        attachments: input.attachments,
         source: "scout-web",
         log,
         threadMap,
@@ -199,6 +203,7 @@ export async function postScoutbotOperatorMessage(
     baseUrl,
     thread,
     body: input.body,
+    attachments: input.attachments,
     source: input.source ?? "scout-web",
     clientMessageId: input.clientMessageId,
     replyToMessageId: input.replyToMessageId,
@@ -245,7 +250,7 @@ function inertHandle(): ScoutbotRunnerHandle {
   return {
     async stop() { /* inert */ },
     async getThreads() { throw new Error("scoutbot runner is inert because broker is unreachable"); },
-    async postOperatorMessage() {
+    async postOperatorMessage(_input?: { body?: string; threadId?: string | null; attachments?: OutgoingAttachmentInput[] }) {
       return { usedBroker: false, invokedTargets: [], unresolvedTargets: [] };
     },
   };
@@ -466,6 +471,7 @@ async function postOperatorThreadMessage(input: {
   baseUrl: string;
   thread: ScoutbotThreadRecord;
   body: string;
+  attachments?: OutgoingAttachmentInput[];
   source: string;
   clientMessageId?: string | null;
   replyToMessageId?: string | null;
@@ -498,6 +504,7 @@ async function postOperatorThreadMessage(input: {
     body: input.body.trim(),
     replyToMessageId: input.replyToMessageId ?? undefined,
     mentions: [{ actorId: SCOUTBOT_AGENT_ID, label: "@scoutbot" }],
+    attachments: normalizeOutgoingAttachments(input.attachments),
     audience: { notify: [SCOUTBOT_AGENT_ID], reason: "direct_message" },
     visibility: "private",
     policy: "durable",

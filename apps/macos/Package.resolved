@@ -2,15 +2,6 @@
   "originHash" : "de0d1ee7eb86742b1265caee5c34dc8fcbb567f001bf3f7e792d9d7f014199b4",
   "pins" : [
     {
-      "identity" : "hudson",
-      "kind" : "remoteSourceControl",
-      "location" : "git@github.com:arach/hudson.git",
-      "state" : {
-        "branch" : "main",
-        "revision" : "85e9edec4412ecf371b42992a875d5a4afae7d38"
-      }
-    },
-    {
       "identity" : "swift-asn1",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-asn1.git",

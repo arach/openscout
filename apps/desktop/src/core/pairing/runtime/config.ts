@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
+import { loadLocalConfig } from "@openscout/runtime/local-config";
 import { readOpenScoutNetworkSettingsSync } from "@openscout/runtime/open-scout-network";
 
 export type PairingSessionConfig = {
@@ -72,6 +73,19 @@ export function savePairingConfig(config: PairingConfig): void {
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 }
 
+function isValidPort(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 && value < 65536;
+}
+
+function parseEnvPort(env: NodeJS.ProcessEnv): number | undefined {
+  const raw = env.OPENSCOUT_PAIRING_PORT?.trim() || env.SCOUT_PAIRING_PORT?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  return isValidPort(parsed) ? parsed : undefined;
+}
+
 export function resolvedPairingConfig(env: NodeJS.ProcessEnv = process.env) {
   const config = loadPairingConfig();
   const osn = readOpenScoutNetworkSettingsSync();
@@ -79,12 +93,14 @@ export function resolvedPairingConfig(env: NodeJS.ProcessEnv = process.env) {
     || env.OPENSCOUT_MOBILE_PAIRING_RELAY_URL?.trim()
     || config.relay
     || (osn.discoveryEnabled ? osn.pairingRelayUrl : undefined);
+  const filePort = isValidPort(config.port) ? config.port : undefined;
+  const localConfigPort = loadLocalConfig().ports?.pairing;
   return {
     relay: typeof relay === "string" && relay.trim().length > 0
       ? relay.trim()
       : null,
     secure: config.secure !== false,
-    port: Number.isFinite(config.port) && (config.port ?? 0) > 0 ? Number(config.port) : 43130,
+    port: parseEnvPort(env) ?? localConfigPort ?? filePort ?? 43130,
     workspaceRoot: typeof config.workspace?.root === "string" && config.workspace.root.trim().length > 0
       ? config.workspace.root.trim()
       : null,

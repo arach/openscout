@@ -248,7 +248,7 @@ function SessionSummary({
   const usage = data?.metadata?.usage;
   const contextGauge = deriveContextBudgetGauge(usage, {
     model: data?.metadata?.session?.model ?? session.model,
-    adapterType: session.harness ?? agent.harness,
+    adapterType: session.harness,
   });
   const ctxHead = contextGauge
     ? `${contextGauge.usedLabel} / ${contextGauge.budgetLabel} ctx`
