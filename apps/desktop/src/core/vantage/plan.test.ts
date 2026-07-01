@@ -66,7 +66,6 @@ describe("buildScoutVantagePlan", () => {
           invocations: {},
           flights: {},
           collaborationRecords: {},
-          unblockRequests: {},
         },
       },
       tmuxSessions: [
@@ -156,7 +155,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "codex-debug", createdAt: null },
@@ -192,7 +190,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "relay-hudson", createdAt: 1 },
@@ -235,7 +232,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "shared-session", createdAt: 1 },
@@ -267,7 +263,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "relay-hudson", createdAt: 1 },
@@ -309,7 +304,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "relay-alpha", createdAt: 1 },
@@ -430,7 +424,6 @@ describe("buildScoutVantagePlan", () => {
         invocations: {},
         flights: {},
         collaborationRecords: {},
-        unblockRequests: {},
       },
       tmuxSessions: [
         { name: "stale-session", createdAt: 2 },
