@@ -69,6 +69,35 @@ describe("installScoutApiMiddleware", () => {
     expect(response.status).toBe(200);
   });
 
+  test("rejects a spoofed loopback Host from a non-loopback peer", async () => {
+    const app = createApp({ resolvePeerAddress: () => "192.168.1.50" });
+    const response = await app.request("http://localhost/api/ping");
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "forbidden" });
+  });
+
+  test("allows a loopback Host from a loopback peer", async () => {
+    const app = createApp({ resolvePeerAddress: () => "::ffff:127.0.0.1" });
+    const response = await app.request("http://localhost/api/ping", {
+      headers: { origin: "http://localhost" },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("trusts configured mDNS hosts regardless of peer address", async () => {
+    const app = createApp({
+      trustedHosts: ["scout.hudson-mini.local"],
+      resolvePeerAddress: () => "192.168.1.50",
+    });
+    const response = await app.request("http://scout.hudson-mini.local/api/ping", {
+      headers: { origin: "http://scout.hudson-mini.local" },
+    });
+
+    expect(response.status).toBe(200);
+  });
+
   test("allows configured public origins through a loopback proxy", async () => {
     const app = createApp({
       trustedHosts: ["scout.hudson-mini.local"],

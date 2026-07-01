@@ -1,8 +1,22 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 const UPLOAD_DIR = "/tmp/scout-uploads";
+
+/**
+ * Reduce an untrusted upload filename to a single safe path segment. Strips any
+ * directory components so a name like "../../etc/authorized_keys" cannot escape
+ * UPLOAD_DIR, and rejects names that resolve to nothing usable. Returns null if
+ * the name is unsafe.
+ */
+export function sanitizeUploadName(name: string): string | null {
+  const base = basename(name).trim();
+  if (!base || base === "." || base === ".." || base.includes("/") || base.includes("\\")) {
+    return null;
+  }
+  return base;
+}
 
 export async function handleRelayUpload(req: Request): Promise<Response> {
   const { name, data } = (await req.json()) as { name: string; data: string };
@@ -10,10 +24,14 @@ export async function handleRelayUpload(req: Request): Promise<Response> {
     return Response.json({ error: "Missing name or data" }, { status: 400 });
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  const filename = `${randomUUID()}-${name}`;
-  const filepath = join(UPLOAD_DIR, filename);
-  await Bun.write(filepath, Buffer.from(data, "base64"));
+  const safeName = sanitizeUploadName(name);
+  if (!safeName) {
+    return Response.json({ error: "Invalid name" }, { status: 400 });
+  }
+
+  await mkdir(UPLOAD_DIR, { recursive: true, mode: 0o700 });
+  const filepath = join(UPLOAD_DIR, `${randomUUID()}-${safeName}`);
+  await writeFile(filepath, Buffer.from(data, "base64"), { mode: 0o600 });
   return Response.json({ path: filepath });
 }
 
