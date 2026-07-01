@@ -17,7 +17,6 @@
 //   Outbound: tRPC JSON-RPC 2.0 responses + subscription data (encrypted)
 
 import { Hono } from "hono";
-import { trpcServer } from "@hono/trpc-server";
 import {
   callTRPCProcedure,
   getErrorShape,
@@ -223,22 +222,13 @@ export function startBridgeServerTRPC(options: {
     c.json({ ok: true, mode: secure ? "secure" : "plaintext", uptime: process.uptime() }),
   );
 
-  // tRPC HTTP adapter — serves queries/mutations over HTTP.
-  if (bridgeRouter) {
-    app.use(
-      "/trpc/*",
-      trpcServer({
-        router: bridgeRouter,
-        createContext: (_opts, c) => ({
-          bridge,
-          deviceId: c.req.header("x-device-id") ?? undefined,
-          cwd: resolveCurrentDirectory(),
-          secureTransport: false,
-          trustedPeer: false,
-        }),
-      }),
-    );
-  }
+  // SECURITY: the plaintext HTTP tRPC adapter was removed. It served the full
+  // bridge router over HTTP with secureTransport:false / trustedPeer:false and a
+  // client-supplied x-device-id header, bypassing the Noise handshake entirely —
+  // any LAN host could call session.create / prompt.send / history.read
+  // unauthenticated while pairing was active. All real clients (iOS) speak tRPC
+  // over the WS+Noise path below, which is the only authenticated transport.
+  // Do NOT re-add an unauthenticated HTTP tRPC surface.
 
   // -------------------------------------------------------------------------
   // Per-socket state map
