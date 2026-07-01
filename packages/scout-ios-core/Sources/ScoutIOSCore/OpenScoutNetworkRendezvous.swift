@@ -67,6 +67,25 @@ public struct OpenScoutNetworkPairingCandidate: Identifiable, Equatable, Sendabl
     }
 }
 
+public struct OpenScoutNetworkPairingRoutePlan: Equatable, Sendable {
+    public let relayURLs: [String]
+
+    public var preferredRelayURL: String? {
+        relayURLs.first
+    }
+
+    public var preferredRoute: TransportKind {
+        preferredRelayURL.map(transportKind(forRelayURL:)) ?? .none
+    }
+
+    public var routeLabels: [String] {
+        var seen = Set<String>()
+        return relayURLs
+            .map { transportKind(forRelayURL: $0).label }
+            .filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
 public func openScoutNetworkPairingCandidates(
     from list: OpenScoutMeshRendezvousList,
     now: Date = Date()
@@ -97,5 +116,72 @@ public func openScoutNetworkPairingCandidates(
     return candidates.sorted {
         if $0.observedAt != $1.observedAt { return $0.observedAt > $1.observedAt }
         return $0.nodeName.localizedCaseInsensitiveCompare($1.nodeName) == .orderedAscending
+    }
+}
+
+public func openScoutNetworkPairingRoutePlan(
+    for candidate: OpenScoutNetworkPairingCandidate,
+    userDefaults: UserDefaults = .standard
+) -> OpenScoutNetworkPairingRoutePlan {
+    let relayURLs = candidate.qrPayload.orderedRelayURLs
+    let ordered = relayURLs.enumerated()
+        .sorted { left, right in
+            let leftRank = openScoutNetworkPairingRouteRank(
+                transportKind(forRelayURL: left.element),
+                userDefaults: userDefaults
+            )
+            let rightRank = openScoutNetworkPairingRouteRank(
+                transportKind(forRelayURL: right.element),
+                userDefaults: userDefaults
+            )
+            if leftRank != rightRank { return leftRank < rightRank }
+            return left.offset < right.offset
+        }
+        .map(\.element)
+
+    guard let primary = ordered.first else {
+        return OpenScoutNetworkPairingRoutePlan(relayURLs: [])
+    }
+    return OpenScoutNetworkPairingRoutePlan(
+        relayURLs: deduplicatedRelayURLs(primary: primary, fallbacks: Array(ordered.dropFirst()))
+    )
+}
+
+public func openScoutNetworkPairingPayload(
+    for candidate: OpenScoutNetworkPairingCandidate,
+    userDefaults: UserDefaults = .standard
+) -> QRPayload {
+    let plan = openScoutNetworkPairingRoutePlan(for: candidate, userDefaults: userDefaults)
+    let relayURLs = plan.relayURLs.isEmpty ? candidate.qrPayload.orderedRelayURLs : plan.relayURLs
+    let primary = relayURLs.first ?? candidate.entrypoint.relay
+    let fallbacks = Array(relayURLs.dropFirst())
+    return QRPayload(
+        v: candidate.qrPayload.v,
+        relay: primary,
+        fallbackRelays: fallbacks.isEmpty ? nil : fallbacks,
+        room: candidate.qrPayload.room,
+        publicKey: candidate.qrPayload.publicKey,
+        expiresAt: candidate.qrPayload.expiresAt,
+        webPort: candidate.qrPayload.webPort
+    )
+}
+
+private func openScoutNetworkPairingRouteRank(
+    _ route: TransportKind,
+    userDefaults: UserDefaults
+) -> Int {
+    switch route {
+    case .lan:
+        return lanRoutingEnabled(userDefaults: userDefaults) ? 0 : 20
+    case .tailnet:
+        return tailnetRoutingEnabled(userDefaults: userDefaults) ? 1 : 21
+    case .remote:
+        return 2
+    case .oscout:
+        return openScoutNetworkRoutingEnabled(userDefaults: userDefaults) ? 3 : 23
+    case .loopback:
+        return 24
+    case .none:
+        return 25
     }
 }

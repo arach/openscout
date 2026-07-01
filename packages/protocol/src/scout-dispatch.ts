@@ -1,4 +1,4 @@
-import type { WakePolicy } from "./actors.js";
+import type { AgentHarness, WakePolicy } from "./actors.js";
 import type { AdvertiseScope, DeliveryTransport, MetadataMap, ScoutId } from "./common.js";
 
 export type ScoutDispatchKind = "ambiguous" | "unknown" | "unparseable" | "unavailable";
@@ -28,7 +28,7 @@ export interface ScoutCallerContext {
 export type ScoutRouteTarget =
   | { kind: "agent_id"; agentId: ScoutId; value?: string }
   | { kind: "agent_label"; label: string; value?: string }
-  | { kind: "session_id"; sessionId: ScoutId; value?: string }
+  | { kind: "session_id"; sessionId: ScoutId; harness?: AgentHarness; value?: string }
   | { kind: "binding_ref"; ref: string; value?: string }
   | { kind: "project_path"; projectPath: string; value?: string }
   | { kind: "channel"; channel: string; value?: string }

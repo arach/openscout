@@ -70,17 +70,20 @@ struct BridgeConnectionInfo: Codable, Sendable {
     var roomId: String      // Mutable — updated when room is resolved after bridge restart
     let publicKeyHex: String
     let fallbackRelayURLs: [String]
+    let webPort: Int?
 
     init(
         relayURL: String,
         roomId: String,
         publicKeyHex: String,
-        fallbackRelayURLs: [String] = []
+        fallbackRelayURLs: [String] = [],
+        webPort: Int? = nil
     ) {
         self.relayURL = relayURL
         self.roomId = roomId
         self.publicKeyHex = publicKeyHex
         self.fallbackRelayURLs = Array(deduplicatedRelayURLs(primary: relayURL, fallbacks: fallbackRelayURLs).dropFirst())
+        self.webPort = BridgeConnectionInfo.normalizedWebPort(webPort)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -88,6 +91,7 @@ struct BridgeConnectionInfo: Codable, Sendable {
         case roomId
         case publicKeyHex
         case fallbackRelayURLs
+        case webPort
     }
 
     init(from decoder: Decoder) throws {
@@ -98,8 +102,14 @@ struct BridgeConnectionInfo: Codable, Sendable {
             relayURL: relayURL,
             roomId: try container.decode(String.self, forKey: .roomId),
             publicKeyHex: try container.decode(String.self, forKey: .publicKeyHex),
-            fallbackRelayURLs: fallbackRelayURLs
+            fallbackRelayURLs: fallbackRelayURLs,
+            webPort: try container.decodeIfPresent(Int.self, forKey: .webPort)
         )
+    }
+
+    private static func normalizedWebPort(_ port: Int?) -> Int? {
+        guard let port, (1...65_535).contains(port) else { return nil }
+        return port
     }
 
     var relayURLs: [String] {
@@ -520,7 +530,8 @@ public final class BridgeConnection: @unchecked Sendable {
             relayURL: persistedRelayURLs.first ?? attempt.relayURL,
             roomId: attempt.roomId,
             publicKeyHex: info.publicKeyHex,
-            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
+            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst()),
+            webPort: info.webPort
         )
         updated.save(userDefaults: userDefaults, promoteActive: target == nil)
         lock.withLockVoid {
@@ -631,7 +642,8 @@ public final class BridgeConnection: @unchecked Sendable {
             relayURL: persistedRelayURLs.first ?? attempt.relayURL,
             roomId: attempt.roomId,
             publicKeyHex: publicKeyHex,
-            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst())
+            fallbackRelayURLs: Array(persistedRelayURLs.dropFirst()),
+            webPort: qrPayload.webPort
         )
         info.save(userDefaults: userDefaults, promoteActive: true)
 
@@ -787,7 +799,8 @@ public final class BridgeConnection: @unchecked Sendable {
                 relayURL: primaryRelayURL,
                 roomId: baseInfo.roomId,
                 publicKeyHex: baseInfo.publicKeyHex,
-                fallbackRelayURLs: Array(relayURLs.dropFirst())
+                fallbackRelayURLs: Array(relayURLs.dropFirst()),
+                webPort: baseInfo.webPort
             )
             refreshed.save(userDefaults: userDefaults, promoteActive: target == nil)
 

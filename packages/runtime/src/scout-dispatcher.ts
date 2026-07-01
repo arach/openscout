@@ -10,6 +10,7 @@ import {
   SCOUT_DISPATCHER_AGENT_ID,
   type AgentDefinition,
   type AgentEndpoint,
+  type AgentHarness,
   type AgentIdentity,
   type AgentIdentityCandidate,
   type AgentIdentityDiagnosis,
@@ -66,6 +67,7 @@ export interface BrokerRouteTargetInput {
   targetSessionId?: string | null;
   targetLabel?: string | null;
   routePolicy?: ScoutRoutePolicy | null;
+  execution?: { harness?: AgentHarness } | null;
 }
 
 export type BrokerAgentCandidate = AgentIdentityCandidate & {
@@ -124,6 +126,17 @@ export function routeChannelForTarget(input: BrokerRouteTargetInput): string | u
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = metadata?.[key];
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function sessionRouteLabel(sessionId: string, harness?: AgentHarness): string {
+  return harness ? `session:${harness}:${sessionId}` : `session:${sessionId}`;
+}
+
+function endpointMatchesSessionRouteScope(
+  endpoint: AgentEndpoint,
+  options: { harness?: AgentHarness },
+): boolean {
+  return !options.harness || endpoint.harness === options.harness;
 }
 
 function sessionActorHandleAliases(
@@ -503,12 +516,14 @@ function sessionTargetLabel(endpoint: AgentEndpoint, sessionId: string): string 
 function resolveSessionTarget(
   snapshot: RuntimeSnapshot,
   sessionId: string,
-  options: { helpers: Pick<DispatcherHelpers, "isStale"> },
+  options: { helpers: Pick<DispatcherHelpers, "isStale">; harness?: AgentHarness },
 ): BrokerLabelResolution {
+  const label = sessionRouteLabel(sessionId, options.harness);
   const matching = Object.values(snapshot.endpoints)
-    .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId));
+    .filter((endpoint) => endpointMatchesTargetSession(endpoint, sessionId))
+    .filter((endpoint) => endpointMatchesSessionRouteScope(endpoint, options));
   if (matching.length === 0) {
-    return { kind: "unknown", label: `session:${sessionId}` };
+    return { kind: "unknown", label };
   }
 
   // Card path (semantics unchanged from before SCO-070): if any matching endpoint
@@ -527,7 +542,7 @@ function resolveSessionTarget(
     return { kind: "resolved", agent: carded[0]! };
   }
   if (carded.length > 1) {
-    return { kind: "ambiguous", label: `session:${sessionId}`, candidates: carded };
+    return { kind: "ambiguous", label, candidates: carded };
   }
 
   // Cardless path (SCO-070): no backing AgentDefinition on any matching endpoint.
@@ -536,7 +551,7 @@ function resolveSessionTarget(
   // id is a transport choice, not an identity ambiguity.
   const live = matching.filter((endpoint) => !isStaleLocalEndpoint(snapshot, endpoint));
   if (live.length === 0) {
-    return { kind: "unknown", label: `session:${sessionId}` };
+    return { kind: "unknown", label };
   }
   const endpoint = [...live].sort(
     (left, right) => localEndpointPreferenceRank(left) - localEndpointPreferenceRank(right),
@@ -569,8 +584,12 @@ export function resolveBrokerRouteTarget(
     ? normalizedRouteTargetValue(routeTarget)
     : input.targetSessionId?.trim();
   if (directSessionId) {
+    const directSessionHarness = routeTarget?.kind === "session_id"
+      ? routeTarget.harness
+      : input.execution?.harness;
     return resolveSessionTarget(snapshot, directSessionId, {
       helpers: options.helpers,
+      harness: directSessionHarness,
     });
   }
 
