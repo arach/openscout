@@ -171,7 +171,6 @@ final class ScoutVoiceHostRunner {
         activeSessionId = sessionId
         sessionStartedAt = Date()
         deliveredFinalForSession = nil
-        bindSessionObservers(sessionId: sessionId)
 
         await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "starting"])
 
@@ -210,6 +209,7 @@ final class ScoutVoiceHostRunner {
         if let inputDeviceId = command.inputDeviceId, !inputDeviceId.isEmpty {
             ScoutVoiceSettingsStore.saveInputDeviceId(inputDeviceId)
         }
+        bindSessionObservers(sessionId: sessionId)
         voice.start(inputDeviceId: command.inputDeviceId)
         await postEvent(sessionId: sessionId, event: "session.state", data: ["state": "recording"])
     }
@@ -234,6 +234,7 @@ final class ScoutVoiceHostRunner {
         sessionCancellables.removeAll()
 
         voice.$partial
+            .dropFirst()
             .removeDuplicates()
             .sink { [weak self] partial in
                 guard let self, self.activeSessionId == sessionId else { return }
@@ -244,6 +245,7 @@ final class ScoutVoiceHostRunner {
             .store(in: &sessionCancellables)
 
         voice.$state
+            .dropFirst()
             .removeDuplicates()
             .sink { [weak self] state in
                 guard let self, self.activeSessionId == sessionId else { return }
@@ -252,6 +254,7 @@ final class ScoutVoiceHostRunner {
             .store(in: &sessionCancellables)
 
         voice.$lastFinalText
+            .dropFirst()
             .removeDuplicates()
             .sink { [weak self] finalText in
                 guard let self, self.activeSessionId == sessionId else { return }
