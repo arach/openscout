@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { FlightRecord, InvocationRequest } from "./invocations";
 import {
   deriveProjectedAgentRunId,
+  projectAgentRunFromInvocation,
   projectAgentRunFromInvocationFlight,
   projectAgentRunState,
 } from "./agent-runs";
@@ -219,6 +220,51 @@ describe("agent run projection", () => {
     expect(run.reviewState).toBe("needed");
     expect(run.updatedAt).toBe(1_250);
     expect(run.permissionProfile).toBe("trusted_local");
+    expect(run.flightIds).toBeUndefined();
+    expect(run.output).toBeUndefined();
+  });
+
+  test("projectAgentRunFromInvocation matches the flight-based projector on a merged record", () => {
+    const invocation = makeInvocation();
+    const flight = makeFlight({
+      state: "completed",
+      summary: "Implemented the slice.",
+      output: "Done.",
+      startedAt: 1_500,
+      completedAt: 2_000,
+    });
+
+    const viaFlight = projectAgentRunFromInvocationFlight({ invocation, flight });
+    const viaMerged = projectAgentRunFromInvocation({
+      invocation: {
+        ...invocation,
+        flightId: flight.id,
+        state: flight.state,
+        summary: flight.summary,
+        output: flight.output,
+        startedAt: flight.startedAt,
+        completedAt: flight.completedAt,
+      },
+    });
+
+    // The merged projector must reproduce the flight-based projection exactly,
+    // including the stable projected run id and flight id alias.
+    expect(viaMerged).toEqual(viaFlight);
+    expect(viaMerged.id).toBe("run:flight:flight-1");
+    expect(viaMerged.flightIds).toEqual(["flight-1"]);
+    expect(viaMerged.state).toBe("completed");
+    expect(viaMerged.output).toMatchObject({ summary: "Implemented the slice.", text: "Done." });
+  });
+
+  test("projectAgentRunFromInvocation projects an invocation-only record without a flight", () => {
+    const run = projectAgentRunFromInvocation({
+      invocation: makeInvocation({ id: "inv-no-flight", metadata: { reviewNeeded: true } }),
+      now: 1_250,
+    });
+
+    expect(run.id).toBe("run:invocation:inv-no-flight");
+    expect(run.state).toBe("unknown");
+    expect(run.reviewState).toBe("needed");
     expect(run.flightIds).toBeUndefined();
     expect(run.output).toBeUndefined();
   });
