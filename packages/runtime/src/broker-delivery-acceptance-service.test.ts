@@ -90,6 +90,9 @@ function testSnapshot(input: {
 function createHarness(input: {
   resolution?: InvocationResolution;
   conversation?: ConversationDefinition;
+  conversationForRequest?: (
+    request: { requesterId: string; targetAgentId?: string; channel?: string },
+  ) => ConversationDefinition;
   snapshot?: RuntimeSnapshot;
   isOperatorTarget?: (payload: ScoutDeliverRequest) => boolean;
   isScoutTarget?: (payload: ScoutDeliverRequest) => boolean;
@@ -136,7 +139,7 @@ function createHarness(input: {
     },
     async ensureBrokerDeliveryConversation(request) {
       conversationsRequested.push(request);
-      return conversation;
+      return input.conversationForRequest?.(request) ?? conversation;
     },
     brokerRouteKind: (conversationInput) => conversationInput.kind === "direct" ? "dm" : "channel",
     messageVisibilityForConversation: (conversationInput) => conversationInput?.visibility ?? "workspace",
@@ -297,6 +300,117 @@ describe("BrokerDeliveryAcceptanceService", () => {
       }),
     }));
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
+  });
+
+  test("channel consult posts a canonical channel message and broker pointer DM", async () => {
+    const channelConversation = testConversation({
+      id: "channel.xterm-super-component",
+      kind: "channel",
+      title: "xterm-super-component",
+      visibility: "workspace",
+      participantIds: ["operator", "agent-1"],
+    });
+    const directConversation = testConversation({
+      id: "dm.operator.agent-1",
+      kind: "direct",
+      title: "Agent One",
+      visibility: "private",
+      participantIds: ["operator", "agent-1"],
+    });
+    const harness = createHarness({
+      conversation: channelConversation,
+      conversationForRequest: (request) => request.channel ? channelConversation : directConversation,
+      now: 40_000,
+    });
+
+    const result = await harness.service.accept({
+      id: "deliver-channel-1",
+      body: "@agent-one please take pass 2",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      channel: "xterm-super-component",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      messageMetadata: { source: "test" },
+      invocationMetadata: { source: "test" },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(result.accepted).toBe(true);
+    expect(result.conversation.id).toBe("channel.xterm-super-component");
+    expect(harness.conversationsRequested).toEqual([
+      { requesterId: "operator", targetAgentId: "agent-1", channel: "xterm-super-component" },
+      { requesterId: "operator", targetAgentId: "agent-1" },
+    ]);
+    expect(harness.postedMessages).toHaveLength(2);
+
+    const [canonical, pointer] = harness.postedMessages;
+    expect(canonical).toEqual(expect.objectContaining({
+      id: "msg-1",
+      conversationId: "channel.xterm-super-component",
+      body: "@agent-one please take pass 2",
+      audience: expect.objectContaining({
+        notify: ["agent-1"],
+        reason: "mention",
+      }),
+      metadata: expect.objectContaining({
+        relayChannel: "xterm-super-component",
+        relayTarget: "agent-1",
+        relayMessageId: "msg-1",
+        returnAddress: expect.objectContaining({
+          conversationId: "channel.xterm-super-component",
+          replyToMessageId: "msg-1",
+        }),
+      }),
+    }));
+
+    expect(pointer).toEqual(expect.objectContaining({
+      id: "msg-2",
+      conversationId: "dm.operator.agent-1",
+      actorId: "operator",
+      class: "status",
+      mentions: [{ actorId: "agent-1", label: "@agent-one" }],
+      audience: {
+        notify: ["agent-1"],
+        reason: "direct_message",
+      },
+      metadata: expect.objectContaining({
+        source: "broker-channel-attention",
+        brokerGenerated: true,
+        attentionKind: "channel_pointer",
+        relayChannel: "dm",
+        relayTarget: "agent-1",
+        relayTargetIds: ["agent-1"],
+        relayMessageId: "msg-2",
+        channelPointer: expect.objectContaining({
+          channel: "xterm-super-component",
+          conversationId: "channel.xterm-super-component",
+          messageId: "msg-1",
+          intent: "consult",
+          targetAgentId: "agent-1",
+        }),
+        returnAddress: expect.objectContaining({
+          conversationId: "channel.xterm-super-component",
+          replyToMessageId: "msg-1",
+        }),
+      }),
+    }));
+    expect(pointer!.body).toContain("Reply in #xterm-super-component.");
+    expect(pointer!.body).not.toContain("please take pass 2");
+
+    expect(harness.acceptedInvocations).toHaveLength(1);
+    expect(harness.acceptedInvocations[0]).toEqual(expect.objectContaining({
+      conversationId: "channel.xterm-super-component",
+      messageId: "msg-1",
+      task: "@agent-one please take pass 2",
+      metadata: expect.objectContaining({
+        relayChannel: "xterm-super-component",
+        relayTarget: "agent-1",
+        returnAddress: expect.objectContaining({
+          conversationId: "channel.xterm-super-component",
+          replyToMessageId: "msg-1",
+        }),
+      }),
+    }));
   });
 
   test("unresolved targets record a dispatch and operator issue", async () => {

@@ -1,6 +1,5 @@
 import "./terminal-screen.css";
 
-import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
 import { Eye, LogIn, MoreHorizontal, Power, RefreshCw, Square, Terminal as TerminalIcon, Zap } from "lucide-react";
 import {
   type CSSProperties,
@@ -44,6 +43,7 @@ import {
   terminalSurfaceDescriptorFromRegisteredSurface,
   type RegisteredTerminalTarget,
 } from "../../lib/terminal-sessions.ts";
+import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 import { queueTakeover } from "../../lib/terminal-takeover.ts";
 import { createVantageHandoff, formatVantageLinkLabel } from "../../lib/vantage.ts";
 import { agentStateLabel } from "../../lib/agent-state.ts";
@@ -56,6 +56,13 @@ import type { useScout as UseScout } from "../../scout/Provider.tsx";
 
 export type TerminalNavigate = ReturnType<typeof UseScout>["navigate"];
 export type TerminalRoute = Extract<Route, { view: "terminal" }>;
+type HudsonTerminalRelayOptions = Parameters<typeof useTerminalRelay>[0];
+type ScoutTerminalRelayOptions = Omit<HudsonTerminalRelayOptions, "backend"> & {
+  backend?: "pty" | "tmux" | "zellij";
+  terminalSession?: string;
+  zellijSession?: string;
+  zellijSocketDir?: string;
+};
 
 export type TerminalContentProps = {
   route: TerminalRoute;
@@ -86,7 +93,7 @@ function useTerminalSessionsTarget(
 
   const loadSessions = useCallback(() => {
     setState((current) => ({ state: "loading", sessions: current.sessions }));
-    void fetchTerminalSessions()
+    void fetchTerminalSessions({ includeDiscovered: true })
       .then((sessions) => {
         setState({ state: "ready", sessions });
       })
@@ -883,7 +890,7 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
     if (!options.silent) {
       setState((current) => ({ state: "loading", sessions: current.sessions }));
     }
-    void fetchTerminalSessions()
+    void fetchTerminalSessions({ includeDiscovered: true })
       .then((sessions) => setState({ state: "ready", sessions }))
       .catch((error) => {
         if (options.silent) return;
@@ -1143,6 +1150,106 @@ function basename(path: string | null | undefined): string | null {
   return trimmed.split("/").pop() || trimmed;
 }
 
+function NewTerminalSession({
+  route,
+  navigate,
+}: {
+  route: TerminalRoute;
+  navigate: TerminalNavigate;
+}) {
+  const terminalBodyRef = useRef<HTMLDivElement>(null);
+  const backend = route.terminalBackend ?? "pty";
+  const agent = route.terminalAgent ?? "shell";
+  const tabId = route.terminalTabId ?? "adhoc";
+  const generatedSessionName = backend === "pty" ? undefined : `scout-${backend}-${tabId}`;
+  const sessionName = route.terminalSessionName ?? generatedSessionName;
+  const relayUrl = resolveScoutTerminalRelayUrl();
+  const healthUrl = resolveScoutTerminalRelayHealthUrl();
+  const label = freshTerminalLabel(backend, agent);
+  const sessionKey = [
+    "scout-terminal-new",
+    backend,
+    agent,
+    sessionName ?? tabId,
+  ].join("-");
+
+  const relay = useTerminalRelay({
+    url: relayUrl,
+    healthUrl,
+    autoConnect: true,
+    sessionKey,
+    backend,
+    ...(sessionName ? { terminalSession: sessionName } : {}),
+    ...(backend === "tmux" && sessionName ? { tmuxSession: sessionName } : {}),
+    ...(backend === "zellij" && sessionName ? { zellijSession: sessionName } : {}),
+    ...(backend === "zellij" && route.zellijSocketDir ? { zellijSocketDir: route.zellijSocketDir } : {}),
+    agent,
+  } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
+
+  useBrowserLayoutEffect(() => {
+    relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);
+  }, [relay.resize]);
+
+  return (
+    <div className="s-term">
+      <div className="s-term-bar">
+        <BackToPicker
+          slot="terminal"
+          fallback={{ view: "terminal" }}
+          navigate={navigate}
+          className="s-term-back"
+        />
+        <span className="s-term-label">{label.title}</span>
+        <div className="s-term-status">{label.detail}</div>
+        <div className="s-term-actions">
+          <button
+            type="button"
+            className="s-term-icon-button"
+            onClick={() => relay.restart()}
+            title="Restart terminal"
+            aria-label="Restart terminal"
+          >
+            <RefreshCw size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={terminalBodyRef}
+        className="s-term-body"
+        onMouseDown={() => {
+          terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
+          terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+        }}
+      >
+        <TerminalRelay
+          relay={relay}
+          fontSize={13}
+          quiet
+          configItems={[
+            { label: "backend", value: backend },
+            { label: "agent", value: agent },
+            ...(sessionName ? [{ label: "session", value: sessionName }] : []),
+            ...(route.zellijSocketDir ? [{ label: "socket", value: route.zellijSocketDir }] : []),
+            { label: "ws", value: relayUrl },
+            { label: "health", value: healthUrl },
+          ]}
+        />
+      </div>
+    </div>
+  );
+}
+
+function freshTerminalLabel(
+  backend: NonNullable<TerminalRoute["terminalBackend"]>,
+  agent: NonNullable<TerminalRoute["terminalAgent"]>,
+): { title: string; detail: string } {
+  const agentLabel = agent === "shell" ? "Shell" : agent === "pi" ? "Pi" : "Claude";
+  if (backend === "pty") {
+    return { title: agentLabel, detail: "fresh PTY tab" };
+  }
+  return { title: `${agentLabel} ${backend}`, detail: `fresh ${backend} backed tab` };
+}
+
 function TerminalTakeoverGate({
   agentId,
   agent,
@@ -1193,6 +1300,10 @@ function ResolvingAgent({ navigate }: { navigate: TerminalNavigate }) {
 export function TerminalContent({ route, navigate }: TerminalContentProps) {
   const { agentId, mode, terminalSessionId, terminalSurfaceKey } = route;
   const { agents } = useScout();
+
+  if (route.terminalBackend) {
+    return <NewTerminalSession route={route} navigate={navigate} />;
+  }
 
   if (!agentId) {
     if (!terminalSessionId && !terminalSurfaceKey) {

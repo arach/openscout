@@ -37,7 +37,7 @@ const useTerminalRelayMock = mock(() => ({
   exitCode: null,
   cwd: "~",
   setCwd: () => {},
-  onData: () => {},
+  onData: () => () => {},
   sendInput: baseRelaySendInput,
   sendLine: baseRelaySendLine,
   resize: () => {},
@@ -48,7 +48,7 @@ const useTerminalRelayMock = mock(() => ({
 
 let scoutAgents: unknown[] = [];
 
-mock.module("@hudsonkit", () => ({
+mock.module("hudsonkit/terminal", () => ({
   useTerminalRelay: useTerminalRelayMock,
   TerminalRelay: (props: { relay?: unknown }) => {
     terminalRelayProps = props as TerminalRelayCapture;

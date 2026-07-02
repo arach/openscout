@@ -112,6 +112,16 @@ function parseTerminalMode(value: string | null): "observe" | "takeover" | undef
   return normalized === "observe" || normalized === "takeover" ? normalized : undefined;
 }
 
+function parseTerminalBackend(value: string | null): "pty" | "tmux" | "zellij" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "pty" || normalized === "tmux" || normalized === "zellij" ? normalized : undefined;
+}
+
+function parseTerminalAgent(value: string | null): "shell" | "claude" | "pi" | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "shell" || normalized === "claude" || normalized === "pi" ? normalized : undefined;
+}
+
 function parseDiffInclude(value: string | null): "changed" | "all" | undefined {
   return value === "all" || value === "touched" ? "all" : value === "changed" ? "changed" : undefined;
 }
@@ -542,6 +552,21 @@ export function routeFromUrl(urlLike: string | URL): Route {
     const mode = parseTerminalMode(url.searchParams.get("mode"));
     const terminalSessionId = url.searchParams.get("session")?.trim() || undefined;
     const terminalSurfaceKey = url.searchParams.get("surface")?.trim() || undefined;
+    if (parts[1] === "new") {
+      const terminalBackend = parseTerminalBackend(url.searchParams.get("backend")) ?? "pty";
+      const terminalAgent = parseTerminalAgent(url.searchParams.get("agent")) ?? "shell";
+      const terminalSessionName = url.searchParams.get("name")?.trim() || undefined;
+      const terminalTabId = url.searchParams.get("tab")?.trim() || undefined;
+      const zellijSocketDir = url.searchParams.get("socketDir")?.trim() || undefined;
+      return {
+        view: "terminal",
+        terminalBackend,
+        terminalAgent,
+        ...(terminalSessionName ? { terminalSessionName } : {}),
+        ...(terminalTabId ? { terminalTabId } : {}),
+        ...(zellijSocketDir ? { zellijSocketDir } : {}),
+      };
+    }
     const pathSurfaceKey = surfaceKeyFromParts(
       parts[1] ? decodeURIComponent(parts[1]) : undefined,
       parts[2] ? decodeURIComponent(parts.slice(2).join("/")) : undefined,
@@ -766,6 +791,14 @@ export function routePath(r: Route, pathname?: string): string {
       }
       {
         const params = new URLSearchParams();
+        if (r.terminalBackend) {
+          if (r.terminalBackend !== "pty") params.set("backend", r.terminalBackend);
+          if (r.terminalAgent && r.terminalAgent !== "shell") params.set("agent", r.terminalAgent);
+          if (r.terminalSessionName) params.set("name", r.terminalSessionName);
+          if (r.terminalTabId) params.set("tab", r.terminalTabId);
+          if (r.zellijSocketDir) params.set("socketDir", r.zellijSocketDir);
+          return `/terminal/new${searchSuffix(params)}`;
+        }
         if (r.mode) params.set("mode", r.mode);
         const surfaceParts = surfacePartsFromKey(r.terminalSurfaceKey);
         if (surfaceParts) {
@@ -829,7 +862,7 @@ function routeKey(r: Route): string {
     case "follow":
       return `follow:${r.flightId ?? r.invocationId ?? r.conversationId ?? r.workId ?? r.sessionId ?? r.targetAgentId ?? ""}:${r.preferredView ?? ""}`;
     case "terminal":
-      return `terminal:${r.agentId ?? ""}:${r.terminalSessionId ?? ""}:${r.terminalSurfaceKey ?? ""}:${r.mode ?? "detail"}`;
+      return `terminal:${r.agentId ?? ""}:${r.terminalSessionId ?? ""}:${r.terminalSurfaceKey ?? ""}:${r.terminalBackend ?? ""}:${r.terminalAgent ?? ""}:${r.terminalSessionName ?? ""}:${r.terminalTabId ?? ""}:${r.mode ?? "detail"}`;
     case "repo-diff":
       return `repo-diff:${r.path}`;
     default:

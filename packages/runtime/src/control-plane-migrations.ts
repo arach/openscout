@@ -150,6 +150,11 @@ function seedControlPlaneDrizzleBaseline(database: Database, migrationsFolder: s
     .run({ $hash: baseline.hash, $createdAt: baseline.folderMillis });
 }
 
+function controlPlaneDatabaseFilename(database: Database): string {
+  const filename = (database as { filename?: unknown }).filename;
+  return typeof filename === "string" && filename.trim() ? filename : "<unknown>";
+}
+
 export function applyControlPlaneDrizzleMigrations(database: Database): boolean {
   const migrationsFolder = resolveControlPlaneDrizzleMigrationsFolder();
   const journalPath = join(migrationsFolder, "meta", "_journal.json");
@@ -167,7 +172,7 @@ export function assertControlPlaneSchemaNotNewer(database: Database): void {
   const stampedVersion = row?.user_version ?? 0;
   if (stampedVersion > CONTROL_PLANE_SCHEMA_VERSION) {
     throw new Error(
-      `Control-plane database "${database.filename}" is stamped schema v${stampedVersion}, ` +
+      `Control-plane database "${controlPlaneDatabaseFilename(database)}" is stamped schema v${stampedVersion}, ` +
         `but this build only knows v${CONTROL_PLANE_SCHEMA_VERSION}. Refusing to open a ` +
         `database written by a newer build — upgrade OpenScout instead of downgrading.`,
     );

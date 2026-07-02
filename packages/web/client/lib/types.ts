@@ -1290,13 +1290,18 @@ export type Route =
       sessionId?: string;
       targetAgentId?: string;
     }
-  | {
-      view: "terminal";
-      agentId?: string;
-      mode?: "observe" | "takeover";
-      terminalSessionId?: string;
-      terminalSurfaceKey?: string;
-    };
+	  | {
+	      view: "terminal";
+	      agentId?: string;
+	      mode?: "observe" | "takeover";
+	      terminalSessionId?: string;
+	      terminalSurfaceKey?: string;
+	      terminalBackend?: "pty" | "tmux" | "zellij";
+	      terminalAgent?: "shell" | "claude" | "pi";
+	      terminalSessionName?: string;
+	      terminalTabId?: string;
+	      zellijSocketDir?: string;
+	    };
 
 export type AgentTab = "profile" | "config" | "observe" | "message";
 export type OpsMode = "plan" | "mission" | "issues" | "agents" | "tail" | "atop" | "lanes";

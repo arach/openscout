@@ -30,7 +30,7 @@ export function TerminalLeft() {
     if (!options.silent) {
       setState((current) => ({ state: "loading", sessions: current.sessions }));
     }
-    void fetchTerminalSessions()
+    void fetchTerminalSessions({ includeDiscovered: true })
       .then((sessions) => {
         setState({ state: "ready", sessions });
       })

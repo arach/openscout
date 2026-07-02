@@ -10,6 +10,8 @@ export interface SessionInitMessage {
   type: 'session:init';
   cols: number;
   rows: number;
+  /** Client-supported protocol capabilities, eg. terminal:ack. */
+  clientCapabilities?: string[];
   systemPrompt?: string;
   /** Working directory for the PTY session. Defaults to $HOME. */
   cwd?: string;
@@ -17,15 +19,15 @@ export interface SessionInitMessage {
   workspaceFiles?: Record<string, string>;
   /** How long (ms) to keep the PTY alive after the client disconnects. Defaults to 30 min. */
   orphanTTL?: number;
-  /** PTY backend. 'pty' spawns a fresh process (default). Terminal backends attach to a named surface. */
+  /** PTY backend. 'pty' spawns a fresh process; 'tmux'/'zellij' attach to named multiplexers. */
   backend?: 'pty' | 'tmux' | 'zellij';
-  /** Generic terminal surface session name. */
-  terminalSession?: string;
-  /** For tmux backend: the tmux session name. */
+  /** Client control intent. Current local relay treats this as advisory. */
+  controlMode?: 'owner' | 'takeover' | 'observe';
+  /** For tmux backend: the tmux session name. Required when backend is 'tmux'. */
   tmuxSession?: string;
   /** For zellij backend: the zellij session name. */
   zellijSession?: string;
-  /** For zellij backend: socket directory to preserve across attach/watch calls. */
+  /** For zellij backend: optional shorter socket directory (useful on macOS). */
   zellijSocketDir?: string;
   /** Process to spawn. 'claude' (default), 'pi', or 'shell' for a normal login shell. */
   agent?: 'claude' | 'pi' | 'shell';
@@ -40,6 +42,10 @@ export interface SessionReconnectMessage {
   sessionId: string;
   cols?: number;
   rows?: number;
+  /** Client-supported protocol capabilities, eg. terminal:ack. */
+  clientCapabilities?: string[];
+  /** Client control intent. Current local relay treats this as advisory. */
+  controlMode?: 'owner' | 'takeover' | 'observe';
 }
 
 export interface TerminalInputMessage {
@@ -53,20 +59,47 @@ export interface TerminalResizeMessage {
   rows: number;
 }
 
+export interface TerminalAckMessage {
+  type: 'terminal:ack';
+  seq: number;
+}
+
 export type ClientMessage =
   | SessionInitMessage
   | SessionReconnectMessage
   | TerminalInputMessage
-  | TerminalResizeMessage;
+  | TerminalResizeMessage
+  | TerminalAckMessage;
 
 import { createRequire } from 'module';
 import { execFileSync, execSync } from 'child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join, dirname as pathDirname } from 'path';
 import type { IPty } from '@lydell/node-pty';
 
 const require = createRequire(import.meta.url);
-const pty = require('@lydell/node-pty') as typeof import('@lydell/node-pty');
+const pty = (() => {
+  try {
+    return require('@lydell/node-pty') as typeof import('@lydell/node-pty');
+  } catch {
+    return require('node-pty') as typeof import('@lydell/node-pty');
+  }
+})();
+
+import {
+  ackTerminalData,
+  createTerminalFlowControlState,
+  enqueueTerminalData,
+  resetTerminalFlowControl,
+  TERMINAL_ACK_CAPABILITY,
+  TERMINAL_FLOW_CONTROL_CAPABILITY,
+  type TerminalFlowControlState,
+} from './terminal-relay-flow';
+import {
+  buildZellijAttachArgs,
+  createZellijLayoutFile,
+  prepareZellijSocketDir,
+} from './terminal-relay-zellij';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,6 +110,15 @@ const DEFAULT_ORPHAN_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
 /** Maximum size of the raw output buffer for reconnect replay (~512 KB). */
 const MAX_BUFFER_SIZE = 512 * 1024;
+
+export const RELAY_CAPABILITIES = [
+  TERMINAL_ACK_CAPABILITY,
+  TERMINAL_FLOW_CONTROL_CAPABILITY,
+  'backend:pty',
+  'backend:tmux',
+  'backend:zellij',
+  'control-mode:observe',
+] as const;
 
 // ---------------------------------------------------------------------------
 // Session
@@ -98,14 +140,20 @@ export interface Session {
   orphanTTL: number;
   /** PTY backend type. */
   backend: 'pty' | 'tmux' | 'zellij';
-  /** Generic terminal surface session name. */
-  terminalSession?: string;
+  /** Client control intent. */
+  controlMode: 'owner' | 'takeover' | 'observe';
   /** tmux session name (only set when backend is 'tmux'). */
   tmuxSession?: string;
   /** zellij session name (only set when backend is 'zellij'). */
   zellijSession?: string;
-  /** zellij socket directory (only set when backend is 'zellij'). */
+  /** zellij socket directory override (only set when backend is 'zellij'). */
   zellijSocketDir?: string;
+  /** Temporary layout file used to create a zellij session with the requested command. */
+  zellijLayoutPath?: string;
+  /** ACK-based outbound flow-control state for attached clients. */
+  flowControl: TerminalFlowControlState;
+  /** Whether the currently attached client supports ACK-based flow control. */
+  flowControlEnabled: boolean;
   /** Whether the PTY process has exited. */
   exited: boolean;
   exitCode: number | null;
@@ -133,6 +181,49 @@ function markSessionPtyClosed(session: Session, err: unknown, op: 'write' | 'res
   session.exited = true;
   console.warn(`[relay] Session ${session.id}: PTY ${op} failed after fd closed (${err instanceof Error ? err.message : String(err)})`);
   scheduleReap(session, 10_000);
+}
+
+function pauseSessionOutput(session: Session) {
+  try { session.pty.pause?.(); } catch {}
+}
+
+function resumeSessionOutput(session: Session) {
+  try { session.pty.resume?.(); } catch {}
+}
+
+function resetSessionFlowControl(session: Session) {
+  resetTerminalFlowControl(session.flowControl, {
+    resume: () => resumeSessionOutput(session),
+  });
+}
+
+export function ackSessionOutput(session: Session, seq: number): boolean {
+  if (!session.flowControlEnabled) return false;
+  return ackTerminalData(session.flowControl, session.ws, seq, {
+    pause: () => pauseSessionOutput(session),
+    resume: () => resumeSessionOutput(session),
+  });
+}
+
+function sendTerminalOutput(session: Session, data: string) {
+  if (!session.flowControlEnabled) {
+    if (session.ws && session.ws.readyState === 1) {
+      send(session.ws, { type: 'terminal:data', data });
+    }
+    return;
+  }
+
+  enqueueTerminalData(session.flowControl, session.ws, data, {
+    pause: () => pauseSessionOutput(session),
+    resume: () => resumeSessionOutput(session),
+    onDrop: ({ bytes, chunks }) => {
+      console.warn(`[relay] Session ${session.id}: dropped ${bytes} bytes across ${chunks} queued output chunks after flow-control overflow`);
+    },
+  });
+}
+
+function clientSupportsAck(capabilities?: string[]): boolean {
+  return Array.isArray(capabilities) && capabilities.includes(TERMINAL_ACK_CAPABILITY);
 }
 
 export function sessionOwnsSocket(session: Session, ws: RelaySocket): boolean {
@@ -222,6 +313,11 @@ function findShellBin(): string | null {
   return findBin('zsh') ?? findBin('bash') ?? findBin('sh') ?? (existsSync('/bin/sh') ? '/bin/sh' : null);
 }
 
+/** Locate the zellij binary, returning null if not found. */
+function findZellijBin(): string | null {
+  return findBin('zellij', 'ZELLIJ_BIN');
+}
+
 /** Map Hudson-facing provider ids to the exact provider names accepted by the Pi CLI. */
 function normalizePiProviderForCli(provider?: string): string | undefined {
   if (!provider) return undefined;
@@ -255,84 +351,6 @@ function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
   } catch {
     return false;
   }
-}
-
-function resolveZellijSocketDir(raw?: string): string {
-  const home = process.env.HOME || '/tmp';
-  const configured = raw?.trim() || process.env.ZELLIJ_SOCKET_DIR?.trim() || process.env.OPENSCOUT_ZELLIJ_SOCKET_DIR?.trim();
-  const candidate = configured || join(home, '.openscout', 'zellij-sockets');
-  return candidate === '~' ? home : candidate.startsWith('~/') ? join(home, candidate.slice(2)) : candidate;
-}
-
-function zellijEnv(baseEnv: Record<string, string | undefined>, socketDir: string): Record<string, string | undefined> {
-  try {
-    mkdirSync(socketDir, { recursive: true });
-  } catch {}
-  return { ...baseEnv, ZELLIJ_SOCKET_DIR: socketDir };
-}
-
-/** Check if a zellij session exists. */
-function zellijSessionExists(name: string, env: Record<string, string | undefined>): boolean {
-  try {
-    const output = execFileSync('zellij', ['list-sessions'], {
-      env: env as NodeJS.ProcessEnv,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return output
-      .split(/\r?\n/u)
-      .map((line) => line.trim().split(/\s+/u)[0])
-      .some((sessionName) => sessionName === name);
-  } catch {
-    return false;
-  }
-}
-
-/** Spawn a PTY that attaches to a zellij session (creating it if needed). */
-function spawnZellijSession(
-  zellijName: string,
-  cols: number,
-  rows: number,
-  cwd: string,
-  commandBin: string,
-  commandArgs: string[],
-  env: Record<string, string | undefined>,
-  socketDir: string,
-): IPty {
-  const effectiveEnv = zellijEnv(env, socketDir);
-  const exists = zellijSessionExists(zellijName, effectiveEnv);
-
-  if (!exists) {
-    execFileSync('zellij', ['attach', '--create-background', zellijName], {
-      env: effectiveEnv as NodeJS.ProcessEnv,
-      stdio: 'ignore',
-    });
-    execFileSync('zellij', [
-      '--session',
-      zellijName,
-      'action',
-      'new-pane',
-      '--cwd',
-      cwd,
-      '--',
-      commandBin,
-      ...commandArgs,
-    ], {
-      env: effectiveEnv as NodeJS.ProcessEnv,
-      stdio: 'ignore',
-    });
-    console.log(`[relay] Created zellij session: ${zellijName}`);
-  } else {
-    console.log(`[relay] Attaching to existing zellij session: ${zellijName}`);
-  }
-
-  return pty.spawn('zellij', ['attach', zellijName], {
-    name: 'xterm-256color',
-    cols,
-    rows,
-    cwd,
-    env: effectiveEnv,
-  });
 }
 
 /** Bootstrap workspace files into a directory (only creates if missing). */
@@ -389,15 +407,48 @@ function spawnTmuxSession(
   });
 }
 
+/** Spawn a PTY that attaches to a zellij session (creating it if needed). */
+function spawnZellijSession(
+  zellijBin: string,
+  zellijName: string,
+  cols: number,
+  rows: number,
+  cwd: string,
+  commandBin: string,
+  commandArgs: string[],
+  env: Record<string, string | undefined>,
+  controlMode: 'owner' | 'takeover' | 'observe',
+): { ptyProcess: IPty; layoutPath?: string } {
+  const layoutPath = controlMode === 'observe'
+    ? undefined
+    : createZellijLayoutFile({ cwd, commandBin, commandArgs });
+  const args = buildZellijAttachArgs({
+    sessionName: zellijName,
+    controlMode,
+    layoutPath,
+    cwd,
+  });
+
+  return {
+    ptyProcess: pty.spawn(zellijBin, args, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd,
+      env,
+    }),
+    layoutPath,
+  };
+}
+
 export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session | null {
   const id = generateId();
   const cols = Math.max(msg.cols || 80, 20);
   const rows = Math.max(msg.rows || 24, 4);
   const backend = msg.backend || 'pty';
-  const terminalName = msg.terminalSession || msg.tmuxSession || msg.zellijSession || `hudson-${id}`;
-  const tmuxName = msg.tmuxSession || terminalName;
-  const zellijName = msg.zellijSession || terminalName;
-  const zellijSocketDir = resolveZellijSocketDir(msg.zellijSocketDir);
+  const controlMode = msg.controlMode || 'owner';
+  const tmuxName = msg.tmuxSession || `hudson-${id}`;
+  const zellijName = msg.zellijSession || `hudson-${id}`;
   const agent = msg.agent || 'claude';
 
   // ---- Pre-flight: locate command binary ----
@@ -435,14 +486,16 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     return null;
   }
 
-  // ---- Pre-flight: terminal backends require their multiplexer ----
+  // ---- Pre-flight: tmux backend requires tmux ----
   if (backend === 'tmux' && !findBin('tmux')) {
     const reason = 'tmux not found. Install it with: brew install tmux';
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
     return null;
   }
-  if (backend === 'zellij' && !findBin('zellij')) {
+
+  const zellijBin = backend === 'zellij' ? findZellijBin() : null;
+  if (backend === 'zellij' && !zellijBin) {
     const reason = 'zellij not found. Install it with: brew install zellij';
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
@@ -474,19 +527,27 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     if (msg.systemPrompt) agentArgs.push('--system-prompt', msg.systemPrompt);
   }
 
-  const env: Record<string, string | undefined> = { ...process.env, TERM: 'xterm-256color', FORCE_COLOR: '1' };
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    ...prepareZellijSocketDir(backend === 'zellij' ? msg.zellijSocketDir : undefined),
+    TERM: 'xterm-256color',
+    FORCE_COLOR: '1',
+  };
   delete env.CLAUDECODE;
 
   // ---- Spawn PTY (direct or tmux-backed) ----
   let ptyProcess: IPty;
+  let zellijLayoutPath: string | undefined;
 
   try {
     if (backend === 'tmux') {
       console.log(`[relay] Session ${id}: tmux backend (session: ${tmuxName}) in ${cwd} [agent: ${agent}]`);
       ptyProcess = spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env);
     } else if (backend === 'zellij') {
-      console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}) in ${cwd} [agent: ${agent}]`);
-      ptyProcess = spawnZellijSession(zellijName, cols, rows, cwd, agentBin, agentArgs, env, zellijSocketDir);
+      console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}, mode: ${controlMode}) in ${cwd} [agent: ${agent}]`);
+      const spawned = spawnZellijSession(zellijBin!, zellijName, cols, rows, cwd, agentBin, agentArgs, env, controlMode);
+      ptyProcess = spawned.ptyProcess;
+      zellijLayoutPath = spawned.layoutPath;
     } else {
       console.log(`[relay] Session ${id}: pty backend, spawning ${agentBin} in ${cwd} [agent: ${agent}]`);
       ptyProcess = pty.spawn(agentBin, agentArgs, {
@@ -516,8 +577,15 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
     reapTimer: null,
     orphanTTL,
     backend,
-    ...(backend === 'tmux' ? { terminalSession: tmuxName, tmuxSession: tmuxName } : {}),
-    ...(backend === 'zellij' ? { terminalSession: zellijName, zellijSession: zellijName, zellijSocketDir } : {}),
+    controlMode,
+    ...(backend === 'tmux' ? { tmuxSession: tmuxName } : {}),
+    ...(backend === 'zellij' ? {
+      zellijSession: zellijName,
+      ...(msg.zellijSocketDir ? { zellijSocketDir: msg.zellijSocketDir } : {}),
+      ...(zellijLayoutPath ? { zellijLayoutPath } : {}),
+    } : {}),
+    flowControl: createTerminalFlowControlState(),
+    flowControlEnabled: clientSupportsAck(msg.clientCapabilities),
     exited: false,
     exitCode: null,
   };
@@ -532,10 +600,8 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
       session.outputBuffer = session.outputBuffer.slice(-MAX_BUFFER_SIZE);
     }
 
-    // Forward raw data to attached client
-    if (session.ws && session.ws.readyState === 1) {
-      send(session.ws, { type: 'terminal:data', data });
-    }
+    // Forward raw data to attached client with ACK-based backpressure.
+    sendTerminalOutput(session, data);
   });
 
   ptyProcess.onExit(({ exitCode }) => {
@@ -569,13 +635,15 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
 }
 
 /** Attach a WebSocket to an existing session (reconnect). */
-export function attachSession(session: Session, ws: RelaySocket, cols?: number, rows?: number) {
+export function attachSession(session: Session, ws: RelaySocket, cols?: number, rows?: number, clientCapabilities?: string[]) {
   // Cancel any pending reap
   if (session.reapTimer) {
     clearTimeout(session.reapTimer);
     session.reapTimer = null;
   }
 
+  resetSessionFlowControl(session);
+  session.flowControlEnabled = clientSupportsAck(clientCapabilities);
   session.ws = ws;
 
   // Resize if the client has different dimensions
@@ -591,7 +659,7 @@ export function attachSession(session: Session, ws: RelaySocket, cols?: number, 
   if (session.exited) {
     send(ws, { type: 'session:exit', exitCode: session.exitCode });
   } else if (session.outputBuffer.length > 0) {
-    send(ws, { type: 'terminal:data', data: session.outputBuffer });
+    sendTerminalOutput(session, session.outputBuffer);
   }
 
   console.log(`[relay] Session ${session.id} reconnected`);
@@ -599,6 +667,7 @@ export function attachSession(session: Session, ws: RelaySocket, cols?: number, 
 
 /** Detach the WebSocket from a session (keeps PTY alive). */
 export function detachSession(session: Session) {
+  resetSessionFlowControl(session);
   session.ws = null;
 
   if (session.exited) {
@@ -624,7 +693,11 @@ export function destroy(sessionId: string) {
   const session = sessions.get(sessionId);
   if (!session) return;
   if (session.reapTimer) clearTimeout(session.reapTimer);
+  resetSessionFlowControl(session);
   try { session.pty.kill(); } catch {}
+  if (session.zellijLayoutPath) {
+    try { rmSync(pathDirname(session.zellijLayoutPath), { recursive: true, force: true }); } catch {}
+  }
   sessions.delete(sessionId);
   if (session.backend === 'tmux') {
     console.log(`[relay] Session ${sessionId} bridge destroyed (tmux session '${session.tmuxSession}' still alive)`);

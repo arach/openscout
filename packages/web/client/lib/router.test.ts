@@ -316,6 +316,24 @@ describe("agents route parsing", () => {
     );
   });
 
+  test("terminal routes support fresh backend tabs", () => {
+    const route = routeFromUrl(
+      "http://127.0.0.1:43120/terminal/new?backend=zellij&agent=claude&name=scout-zj-tab-1&tab=tab-1&socketDir=/tmp/z",
+    );
+
+    expect(route).toEqual({
+      view: "terminal",
+      terminalBackend: "zellij",
+      terminalAgent: "claude",
+      terminalSessionName: "scout-zj-tab-1",
+      terminalTabId: "tab-1",
+      zellijSocketDir: "/tmp/z",
+    });
+    expect(routePath(route)).toBe(
+      "/terminal/new?backend=zellij&agent=claude&name=scout-zj-tab-1&tab=tab-1&socketDir=%2Ftmp%2Fz",
+    );
+  });
+
   test("ops issues route accepts error-oriented aliases", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/ops/plan")).toEqual({
       view: "ops",
