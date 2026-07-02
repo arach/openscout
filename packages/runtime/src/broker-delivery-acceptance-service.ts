@@ -53,6 +53,20 @@ type OperatorDeliveryIssueInput = {
   detail: string;
 };
 
+type ChannelAttentionPointerInput = {
+  requesterId: string;
+  requesterNodeId: string;
+  targetAgentId: string;
+  targetLabel: string;
+  channel: string;
+  intent: ScoutDeliverRequest["intent"];
+  conversation: ConversationDefinition;
+  message: MessageRecord;
+  createdAt: number;
+  replyToSessionId?: string;
+  collaborationRecordId?: string;
+};
+
 export type BrokerDeliveryAcceptanceServiceOptions = {
   nodeId: string;
   operatorActorId: string;
@@ -178,6 +192,94 @@ function normalizeDeliveryAttachments(
 
 export class BrokerDeliveryAcceptanceService {
   constructor(private readonly options: BrokerDeliveryAcceptanceServiceOptions) {}
+
+  private channelAttentionPointerBody(input: {
+    channel: string;
+    targetLabel: string;
+    intent: ScoutDeliverRequest["intent"];
+    messageId: string;
+  }): string {
+    const workNoun = input.intent === "consult" ? "work request" : "message";
+    return [
+      `Broker notice: #${input.channel} has a ${workNoun} for ${input.targetLabel}.`,
+      `Canonical message: ${input.messageId}.`,
+      `Reply in #${input.channel}.`,
+    ].join(" ");
+  }
+
+  private async postChannelAttentionPointer(input: ChannelAttentionPointerInput): Promise<MessageRecord | null> {
+    if (
+      !input.channel.trim()
+      || input.conversation.kind === "direct"
+      || input.targetAgentId === input.requesterId
+    ) {
+      return null;
+    }
+
+    const pointerConversation = await this.options.ensureBrokerDeliveryConversation({
+      requesterId: input.requesterId,
+      targetAgentId: input.targetAgentId,
+    });
+    const snapshot = this.options.runtimeSnapshot();
+    const messageId = this.options.createId("msg");
+    const returnAddress = this.options.buildBrokerReturnAddressForActor(snapshot, input.requesterId, {
+      conversationId: input.conversation.id,
+      replyToMessageId: input.message.id,
+      sessionId: input.replyToSessionId,
+    });
+    const pointer: MessageRecord = {
+      id: messageId,
+      conversationId: pointerConversation.id,
+      actorId: input.requesterId,
+      originNodeId: input.requesterNodeId,
+      class: "status",
+      body: this.channelAttentionPointerBody({
+        channel: input.channel,
+        targetLabel: input.targetLabel,
+        intent: input.intent,
+        messageId: input.message.id,
+      }),
+      mentions: [{ actorId: input.targetAgentId, label: input.targetLabel }],
+      audience: {
+        notify: [input.targetAgentId],
+        reason: "direct_message",
+      },
+      visibility: this.options.messageVisibilityForConversation(pointerConversation),
+      policy: "durable",
+      createdAt: input.createdAt,
+      metadata: {
+        source: "broker-channel-attention",
+        brokerGenerated: true,
+        attentionKind: "channel_pointer",
+        relayChannel: "dm",
+        relayTarget: input.targetAgentId,
+        relayTargetIds: [input.targetAgentId],
+        relayMessageId: messageId,
+        channelPointer: {
+          channel: input.channel,
+          conversationId: input.conversation.id,
+          messageId: input.message.id,
+          intent: input.intent,
+          targetAgentId: input.targetAgentId,
+          ...(input.collaborationRecordId ? { collaborationRecordId: input.collaborationRecordId } : {}),
+        },
+        returnAddress,
+      },
+    };
+    await this.options.postConversationMessage(pointer);
+    return pointer;
+  }
+
+  private async postChannelAttentionPointerBestEffort(input: ChannelAttentionPointerInput): Promise<void> {
+    try {
+      await this.postChannelAttentionPointer(input);
+    } catch (error) {
+      this.options.warn?.(
+        `[openscout-runtime] broker channel attention pointer failed for message ${input.message.id}`,
+        error,
+      );
+    }
+  }
 
   async accept(
     payload: ScoutDeliverRequest,
@@ -657,6 +759,22 @@ export class BrokerDeliveryAcceptanceService {
     };
     await this.options.postConversationMessage(message);
     throwIfAborted(options.signal);
+    if (deliveryChannel) {
+      await this.postChannelAttentionPointerBestEffort({
+        requesterId,
+        requesterNodeId,
+        targetAgentId: target.actorId,
+        targetLabel,
+        channel: deliveryChannel,
+        intent: payload.intent,
+        conversation,
+        message,
+        createdAt,
+        replyToSessionId,
+        collaborationRecordId,
+      });
+      throwIfAborted(options.signal);
+    }
 
     const shouldDispatchTargetTurn =
       payload.intent === "consult"

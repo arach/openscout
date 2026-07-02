@@ -56,6 +56,13 @@ import type { useScout as UseScout } from "../../scout/Provider.tsx";
 
 export type TerminalNavigate = ReturnType<typeof UseScout>["navigate"];
 export type TerminalRoute = Extract<Route, { view: "terminal" }>;
+type HudsonTerminalRelayOptions = Parameters<typeof useTerminalRelay>[0];
+type ScoutTerminalRelayOptions = Omit<HudsonTerminalRelayOptions, "backend"> & {
+  backend?: "pty" | "tmux" | "zellij";
+  terminalSession?: string;
+  zellijSession?: string;
+  zellijSocketDir?: string;
+};
 
 export type TerminalContentProps = {
   route: TerminalRoute;
@@ -1177,7 +1184,7 @@ function NewTerminalSession({
     ...(backend === "zellij" && sessionName ? { zellijSession: sessionName } : {}),
     ...(backend === "zellij" && route.zellijSocketDir ? { zellijSocketDir: route.zellijSocketDir } : {}),
     agent,
-  });
+  } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
 
   useBrowserLayoutEffect(() => {
     relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);

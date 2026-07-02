@@ -19,6 +19,8 @@ export interface SessionInitMessage {
   orphanTTL?: number;
   /** PTY backend. 'pty' spawns a fresh process (default). Terminal backends attach to a named surface. */
   backend?: 'pty' | 'tmux' | 'zellij';
+  /** Client control intent. Current local relay treats this as advisory. */
+  controlMode?: 'owner' | 'takeover' | 'observe';
   /** Generic terminal surface session name. */
   terminalSession?: string;
   /** For tmux backend: the tmux session name. */
@@ -40,6 +42,8 @@ export interface SessionReconnectMessage {
   sessionId: string;
   cols?: number;
   rows?: number;
+  /** Client control intent. Current local relay treats this as advisory. */
+  controlMode?: 'owner' | 'takeover' | 'observe';
 }
 
 export interface TerminalInputMessage {
@@ -53,11 +57,17 @@ export interface TerminalResizeMessage {
   rows: number;
 }
 
+export interface TerminalAckMessage {
+  type: 'terminal:ack';
+  seq: number;
+}
+
 export type ClientMessage =
   | SessionInitMessage
   | SessionReconnectMessage
   | TerminalInputMessage
-  | TerminalResizeMessage;
+  | TerminalResizeMessage
+  | TerminalAckMessage;
 
 import { createRequire } from 'module';
 import { execFileSync, execSync } from 'child_process';

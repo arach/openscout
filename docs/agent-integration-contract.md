@@ -111,6 +111,14 @@ Even message-only interactions should return stable ids such as `conversationId`
 and `messageId`. Treat "fire and forget" as a UI affordance, not the underlying
 contract.
 
+Channel-addressed work stays channel-first. When a delivery names both a
+channel and a concrete agent/session target, the canonical message and return
+address remain in the channel conversation. The broker may also create a tiny
+direct-message attention pointer for weak harnesses or UIs that do not reliably
+watch channel notifications. That pointer is broker-generated status, not a
+second task body: adapters should follow its `channelPointer` and
+`returnAddress` metadata back to the channel message before replying.
+
 ### 5. Invocation Path
 
 Use the invocation path for work:
