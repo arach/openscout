@@ -144,35 +144,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let commsItem = NSMenuItem(title: "Open Scout", action: #selector(openComms), keyEquivalent: "c")
-        commsItem.target = self
-        commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
-        menu.addItem(commsItem)
+        let scoutItem = NSMenuItem(title: "Open Scout", action: #selector(openScout), keyEquivalent: "c")
+        scoutItem.target = self
+        scoutItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
+        menu.addItem(scoutItem)
 
-        let openItem = NSMenuItem(title: "Open OpenScout", action: #selector(openWebApp), keyEquivalent: "")
-        openItem.target = self
-        menu.addItem(openItem)
-
-        let openTailscaleItem = NSMenuItem(title: "Open Tailscale", action: #selector(openTailscale), keyEquivalent: "")
-        openTailscaleItem.target = self
-        menu.addItem(openTailscaleItem)
-
-        let openScoutNetworkItem = NSMenuItem(title: "Set Up OpenScout Network", action: #selector(setUpOpenScoutNetwork), keyEquivalent: "")
-        openScoutNetworkItem.target = self
-        menu.addItem(openScoutNetworkItem)
-
-        let refreshItem = NSMenuItem(title: "Refresh", action: #selector(refreshState), keyEquivalent: "r")
-        refreshItem.target = self
-        menu.addItem(refreshItem)
-
-        menu.addItem(.separator())
-
-        let hudItem = NSMenuItem(title: "Show HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        let hudItem = NSMenuItem(title: "Open HUD", action: #selector(openHUD), keyEquivalent: "h")
         hudItem.target = self
         hudItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(hudItem)
 
-        let tailItem = NSMenuItem(title: "Toggle Tail Mode", action: #selector(showTailMode), keyEquivalent: "t")
+        let tailItem = NSMenuItem(title: "Open Tail", action: #selector(openTail), keyEquivalent: "t")
         tailItem.target = self
         tailItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(tailItem)
@@ -182,6 +164,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
+
+        let refreshItem = NSMenuItem(title: "Refresh Status", action: #selector(refreshState), keyEquivalent: "r")
+        refreshItem.target = self
+        menu.addItem(refreshItem)
 
         menu.addItem(.separator())
 
@@ -252,28 +238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc
-    private func openWebApp() {
-        controller.openWebApp()
-    }
-
-    @objc
-    private func openComms() {
+    private func openScout() {
         controller.openComms()
-    }
-
-    @objc
-    private func openTailscale() {
-        controller.openTailscale()
-    }
-
-    @objc
-    private func setUpOpenScoutNetwork() {
-        controller.setUpOpenScoutNetwork()
-    }
-
-    @objc
-    private func openLogsView() {
-        controller.openLogsView()
     }
 
     @objc
@@ -287,12 +253,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc
-    private func toggleHUD() {
+    private func openHUD() {
         ScoutAppBridge.openHUD(command: "toggle")
     }
 
     @objc
-    private func showTailMode() {
+    private func openTail() {
         ScoutAppBridge.openHUD(command: "tail-toggle")
     }
 

@@ -148,16 +148,7 @@ struct MainView: View {
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .disabled(controller.webActionPending)
-                .help("Open Scout")
-
-                Button {
-                    controller.openWebApp()
-                } label: {
-                    Image(systemName: "safari")
-                        .font(.system(size: 11, weight: .semibold))
-                }
-                .buttonStyle(HeaderIconButtonStyle())
-                .disabled(controller.webActionPending)
+                .help("Open Scout app")
 
                 Button {
                     controller.refresh()
@@ -167,6 +158,7 @@ struct MainView: View {
                 }
                 .buttonStyle(HeaderIconButtonStyle())
                 .disabled(controller.isRefreshing)
+                .help("Refresh status")
             }
         }
         .padding(.horizontal, 14)
@@ -215,16 +207,14 @@ struct MainView: View {
 
     // MARK: - Surfaces launcher
     //
-    // The two things you actually *go to* from the menu bar: the full app and
-    // the HUD overlay (plus the tail/logs overlay). Services (broker/relay/web)
-    // live in the deck below — this row is "take me there", up top where it's
-    // the first thing you reach.
+    // The things you actually *go to* from the menu bar: the native app, HUD,
+    // and Tail. The browser link lives in the WEB deck tile below.
     private var surfaceLauncher: some View {
         HStack(spacing: 8) {
             LaunchTile(
                 glyph: "macwindow",
                 label: "SCOUT",
-                help: "Open the Scout app"
+                help: "Open the Scout macOS app"
             ) {
                 ScoutAppBridge.openScout()
             }
@@ -529,7 +519,7 @@ struct MainView: View {
         if !controller.webReachable && !controller.webActionPending {
             return "Start web app"
         }
-        return "Open web app"
+        return "Open web app in browser"
     }
 
     // MARK: - QR Panel
