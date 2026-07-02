@@ -2,6 +2,7 @@ import type { AgentHarness } from "./actors.js";
 import type { MetadataMap, ScoutId, VisibilityScope } from "./common.js";
 import type {
   FlightRecord,
+  Invocation,
   InvocationExecutionPreference,
   InvocationRequest,
 } from "./invocations.js";
@@ -230,6 +231,18 @@ export interface ProjectAgentRunFromInvocationFlightInput {
   traceSessionIds?: ScoutId[];
 }
 
+export interface ProjectAgentRunFromInvocationInput {
+  /** The merged invocation record, carrying its own execution status. */
+  invocation: Invocation;
+  now?: number;
+  source?: AgentRunSource;
+  reviewState?: AgentRunReviewState;
+  agentRevisionSnapshot?: AgentRevisionSnapshot;
+  reviewTaskIds?: ScoutId[];
+  artifactIds?: ScoutId[];
+  traceSessionIds?: ScoutId[];
+}
+
 export function deriveProjectedAgentRunId(input: {
   invocationId: ScoutId;
   flightId?: ScoutId;
@@ -315,6 +328,51 @@ export function projectAgentRunFromInvocationFlight(
   addOptional(run, "metadata", metadata);
 
   return run;
+}
+
+/**
+ * Project an AgentRun from the merged invocation record (Phase 3's single source
+ * of truth), where execution status lives on the invocation itself.
+ *
+ * Until the storage merge (PR B+) lands, this re-derives the flight view from the
+ * invocation's status subset and delegates to
+ * {@link projectAgentRunFromInvocationFlight}, so the two projectors stay
+ * behavior-identical and the stable `run:flight:<flightId>` id is preserved. A
+ * record with no durable flightId projects as an invocation-only run, exactly as
+ * the flight-based projector does when no flight is present.
+ */
+export function projectAgentRunFromInvocation(
+  input: ProjectAgentRunFromInvocationInput,
+): AgentRun {
+  const { invocation } = input;
+  const flight: FlightRecord | undefined = invocation.flightId
+    ? {
+        id: invocation.flightId,
+        invocationId: invocation.id,
+        requesterId: invocation.requesterId,
+        targetAgentId: invocation.targetAgentId,
+        state: invocation.state ?? "queued",
+        summary: invocation.summary,
+        output: invocation.output,
+        error: invocation.error,
+        startedAt: invocation.startedAt,
+        completedAt: invocation.completedAt,
+        labels: invocation.labels,
+        metadata: invocation.metadata,
+      }
+    : undefined;
+
+  return projectAgentRunFromInvocationFlight({
+    invocation,
+    flight,
+    now: input.now,
+    source: input.source,
+    reviewState: input.reviewState,
+    agentRevisionSnapshot: input.agentRevisionSnapshot,
+    reviewTaskIds: input.reviewTaskIds,
+    artifactIds: input.artifactIds,
+    traceSessionIds: input.traceSessionIds,
+  });
 }
 
 export function projectAgentRunState(
