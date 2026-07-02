@@ -42,4 +42,4 @@ Use narrower package checks when working in a specific area.
 - [`../README.md`](../README.md) for the repo overview
 - [`../apps/README.md`](../apps/README.md) for runnable app surfaces
 - [`../docs/architecture.md`](../docs/architecture.md) for the package boundaries
-- [`../docs/data-ownership.md`](../docs/data-ownership.md) before changing persistence
+- [`../docs/architecture.md`](../docs/architecture.md#the-data-model) before changing persistence

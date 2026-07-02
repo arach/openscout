@@ -29,7 +29,7 @@ At minimum, an integration needs five pieces.
 
 The agent needs a stable Scout identity. Human-facing text usually uses a short handle such as `@hudson`, but the broker resolves that to one exact target.
 
-Use [`agent-identity.md`](./agent-identity.md) for the full grammar. The important fields are:
+Use the [agent identity section of `architecture.md`](./architecture.md#agent-identity-and-addressing) for the full grammar. The important fields are:
 
 - `definitionId`: the base agent/project name
 - `workspaceQualifier`: branch, worktree, or project variant when needed
@@ -200,7 +200,7 @@ Scout separates information, execution, and communication:
 
 Do not turn every chat into a work item. Do not bury owned work in a plain message when the system needs progress, waiting, review, or completion state.
 
-Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) for the full model.
+Read [`agents-and-collaboration.md`](./agents-and-collaboration.md) for the full model.
 
 ## Human Input And Permissions
 
@@ -234,7 +234,7 @@ Integrations may link to, tail, summarize, or index lightweight metadata from ha
 
 Adapters must not write into a harness-owned ecosystem. For Claude Code, that means `.claude` project state, subagent definitions, agent-team config, task files, and MCP settings are read-only observation surfaces for adapters. Scout can inspect those surfaces to model reachability and topology when the harness makes them available, but it must not author or repair them on Claude's behalf. Host setup commands that intentionally install Scout into a harness are separate, explicit operator actions, never adapter runtime behavior.
 
-Read [`data-ownership.md`](./data-ownership.md).
+Read the [data model section of `architecture.md`](./architecture.md#the-data-model).
 Read [`eng/harness-topology-observation.md`](./eng/harness-topology-observation.md) for the shared observed-topology shape.
 
 ## Token And Cost Metadata

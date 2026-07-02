@@ -47,7 +47,7 @@ npm --prefix packages/agent-sessions run adapter:validate-specs
 
 ## Read Next
 
-- [Data ownership](../../docs/data-ownership.md) for the Scout-owned versus
+- [Data model](../../docs/architecture.md#the-data-model) for the Scout-owned versus
   harness-owned boundary.
 - [Agent integration contract](../../docs/agent-integration-contract.md) for
   adapter expectations.

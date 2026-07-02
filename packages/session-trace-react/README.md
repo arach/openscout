@@ -33,5 +33,5 @@ npm --prefix packages/session-trace-react run check
   trace model
 - [`../web/README.md`](../web/README.md) for the web UI package that consumes
   trace presentation
-- [`../../docs/data-ownership.md`](../../docs/data-ownership.md) for the
+- [`../../docs/architecture.md`](../../docs/architecture.md#the-data-model) for the
   observed-source versus Scout-owned record boundary

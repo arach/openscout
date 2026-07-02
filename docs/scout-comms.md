@@ -537,11 +537,11 @@ When building a Scout client or plugin:
 ## Related Docs
 
 - `docs/architecture.md`
-- `docs/agent-identity.md`
+- `docs/architecture.md#agent-identity-and-addressing`
 - `docs/runtime-sessions.md`
-- `docs/collaboration-workflows-v1.md`
+- `docs/agents-and-collaboration.md`
 - `docs/agent-integration-contract.md`
-- `docs/data-ownership.md`
+- `docs/architecture.md#the-data-model`
 - `docs/eng/sco-014-broker-owned-routing-and-context.md`
 - `docs/eng/sco-017-scout-broker-reply-context.md`
 - `docs/eng/sco-019-lightweight-mission-channels.md`

@@ -40,3 +40,10 @@ To see the live, complete list of proposals: open the studio at
 ## Research Notes
 
 - [external-runtime-inventory-and-handoff.md](./external-runtime-inventory-and-handoff.md)
+
+## Archive
+
+- [openagents-tracks/](./openagents-tracks/README.md) - the OpenAgents-inspired
+  implementation tracks; the durable concepts were folded into the top-level
+  docs (`architecture.md`, `agents-and-collaboration.md`, `concepts.md`), and
+  the rest is kept here as historical planning context

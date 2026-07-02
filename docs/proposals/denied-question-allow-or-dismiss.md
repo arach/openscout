@@ -59,7 +59,7 @@ Combine the conservative options:
 2. `QuestionBlockView` deniedView renders the reason if present (italic, muted, one line).
 3. Add a **Dismiss** button (or context menu item) that locally hides the card for the session.
 4. **Do not** ship "Allow now" yet — defer until override audit semantics are designed.
-5. Update `docs/glossary.md` with the new field if/when we add it.
+5. Update `docs/concepts.md` with the new field if/when we add it.
 
 ## Out of scope
 

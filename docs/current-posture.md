@@ -41,7 +41,7 @@ This is not yet a hardened security perimeter:
 - no guarantee that every harness permission prompt is broker-owned yet
 - no universal sandbox contract across Codex, Claude, and future harnesses
 
-For the data boundary, read [`data-ownership.md`](./data-ownership.md). For operator approvals and permission prompts, read [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md).
+For the data boundary, read the [data model section of `architecture.md`](./architecture.md#the-data-model). For operator approvals and permission prompts, read [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md).
 
 ## Mesh Means Reachability
 

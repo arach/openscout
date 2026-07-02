@@ -59,7 +59,7 @@ OpenScout is currently for high-trust local developer pilots, not enterprise-rea
 - [install.md](./install.md) for install and bootstrap expectations.
 - [docs/current-posture.md](./docs/current-posture.md) for maturity, trust, mesh, install footprint, and license boundaries.
 - [docs/architecture.md](./docs/architecture.md) for the broker/runtime/protocol model.
-- [docs/data-ownership.md](./docs/data-ownership.md) before changing transcript persistence.
+- [docs/architecture.md](./docs/architecture.md#the-data-model) before changing transcript persistence.
 - [docs/agent-integration-contract.md](./docs/agent-integration-contract.md) before adding agent/adaptor integrations.
 - [docs/operator-attention-and-unblock.md](./docs/operator-attention-and-unblock.md) before changing permission, approval, or human-input flows.
 

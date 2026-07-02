@@ -2,7 +2,8 @@
    Pure helpers behind the project "New agent" flow: handle normalization,
    validation (auto / invalid / conflict), handle suggestions, and the routing
    preview. Kept side-effect free so the modal stays a thin view and the rules
-   are unit-testable. Routing language follows docs/agent-identity.md — a handle
+   are unit-testable. Routing language follows the Agent Identity And Addressing
+   section of docs/architecture.md — a handle
    is a fresh-session target; session:<id> is the only exact-continuation
    handle. ── */
 

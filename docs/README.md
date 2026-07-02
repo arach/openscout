@@ -1,98 +1,85 @@
 # Docs
 
-This folder is the working documentation set for OpenScout. Use it as the docs
-map after the top-level [`README.md`](../README.md): the first group explains
-the current local-first product shape, including the human surfaces that sit on
-the same broker/runtime as the agents. Later groups are for implementation
-detail, historical context, or proposals.
+This folder is the working documentation set for OpenScout. Read it top-down:
+the spine below gives the whole model in a few stops, the reference layer under
+it serves specific audiences, and `eng/` holds implementation-facing design
+docs, proposals, and archived planning material.
 
-## Start Here
+## The Spine
 
-If you are scanning from GitHub and want the shortest path:
+Read these in order the first time:
 
-1. [`../README.md`](../README.md) for what OpenScout is and how to run it locally
-2. [`../install.md`](../install.md) for choosing published CLI vs repo-local setup
-3. [`quickstart.md`](./quickstart.md) for the first healthy local run and first meaningful commands
-4. [`current-posture.md`](./current-posture.md) for maturity, trust, install footprint, and license-status boundaries
-5. [`architecture.md`](./architecture.md) for the system-level control-plane model
+1. [`../README.md`](../README.md) — what OpenScout is and how to run it locally
+2. [`../install.md`](../install.md) — choosing published CLI vs repo-local setup
+3. [`quickstart.md`](./quickstart.md) — the first healthy local run and first meaningful commands
+4. [`architecture.md`](./architecture.md) — the system shape, the data model (what Scout owns vs observes), agent identity and addressing, and the integration boundary
+5. [`agents-and-collaboration.md`](./agents-and-collaboration.md) — how agents reach each other and move owned work: questions, work items, delegation, waking
+6. [`concepts.md`](./concepts.md) — what every core noun means: the concepts Scout brings, and where it deliberately maps to open protocols (A2A, ACP, MCP)
 
 Keep the posture straight while reading: OpenScout is for high-trust local
-developer pilots today. It is not an enterprise-ready, compliance-ready, or
-hardened multi-tenant runtime.
+developer pilots today, not enterprise or multi-tenant deployment. The
+boundaries live in [`current-posture.md`](./current-posture.md).
 
-After that, choose the role-specific next read:
+## Reference By Audience
 
-- Agent or adapter integration: [`agent-integration-contract.md`](./agent-integration-contract.md), then [`scout-comms.md`](./scout-comms.md), then [`mcp-api-posture.md`](./mcp-api-posture.md)
-- Routing and identity: [`agent-identity.md`](./agent-identity.md), then [`scout-agent-delegation.md`](./scout-agent-delegation.md)
-- Data model and ownership: [`data-ownership.md`](./data-ownership.md), then [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md)
-- Human/operator surfaces: [`ask-scout.md`](./ask-scout.md), then [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md)
-- Standards and terminology: [`glossary.md`](./glossary.md), then [`a2a-alignment.md`](./a2a-alignment.md)
-- Host/package map: [`integrations.md`](./integrations.md), then [`../install.md#companion-host-integrations`](../install.md#companion-host-integrations)
+**Building a client, plugin, or adapter:**
 
-## Current Orientation Docs
+- [`scout-comms.md`](./scout-comms.md) — the front door: records, workflows, routing, receipts
+- [`agent-integration-contract.md`](./agent-integration-contract.md) — the minimum contract for plugging a harness or agent into Scout
+- [`mcp-api-posture.md`](./mcp-api-posture.md) — the core vs pro MCP tool tiers
+- [`chat-model.md`](./chat-model.md) — the Chat/Conversation model and its invariants
+- [`runtime-sessions.md`](./runtime-sessions.md) — session lifecycle detail
 
-### Core Concepts
+**Operating Scout as a human:**
 
-- [`quickstart.md`](./quickstart.md) gives the first-success path and defines the main operator-facing terms
-- [`current-posture.md`](./current-posture.md) states the current maturity, trust, install-footprint, mesh, and license boundaries
-- [`architecture.md`](./architecture.md) explains the broker-first system shape and the main control-plane terms
-- [`data-ownership.md`](./data-ownership.md) defines the boundary between Scout-owned coordination state and observed harness source material
-- [`agent-integration-contract.md`](./agent-integration-contract.md) gives coding agents and adapter authors the minimum contract for plugging into Scout
-- [`scout-comms.md`](./scout-comms.md) is the front door for building Scout-aware clients and adapters
-- [`mcp-api-posture.md`](./mcp-api-posture.md) defines the core vs pro Scout MCP tool tiers
-- [`integrations.md`](./integrations.md) maps host-specific Scout integrations and explains why they are linked rather than vendored by default
-- [`glossary.md`](./glossary.md) defines the canonical meanings of Scout's core nouns
-- [`scoutbot.md`](./scoutbot.md) defines `@scoutbot` as the unified conversational assistant handle
-- [`a2a-alignment.md`](./a2a-alignment.md) explains where Scout intentionally aligns with A2A and where it does not
-- [`agent-identity.md`](./agent-identity.md) explains canonical and minimal agent addresses
-- [`ask-scout.md`](./ask-scout.md) explains how a human reaches their agents through Scout
-- [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md) explains the question vs work-item model
-- [`scout-agent-delegation.md`](./scout-agent-delegation.md) explains the correct one-to-one agent delegation workflow
-- [`local-ports.md`](./local-ports.md) lists the Scout-owned local TCP port range and exceptions
-- [`user-config.md`](./user-config.md) covers operator identity and local config
+- [`ask-scout.md`](./ask-scout.md) — how you reach your agents through Scout
+- [`ask-scout-implementation.md`](./ask-scout-implementation.md) — implementation detail for the ask flow
+- [`operator-attention-and-unblock.md`](./operator-attention-and-unblock.md) — how "needs the human" reaches you
+- [`scoutbot.md`](./scoutbot.md) — the `@scoutbot` assistant handle
+- [`tail-firehose.md`](./tail-firehose.md) — watching harness activity across the machine
 
-## Deeper Product Docs
+**Interop and posture:**
 
-- [`ask-scout-implementation.md`](./ask-scout-implementation.md) adds implementation detail for the ask flow
-- [`tail-firehose.md`](./tail-firehose.md) explains the machine-wide harness transcript stream for observing agent activity
-- [`native-runtime.md`](./native-runtime.md) captures historical context for the desktop-host/runtime split
-- [`releases.md`](./releases.md) explains the coordinated npm, DMG, GitHub release, and optional iOS ship path
+- [`current-posture.md`](./current-posture.md) — maturity, trust, install footprint, license boundaries
+- [`protocol-readiness-a2a-acp.md`](./protocol-readiness-a2a-acp.md) — the dated A2A/ACP readiness matrix
+- [`integrations.md`](./integrations.md) — host-specific Scout integrations and why they live in sibling repos
+
+**Configuration and operations:**
+
+- [`local-ports.md`](./local-ports.md) — the Scout-owned local TCP port range
+- [`settings.md`](./settings.md) and [`user-config.md`](./user-config.md) — where settings and operator identity live
+- [`local-secrets.md`](./local-secrets.md) — local secret handling
+- [`releases.md`](./releases.md) — the coordinated npm, DMG, and GitHub release path
+- [`native-runtime.md`](./native-runtime.md) — historical context for the desktop-host/runtime split
 
 ## Agent-Optimized Docs
 
-- [`../llms.txt`](../llms.txt) is the compact repo-wide LLM index
-- [`../llms-full.txt`](../llms-full.txt) is the larger generated copy/paste context bundle
-- [`../install.md`](../install.md) is the install/bootstrap guide with success criteria and support footprint
-- [`agent/README.agent.md`](./agent/README.agent.md) is the dense project context for coding agents
-- [`agent/current-posture.agent.md`](./agent/current-posture.agent.md) is the dense maturity and trust summary
-- [`agent/integration-contract.agent.md`](./agent/integration-contract.agent.md) is the dense adapter and agent integration checklist
-- [`agent/scout-comms.agent.md`](./agent/scout-comms.agent.md) is the dense comms integration checklist
+- [`../llms.txt`](../llms.txt) — the compact repo-wide LLM index
+- [`../llms-full.txt`](../llms-full.txt) — the larger generated copy/paste context bundle
+- [`agent/README.agent.md`](./agent/README.agent.md) — dense project context for coding agents
+- [`agent/current-posture.agent.md`](./agent/current-posture.agent.md) — dense maturity and trust summary
+- [`agent/integration-contract.agent.md`](./agent/integration-contract.agent.md) — dense adapter and agent integration checklist
+- [`agent/scout-comms.agent.md`](./agent/scout-comms.agent.md) — dense comms integration checklist
 
 ## Engineering Docs And Proposals
 
-- [`eng/README.md`](./eng/README.md) indexes implementation-facing design docs and proposals
-- [`openagents-tracks/README.md`](./openagents-tracks/README.md) breaks the current OpenAgents-inspired work into implementation tracks
+[`eng/README.md`](./eng/README.md) indexes implementation-facing design docs,
+proposals, and archived planning material (including the retired
+OpenAgents-inspired tracks).
 
 ## Reading By Question
 
-- "What is OpenScout trying to be?" Start with [`../README.md`](../README.md) and [`architecture.md`](./architecture.md).
-- "What data does Scout own?" Read [`data-ownership.md`](./data-ownership.md).
-- "Is this enterprise-ready?" Read [`current-posture.md`](./current-posture.md).
-- "How should an agent integrate?" Read [`agent-integration-contract.md`](./agent-integration-contract.md).
-- "How should a client or adapter understand Scout communication?" Read [`scout-comms.md`](./scout-comms.md).
-- "How should an agent ask for fresh work in a project?" Use [`quickstart.md`](./quickstart.md), [`scout-comms.md`](./scout-comms.md), and [`mcp-api-posture.md`](./mcp-api-posture.md): project + harness first, returned handle for follow-up.
-- "Which MCP tools are core versus pro integration?" Read [`mcp-api-posture.md`](./mcp-api-posture.md).
-- "Where do host integrations live?" Read [`integrations.md`](./integrations.md).
-- "What exactly do Scout's core terms mean?" Read [`glossary.md`](./glossary.md).
-- "What is `@scoutbot`?" Read [`scoutbot.md`](./scoutbot.md).
-- "How does Scout relate to A2A?" Read [`a2a-alignment.md`](./a2a-alignment.md).
-- "How do I get to a first healthy run?" Start with [`quickstart.md`](./quickstart.md).
-- "Which local ports does Scout own?" Read [`local-ports.md`](./local-ports.md).
-- "Where do Scout settings live?" Read [`settings.md`](./settings.md).
-- "How do I address or route to an agent?" Read [`agent-identity.md`](./agent-identity.md).
-- "How does work differ from conversation?" Read [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
-- "How do I watch harness activity across the machine?" Read [`tail-firehose.md`](./tail-firehose.md).
-- "Where do proposals and implementation plans live?" Start in [`eng/README.md`](./eng/README.md).
-- "How do I use Scout from a pi session?" Read [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md).
-- "How do I ship npm and the macOS DMG together?" Read [`releases.md`](./releases.md).
-- "What should I read first as a newcomer?" Use the current orientation docs, then move to deeper product docs only if you need implementation or historical context.
+- "What is OpenScout trying to be?" — [`../README.md`](../README.md), then [`architecture.md`](./architecture.md)
+- "What exactly does this noun mean?" — [`concepts.md`](./concepts.md)
+- "What data does Scout own?" — the Data Model section of [`architecture.md`](./architecture.md)
+- "How do I address or route to an agent?" — the identity sections of [`architecture.md`](./architecture.md)
+- "How does work differ from conversation?" — [`agents-and-collaboration.md`](./agents-and-collaboration.md)
+- "How should an agent integrate?" — [`agent-integration-contract.md`](./agent-integration-contract.md)
+- "How should a client or adapter understand Scout communication?" — [`scout-comms.md`](./scout-comms.md)
+- "Which MCP tools are core versus pro integration?" — [`mcp-api-posture.md`](./mcp-api-posture.md)
+- "How does Scout relate to A2A?" — [`concepts.md`](./concepts.md), then [`protocol-readiness-a2a-acp.md`](./protocol-readiness-a2a-acp.md)
+- "Is this enterprise-ready?" — [`current-posture.md`](./current-posture.md)
+- "How do I get to a first healthy run?" — [`quickstart.md`](./quickstart.md)
+- "Which local ports does Scout own?" — [`local-ports.md`](./local-ports.md)
+- "How do I ship npm and the macOS DMG together?" — [`releases.md`](./releases.md)
+- "Where do proposals and implementation plans live?" — [`eng/README.md`](./eng/README.md)
