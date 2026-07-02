@@ -20,10 +20,13 @@ import {
   clippedText,
 } from "./broker-display.ts";
 import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
+import { useBrokerLedgerKeyboard } from "./useBrokerLedgerKeyboard.ts";
 import { defineSurface } from "../../surfaces/types.ts";
 import "../system-surfaces-redesign.css";
 
 type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
+
+const BROKER_TABS: BrokerTab[] = ["attempts", "dialogue", "failed_queries", "failed_deliveries"];
 
 const TAB_LABELS: Record<BrokerTab, string> = {
   attempts: "Dispatch",
@@ -152,7 +155,7 @@ export function BrokerScreen({
   navigate: (r: Route) => void;
   embedded?: boolean;
 }) {
-  const { selectedBrokerAttempt, inspectBrokerAttempt } = useScout();
+  const { selectedBrokerAttempt, inspectBrokerAttempt, clearBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
   const [loading, setLoading] = useState(true);
@@ -274,6 +277,40 @@ export function BrokerScreen({
     }
   }, [inspectBrokerAttempt, selectedAttempt, selectedBrokerAttempt]);
 
+  const activateLedgerRow = useCallback((index: number) => {
+    const row = activeRows[index];
+    if (!row) return;
+    if (activeTab === "dialogue") {
+      const item = row as BrokerDialogueItem;
+      openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: { view: "broker" } });
+      return;
+    }
+    const attempt = row as BrokerRouteAttempt;
+    inspectBrokerAttempt(attempt);
+    window.dispatchEvent(new CustomEvent("scout:set-inspector-width", {
+      detail: { width: 420 },
+    }));
+  }, [activeRows, activeTab, inspectBrokerAttempt, navigate]);
+
+  const { getRowFocusProps, setFocusedIndex } = useBrokerLedgerKeyboard({
+    enabled: Boolean(broker) && activeRows.length > 0,
+    rowCount: activeRows.length,
+    onActivateRow: activateLedgerRow,
+    onClearSelection: clearBrokerAttempt,
+  });
+
+  useEffect(() => {
+    if (!selectedBrokerAttempt || activeTab === "dialogue") return;
+    const index = (activeRows as BrokerRouteAttempt[]).findIndex((row) => row.id === selectedBrokerAttempt.id);
+    if (index >= 0) setFocusedIndex(index);
+  }, [activeRows, activeTab, selectedBrokerAttempt, setFocusedIndex]);
+
+  const cycleBrokerTab = useCallback((delta: number) => {
+    const current = BROKER_TABS.indexOf(activeTab);
+    const next = (current + delta + BROKER_TABS.length) % BROKER_TABS.length;
+    setActiveTab(BROKER_TABS[next]!);
+  }, [activeTab]);
+
   return (
     <div className={`s-ops${embedded ? " s-ops--embedded" : ""}`}>
       {!embedded && (
@@ -286,8 +323,21 @@ export function BrokerScreen({
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">
           <div className="sys-ledger-toolbar" aria-label="Dispatch controls">
             {broker ? (
-              <div className="sys-tab-row sys-tab-row--toolbar" role="tablist" aria-label="Dispatch diagnostics">
-                {(Object.keys(TAB_LABELS) as BrokerTab[]).map((tab) => (
+              <div
+                className="sys-tab-row sys-tab-row--toolbar"
+                role="tablist"
+                aria-label="Dispatch diagnostics"
+                onKeyDown={(event) => {
+                  if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    cycleBrokerTab(1);
+                  } else if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    cycleBrokerTab(-1);
+                  }
+                }}
+              >
+                {BROKER_TABS.map((tab) => (
                   <button
                     key={tab}
                     type="button"
@@ -349,6 +399,7 @@ export function BrokerScreen({
                 <BrokerDialogueList
                   items={activeRows as BrokerDialogueItem[]}
                   navigate={navigate}
+                  getRowFocusProps={getRowFocusProps}
                 />
               ) : (
                 <BrokerAttemptList
@@ -356,6 +407,7 @@ export function BrokerScreen({
                   navigate={navigate}
                   selectedAttemptId={selectedBrokerAttempt?.id ?? null}
                   onInspect={inspectBrokerAttempt}
+                  getRowFocusProps={getRowFocusProps}
                 />
               )}
               {activeRows.length > 0 && activeHasMore && (
@@ -378,16 +430,20 @@ export function BrokerScreen({
   );
 }
 
+type BrokerRowFocusProps = ReturnType<typeof useBrokerLedgerKeyboard>["getRowFocusProps"];
+
 function BrokerAttemptList({
   attempts,
   navigate,
   selectedAttemptId,
   onInspect,
+  getRowFocusProps,
 }: {
   attempts: BrokerRouteAttempt[];
   navigate: (r: Route) => void;
   selectedAttemptId: string | null;
   onInspect: (attempt: BrokerRouteAttempt) => void;
+  getRowFocusProps: BrokerRowFocusProps;
 }) {
   const { route } = useScout();
   if (attempts.length === 0) {
@@ -411,7 +467,7 @@ function BrokerAttemptList({
         <span role="columnheader">Action</span>
       </div>
       <div className="sys-broker-table-body" role="rowgroup">
-        {attempts.map((attempt) => {
+        {attempts.map((attempt, index) => {
           const tone = brokerAttemptTone(attempt.kind, attempt.status);
           const kindLabel = attemptKindLabel(attempt.kind);
           const isFailure = brokerAttemptIsFailure(attempt);
@@ -428,15 +484,9 @@ function BrokerAttemptList({
               key={attempt.id}
               role="row"
               className={`sys-broker-row sys-broker-row--ledger${isFailure ? " sys-broker-row--failure" : ""}${selectedAttemptId === attempt.id ? " sys-broker-row-selected" : ""}`}
-              tabIndex={0}
               aria-label={`Inspect ${attempt.detail}`}
               onClick={inspect}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  inspect();
-                }
-              }}
+              {...getRowFocusProps(index)}
             >
               <div className="sys-broker-cell sys-broker-cell-state" role="cell">
                 <StatusPill tone={tone}>{kindLabel}</StatusPill>
@@ -682,9 +732,11 @@ export function BrokerAttemptInspector({
 function BrokerDialogueList({
   items,
   navigate,
+  getRowFocusProps,
 }: {
   items: BrokerDialogueItem[];
   navigate: (r: Route) => void;
+  getRowFocusProps: BrokerRowFocusProps;
 }) {
   const { route } = useScout();
   if (items.length === 0) {
@@ -698,8 +750,15 @@ function BrokerDialogueList({
 
   return (
     <div className="sys-audit-list">
-      {items.map((item) => (
-        <article key={item.id} className="sys-broker-row">
+      {items.map((item, index) => (
+        <article
+          key={item.id}
+          className="sys-broker-row"
+          role="button"
+          aria-label={`Open dialogue thread for ${item.actorName ?? "unknown"}`}
+          onClick={() => openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route })}
+          {...getRowFocusProps(index)}
+        >
           <div className="sys-broker-row-main">
             <div className="sys-broker-row-head">
               <StatusPill tone="neutral">{item.class}</StatusPill>
@@ -716,7 +775,10 @@ function BrokerDialogueList({
             <button
               type="button"
               className="s-btn s-btn-sm"
-              onClick={() => openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route })}
+              onClick={(event) => {
+                event.stopPropagation();
+                openContent(navigate, { view: "conversation", conversationId: item.conversationId }, { returnTo: route });
+              }}
             >
               Open thread
             </button>
