@@ -62,6 +62,16 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: "Dispatch",
+    bindings: [
+      { keys: ["↓", "j"], label: "Next ledger row" },
+      { keys: ["↑", "k"], label: "Previous ledger row" },
+      { keys: ["Enter"], label: "Inspect row / open dialogue thread" },
+      { keys: ["←", "→"], label: "Switch dispatch tabs" },
+      { keys: ["Esc"], label: "Clear inspector selection" },
+    ],
+  },
+  {
     title: "Agent lanes",
     bindings: [
       { keys: ["↓", "j"], label: "Next lane" },

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../../lib/api.ts";
 import {
   deleteOpenAIApiKey,
@@ -32,6 +32,7 @@ import {
   type ScoutVoiceSessionHistoryEntry,
   type ScoutVoiceSettings,
 } from "../../lib/scout-voice.ts";
+import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import { VoiceHostStatusBanner, VoicePermissionsPanel } from "./VoicePermissionsPanel.tsx";
 import "./settings-drawer.css";
 import "./voice-permissions-panel.css";
@@ -783,6 +784,7 @@ const DEFAULT_PROFILE: OperatorProfile = {
 
 export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { refreshOnboarding } = useScout();
+  const { ref: drawerRef, onKeyDown: onDrawerKeyDown } = useFocusTrap<HTMLDivElement>(open);
   const [section, setSection] = useState<Section>("operator");
   const [profile, setProfile] = useState<OperatorProfile>(DEFAULT_PROFILE);
   const [pairing, setPairing] = useState<PairingState | null>(null);
@@ -825,12 +827,30 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
     if (open) void load();
   }, [open, load]);
 
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  const cycleSection = useCallback((delta: number) => {
+    const index = SECTIONS.findIndex((entry) => entry.id === section);
+    const next = (index + delta + SECTIONS.length) % SECTIONS.length;
+    setSection(SECTIONS[next]!.id);
+  }, [section]);
+
+  const handleDrawerKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    onDrawerKeyDown(event);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    const onRail = Boolean(target?.closest(".s-settings-rail"));
+    if (!onRail) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      cycleSection(1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      cycleSection(-1);
+    }
+  }, [cycleSection, onClose, onDrawerKeyDown]);
 
   const save = useCallback((next: OperatorProfile) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -860,7 +880,14 @@ export function SettingsDrawer({ open, onClose }: { open: boolean; onClose: () =
         className={`s-settings-scrim ${open ? "s-settings-scrim--open" : "s-settings-scrim--closed"}`}
         onClick={onClose}
       />
-      <div className={`s-settings-drawer ${open ? "s-settings-drawer--open" : "s-settings-drawer--closed"}`}>
+      <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        className={`s-settings-drawer ${open ? "s-settings-drawer--open" : "s-settings-drawer--closed"}`}
+        onKeyDown={handleDrawerKeyDown}
+      >
         {/* Header */}
         <div className="s-settings-header">
           <div className="s-settings-header-title">{"⚙"} SETTINGS</div>

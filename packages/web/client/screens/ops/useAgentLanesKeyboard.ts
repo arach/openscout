@@ -30,7 +30,9 @@ export function useAgentLanesKeyboard({
     }
     const lane = lanes[focusedIndex];
     if (!lane) return;
-    laneRefs.current.get(lane.id)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    const node = laneRefs.current.get(lane.id);
+    node?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    node?.focus();
   }, [focusedIndex, lanes]);
 
   useEffect(() => {
