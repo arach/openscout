@@ -811,6 +811,7 @@ interface InvocationRow {
   error: string | null;
   started_at: number | null;
   completed_at: number | null;
+  flight_metadata_json: string | null;
 }
 
 interface FlightRow {
@@ -2458,7 +2459,7 @@ export class SQLiteControlPlaneStore {
       this.db.query(
         `UPDATE invocations SET
            flight_id = ?2, state = ?3, summary = ?4, output = ?5, error = ?6,
-           started_at = ?7, completed_at = ?8
+           started_at = ?7, completed_at = ?8, flight_metadata_json = ?9
          WHERE id = ?1
            AND (
              flight_id IS NULL
@@ -2474,6 +2475,7 @@ export class SQLiteControlPlaneStore {
         flight.error ?? null,
         flight.startedAt ?? null,
         flight.completedAt ?? null,
+        stringify(flight.metadata),
       );
     })();
 

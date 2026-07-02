@@ -1524,11 +1524,12 @@ describe("invocation flight-status shadow columns", () => {
     error: string | null;
     started_at: number | null;
     completed_at: number | null;
+    flight_metadata_json: string | null;
   };
 
   function shadowRow(db: Database, invocationId = "inv-status-1"): ShadowRow {
     return db.query(
-      `SELECT flight_id, state, summary, output, error, started_at, completed_at
+      `SELECT flight_id, state, summary, output, error, started_at, completed_at, flight_metadata_json
        FROM invocations WHERE id = ?1`,
     ).get(invocationId) as ShadowRow;
   }
@@ -1557,6 +1558,7 @@ describe("invocation flight-status shadow columns", () => {
         targetAgentId: "agent-1",
         state: "running",
         startedAt: 120,
+        metadata: { dispatchAck: { strategy: "spawn" } },
       });
       expect(shadowRow(db)).toEqual({
         flight_id: "flight-status-1",
@@ -1566,6 +1568,7 @@ describe("invocation flight-status shadow columns", () => {
         error: null,
         started_at: 120,
         completed_at: null,
+        flight_metadata_json: JSON.stringify({ dispatchAck: { strategy: "spawn" } }),
       });
 
       store.recordFlight({
@@ -1587,6 +1590,7 @@ describe("invocation flight-status shadow columns", () => {
         error: null,
         started_at: 120,
         completed_at: 180,
+        flight_metadata_json: null,
       });
     } finally {
       store.close();
@@ -1743,6 +1747,7 @@ describe("invocation flight-status shadow columns", () => {
         error: null,
         started_at: 160,
         completed_at: 200,
+        flight_metadata_json: null,
       });
     } finally {
       store.close();

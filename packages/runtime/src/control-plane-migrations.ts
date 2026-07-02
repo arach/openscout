@@ -159,6 +159,40 @@ WHERE latest.invocation_id = inv.id
 `);
     },
   },
+  {
+    id: "invocation-flight-metadata-column",
+    description:
+      "Adds flight_metadata_json to invocations (read-switch phase: the latest flight's metadata rides the merged record) and backfills it from the shadowed flight. The checked-in 0002 drizzle migration additionally reconciles ALL shadow columns wholesale on ledgered databases before reads switch.",
+    apply(database) {
+      if (!hasColumn(database, "invocations", "flight_metadata_json")) {
+        database.exec("ALTER TABLE invocations ADD COLUMN flight_metadata_json TEXT");
+      }
+      if (!hasColumn(database, "flights", "metadata_json")) {
+        return;
+      }
+      // Fills only rows whose metadata shadow is empty AND whose flight_id
+      // matches the computed latest flight (the invocation-status-columns
+      // entry above has already aligned flight_id on the same boot); a
+      // mismatching shadow means a dual-write is in progress and will carry
+      // its own metadata.
+      database.exec(`
+UPDATE invocations AS inv
+SET flight_metadata_json = latest.metadata_json
+FROM (
+  SELECT invocation_id, id, metadata_json,
+    ROW_NUMBER() OVER (
+      PARTITION BY invocation_id
+      ORDER BY COALESCE(completed_at, started_at, 0) DESC, rowid DESC
+    ) AS rn
+  FROM flights
+) AS latest
+WHERE latest.invocation_id = inv.id
+  AND latest.rn = 1
+  AND inv.flight_id = latest.id
+  AND inv.flight_metadata_json IS NULL;
+`);
+    },
+  },
 ];
 
 export function configureControlPlaneDatabase(database: Database): void {
