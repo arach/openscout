@@ -43,6 +43,179 @@ type PendingCommand = {
   agentId?: string | null;
 };
 
+type TerminalAckMessage = {
+  type: "terminal:ack";
+  seq?: number;
+};
+
+type RelayClientMessage = ClientMessage | TerminalAckMessage;
+
+const OUTPUT_BATCH_INTERVAL_MS = 8;
+const OUTPUT_BATCH_DRAIN_CONTINUE_MS = 1;
+const OUTPUT_BATCH_CHUNK_CHARS = 16 * 1024;
+const OUTPUT_BATCH_MAX_WRITES = 2;
+const OUTPUT_IN_FLIGHT_HIGH_WATER_CHARS = 512 * 1024;
+const OUTPUT_IN_FLIGHT_LOW_WATER_CHARS = 256 * 1024;
+const OUTPUT_PENDING_MAX_CHARS = 2 * 1024 * 1024;
+const OUTPUT_BACKLOG_WARNING =
+  "\x18\x1b[0m\r\n[OpenScout skipped terminal output because the relay backlog exceeded 2 MB.]\r\n";
+
+type OutputAck = {
+  seq: number;
+  chars: number;
+};
+
+class FlowControlledRelaySocket implements RelaySocket {
+  private session: Session | null = null;
+  private pendingOutput = "";
+  private pendingFlush: ReturnType<typeof setTimeout> | null = null;
+  private nextSeq = 1;
+  private unacked: OutputAck[] = [];
+  private unackedChars = 0;
+  private ptyPaused = false;
+  private droppedBacklog = false;
+
+  constructor(private readonly ws: any) {}
+
+  get readyState(): number {
+    return this.ws.readyState;
+  }
+
+  bindSession(session: Session): void {
+    this.session = session;
+  }
+
+  send(data: string | Buffer): void {
+    if (Buffer.isBuffer(data)) {
+      this.sendRaw(data);
+      return;
+    }
+    const message = parseServerMessage(data);
+    if (message?.type === "terminal:data" && typeof message.data === "string") {
+      this.enqueueOutput(message.data);
+      return;
+    }
+    if (message?.type === "session:exit") {
+      this.flushOutput({ ignoreBackpressure: true });
+    }
+    this.sendRaw(data);
+  }
+
+  handleAck(seq: number | undefined): void {
+    if (typeof seq !== "number" || !Number.isFinite(seq)) {
+      return;
+    }
+    while (this.unacked.length > 0 && this.unacked[0]!.seq <= seq) {
+      const acked = this.unacked.shift()!;
+      this.unackedChars = Math.max(0, this.unackedChars - acked.chars);
+    }
+    if (this.ptyPaused && this.unackedChars < OUTPUT_IN_FLIGHT_LOW_WATER_CHARS) {
+      this.resumePty();
+    }
+    if (this.pendingOutput.length > 0) {
+      this.scheduleFlush(OUTPUT_BATCH_DRAIN_CONTINUE_MS);
+    }
+  }
+
+  dispose(): void {
+    if (this.pendingFlush) {
+      clearTimeout(this.pendingFlush);
+      this.pendingFlush = null;
+    }
+    this.pendingOutput = "";
+    this.unacked = [];
+    this.unackedChars = 0;
+    this.resumePty();
+    this.session = null;
+  }
+
+  private enqueueOutput(data: string): void {
+    if (!data) {
+      return;
+    }
+    this.pendingOutput += data;
+    if (this.pendingOutput.length > OUTPUT_PENDING_MAX_CHARS) {
+      this.pendingOutput = OUTPUT_BACKLOG_WARNING + this.pendingOutput.slice(-OUTPUT_PENDING_MAX_CHARS);
+      if (!this.droppedBacklog) {
+        console.warn("[relay] terminal output backlog exceeded 2 MB; keeping only the newest output");
+        this.droppedBacklog = true;
+      }
+    }
+    this.scheduleFlush(OUTPUT_BATCH_INTERVAL_MS);
+  }
+
+  private scheduleFlush(delayMs: number): void {
+    if (this.pendingFlush || this.pendingOutput.length === 0) {
+      return;
+    }
+    this.pendingFlush = setTimeout(() => {
+      this.pendingFlush = null;
+      this.flushOutput();
+    }, delayMs);
+  }
+
+  private flushOutput(options: { ignoreBackpressure?: boolean } = {}): void {
+    if (this.pendingOutput.length === 0 || this.readyState !== 1) {
+      return;
+    }
+    let writes = 0;
+    while (this.pendingOutput.length > 0 && writes < OUTPUT_BATCH_MAX_WRITES) {
+      if (!options.ignoreBackpressure && this.unackedChars >= OUTPUT_IN_FLIGHT_HIGH_WATER_CHARS) {
+        this.pausePty();
+        return;
+      }
+      const chunk = this.pendingOutput.slice(0, OUTPUT_BATCH_CHUNK_CHARS);
+      this.pendingOutput = this.pendingOutput.slice(chunk.length);
+      const seq = this.nextSeq++;
+      this.unacked.push({ seq, chars: chunk.length });
+      this.unackedChars += chunk.length;
+      this.sendRaw(JSON.stringify({ type: "terminal:data", data: chunk, seq, chars: chunk.length }));
+      writes++;
+    }
+    if (!options.ignoreBackpressure && this.unackedChars >= OUTPUT_IN_FLIGHT_HIGH_WATER_CHARS) {
+      this.pausePty();
+      return;
+    }
+    if (this.pendingOutput.length > 0) {
+      this.scheduleFlush(OUTPUT_BATCH_DRAIN_CONTINUE_MS);
+    } else {
+      this.droppedBacklog = false;
+    }
+  }
+
+  private pausePty(): void {
+    if (this.ptyPaused || !this.session || this.session.exited) {
+      return;
+    }
+    try {
+      this.session.pty.pause();
+      this.ptyPaused = true;
+    } catch (error) {
+      console.warn("[relay] Failed to pause PTY for terminal flow control:", error);
+    }
+  }
+
+  private resumePty(): void {
+    if (!this.ptyPaused || !this.session || this.session.exited) {
+      this.ptyPaused = false;
+      return;
+    }
+    try {
+      this.session.pty.resume();
+    } catch (error) {
+      console.warn("[relay] Failed to resume PTY for terminal flow control:", error);
+    } finally {
+      this.ptyPaused = false;
+    }
+  }
+
+  private sendRaw(data: string | Buffer): void {
+    if (this.ws.readyState === 1) {
+      this.ws.send(data);
+    }
+  }
+}
+
 function sessionMatchesSurface(
   session: Session,
   backend: string | undefined,
@@ -73,14 +246,17 @@ function drainPendingCommand(): PendingCommand | null {
   return command;
 }
 
-function parseMessage(raw: string): ClientMessage | null {
+function parseServerMessage(raw: string): Record<string, unknown> | null {
   try {
     const message = JSON.parse(raw);
-    if (typeof message.type === "string") {
-      return message as ClientMessage;
-    }
+    return typeof message?.type === "string" ? message as Record<string, unknown> : null;
   } catch {}
   return null;
+}
+
+function parseMessage(raw: string): RelayClientMessage | null {
+  const message = parseServerMessage(raw);
+  return message ? message as RelayClientMessage : null;
 }
 
 function setCors(res: import("node:http").ServerResponse) {
@@ -216,6 +392,7 @@ const wss = new WebSocketServer({ server });
 
 wss.on("connection", (ws: any) => {
   let sessionId: string | null = null;
+  const relaySocket = new FlowControlledRelaySocket(ws);
 
   ws.on("message", (raw: Buffer | string) => {
     const msg = parseMessage(raw.toString());
@@ -228,14 +405,15 @@ wss.on("connection", (ws: any) => {
         const pending = drainPendingCommand();
         if (sessionId) {
           const previous = sessions.get(sessionId);
-          if (previous && sessionOwnsSocket(previous, ws)) {
+          if (previous && sessionOwnsSocket(previous, relaySocket)) {
             detachSession(previous);
           }
         }
-        const session = createSession(ws, pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg);
+        const session = createSession(relaySocket, pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg);
         if (!session) {
           break;
         }
+        relaySocket.bindSession(session);
         sessionId = session.id;
         send(ws, { type: "session:ready", sessionId: session.id });
         if (pending) {
@@ -249,11 +427,11 @@ wss.on("connection", (ws: any) => {
         if (pending?.cwd) {
           if (sessionId) {
             const previous = sessions.get(sessionId);
-            if (previous && sessionOwnsSocket(previous, ws)) {
+            if (previous && sessionOwnsSocket(previous, relaySocket)) {
               detachSession(previous);
             }
           }
-          const session = createSession(ws, {
+          const session = createSession(relaySocket, {
             type: "session:init",
             cols: msg.cols ?? 80,
             rows: msg.rows ?? 24,
@@ -263,6 +441,7 @@ wss.on("connection", (ws: any) => {
           if (!session) {
             break;
           }
+          relaySocket.bindSession(session);
           sessionId = session.id;
           send(ws, { type: "session:ready", sessionId: session.id });
           setTimeout(() => writeSession(session, pending.command + "\n"), 400);
@@ -272,15 +451,16 @@ wss.on("connection", (ws: any) => {
         if (existing && !existing.exited) {
           if (sessionId && sessionId !== msg.sessionId) {
             const previous = sessions.get(sessionId);
-            if (previous && sessionOwnsSocket(previous, ws)) {
+            if (previous && sessionOwnsSocket(previous, relaySocket)) {
               detachSession(previous);
             }
           }
-          if (existing.ws && existing.ws !== ws) {
+          if (existing.ws && existing.ws !== relaySocket) {
             send(existing.ws, { type: "session:detached" });
           }
           sessionId = existing.id;
-          attachSession(existing, ws, msg.cols, msg.rows);
+          relaySocket.bindSession(existing);
+          attachSession(existing, relaySocket, msg.cols, msg.rows);
           send(ws, {
             type: "session:ready",
             sessionId: existing.id,
@@ -295,12 +475,17 @@ wss.on("connection", (ws: any) => {
         break;
       }
 
+      case "terminal:ack": {
+        relaySocket.handleAck(msg.seq);
+        break;
+      }
+
       case "terminal:input": {
         if (!sessionId) {
           return;
         }
         const session = sessions.get(sessionId);
-        if (session && sessionOwnsSocket(session, ws)) {
+        if (session && sessionOwnsSocket(session, relaySocket)) {
           writeSession(session, msg.data);
         }
         break;
@@ -311,7 +496,7 @@ wss.on("connection", (ws: any) => {
           return;
         }
         const session = sessions.get(sessionId);
-        if (session && sessionOwnsSocket(session, ws)) {
+        if (session && sessionOwnsSocket(session, relaySocket)) {
           const cols = Math.max(msg.cols || 80, 20);
           const rows = Math.max(msg.rows || 24, 4);
           resizeSession(session, cols, rows);
@@ -326,9 +511,10 @@ wss.on("connection", (ws: any) => {
       return;
     }
     const session = sessions.get(sessionId);
-    if (session && sessionOwnsSocket(session, ws)) {
+    if (session && sessionOwnsSocket(session, relaySocket)) {
       detachSession(session);
     }
+    relaySocket.dispose();
     sessionId = null;
   });
 
@@ -338,9 +524,10 @@ wss.on("connection", (ws: any) => {
       return;
     }
     const session = sessions.get(sessionId);
-    if (session && sessionOwnsSocket(session, ws)) {
+    if (session && sessionOwnsSocket(session, relaySocket)) {
       detachSession(session);
     }
+    relaySocket.dispose();
     sessionId = null;
   });
 });

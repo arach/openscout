@@ -46,6 +46,9 @@
         "../../../hudson/packages/web/hudsonkit/src/overlays.ts",
         "./client/vendor/hudsonkit/overlays.tsx"
       ],
+      "hudsonkit/terminal": [
+        "../../../hudson/packages/web/hudsonkit/src/terminal.ts"
+      ],
       "hudsonkit/flags": [
         "../../../hudson/packages/web/hudsonkit/src/flags/index.ts",
         "./client/vendor/hudsonkit/flags.tsx"

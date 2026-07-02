@@ -1,8 +1,8 @@
-import { useTerminalRelay, TerminalRelay } from "@hudsonkit";
 import {
   resolveScoutTerminalRelayHealthUrl,
   resolveScoutTerminalRelayUrl,
 } from "../../lib/runtime-config.ts";
+import { useTerminalRelay, TerminalRelay } from "hudsonkit/terminal";
 
 export function ScoutTerminal() {
   const relayUrl = resolveScoutTerminalRelayUrl();
