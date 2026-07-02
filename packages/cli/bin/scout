@@ -1,0 +1,34 @@
+#!/bin/sh
+# Bun-runtime guard + delegator for the Scout CLI.
+#
+# Why this exists: scout.mjs starts with `#!/usr/bin/env bun`, so a user without
+# Bun gets the OS's raw `env: bun: No such file or directory` instead of a
+# helpful message. This shim runs under /bin/sh (always present), prints an
+# install hint when Bun is missing, and otherwise hands off to scout.mjs.
+#
+# Latency: this is on the statusline hot path (invoked per prompt). `command -v`
+# is a shell builtin (no fork). We only fork `readlink` when the CLI is reached
+# through a bin symlink and the fast sibling lookup misses; direct invocation
+# pays nothing beyond the builtin check.
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Scout requires the Bun runtime (bun:sqlite is not available in Node.js)." >&2
+  echo "Install Bun: curl -fsSL https://bun.sh/install | bash" >&2
+  echo "Then run:    bun x @openscout/scout" >&2
+  exit 1
+fi
+
+self="$0"
+dir="${self%/*}"
+if [ ! -f "$dir/scout.mjs" ]; then
+  # Reached through a bin symlink (npm .bin / bun link); resolve one hop.
+  link=$(readlink "$self" 2>/dev/null) || link=""
+  if [ -n "$link" ]; then
+    case "$link" in
+      /*) self="$link" ;;
+      *) self="$dir/$link" ;;
+    esac
+    dir="${self%/*}"
+  fi
+fi
+
+exec bun "$dir/scout.mjs" "$@"

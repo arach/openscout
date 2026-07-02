@@ -14,7 +14,10 @@
   },
   "homepage": "https://github.com/arach/openscout#readme",
   "bin": {
-    "scout": "./bin/scout.mjs"
+    "scout": "./bin/scout"
+  },
+  "engines": {
+    "bun": ">=1.2"
   },
   "files": [
     "bin",

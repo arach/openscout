@@ -502,14 +502,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
 }
 
-function keepBaseDaemonAlive(): void {
+function anchorBaseDaemonLifetime(): void {
   if (baseKeepAlive) {
     return;
   }
 
-  // Bun does not consistently keep scout-base alive just because it has
-  // spawned child processes. Keep a tiny referenced timer so launchd does not
-  // see a clean base-daemon exit and tear down broker/web with it.
+  // scout-base's lifetime must never depend on incidental handle refs. During
+  // broker/edge restart backoff the only pending work is an unref'd restart
+  // timer (scheduleBrokerRestart / scheduleEdgeRestart above both call
+  // `.unref()`), so once a child exits the event loop can drain to zero
+  // referenced handles before the timer fires — a drained loop is a clean exit,
+  // which makes launchd tear down the whole broker/web/edge tree. This is
+  // load-bearing on any runtime, not a Bun bug workaround. Keep one explicit
+  // referenced anchor so the process stays alive across those windows; shutdown()
+  // clears it and calls process.exit() itself.
   baseKeepAlive = setInterval(() => undefined, 60_000);
 }
 
@@ -527,7 +533,7 @@ log("starting Scout base service", {
   brokerUrl: config.brokerUrl,
   bootout: `launchctl bootout ${config.serviceTarget}`,
 });
-keepBaseDaemonAlive();
+anchorBaseDaemonLifetime();
 spawnBroker();
 startLocalEdge();
 startMenuBarApp();
