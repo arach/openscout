@@ -95,6 +95,70 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
 `);
     },
   },
+  {
+    id: "invocation-status-columns",
+    description:
+      "Adds flight status columns to invocations (flight→invocation storage merge, expand/dual-write phase) and backfills them from each invocation's latest flight.",
+    apply(database) {
+      const statusColumns: Array<[string, string]> = [
+        ["flight_id", "TEXT"],
+        ["state", "TEXT"],
+        ["summary", "TEXT"],
+        ["output", "TEXT"],
+        ["error", "TEXT"],
+        ["started_at", "INTEGER"],
+        ["completed_at", "INTEGER"],
+      ];
+      for (const [name, type] of statusColumns) {
+        if (!hasColumn(database, "invocations", name)) {
+          database.exec(`ALTER TABLE invocations ADD COLUMN ${name} ${type}`);
+        }
+      }
+      database.exec(
+        "CREATE INDEX IF NOT EXISTS idx_invocations_flight_id ON invocations(flight_id);",
+      );
+      // One-time backfill from each invocation's latest flight (1:1 in practice;
+      // the ORDER BY mirrors the read-side "latest flight" tiebreak). Guarded by
+      // `inv.state IS NULL` so re-running the migration is a no-op once the
+      // recordFlight dual-write keeps these columns current. Skipped when the
+      // flights table is an ancient shape missing the source columns (nothing
+      // to copy there; the dual-write populates the shadow from first boot on).
+      const backfillSourceColumns = [
+        "invocation_id",
+        "state",
+        "summary",
+        "output",
+        "error",
+        "started_at",
+        "completed_at",
+      ];
+      if (!backfillSourceColumns.every((name) => hasColumn(database, "flights", name))) {
+        return;
+      }
+      database.exec(`
+UPDATE invocations AS inv
+SET
+  flight_id = latest.id,
+  state = latest.state,
+  summary = latest.summary,
+  output = latest.output,
+  error = latest.error,
+  started_at = latest.started_at,
+  completed_at = latest.completed_at
+FROM (
+  SELECT invocation_id, id, state, summary, output, error, started_at, completed_at,
+    ROW_NUMBER() OVER (
+      PARTITION BY invocation_id
+      ORDER BY COALESCE(completed_at, started_at, 0) DESC, rowid DESC
+    ) AS rn
+  FROM flights
+) AS latest
+WHERE latest.invocation_id = inv.id
+  AND latest.rn = 1
+  AND inv.state IS NULL;
+`);
+    },
+  },
 ];
 
 export function configureControlPlaneDatabase(database: Database): void {
@@ -131,24 +195,42 @@ CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
 )
 `;
 
-function seedControlPlaneDrizzleBaseline(database: Database, migrationsFolder: string): void {
-  const baseline = readMigrationFiles({ migrationsFolder })[0];
-  if (!baseline) {
+function seedControlPlaneDrizzleLedger(database: Database, migrationsFolder: string): void {
+  const migrations = readMigrationFiles({ migrationsFolder });
+  if (migrations.length === 0) {
     return;
   }
 
   database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
-  // Databases that predate the managed-migration baseline were built by the
-  // raw schema exec; replaying the baseline's plain CREATE TABLE statements
-  // over them would fail. When the ledger is empty but the database already
-  // has tables, record the baseline as applied instead — the migrator then
-  // only runs migrations newer than it. A truly virgin database keeps an
-  // empty ledger so the migrator applies the baseline for real. Single
+  // Databases that predate the managed-migration ledger were built by the raw
+  // schema exec, which always renders the CURRENT full shape — so every
+  // checked-in migration's effects are either already present or covered by
+  // the raw-exec/imperative repair layer that runs right after the migrator.
+  // Replaying any of them (the baseline's plain CREATE TABLEs, a later
+  // migration's plain ADD COLUMNs) over such a database would fail. When the
+  // ledger is empty but the database already has tables, record the WHOLE
+  // chain as applied; the migrator then only runs migrations added in future
+  // builds. (This relies on the standing lockstep discipline: every drizzle
+  // migration ships with its raw-schema + imperative-array equivalent, which
+  // the parity gates enforce on the raw side.) A truly virgin database keeps
+  // an empty ledger so the migrator applies the chain for real. Single
   // statement so concurrent boots cannot double-seed.
+  const params: Record<string, string | number> = {};
+  const rows = migrations
+    .map((migration, i) => {
+      params[`$hash${i}`] = migration.hash;
+      params[`$createdAt${i}`] = migration.folderMillis;
+      return i === 0
+        ? `SELECT $hash${i} AS hash, $createdAt${i} AS created_at`
+        : `UNION ALL SELECT $hash${i}, $createdAt${i}`;
+    })
+    .join("\n         ");
   database
     .query(
       `INSERT INTO "__drizzle_migrations" (hash, created_at)
-       SELECT $hash, $createdAt
+       SELECT hash, created_at FROM (
+         ${rows}
+       )
        WHERE NOT EXISTS (SELECT 1 FROM "__drizzle_migrations")
          AND EXISTS (
            SELECT 1 FROM sqlite_master
@@ -157,7 +239,7 @@ function seedControlPlaneDrizzleBaseline(database: Database, migrationsFolder: s
              AND name != '__drizzle_migrations'
          )`,
     )
-    .run({ $hash: baseline.hash, $createdAt: baseline.folderMillis });
+    .run(params);
 }
 
 function controlPlaneDatabaseFilename(database: Database): string {
@@ -172,7 +254,7 @@ export function applyControlPlaneDrizzleMigrations(database: Database): boolean 
     return false;
   }
 
-  seedControlPlaneDrizzleBaseline(database, migrationsFolder);
+  seedControlPlaneDrizzleLedger(database, migrationsFolder);
   migrate(openControlPlaneDrizzle(database), { migrationsFolder });
   return true;
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
 
+import { applyControlPlaneSchemaMigrations } from "./control-plane-migrations.ts";
 import { CONTROL_PLANE_SCHEMA_VERSION } from "./schema.ts";
 import { SQLiteControlPlaneStore } from "./sqlite-store.ts";
 
@@ -1491,6 +1492,297 @@ describe("SQLiteControlPlaneStore", () => {
         dueAtLte: 32_200,
         claimableAt: 32_200,
       }).map((action) => action.id)).toEqual(["checkback-future"]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe("invocation flight-status shadow columns", () => {
+  // Phase 3 flight→invocation storage merge, expand phase: recordFlight
+  // dual-writes the flight's status onto the invocation row, and the
+  // invocation-status-columns migration backfills pre-existing rows. Reads
+  // still come from the flights table; these columns are the shadow copy the
+  // read-switch PR will consume.
+  const invocation = {
+    id: "inv-status-1",
+    requesterId: "operator",
+    requesterNodeId: "node-1",
+    targetAgentId: "agent-1",
+    action: "consult" as const,
+    task: "Handle this",
+    ensureAwake: true,
+    stream: false,
+    createdAt: 100,
+  };
+
+  type ShadowRow = {
+    flight_id: string | null;
+    state: string | null;
+    summary: string | null;
+    output: string | null;
+    error: string | null;
+    started_at: number | null;
+    completed_at: number | null;
+  };
+
+  function shadowRow(db: Database, invocationId = "inv-status-1"): ShadowRow {
+    return db.query(
+      `SELECT flight_id, state, summary, output, error, started_at, completed_at
+       FROM invocations WHERE id = ?1`,
+    ).get(invocationId) as ShadowRow;
+  }
+
+  function seedInvocation(store: SQLiteControlPlaneStore): void {
+    seedAgent(store);
+    store.upsertActor({
+      id: "operator",
+      kind: "person",
+      displayName: "Operator",
+    });
+    store.recordInvocation(invocation);
+  }
+
+  test("recordFlight dual-writes the flight status onto the invocation row", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      const db = getWritableDb(store);
+      expect(shadowRow(db).state).toBeNull();
+
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        startedAt: 120,
+      });
+      expect(shadowRow(db)).toEqual({
+        flight_id: "flight-status-1",
+        state: "running",
+        summary: null,
+        output: null,
+        error: null,
+        started_at: 120,
+        completed_at: null,
+      });
+
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Done",
+        output: "All good",
+        startedAt: 120,
+        completedAt: 180,
+      });
+      expect(shadowRow(db)).toEqual({
+        flight_id: "flight-status-1",
+        state: "completed",
+        summary: "Done",
+        output: "All good",
+        error: null,
+        started_at: 120,
+        completed_at: 180,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("an out-of-order write of an older sibling flight does not regress the shadow", () => {
+    // Reproduced by adversarial review on #295: without the freshness guard,
+    // last-writer-wins let a stale sibling flight overwrite a newer one.
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-order-new",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Newest",
+        startedAt: 250,
+        completedAt: 300,
+      });
+      store.recordFlight({
+        id: "flight-order-old",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        startedAt: 50,
+      });
+
+      const db = getWritableDb(store);
+      const row = shadowRow(db);
+      expect(row.flight_id).toBe("flight-order-new");
+      expect(row.state).toBe("completed");
+      expect(row.completed_at).toBe(300);
+      // The sibling flight itself was still recorded.
+      expect(countRows(db, "flights", "invocation_id", "inv-status-1")).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("rewrites of the shadowed flight itself always land, even with older timestamps", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Done",
+        startedAt: 120,
+        completedAt: 180,
+      });
+      // Reconciliation rewriting the same flight must follow the flights row
+      // (INSERT OR REPLACE semantics), not be blocked by the freshness guard.
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        error: "reconciled",
+        startedAt: 120,
+      });
+
+      const row = shadowRow(getWritableDb(store));
+      expect(row.flight_id).toBe("flight-status-1");
+      expect(row.state).toBe("failed");
+      expect(row.error).toBe("reconciled");
+      expect(row.completed_at).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("replaying recordInvocation preserves the dual-written status", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Done",
+        startedAt: 120,
+        completedAt: 180,
+      });
+
+      store.recordInvocation({ ...invocation, task: "Handle this updated" });
+
+      const db = getWritableDb(store);
+      const row = shadowRow(db);
+      expect(row.state).toBe("completed");
+      expect(row.flight_id).toBe("flight-status-1");
+      const task = db.query(
+        "SELECT task FROM invocations WHERE id = 'inv-status-1'",
+      ).get() as { task: string };
+      expect(task.task).toBe("Handle this updated");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("the migration backfills the shadow from each invocation's latest flight", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      // Two flights for one invocation; the backfill must pick the one with
+      // the latest COALESCE(completed_at, started_at).
+      store.recordFlight({
+        id: "flight-old",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        error: "boom",
+        startedAt: 110,
+        completedAt: 150,
+      });
+      store.recordFlight({
+        id: "flight-new",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Recovered",
+        startedAt: 160,
+        completedAt: 200,
+      });
+
+      // Simulate a database written before the dual-write existed: the flights
+      // are there, but the invocation's shadow columns were never populated.
+      const db = getWritableDb(store);
+      db.exec(
+        `UPDATE invocations SET
+           flight_id = NULL, state = NULL, summary = NULL, output = NULL,
+           error = NULL, started_at = NULL, completed_at = NULL
+         WHERE id = 'inv-status-1'`,
+      );
+
+      applyControlPlaneSchemaMigrations(db);
+
+      expect(shadowRow(db)).toEqual({
+        flight_id: "flight-new",
+        state: "completed",
+        summary: "Recovered",
+        output: null,
+        error: null,
+        started_at: 160,
+        completed_at: 200,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("the backfill leaves rows the dual-write already populated untouched", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-current",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        startedAt: 300,
+      });
+      // A stale flight row that the state-guarded backfill must NOT prefer
+      // over the live dual-written status.
+      store.recordFlight({
+        id: "flight-stale",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        error: "stale",
+        startedAt: 100,
+        completedAt: 400,
+      });
+      const db = getWritableDb(store);
+      db.exec(
+        "UPDATE invocations SET flight_id = 'flight-current', state = 'running' WHERE id = 'inv-status-1'",
+      );
+
+      applyControlPlaneSchemaMigrations(db);
+
+      const row = shadowRow(db);
+      expect(row.flight_id).toBe("flight-current");
+      expect(row.state).toBe("running");
     } finally {
       store.close();
     }

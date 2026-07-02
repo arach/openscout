@@ -1,6 +1,6 @@
 export * from "./drizzle-schema.js";
 
-export const CONTROL_PLANE_SCHEMA_VERSION = 11;
+export const CONTROL_PLANE_SCHEMA_VERSION = 12;
 
 export const CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS runtime_sessions (
@@ -237,7 +237,14 @@ CREATE TABLE IF NOT EXISTS invocations (
   timeout_ms INTEGER,
   labels_json TEXT,
   metadata_json TEXT,
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  flight_id TEXT,
+  state TEXT,
+  summary TEXT,
+  output TEXT,
+  error TEXT,
+  started_at INTEGER,
+  completed_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS flights (

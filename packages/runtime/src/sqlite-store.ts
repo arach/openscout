@@ -801,6 +801,16 @@ interface InvocationRow {
   labels_json: string | null;
   metadata_json: string | null;
   created_at: number;
+  // Flight status columns (Phase 3 flight→invocation storage merge, expand
+  // phase). Written by the recordFlight dual-write; reads still come from the
+  // flights table for now.
+  flight_id: string | null;
+  state: FlightRecord["state"] | null;
+  summary: string | null;
+  output: string | null;
+  error: string | null;
+  started_at: number | null;
+  completed_at: number | null;
 }
 
 interface FlightRow {
@@ -2412,25 +2422,60 @@ export class SQLiteControlPlaneStore {
   }
 
   recordFlight(flight: FlightRecord): ThreadEventEnvelope[] {
-    this.db.query(
-      `INSERT OR REPLACE INTO flights (
-        id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
-        labels_json, metadata_json, started_at, completed_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
-    ).run(
-      flight.id,
-      flight.invocationId,
-      flight.requesterId,
-      flight.targetAgentId,
-      flight.state,
-      flight.summary ?? null,
-      flight.output ?? null,
-      flight.error ?? null,
-      stringify(flight.labels),
-      stringify(flight.metadata),
-      flight.startedAt ?? null,
-      flight.completedAt ?? null,
-    );
+    // One transaction so the flight row and the invocation shadow can never
+    // durably diverge — a crash between the two writes would otherwise leave
+    // a stale shadow that the state-IS-NULL-guarded backfill never repairs.
+    (this.db as SQLiteTransactionalDatabase).transaction(() => {
+      this.db.query(
+        `INSERT OR REPLACE INTO flights (
+          id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
+          labels_json, metadata_json, started_at, completed_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+      ).run(
+        flight.id,
+        flight.invocationId,
+        flight.requesterId,
+        flight.targetAgentId,
+        flight.state,
+        flight.summary ?? null,
+        flight.output ?? null,
+        flight.error ?? null,
+        stringify(flight.labels),
+        stringify(flight.metadata),
+        flight.startedAt ?? null,
+        flight.completedAt ?? null,
+      );
+
+      // Dual-write the flight's status onto the merged invocation record
+      // (Phase 3 flight→invocation storage merge, expand phase). Reads still
+      // come from the flights table above; these columns are the shadow copy
+      // PR D will read from. No-op when the invocation row is absent. The
+      // WHERE guard keeps the shadow on the invocation's LATEST flight — same
+      // freshness ordering as the backfill and the read-side projector
+      // (COALESCE(completed_at, started_at, 0), ties to the newer write) — so
+      // an out-of-order write of an older sibling flight cannot regress it;
+      // rewrites of the shadowed flight itself always land.
+      this.db.query(
+        `UPDATE invocations SET
+           flight_id = ?2, state = ?3, summary = ?4, output = ?5, error = ?6,
+           started_at = ?7, completed_at = ?8
+         WHERE id = ?1
+           AND (
+             flight_id IS NULL
+             OR flight_id = ?2
+             OR COALESCE(?8, ?7, 0) >= COALESCE(completed_at, started_at, 0)
+           )`,
+      ).run(
+        flight.invocationId,
+        flight.id,
+        flight.state,
+        flight.summary ?? null,
+        flight.output ?? null,
+        flight.error ?? null,
+        flight.startedAt ?? null,
+        flight.completedAt ?? null,
+      );
+    })();
 
     this.recordActivityItem(this.projectFlightActivity(flight));
     return this.recordThreadFlightEvent(flight);

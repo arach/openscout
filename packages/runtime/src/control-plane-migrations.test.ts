@@ -20,6 +20,10 @@ const migrations = readMigrationFiles({
   migrationsFolder: resolveControlPlaneDrizzleMigrationsFolder(),
 });
 const baseline = migrations[0]!;
+const fullChainLedger = migrations.map((m) => ({
+  hash: m.hash,
+  created_at: m.folderMillis,
+}));
 
 function ledgerRows(db: Database): Array<{ hash: string; created_at: number }> {
   return db
@@ -47,23 +51,24 @@ describe("control-plane managed migrations", () => {
     expect(baseline.hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  test("virgin database boots through the migrator: baseline executed, ledger recorded", () => {
+  test("virgin database boots through the migrator: full chain executed, ledger recorded", () => {
     const db = new Database(":memory:");
     migrateControlPlaneDatabaseSchema(db);
 
     // A seeded ledger on an empty database is impossible (seeding requires
-    // existing tables), so this row proves the migrator ran the baseline.
-    expect(ledgerRows(db)).toEqual([
-      { hash: baseline.hash, created_at: baseline.folderMillis },
-    ]);
+    // existing tables), so these rows prove the migrator ran the chain.
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
     expect(controlPlaneTableCount(db)).toBeGreaterThan(30);
     expect(userVersion(db)).toBe(CONTROL_PLANE_SCHEMA_VERSION);
   });
 
-  test("existing raw-schema database gets the baseline seeded, data intact", () => {
+  test("existing raw-schema database gets the whole chain seeded, data intact", () => {
     const db = new Database(":memory:");
-    // Today's production state: raw schema + imperative array + version stamp
-    // + the empty ledger table the pre-baseline migrate() call left behind.
+    // A pre-ledger production state: raw schema (current full shape) +
+    // imperative array + version stamp + the empty ledger table the
+    // pre-baseline migrate() call left behind. Seeding must record the whole
+    // chain — replaying any migration (e.g. 0001's plain ADD COLUMNs) over
+    // this database would fail.
     db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
     applyControlPlaneSchemaMigrations(db);
     db.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION};`);
@@ -76,9 +81,7 @@ describe("control-plane managed migrations", () => {
 
     migrateControlPlaneDatabaseSchema(db);
 
-    expect(ledgerRows(db)).toEqual([
-      { hash: baseline.hash, created_at: baseline.folderMillis },
-    ]);
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
     const survivor = db
       .query("SELECT display_name FROM actors WHERE id = 'actor-1'")
       .get() as { display_name: string };
@@ -91,9 +94,7 @@ describe("control-plane managed migrations", () => {
 
     migrateControlPlaneDatabaseSchema(db);
 
-    expect(ledgerRows(db)).toEqual([
-      { hash: baseline.hash, created_at: baseline.folderMillis },
-    ]);
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
   });
 
   test("partially created database (interrupted first boot) seeds and repairs", () => {
@@ -106,17 +107,15 @@ describe("control-plane managed migrations", () => {
 
     migrateControlPlaneDatabaseSchema(db);
 
-    expect(ledgerRows(db)).toEqual([
-      { hash: baseline.hash, created_at: baseline.folderMillis },
-    ]);
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
     expect(controlPlaneTableCount(db)).toBeGreaterThan(30);
   });
 
-  test("running the full migration twice keeps exactly one ledger row", () => {
+  test("running the full migration twice keeps exactly one ledger row per migration", () => {
     const db = new Database(":memory:");
     migrateControlPlaneDatabaseSchema(db);
     migrateControlPlaneDatabaseSchema(db);
-    expect(ledgerRows(db)).toHaveLength(1);
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
   });
 
   test("briefings-markdown backfill adds the column to pre-v8 databases", () => {
