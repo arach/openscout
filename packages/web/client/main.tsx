@@ -7,15 +7,16 @@ import { registerScoutShellApp } from "./router/tanstack/shell-app.ts";
 import { scoutTanstackRouter } from "./router/tanstack/router.ts";
 import { ObserveEmbedScreen } from "./screens/ObserveEmbedScreen.tsx";
 import { RepoDiffEmbedScreen } from "./screens/RepoDiffEmbedScreen.tsx";
-import { AgentLanesEmbedScreen } from "./screens/ops/AgentLanesEmbedScreen.tsx";
 import { SessionEmbedScreen } from "./screens/sessions/SessionEmbedScreen.tsx";
 import { TerminalEmbedScreen } from "./screens/terminal/TerminalEmbedScreen.tsx";
+import { shouldBootstrapDiscoveredEmbed } from "./surfaces/embed-path.ts";
 
 import {
   applyScoutThemeToDocument,
   resolveScoutStartupTheme,
 } from "./lib/theme.ts";
 import { ScoutbotFxLab } from "./dev/ScoutbotFxLab.tsx";
+import { EmbeddableSurfacesLab } from "./dev/EmbeddableSurfacesLab.tsx";
 import { DevErrorOverlay } from "./dev/DevErrorOverlay.tsx";
 import "./styles/tokens.css";
 import "./styles/primitives.css";
@@ -32,64 +33,81 @@ if (!el) {
 const initialTheme = resolveScoutStartupTheme();
 applyScoutThemeToDocument(initialTheme);
 
-const isScoutbotFxLab = window.location.pathname === "/dev/scoutbot-fx";
-const observeEmbedMatch = window.location.pathname.match(/^\/embed\/observe\/([^/]+)$/);
-// Standalone embeddable diff viewer (macOS WKWebView bottom sheet) — chrome-free,
-// reads `?path=<abs>` from the query string. See screens/RepoDiffEmbedScreen.tsx.
-const isRepoDiffEmbed = window.location.pathname === "/embed/repo-diff";
-// Standalone session viewer (macOS WKWebView bottom sheet from a tail row) —
-// chrome-free, reads `?ref=<sessionId>`. See screens/SessionEmbedScreen.tsx.
-const isSessionEmbed = window.location.pathname === "/embed/session";
-// Content-only terminal cockpit for the native macOS Scout app. The selected
-// terminal route rides in `?route=/terminal/...` so in-embed navigation stays
-// inside the WKWebView instead of re-entering the full web shell.
-const isTerminalEmbed = window.location.pathname === "/embed/terminal";
-// Content-only agent lanes embed for native/macOS and HUD hosts. The /ops alias
-// stays for older app builds; new callers should use /embed/agent-lanes.
-const isAgentLanesEmbed = window.location.pathname === "/embed/agent-lanes"
-  || window.location.pathname === "/ops/lanes/embed"
-  || window.location.pathname === "/embed/lanes"
-  || window.location.pathname === "/embed/traces";
+const pathname = window.location.pathname;
+const isScoutbotFxLab = pathname === "/dev/scoutbot-fx";
+const isEmbeddableSurfacesLab = pathname === "/dev/embeddable-surfaces";
+const observeEmbedMatch = pathname.match(/^\/embed\/observe\/([^/]+)$/);
+const isRepoDiffEmbed = pathname === "/embed/repo-diff";
+const isSessionEmbed = pathname === "/embed/session";
+const isTerminalEmbed = pathname === "/embed/terminal";
+const useDiscoveredEmbed = shouldBootstrapDiscoveredEmbed(pathname);
+
 const scoutApp = createScoutApp({ initialTheme });
 wireScopeOntoScout(scoutApp);
 registerScoutShellApp(scoutApp);
 
-createRoot(el).render(
-  <StrictMode>
-    {isScoutbotFxLab ? (
-      <ScoutbotFxLab />
-    ) : observeEmbedMatch ? (
-      <RouterContextProvider router={scoutTanstackRouter}>
-        <scoutApp.Provider>
-          <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
-        </scoutApp.Provider>
-      </RouterContextProvider>
-    ) : isRepoDiffEmbed ? (
-      <RouterContextProvider router={scoutTanstackRouter}>
-        <scoutApp.Provider>
-          <RepoDiffEmbedScreen />
-        </scoutApp.Provider>
-      </RouterContextProvider>
-    ) : isSessionEmbed ? (
-      <RouterContextProvider router={scoutTanstackRouter}>
-        <scoutApp.Provider>
-          <SessionEmbedScreen />
-        </scoutApp.Provider>
-      </RouterContextProvider>
-    ) : isTerminalEmbed ? (
-      <TerminalEmbedScreen />
-    ) : isAgentLanesEmbed ? (
-      <RouterContextProvider router={scoutTanstackRouter}>
-        <scoutApp.Provider>
-          <AgentLanesEmbedScreen />
-        </scoutApp.Provider>
-      </RouterContextProvider>
-    ) : (
-      <RouterProvider router={scoutTanstackRouter} />
-    )}
-    {/* dev-only runtime-issue HUD — captures uncaught errors, rejections, and
-        console/React errors (e.g. duplicate-key warnings) into a clean, copyable
-        surface. Tree-shaken out of production builds. */}
-    {import.meta.env.DEV ? <DevErrorOverlay /> : null}
-  </StrictMode>,
-);
+function renderShell() {
+  createRoot(el).render(
+    <StrictMode>
+      {isScoutbotFxLab ? (
+        <ScoutbotFxLab />
+      ) : isEmbeddableSurfacesLab ? (
+        <EmbeddableSurfacesLab />
+      ) : observeEmbedMatch ? (
+        <RouterContextProvider router={scoutTanstackRouter}>
+          <scoutApp.Provider>
+            <ObserveEmbedScreen agentId={decodeURIComponent(observeEmbedMatch[1])} />
+          </scoutApp.Provider>
+        </RouterContextProvider>
+      ) : isRepoDiffEmbed ? (
+        <RouterContextProvider router={scoutTanstackRouter}>
+          <scoutApp.Provider>
+            <RepoDiffEmbedScreen />
+          </scoutApp.Provider>
+        </RouterContextProvider>
+      ) : isSessionEmbed ? (
+        <RouterContextProvider router={scoutTanstackRouter}>
+          <scoutApp.Provider>
+            <SessionEmbedScreen />
+          </scoutApp.Provider>
+        </RouterContextProvider>
+      ) : isTerminalEmbed ? (
+        <TerminalEmbedScreen />
+      ) : (
+        <RouterProvider router={scoutTanstackRouter} />
+      )}
+      {import.meta.env.DEV ? <DevErrorOverlay /> : null}
+    </StrictMode>,
+  );
+}
+
+function renderEmbedMiss(missingPath: string) {
+  createRoot(el).render(
+    <StrictMode>
+      <div className="s-embed-miss" data-scout-theme>
+        <h1>Embed surface unavailable</h1>
+        <p>
+          No registered surface for <code>{missingPath}</code>. Rebuild the web client and restart
+          the Scout web server.
+        </p>
+      </div>
+      {import.meta.env.DEV ? <DevErrorOverlay /> : null}
+    </StrictMode>,
+  );
+}
+
+if (useDiscoveredEmbed) {
+  void import("./surfaces/embed-entry.tsx")
+    .then(({ mountDiscoveredEmbed }) => {
+      const mounted = mountDiscoveredEmbed(el, scoutApp);
+      if (!mounted) {
+        renderEmbedMiss(pathname);
+      }
+    })
+    .catch((error) => {
+      console.error("[openscout] embed bootstrap failed", error);
+      renderEmbedMiss(pathname);
+    });
+} else {
+  renderShell();
+}

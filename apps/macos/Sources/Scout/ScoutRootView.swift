@@ -552,7 +552,7 @@ struct ScoutRootView: View {
             treeMove(delta)
         case .repos:
             reposTreeMove(delta)
-        case .terminals, .tail, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .settings:
             break
         }
     }
@@ -568,7 +568,7 @@ struct ScoutRootView: View {
             treeEdge(last: last)
         case .repos:
             reposTreeEdge(last: last)
-        case .terminals, .tail, .lanes, .settings:
+        case .terminals, .tail, .dispatch, .lanes, .settings:
             break
         }
     }
@@ -1096,6 +1096,7 @@ struct ScoutRootView: View {
             .item(HudSidebarItem(id: .agents, title: "Agents", icon: "person.2", selectedIcon: "person.2.fill")),
             .item(HudSidebarItem(id: .terminals, title: "Terminals", icon: "terminal", selectedIcon: "terminal")),
             .item(HudSidebarItem(id: .tail, title: "Tail", icon: "waveform.path.ecg", selectedIcon: "waveform.path.ecg")),
+            .item(HudSidebarItem(id: .dispatch, title: "Dispatch", icon: "paperplane", selectedIcon: "paperplane.fill")),
             .item(HudSidebarItem(id: .lanes, title: "Lanes", icon: "rectangle.split.3x1", selectedIcon: "rectangle.split.3x1.fill")),
             .item(HudSidebarItem(id: .repos, title: "Repos", icon: "arrow.triangle.branch", selectedIcon: "arrow.triangle.branch")),
         ]
@@ -1158,6 +1159,8 @@ struct ScoutRootView: View {
             reposContent
         case .tail:
             tailContent
+        case .dispatch:
+            dispatchContent
         case .lanes:
             lanesContent(layout: layout)
         case .settings:
@@ -2369,6 +2372,10 @@ struct ScoutRootView: View {
                 observeAgent(agent)
             }
         )
+    }
+
+    private var dispatchContent: some View {
+        ScoutWebEmbedContent(surface: .dispatch)
     }
 
     private func lanesContent(layout: ScoutShellLayout) -> some View {

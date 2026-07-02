@@ -20,6 +20,7 @@ import {
   clippedText,
 } from "./broker-display.ts";
 import { BrokerMetadataPanel } from "./BrokerMetadataPanel.tsx";
+import { defineSurface } from "../../surfaces/types.ts";
 import "../system-surfaces-redesign.css";
 
 type BrokerTab = "attempts" | "dialogue" | "failed_queries" | "failed_deliveries";
@@ -144,7 +145,13 @@ function mergeBrokerPage(
   };
 }
 
-export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
+export function BrokerScreen({
+  navigate,
+  embedded = false,
+}: {
+  navigate: (r: Route) => void;
+  embedded?: boolean;
+}) {
   const { selectedBrokerAttempt, inspectBrokerAttempt } = useScout();
   const [broker, setBroker] = useState<BrokerDiagnostics | null>(null);
   const [activeTab, setActiveTab] = useState<BrokerTab>("attempts");
@@ -268,10 +275,12 @@ export function BrokerScreen({ navigate }: { navigate: (r: Route) => void }) {
   }, [inspectBrokerAttempt, selectedAttempt, selectedBrokerAttempt]);
 
   return (
-    <div className="s-ops">
-      <div className="s-ops-header">
-        <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
-      </div>
+    <div className={`s-ops${embedded ? " s-ops--embedded" : ""}`}>
+      {!embedded && (
+        <div className="s-ops-header">
+          <OpsSubnav activeRoute={{ view: "broker" }} navigate={navigate} />
+        </div>
+      )}
 
       <div className="s-ops-body">
         <div className="sys-surface-page sys-surface-page-wide sys-surface-page-fluid sys-broker-page">
@@ -717,3 +726,18 @@ function BrokerDialogueList({
     </div>
   );
 }
+
+export const scoutSurface = defineSurface({
+  id: "dispatch",
+  label: "Dispatch",
+  route: { view: "broker" },
+  webPath: "/broker",
+  screen: "BrokerScreen",
+  embed: {
+    path: "/embed/dispatch",
+    profile: "macos.dispatch",
+    rootClassName: "s-broker-embed",
+    chrome: { showSecondaryNav: false, showPageStatusBar: false },
+    hosts: { macos: true },
+  },
+});

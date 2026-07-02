@@ -13,6 +13,8 @@ import { useTailFeed } from "../../lib/use-tail-feed.ts";
 import { useObservePolling } from "../../lib/observe.ts";
 import { fetchTerminalSessions } from "../../lib/terminal-sessions.ts";
 import type { Agent, ObserveEvent, Route } from "../../lib/types.ts";
+import { useScout } from "../../scout/Provider.tsx";
+import { defineSurface } from "../../surfaces/types.ts";
 import type { TerminalSessionRecord } from "@openscout/protocol";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { SessionObserve } from "../sessions/SessionObserve.tsx";
@@ -229,7 +231,7 @@ function AgentLaneColumn({
 
 export function AgentLanesView({
   navigate,
-  agents: scoutAgents,
+  agents: agentsProp,
   embedded = false,
   laneSize = "lg",
   profileId: profileIdProp,
@@ -237,13 +239,15 @@ export function AgentLanesView({
   projectFilter,
 }: {
   navigate: (route: Route) => void;
-  agents: Agent[];
+  agents?: Agent[];
   embedded?: boolean;
   laneSize?: AgentLaneSize;
   profileId?: LaneDeckProfileId;
   harnessFilter?: string | null;
   projectFilter?: string | null;
 }) {
+  const { agents: contextAgents } = useScout();
+  const scoutAgents = agentsProp ?? contextAgents;
   const profileId = profileIdProp ?? readLaneDeckProfileId();
   const defaultWidthTier = laneSize ?? readAgentLaneSize();
   const [now, setNow] = useState(Date.now());
@@ -722,3 +726,25 @@ function embedFilterLabel(filters: AgentLaneEmbedFilters): string {
   ].filter(Boolean);
   return parts.join(" · ");
 }
+
+export const scoutSurface = defineSurface({
+  id: "lanes",
+  label: "Lanes",
+  route: { view: "ops", mode: "lanes" },
+  webPath: "/ops/lanes",
+  screen: "AgentLanesView",
+  embed: {
+    path: "/embed/agent-lanes",
+    aliases: ["/ops/lanes/embed", "/embed/lanes", "/embed/traces"],
+    profile: "macos.lanes",
+    rootClassName: "s-agent-lanes-embed",
+    chrome: { showSecondaryNav: false, showPageStatusBar: false },
+    hosts: { macos: true },
+    resolveEmbedProps: (params) => ({
+      profileId: readLaneDeckProfileId(),
+      laneSize: readAgentLaneSize(),
+      harnessFilter: params.get("harness")?.trim() || null,
+      projectFilter: params.get("project")?.trim() || null,
+    }),
+  },
+});

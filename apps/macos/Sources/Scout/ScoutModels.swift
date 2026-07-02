@@ -8,6 +8,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
     case agents
     case terminals
     case tail
+    case dispatch
     case lanes
     case repos
     case settings
@@ -20,6 +21,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .agents: return "Agents"
         case .terminals: return "Terminals"
         case .tail: return "Tail"
+        case .dispatch: return "Dispatch"
         case .lanes: return "Lanes"
         case .repos: return "Repos"
         case .settings: return "Settings"
@@ -32,6 +34,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         case .agents: return "person.2"
         case .terminals: return "terminal"
         case .tail: return "waveform.path.ecg"
+        case .dispatch: return "paperplane"
         case .lanes: return "rectangle.split.3x1"
         case .repos: return "arrow.triangle.branch"
         case .settings: return "gearshape"
@@ -42,7 +45,7 @@ enum ScoutSection: String, CaseIterable, Identifiable {
         switch self {
         case .comms: return "bubble.left.and.bubble.right.fill"
         case .agents: return "person.2.fill"
-        case .terminals, .tail, .lanes, .repos: return icon
+        case .terminals, .tail, .dispatch, .lanes, .repos: return icon
         case .settings: return "gearshape.fill"
         }
     }

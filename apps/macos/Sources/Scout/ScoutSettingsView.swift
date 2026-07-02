@@ -245,12 +245,42 @@ struct ScoutSettingsView: View {
     }
 
     private var aboutPage: some View {
-        settingsBlock(title: "Scout") {
-            VStack(alignment: .leading, spacing: HudSpacing.md) {
-                aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
-                aboutRow("Bundle", Bundle.main.bundleIdentifier ?? "app.openscout.scout")
-                aboutRow("Theme", appearance.themePreset.label)
-                aboutRow("Accent", appearance.accentPalette.label)
+        VStack(alignment: .leading, spacing: HudSpacing.xxl) {
+            settingsBlock(title: "Scout") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    aboutRow("Version", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0")
+                    aboutRow("Bundle", Bundle.main.bundleIdentifier ?? "app.openscout.scout")
+                    aboutRow("Theme", appearance.themePreset.label)
+                    aboutRow("Accent", appearance.accentPalette.label)
+                }
+            }
+
+            settingsBlock(title: "Embeddable surfaces") {
+                VStack(alignment: .leading, spacing: HudSpacing.md) {
+                    Text("Web screens that exported scoutSurface.embed and have a native host row in ScoutEmbedSurfaceRegistry.")
+                        .font(HudFont.ui(HudTextSize.sm))
+                        .foregroundStyle(ScoutPalette.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    ForEach(ScoutEmbedSurfaceRegistry.embeddable) { surface in
+                        VStack(alignment: .leading, spacing: HudSpacing.xs) {
+                            HStack(spacing: HudSpacing.sm) {
+                                Image(systemName: surface.systemImage)
+                                    .foregroundStyle(ScoutPalette.accent)
+                                Text(surface.label)
+                                    .font(HudFont.ui(HudTextSize.base, weight: .semibold))
+                                    .foregroundStyle(ScoutPalette.ink)
+                                Text(surface.id.rawValue)
+                                    .font(HudFont.mono(HudTextSize.micro))
+                                    .foregroundStyle(ScoutPalette.dim)
+                            }
+                            aboutRow("Shell", surface.shellPath)
+                            aboutRow("Embed", surface.embedPath)
+                            aboutRow("Profile", surface.profile)
+                        }
+                        .padding(.vertical, HudSpacing.xs)
+                    }
+                }
             }
         }
     }

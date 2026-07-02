@@ -311,6 +311,15 @@ function resolveBundledStaticClientRoot(entry: string, _mode: ScoutServerMode): 
   return existsSync(indexPath) ? clientDirectory : null;
 }
 
+/** Prefer a fresh Vite build from an OpenScout repo checkout over a stale published CLI bundle. */
+function resolveDevCheckoutWebClientRoot(env: NodeJS.ProcessEnv): string | null {
+  const setupCwd = env.OPENSCOUT_SETUP_CWD?.trim();
+  if (!setupCwd) return null;
+  const clientDirectory = join(setupCwd, "packages/web/dist/client");
+  const indexPath = join(clientDirectory, "index.html");
+  return existsSync(indexPath) ? clientDirectory : null;
+}
+
 export function resolveBunExecutable(env: NodeJS.ProcessEnv): string {
   const bun = resolveResolvedBunExecutable(env);
   if (bun) {
@@ -323,11 +332,14 @@ export function resolveBunExecutable(env: NodeJS.ProcessEnv): string {
 function buildMergedServerEnv(entry: string, mode: ScoutServerMode, flagEnv: Record<string, string>): NodeJS.ProcessEnv {
   const bundledStaticClientRoot = resolveBundledStaticClientRoot(entry, mode);
   const autoEnv: Record<string, string> = {};
-  if (bundledStaticClientRoot) {
-    const wantsVite = Boolean(flagEnv.OPENSCOUT_WEB_VITE_URL ?? process.env.OPENSCOUT_WEB_VITE_URL);
-    if (!wantsVite) {
+  const wantsVite = Boolean(flagEnv.OPENSCOUT_WEB_VITE_URL ?? process.env.OPENSCOUT_WEB_VITE_URL);
+  if (!wantsVite) {
+    const mergedForLookup = { ...process.env, ...flagEnv } as NodeJS.ProcessEnv;
+    const devCheckoutClientRoot = resolveDevCheckoutWebClientRoot(mergedForLookup);
+    const staticClientRoot = devCheckoutClientRoot ?? bundledStaticClientRoot;
+    if (staticClientRoot) {
       autoEnv.NODE_ENV = "production";
-      autoEnv.OPENSCOUT_WEB_STATIC_ROOT = bundledStaticClientRoot;
+      autoEnv.OPENSCOUT_WEB_STATIC_ROOT = staticClientRoot;
     }
   }
   if (flagEnv.SCOUT_WEB_PORT) {
