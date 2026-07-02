@@ -15,7 +15,6 @@ export * from "./collaboration.js";
 export * from "./messages.js";
 export * from "./read-receipts.js";
 export * from "./invocations.js";
-export * from "./lifecycle.js";
 export * from "./agent-runs.js";
 export * from "./budget.js";
 export * from "./agent-broker-feed.js";

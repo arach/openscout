@@ -373,7 +373,9 @@ describe("broker daemon invocation dispatch", () => {
       invocationId: "inv-restart-1",
       targetAgentId: "ghost",
     }));
-    expect(["dispatching", "queued"]).toContain(lifecycle.state);
+    // /lifecycle now returns the raw flight state (the projected "dispatching"
+    // vocabulary was removed in ask-overbuild Phase 2), matching snapshot.flight.state.
+    expect(["waking", "queued"]).toContain(lifecycle.state);
     expect(lifecycle.flightId).toBe(snapshot.flight?.id);
   }, 20_000);
 

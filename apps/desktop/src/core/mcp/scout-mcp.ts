@@ -1742,8 +1742,7 @@ function buildInvocationLookupContent(input: {
     },
     input.env,
   );
-  const terminal = isTerminalFlightState(input.flight?.state)
-    || Boolean(input.lifecycle?.terminal);
+  const terminal = isTerminalFlightState(input.flight?.state);
   return {
     currentDirectory: input.currentDirectory,
     flightId: input.flightId,
@@ -1754,10 +1753,8 @@ function buildInvocationLookupContent(input: {
     lifecycle: input.lifecycle ?? null,
     output: input.flight?.output
       ?? input.flight?.summary
-      ?? input.lifecycle?.terminal?.summary
       ?? null,
     error: input.flight?.error
-      ?? input.lifecycle?.terminal?.errorClass
       ?? null,
     ids: followArtifacts.ids,
     links: followArtifacts.links,
