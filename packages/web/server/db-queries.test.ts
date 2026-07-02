@@ -175,7 +175,7 @@ function setConversationCreatedAt(conversationId: string, createdAt: number): vo
 function setSeededRunTimestamps(createdAt: number, startedAt: number): void {
   const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
   try {
-    rawDb.query("UPDATE invocations SET created_at = ?1 WHERE id = 'inv-1'").run(createdAt);
+    rawDb.query("UPDATE invocations SET created_at = ?1, started_at = ?2 WHERE id = 'inv-1'").run(createdAt, startedAt);
     rawDb.query("UPDATE flights SET started_at = ?1 WHERE id = 'flight-1'").run(startedAt);
     rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:invocation:inv-1'").run(createdAt);
     rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:flight:flight-1'").run(startedAt);

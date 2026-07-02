@@ -218,43 +218,43 @@ export function queryWorkItemById(id: string): WebWorkDetail | null {
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
     ) AS active_flight_count,
     (
-      SELECT f.state
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.state
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
-      ORDER BY COALESCE(f.started_at, f.completed_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
+      ORDER BY COALESCE(inv.started_at, inv.completed_at, 0) DESC
       LIMIT 1
     ) AS active_flight_state,
     (
-      SELECT f.summary
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.summary
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
-      ORDER BY COALESCE(f.started_at, f.completed_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
+      ORDER BY COALESCE(inv.started_at, inv.completed_at, 0) DESC
       LIMIT 1
     ) AS active_flight_summary,
     (
-      SELECT f.state
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.state
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-      ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+      ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
       LIMIT 1
     ) AS latest_flight_state,
     (
-      SELECT COALESCE(f.completed_at, f.started_at)
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT COALESCE(inv.completed_at, inv.started_at)
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-      ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+      ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
       LIMIT 1
     ) AS latest_flight_at,
     (
@@ -570,14 +570,14 @@ export function queryWorkTimeline(
 
   const explicitFlightIds = new Set<string>();
   const flights = db().prepare(
-    `SELECT f.id, f.state, f.summary, f.started_at, f.completed_at,
-            f.target_agent_id,
+    `SELECT inv.flight_id AS id, inv.state, inv.summary, inv.started_at, inv.completed_at,
+            inv.target_agent_id,
             ac.display_name AS agent_name
-     FROM flights f
-     JOIN invocations inv ON inv.id = f.invocation_id
-     LEFT JOIN actors ac ON ac.id = f.target_agent_id
+     FROM invocations inv
+     LEFT JOIN actors ac ON ac.id = inv.target_agent_id
      WHERE inv.collaboration_record_id = ?
-     ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+       AND inv.flight_id IS NOT NULL
+     ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
      LIMIT 50`,
   ).all(workId) as Array<{
     id: string;
@@ -756,29 +756,29 @@ export function queryInferredWorkTimelineFlights(
     context.nextMoveOwnerId?.trim(),
   ].filter((value): value is string => Boolean(value))));
   const ownerClause = ownerIds.length > 0
-    ? `(inv.target_agent_id IN (${sqlPlaceholders(ownerIds.length)}) OR f.target_agent_id IN (${sqlPlaceholders(ownerIds.length)}))`
+    ? `inv.target_agent_id IN (${sqlPlaceholders(ownerIds.length)})`
     : null;
 
   const rows = db().prepare(
-    `SELECT f.id, f.state, f.summary, f.started_at, f.completed_at,
-            f.target_agent_id,
+    `SELECT inv.flight_id AS id, inv.state, inv.summary, inv.started_at, inv.completed_at,
+            inv.target_agent_id,
             inv.conversation_id,
             inv.message_id,
             ac.display_name AS agent_name
-     FROM flights f
-     JOIN invocations inv ON inv.id = f.invocation_id
-     LEFT JOIN actors ac ON ac.id = f.target_agent_id
+     FROM invocations inv
+     LEFT JOIN actors ac ON ac.id = inv.target_agent_id
      WHERE inv.collaboration_record_id IS NULL
+       AND inv.flight_id IS NOT NULL
        AND inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})
        AND inv.created_at BETWEEN ? AND ?
        ${ownerClause ? `AND ${ownerClause}` : ""}
-     ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+     ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
      LIMIT 20`,
   ).all(
     ...conversationIds,
     lowerBound,
     upperBound,
-    ...(ownerClause ? [...ownerIds, ...ownerIds] : []),
+    ...(ownerClause ? ownerIds : []),
   ) as Array<{
     id: string;
     state: string;
@@ -838,43 +838,43 @@ export function queryWorkItems(opts?: {
     ) AS active_child_work_count,
     (
       SELECT COUNT(*)
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
     ) AS active_flight_count,
     (
-      SELECT f.state
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.state
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
-      ORDER BY COALESCE(f.started_at, f.completed_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
+      ORDER BY COALESCE(inv.started_at, inv.completed_at, 0) DESC
       LIMIT 1
     ) AS active_flight_state,
     (
-      SELECT f.summary
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.summary
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-        AND f.state NOT IN ('completed','failed','cancelled')
-      ORDER BY COALESCE(f.started_at, f.completed_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+        AND inv.state NOT IN ('completed','failed','cancelled')
+      ORDER BY COALESCE(inv.started_at, inv.completed_at, 0) DESC
       LIMIT 1
     ) AS active_flight_summary,
     (
-      SELECT f.state
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT inv.state
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-      ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+      ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
       LIMIT 1
     ) AS latest_flight_state,
     (
-      SELECT COALESCE(f.completed_at, f.started_at)
-      FROM flights f
-      JOIN invocations inv ON inv.id = f.invocation_id
+      SELECT COALESCE(inv.completed_at, inv.started_at)
+      FROM invocations inv
       WHERE inv.collaboration_record_id = cr.id
-      ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+        AND inv.flight_id IS NOT NULL
+      ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
       LIMIT 1
     ) AS latest_flight_at,
     (
@@ -910,11 +910,11 @@ export function queryWorkItems(opts?: {
         LIMIT 1
       ), 0),
       COALESCE((
-        SELECT COALESCE(f.completed_at, f.started_at)
-        FROM flights f
-        JOIN invocations inv ON inv.id = f.invocation_id
+        SELECT COALESCE(inv.completed_at, inv.started_at)
+        FROM invocations inv
         WHERE inv.collaboration_record_id = cr.id
-        ORDER BY COALESCE(f.completed_at, f.started_at, 0) DESC
+          AND inv.flight_id IS NOT NULL
+        ORDER BY COALESCE(inv.completed_at, inv.started_at, 0) DESC
         LIMIT 1
       ), 0)
     ) AS sort_ts

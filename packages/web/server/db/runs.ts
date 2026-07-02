@@ -2,10 +2,16 @@
  * Flights and run-graph projections.
  *
  * Lifted from db-queries.ts as part of SCO-031 Phase C. Includes
- * `queryRuns` (merged invocation+flight projection), `queryFlights` (raw
- * flight rows for the UI), `queryFlightRecordById` (canonical FlightRecord
+ * `queryRuns` (merged invocation projection), `queryFlights` (flight-shaped
+ * rows for the UI), `queryFlightRecordById` (canonical FlightRecord
  * lookup), and `queryFollowTarget` (single helper that resolves
  * conversation/flight/work/session deep-links).
+ *
+ * Phase 3 read-switch: all four read the invocation's shadow status columns
+ * (state/summary/output/error/started_at/completed_at/flight_id/
+ * flight_metadata_json) directly — the flights table is no longer joined.
+ * The FlightRecord alias is projected from the invocation row, so the
+ * WebFlight/WebAgentRun shapes are unchanged.
  *
  * `queryFollowTarget` defers to `queryWorkItemById` (`./work.ts`) and
  * `querySessionById` (db-queries.ts) when the requested target is sparse;
@@ -179,24 +185,24 @@ function isActiveRun(run: AgentRun): boolean {
 
 function sqlRunReviewNeededExpression(): string {
   return `(
-    COALESCE(json_extract(f.metadata_json, '$.reviewState'), json_extract(inv.metadata_json, '$.reviewState')) IN ('needed', 'blocked')
-    OR COALESCE(json_extract(f.metadata_json, '$.reviewNeeded'), 0) = 1
-    OR COALESCE(json_extract(f.metadata_json, '$.needsReview'), 0) = 1
-    OR COALESCE(json_extract(f.metadata_json, '$.requiresReview'), 0) = 1
+    COALESCE(json_extract(inv.flight_metadata_json, '$.reviewState'), json_extract(inv.metadata_json, '$.reviewState')) IN ('needed', 'blocked')
+    OR COALESCE(json_extract(inv.flight_metadata_json, '$.reviewNeeded'), 0) = 1
+    OR COALESCE(json_extract(inv.flight_metadata_json, '$.needsReview'), 0) = 1
+    OR COALESCE(json_extract(inv.flight_metadata_json, '$.requiresReview'), 0) = 1
     OR COALESCE(json_extract(inv.metadata_json, '$.reviewNeeded'), 0) = 1
     OR COALESCE(json_extract(inv.metadata_json, '$.needsReview'), 0) = 1
     OR COALESCE(json_extract(inv.metadata_json, '$.requiresReview'), 0) = 1
-    OR COALESCE(json_array_length(json_extract(f.metadata_json, '$.reviewTaskIds')), 0) > 0
+    OR COALESCE(json_array_length(json_extract(inv.flight_metadata_json, '$.reviewTaskIds')), 0) > 0
     OR COALESCE(json_array_length(json_extract(inv.metadata_json, '$.reviewTaskIds')), 0) > 0
   )`;
 }
 
 function sqlRunStateExpression(): string {
   return `CASE
-    WHEN f.state = 'failed' THEN 'failed'
-    WHEN f.state = 'cancelled' THEN 'cancelled'
-    WHEN f.state = 'completed' AND ${sqlRunReviewNeededExpression()} THEN 'review'
-    WHEN f.state IN ${AGENT_RUN_STATES_SQL} THEN f.state
+    WHEN inv.state = 'failed' THEN 'failed'
+    WHEN inv.state = 'cancelled' THEN 'cancelled'
+    WHEN inv.state = 'completed' AND ${sqlRunReviewNeededExpression()} THEN 'review'
+    WHEN inv.state IN ${AGENT_RUN_STATES_SQL} THEN inv.state
     ELSE 'unknown'
   END`;
 }
@@ -259,10 +265,10 @@ export function queryRuns(opts?: {
   const requestedWorkId = opts?.collaborationRecordId ?? opts?.workId;
   const runStateExpression = sqlRunStateExpression();
   const runSourceExpression = sqlRunSourceExpression();
-  const runUpdatedAtExpression = sqlTimestampMsExpression("COALESCE(f.completed_at, f.started_at, inv.created_at)");
+  const runUpdatedAtExpression = sqlTimestampMsExpression("COALESCE(inv.completed_at, inv.started_at, inv.created_at)");
   const invocationCreatedAtExpression = sqlTimestampMsExpression("inv.created_at");
-  const flightStartedAtExpression = sqlTimestampMsExpression("f.started_at");
-  const flightCompletedAtExpression = sqlTimestampMsExpression("f.completed_at");
+  const flightStartedAtExpression = sqlTimestampMsExpression("inv.started_at");
+  const flightCompletedAtExpression = sqlTimestampMsExpression("inv.completed_at");
   const explicitActiveFilter = opts?.active;
   const activeOnly = explicitActiveFilter ?? (opts?.state ? false : true);
   const before = optionalRunBoundary(opts?.before ?? opts?.cursor);
@@ -328,29 +334,22 @@ export function queryRuns(opts?: {
        inv.metadata_json AS invocation_metadata_json,
        ${invocationCreatedAtExpression} AS invocation_created_at,
        ac.display_name AS agent_name,
-       f.id AS flight_id,
-       f.invocation_id AS flight_invocation_id,
-       f.requester_id AS flight_requester_id,
-       f.target_agent_id AS flight_target_agent_id,
-       f.state AS flight_state,
-       f.summary AS flight_summary,
-       f.output AS flight_output,
-       f.error AS flight_error,
-       f.metadata_json AS flight_metadata_json,
+       inv.flight_id AS flight_id,
+       inv.id AS flight_invocation_id,
+       inv.requester_id AS flight_requester_id,
+       inv.target_agent_id AS flight_target_agent_id,
+       inv.state AS flight_state,
+       inv.summary AS flight_summary,
+       inv.output AS flight_output,
+       inv.error AS flight_error,
+       inv.flight_metadata_json AS flight_metadata_json,
        ${flightStartedAtExpression} AS started_at,
        ${flightCompletedAtExpression} AS completed_at
      FROM invocations inv
-     LEFT JOIN flights f ON f.id = (
-       SELECT f2.id
-       FROM flights f2
-       WHERE f2.invocation_id = inv.id
-       ORDER BY ${sqlTimestampMsCoalesceExpression("COALESCE(f2.completed_at, f2.started_at)")} DESC, f2.id DESC
-       LIMIT 1
-     )
      LEFT JOIN actors ac ON ac.id = inv.target_agent_id
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      ${sqlWhereClause([where])}
-     ORDER BY ${runUpdatedAtExpression} DESC, ${invocationCreatedAtExpression} DESC, COALESCE(f.id, inv.id) ASC
+     ORDER BY ${runUpdatedAtExpression} DESC, ${invocationCreatedAtExpression} DESC, COALESCE(inv.flight_id, inv.id) ASC
      LIMIT ?`,
   ).all(...params) as RunQueryRow[];
 
@@ -386,14 +385,15 @@ export function queryFlights(opts?: {
   activeOnly?: boolean;
 }): WebFlight[] {
   const conversationIds = opts?.conversationId ? conversationIdAliases(opts.conversationId) : [];
-  const flightActiveAtExpression = sqlTimestampMsExpression("COALESCE(f.started_at, inv.created_at)");
-  const flightStartedAtExpression = sqlTimestampMsExpression("f.started_at");
-  const flightCompletedAtExpression = sqlTimestampMsExpression("f.completed_at");
+  const flightActiveAtExpression = sqlTimestampMsExpression("COALESCE(inv.started_at, inv.created_at)");
+  const flightStartedAtExpression = sqlTimestampMsExpression("inv.started_at");
+  const flightCompletedAtExpression = sqlTimestampMsExpression("inv.completed_at");
   const where = sqlJoinClauses([
-    opts?.activeOnly ? `f.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
+    `inv.flight_id IS NOT NULL`,
+    opts?.activeOnly ? `inv.state IN ${ACTIVE_FLIGHT_STATES_SQL}` : null,
     opts?.activeOnly ? `${flightActiveAtExpression} >= ?` : null,
-    opts?.flightId ? `f.id = ?` : null,
-    opts?.agentId ? `f.target_agent_id = ?` : null,
+    opts?.flightId ? `inv.flight_id = ?` : null,
+    opts?.agentId ? `inv.target_agent_id = ?` : null,
     conversationIds.length > 0
       ? `inv.conversation_id IN (${sqlPlaceholders(conversationIds.length)})`
       : null,
@@ -401,22 +401,21 @@ export function queryFlights(opts?: {
   ]);
 
   const sql = `SELECT
-    f.id,
-    f.invocation_id,
-    f.target_agent_id,
+    inv.flight_id AS id,
+    inv.id AS invocation_id,
+    inv.target_agent_id,
     ac.display_name AS agent_name,
     inv.conversation_id,
     inv.collaboration_record_id,
-    f.state,
-    f.summary,
-    json_extract(f.metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
-    json_extract(f.metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
-    json_extract(f.metadata_json, '$.dispatchOutcome.checkedAt') AS dispatch_outcome_checked_at,
+    inv.state,
+    inv.summary,
+    json_extract(inv.flight_metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
+    json_extract(inv.flight_metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
+    json_extract(inv.flight_metadata_json, '$.dispatchOutcome.checkedAt') AS dispatch_outcome_checked_at,
     ${flightStartedAtExpression} AS started_at,
     ${flightCompletedAtExpression} AS completed_at
-  FROM flights f
-  JOIN invocations inv ON inv.id = f.invocation_id
-  LEFT JOIN actors ac ON ac.id = f.target_agent_id
+  FROM invocations inv
+  LEFT JOIN actors ac ON ac.id = inv.target_agent_id
   ${sqlWhereClause([where])}
   ORDER BY COALESCE(${flightStartedAtExpression}, ${sqlTimestampMsExpression("inv.created_at")}, 0) DESC
   LIMIT 100`;
@@ -472,19 +471,19 @@ export function queryFlights(opts?: {
 export function queryFlightRecordById(id: string): FlightRecord | null {
   const row = db().prepare(
     `SELECT
-       id,
-       invocation_id,
+       flight_id AS id,
+       id AS invocation_id,
        requester_id,
        target_agent_id,
        state,
        summary,
        output,
        error,
-       metadata_json,
+       flight_metadata_json AS metadata_json,
        ${sqlTimestampMsExpression("started_at")} AS started_at,
        ${sqlTimestampMsExpression("completed_at")} AS completed_at
-     FROM flights
-     WHERE id = ?
+     FROM invocations
+     WHERE flight_id = ?
      LIMIT 1`,
   ).get(id) as {
     id: string;
@@ -537,20 +536,11 @@ export function queryFollowTarget(opts: {
   };
 
   if (target.flightId || target.invocationId) {
-    const flightJoin = target.flightId
-      ? "JOIN flights f ON f.invocation_id = inv.id"
-      : `LEFT JOIN flights f ON f.id = (
-           SELECT f2.id
-           FROM flights f2
-           WHERE f2.invocation_id = inv.id
-           ORDER BY ${sqlTimestampMsCoalesceExpression("COALESCE(f2.completed_at, f2.started_at)")} DESC
-           LIMIT 1
-         )`;
-    const where = target.flightId ? "f.id = ?" : "inv.id = ?";
+    const where = target.flightId ? "inv.flight_id = ?" : "inv.id = ?";
     const param = target.flightId ?? target.invocationId ?? "";
     const row = db().prepare(
       `SELECT
-         f.id AS flight_id,
+         inv.flight_id AS flight_id,
          inv.id AS invocation_id,
          inv.conversation_id,
          inv.collaboration_record_id,
@@ -559,7 +549,6 @@ export function queryFollowTarget(opts: {
          ep.session_id,
          ep.metadata_json AS endpoint_metadata_json
        FROM invocations inv
-       ${flightJoin}
        LEFT JOIN agent_endpoints ep ON ep.id = (
          SELECT ep2.id
          FROM agent_endpoints ep2

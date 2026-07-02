@@ -248,25 +248,24 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        inv.collaboration_record_id,
        inv.task,
        inv.created_at,
-       f.id AS flight_id,
-       f.state AS flight_state,
-       f.summary AS flight_summary,
-       f.error AS flight_error,
-       f.started_at,
-       f.completed_at,
-       json_extract(f.metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
-       json_extract(f.metadata_json, '$.failureStage') AS failure_stage,
-       json_extract(f.metadata_json, '$.failureSeverity') AS failure_severity,
-       json_extract(f.metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
-       json_extract(f.metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
+       inv.flight_id AS flight_id,
+       inv.state AS flight_state,
+       inv.summary AS flight_summary,
+       inv.error AS flight_error,
+       inv.started_at,
+       inv.completed_at,
+       json_extract(inv.flight_metadata_json, '$.operatorAttentionDismissedAt') AS flight_dismissed_at,
+       json_extract(inv.flight_metadata_json, '$.failureStage') AS failure_stage,
+       json_extract(inv.flight_metadata_json, '$.failureSeverity') AS failure_severity,
+       json_extract(inv.flight_metadata_json, '$.dispatchOutcome.status') AS dispatch_outcome_status,
+       json_extract(inv.flight_metadata_json, '$.dispatchOutcome.reason') AS dispatch_outcome_reason,
        (
-         SELECT MAX(COALESCE(recovery_f.completed_at, recovery_f.started_at, 0))
-         FROM flights recovery_f
-         JOIN invocations recovery_inv ON recovery_inv.id = recovery_f.invocation_id
+         SELECT MAX(COALESCE(recovery_inv.completed_at, recovery_inv.started_at, 0))
+         FROM invocations recovery_inv
          WHERE recovery_inv.target_agent_id = inv.target_agent_id
            AND COALESCE(recovery_inv.conversation_id, '') = COALESCE(inv.conversation_id, '')
-           AND recovery_f.state = 'completed'
-           AND COALESCE(recovery_f.completed_at, recovery_f.started_at, 0) > COALESCE(f.completed_at, f.started_at, inv.created_at)
+           AND recovery_inv.state = 'completed'
+           AND COALESCE(recovery_inv.completed_at, recovery_inv.started_at, 0) > COALESCE(inv.completed_at, inv.started_at, inv.created_at)
        ) AS recovered_after_failure_at,
        latest_ai.kind AS status_kind,
        latest_ai.title AS status_title,
@@ -283,13 +282,6 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
        cr.updated_at AS work_updated_at
      FROM invocations inv
      LEFT JOIN actors ac ON ac.id = inv.target_agent_id
-     LEFT JOIN flights f ON f.id = (
-       SELECT f2.id
-       FROM flights f2
-       WHERE f2.invocation_id = inv.id
-       ORDER BY COALESCE(f2.completed_at, f2.started_at, 0) DESC
-       LIMIT 1
-     )
      LEFT JOIN activity_items latest_ai ON latest_ai.id = (
        SELECT ai.id
        FROM activity_items ai
@@ -316,10 +308,10 @@ export function queryFleetAskRows(requesterIds: string[], limit: number): FleetA
      LEFT JOIN collaboration_records cr ON cr.id = inv.collaboration_record_id
      WHERE inv.requester_id IN (${requesterClause})
        AND NOT (
-         COALESCE(f.state, '') = 'failed'
-         AND COALESCE(f.error, '') LIKE 'Stale running flight reconciled:%'
+         COALESCE(inv.state, '') = 'failed'
+         AND COALESCE(inv.error, '') LIKE 'Stale running flight reconciled:%'
        )
-     ORDER BY COALESCE(f.completed_at, f.started_at, inv.created_at) DESC
+     ORDER BY COALESCE(inv.completed_at, inv.started_at, inv.created_at) DESC
      LIMIT ?`,
   ).all(...requesterIds, limit) as Array<FleetAskRow>;
 }
@@ -465,10 +457,10 @@ export function queryFleetAttentionRows(requesterIds: string[], limit: number): 
            )
            AND NOT EXISTS (
              SELECT 1
-             FROM flights f
-             JOIN invocations inv ON inv.id = f.invocation_id
+             FROM invocations inv
              WHERE inv.collaboration_record_id = cr.id
-               AND COALESCE(f.completed_at, f.started_at, 0) > cr.updated_at
+               AND inv.flight_id IS NOT NULL
+               AND COALESCE(inv.completed_at, inv.started_at, 0) > cr.updated_at
            )
            AND NOT EXISTS (
              SELECT 1
