@@ -45,9 +45,9 @@ the reading order. The shortest newcomer path is:
 2. [`docs/quickstart.md`](./docs/quickstart.md) for the first healthy local run
 3. [`docs/current-posture.md`](./docs/current-posture.md) for maturity and trust boundaries
 4. [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol model
-5. [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and routing
+5. [`docs/architecture.md`](./docs/architecture.md#agent-identity-and-addressing) for address grammar and routing
 
-Scout is aware of adjacent standards such as A2A, but it does not collapse its internal model into them. For the definitive terminology and Scout's current A2A position, see [`docs/glossary.md`](./docs/glossary.md) and [`docs/a2a-alignment.md`](./docs/a2a-alignment.md).
+Scout is aware of adjacent standards such as A2A, but it does not collapse its internal model into them. For the definitive terminology and Scout's current A2A position, see [`docs/concepts.md`](./docs/concepts.md).
 
 For agent-ready entry points, read [`llms.txt`](./llms.txt), [`llms-full.txt`](./llms-full.txt), and [`install.md`](./install.md).
 
@@ -184,7 +184,6 @@ registry entries.
 - [`docs/quickstart.md`](./docs/quickstart.md) for the first successful local flow
 - [`docs/current-posture.md`](./docs/current-posture.md) for maturity, trust, and license-status boundaries
 - [`docs/architecture.md`](./docs/architecture.md) for the broker/runtime/protocol split
-- [`docs/agent-identity.md`](./docs/agent-identity.md) for address grammar and name resolution
+- [`docs/architecture.md`](./docs/architecture.md#agent-identity-and-addressing) for address grammar and name resolution
 - [`docs/agent-integration-contract.md`](./docs/agent-integration-contract.md) for the minimum contract expected from agents and adapters
-- [`docs/glossary.md`](./docs/glossary.md) for the definitive Scout vocabulary
-- [`docs/a2a-alignment.md`](./docs/a2a-alignment.md) for how Scout aligns with A2A today
+- [`docs/concepts.md`](./docs/concepts.md) for the definitive Scout vocabulary and A2A alignment

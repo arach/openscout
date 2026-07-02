@@ -35,10 +35,10 @@ finalized; package manifests currently use `UNLICENSED`.
 - [`docs/runtime-sessions.md`](./docs/runtime-sessions.md) — agent/session/endpoint semantics for harness lifecycle
 - [`docs/scout-comms.md`](./docs/scout-comms.md) — client-facing comms workflows, records, routing rules, and contact-line grammar
 - [`docs/mcp-api-posture.md`](./docs/mcp-api-posture.md) — core vs pro Scout MCP tool tiers
-- [`docs/data-ownership.md`](./docs/data-ownership.md) — Scout-owned records vs observed harness material
+- [`docs/architecture.md`](./docs/architecture.md#the-data-model) — Scout-owned records vs observed harness material
 - [`docs/agent-integration-contract.md`](./docs/agent-integration-contract.md) — minimum contract for agents and adapters
-- [`docs/agent-identity.md`](./docs/agent-identity.md) — address grammar and resolution
-- [`docs/collaboration-workflows-v1.md`](./docs/collaboration-workflows-v1.md) — question vs work item model
+- [`docs/architecture.md`](./docs/architecture.md#agent-identity-and-addressing) — address grammar and resolution
+- [`docs/agents-and-collaboration.md`](./docs/agents-and-collaboration.md) — questions, work items, and delegation
 - [`docs/operator-attention-and-unblock.md`](./docs/operator-attention-and-unblock.md) — approvals, permissions, human-input notifications
 
 ## Agent-Optimized Docs

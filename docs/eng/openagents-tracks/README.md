@@ -1,3 +1,10 @@
+> **Archived planning material.** These OpenAgents-inspired tracks were a
+> planning exercise; the durable concepts now live in the top-level docs
+> ([`architecture.md`](../../architecture.md),
+> [`agents-and-collaboration.md`](../../agents-and-collaboration.md),
+> [`concepts.md`](../../concepts.md)). What remains here is historical
+> roadmap and staffing context; paths and links inside may be stale.
+
 # OpenAgents-Inspired Tracks For OpenScout
 
 This folder breaks the OpenAgents research into four implementation tracks that are mostly independent and can be staffed in parallel.

@@ -46,5 +46,5 @@ overrides before falling back to `https://api.openscout.app`:
 - [Root README](../../README.md) for the product overview.
 - [Current posture](../../docs/current-posture.md) for trust and maturity
   limits.
-- [Data ownership](../../docs/data-ownership.md) before adding persistence that
+- [Data model](../../docs/architecture.md#the-data-model) before adding persistence that
   could be confused with broker-owned coordination records.

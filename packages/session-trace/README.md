@@ -30,5 +30,5 @@ npm --prefix packages/session-trace run check
   session substrate
 - [`../session-trace-react/README.md`](../session-trace-react/README.md) for the
   React renderer layer
-- [`../../docs/data-ownership.md`](../../docs/data-ownership.md) for the
+- [`../../docs/architecture.md`](../../docs/architecture.md#the-data-model) for the
   observed-source versus Scout-owned record boundary

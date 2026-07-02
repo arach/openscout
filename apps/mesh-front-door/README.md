@@ -167,5 +167,5 @@ bun run --cwd apps/mesh-front-door deploy
   limits.
 - [Architecture](../../docs/architecture.md) for the local broker and mesh
   model.
-- [Data ownership](../../docs/data-ownership.md) before adding any persistence
+- [Data model](../../docs/architecture.md#the-data-model) before adding any persistence
   that could be mistaken for broker-owned coordination state.

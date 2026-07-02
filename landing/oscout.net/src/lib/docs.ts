@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync, existsSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join, basename, dirname, relative, resolve, sep } from "path";
 import matter from "gray-matter";
 import { githubRawBaseUrl, githubRepoUrl } from "./site-links";
@@ -19,7 +19,6 @@ export type DocEntry = DocMeta & {
 };
 
 const DOCS_DIR = join(process.cwd(), "../..", "docs");
-const TRACKS_DIR = join(DOCS_DIR, "openagents-tracks");
 const REPO_ROOT = join(DOCS_DIR, "..");
 const GITHUB_BLOB_BASE_URL = `${githubRepoUrl}/blob/main`;
 const GITHUB_RAW_BASE_URL = githubRawBaseUrl;
@@ -29,16 +28,11 @@ type GroupDef = { group: string; order: number; title: string; description: stri
 const CATALOG: Record<string, GroupDef> = {
   "quickstart":                            { group: "Core Concepts",       order: 0,  title: "Quickstart",                  description: "The shortest path from install to a first healthy local Scout handoff." },
   "current-posture":                       { group: "Core Concepts",       order: 1,  title: "Status & Scope",              description: "Maturity, trust, install footprint, mesh, and license-status boundaries." },
-  "architecture":                          { group: "Core Concepts",       order: 2,  title: "Architecture",                description: "Local-first protocol and runtime for orchestrating agents across harnesses and machines." },
-  "data-ownership":                        { group: "Core Concepts",       order: 3,  title: "Data Ownership",              description: "What Scout owns, observes, and intentionally does not import." },
-  "agent-identity":                        { group: "Core Concepts",       order: 4,  title: "Agent Identity",              description: "How agents are named, addressed, and resolved across machines and harnesses." },
+  "architecture":                          { group: "Core Concepts",       order: 2,  title: "Architecture",                description: "The system shape and its data: what Scout owns vs observes, agent identity and addressing, and the integration boundary." },
+  "agents-and-collaboration":              { group: "Core Concepts",       order: 3,  title: "Agents & Collaboration",      description: "How agents reach each other and move owned work: questions, work items, delegation, waking." },
+  "concepts":                              { group: "Core Concepts",       order: 4,  title: "Concepts",                    description: "What every core noun means — the concepts Scout brings, and where it maps to open protocols." },
   "agent-integration-contract":            { group: "Core Concepts",       order: 5,  title: "Integrating Agents",          description: "The minimum v0 contract expected from agents, runtimes, and adapters." },
-  "collaboration-workflows-v1":            { group: "Core Concepts",       order: 6,  title: "Collaboration Workflows",     description: "Questions and work items — two kinds of collaboration with distinct lifecycles." },
-  "operator-attention-and-unblock":        { group: "Core Concepts",       order: 7,  title: "Operator Attention",          description: "Human input, approvals, permissions, and unblock notifications across surfaces." },
-  "01-harness-catalog-and-onboarding":     { group: "OpenAgents Tracks",   order: 20, title: "Track 01: Harness Catalog",   description: "Declarative catalog with readiness, install, and configure states." },
-  "02-collaboration-contract":             { group: "OpenAgents Tracks",   order: 21, title: "Track 02: Collaboration Contract", description: "Stable broker-owned contract every harness must obey." },
-  "03-shared-resources":                   { group: "OpenAgents Tracks",   order: 22, title: "Track 03: Shared Resources",  description: "Broker-owned resources that agents and humans share safely." },
-  "04-capability-aware-shell-and-surfaces":{ group: "OpenAgents Tracks",   order: 23, title: "Track 04: Capability-Aware Surfaces", description: "Surfaces that explain what the system can do." },
+  "operator-attention-and-unblock":        { group: "Core Concepts",       order: 6,  title: "Operator Attention",          description: "Human input, approvals, permissions, and unblock notifications across surfaces." },
   "activity-indexing":                     { group: "Implementation",      order: 40, title: "Activity Indexing",           description: "Fast broker-native activity projection backed by SQLite." },
   "codex-app-server-harness":              { group: "Implementation",      order: 41, title: "Codex App Server Harness",    description: "Persistent session plane for Codex via app-server JSON-RPC." },
   "telegram-bridge-ownership":             { group: "Implementation",      order: 42, title: "Telegram Bridge Ownership",   description: "Singleton polling fix using mesh-elected bridge owner." },
@@ -52,7 +46,6 @@ function getDocPathIndex() {
 
   const index = new Map<string, string>();
   const dirs = [DOCS_DIR];
-  if (existsSync(TRACKS_DIR)) dirs.push(TRACKS_DIR);
 
   for (const dir of dirs) {
     for (const file of readdirSync(dir)) {
@@ -121,7 +114,6 @@ function loadDoc(filePath: string, slug: string): DocEntry | null {
 export function getAllDocs(): DocEntry[] {
   const entries: DocEntry[] = [];
   const dirs = [DOCS_DIR];
-  if (existsSync(TRACKS_DIR)) dirs.push(TRACKS_DIR);
 
   for (const dir of dirs) {
     for (const file of readdirSync(dir)) {

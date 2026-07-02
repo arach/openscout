@@ -1,6 +1,6 @@
 # Broker Agent Notes
 
-Source: `packages/runtime/**`, `packages/protocol/**`, `docs/data-ownership.md`.
+Source: `packages/runtime/**`, `packages/protocol/**`, `docs/architecture.md` (data model section).
 
 Status: canonical writer semantics for local broker. Complements `scout-comms.agent.md` (workflows).
 

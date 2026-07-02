@@ -55,14 +55,14 @@ Start at [`INDEX.agent.md`](./INDEX.agent.md) for subsystem specs written for ag
 | maturity/trust/license | `docs/current-posture.md` |
 | architecture | `docs/architecture.md` |
 | runtime/session semantics (prose) | `docs/runtime-sessions.md` |
-| data boundary | `docs/data-ownership.md` |
+| data boundary | `docs/architecture.md#the-data-model` |
 | agent integration | `docs/agent-integration-contract.md` |
 | host integrations | `docs/integrations.md` |
 | external client comms (prose) | `docs/scout-comms.md` |
-| identity grammar | `docs/agent-identity.md` |
-| collaboration model | `docs/collaboration-workflows-v1.md` |
+| identity grammar | `docs/architecture.md#agent-identity-and-addressing` |
+| collaboration model | `docs/agents-and-collaboration.md` |
 | operator attention | `docs/operator-attention-and-unblock.md` |
-| glossary | `docs/glossary.md` |
+| glossary | `docs/concepts.md` |
 
 ## Core Records
 

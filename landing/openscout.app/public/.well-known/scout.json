@@ -137,10 +137,10 @@
     "fullContext": "https://openscout.app/llms-full.txt",
     "docs": "https://openscout.app/docs",
     "architecture": "https://openscout.app/docs/architecture",
-    "agentIdentity": "https://openscout.app/docs/agent-identity",
+    "agentIdentity": "https://openscout.app/docs/architecture",
     "agentIntegrationContract": "https://openscout.app/docs/agent-integration-contract",
     "integrations": "https://openscout.app/docs/integrations",
-    "dataOwnership": "https://openscout.app/docs/data-ownership",
+    "dataOwnership": "https://openscout.app/docs/architecture",
     "operatorAttention": "https://openscout.app/docs/operator-attention-and-unblock",
     "repository": "https://github.com/arach/openscout"
   },

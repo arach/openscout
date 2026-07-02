@@ -4,7 +4,7 @@
 
 This package is intentionally not named `relay`. Relay is now a surface and compatibility layer. The control protocol is the canonical model underneath it.
 
-For the definitive Scout glossary, see [docs/glossary.md](../../docs/glossary.md). For Scout's current A2A posture and vocabulary mapping, see [docs/a2a-alignment.md](../../docs/a2a-alignment.md).
+For the definitive Scout vocabulary and A2A posture, see [docs/concepts.md](../../docs/concepts.md).
 
 Scout is aware of adjacent standards such as A2A, but this package is not trying to become an A2A clone. The goal is clean correspondence without giving up Scout-specific mechanics such as broker-owned routing, `invocation` plus `flight`, or the `question` / `work_item` collaboration model.
 
@@ -65,8 +65,8 @@ question can be answered without being closed yet.
 
 The exported collaboration shapes are a protocol vocabulary for upcoming runtime and UI
 work. They do not yet imply that the broker persists the full collaboration layer today.
-See [docs/collaboration-workflows-v1.md](../../docs/collaboration-workflows-v1.md) for the
-v1 model.
+See [docs/agents-and-collaboration.md](../../docs/agents-and-collaboration.md) for the
+full collaboration model.
 
 ## Local Commands
 

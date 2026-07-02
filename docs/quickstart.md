@@ -4,7 +4,7 @@ This is the shortest path from a fresh checkout to a first useful handoff with O
 
 OpenScout gives you one broker-backed surface for your agents. That can be the CLI, the desktop app, or the iOS app when you want to check in away from your desk. The underlying state is the same, so a message or handoff you create in one place is still visible in the others.
 
-If you only read three more pages after this one, read [`current-posture.md`](./current-posture.md), [`architecture.md`](./architecture.md), and [`agent-identity.md`](./agent-identity.md).
+If you only read three more pages after this one, read [`current-posture.md`](./current-posture.md), [`architecture.md`](./architecture.md), and [`agents-and-collaboration.md`](./agents-and-collaboration.md).
 
 ## 1. Bootstrap The Local Control Plane
 
@@ -136,6 +136,8 @@ Concrete handoff example:
 - Flight: the lifecycle record attached to an invocation.
 - Agent name: the human-typed address for one agent. Scout resolves the short form to the exact identity the broker stores. Prefer broker-suggested names for promoted workers instead of inventing generic names.
 
+For the full vocabulary — and where it maps onto open protocols — read [`concepts.md`](./concepts.md).
+
 ## If The First Pass Worked
 
 That means you have the core loop:
@@ -145,6 +147,6 @@ That means you have the core loop:
 3. Scout can see at least one agent name.
 4. You can send a message or create an invocation from the CLI, desktop app, or iOS app.
 
-From there, the next useful read is [`architecture.md`](./architecture.md) for the control-plane split, followed by [`agent-identity.md`](./agent-identity.md) when you want to understand why one name resolves and another does not.
+From there, the next useful read is [`architecture.md`](./architecture.md) for the control-plane split and the address grammar (why one name resolves and another does not), followed by [`agents-and-collaboration.md`](./agents-and-collaboration.md) for how owned work moves between agents.
 
 If you are evaluating Scout for a pilot, read [`current-posture.md`](./current-posture.md) before assuming enterprise-grade security, licensing, or operational maturity.

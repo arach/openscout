@@ -36,6 +36,6 @@ Verified: 2026-06-10
 
 ## Link Targets
 
-- Data boundary: `docs/data-ownership.md`
+- Data boundary: `docs/architecture.md#the-data-model`
 - Permission/operator attention: `docs/operator-attention-and-unblock.md`
 - Trust/maturity narrative: `docs/current-posture.md`

@@ -1,14 +1,12 @@
 # Architecture
 
-This document is the system-level map for OpenScout. If you are new, read it as a guide to three things: what the broker is, what the runtime does, and what the protocol defines.
+This document is the system-level map for OpenScout: what the system is made of, and how it treats data. If you are new, read it as a guide to four things: what the broker is, what the runtime does, what the protocol defines, and which records Scout owns versus observes.
 
-Read this after the repo [`README.md`](../README.md) if you are orienting to the project for the first time. If you want the command-first ramp first, read [`quickstart.md`](./quickstart.md) before this page. If you are evaluating maturity, trust, or license posture, read [`current-posture.md`](./current-posture.md). If you need naming rules or workflow semantics after this, continue with [`agent-identity.md`](./agent-identity.md) and [`collaboration-workflows-v1.md`](./collaboration-workflows-v1.md).
+Read this after the repo [`README.md`](../README.md) if you are orienting to the project for the first time. If you want the command-first ramp first, read [`quickstart.md`](./quickstart.md) before this page. For the precise meaning of Scout's core nouns and how they map onto external agent protocols, read [`concepts.md`](./concepts.md). For the question, work-item, and delegation semantics between agents, read [`agents-and-collaboration.md`](./agents-and-collaboration.md). If you are evaluating maturity, trust, or license posture, read [`current-posture.md`](./current-posture.md).
 
 ## Working Thesis
 
 Scout is a local-first control plane for orchestrating AI agents across harnesses, machines, and interfaces.
-
-For the exact meanings of Scout's core nouns, read [`glossary.md`](./glossary.md). For the current relationship between Scout and A2A, read [`a2a-alignment.md`](./a2a-alignment.md).
 
 Remember these three things:
 
@@ -39,9 +37,9 @@ A small set of constraints shape every design decision.
 
 **Local-first, not cloud-first.** The broker, agent registry, and Scout-owned state live on your machine. Nothing phones home by default. Local files and databases are the source of truth, not a hosted API.
 
-**High-trust local pilot, not hardened enterprise perimeter.** Scout's current security posture assumes trusted local users, trusted local agents, and explicit pairing/mesh choices. It is not yet a multi-tenant, compliance-ready, or enterprise-policy system. See [`current-posture.md`](./current-posture.md).
+**High-trust local pilot, not hardened enterprise perimeter.** Scout assumes trusted local users, trusted local agents, and explicit pairing/mesh choices; it is not yet a multi-tenant, compliance-ready system. See [`current-posture.md`](./current-posture.md).
 
-**Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes: conversations, messages, invocations, flights, deliveries, bindings, and agent registrations. External harness transcripts such as Claude Code or Codex JSONL remain harness-owned source material. Scout may discover, tail, summarize, link, and index lightweight metadata from those files, but it should not bulk-import every external turn into the control-plane database as if Scout authored it. See [`data-ownership.md`](./data-ownership.md).
+**Own coordination, observe transcripts.** Scout owns the control-plane records it creates or routes and observes external harness transcripts without importing them wholesale. This boundary is central enough to have its own section below; see [The Data Model](#the-data-model).
 
 **Multi-harness.** Agents run on Claude Code, Codex, or anything that speaks the protocol. Scout doesn't assume one execution backend.
 
@@ -82,7 +80,7 @@ One concrete example: `scout ask --project ../talkie --harness claude "review th
 
 ### Protocol
 
-The shared grammar everything speaks. It defines agent identity (the address grammar described in [`agent-identity.md`](./agent-identity.md)), message records, invocation requests, flight tracking, collaboration contracts, and bindings.
+The shared grammar everything speaks. It defines agent identity (the address grammar in [Agent Identity And Addressing](#agent-identity-and-addressing) below), message records, invocation requests, flight tracking, collaboration contracts, and bindings.
 
 Anything that crosses a boundary — between agents, harnesses, or machines — is described here.
 
@@ -160,7 +158,7 @@ The operator's main interface. It sends route intent such as `--to hudson` or `-
 
 Desktop host, web dashboard, iOS companion, terminal UI, and pi. These are views into broker-owned control-plane state and observed harness activity. None of them own agent state; the broker does.
 
-The pi extension (see [`eng/sco-015-pi-scout-integration.md`](../docs/eng/sco-015-pi-scout-integration.md)) runs Scout coordination as a native pi extension, letting pi sessions send and receive messages via the broker alongside other harnesses.
+The pi extension (see [`eng/sco-015-pi-scout-integration.md`](./eng/sco-015-pi-scout-integration.md)) runs Scout coordination as a native pi extension, letting pi sessions send and receive messages via the broker alongside other harnesses.
 
 ## Performance Direction
 
@@ -169,6 +167,224 @@ Operator commands like `scout up`, `scout ps`, and `scout who` need to stay chea
 The broker owns all expensive reads — runtime health, agent liveness, tmux sessions, harness readiness, project discovery. These are cached as broker-owned snapshots with TTLs. When a TTL expires, the broker refreshes once and coalesces concurrent readers onto the same in-flight refresh.
 
 Every surface reads these snapshots first, using stale-while-revalidate where appropriate. Direct filesystem or subprocess probing is limited to bootstrap and recovery paths when the broker is unavailable.
+
+## The Data Model
+
+Scout is a control plane, not a transcript warehouse. Its storage model starts from one boundary: Scout owns the records it creates or routes, and observes external harness records without importing them wholesale. This matters for product scope, operator trust, and system design. The broker should make agent coordination durable without pretending to become the canonical database for every model turn written by Claude Code, Codex, or any future harness.
+
+Scout's coordination vocabulary is small. A **conversation** groups related turns; a **message** is a durable "say this" record; an **invocation** is a request for work; a **flight** is the lifecycle record attached to an invocation; a **delivery** is one routed attempt to reach a target; a **binding** maps a project path and branch to an addressable target; a **question** asks for an answer; and a **work item** owns a durable piece of execution. [`concepts.md`](./concepts.md) defines each precisely and maps them onto external protocols. This section is about who owns them.
+
+### What Scout Owns
+
+Scout owns first-party control-plane records:
+
+- nodes, actors, agents, endpoints, and bindings registered with the broker
+- conversations, messages, forwards, and replies created through Scout
+- invocations, flights, deliveries, delivery attempts, and dispatch records
+- collaboration records such as questions and work items when created through Scout
+- local read models and activity projections derived from those first-party records
+
+These records are broker-owned facts. They can be persisted, replayed, projected into SQLite, forwarded across mesh peers, and shown consistently across CLI, desktop, mobile, and agent tools.
+
+### What Scout Observes
+
+Scout observes external harness source material:
+
+- Claude Code transcript JSONL
+- Claude Code team, task, subagent, and session topology when available
+- Codex session JSONL
+- Codex subagent, thread, and custom-agent topology when available
+- harness-specific logs, turn streams, and file-backed history
+- process and filesystem signals that help explain what is running now
+
+These sources are not Scout-owned conversation state. Scout may discover them, tail them, summarize them, link to them, index lightweight metadata, or expose live views over them. Scout should not bulk-copy external transcript turns into its control-plane database and treat them as first-party messages.
+
+For harness-owned ecosystems such as Claude Code's `.claude` files, the boundary is stricter than "do not bulk-import": adapters should not write there at all. They may inspect what the harness exposes locally, but creating or modifying harness agents, teams, task lists, or MCP settings is outside adapter runtime behavior. Any host setup that changes a harness configuration must be an explicit operator action, not something an adapter does while observing or driving a session.
+
+### Storage Split
+
+The intentional split is:
+
+- the broker journal records Scout-owned control-plane facts
+- SQLite stores query projections of Scout-owned facts for local surfaces
+- tail adapters read external harness transcripts from their original files
+- tail views keep bounded live/backlog buffers rather than becoming durable transcript replicas
+
+If a surface needs raw harness detail, it should prefer the original harness material through an adapter, cursor, or link. If a workflow needs durable coordination, it should create a Scout-owned message, invocation, flight, delivery, or work item.
+
+### Design Rules
+
+1. Do not make Scout the canonical store for external harness transcripts.
+2. Do not persist every observed harness turn as a Scout `message`.
+3. Do persist Scout-originated and Scout-routed coordination records.
+4. Do use lightweight metadata, cursors, summaries, and links when external source material needs to appear in Scout surfaces.
+5. Do not let adapters mutate harness-owned ecosystems such as Claude Code's `.claude` state.
+6. Do keep the boundary visible in docs and APIs: `message` means a Scout conversation record, while `TailEvent` means an observed harness event.
+
+This is an intentional product and architecture boundary, not an implementation shortcut. Better indexing and replay tools should still preserve the distinction between owned coordination state and observed harness source material.
+
+## Agent Identity And Addressing
+
+This is how Scout turns a human-friendly handle like `@hudson` into one exact Scout address for routing, and it is the reference for the address grammar.
+
+Every agent Scout can address has a name. When there is only one matching agent on one machine, the name is simple — `@arc` or `@hudson`. But agents multiply. The same project might run on two machines. The same workspace might have a main branch and a feature branch, each with its own agent. A project might use Claude for one task and Codex for another.
+
+The identity grammar exists to keep every target unambiguously addressable while still letting humans type the shortest useful name. The default target is the base project/workspace identity. Harness, model, node, and session details describe the concrete instance Scout routes to; they are not a different base agent unless the caller intentionally chooses a specialized profile.
+
+### Base Agent Vs Instance
+
+A **base agent** is the vanilla project/workspace identity that agents should
+use when they do not care about a specific runtime. In practice this is the
+thing represented by a project path, such as `../talkie`, or by a short handle,
+such as `@talkie`.
+
+An **agent instance** is the concrete attachment Scout routes to for that base
+identity: a Claude or Codex harness, a model choice, a machine/node, and
+optionally an explicit session id. Asking for a specific instance should refine
+the route, not create the impression that `talkie#codex` and `talkie#claude`
+are separate base agents.
+
+Default rule: if the project is known but the exact agent/session is not, use
+project routing and let Scout pick or create the concrete instance. Add a
+harness/capability constraint when that matters:
+
+```bash
+scout ask --project ../talkie --harness claude "Review this."
+```
+
+```ts
+ask({ projectPath: "../talkie", harness: "claude", body: "Review this." })
+```
+
+Do not guess generic names such as `claude.main` just because you need a Claude
+review. Scout should return durable follow-up handles and, when possible, a
+friendly mnemonic handle for the routed worker. Promote that worker to a named
+long-lived sibling only after the route is known good.
+
+When routing by an agent card, label, or exact agent id, Scout treats the target
+as a fresh-session request. Use `session:<id>` or MCP `targetSessionId` only
+when the caller intentionally wants to continue one concrete prior harness
+session. The id may be a Scout id or a harness-native id already known to the
+broker. Use `session:<harness>:<native-id>` or `execution.harness` when a native
+id needs scope. Historical session records and reachability diagnostics are for
+that explicit session path, not fallback candidates for normal card routing.
+
+Specialized profiles may become first-class over time. For example,
+`@scout.profile:investigator` could name a profile with a dedicated tool set
+and instructions. That is a specialization layered onto the project identity,
+not the default routing model.
+
+### Three Layers
+
+Scout separates identity into three layers, each serving a different audience:
+
+- **Canonical identity** is exact, stable, and system-owned. It includes every dimension needed to distinguish one agent from all others. Humans rarely type it, but the broker always stores it.
+
+- **Minimal unique identity** is the shortest address that still resolves to exactly one agent. Scout computes it automatically from the current set of online agents. When there is only one `hudson`, `@hudson` is enough. When two exist on different machines, `@hudson.node:mini` disambiguates.
+
+- **Alias** is a human-owned shortcut. `@huddy` maps to one specific identity. If the mapping becomes ambiguous, the alias is invalid until repaired.
+
+### The Six Dimensions
+
+An agent identity combines up to six dimensions:
+
+| Dimension | What it captures | Example |
+|---|---|---|
+| `definitionId` | The base project or workspace | `arc`, `hudson` |
+| `workspaceQualifier` | A non-default worktree or branch | `super-refactor`, `main` |
+| `profile` | Optional specialization/persona, not the default route | `dev`, `investigator` |
+| `harness` | Instance execution backend | `claude`, `codex` |
+| `model` | Instance model family or concrete model | `sonnet`, `gpt-5-5` |
+| `node` | Instance machine or host | `mini`, `macbook` |
+
+The canonical form strings them together with dots:
+
+```bash
+@<definitionId>[.<workspaceQualifier>][.profile:<profile>][.harness:<harness>][.model:<model>][.node:<node>]
+```
+
+In practice, most of these dimensions are omitted. You only include what is needed to resolve unambiguously.
+
+### Examples
+
+From shortest to most qualified:
+
+| Address | What it resolves |
+|---|---|
+| `@arc` | The only `arc` agent currently online |
+| `@arc.main` | The `arc` agent on the `main` branch |
+| `@arc.super-refactor` | The `arc` agent on a feature worktree |
+| `@arc.main.harness:claude` | The Claude instance of `arc` on main |
+| `@lattices#codex?5.5` | Compatibility shorthand for the Codex instance of `lattices` on a 5.5 model |
+| `@lattices#claude?sonnet` | Compatibility shorthand for the Claude instance of `lattices` on Sonnet |
+| `@arc.super-refactor.harness:claude.node:mini` | Fully qualified: project, branch, harness, machine |
+
+### Parsing And Normalization
+
+- `@` is required for body-mention compatibility in user-facing text. Internal
+  systems can omit it, and Scout-aware composers may use the `>>` route
+  operator instead, such as `/scout:ask >> hudson Review this.`
+- One positional qualifier (without a type prefix) is allowed after the definition ID — it is always treated as the workspace qualifier.
+- Typed qualifiers (`profile:`, `harness:`, `model:`, `node:`) may appear in any order during input. Scout normalizes them to canonical order on storage.
+- Shorthand `#<harness>` maps to `harness:<harness>`, and `?<model>` maps to `model:<model>`.
+- Segments are lowercased and kebab-cased: `Super Refactor` becomes `super-refactor`, `Mini.local` becomes `mini-local`. Dots are reserved as separators.
+
+These aliases are accepted during parsing and map to canonical dimensions:
+
+| Alias | Maps to |
+|---|---|
+| `branch:`, `worktree:` | `workspaceQualifier` |
+| `persona:` | `profile` |
+| `runtime:` | `harness` |
+| `#codex` | `harness:codex` |
+| `?sonnet` | `model:sonnet` |
+| `host:` | `node` |
+
+### Resolution
+
+When you type `@hudson`, Scout resolves it against all known agents:
+
+1. Check for an exact alias match first.
+2. Match the parsed identity against registered candidates.
+3. If exactly one candidate matches, resolve to it.
+4. If zero or more than one match, return nothing — the name is either unknown or ambiguous.
+
+This keeps short names fast and ergonomic while requiring precision only when the situation demands it.
+
+### Minimal Unique Identity
+
+Given a specific agent and its peers, Scout prefers the shortest address that uniquely identifies it. Dimensions are dropped in this order until removing the next one would create ambiguity:
+
+1. `workspaceQualifier`
+2. `profile`
+3. `harness`
+4. `model`
+5. `node`
+
+If a configured alias is shorter than the minimal canonical form and resolves uniquely, Scout prefers it.
+
+**Example:**
+
+- Canonical: `@hudson.hudson-main-8012ac.node:arachs-mac-mini-local`
+- Minimal unique: `@hudson` (if only one hudson is online)
+- Alias: `@huddy`
+
+## The Integration Boundary
+
+Plugging an agent into Scout means three things at the data level: register an **identity**, expose a reachable **endpoint**, and attach a **session**.
+
+- **Identity** is the stable Scout address for the agent, built from the dimensions above (`definitionId`, `workspaceQualifier`, `harness`, `model`, `node`). Human text uses a short handle; the broker resolves it to one exact target.
+- **Endpoint** is how the broker reaches the agent: an agent id, an authority node, a harness, a transport, a session reference, and current reachability. The endpoint is a route, not the agent's personality — an agent can move between sessions or machines while keeping a stable identity.
+- **Session** is the concrete harness conversation, process, or thread that receives work. Sessions are harness-specific: a request for a Codex harness must not bind to a Claude session, or the reverse, without an explicit adapter.
+
+Once attached, an integration speaks two paths through the broker:
+
+- the **message path** (`send`) for durable "say this" updates that return a broker receipt but no tracked work lifecycle
+- the **invocation path** (`ask`) for work, where the ask creates an invocation, the invocation creates a flight, and the flight tracks queued, running, waiting, completed, failed, or cancelled state
+
+Two rules hold across both paths. Do not hide routing instructions in the message body when structured target fields exist — the broker should know the target as metadata, not by parsing prose. And never write harness-owned files: adapters observe `.claude` and Codex state, they do not author or repair it.
+
+That is the shape of the boundary. For the full adapter contract — endpoint states, session invariants, broker-guided routing, preferred MCP tools, human-input and permission handling, and the compatibility checklist — read [`agent-integration-contract.md`](./agent-integration-contract.md). For the wire-level message and invocation workflows, read [`scout-comms.md`](./scout-comms.md).
 
 ## Addressing And Session Lifecycle
 
