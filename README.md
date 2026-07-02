@@ -110,6 +110,13 @@ Caddy yourself or set `OPENSCOUT_CADDY_BIN`. The base launch agent owns the
 broker, local edge, web startup, and menu bar launch; boot it out with the
 command shown by `scout doctor`.
 
+Scout runs on Bun, but the web terminal additionally needs a system **Node.js**
+(20+) on `PATH`: the PTY relay behind web terminal sessions is spawned under Node
+and loads a prebuilt `@lydell/node-pty` binary. Nothing else requires Node — if
+you never open a web terminal you can skip it. `scout doctor` probes this
+("Web terminal (Node PTY relay)") and points you at `brew install node` or a
+reinstall when the runtime or its native binding is missing.
+
 `scout doctor` is the quick operational check that the broker is installed, reachable, and writing logs in the expected support paths.
 
 For fresh delegated work, prefer project/capability routing over guessing an

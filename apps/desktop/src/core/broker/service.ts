@@ -33,7 +33,6 @@ import {
   type CollaborationWaitingOn,
   type MessageAttachment,
   type MessageRecord,
-  type ScoutInvocationLifecycle,
   type ScoutDeliverResponse,
   type ScoutDispatchRecord,
   type ScoutCapabilityMatrixSnapshot,
@@ -284,7 +283,21 @@ export type ScoutFlightRecord = {
   metadata?: Record<string, unknown>;
 };
 
-export type ScoutInvocationLifecycleRecord = ScoutInvocationLifecycle;
+/**
+ * Minimal compatibility shape returned by `GET /v1/invocations/:id/lifecycle`.
+ * The rich `ScoutInvocationLifecycle` projection was removed in the ask-overbuild
+ * simplification (Phase 2); the invocations_get/wait tools read the flight first
+ * and only used this as a fallback (targetAgentId). Mirror of the broker's
+ * `InvocationLifecycleSummary`.
+ */
+export type ScoutInvocationLifecycleRecord = {
+  invocationId: string;
+  flightId?: string;
+  targetAgentId?: string;
+  state?: string;
+  startedAt?: number;
+  completedAt?: number;
+};
 
 export type ScoutLabelBriefFlight = {
   id: string;

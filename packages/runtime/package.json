@@ -33,6 +33,11 @@
       "bun": "./src/local-agents.ts",
       "default": "./dist/local-agents.js"
     },
+    "./agent-workspace": {
+      "types": "./src/agent-workspace.ts",
+      "bun": "./src/agent-workspace.ts",
+      "default": "./dist/agent-workspace.js"
+    },
     "./control-plane-agents": {
       "types": "./src/control-plane-agents.ts",
       "bun": "./src/control-plane-agents.ts",
@@ -184,6 +189,7 @@
     "bin",
     "src",
     "dist",
+    "drizzle",
     "README.md"
   ],
   "scripts": {

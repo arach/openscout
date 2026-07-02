@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { Database } from "bun:sqlite";
 import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import {
@@ -95,7 +96,58 @@ export function configureControlPlaneDatabase(database: Database): void {
 }
 
 export function resolveControlPlaneDrizzleMigrationsFolder(): string {
-  return fileURLToPath(new URL("../drizzle", import.meta.url));
+  // This module runs from several on-disk layouts: packages/runtime/src (dev)
+  // and packages/runtime/dist resolve the folder as a sibling of their parent,
+  // while the CLI's bundles embed it at two depths (dist/main.mjs and
+  // dist/runtime/*.mjs) around the dist/drizzle copy the CLI build makes.
+  const candidates = ["../drizzle", "./drizzle"];
+  for (const candidate of candidates) {
+    const folder = fileURLToPath(new URL(candidate, import.meta.url));
+    if (existsSync(join(folder, "meta", "_journal.json"))) {
+      return folder;
+    }
+  }
+  return fileURLToPath(new URL(candidates[0]!, import.meta.url));
+}
+
+// Identical to the DDL drizzle-orm's bun-sqlite migrator creates for its
+// ledger (sqlite-core dialect `migrate`), so seeding and the real migrator
+// always agree on the table shape.
+const DRIZZLE_MIGRATIONS_LEDGER_SQL = `
+CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
+  id SERIAL PRIMARY KEY,
+  hash text NOT NULL,
+  created_at numeric
+)
+`;
+
+function seedControlPlaneDrizzleBaseline(database: Database, migrationsFolder: string): void {
+  const baseline = readMigrationFiles({ migrationsFolder })[0];
+  if (!baseline) {
+    return;
+  }
+
+  database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
+  // Databases that predate the managed-migration baseline were built by the
+  // raw schema exec; replaying the baseline's plain CREATE TABLE statements
+  // over them would fail. When the ledger is empty but the database already
+  // has tables, record the baseline as applied instead — the migrator then
+  // only runs migrations newer than it. A truly virgin database keeps an
+  // empty ledger so the migrator applies the baseline for real. Single
+  // statement so concurrent boots cannot double-seed.
+  database
+    .query(
+      `INSERT INTO "__drizzle_migrations" (hash, created_at)
+       SELECT $hash, $createdAt
+       WHERE NOT EXISTS (SELECT 1 FROM "__drizzle_migrations")
+         AND EXISTS (
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table'
+             AND name NOT GLOB 'sqlite_*'
+             AND name != '__drizzle_migrations'
+         )`,
+    )
+    .run({ $hash: baseline.hash, $createdAt: baseline.folderMillis });
 }
 
 export function applyControlPlaneDrizzleMigrations(database: Database): boolean {
@@ -105,8 +157,21 @@ export function applyControlPlaneDrizzleMigrations(database: Database): boolean 
     return false;
   }
 
+  seedControlPlaneDrizzleBaseline(database, migrationsFolder);
   migrate(openControlPlaneDrizzle(database), { migrationsFolder });
   return true;
+}
+
+export function assertControlPlaneSchemaNotNewer(database: Database): void {
+  const row = database.query("PRAGMA user_version").get() as { user_version: number } | null;
+  const stampedVersion = row?.user_version ?? 0;
+  if (stampedVersion > CONTROL_PLANE_SCHEMA_VERSION) {
+    throw new Error(
+      `Control-plane database "${database.filename}" is stamped schema v${stampedVersion}, ` +
+        `but this build only knows v${CONTROL_PLANE_SCHEMA_VERSION}. Refusing to open a ` +
+        `database written by a newer build — upgrade OpenScout instead of downgrading.`,
+    );
+  }
 }
 
 export function applyControlPlaneSchemaMigrations(database: Database): void {
@@ -120,8 +185,14 @@ export function stampControlPlaneSchemaVersion(database: Database): void {
 }
 
 export function migrateControlPlaneDatabaseSchema(database: Database): void {
-  database.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+  assertControlPlaneSchemaNotNewer(database);
+  // Managed migrations run first: a virgin database gets its schema from the
+  // baseline through the migrator; an existing database gets the baseline
+  // seeded as already-applied and only newer migrations execute. The raw
+  // schema exec and the imperative array then act as the idempotent repair
+  // layer, exactly as before.
   applyControlPlaneDrizzleMigrations(database);
+  database.exec(CONTROL_PLANE_SQLITE_SCHEMA);
   applyControlPlaneSchemaMigrations(database);
   stampControlPlaneSchemaVersion(database);
 }

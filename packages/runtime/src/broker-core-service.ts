@@ -861,7 +861,6 @@ export function createBrokerCoreService(
     readInvocationLifecycle: async (query) =>
       readInvocationLifecycleModel({
         snapshot: deps.runtime.snapshot(),
-        journal: deps.journal,
         invocationId: query.invocationId,
       }),
     readThreadEvents: async (query) =>

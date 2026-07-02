@@ -101,6 +101,40 @@ export interface FlightRecord {
   metadata?: MetadataMap;
 }
 
+/**
+ * Mutable execution status for an invocation. Pre-merge this lived on a sibling
+ * {@link FlightRecord}; Phase 3 folds it onto the invocation itself. Every field
+ * is optional — a freshly-created invocation has no flight or status yet.
+ *
+ * Note the dispatch job's scheduler state (attempts / leaseOwner /
+ * leaseExpiresAt / lastError) is deliberately NOT part of this: it is a distinct
+ * concern (worker-lease mechanics), stays its own journal-backed record, and is
+ * surfaced separately rather than folded into the domain status.
+ */
+export interface InvocationStatus {
+  /**
+   * Durable secondary id of the invocation's flight. Retained as a stable alias
+   * so projected run ids (`run:flight:<flightId>`) and follow links survive the
+   * flight→invocation storage merge.
+   */
+  flightId?: ScoutId;
+  state?: FlightState;
+  summary?: string;
+  output?: string;
+  error?: string;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+/**
+ * The merged invocation record: the immutable request ({@link InvocationRequest})
+ * plus its mutable execution status ({@link InvocationStatus}). This is Phase 3's
+ * single source of truth, from which the flight / work-item / agent-run views are
+ * projected. The standalone {@link FlightRecord} remains a compatibility shape
+ * over the same status subset until the storage merge (Phase 3 PR B+) lands.
+ */
+export type Invocation = InvocationRequest & InvocationStatus;
+
 export function normalizeInvocationSessionPolicy(
   policy: InvocationSessionPolicy | string | null | undefined,
 ): InvocationSessionPolicy | undefined {

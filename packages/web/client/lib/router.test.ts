@@ -373,6 +373,221 @@ describe("agents route parsing", () => {
     expect(routePath({ view: "search", mode: "indexer" })).toBe("/search/indexer");
   });
 
+  test("briefings routes round-trip (TanStack adoption pilot prefix)", () => {
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings")).toEqual({
+      view: "briefings",
+    });
+    expect(routePath({ view: "briefings" })).toBe("/briefings");
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings/brief-42")).toEqual({
+      view: "briefings",
+      briefingId: "brief-42",
+    });
+    expect(routePath({ view: "briefings", briefingId: "brief-42" })).toBe(
+      "/briefings/brief-42",
+    );
+    // Encoded ids survive the round trip — the TanStack $briefingId param and
+    // the canonical parser must agree on decoding.
+    expect(routeFromUrl("http://127.0.0.1:43120/briefings/b%2F1")).toEqual({
+      view: "briefings",
+      briefingId: "b/1",
+    });
+    expect(routePath({ view: "briefings", briefingId: "b/1" })).toBe(
+      "/briefings/b%2F1",
+    );
+  });
+
+  test("round-2 adopted prefixes round-trip (TanStack adoption)", () => {
+    // Simple static views: URL and Route must round-trip exactly — these pin
+    // the contract behind EXPECTED_SCOUT_VIEW_BY_ROUTE_ID in route-tree.ts.
+    for (const view of [
+      "fleet",
+      "conversations",
+      "repos",
+      "harnesses",
+      "mesh",
+      "broker",
+      "activity",
+    ] as const) {
+      expect(routeFromUrl(`http://127.0.0.1:43120/${view}`)).toEqual({ view });
+      expect(routePath({ view })).toBe(`/${view}`);
+    }
+    expect(routeFromUrl("http://127.0.0.1:43120/channels/chan-1")).toEqual({
+      view: "channels",
+      channelId: "chan-1",
+    });
+    expect(routePath({ view: "channels", channelId: "chan-1" })).toBe("/channels/chan-1");
+    expect(routeFromUrl("http://127.0.0.1:43120/work/w-1")).toEqual({
+      view: "work",
+      workId: "w-1",
+    });
+    expect(routePath({ view: "work", workId: "w-1" })).toBe("/work/w-1");
+    // Bare /work is NOT adopted: the parser sends it to the inbox default.
+    expect(routeFromUrl("http://127.0.0.1:43120/work")).toEqual({ view: "inbox" });
+    expect(routeFromUrl("http://127.0.0.1:43120/settings/agents/a-1")).toEqual({
+      view: "settings",
+      section: "agents",
+      agentId: "a-1",
+    });
+    expect(routePath({ view: "settings", section: "agents", agentId: "a-1" })).toBe(
+      "/settings/agents/a-1",
+    );
+  });
+
+  test("round-3 adopted prefixes round-trip (TanStack adoption)", () => {
+    // Sessions surface: bare + session-scoped, both view "sessions".
+    expect(routeFromUrl("http://127.0.0.1:43120/sessions")).toEqual({ view: "sessions" });
+    expect(routePath({ view: "sessions" })).toBe("/sessions");
+    expect(routeFromUrl("http://127.0.0.1:43120/sessions/sess-1")).toEqual({
+      view: "sessions",
+      sessionId: "sess-1",
+    });
+    expect(routePath({ view: "sessions", sessionId: "sess-1" })).toBe("/sessions/sess-1");
+    // Percent-encoded session id survives the round trip.
+    expect(routeFromUrl("http://127.0.0.1:43120/sessions/s%2F1")).toEqual({
+      view: "sessions",
+      sessionId: "s/1",
+    });
+    expect(routePath({ view: "sessions", sessionId: "s/1" })).toBe("/sessions/s%2F1");
+
+    // Messages surface: bare + conversation-scoped, both view "messages".
+    expect(routeFromUrl("http://127.0.0.1:43120/messages")).toEqual({ view: "messages" });
+    expect(routePath({ view: "messages" })).toBe("/messages");
+    expect(routeFromUrl("http://127.0.0.1:43120/messages/c.font-studio")).toEqual({
+      view: "messages",
+      conversationId: "c.font-studio",
+    });
+    expect(routePath({ view: "messages", conversationId: "c.font-studio" })).toBe(
+      "/messages/c.font-studio",
+    );
+
+    // Conversation detail (/c/{id}) and agent-info (/agent/{id}).
+    expect(routeFromUrl("http://127.0.0.1:43120/c/c.hudson-chat")).toEqual({
+      view: "conversation",
+      conversationId: "c.hudson-chat",
+    });
+    expect(routePath({ view: "conversation", conversationId: "c.hudson-chat" })).toBe(
+      "/c/c.hudson-chat",
+    );
+    expect(routeFromUrl("http://127.0.0.1:43120/agent/c.hudson-chat")).toEqual({
+      view: "agent-info",
+      conversationId: "c.hudson-chat",
+    });
+    expect(routePath({ view: "agent-info", conversationId: "c.hudson-chat" })).toBe(
+      "/agent/c.hudson-chat",
+    );
+    // Percent-encoded conversation id round-trips through /c/$conversationId.
+    expect(routeFromUrl("http://127.0.0.1:43120/c/c%2Fslash")).toEqual({
+      view: "conversation",
+      conversationId: "c/slash",
+    });
+    expect(routePath({ view: "conversation", conversationId: "c/slash" })).toBe("/c/c%2Fslash");
+
+    // Follow: bare canonical form is view "follow".
+    expect(routeFromUrl("http://127.0.0.1:43120/follow")).toEqual({ view: "follow" });
+    expect(routePath({ view: "follow" })).toBe("/follow");
+
+    // Terminal: bare + agent + backend/session path shapes, all view "terminal".
+    expect(routeFromUrl("http://127.0.0.1:43120/terminal")).toEqual({ view: "terminal" });
+    expect(routePath({ view: "terminal" })).toBe("/terminal");
+    expect(routeFromUrl("http://127.0.0.1:43120/terminal/hero.master")).toEqual({
+      view: "terminal",
+      agentId: "hero.master",
+    });
+    expect(routePath({ view: "terminal", agentId: "hero.master" })).toBe("/terminal/hero.master");
+    expect(routeFromUrl("http://127.0.0.1:43120/terminal/tmux/scout-zj")).toEqual({
+      view: "terminal",
+      terminalSurfaceKey: "tmux:scout-zj",
+    });
+    expect(routePath({ view: "terminal", terminalSurfaceKey: "tmux:scout-zj" })).toBe(
+      "/terminal/tmux/scout-zj",
+    );
+
+    // Project registry shapes — every /projects/* path parses to view "agents-v2".
+    expect(routeFromUrl("http://127.0.0.1:43120/projects")).toEqual({ view: "agents-v2" });
+    expect(routeFromUrl("http://127.0.0.1:43120/projects/lattices")).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+    });
+    expect(routePath({ view: "agents-v2", projectSlug: "lattices" })).toBe("/projects/lattices");
+    expect(routeFromUrl("http://127.0.0.1:43120/projects/lattices/agents")).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      indexView: "agents",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/projects/lattices/agents/lattices.main")).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      agentId: "lattices.main",
+    });
+    expect(
+      routePath({ view: "agents-v2", projectSlug: "lattices", agentId: "lattices.main" }),
+    ).toBe("/projects/lattices/agents/lattices.main");
+    expect(
+      routeFromUrl("http://127.0.0.1:43120/projects/lattices/agents/lattices.main/c/c.foo"),
+    ).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      agentId: "lattices.main",
+      conversationId: "c.foo",
+      tab: "message",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/projects/lattices/sessions")).toEqual({
+      view: "agents-v2",
+      projectSlug: "lattices",
+      indexView: "sessions",
+    });
+
+    // Canonical /agents/* agent detail shapes — all view "agents-v2".
+    expect(routeFromUrl("http://127.0.0.1:43120/agents")).toEqual({ view: "agents-v2" });
+    expect(routeFromUrl("http://127.0.0.1:43120/agents/hudson.main")).toEqual({
+      view: "agents-v2",
+      agentId: "hudson.main",
+    });
+    expect(routePath({ view: "agents-v2", agentId: "hudson.main" })).toBe("/agents/hudson.main");
+
+    // Legacy /agents-v2/* input parses to agents-v2 and serializes canonically to /agents.
+    expect(routeFromUrl("http://127.0.0.1:43120/agents-v2/hudson.main")).toEqual({
+      view: "agents-v2",
+      agentId: "hudson.main",
+    });
+    expect(routeFromUrl("http://127.0.0.1:43120/agents-v2/sessions/sess-9")).toEqual({
+      view: "agents-v2",
+      sessionId: "sess-9",
+    });
+
+    // Legacy /agents.deprecated/* — view is fixed per shape.
+    expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated")).toEqual({ view: "agents" });
+    expect(routePath({ view: "agents" })).toBe("/agents.deprecated");
+    expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main")).toEqual({
+      view: "agents",
+      agentId: "hudson.main",
+    });
+    expect(routePath({ view: "agents", agentId: "hudson.main" })).toBe(
+      "/agents.deprecated/hudson.main",
+    );
+    expect(routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main/c/c.foo")).toEqual({
+      view: "agents",
+      agentId: "hudson.main",
+      conversationId: "c.foo",
+      tab: "message",
+    });
+    // The session-resource shape is a session observe surface, not "agents".
+    expect(
+      routeFromUrl("http://127.0.0.1:43120/agents.deprecated/hudson.main/sessions/sess-1"),
+    ).toEqual({
+      view: "sessions",
+      agentId: "hudson.main",
+      sessionId: "sess-1",
+    });
+
+    // ops and repo-diff are deliberately NOT adopted: their view is not a
+    // function of the path prefix alone.
+    // /ops/* can resolve to "inbox" when the ops gate is off or ?no-ops is set.
+    expect(routeFromUrl("http://127.0.0.1:43120/ops/control?no-ops")).toEqual({ view: "inbox" });
+    // /repo-diff without ?path falls through to the inbox default.
+    expect(routeFromUrl("http://127.0.0.1:43120/repo-diff")).toEqual({ view: "inbox" });
+  });
+
   test("messages route preserves conversationId, filter, and sort", () => {
     const route = routeFromUrl(
       "http://127.0.0.1:43120/messages/c.font-studio?filter=channel&sort=unread",

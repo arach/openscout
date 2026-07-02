@@ -876,6 +876,27 @@ function routeFromLocation(pathname: string, searchStr: string): Route {
   return normalizeRoute(routeFromUrl(`${pathname}${searchStr}`));
 }
 
+/** Canonical URL → Route parse for a TanStack ParsedLocation (pathname + searchStr). */
+export function scoutRouteFromLocation(pathname: string, searchStr: string): Route {
+  return routeFromLocation(pathname, searchStr);
+}
+
+/* ── TanStack navigation bridge (router adoption, Phase A) ── */
+
+type ScoutNavigationAdapter = (href: string, replace: boolean) => void;
+
+let scoutNavigationAdapter: ScoutNavigationAdapter | null = null;
+
+/**
+ * When the TanStack router is live it registers its history here, so
+ * hand-rolled navigate() calls flow through TanStack's history and its store
+ * updates natively. Replaces the synthetic PopStateEvent broadcast this module
+ * used to fire to keep TanStack's useLocation consumers fresh.
+ */
+export function registerScoutNavigationAdapter(adapter: ScoutNavigationAdapter): void {
+  scoutNavigationAdapter = adapter;
+}
+
 function locationHashSuffix(hash: string): string {
   return hash ? `#${hash}` : "";
 }
@@ -938,13 +959,16 @@ function useBrowserLocationState(): BrowserLocationState {
 
 function navigateBrowser(href: string, replace = false): void {
   if (typeof window === "undefined") return;
-  if (replace) {
+  if (scoutNavigationAdapter) {
+    // TanStack owns history: pushing through it keeps the router store in sync
+    // without the synthetic popstate broadcast this used to need.
+    scoutNavigationAdapter(href, replace);
+  } else if (replace) {
     window.history.replaceState(window.history.state, "", href);
   } else {
     window.history.pushState(window.history.state, "", href);
   }
   window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
-  window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
 }
 
 function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {

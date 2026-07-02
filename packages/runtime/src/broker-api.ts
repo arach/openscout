@@ -17,7 +17,6 @@ import type {
   ScoutCapabilityMatrixSnapshot,
   ScoutDeliverRequest,
   ScoutDeliverResponse,
-  ScoutInvocationLifecycle,
   ThreadEventEnvelope,
   ThreadSnapshot,
   ThreadWatchCloseRequest,
@@ -29,6 +28,7 @@ import type {
 
 import type { RuntimeRegistrySnapshot } from "./registry.js";
 import type { BrokerRouteTargetInput } from "./scout-dispatcher.js";
+import type { InvocationLifecycleSummary } from "./invocation-lifecycle-read-model.js";
 
 export type ScoutBrokerBuildIdentity = {
   packageName: string;
@@ -182,7 +182,7 @@ export type ActiveScoutBrokerService = {
   ) => Promise<AgentBrokerFeed>;
   readInvocationLifecycle?: (
     query: ScoutBrokerInvocationLifecycleQuery,
-  ) => Promise<ScoutInvocationLifecycle | null>;
+  ) => Promise<InvocationLifecycleSummary | null>;
   readActivity?: (query: ScoutBrokerActivityQuery) => Promise<unknown>;
   readCollaborationRecords?: (
     query: ScoutBrokerCollaborationRecordQuery,

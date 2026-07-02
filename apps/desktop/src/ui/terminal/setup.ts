@@ -103,6 +103,8 @@ export function renderScoutDoctorTailAfterStream(report: ScoutDoctorReport): str
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
     "",
+    ...renderTerminalPtyReport(report.terminalPty),
+    "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
 
@@ -159,6 +161,26 @@ function renderLocalEdgeDependencyReport(report: LocalEdgeDependencyReport): str
   if (report.caddyVersion) {
     lines.push(`  Version: ${report.caddyVersion}`);
   }
+  if (report.installCommand) {
+    lines.push(`  Install: ${report.installCommand}`);
+  }
+  return lines;
+}
+
+function renderTerminalPtyReport(report: ScoutDoctorReport["terminalPty"]): string[] {
+  const lines = [
+    "Web terminal (Node PTY relay):",
+    `  State: ${report.status}`,
+    `  Detail: ${report.detail}`,
+  ];
+  if (report.nodePath) {
+    lines.push(`  Node: ${report.nodePath}${report.nodeVersion ? ` (${report.nodeVersion})` : ""}`);
+  }
+  lines.push(
+    report.bindingPath
+      ? `  Binding: ${report.bindingPackage} -> ${report.bindingPath}`
+      : `  Binding: ${report.bindingPackage}`,
+  );
   if (report.installCommand) {
     lines.push(`  Install: ${report.installCommand}`);
   }
@@ -297,6 +319,8 @@ export function renderScoutDoctorReport(report: ScoutDoctorReport): string {
     `  Stderr: ${report.broker.stderrLogPath}`,
     "",
     ...renderLocalEdgeDoctor(report.localEdge),
+    "",
+    ...renderTerminalPtyReport(report.terminalPty),
     "",
     `Known runtimes: ${report.catalog.entries.length}`,
   ];
