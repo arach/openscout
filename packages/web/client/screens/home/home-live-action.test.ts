@@ -53,6 +53,22 @@ describe("liveActionSummary", () => {
     expect(liveActionSummary({ observeData })).toBe("Grep · home-moving");
   });
 
+  test("skips observe diagnostics that are not user-facing action", () => {
+    const observeData: ObserveData = {
+      events: [
+        { kind: "note", text: "No session trace is available for this agent yet." },
+      ],
+      files: [],
+    };
+    expect(
+      liveActionSummary({
+        observeData,
+        fallbackTask: "Working in openscout",
+        observeLive: true,
+      }),
+    ).toBe("Working in openscout");
+  });
+
   test("falls back to task when live", () => {
     expect(
       liveActionSummary({

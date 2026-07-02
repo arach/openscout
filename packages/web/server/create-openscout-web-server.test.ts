@@ -852,6 +852,29 @@ describe("createOpenScoutWebServer", () => {
     await expect(response.json()).resolves.toMatchObject({ generatedAt: expect.any(Number), limit: 10, events: [] });
   });
 
+  test("timeboxes slow tail recent transcript fallback while broker refresh is pending", async () => {
+    globalThis.fetch = (() => new Promise<Response>(() => {})) as typeof fetch;
+
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      tailRuntime: {
+        getTailDiscovery: async () => new Promise<DiscoverySnapshot>(() => {}),
+        snapshotRecentEvents: () => [],
+      },
+    });
+
+    const startedAt = Date.now();
+    const response = await server.app.request("http://localhost/api/tail/recent?limit=10&transcripts=true");
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-openscout-tail-state")).toBe("empty-refreshing");
+    expect(response.headers.get("x-openscout-tail-warning")).toContain("local fallback timed out");
+    await expect(response.json()).resolves.toMatchObject({ generatedAt: expect.any(Number), limit: 10, events: [] });
+  });
+
   test("refreshes tail recent cache in the background with server timing from broker", async () => {
     const fetchUrls: string[] = [];
     globalThis.fetch = (async (input) => {
@@ -1196,6 +1219,125 @@ describe("createOpenScoutWebServer", () => {
         kind: "direct",
         preview: "hello from dm",
         harness: "codex",
+      }),
+    ]);
+  });
+
+  test("serves broker conversation metadata for session detail routes when available", async () => {
+    const conversationId = "chn-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const localAgentId = "openscout.codex-clean-restart-observe-fix-20260702.node";
+    const sessionActorId = "session-mr3zl3lr-irnkzd";
+    querySessionByIdImpl = () => ({
+      id: conversationId,
+      kind: "direct",
+      agentId: localAgentId,
+      participantIds: [localAgentId, sessionActorId],
+    });
+    scoutBrokerContextResult = {
+      baseUrl: "http://broker.test",
+      node: { id: "node-1" },
+      snapshot: {
+        nodes: {
+          "node-1": { id: "node-1", name: "Test node" },
+        },
+        actors: {
+          [localAgentId]: {
+            id: localAgentId,
+            kind: "agent",
+            displayName: "Openscout",
+            handle: "openscout",
+          },
+          [sessionActorId]: {
+            id: sessionActorId,
+            kind: "session",
+            displayName: "openscout-pauli",
+            handle: "project-pauli",
+          },
+        },
+        agents: {
+          [localAgentId]: {
+            id: localAgentId,
+            kind: "agent",
+            definitionId: "openscout",
+            displayName: "Openscout",
+            handle: "openscout",
+            agentClass: "general",
+            capabilities: ["chat", "invoke", "deliver"],
+            wakePolicy: "manual",
+            homeNodeId: "node-1",
+            authorityNodeId: "node-1",
+            advertiseScope: "local",
+            metadata: {},
+          },
+        },
+        endpoints: {
+          "endpoint-local": {
+            id: "endpoint-local",
+            agentId: localAgentId,
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "active",
+            sessionId: "relay-openscout-claude",
+            projectRoot: "/Users/arach/dev/openscout",
+          },
+          "endpoint-pauli": {
+            id: "endpoint-pauli",
+            agentId: sessionActorId,
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "claude_stream_json",
+            state: "active",
+            sessionId: sessionActorId,
+            projectRoot: "/Users/arach/dev/openscout",
+          },
+        },
+        conversations: {
+          [conversationId]: {
+            id: conversationId,
+            kind: "direct",
+            title: "Openscout",
+            visibility: "private",
+            shareMode: "local",
+            authorityNodeId: "node-1",
+            participantIds: [localAgentId, sessionActorId],
+          },
+        },
+        messages: {
+          "msg-pauli": {
+            id: "msg-pauli",
+            conversationId,
+            actorId: sessionActorId,
+            body: "Reviewed.",
+            createdAt: 1_700_000_000_000,
+          },
+        },
+        invocations: {},
+        flights: {},
+        deliveries: {},
+        readCursors: {},
+      },
+    };
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request(`http://localhost/api/session/${conversationId}`);
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { participants?: Array<Record<string, unknown>> };
+    expect(body.participants).toEqual([
+      expect.objectContaining({
+        actorId: localAgentId,
+        displayName: "Openscout",
+      }),
+      expect.objectContaining({
+        actorId: sessionActorId,
+        displayName: "openscout-pauli",
+        label: expect.stringMatching(/^openscout-pauli · /u),
+        sessionId: sessionActorId,
       }),
     ]);
   });

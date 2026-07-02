@@ -64,7 +64,10 @@ import {
   SUPPORTED_SCOUT_HARNESSES,
   type LocalAgentBinding,
 } from "@openscout/runtime/local-agents";
-import type { RuntimeRegistrySnapshot } from "@openscout/runtime/registry";
+import {
+  createRuntimeRegistrySnapshot,
+  type RuntimeRegistrySnapshot,
+} from "@openscout/runtime/registry";
 import { resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 
 import { configuredOperatorActorIds } from "@openscout/runtime/conversations/legacy-ids";
@@ -951,7 +954,9 @@ export async function readScoutBrokerTailRecent(
 
 export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl()): Promise<ScoutBrokerSnapshot | null> {
   try {
-    return await brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot);
+    return createRuntimeRegistrySnapshot(
+      await brokerReadJson<Partial<ScoutBrokerSnapshot>>(baseUrl, scoutBrokerPaths.v1.snapshot),
+    );
   } catch {
     return null;
   }
@@ -988,13 +993,14 @@ export async function loadScoutBrokerContext(
   }
 
   try {
-    const [node, snapshot] = await Promise.all([
+    const [node, rawSnapshot] = await Promise.all([
       brokerReadJson<ScoutBrokerNodeRecord>(baseUrl, scoutBrokerPaths.v1.node, { signal: options.signal }),
-      brokerReadJson<ScoutBrokerSnapshot>(baseUrl, scoutBrokerPaths.v1.snapshot, { signal: options.signal }),
+      brokerReadJson<Partial<ScoutBrokerSnapshot>>(baseUrl, scoutBrokerPaths.v1.snapshot, { signal: options.signal }),
     ]);
     if (!node.id) {
       return null;
     }
+    const snapshot = createRuntimeRegistrySnapshot(rawSnapshot);
     return { baseUrl, node, snapshot };
   } catch {
     return null;

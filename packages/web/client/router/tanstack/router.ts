@@ -1,5 +1,9 @@
 import { createRouter } from "@tanstack/react-router";
-import { registerScoutNavigationAdapter, scoutRouteFromLocation } from "../../lib/router.ts";
+import {
+  notifyScoutLocationChanged,
+  registerScoutNavigationAdapter,
+  scoutRouteFromLocation,
+} from "../../lib/router.ts";
 import { EXPECTED_SCOUT_VIEW_BY_ROUTE_ID, scoutRouteTree } from "./route-tree.ts";
 
 export const scoutTanstackRouter = createRouter({
@@ -9,14 +13,20 @@ export const scoutTanstackRouter = createRouter({
 });
 
 // Hand-rolled navigate() calls flow through TanStack's history so the router
-// store updates natively. This retires the synthetic PopStateEvent bridge that
-// lib/router.ts used to broadcast after every pushState.
+// store updates natively.
 registerScoutNavigationAdapter((href, replace) => {
   if (replace) {
     scoutTanstackRouter.history.replace(href);
   } else {
     scoutTanstackRouter.history.push(href);
   }
+});
+
+// Pane rendering still reads the canonical Scout Route from ScoutProvider. Keep
+// that legacy route state synchronized with every TanStack-resolved location,
+// including URL changes initiated outside lib/router.navigate().
+scoutTanstackRouter.subscribe("onResolved", () => {
+  notifyScoutLocationChanged();
 });
 
 // Dev parity oracle: whenever TanStack resolves a location matched by an

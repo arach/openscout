@@ -1509,6 +1509,30 @@ type TailRecentPayload = {
   events: TailEvent[];
 };
 
+function emptyTailDiscoverySnapshot(): DiscoverySnapshot {
+  return {
+    generatedAt: Date.now(),
+    processes: [],
+    transcripts: [],
+    totals: {
+      total: 0,
+      scoutManaged: 0,
+      hudsonManaged: 0,
+      unattributed: 0,
+      transcripts: 0,
+    },
+  };
+}
+
+function emptyTailRecentPayload(limit: number): TailRecentPayload {
+  return {
+    generatedAt: Date.now(),
+    limit,
+    cursor: null,
+    events: [],
+  };
+}
+
 type BrokerJsonCache<T> = {
   data: T | null;
   inFlight: Promise<void> | null;
@@ -1614,13 +1638,30 @@ function cachedBrokerJsonState<T>(cache: BrokerJsonCache<T>): string {
   return cache.inFlight ? "empty-refreshing" : "empty";
 }
 
+async function timebox<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<{ kind: "value"; value: T } | { kind: "timeout" }> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ kind: "value" as const, value })),
+      new Promise<{ kind: "timeout" }>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function serveCachedBrokerJson<T>(
   c: Context,
   cache: BrokerJsonCache<T>,
   url: URL,
   label: string,
   fallback: () => T | Promise<T>,
-  options: { forceRefresh?: boolean } = {},
+  options: { forceRefresh?: boolean; fallbackTimeoutMs?: number; timeoutData?: () => T } = {},
 ): Promise<Response> {
   const start = performance.now();
   if (options.forceRefresh) {
@@ -1632,17 +1673,41 @@ async function serveCachedBrokerJson<T>(
     scheduleBrokerJsonRefresh(cache, url, label);
   }
   const state = cachedBrokerJsonState(cache);
-  const data = cache.data ?? await fallback();
+  const metrics: ServerTimingMetric[] = [];
+  let fallbackWarning: string | null = null;
+  let data = cache.data;
+  if (data === null) {
+    if (options.fallbackTimeoutMs && options.timeoutData) {
+      const fallbackStart = performance.now();
+      const result = await timebox(Promise.resolve().then(fallback), options.fallbackTimeoutMs);
+      metrics.push({
+        name: "web-tail-fallback",
+        dur: performance.now() - fallbackStart,
+        desc: result.kind,
+      });
+      if (result.kind === "value") {
+        data = result.value;
+      } else {
+        fallbackWarning = `${label} local fallback timed out`;
+        data = options.timeoutData();
+      }
+    } else {
+      data = await fallback();
+    }
+  }
   c.header("Cache-Control", "no-store");
   c.header("X-OpenScout-Tail-State", state);
-  if (cache.lastError) {
-    c.header("X-OpenScout-Tail-Warning", headerSafe(cache.lastError));
+  if (cache.lastError || fallbackWarning) {
+    c.header("X-OpenScout-Tail-Warning", headerSafe(fallbackWarning ?? cache.lastError ?? ""));
   }
-  c.header("Server-Timing", appendServerTimingHeader(cache.serverTiming, [{
-    name: "web-tail-cache",
-    dur: performance.now() - start,
-    desc: state,
-  }]));
+  c.header("Server-Timing", appendServerTimingHeader(cache.serverTiming, [
+    ...metrics,
+    {
+      name: "web-tail-cache",
+      dur: performance.now() - start,
+      desc: state,
+    },
+  ]));
   return c.json(data);
 }
 
@@ -2768,7 +2833,7 @@ function brokerAgentCardToWebAgent(
 }
 
 function brokerCardAgentsForWeb(broker: ScoutBrokerContext): WebAgent[] {
-  return Object.values(broker.snapshot.agents ?? {})
+  return Object.values(broker.snapshot?.agents ?? {})
     .map((agent) => brokerAgentCardToWebAgent(broker, agent))
     .filter((agent): agent is WebAgent => Boolean(agent))
     .sort((left, right) =>
@@ -2803,7 +2868,7 @@ async function queryAgentIncludingBrokerCard(agentId: string): Promise<WebAgent 
   if (!broker) {
     return null;
   }
-  const brokerAgent = Object.values(broker.snapshot.agents ?? {}).find(
+  const brokerAgent = Object.values(broker.snapshot?.agents ?? {}).find(
     (candidate) => brokerAgentIdentityMatches(candidate, agentId),
   );
   const brokerWebAgent = brokerAgent ? brokerAgentCardToWebAgent(broker, brokerAgent) : null;
@@ -6772,12 +6837,15 @@ export async function createOpenScoutWebServer(
     if (!isOpaqueChannelId(chatId)) {
       return c.json({ error: "chatId must be an opaque chat id" }, 400);
     }
+    const conversation = await getScoutConversationById(chatId);
+    if (conversation) {
+      return c.json(conversation);
+    }
     const session = querySessionById(chatId);
     if (session) {
       return c.json(session);
     }
-    const conversation = await getScoutConversationById(chatId);
-    return conversation ? c.json(conversation) : c.json({ error: "not found" }, 404);
+    return c.json({ error: "not found" }, 404);
   });
   app.get("/api/mesh", async (c) => {
     try {
@@ -7882,7 +7950,11 @@ export async function createOpenScoutWebServer(
       url,
       "broker tail discovery",
       () => tailRuntime.getTailDiscovery(),
-      { forceRefresh },
+      {
+        forceRefresh,
+        fallbackTimeoutMs: 1_000,
+        timeoutData: emptyTailDiscoverySnapshot,
+      },
     );
   });
 
@@ -8101,6 +8173,10 @@ export async function createOpenScoutWebServer(
       url,
       "broker tail",
       () => localTailRecentPayload(tailRuntime, limitParam, includeTranscripts),
+      {
+        fallbackTimeoutMs: includeTranscripts ? 1_000 : 750,
+        timeoutData: () => emptyTailRecentPayload(limitParam),
+      },
     );
   });
 

@@ -89,11 +89,11 @@ function endpointMatchesPreferencePath(endpoint: AgentEndpoint, preference: Endp
 }
 
 export function selectPreferredAgentEndpoint(
-  snapshot: { endpoints?: Record<string, AgentEndpoint> },
+  snapshot: { endpoints?: Record<string, AgentEndpoint> } | null | undefined,
   agentId: string,
   preference?: EndpointPreference,
 ): AgentEndpoint | null {
-  const candidates = Object.values(snapshot.endpoints ?? {}).filter(
+  const candidates = Object.values(snapshot?.endpoints ?? {}).filter(
     (endpoint) => endpoint.agentId === agentId,
   );
   const rank = (state: string | undefined) => {

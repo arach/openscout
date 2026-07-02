@@ -60,6 +60,29 @@ function shortModelLabel(value: string | null | undefined): string | null {
     .trim();
 }
 
+function normalizedCompareToken(value: string | null | undefined): string | null {
+  const token = value?.replace(/\s+/g, " ").trim().toLowerCase();
+  return token || null;
+}
+
+function meaningfulFallbackTask(
+  task: string | null | undefined,
+  agent: Agent,
+): string | null {
+  const title = task?.trim();
+  if (!title) return null;
+  const titleToken = normalizedCompareToken(title);
+  const genericTokens = [
+    agent.project,
+    compactPath(agent.projectRoot),
+    compactPath(agent.cwd),
+    agent.cwd,
+  ]
+    .map(normalizedCompareToken)
+    .filter(Boolean);
+  return titleToken && genericTokens.includes(titleToken) ? null : title;
+}
+
 function compactNode(value: string | null | undefined): string | null {
   const raw = value?.trim();
   if (!raw) return null;
@@ -168,6 +191,26 @@ function stopCardClick(event: MouseEvent<HTMLElement>) {
   event.stopPropagation();
 }
 
+function cardActionsForLayout(input: {
+  dense: boolean;
+  terminalEnabled: boolean;
+  peekEnabled: boolean;
+}): Array<{
+  label: string;
+  action: HomeCardAction;
+  primary?: boolean;
+}> {
+  if (input.dense) {
+    return [{ label: "Open", action: "observe", primary: true }];
+  }
+  return [
+    { label: "Profile", action: "profile" },
+    { label: "Observe", action: "observe", primary: true },
+    ...(input.terminalEnabled ? [{ label: "Terminal", action: "terminal" } as const] : []),
+    ...(input.peekEnabled ? [{ label: "Peek", action: "peek" } as const] : []),
+  ];
+}
+
 function avatarSize(layout: HomeMovingLayout): number {
   switch (layout) {
     case "spotlight": return 40;
@@ -227,16 +270,19 @@ export function NowCard({
   const contextPct = laneModel.context ?? context?.contextPct ?? null;
   const machineLabel = compactNode(agent.homeNodeName ?? agent.nodeQualifier);
   const turnAge = card.task.openedAt ? formatAge(card.task.openedAt, nowMs) : "new";
+  const fallbackTask = meaningfulFallbackTask(card.task.title, agent)
+    ?? (observeLive ? card.task.title : null);
   const actionLine = liveActionSummary({
     observeData,
     checkpoint: card.checkpoint?.line ?? null,
-    fallbackTask: card.task.title,
+    fallbackTask,
     observeLive,
   });
   const peekEnabled = homeCardPeekEnabled(agent);
   const terminalEnabled = homeCardTerminalEnabled(agent);
   const dense = layout === "dense";
   const strip = layout === "strip";
+  const actions = cardActionsForLayout({ dense, terminalEnabled, peekEnabled });
   const fileGroup = laneModel.pops.edits.rows.length > 0
     ? laneModel.pops.edits
     : laneModel.pops.files;
@@ -398,10 +444,14 @@ export function NowCard({
       )}
 
       <div className="s-now-card-actions" onClick={stopCardClick}>
-        <CardAction label="Profile" onClick={onAction("profile")} />
-        <CardAction label="Observe" onClick={onAction("observe")} primary />
-        <CardAction label="Terminal" onClick={onAction("terminal")} disabled={!terminalEnabled} />
-        <CardAction label="Peek" onClick={onAction("peek")} disabled={!peekEnabled} />
+        {actions.map((action) => (
+          <CardAction
+            key={action.action}
+            label={action.label}
+            onClick={onAction(action.action)}
+            primary={action.primary}
+          />
+        ))}
       </div>
     </article>
   );

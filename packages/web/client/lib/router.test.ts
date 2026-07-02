@@ -14,7 +14,14 @@ const {
   SCOPE_PATH_PREFIX,
   SCOPE_ROUTE_SEGMENTS,
 } = await import("../scope/paths.ts");
-const { clearRouteMachineScope, routeFromUrl, routePath, setRouteMachineScope } = await import("./router.ts");
+const {
+  canonicalScoutHrefFromLocation,
+  clearRouteMachineScope,
+  preserveGlobalLocationSearch,
+  routeFromUrl,
+  routePath,
+  setRouteMachineScope,
+} = await import("./router.ts");
 const { normalizeRoute } = await import("./synthetic-agent-routing.ts");
 const { resolveRoutedSessionId, resolveSelectedSessionId, sortSessionsByRecency } = await import("./session-catalog.ts");
 
@@ -68,6 +75,31 @@ describe("scope route parsing", () => {
       .toBe("/scope?ffBundle=scope-instrument&layout=grid");
     expect(preserveLocationSearch("/scope/tail?q=codex", "?ffBundle=scope-instrument"))
       .toBe("/scope/tail?q=codex&ffBundle=scope-instrument");
+  });
+
+  test("router canonicalization only carries global search state across routes", () => {
+    expect(
+      preserveGlobalLocationSearch(
+        "/projects/openscout",
+        "?tab=observe&select=openscout.main&q=tail&ffGlobal=max-pro",
+      ),
+    ).toBe("/projects/openscout?ffGlobal=max-pro");
+    expect(
+      preserveGlobalLocationSearch(
+        "/agents/codex.main?tab=config",
+        "?tab=observe&ff.bundle=studio&theme=dark",
+      ),
+    ).toBe("/agents/codex.main?tab=config&ff.bundle=studio&theme=dark");
+  });
+
+  test("canonical Scout href drops stale route-specific query params", () => {
+    expect(
+      canonicalScoutHrefFromLocation(
+        "/projects/openscout",
+        "?tab=observe&q=tail&ffGlobal=max-pro",
+        "",
+      ),
+    ).toBe("/projects/openscout?ffGlobal=max-pro");
   });
 
   test("sessions route stays under /scope when the browser is in the scope namespace", () => {
@@ -279,6 +311,13 @@ describe("agents route parsing", () => {
     expect(routeFromUrl("http://127.0.0.1:43120/ops/control?no-ops")).toEqual({
       view: "inbox",
     });
+  });
+
+  test("ops routes are adopted by the TanStack route tree", async () => {
+    const { EXPECTED_SCOUT_VIEW_BY_ROUTE_ID } = await import("../router/tanstack/adopted-scout-routes.ts");
+
+    expect(EXPECTED_SCOUT_VIEW_BY_ROUTE_ID["/ops"]).toBe("ops");
+    expect(EXPECTED_SCOUT_VIEW_BY_ROUTE_ID["/ops/$mode"]).toBe("ops");
   });
 
   test("terminal routes tolerate trailing punctuation on mode deep links", () => {

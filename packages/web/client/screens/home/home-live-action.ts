@@ -11,19 +11,29 @@ function summarize(text: string, max = 120): string {
 }
 
 function formatObserveAction(event: ObserveData["events"][number]): string | null {
+  const text = event.text?.trim();
+  if (text && isNonActionObserveDiagnostic(text)) return null;
   if (event.kind === "tool" && event.tool) {
     const arg = event.arg?.trim();
     return arg ? `${event.tool} · ${summarize(arg, 88)}` : event.tool;
   }
   if (event.kind === "message" || event.kind === "think" || event.kind === "note" || event.kind === "ask") {
-    const text = event.text?.trim();
     return text ? summarize(text, 120) : null;
   }
   if (event.kind === "system" || event.kind === "boot") {
-    const text = event.text?.trim();
     return text ? summarize(text, 100) : null;
   }
   return null;
+}
+
+function isNonActionObserveDiagnostic(text: string): boolean {
+  return [
+    /^no session trace is available for this agent yet\.?$/i,
+    /^no session trace is available\b/i,
+    /^no trace source\b/i,
+    /^this session has no observable transcript attached\b/i,
+    /^no token-window usage yet\.?$/i,
+  ].some((pattern) => pattern.test(text.trim()));
 }
 
 export function liveActionSummary(input: {

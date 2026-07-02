@@ -10,6 +10,7 @@ import {
 import {
   compactAgentId,
   minimalAgentDisplayName,
+  qualifiedAgentHandle,
 } from "../../lib/agent-labels.ts";
 import { useBrokerEvents } from "../../lib/sse.ts";
 import {
@@ -688,7 +689,7 @@ export function ConversationScreen({
       const meta = participantMeta.get(id);
       return {
         id,
-        name: participantAgent?.name ?? meta?.displayName ?? compactAgentId(id) ?? id,
+        name: meta?.label ?? participantAgent?.name ?? meta?.displayName ?? compactAgentId(id) ?? id,
         title: participantAgent?.id ?? id,
         agent: participantAgent,
         harness: participantAgent?.harness ?? meta?.harness ?? null,
@@ -1273,7 +1274,14 @@ export function ConversationScreen({
                   : null;
               const actorHandle = isYou
                 ? operatorName.toLowerCase()
-                : messageAgent?.handle ?? null;
+                : messageAgent
+                  ? qualifiedAgentHandle({
+                      name: message.actorName,
+                      handle: messageAgent.handle,
+                      selector: messageAgent.selector,
+                      id: messageAgent.id,
+                    })
+                  : null;
               const askReply = parseAskReplyTag(message.body);
               const replyContext = askReply
                 ? resolveAskReplyContext({

@@ -23,6 +23,42 @@ export function minimalAgentHandle(input: {
   return compact ? `@${compact}` : null;
 }
 
+function normalizeHandleSegment(value: string | null | undefined): string | null {
+  const normalized = value
+    ?.trim()
+    .replace(/^@+/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || null;
+}
+
+export function qualifiedAgentHandle(input: {
+  name?: string | null;
+  handle?: string | null;
+  selector?: string | null;
+  id?: string | null;
+}): string | null {
+  const handle = input.handle?.trim().replace(/^@+/, "");
+  if (handle) {
+    const normalizedHandle = normalizeHandleSegment(handle);
+    const normalizedName = normalizeHandleSegment(input.name);
+    if (
+      normalizedHandle
+      && normalizedName?.startsWith(`${normalizedHandle}-`)
+      && normalizedName.length > normalizedHandle.length + 1
+    ) {
+      return normalizedName;
+    }
+    return handle;
+  }
+
+  const selector = input.selector?.trim().replace(/^@+/, "");
+  if (selector) return selector;
+
+  return compactAgentId(input.id);
+}
+
 export function minimalAgentDisplayName(input: {
   name?: string | null;
   agentName?: string | null;

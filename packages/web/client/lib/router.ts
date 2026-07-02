@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isOpsEnabled } from "./feature-flags.ts";
 import { isScoutFlagEnabled } from "./scout-flags.ts";
-import {
-  parseScopeRouteFromUrl,
-  preserveLocationSearch,
-} from "../scope/paths.ts";
+import { parseScopeRouteFromUrl } from "../scope/paths.ts";
 import { scopeRoutePath } from "../scope/presentation.ts";
 import { normalizeRoute } from "./synthetic-agent-routing.ts";
 import { surfaceKeyFromParts, surfacePartsFromKey } from "./terminal-sessions.ts";
@@ -29,6 +26,31 @@ const APP_URL_BASE = typeof window !== "undefined" ? window.location.href : "htt
 function resolveAppUrl(hrefOrPath: string | URL): URL {
   const value = hrefOrPath.toString();
   return new URL(value, APP_URL_BASE);
+}
+
+const PRESERVED_ROUTER_SEARCH_KEYS = new Set([
+  "ffAudience",
+  "ffBundle",
+  "ffGlobal",
+  "ffPersist",
+  "scoutGlobalBundle",
+  "theme",
+  "themeVars",
+]);
+
+function shouldPreserveRouterSearchKey(key: string): boolean {
+  return PRESERVED_ROUTER_SEARCH_KEYS.has(key) || key.startsWith("ff.");
+}
+
+export function preserveGlobalLocationSearch(path: string, search = ""): string {
+  const target = new URL(path, "http://scout.local");
+  const current = new URLSearchParams(search);
+  current.forEach((value, key) => {
+    if (!shouldPreserveRouterSearchKey(key) || target.searchParams.has(key)) return;
+    target.searchParams.set(key, value);
+  });
+  const query = target.searchParams.toString();
+  return `${target.pathname}${query ? `?${query}` : ""}`;
 }
 
 function parseAgentTab(value: string | null): AgentTab | undefined {
@@ -898,7 +920,8 @@ export function registerScoutNavigationAdapter(adapter: ScoutNavigationAdapter):
 }
 
 function locationHashSuffix(hash: string): string {
-  return hash ? `#${hash}` : "";
+  const normalized = hash.startsWith("#") ? hash.slice(1) : hash;
+  return normalized ? `#${normalized}` : "";
 }
 
 function isStandaloneEmbedPath(pathname: string): boolean {
@@ -912,6 +935,11 @@ type BrowserLocationState = {
 };
 
 const SCOUT_LOCATION_EVENT = "scout:locationchange";
+
+export function notifyScoutLocationChanged(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
+}
 
 function readBrowserLocation(): BrowserLocationState {
   if (typeof window === "undefined") {
@@ -960,23 +988,27 @@ function useBrowserLocationState(): BrowserLocationState {
 function navigateBrowser(href: string, replace = false): void {
   if (typeof window === "undefined") return;
   if (scoutNavigationAdapter) {
-    // TanStack owns history: pushing through it keeps the router store in sync
-    // without the synthetic popstate broadcast this used to need.
+    // TanStack owns history; ScoutProvider still consumes the legacy location
+    // event until pane rendering is fully moved onto TanStack route context.
     scoutNavigationAdapter(href, replace);
   } else if (replace) {
     window.history.replaceState(window.history.state, "", href);
   } else {
     window.history.pushState(window.history.state, "", href);
   }
-  window.dispatchEvent(new Event(SCOUT_LOCATION_EVENT));
+  notifyScoutLocationChanged();
 }
 
-function canonicalHrefForRoute(pathname: string, searchStr: string, hash: string): string | null {
+export function canonicalScoutHrefFromLocation(
+  pathname: string,
+  searchStr: string,
+  hash: string,
+): string | null {
   if (isStandaloneEmbedPath(pathname)) return null;
   const routeUrl = `${pathname}${searchStr}`;
   const raw = routeFromUrl(routeUrl);
   const normalized = normalizeRoute(raw);
-  const canonicalPath = preserveLocationSearch(routePath(normalized, pathname), searchStr);
+  const canonicalPath = preserveGlobalLocationSearch(routePath(normalized, pathname), searchStr);
   const shouldCanonicalize =
     routeKey(raw) !== routeKey(normalized)
     || raw.view === "agents"
@@ -994,7 +1026,7 @@ export function useRouter() {
   const prevRouteUrl = useRef(routeUrl);
 
   useEffect(() => {
-    const canonicalHref = canonicalHrefForRoute(pathname, searchStr, hash);
+    const canonicalHref = canonicalScoutHrefFromLocation(pathname, searchStr, hash);
     if (canonicalHref) {
       navigateBrowser(canonicalHref, true);
     }
@@ -1018,7 +1050,7 @@ export function useRouter() {
     const currentRoute = routeFromLocation(pathname, searchStr);
     const nextRoute = resolveNavigatedMachineScope(requestedRoute, currentRoute);
     scrollMap.current[routeKey(currentRoute)] = window.scrollY;
-    const canonicalPath = preserveLocationSearch(routePath(nextRoute, pathname), searchStr);
+    const canonicalPath = preserveGlobalLocationSearch(routePath(nextRoute, pathname), searchStr);
     navigateBrowser(`${canonicalPath}${locationHashSuffix(hash)}`);
     requestAnimationFrame(() => {
       window.scrollTo(0, scrollMap.current[routeKey(nextRoute)] ?? 0);

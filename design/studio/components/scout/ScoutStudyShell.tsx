@@ -24,12 +24,14 @@ export function ScoutStudyShell({
   pageId,
   title,
   blurb,
+  surface = "macos",
   initialSkin = "juniper-l",
   children,
 }: {
   pageId: string;
   title: string;
   blurb: ReactNode;
+  surface?: "web" | "ios" | "macos" | "shell" | "cross";
   initialSkin?: ScoutSkinId;
   children: ReactNode | ((skin: ScoutSkinId) => ReactNode);
 }) {
@@ -48,7 +50,7 @@ export function ScoutStudyShell({
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="max-w-prose">
           <div className="text-[9px] font-semibold uppercase tracking-eyebrow text-studio-ink-faint">
-            · studies · macos · {pageId}
+            · studies · {surface} · {pageId}
           </div>
           <h1 className="mt-1 font-display text-[28px] font-medium leading-none tracking-tight text-studio-ink">
             {title}

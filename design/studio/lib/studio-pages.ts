@@ -175,6 +175,23 @@ export const STUDIO_PAGES: StudioPage[] = [
     blurb: "One token set (the exact sRGB of native ScoutThemeColors) and the whole shell rebuilt from it — Comms, Agents, Repos, Tail, Settings as window mockups. Default skin is the live app theme: juniper · light · indigo.",
   },
   {
+    href: "/studies/simple-mode-peek",
+    label: "Simple Mode Peek",
+    bucket: "studies",
+    surface: "web",
+    family: "simple-mode",
+    status: "concept",
+    source: [
+      "design/studio/app/studies/simple-mode-peek/page.tsx",
+      "design/studio/app/studies/simple-mode-peek/page.module.css",
+      "packages/web/client/scout/topNavConfig.ts",
+      "packages/web/client/scout/secondaryNavConfig.ts",
+      "packages/web/client/screens/ops/AgentLanesView.tsx",
+      "packages/web/client/screens/broker/BrokerScreen.tsx",
+    ],
+    blurb: "The calm end-of-day shape and how it unfolds toward pro. Two places — Today is the briefing you read, Chats is where you talk — with agents as a tappable card layer. Pro arrives as doors, not modes: section headers grow quiet doors to Lanes/Dispatch/Activity, pinned rooms dock in the rail, ⌘K reaches everything from day one. Stage control walks First open → Settling in → Pro.",
+  },
+  {
     href: "/studies/scout-icon-treatments",
     label: "Scout Icon Treatments",
     bucket: "studies",

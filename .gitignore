@@ -51,6 +51,7 @@ packages/runtime/native/**/target/
 
 # local review/audit artifacts (PM/engineer reports, screenshots, logs)
 /reviews/
+/docs/artifacts/nav-ux-inventory-*/
 
 # local planning notes; only issue-keyed Scout plans are source material
 plans/*.md
