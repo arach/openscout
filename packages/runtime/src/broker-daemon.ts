@@ -167,9 +167,11 @@ import {
   titleCaseName,
 } from "./broker-conversation-helpers.js";
 import {
+  applyInvocationStatusPatch,
   isReconciledStaleFlightActivityItem,
   isTerminalFlightState,
   staleLocalEndpointReason,
+  type InvocationStatusPatch,
 } from "./broker-local-invocation-helpers.js";
 import {
   homeEndpointForAgent,
@@ -714,6 +716,24 @@ async function persistFlight(flight: FlightRecord): Promise<void> {
   await recordFlightDurably(flight);
 }
 
+// Phase 3 write collapse: status changes are expressed as patches against the
+// invocation's current flight rather than hand-built whole FlightRecords, and
+// still funnel through recordFlightDurably so the lifecycle hooks fire.
+async function transitionInvocation(
+  invocationId: string,
+  patch: InvocationStatusPatch,
+): Promise<FlightRecord> {
+  const current = runtime.flightForInvocation(invocationId);
+  if (!current) {
+    // Dispatch persists the initial flight before launching local execution,
+    // so a missing flight here is an invariant breach, not a normal state.
+    throw new Error(`cannot transition invocation ${invocationId}: no flight recorded`);
+  }
+  const next = applyInvocationStatusPatch(current, patch);
+  await recordFlightDurably(next);
+  return next;
+}
+
 async function persistEndpoint(endpoint: AgentEndpoint): Promise<void> {
   await upsertEndpointDurably(endpoint);
   if (endpoint.state === "idle" || endpoint.state === "active") {
@@ -783,7 +803,7 @@ const localInvocationService = new BrokerLocalInvocationService({
   endpointResolver: localEndpointResolver,
   activeInvocationTasks,
   createId: createRuntimeId,
-  persistFlight,
+  transitionInvocation,
   persistEndpoint,
   postInvocationStatusMessage,
   postConversationMessage,
@@ -1088,7 +1108,7 @@ const invocationDispatchService = new BrokerInvocationDispatchService({
   enqueuePeerInvocation: async (invocation, authorityNode) => {
     await peerDelivery.enqueue(invocation, authorityNode);
   },
-  launchLocalInvocation: (invocation, flight) => localInvocationService.launch(invocation, flight),
+  launchLocalInvocation: (invocation) => localInvocationService.launch(invocation),
   log: (message) => console.log(message),
   warn: (message) => console.warn(message),
   error: (message, detail) => console.error(message, detail),

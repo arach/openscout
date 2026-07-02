@@ -20,6 +20,7 @@ import {
   invocationTargetSessionId,
   isTerminalFlightState,
   staleLocalEndpointReason,
+  type InvocationStatusPatch,
 } from "./broker-local-invocation-helpers.js";
 import { isBrokerRunnableLocalAgentTransport } from "./local-agent-transports.js";
 import type { PairingInvocationResult } from "./pairing-session-agents.js";
@@ -72,7 +73,18 @@ export type BrokerLocalInvocationServiceOptions = {
   endpointResolver: LocalInvocationEndpointResolver;
   activeInvocationTasks: Map<string, Promise<void>>;
   createId: (prefix: string) => string;
-  persistFlight: (flight: FlightRecord) => Promise<void>;
+  /**
+   * Applies a status patch to the invocation's current flight and funnels it
+   * through the durable write path (recordFlight), so terminal-state hooks
+   * (normalizeRecordedFlight, promoteInvocationFlightToWork,
+   * maybeForwardFlightToAuthority) keep firing. Returns the persisted record.
+   * Throws if the invocation has no recorded flight — dispatch persists the
+   * initial flight before launch, so a missing flight is an invariant breach.
+   */
+  transitionInvocation: (
+    invocationId: string,
+    patch: InvocationStatusPatch,
+  ) => Promise<FlightRecord>;
   persistEndpoint: (endpoint: AgentEndpoint) => Promise<void>;
   postInvocationStatusMessage: (
     invocation: InvocationRequest,
@@ -116,7 +128,7 @@ export class BrokerLocalInvocationService {
     return this.options.activeInvocationTasks.has(invocationId);
   }
 
-  launch(invocation: InvocationRequest, initialFlight: FlightRecord): void {
+  launch(invocation: InvocationRequest): void {
     if (this.options.activeInvocationTasks.has(invocation.id)) {
       return;
     }
@@ -125,7 +137,7 @@ export class BrokerLocalInvocationService {
     const previousRouteTask = this.#activeRouteTasks.get(routeKey);
     const task = (previousRouteTask ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => this.execute(invocation, initialFlight))
+      .then(() => this.execute(invocation))
       .catch((error) => {
         this.options.error?.(`[openscout-runtime] local invocation ${invocation.id} crashed:`, error);
       })
@@ -139,7 +151,7 @@ export class BrokerLocalInvocationService {
     this.#activeRouteTasks.set(routeKey, task);
   }
 
-  async execute(invocation: InvocationRequest, initialFlight: FlightRecord): Promise<void> {
+  async execute(invocation: InvocationRequest): Promise<void> {
     const agent = this.options.runtime.agent(invocation.targetAgentId);
     const actor = this.options.runtime.actor(invocation.targetAgentId) ?? agent;
     const target = localInvocationTargetIdentity(invocation.targetAgentId, agent, actor);
@@ -154,18 +166,15 @@ export class BrokerLocalInvocationService {
       endpoint = await this.options.endpointResolver.resolveLocalEndpointForInvocation(invocation);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const failedFlight = {
-        ...initialFlight,
-        state: "failed" as const,
+      const failedFlight = await this.options.transitionInvocation(invocation.id, {
+        state: "failed",
         summary: `${target.displayName} could not be prepared.`,
         error: `Endpoint resolution failed before execution: ${message}`,
         completedAt: this.now(),
         metadata: {
-          ...(initialFlight.metadata ?? {}),
           failureStage: "endpoint_resolution",
         },
-      };
-      await this.options.persistFlight(failedFlight);
+      });
       await this.options.postInvocationStatusMessage(invocation, failedFlight);
       return;
     }
@@ -176,37 +185,31 @@ export class BrokerLocalInvocationService {
         ? staleLocalEndpointReason(latestEndpointForAgent(this.options.runtime.snapshot(), invocation.targetAgentId))
         : null;
       if (staleEndpointReason) {
-        const failedFlight = {
-          ...initialFlight,
-          state: "failed" as const,
+        const failedFlight = await this.options.transitionInvocation(invocation.id, {
+          state: "failed",
           summary: `${target.displayName} could not be prepared.`,
           error: `Endpoint resolution failed before execution: ${staleEndpointReason}`,
           completedAt: this.now(),
           metadata: {
-            ...(initialFlight.metadata ?? {}),
             failureStage: "endpoint_resolution",
             staleLocalRegistration: true,
           },
-        };
-        await this.options.persistFlight(failedFlight);
+        });
         await this.options.postInvocationStatusMessage(invocation, failedFlight);
         return;
       }
 
-      const queuedFlight = {
-        ...initialFlight,
-        state: "queued" as const,
+      await this.options.transitionInvocation(invocation.id, {
+        state: "queued",
         summary: `Message stored for ${target.displayName}. Will deliver when online.`,
         metadata: {
-          ...(initialFlight.metadata ?? {}),
           dispatchOutcome: {
             status: "queued_until_online",
             reason: "no_runnable_endpoint",
             checkedAt: this.now(),
           },
         },
-      };
-      await this.options.persistFlight(queuedFlight);
+      });
       return;
     }
 
@@ -215,14 +218,12 @@ export class BrokerLocalInvocationService {
       && !isA2AHttpEndpoint(endpoint)
       && !isBrokerRunnableLocalAgentTransport(endpoint.transport)
     ) {
-      const failedFlight = {
-        ...initialFlight,
-        state: "failed" as const,
+      const failedFlight = await this.options.transitionInvocation(invocation.id, {
+        state: "failed",
         summary: `${target.displayName} has no supported local executor.`,
         error: `Endpoint transport ${endpoint.transport} is registered for ${target.id}, but the broker only routes through direct local agent adapters or A2A HTTP endpoints.`,
         completedAt: this.now(),
-      };
-      await this.options.persistFlight(failedFlight);
+      });
       await this.options.postInvocationStatusMessage(invocation, failedFlight);
       return;
     }
@@ -258,32 +259,27 @@ export class BrokerLocalInvocationService {
       endpoint: runningEndpoint,
       strategy: dispatchAck.strategy,
     });
-    const runningFlight = {
-      ...initialFlight,
-      state: "running" as const,
+    const runningFlight = await this.options.transitionInvocation(invocation.id, {
+      state: "running",
       summary: aliasSummary || `${target.displayName} acknowledged via ${dispatchAck.strategy}.`,
       error: undefined,
       completedAt: undefined,
       metadata: {
-        ...(initialFlight.metadata ?? {}),
         dispatchAck,
       },
-    };
-    await this.options.persistFlight(runningFlight);
+    });
 
     try {
       const result = await this.invokeEndpoint(runningEndpoint, invocation);
       const completedEndpoint = this.completedEndpoint(runningEndpoint, result);
 
       if (invocation.action === "wake") {
-        const completedFlight = {
-          ...runningFlight,
-          state: "completed" as const,
+        await this.options.transitionInvocation(invocation.id, {
+          state: "completed",
           summary: `${target.displayName} received the message.`,
           output: result.output,
           completedAt: this.now(),
-        };
-        await this.options.persistFlight(completedFlight);
+        });
 
         await this.options.persistEndpoint({
           ...completedEndpoint,
@@ -308,18 +304,15 @@ export class BrokerLocalInvocationService {
       );
       const output = postedReply?.body || result.output;
       if (!output.trim()) {
-        const failedFlight = {
-          ...runningFlight,
-          state: "failed" as const,
+        const failedFlight = await this.options.transitionInvocation(invocation.id, {
+          state: "failed",
           summary: `${target.displayName} returned an empty reply.`,
           error: `Local target ${target.id} completed without broker-visible output.`,
           completedAt: this.now(),
           metadata: {
-            ...(runningFlight.metadata ?? {}),
             failureStage: "empty_reply",
           },
-        };
-        await this.options.persistFlight(failedFlight);
+        });
 
         await this.options.persistEndpoint({
           ...runningEndpoint,
@@ -335,14 +328,12 @@ export class BrokerLocalInvocationService {
         return;
       }
 
-      const completedFlight = {
-        ...runningFlight,
-        state: "completed" as const,
+      const completedFlight = await this.options.transitionInvocation(invocation.id, {
+        state: "completed",
         summary: `${target.displayName} replied.`,
         output,
         completedAt: this.now(),
-      };
-      await this.options.persistFlight(completedFlight);
+      });
 
       await this.options.persistEndpoint({
         ...completedEndpoint,
@@ -464,20 +455,17 @@ export class BrokerLocalInvocationService {
         return;
       }
 
-      const continuingFlight = {
-        ...runningFlight,
-        state: "running" as const,
+      await this.options.transitionInvocation(invocation.id, {
+        state: "running",
         summary: `${target.displayName} is still working.`,
         error: undefined,
         completedAt: undefined,
         metadata: {
-          ...(runningFlight.metadata ?? {}),
           requesterTimedOut: true,
           timeoutMs: error.timeoutMs,
           timeoutScope: "requester_wait",
         },
-      };
-      await this.options.persistFlight(continuingFlight);
+      });
       this.options.warn?.(
         `[openscout-runtime] ${target.displayName} is still working; requester wait timed out after ${error.timeoutMs}ms.`,
       );
@@ -485,21 +473,18 @@ export class BrokerLocalInvocationService {
     }
 
     if (isDispatchStalledError(error)) {
-      const stalledFlight = {
-        ...runningFlight,
-        state: "failed" as const,
+      const stalledFlight = await this.options.transitionInvocation(invocation.id, {
+        state: "failed",
         summary: `${target.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
         error: message,
         completedAt: this.now(),
         metadata: {
-          ...(runningFlight.metadata ?? {}),
           failureStage: "dispatch_stalled",
           dispatchStalledSession: error.sessionName,
           dispatchStalledRetries: error.retries,
           dispatchStalledPaneTail: error.paneTail.slice(0, 1_000),
         },
-      };
-      await this.options.persistFlight(stalledFlight);
+      });
 
       await this.options.persistEndpoint({
         ...runningEndpoint,
@@ -524,14 +509,12 @@ export class BrokerLocalInvocationService {
       const summary = error.exitKind === "proactive_shutdown"
         ? `${target.displayName} was stopped by OpenScout before it could reply.`
         : `${target.displayName} was interrupted by a local Codex app-server SIGTERM.`;
-      const interruptedFlight = {
-        ...runningFlight,
-        state: "failed" as const,
+      const interruptedFlight = await this.options.transitionInvocation(invocation.id, {
+        state: "failed",
         summary,
         error: undefined,
         completedAt: interruptedAt,
         metadata: {
-          ...(runningFlight.metadata ?? {}),
           failureStage,
           failureSeverity: "noteworthy",
           noteworthy: true,
@@ -540,8 +523,7 @@ export class BrokerLocalInvocationService {
           exitCode: error.exitCode,
           ...(error.reason ? { shutdownReason: error.reason } : {}),
         },
-      };
-      await this.options.persistFlight(interruptedFlight);
+      });
 
       await this.options.persistEndpoint({
         ...runningEndpoint,
@@ -558,14 +540,12 @@ export class BrokerLocalInvocationService {
       return;
     }
 
-    const failedFlight = {
-      ...runningFlight,
-      state: "failed" as const,
+    const failedFlight = await this.options.transitionInvocation(invocation.id, {
+      state: "failed",
       summary: `${target.displayName} failed to respond.`,
       error: message,
       completedAt: this.now(),
-    };
-    await this.options.persistFlight(failedFlight);
+    });
 
     await this.options.persistEndpoint({
       ...runningEndpoint,

@@ -10,6 +10,7 @@ import type {
   MessageRecord,
 } from "@openscout/protocol";
 
+import { applyInvocationStatusPatch } from "./broker-local-invocation-helpers.js";
 import { BrokerLocalInvocationService } from "./broker-local-invocation-service.js";
 import { RequesterWaitTimeoutError } from "./requester-timeout.js";
 
@@ -197,9 +198,17 @@ function createHarness(input: {
     },
     activeInvocationTasks,
     createId: () => "msg-generated",
-    async persistFlight(flight) {
-      persistedFlights.push(flight);
-      flights[flight.id] = flight;
+    // Mirrors the daemon's transitionInvocation: read the invocation's current
+    // flight, apply the patch with the real merge helper, persist the result.
+    async transitionInvocation(invocationId, patch) {
+      const current = Object.values(flights).find((flight) => flight.invocationId === invocationId);
+      if (!current) {
+        throw new Error(`cannot transition invocation ${invocationId}: no flight recorded`);
+      }
+      const next = applyInvocationStatusPatch(current, patch);
+      persistedFlights.push(next);
+      flights[next.id] = next;
+      return next;
     },
     async persistEndpoint(nextEndpoint) {
       persistedEndpoints.push(nextEndpoint);
@@ -243,6 +252,11 @@ function createHarness(input: {
     service,
     statusMessages,
     warnings,
+    // Dispatch persists the initial flight before launch; tests seed it the
+    // same way so transitionInvocation has a current record to patch.
+    seedFlight(flight: FlightRecord) {
+      flights[flight.id] = flight;
+    },
   };
 }
 
@@ -250,7 +264,8 @@ describe("BrokerLocalInvocationService", () => {
   test("queues when no runnable endpoint is available", async () => {
     const harness = createHarness({ endpoint: undefined, now: 11_000 });
 
-    await harness.service.execute(testInvocation(), testFlight());
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
 
     expect(harness.persistedFlights).toEqual([
       expect.objectContaining({
@@ -287,7 +302,8 @@ describe("BrokerLocalInvocationService", () => {
       now: 20_000,
     });
 
-    await harness.service.execute(testInvocation(), testFlight());
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
 
     expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "completed"]);
     expect(harness.persistedFlights[0]?.metadata?.dispatchAck).toEqual(expect.objectContaining({
@@ -361,10 +377,8 @@ describe("BrokerLocalInvocationService", () => {
       now: 25_000,
     });
 
-    await harness.service.execute(
-      testInvocation({ targetAgentId: sessionActor.id }),
-      testFlight({ targetAgentId: sessionActor.id }),
-    );
+    harness.seedFlight(testFlight({ targetAgentId: sessionActor.id }));
+    await harness.service.execute(testInvocation({ targetAgentId: sessionActor.id }));
 
     expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "completed"]);
     expect(harness.persistedFlights[1]).toEqual(expect.objectContaining({
@@ -422,10 +436,8 @@ describe("BrokerLocalInvocationService", () => {
       now: 25_000,
     });
 
-    await harness.service.execute(
-      testInvocation({ targetAgentId: sessionActor.id }),
-      testFlight({ targetAgentId: sessionActor.id }),
-    );
+    harness.seedFlight(testFlight({ targetAgentId: sessionActor.id }));
+    await harness.service.execute(testInvocation({ targetAgentId: sessionActor.id }));
 
     expect(harness.persistedFlights[0]?.summary).toBe(
       "alias project-chopin → session-chopin-1 (scope, codex) acknowledged via attach.",
@@ -443,7 +455,8 @@ describe("BrokerLocalInvocationService", () => {
       now: 30_000,
     });
 
-    await harness.service.execute(testInvocation(), testFlight());
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
 
     expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running", "running"]);
     expect(harness.persistedFlights[1]).toEqual(expect.objectContaining({
@@ -469,8 +482,9 @@ describe("BrokerLocalInvocationService", () => {
     const invocation = testInvocation();
     const flight = testFlight();
 
-    harness.service.launch(invocation, flight);
-    harness.service.launch(invocation, flight);
+    harness.seedFlight(flight);
+    harness.service.launch(invocation);
+    harness.service.launch(invocation);
     expect(harness.service.hasActiveInvocation(invocation.id)).toBe(true);
     expect(harness.activeInvocationTasks).toHaveLength(1);
     await harness.activeInvocationTasks.get(invocation.id);
@@ -494,8 +508,10 @@ describe("BrokerLocalInvocationService", () => {
 
     const firstInvocation = testInvocation({ id: "invocation-1" });
     const secondInvocation = testInvocation({ id: "invocation-2" });
-    harness.service.launch(firstInvocation, testFlight({ id: "flight-1", invocationId: firstInvocation.id }));
-    harness.service.launch(secondInvocation, testFlight({ id: "flight-2", invocationId: secondInvocation.id }));
+    harness.seedFlight(testFlight({ id: "flight-1", invocationId: firstInvocation.id }));
+    harness.seedFlight(testFlight({ id: "flight-2", invocationId: secondInvocation.id }));
+    harness.service.launch(firstInvocation);
+    harness.service.launch(secondInvocation);
 
     await waitFor(() => started.length === 1);
     expect(started).toEqual(["invocation-1"]);
