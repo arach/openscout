@@ -593,7 +593,7 @@ export class BrokerDeliveryAcceptanceService {
       Boolean(projectPath)
       && payload.intent === "consult"
       && !targetSessionId
-      && (execution?.session ?? "new") === "new"
+      && ((execution?.session ?? "new") === "new" || execution?.session === "fork")
       && Boolean(this.options.createCardlessProjectSession);
     const resolved = shouldCreateCardlessProjectSession
       ? await this.options.createCardlessProjectSession!({
@@ -820,8 +820,11 @@ export class BrokerDeliveryAcceptanceService {
     const baseInvocationExecution = execution ?? {};
     const invocationExecution = {
       ...baseInvocationExecution,
-      session: targetSessionId ? "existing" as const : "new" as const,
-      ...(targetSessionId ? { targetSessionId } : {}),
+      ...(targetSessionId
+        ? { session: "existing" as const, targetSessionId }
+        : baseInvocationExecution.session
+        ? {}
+        : { session: "new" as const }),
     };
     const invocation: InvocationRequest = {
       id: this.options.createId("inv"),

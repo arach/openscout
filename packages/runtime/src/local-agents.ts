@@ -2644,6 +2644,8 @@ function invocationSessionFreshness(invocation: InvocationRequest): string {
       return "fresh session";
     case "existing":
       return "continuing session";
+    case "fork":
+      return "forking session";
     case "any":
       return invocation.execution?.targetSessionId ? "continuing session" : "fresh session";
     default:
@@ -2726,6 +2728,26 @@ function buildInvocationDispatchLine(invocation: InvocationRequest): string {
   return `delivery: ${invocationDeliveryState(invocation)} · session: ${invocationSessionFreshness(invocation)}`;
 }
 
+function buildInvocationForkContextPrompt(invocation: InvocationRequest): string | undefined {
+  const execution = invocation.execution;
+  if (execution?.session !== "fork") {
+    return undefined;
+  }
+  const source = execution.forkFromStateId?.trim()
+    ? `state ${execution.forkFromStateId.trim()}`
+    : execution.forkFromSessionId?.trim()
+      ? `session ${execution.forkFromSessionId.trim()}`
+      : null;
+  if (!source) {
+    return undefined;
+  }
+  return [
+    "Fork source:",
+    `- Source: ${source}`,
+    "- This is a new execution session. Use the source as provenance/context; do not continue the exact source session.",
+  ].join("\n");
+}
+
 export function buildScoutReplyContext(agentName: string, invocation: InvocationRequest): ScoutReplyContext | null {
   if (invocation.action === "wake") {
     return null;
@@ -2792,6 +2814,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
   const contextLines = Object.entries(invocation.context ?? {})
     .map(([key, value]) => `- ${key}: ${String(value)}`);
   const collaborationContext = buildInvocationCollaborationContextPrompt(invocation);
+  const forkContext = buildInvocationForkContextPrompt(invocation);
   const actionRules = invocation.action === "execute"
     ? "You may inspect and modify the workspace when needed. End with the concise broker-visible reply for the requester."
     : invocation.action === "wake"
@@ -2811,6 +2834,7 @@ export function buildLocalAgentDirectInvocationPrompt(agentName: string, invocat
     invocation.action === "wake" ? undefined : "Return only the broker-visible reply for the requester.",
     "",
     collaborationContext,
+    forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "Task:",
     invocation.task,
@@ -2824,6 +2848,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
     .map(([key, value]) => `- ${key}: ${String(value)}`);
   const replyContext = buildScoutReplyContext(agentName, invocation);
   const replyContextPrompt = invocation.action === "wake" ? [] : buildScoutReplyContextPrompt(replyContext);
+  const forkContext = buildInvocationForkContextPrompt(invocation);
 
   return [
     buildInvocationOpener(invocation),
@@ -2834,6 +2859,7 @@ export function buildAttachedSessionInvocationPrompt(invocation: InvocationReque
     invocation.action === "wake"
       ? "Treat this as a direct message/update to the current session. No reply is required; respond only if it is useful."
       : "Treat this as a direct message to the current session, but return only the broker-visible reply for Scout delivery.",
+    forkContext,
     contextLines.length > 0 ? `Context:\n${contextLines.join("\n")}` : undefined,
     "",
     invocation.task,
@@ -2867,6 +2893,12 @@ export function buildLocalAgentNudge(agentName: string, invocation: InvocationRe
 
   if (invocation.context && Object.keys(invocation.context).length > 0) {
     parts.push(`Context: ${JSON.stringify(invocation.context)}`);
+  }
+  if (invocation.execution?.session === "fork") {
+    const source = invocation.execution.forkFromStateId?.trim() || invocation.execution.forkFromSessionId?.trim();
+    if (source) {
+      parts.push(`Fork source: ${source}. This is a new execution session, not exact continuation.`);
+    }
   }
 
   parts.push(`Read recent context if needed: ${relayCommand} latest --agent ${agentName} --limit 20.`);

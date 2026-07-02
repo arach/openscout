@@ -2631,9 +2631,12 @@ export async function askScoutQuestion(input: {
   executionHarness?: AgentHarness;
   executionModel?: string;
   executionReasoningEffort?: string;
-  executionSession?: "new" | "existing" | "any";
+  executionSession?: "new" | "existing" | "any" | "fork";
   executionTargetSessionId?: string;
+  executionForkFromSessionId?: string;
+  executionForkFromStateId?: string;
   projectAgent?: ScoutProjectAgentSpec;
+  attachments?: OutgoingAttachmentInput[];
   currentDirectory?: string;
   source?: string;
   messageMetadata?: Record<string, unknown>;
@@ -2687,6 +2690,7 @@ export async function askScoutQuestion(input: {
     targetLabel: renderedTarget,
     targetAgentId: explicitTargetAgentId,
     body: messageBody,
+    attachments: normalizeOutgoingAttachments(input.attachments),
     intent: "consult",
     channel: input.channel,
     speechText: input.shouldSpeak ? stripScoutAgentSelectorLabels(messageBody) : undefined,
@@ -2699,6 +2703,12 @@ export async function askScoutQuestion(input: {
       session: input.executionSession ?? "new",
       ...(input.executionTargetSessionId?.trim()
         ? { targetSessionId: input.executionTargetSessionId.trim() }
+        : {}),
+      ...(input.executionForkFromSessionId?.trim()
+        ? { forkFromSessionId: input.executionForkFromSessionId.trim() }
+        : {}),
+      ...(input.executionForkFromStateId?.trim()
+        ? { forkFromStateId: input.executionForkFromStateId.trim() }
         : {}),
     },
     ...(input.projectAgent ? { projectAgent: input.projectAgent } : {}),
