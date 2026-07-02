@@ -145,6 +145,16 @@ describe("parseAskCommandOptions", () => {
     expect(options.message).toBe("review the parser");
   });
 
+  test("preserves harness-qualified session composer route targets", () => {
+    const options = parseAskCommandOptions(
+      [">>", "session:codex:native-thread-123", "continue", "there"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("session:codex:native-thread-123");
+    expect(options.message).toBe("continue there");
+  });
+
   test("accepts an explicit project path target", () => {
     const options = parseAskCommandOptions(
       ["--project", "../talkie", "compare", "auth"],
@@ -296,6 +306,16 @@ describe("parseImplicitAskCommandOptions", () => {
 
     expect(options.targetLabel).toBe("dewey");
     expect(options.message).toBe("hey can you review our docs?");
+  });
+
+  test("preserves harness-qualified session targets in implicit route operators", () => {
+    const options = parseImplicitAskCommandOptions(
+      ["please", ">>", "session:codex:native-thread-123", "continue", "there"],
+      "/tmp/workspace",
+    );
+
+    expect(options.targetLabel).toBe("session:codex:native-thread-123");
+    expect(options.message).toBe("please continue there");
   });
 
   test("accepts a prompt file with only a composer route target", () => {

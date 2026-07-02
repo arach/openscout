@@ -3809,7 +3809,7 @@ function renderedScoutAskTarget(target: ScoutRouteTarget): string {
     case "agent_label":
       return target.label.trim();
     case "session_id":
-      return `session:${target.sessionId.trim()}`;
+      return target.value?.trim() || `session:${target.sessionId.trim()}`;
     case "binding_ref":
       return `ref:${target.ref.trim()}`;
     case "project_path":
