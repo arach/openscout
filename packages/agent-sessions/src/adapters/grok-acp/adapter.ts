@@ -1,8 +1,24 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { AdapterConfig } from "../../protocol/adapter.js";
 import { AcpAdapter } from "../acp/adapter.js";
 
 const DEFAULT_GROK_ARGS = ["--no-auto-update", "agent", "stdio"];
 const GROK_ACP_ADAPTER_TYPE = "grok-acp";
+
+// A bare "grok" spawn resolves through the parent's PATH, which under bun's
+// script runner has every ancestor node_modules/.bin prepended — an unrelated
+// npm "grok" shim there shadows the xAI CLI and exits 1. Prefer the official
+// install location so the daemon and an interactive shell agree on the binary.
+function defaultGrokCommand(env: Record<string, string> | undefined): string {
+  const override = firstNonEmptyString(env?.GROK_CLI_BIN, process.env.GROK_CLI_BIN);
+  if (override) {
+    return override;
+  }
+  const installed = join(homedir(), ".grok", "bin", "grok");
+  return existsSync(installed) ? installed : "grok";
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -62,7 +78,7 @@ export const createAdapter = (config: AdapterConfig) => {
   const rawOptions = isRecord(config.options) ? config.options : {};
   const { env, hasXaiApiKey } = resolveGrokEnvironment(config.env);
 
-  const command = stringValue(rawOptions.command) ?? "grok";
+  const command = stringValue(rawOptions.command) ?? defaultGrokCommand(config.env);
   const args = stringArray(rawOptions.args) ?? DEFAULT_GROK_ARGS;
   const authMethodPreference = stringArray(rawOptions.authMethodPreference)
     ?? defaultAuthPreference(hasXaiApiKey);

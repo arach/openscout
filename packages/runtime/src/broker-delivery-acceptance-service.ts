@@ -818,8 +818,15 @@ export class BrokerDeliveryAcceptanceService {
         : {}),
     };
     const baseInvocationExecution = execution ?? {};
+    // A cardless spawn may normalize the requested harness (e.g. grok runs as
+    // grok-acp). The invocation must ask for the harness the spawned endpoint
+    // actually runs, or endpoint filtering never matches and the ask parks.
+    const spawnedHarness = shouldCreateCardlessProjectSession ? target.endpoint?.harness : undefined;
     const invocationExecution = {
       ...baseInvocationExecution,
+      ...(spawnedHarness && baseInvocationExecution.harness && spawnedHarness !== baseInvocationExecution.harness
+        ? { harness: spawnedHarness }
+        : {}),
       ...(targetSessionId
         ? { session: "existing" as const, targetSessionId }
         : baseInvocationExecution.session
