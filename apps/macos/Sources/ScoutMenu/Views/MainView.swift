@@ -232,16 +232,16 @@ struct MainView: View {
             LaunchTile(
                 glyph: "square.bottomhalf.filled",
                 label: "HUD",
-                help: "Toggle the HUD overlay  ·  ⌃⌥⌘H"
+                help: "Toggle the HUD overlay  ·  ⌃⌥⇧⌘H"
             ) {
                 ScoutAppBridge.openHUD(command: "toggle")
             }
             LaunchTile(
                 glyph: "list.bullet.rectangle",
                 label: "TAIL",
-                help: "Open the tail / logs overlay  ·  ⌃⌥⌘T"
+                help: "Toggle tail mode  ·  ⌃⌥⇧⌘T"
             ) {
-                ScoutAppBridge.openHUD(command: "tail")
+                ScoutAppBridge.openHUD(command: "tail-toggle")
             }
         }
     }

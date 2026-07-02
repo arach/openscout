@@ -10,8 +10,6 @@ import {
   type DeliveryIntent,
   type MessageRecord,
   type NodeDefinition,
-  type UnblockRequestEvent,
-  type UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type { BrokerJournalEntry } from "./broker-journal.js";
@@ -53,8 +51,6 @@ export type BrokerCommandServiceDeps = {
     event: CollaborationEvent,
     options?: { enqueueProjection?: boolean },
   ) => Promise<BrokerJournalEntry[]>;
-  recordUnblockRequest: (request: UnblockRequestRecord) => Promise<BrokerJournalEntry[]>;
-  appendUnblockRequestEvent: (event: UnblockRequestEvent) => Promise<BrokerJournalEntry[]>;
   recordMessage: (
     message: MessageRecord,
     options?: { enqueueProjection?: boolean },
@@ -95,22 +91,6 @@ export class BrokerCommandService {
         return await this.executeCollaborationUpsert(command.record);
       case "collaboration.event.append":
         return await this.executeCollaborationEventAppend(command.event);
-      case "unblock_request.upsert": {
-        const entries = await this.deps.recordUnblockRequest(command.request);
-        return {
-          ok: true,
-          requestId: command.request.id,
-          entries: entries.length,
-        };
-      }
-      case "unblock_request.event.append": {
-        const entries = await this.deps.appendUnblockRequestEvent(command.event);
-        return {
-          ok: true,
-          eventId: command.event.id,
-          entries: entries.length,
-        };
-      }
       case "conversation.post":
         return await this.executeConversationPost(command.message);
       case "agent.invoke":

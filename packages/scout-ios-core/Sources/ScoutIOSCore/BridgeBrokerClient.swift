@@ -84,7 +84,8 @@ public final class BridgeBrokerClient: ScoutBrokerClient, TerminalAccessProvidin
             relayURL: qrPayload.relay,
             roomId: qrPayload.room,
             publicKeyHex: qrPayload.publicKey,
-            fallbackRelayURLs: qrPayload.fallbackRelays ?? []
+            fallbackRelayURLs: qrPayload.fallbackRelays ?? [],
+            webPort: qrPayload.webPort
         )
         info.save(userDefaults: userDefaults, promoteActive: promoteActive)
     }

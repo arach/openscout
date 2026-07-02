@@ -64,13 +64,8 @@ struct HUDCheatsheetOverlay: View {
                 kbd("↵", "engage row (and again to stage @target on dock)")
             }
 
-            section("Tail") {
-                kbd("f", "toggle live FOLLOW / PAUSED")
-                kbd("t", "cycle tail treatment")
-            }
-
             section("Tabs · Tier") {
-                kbd("1 2 3 4 5", "agents · activity · tail · sessions · assistant")
+                kbd("1 2 3 4", "agents · activity · sessions · assistant")
                 kbd("⌘← ⌘→", "tier down / up (S / M / L)")
                 kbd("[ ]", "tier down / up")
             }

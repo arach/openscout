@@ -184,7 +184,6 @@ function createHarness(input: {
         invocations: {},
         flights,
         collaborationRecords: {},
-        unblockRequests: {},
       }),
     },
     endpointResolver: {

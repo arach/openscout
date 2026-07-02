@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
+import { sanitizeUploadName } from "./relay.ts";
 import {
   attachSession,
   createSession,
@@ -26,10 +27,11 @@ process.title = "scout-relay";
 const require = createRequire(import.meta.url);
 const { WebSocketServer } = require("ws") as any;
 
+// The relay spawns login-shell PTYs; it must never inherit the web server's LAN
+// bind (OPENSCOUT_WEB_HOST). Bind loopback unless an operator explicitly opts a
+// specific host in via OPENSCOUT_WEB_TERMINAL_RELAY_HOST.
 const hostname =
   process.env.OPENSCOUT_WEB_TERMINAL_RELAY_HOST?.trim()
-  || process.env.OPENSCOUT_WEB_HOST?.trim()
-  || process.env.SCOUT_WEB_HOST?.trim()
   || "127.0.0.1";
 const port = Number.parseInt(
   process.env.OPENSCOUT_WEB_TERMINAL_RELAY_PORT?.trim() || "3201",
@@ -291,9 +293,6 @@ function writeJson(
   res.end(JSON.stringify(body));
 }
 
-function relayUploadPath(name: string) {
-  return join(UPLOAD_DIR, `${randomUUID()}-${name}`);
-}
 
 const server = createServer(async (req, res) => {
   setCors(res);
@@ -329,9 +328,14 @@ const server = createServer(async (req, res) => {
       writeJson(res, 400, { error: "Missing name or data" });
       return;
     }
-    await mkdir(UPLOAD_DIR, { recursive: true });
-    const filepath = relayUploadPath(body.name);
-    await writeFile(filepath, Buffer.from(body.data, "base64"));
+    const safeName = sanitizeUploadName(body.name);
+    if (!safeName) {
+      writeJson(res, 400, { error: "Invalid name" });
+      return;
+    }
+    await mkdir(UPLOAD_DIR, { recursive: true, mode: 0o700 });
+    const filepath = join(UPLOAD_DIR, `${randomUUID()}-${safeName}`);
+    await writeFile(filepath, Buffer.from(body.data, "base64"), { mode: 0o600 });
     writeJson(res, 200, { path: filepath });
     return;
   }
@@ -388,7 +392,17 @@ const server = createServer(async (req, res) => {
   writeJson(res, 404, { error: "Not found" });
 });
 
-const wss = new WebSocketServer({ server });
+// Reject any handshake that carries an Origin header. The only legitimate client
+// is the co-located web server's proxy, which (as a server-side WebSocket client)
+// sends no Origin; browsers always send one. This blocks a malicious page in the
+// user's browser from opening ws://localhost:<relay> directly and spawning a PTY.
+const wss = new WebSocketServer({
+  server,
+  verifyClient: (info: { origin?: string; req: import("node:http").IncomingMessage }) => {
+    const origin = info.origin ?? info.req.headers.origin;
+    return !origin;
+  },
+});
 
 wss.on("connection", (ws: any) => {
   let sessionId: string | null = null;

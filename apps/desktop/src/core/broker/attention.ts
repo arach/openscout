@@ -21,7 +21,6 @@ export type ScoutAttentionSeverity = "interrupt" | "badge" | "info";
 export type ScoutAttentionEvidenceKind =
   | "git"
   | "work_item"
-  | "question"
   | "flight"
   | "message";
 
@@ -109,7 +108,6 @@ type ProjectAccumulator = ScoutAttentionProject & {
 
 const TERMINAL_FLIGHT_STATES = new Set(["completed", "failed", "cancelled"]);
 const TERMINAL_WORK_STATES = new Set(["done", "cancelled"]);
-const TERMINAL_QUESTION_STATES = new Set(["closed", "declined"]);
 const RISK_TEXT_PATTERN =
   /\b(blocked|blocking|stuck|failed|failure|error|cannot|can't|could not|couldn't|unable|not run|did not run|untested|needs review|waiting on|approval|permission|uncommitted|dirty)\b/i;
 
@@ -428,7 +426,6 @@ function emptyScoutBrokerSnapshot(): ScoutBrokerSnapshot {
     invocations: {},
     flights: {},
     collaborationRecords: {},
-    unblockRequests: {},
   };
 }
 
@@ -560,9 +557,6 @@ function severityScore(severity: ScoutAttentionSeverity): number {
 }
 
 function isTerminalCollaborationRecord(record: CollaborationRecord): boolean {
-  if (record.kind === "question") {
-    return TERMINAL_QUESTION_STATES.has(record.state);
-  }
   return TERMINAL_WORK_STATES.has(record.state);
 }
 
@@ -570,18 +564,10 @@ function collaborationSeverity(record: CollaborationRecord): ScoutAttentionSever
   if (record.kind === "work_item" && (record.state === "waiting" || record.state === "review")) {
     return "interrupt";
   }
-  if (record.kind === "question" && record.state === "answered") {
-    return "badge";
-  }
   return "badge";
 }
 
 function collaborationReason(record: CollaborationRecord): string {
-  if (record.kind === "question") {
-    return record.state === "answered"
-      ? "answered question needs closure"
-      : "open question";
-  }
   if (record.state === "waiting") return "work item waiting";
   if (record.state === "review") return "work item needs review";
   return "open work item";
@@ -606,7 +592,7 @@ function projectRootForCollaborationRecord(
   return metadataProjectRoot(record.metadata)
     ?? agentProjectRoot(snapshot, record.nextMoveOwnerId)
     ?? agentProjectRoot(snapshot, record.ownerId)
-    ?? agentProjectRoot(snapshot, record.kind === "question" ? record.askedOfId : record.requestedById)
+    ?? agentProjectRoot(snapshot, record.requestedById)
     ?? agentProjectRoot(snapshot, record.createdById);
 }
 
@@ -835,10 +821,6 @@ function chooseNextAction(project: ScoutAttentionProject): string {
   }
   if (project.git?.hasChanges || (project.git?.ahead ?? 0) > 0) {
     return "Review git status and diff, then commit, push, or leave an explicit handoff.";
-  }
-  const question = project.evidence.find((item) => item.kind === "question");
-  if (question?.id) {
-    return `Answer, close, or spawn work from question ${question.id}.`;
   }
   return "Read the evidence and record the next owner or close the loop.";
 }

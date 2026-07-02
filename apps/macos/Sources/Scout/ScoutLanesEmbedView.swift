@@ -343,8 +343,16 @@ private struct ScoutLanesEmbedWebView: NSViewRepresentable {
                         return
                     }
                     let canReveal = rendered && hasText && elapsed >= self.minimumLoaderDwell
-                    if canReveal || elapsed >= self.maximumRenderWait {
+                    if canReveal {
                         self.markReady(url)
+                        return
+                    }
+                    if elapsed >= self.maximumRenderWait {
+                        if hasText {
+                            self.markReady(url)
+                        } else {
+                            self.setPhase(.failed("Agent lanes did not finish rendering."))
+                        }
                         return
                     }
 

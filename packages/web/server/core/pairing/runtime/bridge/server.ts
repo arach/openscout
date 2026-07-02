@@ -13,7 +13,7 @@
 
 import { log } from "./log.ts";
 import { readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
 import {
@@ -895,13 +895,22 @@ async function handleRPCInner(
 
         for (const session of sessions) {
           try {
-            const cmd = `grep -i -c "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-            const countStr = execSync(cmd, { encoding: "utf-8", timeout: 2000 }).trim();
+            // execFileSync (argv array, no shell): p.query is untrusted and must
+            // never be interpolated into a shell command. grep exits 1 with no
+            // matches, which throws and is handled by the surrounding catch.
+            const countStr = execFileSync(
+              "grep",
+              ["-i", "-c", "--", p.query, session.path],
+              { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+            ).trim();
             const count = parseInt(countStr, 10);
             if (count > 0) {
               // Get a few matching lines for preview
-              const previewCmd = `grep -i -m 3 "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-              const previewLines = execSync(previewCmd, { encoding: "utf-8", timeout: 2000 })
+              const previewLines = execFileSync(
+                "grep",
+                ["-i", "-m", "3", "--", p.query, session.path],
+                { encoding: "utf-8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+              )
                 .trim()
                 .split("\n")
                 .slice(0, 3);

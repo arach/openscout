@@ -157,7 +157,7 @@ public final class HUDController {
     /// that bypasses this guard (it cascades regardless).
     private var isDockFocused: Bool {
         guard let panel else { return false }
-        return (panel.firstResponder as? NSText)?.isEditable == true
+        return HUDKeyboardInput.isTextEditing(panel.firstResponder)
     }
 
     /// Toggle voice dictation; if native voice capture is unavailable,
@@ -612,8 +612,12 @@ public final class HUDController {
            HUDNavBus.shared.cycleTreatment != nil {
             return true
         }
+        if event.keyCode == 46 {
+            return HUDKeyboardInput.isUnmodifiedCharacterShortcut(event)
+                && !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel)
+        }
         switch event.keyCode {
-        case 18, 19, 20, 21, 23, 36, 38, 40, 34, 125, 126, 46, 5, 3, 44, 33, 30, 124, 123:
+        case 18, 19, 20, 21, 36, 38, 40, 34, 125, 126, 5, 3, 44, 33, 30, 124, 123:
             return true
         default:
             return false
@@ -647,10 +651,8 @@ public final class HUDController {
         case 19: // 2
             Task { @MainActor in HUDState.shared.select(.activity) }
         case 20: // 3
-            Task { @MainActor in HUDState.shared.select(.tail) }
-        case 21: // 4
             Task { @MainActor in HUDState.shared.select(.sessions) }
-        case 23: // 5
+        case 21: // 4
             Task { @MainActor in HUDState.shared.select(.assistant) }
         case 36: // Return — engage selected row
             Task { @MainActor in
@@ -676,6 +678,8 @@ public final class HUDController {
                 Task { @MainActor in HUDNavBus.shared.cyclePrev?() }
             }
         case 46: // m — toggle voice dictation
+            guard HUDKeyboardInput.isUnmodifiedCharacterShortcut(event),
+                  !HUDKeyboardInput.isTextEditingTarget(for: event, panel: panel) else { break }
             Task { @MainActor in await Self.toggleMicWithFlash() }
         case 5: // g — top; G with shift = bottom
             if event.modifierFlags.contains(.shift) {

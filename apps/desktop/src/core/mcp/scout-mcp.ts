@@ -709,7 +709,6 @@ const workItemInputSchema = z.object({
 const waitingOnSchema = z.object({
   kind: z.enum([
     "actor",
-    "question",
     "work_item",
     "approval",
     "artifact",

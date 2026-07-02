@@ -26,8 +26,6 @@ import type {
   ThreadWatchOpenResponse,
   ThreadWatchRenewRequest,
   ThreadWatchRenewResponse,
-  UnblockRequestEvent,
-  UnblockRequestRecord,
 } from "@openscout/protocol";
 
 import type {
@@ -41,8 +39,6 @@ import type {
   ScoutBrokerCollaborationRecordQuery,
   ScoutBrokerAgentFeedQuery,
   ScoutBrokerMessageQuery,
-  ScoutBrokerUnblockRequestEventQuery,
-  ScoutBrokerUnblockRequestQuery,
 } from "./broker-api.js";
 import { loadOpenScoutRuntimeBuildIdentity } from "./build-info.js";
 import { readInvocationLifecycle as readInvocationLifecycleModel } from "./invocation-lifecycle-read-model.js";
@@ -76,19 +72,6 @@ type BrokerCoreJournal = {
     limit?: number;
     recordId?: string;
   }) => unknown;
-  listUnblockRequests: (options?: {
-    limit?: number;
-    kind?: UnblockRequestRecord["kind"];
-    state?: string;
-    ownerId?: string;
-    source?: string;
-    sourceRef?: string;
-    active?: boolean;
-  }) => UnblockRequestRecord[];
-  listUnblockRequestEvents: (options?: {
-    limit?: number;
-    requestId?: string;
-  }) => UnblockRequestEvent[];
   listDeliveries: (options?: {
     transport?: DeliveryIntent["transport"];
     status?: DeliveryIntent["status"];
@@ -187,31 +170,6 @@ function listBrokerCollaborationEvents(
   return journal.listCollaborationEvents({
     limit: normalizeLimit(input.limit),
     recordId: input.recordId,
-  });
-}
-
-function listBrokerUnblockRequests(
-  journal: BrokerCoreJournal,
-  input: ScoutBrokerUnblockRequestQuery,
-) {
-  return journal.listUnblockRequests({
-    limit: normalizeLimit(input.limit),
-    kind: input.kind as UnblockRequestRecord["kind"] | undefined,
-    state: input.state,
-    ownerId: input.ownerId,
-    source: input.source,
-    sourceRef: input.sourceRef,
-    active: input.active,
-  });
-}
-
-function listBrokerUnblockRequestEvents(
-  journal: BrokerCoreJournal,
-  input: ScoutBrokerUnblockRequestEventQuery,
-) {
-  return journal.listUnblockRequestEvents({
-    limit: normalizeLimit(input.limit),
-    requestId: input.requestId,
   });
 }
 
@@ -656,42 +614,6 @@ function dispatchToFeedItem(dispatch: ScoutDispatchRecord): AgentBrokerFeedItem 
   };
 }
 
-function unblockMatchesAgent(request: UnblockRequestRecord, agentId: string): boolean {
-  return request.ownerId === agentId || request.createdById === agentId || request.agentId === agentId;
-}
-
-function unblockSeverity(request: UnblockRequestRecord): AgentBrokerFeedSeverity {
-  if (request.severity === "critical") {
-    return "error";
-  }
-  if (request.severity === "warning" || request.state === "open" || request.state === "snoozed") {
-    return "warning";
-  }
-  return "info";
-}
-
-function unblockToFeedItem(request: UnblockRequestRecord): AgentBrokerFeedItem {
-  return {
-    id: `unblock_request:${request.id}`,
-    kind: "unblock_request",
-    severity: unblockSeverity(request),
-    at: request.updatedAt,
-    title: request.title,
-    summary: compactText(request.summary ?? request.detail, request.title),
-    agentId: request.agentId ?? request.ownerId,
-    actorId: request.createdById,
-    targetAgentId: request.agentId ?? request.ownerId,
-    conversationId: request.conversationId,
-    flightId: request.flightId,
-    unblockRequestId: request.id,
-    status: request.state,
-    reason: request.kind,
-    source: "unblock_request",
-    unblockRequest: request,
-    metadata: request.metadata,
-  };
-}
-
 function terminalFlightState(state: string): boolean {
   return state === "completed" || state === "failed" || state === "cancelled";
 }
@@ -716,7 +638,6 @@ function itemDedupeKey(item: AgentBrokerFeedItem): string {
   if (item.deliveryId && item.kind === "delivery") return `delivery:${item.deliveryId}`;
   if (item.deliveryAttempt?.id) return `delivery_attempt:${item.deliveryAttempt.id}`;
   if (item.dispatchId) return `dispatch:${item.dispatchId}`;
-  if (item.unblockRequestId) return `unblock:${item.unblockRequestId}`;
   if (item.flightId) return `flight:${item.flightId}`;
   if (item.invocationId && item.kind === "invocation") return `invocation:${item.invocationId}`;
   if (item.messageId) return `message:${item.messageId}`;
@@ -733,7 +654,6 @@ function countFeedItems(items: AgentBrokerFeedItem[]): AgentBrokerFeedCounts {
     deliveries: items.filter((item) => item.kind === "delivery").length,
     deliveryAttempts: items.filter((item) => item.kind === "delivery_attempt").length,
     dispatches: items.filter((item) => item.kind === "dispatch").length,
-    unblockRequests: items.filter((item) => item.kind === "unblock_request").length,
     errors: items.filter((item) => item.severity === "error").length,
     warnings: items.filter((item) => item.severity === "warning").length,
   };
@@ -814,12 +734,6 @@ async function readAgentBrokerFeed(
     if (dispatchMatchesAgent(dispatch, agentId)) {
       items.push(dispatchToFeedItem(dispatch));
     }
-  }
-
-  for (const request of deps.journal.listUnblockRequests({ limit: sourceLimit })) {
-    if (!unblockMatchesAgent(request, agentId)) continue;
-    if (!includeAcknowledged && request.state !== "open" && request.state !== "snoozed") continue;
-    items.push(unblockToFeedItem(request));
   }
 
   const deduped = new Map<string, AgentBrokerFeedItem>();
@@ -942,10 +856,6 @@ export function createBrokerCoreService(
       listBrokerCollaborationRecords(deps.journal, query),
     readCollaborationEvents: async (query) =>
       listBrokerCollaborationEvents(deps.journal, query),
-    readUnblockRequests: async (query) =>
-      listBrokerUnblockRequests(deps.journal, query),
-    readUnblockRequestEvents: async (query) =>
-      listBrokerUnblockRequestEvents(deps.journal, query),
     readAgentBrokerFeed: async (query) =>
       await readAgentBrokerFeed(deps, query),
     readInvocationLifecycle: async (query) =>

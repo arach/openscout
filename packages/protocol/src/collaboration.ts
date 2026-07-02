@@ -1,6 +1,6 @@
 import type { MetadataMap, ScoutId } from "./common.js";
 
-export type CollaborationKind = "question" | "work_item";
+export type CollaborationKind = "work_item";
 
 export type CollaborationPriority = "low" | "normal" | "high" | "urgent";
 
@@ -9,12 +9,6 @@ export type CollaborationAcceptanceState =
   | "pending"
   | "accepted"
   | "reopened";
-
-export type QuestionState =
-  | "open"
-  | "answered"
-  | "closed"
-  | "declined";
 
 export type WorkItemState =
   | "open"
@@ -37,7 +31,7 @@ export interface CollaborationRelation {
 }
 
 export interface CollaborationWaitingOn {
-  kind: "actor" | "question" | "work_item" | "approval" | "artifact" | "condition";
+  kind: "actor" | "work_item" | "approval" | "artifact" | "condition";
   label: string;
   targetId?: ScoutId;
   metadata?: MetadataMap;
@@ -69,17 +63,6 @@ export interface CollaborationRecordBase {
   metadata?: MetadataMap;
 }
 
-export interface QuestionRecord extends CollaborationRecordBase {
-  kind: "question";
-  state: QuestionState;
-  acceptanceState: CollaborationAcceptanceState;
-  askedById?: ScoutId;
-  askedOfId?: ScoutId;
-  answerMessageId?: ScoutId;
-  spawnedWorkItemId?: ScoutId;
-  closedAt?: number;
-}
-
 export interface WorkItemRecord extends CollaborationRecordBase {
   kind: "work_item";
   state: WorkItemState;
@@ -92,12 +75,11 @@ export interface WorkItemRecord extends CollaborationRecordBase {
   completedAt?: number;
 }
 
-export type CollaborationRecord = QuestionRecord | WorkItemRecord;
+export type CollaborationRecord = WorkItemRecord;
 
 export type CollaborationEventKind =
   | "created"
   | "claimed"
-  | "answered"
   | "accepted"
   | "reopened"
   | "waiting"
@@ -106,7 +88,6 @@ export type CollaborationEventKind =
   | "review_requested"
   | "done"
   | "dismissed"
-  | "declined"
   | "cancelled";
 
 export interface CollaborationEvent {
@@ -120,19 +101,11 @@ export interface CollaborationEvent {
   metadata?: MetadataMap;
 }
 
-export function isQuestionTerminalState(state: QuestionState): boolean {
-  return state === "closed" || state === "declined";
-}
-
 export function isWorkItemTerminalState(state: WorkItemState): boolean {
   return state === "done" || state === "cancelled";
 }
 
 export function collaborationRequiresNextMoveOwner(record: CollaborationRecord): boolean {
-  if (record.kind === "question") {
-    return !isQuestionTerminalState(record.state);
-  }
-
   return !isWorkItemTerminalState(record.state);
 }
 
@@ -147,10 +120,6 @@ export function collaborationRequiresWaitingOn(record: CollaborationRecord): boo
 export function collaborationRequiresAcceptance(record: CollaborationRecord): boolean {
   if (record.acceptanceState === "none") {
     return false;
-  }
-
-  if (record.kind === "question") {
-    return Boolean(record.askedById && record.askedOfId);
   }
 
   return Boolean(record.requestedById);
@@ -191,11 +160,7 @@ export function validateCollaborationRecord(record: CollaborationRecord): string
     errors.push("waiting work items require waitingOn");
   }
 
-  if (record.kind === "question") {
-    if (record.spawnedWorkItemId && record.spawnedWorkItemId === record.id) {
-      errors.push("question spawnedWorkItemId cannot reference the question itself");
-    }
-  } else if (record.waitingOn?.targetId && record.waitingOn.targetId === record.id) {
+  if (record.waitingOn?.targetId && record.waitingOn.targetId === record.id) {
     errors.push("waitingOn.targetId cannot reference the work item itself");
   }
 
@@ -238,14 +203,6 @@ export function validateCollaborationEvent(
     if (record.kind !== event.recordKind) {
       errors.push("collaboration event recordKind does not match the target record");
     }
-  }
-
-  if (event.kind === "answered" && event.recordKind !== "question") {
-    errors.push("answered events only apply to questions");
-  }
-
-  if (event.kind === "declined" && event.recordKind !== "question") {
-    errors.push("declined events only apply to questions");
   }
 
   if (

@@ -19,8 +19,6 @@ import {
   type CollaborationKind,
   type ConversationDefinition,
   type ConversationKind,
-  type UnblockRequestEvent,
-  type UnblockRequestRecord,
 } from "@openscout/protocol";
 import {
   collectOccupiedDefinitionIdsFromBrokerSnapshot,
@@ -92,14 +90,12 @@ import {
 } from "./db/internal/paths.ts";
 import {
   appendScoutCollaborationEvent,
-  appendScoutUnblockRequestEvent,
   askScoutQuestion,
   loadScoutBrokerContext,
   loadScoutReadCursors,
   loadScoutRelayConfig,
   markScoutConversationRead,
   openScoutDirectSession,
-  readScoutUnblockRequests,
   resolveScoutBrokerUrl,
   type OutgoingAttachmentInput,
   type ScoutBrokerContext,
@@ -109,7 +105,6 @@ import {
   sendScoutMessage,
   upsertScoutConversation,
   upsertScoutFlight,
-  upsertScoutUnblockRequest,
 } from "./core/broker/service.ts";
 import { scoutBrokerPaths } from "./core/broker/paths.ts";
 import { getScoutConversationById, getScoutConversations } from "./core/conversations/service.ts";
@@ -1438,7 +1433,6 @@ type OperatorAttentionItem = {
   severity: "critical" | "warning" | "info";
   sourceLabel: string;
   approval?: ScoutPairingState["pendingApprovals"][number];
-  unblockRequest?: UnblockRequestRecord;
   actions: Array<{
     kind: "approve" | "deny" | "open" | "configure" | "copy" | "dismiss";
     label: string;
@@ -1447,7 +1441,6 @@ type OperatorAttentionItem = {
     recordId?: string;
     recordKind?: CollaborationKind;
     flightId?: string;
-    unblockRequestId?: string;
   }>;
 };
 
@@ -3914,77 +3907,6 @@ async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promis
   };
 }
 
-function operatorAttentionFromUnblockRequest(
-  request: UnblockRequestRecord,
-): OperatorAttentionItem {
-  const actions = (request.actions ?? [])
-    .filter((action) => action.kind !== "approve" && action.kind !== "deny")
-    .map((action): OperatorAttentionItem["actions"][number] => ({
-      kind: action.kind === "answer" || action.kind === "snooze" ? "open" : action.kind,
-      label: action.label,
-      route: typeof action.route?.view === "string"
-        ? action.route as OperatorAttentionItem["actions"][number]["route"]
-        : undefined,
-      value: action.value,
-      unblockRequestId: request.id,
-    }));
-  if (!actions.some((action) => action.kind === "dismiss")) {
-    actions.push({ kind: "dismiss", label: "Dismiss", unblockRequestId: request.id });
-  }
-
-  return {
-    id: request.id,
-    kind: request.kind === "permission" ? "approval" : request.kind === "flight" ? "ask" : request.kind,
-    title: request.title,
-    summary: request.summary ?? null,
-    detail: request.detail ?? null,
-    agentId: request.agentId ?? null,
-    agentName: null,
-    conversationId: request.conversationId ?? null,
-    updatedAt: request.updatedAt,
-    severity: request.severity ?? "warning",
-    sourceLabel: request.sourceLabel ?? request.source,
-    unblockRequest: request,
-    actions,
-  };
-}
-
-async function markUnblockRequestTerminal(input: {
-  requestId: string;
-  state: Extract<UnblockRequestRecord["state"], "resolved" | "dismissed" | "denied" | "expired">;
-  actorId?: string;
-  summary?: string;
-  resolution?: string;
-}): Promise<void> {
-  const requests = await readScoutUnblockRequests({ limit: 500 });
-  const current = requests.find((request) => request.id === input.requestId);
-  if (!current) {
-    return;
-  }
-  const at = Date.now();
-  const next: UnblockRequestRecord = {
-    ...current,
-    state: input.state,
-    updatedAt: at,
-    resolvedAt: current.resolvedAt ?? at,
-    resolution: input.resolution ?? current.resolution,
-    actions: undefined,
-  };
-  const event: UnblockRequestEvent = {
-    id: buildScoutEntityId("evt", at),
-    requestId: current.id,
-    kind: input.state,
-    actorId: input.actorId ?? "operator",
-    at,
-    summary: input.summary,
-    metadata: {
-      previousState: current.state,
-    },
-  };
-  await upsertScoutUnblockRequest(next);
-  await appendScoutUnblockRequestEvent(event);
-}
-
 function permissionSetupHint(detail: string): OperatorAttentionItem | null {
   const normalized = detail.toLowerCase();
   const mentionsPermission = /permission|approval|allow|blocked/.test(normalized);
@@ -4102,11 +4024,6 @@ async function buildOperatorAttentionState(currentDirectory: string) {
 
   const items: OperatorAttentionItem[] = [];
   const pendingApprovalIds = new Set<string>();
-  const activeUnblockRequests = await readScoutUnblockRequests({
-    ownerId: "operator",
-    active: true,
-    limit: 200,
-  }).catch(() => []);
 
   for (const approval of pairing?.pendingApprovals ?? []) {
     const approvalId = sessionApprovalAttentionId(
@@ -4149,10 +4066,6 @@ async function buildOperatorAttentionState(currentDirectory: string) {
     items.push(operatorAttentionFromSessionItem(sessionItem));
   }
 
-  for (const request of activeUnblockRequests) {
-    items.push(operatorAttentionFromUnblockRequest(request as UnblockRequestRecord));
-  }
-
   for (const work of fleet.needsAttention) {
     const route = work.kind === "work_item"
       ? { view: "work", workId: work.recordId }
@@ -4171,10 +4084,10 @@ async function buildOperatorAttentionState(currentDirectory: string) {
       agentName: work.agentName,
       conversationId: work.conversationId,
       updatedAt: work.updatedAt,
-      severity: work.state === "waiting" || work.kind === "question" ? "warning" : "info",
-      sourceLabel: work.kind === "question" ? "Question" : "Work item",
+      severity: work.state === "waiting" ? "warning" : "info",
+      sourceLabel: "Work item",
       actions: [
-        ...(route ? [{ kind: "open" as const, label: work.kind === "question" ? "Answer" : "Open", route }] : []),
+        ...(route ? [{ kind: "open" as const, label: "Open", route }] : []),
         dismissCollaborationAction(work.kind, work.recordId),
       ],
     });
@@ -5728,27 +5641,18 @@ export async function createOpenScoutWebServer(
       recordKind?: unknown;
       recordId?: unknown;
       flightId?: unknown;
-      unblockRequestId?: unknown;
       itemUpdatedAt?: unknown;
     };
-    const recordKind = body.recordKind === "question" || body.recordKind === "work_item" ? body.recordKind : null;
+    const recordKind = body.recordKind === "work_item" ? body.recordKind : null;
     const recordId = typeof body.recordId === "string" ? body.recordId.trim() : "";
     const flightId = typeof body.flightId === "string" ? body.flightId.trim() : "";
-    const unblockRequestId = typeof body.unblockRequestId === "string" ? body.unblockRequestId.trim() : "";
     const itemUpdatedAt = typeof body.itemUpdatedAt === "number" && Number.isFinite(body.itemUpdatedAt)
       ? body.itemUpdatedAt
       : 0;
-    if (itemUpdatedAt <= 0 || (!unblockRequestId && !flightId && (!recordKind || !recordId))) {
-      return c.json({ error: "unblockRequestId, recordKind and recordId, or flightId, plus itemUpdatedAt are required" }, 400);
+    if (itemUpdatedAt <= 0 || (!flightId && (!recordKind || !recordId))) {
+      return c.json({ error: "recordKind and recordId, or flightId, plus itemUpdatedAt are required" }, 400);
     }
-    if (unblockRequestId) {
-      await markUnblockRequestTerminal({
-        requestId: unblockRequestId,
-        state: "dismissed",
-        summary: "Dismissed from operator queue.",
-        resolution: "Dismissed by operator.",
-      });
-    } else if (flightId) {
+    if (flightId) {
       await dismissFlightAttention({ flightId, itemUpdatedAt });
     } else if (recordKind && recordId) {
       await dismissCollaborationAttention({ recordKind, recordId, itemUpdatedAt });

@@ -56,8 +56,7 @@ export function resolveCollaborationWakeTarget(
     { targetAgentId: explicitTargetAgentId, wakeReason: "explicit_target" },
     { targetAgentId: record.nextMoveOwnerId, wakeReason: "next_move_owner" },
     { targetAgentId: record.ownerId, wakeReason: "owner" },
-    { targetAgentId: record.kind === "question" ? record.askedOfId : undefined, wakeReason: "asked_of" },
-    { targetAgentId: record.kind === "work_item" ? record.requestedById : undefined, wakeReason: "requested_by" },
+    { targetAgentId: record.requestedById, wakeReason: "requested_by" },
   ];
 
   for (const candidate of candidates) {
@@ -79,18 +78,6 @@ function defaultTaskForRecord(
   const title = record.title.trim();
   const summary = record.summary?.trim();
   const reasonLabel = titleCase(wakeReason.replaceAll("_", " "));
-
-  if (record.kind === "question") {
-    const instruction = record.state === "open"
-      ? "Answer the question directly if you can. If you cannot answer safely, explain what is missing or decline."
-      : "Review the current question state and provide the next required response.";
-    return [
-      `Wake reason: ${reasonLabel}.`,
-      `Question: ${title}`,
-      summary ? `Summary: ${summary}` : undefined,
-      instruction,
-    ].filter((value): value is string => Boolean(value)).join("\n");
-  }
 
   const instruction = (() => {
     switch (record.state) {
@@ -139,8 +126,6 @@ export function buildCollaborationInvocationContext(
     acceptanceState: record.acceptanceState,
     waitingOn: record.kind === "work_item" ? waitingOnContext(record.waitingOn) : undefined,
     requestedById: record.kind === "work_item" ? record.requestedById : undefined,
-    askedById: record.kind === "question" ? record.askedById : undefined,
-    askedOfId: record.kind === "question" ? record.askedOfId : undefined,
   };
 
   return {
@@ -155,8 +140,6 @@ export function buildCollaborationInvocationContext(
     acceptanceState: record.acceptanceState,
     waitingOn: record.kind === "work_item" ? waitingOnContext(record.waitingOn) : undefined,
     requestedById: record.kind === "work_item" ? record.requestedById : undefined,
-    askedById: record.kind === "question" ? record.askedById : undefined,
-    askedOfId: record.kind === "question" ? record.askedOfId : undefined,
   };
 }
 

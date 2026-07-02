@@ -300,7 +300,7 @@ export type WebFleetAsk = {
 };
 
 export type WebFleetAttentionItem = {
-  kind: "question" | "work_item";
+  kind: "work_item";
   recordId: string;
   title: string;
   summary: string | null;

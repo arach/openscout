@@ -137,12 +137,12 @@ struct HUDTailView: View {
     @ObservedObject var tail: ScoutTailStore
     let agents: [HudAgent]
     @Binding var treatment: HUDTailTreatment
+    let size: HUDSize
     // The framing this render is hosted in. Only theme/chrome reads it — the
     // layout below is surface-agnostic.
     var surface: TailSurface = .overlay
 
     @Environment(\.colorScheme) private var colorScheme
-    @ObservedObject private var state = HUDState.shared
     @ObservedObject private var motion = HUDMotionState.shared
     @StateObject private var engage = HUDEngageState()
     // `following` = j/k haven't moved off the latest; new rows auto-scroll.
@@ -168,7 +168,7 @@ struct HUDTailView: View {
             case .firehose:
                 nativeTailContent
             case .agentLatest:
-                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: state.size))
+                HUDTailEmbedContent(url: hudTailEmbedURL(colorScheme: colorScheme, hudSize: size))
             }
         }
         .onAppear {
@@ -247,7 +247,7 @@ struct HUDTailView: View {
         } else if rows.isEmpty {
             TailEmptyView(hasBufferedEvents: tail.hasBufferedEvents)
         } else {
-            switch state.size {
+            switch size {
             case .compact: rowsBody(size: .compact)
             case .medium: rowsBody(size: .medium)
             case .large: rowsBody(size: .large)

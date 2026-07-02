@@ -6,7 +6,6 @@ import type {
   FlightRecord,
   InvocationRequest,
   MessageRecord,
-  UnblockRequestRecord,
   WorkItemRecord,
 } from "@openscout/protocol";
 
@@ -77,26 +76,6 @@ function makeFlight(input: Partial<FlightRecord> = {}): FlightRecord {
   };
 }
 
-function makeUnblockRequest(input: Partial<UnblockRequestRecord> = {}): UnblockRequestRecord {
-  return {
-    id: "unblock-1",
-    kind: "permission",
-    state: "open",
-    source: "codex",
-    sourceRef: "turn-1",
-    title: "Approve filesystem write",
-    summary: "Codex needs permission to edit the runtime projector.",
-    ownerId: "operator",
-    createdById: "agent-1",
-    agentId: "agent-1",
-    severity: "warning",
-    actions: [{ kind: "approve", label: "Approve" }],
-    createdAt: now - 900,
-    updatedAt: now - 500,
-    ...input,
-  };
-}
-
 function makeWorkItem(input: Partial<WorkItemRecord> = {}): WorkItemRecord {
   return {
     id: "work-1",
@@ -162,38 +141,6 @@ describe("activity projection", () => {
         label: "In motion",
         summary: "1 agent is working",
       },
-    });
-  });
-
-  test("promotes active operator unblock requests into needs-you activity", () => {
-    const snapshot = createRuntimeRegistrySnapshot({
-      agents: { "agent-1": makeAgent() },
-      endpoints: { "endpoint-1": makeEndpoint({ state: "waiting" }) },
-      unblockRequests: {
-        "unblock-1": makeUnblockRequest(),
-      },
-    });
-
-    const agent = projectAgentActivityFromRuntimeSnapshot(snapshot, "agent-1", { now });
-    const fleet = projectFleetActivityFromRuntimeSnapshot(snapshot, { now });
-
-    expect(agent).toMatchObject({
-      motion: "blocked",
-      needsYou: true,
-      currentWork: {
-        title: "Approve filesystem write",
-        source: { kind: "unblock_request", refId: "unblock-1" },
-      },
-      latestEvent: {
-        id: "unblock:unblock-1",
-        kind: "permission",
-        severity: "warning",
-      },
-    });
-    expect(fleet.digest).toMatchObject({
-      label: "Needs you",
-      summary: "Agent One is waiting",
-      motion: "blocked",
     });
   });
 

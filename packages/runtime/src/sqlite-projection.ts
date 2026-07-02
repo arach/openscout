@@ -43,9 +43,7 @@ const REPLAY_TIER: Record<string, number> = {
   "invocation.dispatch_job.record": 4,
   "flight.record": 4,
   "collaboration.record": 4,
-  "unblock_request.record": 4,
   "collaboration.event.record": 5,
-  "unblock_request.event.record": 5,
   "deliveries.record": 5,
   "delivery.attempt.record": 6,
   "delivery.status.update": 6,
@@ -135,14 +133,6 @@ function insertStubsForOrphanedFkTargets(
         addRef(referencedConversations, entry.record.conversationId);
         break;
       case "collaboration.event.record":
-        addRef(referencedActors, entry.event.actorId);
-        break;
-      case "unblock_request.record":
-        addRef(referencedActors, entry.request.ownerId);
-        addRef(referencedActors, entry.request.createdById);
-        addRef(referencedConversations, entry.request.conversationId);
-        break;
-      case "unblock_request.event.record":
         addRef(referencedActors, entry.event.actorId);
         break;
       case "deliveries.record":
@@ -239,12 +229,6 @@ function applyJournalEntryToStore(
       return store.recordCollaborationRecord(entry.record);
     case "collaboration.event.record":
       return store.recordCollaborationEvent(entry.event);
-    case "unblock_request.record":
-      store.recordUnblockRequest(entry.request);
-      return [];
-    case "unblock_request.event.record":
-      store.recordUnblockRequestEvent(entry.event);
-      return [];
     case "deliveries.record":
       store.recordDeliveries(entry.deliveries);
       return [];

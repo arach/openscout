@@ -3,7 +3,6 @@ import type { DeliveryAttempt, DeliveryIntent } from "./deliveries.js";
 import type { FlightRecord, InvocationRequest } from "./invocations.js";
 import type { MessageRecord } from "./messages.js";
 import type { ScoutDispatchRecord } from "./scout-dispatch.js";
-import type { UnblockRequestRecord } from "./unblock-requests.js";
 
 export type AgentBrokerFeedItemKind =
   | "message"
@@ -12,8 +11,7 @@ export type AgentBrokerFeedItemKind =
   | "flight"
   | "delivery"
   | "delivery_attempt"
-  | "dispatch"
-  | "unblock_request";
+  | "dispatch";
 
 export type AgentBrokerFeedSeverity = "info" | "status" | "warning" | "error";
 
@@ -21,8 +19,7 @@ export type AgentBrokerFeedSource =
   | "activity"
   | "snapshot"
   | "delivery"
-  | "dispatch"
-  | "unblock_request";
+  | "dispatch";
 
 export interface AgentBrokerFeedEndpointStatus {
   id: ScoutId;
@@ -68,7 +65,6 @@ export interface AgentBrokerFeedItem {
   flightId?: ScoutId;
   deliveryId?: ScoutId;
   dispatchId?: ScoutId;
-  unblockRequestId?: ScoutId;
   status?: string;
   reason?: string;
   source: AgentBrokerFeedSource;
@@ -78,7 +74,6 @@ export interface AgentBrokerFeedItem {
   delivery?: DeliveryIntent;
   deliveryAttempt?: DeliveryAttempt;
   dispatch?: ScoutDispatchRecord;
-  unblockRequest?: UnblockRequestRecord;
   metadata?: MetadataMap;
 }
 
@@ -91,7 +86,6 @@ export interface AgentBrokerFeedCounts {
   deliveries: number;
   deliveryAttempts: number;
   dispatches: number;
-  unblockRequests: number;
   errors: number;
   warnings: number;
 }

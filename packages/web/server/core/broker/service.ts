@@ -37,8 +37,6 @@ import {
   type ScoutRouteTarget,
   type WakePolicy,
   type ScoutReturnAddress,
-  type UnblockRequestEvent,
-  type UnblockRequestRecord,
   epochMs,
   normalizeAgentSelectorSegment,
 } from "@openscout/protocol";
@@ -88,7 +86,6 @@ export type ScoutBrokerNodeRecord = NodeDefinition;
 export type ScoutBrokerFlightRecord = FlightRecord;
 export type ScoutBrokerConversationBindingRecord = ConversationBinding;
 export type ScoutBrokerCollaborationRecord = CollaborationRecord;
-export type ScoutBrokerUnblockRequestRecord = UnblockRequestRecord;
 export type ScoutBrokerSnapshot = RuntimeRegistrySnapshot;
 
 export type ScoutBrokerContext = {
@@ -958,44 +955,6 @@ export async function readScoutBrokerSnapshot(baseUrl = resolveScoutBrokerUrl())
   } catch {
     return null;
   }
-}
-
-export async function readScoutUnblockRequests(input: {
-  ownerId?: string;
-  source?: string;
-  sourceRef?: string;
-  active?: boolean;
-  limit?: number;
-} = {}): Promise<ScoutBrokerUnblockRequestRecord[]> {
-  const broker = await loadScoutBrokerContext();
-  if (!broker) {
-    return [];
-  }
-  const params = new URLSearchParams();
-  if (input.ownerId) params.set("ownerId", input.ownerId);
-  if (input.source) params.set("source", input.source);
-  if (input.sourceRef) params.set("sourceRef", input.sourceRef);
-  if (input.active) params.set("active", "true");
-  if (input.limit) params.set("limit", String(input.limit));
-  const q = params.toString();
-  return await brokerReadJson<ScoutBrokerUnblockRequestRecord[]>(
-    broker.baseUrl,
-    q ? `${scoutBrokerPaths.v1.unblockRequests}?${q}` : scoutBrokerPaths.v1.unblockRequests,
-  );
-}
-
-export async function upsertScoutUnblockRequest(
-  request: UnblockRequestRecord,
-): Promise<void> {
-  const broker = await requireScoutBrokerContext();
-  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.unblockRequests, request);
-}
-
-export async function appendScoutUnblockRequestEvent(
-  event: UnblockRequestEvent,
-): Promise<void> {
-  const broker = await requireScoutBrokerContext();
-  await brokerPostJson(broker.baseUrl, scoutBrokerPaths.v1.unblockRequestEvents, event);
 }
 
 /// Advance an actor's read cursor in a conversation. With no `lastReadMessageId`

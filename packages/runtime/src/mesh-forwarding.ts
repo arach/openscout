@@ -148,14 +148,9 @@ function actorIdsForCollaboration(
   if (record.ownerId) ids.add(record.ownerId);
   if (record.nextMoveOwnerId) ids.add(record.nextMoveOwnerId);
 
-  if (record.kind === "question") {
-    if (record.askedById) ids.add(record.askedById);
-    if (record.askedOfId) ids.add(record.askedOfId);
-  } else {
-    if (record.requestedById) ids.add(record.requestedById);
-    if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
-      ids.add(record.waitingOn.targetId);
-    }
+  if (record.requestedById) ids.add(record.requestedById);
+  if (record.waitingOn?.kind === "actor" && record.waitingOn.targetId) {
+    ids.add(record.waitingOn.targetId);
   }
 
   for (const participantId of conversation?.participantIds ?? []) {

@@ -44,6 +44,7 @@ type Command =
   | "status"
   | "dmg"
   | "hud"
+  | "tail"
   | "help";
 
 type CliOptions = {
@@ -103,11 +104,19 @@ Usage:
 HUD control (via scout:// URL scheme):
   bun apps/macos/bin/openscout-menu.ts hud state
   bun apps/macos/bin/openscout-menu.ts hud show|hide|toggle
-  bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]
-  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|tail|sessions|assistant>
+  bun apps/macos/bin/openscout-menu.ts hud tail [compact|medium|large]  # compatibility alias
+  bun apps/macos/bin/openscout-menu.ts hud tab <agents|activity|sessions|assistant>
   bun apps/macos/bin/openscout-menu.ts hud size <compact|medium|large>
   bun apps/macos/bin/openscout-menu.ts hud capture [<out.png>]
   bun apps/macos/bin/openscout-menu.ts hud matrix [<dir>]
+
+Tail mode control (separate persistent surface):
+  bun apps/macos/bin/openscout-menu.ts tail state
+  bun apps/macos/bin/openscout-menu.ts tail show|hide|toggle
+  bun apps/macos/bin/openscout-menu.ts tail attach|float
+  bun apps/macos/bin/openscout-menu.ts tail size <compact|medium|large>
+  bun apps/macos/bin/openscout-menu.ts tail collapse|expand
+  bun apps/macos/bin/openscout-menu.ts tail capture [<out.png>]
 
 Options:
   --version <v>              Override bundle version (defaults to repo package.json version)
@@ -452,6 +461,10 @@ async function main(): Promise<void> {
     await runHudCommand(argv.slice(1));
     return;
   }
+  if (argv[0] === "tail") {
+    await runTailCommand(argv.slice(1));
+    return;
+  }
 
   const { command, options } = parseOptions(argv);
 
@@ -497,16 +510,26 @@ async function main(): Promise<void> {
 // Actions are fired as URLs (`open -g scout://hud/<action>`); the app
 // mirrors current state to /tmp/openscout-hud-state.json on every
 // change. `capture` reads windowId from that file and shells out to
-// screencapture; `matrix` walks the 5×3 grid for a polish review.
+// screencapture; `matrix` walks the HUD tab/size grid for a polish review.
 
 const HUD_STATE_PATH = "/tmp/openscout-hud-state.json";
-const HUD_TABS = ["agents", "activity", "tail", "sessions", "assistant"] as const;
+const TAIL_STATE_PATH = "/tmp/openscout-tail-state.json";
+const HUD_TABS = ["agents", "activity", "sessions", "assistant"] as const;
 const HUD_SIZES = ["compact", "medium", "large"] as const;
 
 type HudState = {
   visible: boolean;
   tab: string;
   size: string;
+  windowId: number;
+  ts: number;
+};
+
+type TailState = {
+  visible: boolean;
+  size: string;
+  collapsed: boolean;
+  placement: "attached" | "floating";
   windowId: number;
   ts: number;
 };
@@ -524,10 +547,32 @@ function fireHudURL(path: string): void {
   execSync(`open -g 'scout://hud/${path}'`, { stdio: "inherit" });
 }
 
+function readTailState(): TailState {
+  if (!existsSync(TAIL_STATE_PATH)) {
+    throw new Error(
+      `${TAIL_STATE_PATH} not found. Is Scout running? Try \`tail show\`.`,
+    );
+  }
+  return JSON.parse(readFileSync(TAIL_STATE_PATH, "utf8")) as TailState;
+}
+
+function fireTailURL(path: string): void {
+  execSync(`open -g 'scout://tail/${path}'`, { stdio: "inherit" });
+}
+
 function captureHud(out: string): string {
   const state = readHudState();
   if (!state.visible || !state.windowId) {
     throw new Error("HUD not visible. Send `hud show` first.");
+  }
+  execSync(`screencapture -x -l${state.windowId} '${out}'`);
+  return out;
+}
+
+function captureTail(out: string): string {
+  const state = readTailState();
+  if (!state.visible || !state.windowId) {
+    throw new Error("Tail mode not visible. Send `tail show` first.");
   }
   execSync(`screencapture -x -l${state.windowId} '${out}'`);
   return out;
@@ -556,7 +601,7 @@ async function runHudCommand(args: string[]): Promise<void> {
       if (size && !HUD_SIZES.includes(size as typeof HUD_SIZES[number])) {
         throw new Error(`hud tail [${HUD_SIZES.join("|")}]`);
       }
-      fireHudURL(size ? `tail/${size}` : "tail");
+      fireTailURL(size ? `show/${size}` : "show");
       return;
     }
     case "tab": {
@@ -632,7 +677,52 @@ async function runHudCommand(args: string[]): Promise<void> {
     }
     default:
       throw new Error(
-        `Unknown hud action: ${action}. Try state, show, hide, toggle, tail, tab, size, capture, matrix.`,
+        `Unknown hud action: ${action}. Try state, show, hide, toggle, tab, size, capture, matrix.`,
+      );
+  }
+}
+
+async function runTailCommand(args: string[]): Promise<void> {
+  const [action, ...rest] = args;
+  switch (action) {
+    case undefined:
+    case "state": {
+      console.log(JSON.stringify(readTailState(), null, 2));
+      return;
+    }
+    case "show": {
+      const size = rest[0];
+      if (size && !HUD_SIZES.includes(size as typeof HUD_SIZES[number])) {
+        throw new Error(`tail show [${HUD_SIZES.join("|")}]`);
+      }
+      fireTailURL(size ? `show/${size}` : "show");
+      return;
+    }
+    case "hide":
+    case "toggle":
+    case "attach":
+    case "float":
+    case "collapse":
+    case "expand": {
+      fireTailURL(action);
+      return;
+    }
+    case "size": {
+      const name = rest[0];
+      if (!name || !HUD_SIZES.includes(name as typeof HUD_SIZES[number])) {
+        throw new Error(`tail size <${HUD_SIZES.join("|")}>`);
+      }
+      fireTailURL(`size/${name}`);
+      return;
+    }
+    case "capture": {
+      const out = rest[0] ?? `/tmp/openscout-tail-${Date.now()}.png`;
+      console.log(captureTail(out));
+      return;
+    }
+    default:
+      throw new Error(
+        `Unknown tail action: ${action}. Try state, show, hide, toggle, attach, float, size, collapse, expand, capture.`,
       );
   }
 }
