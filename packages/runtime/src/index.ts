@@ -13,6 +13,7 @@ export * from "./mesh-forwarding.js";
 export * from "./mesh-rendezvous.js";
 export * from "./iroh-bridge.js";
 export * from "./tailscale.js";
+export * from "./system-probes/index.js";
 export * from "./broker-process-manager.js";
 export * from "./broker-api.js";
 export * from "./broker-core-service.js";

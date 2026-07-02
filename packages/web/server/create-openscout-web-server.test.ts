@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -257,6 +258,7 @@ const { createOpenScoutWebServer } =
   await import("./create-openscout-web-server.ts");
 const { resetScoutVoiceSessionStateForTests } =
   await import("./scout-voice-session.ts");
+const { gitBuildInfoProbe } = await import("@openscout/runtime/system-probes");
 
 function makeStaticRoot(): string {
   const root = mkdtempSync(join(tmpdir(), "openscout-web-static-"));
@@ -268,6 +270,14 @@ function makeStaticRoot(): string {
     "utf8",
   );
   return root;
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function makeDiscoverySnapshot(generatedAt: number): DiscoverySnapshot {
@@ -754,6 +764,45 @@ afterEach(() => {
 });
 
 describe("createOpenScoutWebServer", () => {
+  test("serves /api/build from warmed git.buildInfo without rerunning the probe", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "openscout-web-build-info-"));
+    testDirectories.add(repo);
+    git(repo, ["init", "-b", "main"]);
+    git(repo, ["config", "user.email", "web-probe@example.com"]);
+    git(repo, ["config", "user.name", "Web Probe"]);
+    writeFileSync(join(repo, "README.md"), "hello\n", "utf8");
+    git(repo, ["add", "README.md"]);
+    git(repo, ["commit", "-m", "initial"]);
+    const commit = git(repo, ["rev-parse", "--short", "HEAD"]);
+
+    const tailSnapshot = makeDiscoverySnapshot(Date.now());
+    const server = await createOpenScoutWebServer({
+      currentDirectory: repo,
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+      tailRuntime: {
+        getTailDiscovery: () => tailSnapshot,
+        refreshTailDiscovery: async () => tailSnapshot,
+        readRecentTranscriptEvents: async () => [],
+        snapshotRecentEvents: () => [],
+      },
+    });
+
+    await server.warmupCaches();
+    const beforeRuns = gitBuildInfoProbe.for(repo).metrics().runCount;
+
+    const response = await server.app.request("http://localhost/api/build");
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      version: expect.any(String),
+      branch: "main",
+      commit,
+      dirty: false,
+      mode: "dev",
+    });
+    expect(gitBuildInfoProbe.for(repo).metrics().runCount).toBe(beforeRuns);
+  });
+
   test("serves static app shell without browser storage", async () => {
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",

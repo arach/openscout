@@ -1,7 +1,7 @@
-import { readTailscaleStatusSummary } from "@openscout/runtime/mesh/tailscale";
+import { tailscaleStatusProbe } from "@openscout/runtime/system-probes";
 
 export async function getMobileMeshStatus() {
-  const summary = await readTailscaleStatusSummary();
+  const summary = tailscaleStatusProbe.read().value;
   const peers = summary?.peers ?? [];
   return {
     tailscale: {

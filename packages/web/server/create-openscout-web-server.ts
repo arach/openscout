@@ -201,6 +201,7 @@ import {
   writeGlobalHeuristicsFile,
   writeProjectHeuristicsFile,
 } from "./material-heuristics.ts";
+import { gitBuildInfoProbe, type GitBuildInfo } from "@openscout/runtime/system-probes";
 import {
   collectTrustedRoots,
   mediaTypeFor,
@@ -3819,16 +3820,22 @@ async function dismissFlightAttention(input: {
   });
 }
 
+let cachedWebPackageVersion: string | null | undefined;
+
 function readWebPackageVersion(): string | null {
+  if (cachedWebPackageVersion !== undefined) {
+    return cachedWebPackageVersion;
+  }
   try {
     const packagePath = resolve(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
     const parsed = JSON.parse(readFileSync(packagePath, "utf8")) as { version?: unknown };
-    return typeof parsed.version === "string" && parsed.version.trim()
+    cachedWebPackageVersion = typeof parsed.version === "string" && parsed.version.trim()
       ? parsed.version.trim()
       : null;
   } catch {
-    return null;
+    cachedWebPackageVersion = null;
   }
+  return cachedWebPackageVersion;
 }
 
 function runGitValue(currentDirectory: string, args: string[]): string | null {
@@ -3844,17 +3851,23 @@ function runGitValue(currentDirectory: string, args: string[]): string | null {
   }
 }
 
-function loadOpenScoutBuildInfo(currentDirectory: string): OpenScoutBuildInfo {
-  const branch = runGitValue(currentDirectory, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const commit = runGitValue(currentDirectory, ["rev-parse", "--short", "HEAD"]);
-  const dirtyStatus = runGitValue(currentDirectory, ["status", "--porcelain"]);
+function openScoutBuildInfoFromGit(value: GitBuildInfo | null): OpenScoutBuildInfo {
   return {
     version: readWebPackageVersion(),
-    branch,
-    commit,
-    dirty: dirtyStatus === null ? null : dirtyStatus.length > 0,
+    branch: value?.branch ?? value?.bootBranch ?? null,
+    commit: value?.commit ?? null,
+    dirty: value?.dirty ?? null,
     mode: process.env.NODE_ENV === "production" ? "production" : "dev",
   };
+}
+
+function loadOpenScoutBuildInfo(currentDirectory: string): OpenScoutBuildInfo {
+  return openScoutBuildInfoFromGit(gitBuildInfoProbe.for(currentDirectory).read().value);
+}
+
+async function warmOpenScoutBuildInfo(currentDirectory: string): Promise<OpenScoutBuildInfo> {
+  const snapshot = await gitBuildInfoProbe.for(currentDirectory).fresh({ maxAgeMs: 60_000 });
+  return openScoutBuildInfoFromGit(snapshot.value);
 }
 
 function repoPullRequestRoot(rawPath: string): string | null {
@@ -8285,6 +8298,7 @@ export async function createOpenScoutWebServer(
     Promise.allSettled([
       shellStateCache.refresh(),
       loadPairingState(currentDirectory, true),
+      warmOpenScoutBuildInfo(currentDirectory),
       warmTailRuntime(),
     ]).then((results) => {
       for (const result of results) {

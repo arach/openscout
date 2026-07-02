@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,13 +10,19 @@ import {
   readTailscaleSelf,
   readTailscaleSelfWebHostsSync,
   readTailscaleStatusSummary,
+  tailscaleStatusProbe,
 } from "./tailscale";
 
 const originalFixturePath = process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
 const tempDirectories = new Set<string>();
 const tailscaleModuleUrl = pathToFileURL(resolve(dirname(fileURLToPath(import.meta.url)), "tailscale.ts")).href;
 
+beforeEach(() => {
+  tailscaleStatusProbe.invalidate("test.reset");
+});
+
 afterEach(() => {
+  tailscaleStatusProbe.invalidate("test.reset");
   if (originalFixturePath === undefined) {
     delete process.env.OPENSCOUT_TAILSCALE_STATUS_JSON;
   } else {
