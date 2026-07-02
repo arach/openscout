@@ -33,6 +33,7 @@ const STATE_RANK: Record<string, number> = { in_turn: 0, in_flight: 1, callable:
 type ConversationGroup = {
   key: string;
   label: string;
+  kind: "channel" | "project" | "agent";
   isChannel: boolean;
   conversations: SessionEntry[];
   bestState: AgentDisplayState;
@@ -302,9 +303,7 @@ export function ChatLeft() {
               const agent = s.agentId ? agentById.get(s.agentId) : undefined;
               const ask = s.agentId ? asksByAgent.get(s.agentId) : undefined;
               const identifier = threadIdentifier(s, agent);
-              const baseSub = identifier.toLowerCase() === title.toLowerCase()
-                ? undefined
-                : identifier;
+              const baseSub = conversationRailSub(s, group, agent, identifier, title);
               const sub = ask
                 ? activeAskSubtitle(s, agent, ask)
                 : baseSub;
@@ -337,6 +336,7 @@ export function ChatLeft() {
               <div key={group.key}>
                 <RailRow
                   name={group.label}
+                  sub={conversationGroupSub(group)}
                   meta={activeAskCount > 0
                     ? `${activeAskCount} active · ${messagesGroupMeta(group)}`
                     : messagesGroupMeta(group)}
@@ -508,6 +508,7 @@ function buildConversationGroups(
       bucket = {
         key,
         label,
+        kind: channel ? "channel" : key.startsWith("project:") ? "project" : "agent",
         isChannel: channel,
         conversations: [],
         bestState: "blocked",
@@ -553,6 +554,36 @@ function buildConversationGroups(
       break;
   }
   return list;
+}
+
+function conversationGroupSub(group: ConversationGroup): string {
+  switch (group.kind) {
+    case "channel":
+      return "Shared channel";
+    case "project":
+      return "Project chats";
+    case "agent":
+    default:
+      return "Agent chats";
+  }
+}
+
+function conversationRailSub(
+  s: SessionEntry,
+  group: ConversationGroup,
+  agent: Agent | undefined,
+  identifier: string,
+  title: string,
+): string | undefined {
+  if (group.kind === "channel") return "Shared channel";
+  const handle = identifier.toLowerCase() === title.toLowerCase() ? null : identifier;
+  const project = agent?.project || s.workspaceRoot?.split("/").filter(Boolean).at(-1);
+  if (group.kind === "project") {
+    return handle ? `Project · ${handle}` : "Project chat";
+  }
+  if (project && handle) return `Agent · ${project} · ${handle}`;
+  if (handle) return `Agent · ${handle}`;
+  return "Agent chat";
 }
 
 function conversationChildLabel(

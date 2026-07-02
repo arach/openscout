@@ -2366,6 +2366,10 @@ button.s-thread-sidebar-participant:focus-visible {
   transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
 }
 
+.s-conv-grid-card--openable {
+  cursor: pointer;
+}
+
 .s-conv-grid-card--size-medium {
   grid-column: span 2;
   min-height: 236px;
@@ -2387,6 +2391,11 @@ button.s-thread-sidebar-participant:focus-visible {
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent),
     color-mix(in srgb, var(--surface) 84%, transparent);
+}
+
+.s-conv-grid-card--openable:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .s-conv-grid-card-top,
@@ -2431,22 +2440,15 @@ button.s-thread-sidebar-participant:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border: 0;
-  background: transparent;
   color: var(--ink);
-  cursor: pointer;
-  font: inherit;
   font-size: var(--text-xl);
   font-weight: 650;
   letter-spacing: -0.02em;
-  padding: 0;
-  text-align: left;
 }
 
-.s-conv-grid-card-title:hover,
-.s-conv-grid-card-title:focus-visible {
+.s-conv-grid-card--openable:hover .s-conv-grid-card-title,
+.s-conv-grid-card--openable:focus-visible .s-conv-grid-card-title {
   color: color-mix(in srgb, var(--accent) 72%, var(--ink));
-  outline: none;
 }
 
 .s-conv-grid-size-controls {

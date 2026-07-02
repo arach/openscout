@@ -674,14 +674,92 @@
   flex-wrap: nowrap;
   gap: var(--space-lg);
   overflow-x: auto;
-  padding-bottom: var(--space-sm);
+  padding: 0 44px var(--space-sm);
   scroll-snap-type: x proximity;
+  scroll-padding-inline: 44px;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .s-now-grid--strip .s-now-card {
   flex: 0 0 272px;
   scroll-snap-align: start;
+}
+
+.s-moving-scroll {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+
+.s-moving-scroll::before,
+.s-moving-scroll::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--space-sm);
+  width: 64px;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.s-moving-scroll::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg), color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+
+.s-moving-scroll::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg), color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+
+.s-moving-scroll--can-left::before,
+.s-moving-scroll--can-right::after {
+  opacity: 1;
+}
+
+.s-moving-scroll-btn {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  width: 30px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg));
+  color: var(--muted);
+  box-shadow: 0 10px 28px color-mix(in srgb, black 18%, transparent);
+  cursor: pointer;
+  transform: translateY(calc(-50% - var(--space-xs)));
+  transition: border-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+
+.s-moving-scroll-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--ink);
+}
+
+.s-moving-scroll-btn:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.s-moving-scroll-btn:disabled {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.s-moving-scroll-btn--left {
+  left: var(--space-xs);
+}
+
+.s-moving-scroll-btn--right {
+  right: var(--space-xs);
 }
 
 .s-now-grid--dense {

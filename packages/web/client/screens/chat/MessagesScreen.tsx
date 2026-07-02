@@ -267,25 +267,44 @@ function ConversationGridCard({
   const lastMessage = conversation.lastMessageAt ? timeAgo(conversation.lastMessageAt) : "No messages";
   const preview = conversation.preview?.trim() || "No preview yet";
   const isChatPanel = size === "chat";
+  const canOpenFromCard = !isChatPanel;
 
   return (
     <article
-      className={`s-conv-grid-card s-conv-grid-card--${conversation.kind.replace(/_/g, "-")} s-conv-grid-card--size-${size}`}
+      className={[
+        `s-conv-grid-card s-conv-grid-card--${conversation.kind.replace(/_/g, "-")} s-conv-grid-card--size-${size}`,
+        canOpenFromCard && "s-conv-grid-card--openable",
+      ].filter(Boolean).join(" ")}
+      role={canOpenFromCard ? "button" : undefined}
+      tabIndex={canOpenFromCard ? 0 : undefined}
+      aria-label={canOpenFromCard ? `Open ${title}` : undefined}
+      onClick={canOpenFromCard ? onOpen : undefined}
+      onKeyDown={canOpenFromCard
+        ? (event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              onOpen();
+            }
+          }
+        : undefined}
     >
       <div className="s-conv-grid-card-top">
         <span className="s-conv-grid-card-kind">{kind}</span>
         <span className="s-conv-grid-card-time">{lastMessage}</span>
       </div>
       <div className="s-conv-grid-card-heading">
-        <button
-          type="button"
+        <span
           className="s-conv-grid-card-title"
           title={title}
-          onClick={onOpen}
         >
           {title}
-        </button>
-        <div className="s-conv-grid-size-controls" aria-label={`Tile size for ${title}`}>
+        </span>
+        <div
+          className="s-conv-grid-size-controls"
+          aria-label={`Tile size for ${title}`}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           {CONVERSATION_GRID_SIZE_OPTIONS.map((option) => (
             <button
               key={option.value}

@@ -142,8 +142,9 @@ function sampleHistory(points: BudgetHistoryPoint[] | undefined, limit = 30): Bu
 
 function formatResetRelative(resetAt: number): string {
   const rawDiffSec = Math.floor((resetAt - Date.now()) / 1000);
-  const stale = rawDiffSec < 0;
+  const expired = rawDiffSec < 0;
   const diffSec = Math.abs(rawDiffSec);
+  if (expired) return "due now";
   let label: string;
   if (diffSec >= 86400) {
     const days = Math.floor(diffSec / 86400);
@@ -156,7 +157,7 @@ function formatResetRelative(resetAt: number): string {
   } else {
     label = `${Math.max(1, Math.floor(diffSec / 60))}m`;
   }
-  return stale ? `stale ${label}` : label;
+  return label;
 }
 
 function budgetLatestAt(gauge: ServiceGauge | null): number | null {

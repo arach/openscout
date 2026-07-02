@@ -109,7 +109,7 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
     ]);
     const gauges = [codex, claude, github].filter((g): g is ServiceGauge => g !== null);
     const value: ServiceBudgetsResponse = { generatedAt: Date.now(), gauges };
-    cached = { value, expiresAt: Date.now() + CACHE_TTL_MS };
+    cached = { value, expiresAt: serviceBudgetsCacheExpiresAt(value, Date.now()) };
     return value;
   })();
 
@@ -118,6 +118,20 @@ export async function loadServiceBudgets(forceRefresh = false): Promise<ServiceB
   } finally {
     inflight = null;
   }
+}
+
+function serviceBudgetsCacheExpiresAt(value: ServiceBudgetsResponse, now: number): number {
+  const nextResetAt = value.gauges
+    .flatMap((gauge) => gauge.kind === "quota"
+      ? (gauge.windows && gauge.windows.length > 0 ? gauge.windows : [gauge])
+      : [])
+    .map((window) => finiteNumber(window.resetAt))
+    .filter((resetAt): resetAt is number => resetAt !== undefined && resetAt > now)
+    .sort((a, b) => a - b)[0];
+  const fixedExpiry = now + CACHE_TTL_MS;
+  return nextResetAt === undefined
+    ? fixedExpiry
+    : Math.min(fixedExpiry, nextResetAt + 10_000);
 }
 
 function serviceBudgetProviderFailed(provider: string, error: unknown): null {

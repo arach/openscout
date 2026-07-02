@@ -2,7 +2,7 @@ import "./fleet-home.css";
 import "./activity-stream.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Send } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Send } from "lucide-react";
 import HomeHero, {
   type ServiceGauge,
 } from "./HomeHero.tsx";
@@ -16,7 +16,6 @@ import {
   timeAgo,
 } from "../../lib/time.ts";
 import { actorColor } from "../../lib/colors.ts";
-import { useOptionalFlag } from "hudsonkit/flags";
 import { normalizeAgentState } from "../../lib/agent-state.ts";
 import { usePersistentNumber } from "../../lib/persistent-state.ts";
 import { useScout } from "../../scout/Provider.tsx";
@@ -61,10 +60,9 @@ const LOOKBACK_WINDOWS: LookbackOption[] = [
 ];
 const DEFAULT_LOOKBACK_MS = LOOKBACK_WINDOWS[2].value;
 const LOOKBACK_STORAGE_KEY = "openscout.home.lookbackMs.v1";
-// Service-budget data (claude/codex/github usage) is expensive to compute
-// and doesn't change minute-to-minute. Refresh once an hour; the server
-// caches the same window. Easy to tune later if we want fresher numbers.
-const SERVICE_BUDGETS_REFRESH_MS = 60 * 60_000;
+// Service-budget data is cached server-side, but short quota windows can reset
+// while Home stays open. Poll lightly so reset chips do not sit expired.
+const SERVICE_BUDGETS_REFRESH_MS = 5 * 60_000;
 const LOCAL_TAIL_RECENT_LIMIT = 1000;
 const LOCAL_TAIL_REFRESH_MS = 30_000;
 const HEARTRATE_COMBINED_EVENT_THRESHOLD = 3;
@@ -570,7 +568,6 @@ export function HomeContent({
   }, [lookbackMs]);
 
   const now = new Date();
-  const opsEnabled = useOptionalFlag("ops.control", true);
   const operatorName =
     onboarding?.operatorName?.trim()
     || onboarding?.operatorNameSuggestion?.trim()
@@ -640,7 +637,6 @@ export function HomeContent({
     refreshing,
     onRefresh: handleRefresh,
     navigate,
-    opsEnabled,
     heartrate: combinedHeartrate,
     heartrateWindow,
     heartrateBucketLabel,
@@ -700,7 +696,11 @@ export function HomeContent({
               }
             />
             {movingCardCount > 0 && (
-              <div className={homeMovingGridClass(movingLayout)}>
+              <HorizontalScrollFrame
+                enabled={movingLayout === "strip"}
+                className={homeMovingGridClass(movingLayout)}
+                ariaLabel="Moving agents"
+              >
                 {visibleWorkingAgents.map((agent) => (
                   <NowCard
                     key={agent.id}
@@ -735,7 +735,7 @@ export function HomeContent({
                     navigate={navigate}
                   />
                 ))}
-              </div>
+              </HorizontalScrollFrame>
             )}
             {movingAsksWithoutWorkingAgent.length > 0 && (
               <div className="s-moving-ask-list">
@@ -830,6 +830,103 @@ export function HomeContent({
 }
 
 /* ── Sub-components ────────────────────────────────────────────────── */
+
+function HorizontalScrollFrame({
+  enabled,
+  className,
+  ariaLabel,
+  children,
+}: {
+  enabled: boolean;
+  className: string;
+  ariaLabel: string;
+  children: React.ReactNode;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({ canLeft: false, canRight: false });
+
+  const syncScrollState = useCallback(() => {
+    const node = scrollerRef.current;
+    if (!node || !enabled) {
+      setScrollState({ canLeft: false, canRight: false });
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, node.scrollWidth - node.clientWidth);
+    setScrollState({
+      canLeft: node.scrollLeft > 2,
+      canRight: node.scrollLeft < maxScrollLeft - 2,
+    });
+  }, [enabled]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const node = scrollerRef.current;
+    if (!node) return;
+
+    syncScrollState();
+    node.addEventListener("scroll", syncScrollState, { passive: true });
+    window.addEventListener("resize", syncScrollState);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(syncScrollState);
+    resizeObserver?.observe(node);
+
+    return () => {
+      node.removeEventListener("scroll", syncScrollState);
+      window.removeEventListener("resize", syncScrollState);
+      resizeObserver?.disconnect();
+    };
+  }, [enabled, syncScrollState, children]);
+
+  const scrollByPage = useCallback((direction: -1 | 1) => {
+    const node = scrollerRef.current;
+    if (!node) return;
+    const distance = Math.max(280, Math.floor(node.clientWidth * 0.82));
+    node.scrollBy({ left: distance * direction, behavior: "smooth" });
+    window.requestAnimationFrame(syncScrollState);
+    window.setTimeout(syncScrollState, 260);
+  }, [syncScrollState]);
+
+  if (!enabled) {
+    return (
+      <div className={className} aria-label={ariaLabel}>
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={[
+        "s-moving-scroll",
+        scrollState.canLeft && "s-moving-scroll--can-left",
+        scrollState.canRight && "s-moving-scroll--can-right",
+      ].filter(Boolean).join(" ")}
+    >
+      <button
+        type="button"
+        className="s-moving-scroll-btn s-moving-scroll-btn--left"
+        aria-label="Scroll moving agents left"
+        disabled={!scrollState.canLeft}
+        onClick={() => scrollByPage(-1)}
+      >
+        <ChevronLeft size={16} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+      <div ref={scrollerRef} className={className} aria-label={ariaLabel}>
+        {children}
+      </div>
+      <button
+        type="button"
+        className="s-moving-scroll-btn s-moving-scroll-btn--right"
+        aria-label="Scroll moving agents right"
+        disabled={!scrollState.canRight}
+        onClick={() => scrollByPage(1)}
+      >
+        <ChevronRight size={16} strokeWidth={1.8} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
 
 function SectionRule({
   label,

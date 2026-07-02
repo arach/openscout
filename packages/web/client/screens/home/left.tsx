@@ -205,11 +205,11 @@ function NeedsAttentionSection({
   return (
     <section className="ctx-panel-section base-rail-section">
       <SectionLabel
-        title="Needs attention"
+        title="Operator cues"
         meta={items.length > 0 ? `${items.length}` : undefined}
       />
       {items.length === 0 ? (
-        <div className="ctx-panel-empty">All clear</div>
+        <div className="ctx-panel-empty">Quiet</div>
       ) : (
         items.map((item) => {
           const label = item.agentName ?? item.agentId ?? "operator";

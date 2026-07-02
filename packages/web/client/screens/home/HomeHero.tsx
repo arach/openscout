@@ -54,7 +54,6 @@ export type HomeHeroProps = {
   refreshing: boolean;
   onRefresh: () => void;
   navigate: (route: Route) => void;
-  opsEnabled: boolean;
   heartrate: HeartrateBucketView[];
   heartrateWindow: string;
   heartrateBucketLabel: string;
@@ -89,8 +88,9 @@ function formatResetChip(resetAt: number, now: Date): { label: string; imminent:
 
 function formatResetRelative(resetAt: number, now: Date): string {
   const rawDiffSec = Math.floor((resetAt - now.getTime()) / 1000);
-  const stale = rawDiffSec < 0;
+  const expired = rawDiffSec < 0;
   const diffSec = Math.abs(rawDiffSec);
+  if (expired) return "due now";
   let label: string;
   if (diffSec >= 86400) {
     const d = Math.floor(diffSec / 86400);
@@ -103,7 +103,7 @@ function formatResetRelative(resetAt: number, now: Date): string {
   } else {
     label = `${Math.max(1, Math.floor(diffSec / 60))}m`;
   }
-  return stale ? `stale ${label}` : label;
+  return label;
 }
 
 function quotaWindows(g: Extract<ServiceGauge, { kind: "quota" }>): ServiceQuotaWindowGauge[] {
@@ -235,10 +235,10 @@ function buildSmoothPath(points: { x: number; y: number }[]): string {
 
 function HeartrateGraph({ buckets }: { buckets: HeartrateBucketView[] }) {
   const W = 372;
-  const H = 70;
-  const top = 6;
-  const bottom = 56;
-  const labelY = 67;
+  const H = 52;
+  const top = 5;
+  const bottom = 40;
+  const labelY = 50;
   const N = buckets.length;
   const allZero = N < 2 || buckets.every((b) => b.count === 0);
 
@@ -402,7 +402,6 @@ export default function HomeHero(props: HomeHeroProps) {
     refreshing,
     onRefresh,
     navigate,
-    opsEnabled,
     heartrate,
     heartrateWindow,
     heartrateBucketLabel,
@@ -419,6 +418,7 @@ export default function HomeHero(props: HomeHeroProps) {
   const hasHiddenGauges = subscriptionGauges.length > compactGauges.length;
   const showHeartrate = heartrate.reduce((total, bucket) => total + bucket.count, 0)
     >= heartrateVisibleEventThreshold;
+  const showSignals = gauges.length > 0 || showHeartrate;
   return (
     <section className="hd">
       <div className="hd-topbar">
@@ -437,15 +437,6 @@ export default function HomeHero(props: HomeHeroProps) {
           <span className={`hd-dot hd-dot--${syncTone}`} aria-hidden="true" />
           <span className={`hd-meta hd-meta--${syncTone}`}>{syncLabel}</span>
           <span className="hd-topbar-actions">
-            {opsEnabled && (
-              <button
-                type="button"
-                className="hd-btn"
-                onClick={() => navigate({ view: "ops" })}
-              >
-                [open ops]
-              </button>
-            )}
             <button
               type="button"
               className="hd-btn"
@@ -456,57 +447,60 @@ export default function HomeHero(props: HomeHeroProps) {
             </button>
           </span>
         </div>
-        {gauges.length > 0 && (
-          <div className="hd-topbar-c" aria-label="subscription usage">
-            <div className="hd-gauge-title-row">
-              <span className="hd-gauge-window">SUBSCRIPTIONS</span>
-              {hasHiddenGauges && (
-                <button
-                  type="button"
-                  className="hd-gauge-toggle"
-                  aria-expanded={showAllGauges}
-                  onClick={() => setShowAllGauges((value) => !value)}
-                >
-                  [{showAllGauges ? "top 2" : `all ${subscriptionGauges.length}`}]
-                </button>
+        {showSignals && (
+          <div className="hd-topbar-c" aria-label="fleet signals">
+            <div className="hd-signal-grid">
+              {gauges.length > 0 && (
+                <div className="hd-subscription-block" aria-label="subscription usage">
+                  <div className="hd-gauge-title-row">
+                    <span className="hd-gauge-window">SUBSCRIPTIONS</span>
+                    {hasHiddenGauges && (
+                      <button
+                        type="button"
+                        className="hd-gauge-toggle"
+                        aria-expanded={showAllGauges}
+                        onClick={() => setShowAllGauges((value) => !value)}
+                      >
+                        [{showAllGauges ? "top 2" : `all ${subscriptionGauges.length}`}]
+                      </button>
+                    )}
+                  </div>
+                  <div className="hd-gauge-set">
+                    <div className="hd-gauge-table-head" aria-hidden="true">
+                      <span>service</span>
+                      <span>short window</span>
+                      <span>resets</span>
+                      <span>long window</span>
+                      <span>resets</span>
+                    </div>
+                    {gauges.map((g) => (
+                      <span key={g.id} className="hd-gauge-wrap">
+                        <Gauge gauge={g} now={now} onClick={() => navigate({ view: "harnesses" })} />
+                      </span>
+                    ))}
+                  </div>
+                </div>
               )}
-            </div>
-            <div className="hd-gauge-set">
-              <div className="hd-gauge-table-head" aria-hidden="true">
-                <span>service</span>
-                <span>short window</span>
-                <span>resets</span>
-                <span>long window</span>
-                <span>resets</span>
-              </div>
-              {gauges.map((g) => (
-                <span key={g.id} className="hd-gauge-wrap">
-                  <Gauge gauge={g} now={now} onClick={() => navigate({ view: "harnesses" })} />
-                </span>
-              ))}
+              {showHeartrate && (
+                <div className="hd-heartrate-inline" aria-label="heart-rate">
+                  <div className="hd-panel-title hd-panel-title--inline">
+                    <span>HEART-RATE</span>
+                    <span className="hd-sep">·</span>
+                    <span>{heartrateWindow}</span>
+                    {heartrateBucketLabel ? (
+                      <>
+                        <span className="hd-sep">·</span>
+                        <span>{heartrateBucketLabel}</span>
+                      </>
+                    ) : null}
+                  </div>
+                  <HeartrateGraph buckets={heartrate} />
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      {showHeartrate && (
-        <div className="hd-grid hd-grid--single">
-          <div className="hd-panel hd-panel--hr">
-            <div className="hd-panel-title">
-              <span>HEART-RATE</span>
-              <span className="hd-sep">·</span>
-              <span>{heartrateWindow}</span>
-              {heartrateBucketLabel ? (
-                <>
-                  <span className="hd-sep">·</span>
-                  <span>{heartrateBucketLabel}</span>
-                </>
-              ) : null}
-            </div>
-            <HeartrateGraph buckets={heartrate} />
-          </div>
-        </div>
-      )}
     </section>
   );
 }
