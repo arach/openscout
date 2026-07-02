@@ -67,6 +67,13 @@ type OutputAck = {
   chars: number;
 };
 
+function disableGeneratedSessionFlowControl<T extends ClientMessage>(msg: T): T {
+  // OpenScout's node relay wraps the generated session with FlowControlledRelaySocket.
+  // Keep ACK sequencing in that outer layer so client ACKs do not have to satisfy
+  // two independent flow-control queues.
+  return { ...msg, clientCapabilities: [] };
+}
+
 class FlowControlledRelaySocket implements RelaySocket {
   private session: Session | null = null;
   private pendingOutput = "";
@@ -423,7 +430,10 @@ wss.on("connection", (ws: any) => {
             detachSession(previous);
           }
         }
-        const session = createSession(relaySocket, pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg);
+        const session = createSession(
+          relaySocket,
+          disableGeneratedSessionFlowControl(pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg),
+        );
         if (!session) {
           break;
         }
@@ -451,6 +461,7 @@ wss.on("connection", (ws: any) => {
             rows: msg.rows ?? 24,
             cwd: pending.cwd,
             agent: "shell",
+            clientCapabilities: [],
           });
           if (!session) {
             break;
@@ -474,7 +485,7 @@ wss.on("connection", (ws: any) => {
           }
           sessionId = existing.id;
           relaySocket.bindSession(existing);
-          attachSession(existing, relaySocket, msg.cols, msg.rows);
+          attachSession(existing, relaySocket, msg.cols, msg.rows, []);
           send(ws, {
             type: "session:ready",
             sessionId: existing.id,
