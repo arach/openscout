@@ -115,6 +115,25 @@ The macOS xterm host is intentionally plain:
 
 This is a host-level simplification, not the final reusable component API.
 
+## Current Web Host Slice
+
+The web `/terminal` route now follows the same host-level direction:
+
+- Bare `/terminal` opens a terminal workspace, not an inventory landing page.
+- The workspace keeps tile state local to the route for now.
+- Header actions create fresh PTY, tmux, and zellij xterm tiles.
+- Attach adds currently registered live terminal surfaces as grid tiles.
+- Registered tiles reuse the existing terminal relay canvas in compact embedded
+  chrome.
+- Existing single-terminal deep links still bypass the workspace and retain
+  summary, observe, and takeover behavior.
+- Reload all intentionally remounts workspace tile relays and refreshes the
+  terminal registry.
+
+This is still a Scout host implementation. The reusable Hudson component should
+lift the stable grid, tile lifecycle, renderer policy, fit scheduling, and relay
+state handling out of this screen once the behavior is boringly reliable.
+
 ## Verification Bar
 
 Before calling the Hudson component production-ready:
