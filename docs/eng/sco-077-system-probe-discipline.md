@@ -120,6 +120,8 @@ Out of scope for probes: genuinely imperative ops (spawn a relay, open a PR, cre
 
 ### Phase 2 — scoutd (Rust) behind the same interface
 
+> Execution plan for full consolidation (shape decision, protocol, milestones M0–M6): [SCO-078](./sco-078-scoutd-consolidation.md).
+
 `crates/scoutd` **already exists** (supervisor / status / repo-watch warmer). Phase 2 extends it rather than inventing a new daemon:
 
 - scoutd grows a **probe socket** (separate listener/thread — probe serving must not block the supervise loop) answering bounded snapshot requests over a local unix socket.
