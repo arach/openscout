@@ -5,10 +5,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
+  ScoutBrokerHealthPayload,
   ScoutBrokerBuildIdentity,
   ScoutBrokerChildServiceSnapshots,
   ScoutBrokerJsonRequestTrace,
 } from "./broker-api.js";
+import { requestScoutBrokerJsonWithTrace } from "./broker-api.js";
 import { resolveOpenScoutSupportPaths } from "./support-paths.js";
 import {
   openScoutNetworkDiscoveryEnabled,
@@ -21,6 +23,10 @@ import {
   resolveBunExecutable as resolveResolvedBunExecutable,
   resolveExecutableFromSearch,
 } from "./tool-resolution.js";
+import {
+  defaultServiceAdapterForPlatform,
+  type RuntimeServiceAdapterKind,
+} from "./runtime-adapters.js";
 
 /** True for paths under /tmp or /private/tmp — transient remote-install dirs. */
 function isTmpPath(p: string): boolean {
@@ -45,7 +51,7 @@ export type BrokerServiceConfig = {
   stderrLogPath: string;
   controlHome: string;
   runtimePackageDir: string;
-  bunExecutable: string;
+  bunExecutable: string | null;
   brokerHost: string;
   brokerPort: number;
   brokerUrl: string;
@@ -89,6 +95,7 @@ export type BrokerHealthSnapshot = {
 };
 
 export type BrokerServiceStatus = {
+  serviceAdapter?: RuntimeServiceAdapterKind;
   label: string;
   mode: BrokerServiceMode;
   launchAgentPath: string;
@@ -327,12 +334,16 @@ function findWorkspaceRuntimeDir(startDir: string): string | null {
 }
 
 function resolveBunExecutable(): string {
-  const bun = resolveResolvedBunExecutable(process.env);
+  const bun = resolveOptionalBunExecutable();
   if (bun) {
-    return bun.path;
+    return bun;
   }
 
   throw new Error("Unable to locate Bun for broker service management. Install Bun or set OPENSCOUT_BUN_BIN.");
+}
+
+function resolveOptionalBunExecutable(): string | null {
+  return resolveResolvedBunExecutable(process.env)?.path ?? null;
 }
 
 function resolveBrokerServiceMode(): BrokerServiceMode {
@@ -367,6 +378,7 @@ function resolveBrokerServiceLabel(mode: BrokerServiceMode): string {
 export function resolveBrokerServiceConfig(): BrokerServiceConfig {
   const mode = resolveBrokerServiceMode();
   const label = resolveBrokerServiceLabel(mode);
+  const serviceAdapter = resolveBrokerServiceAdapter();
   const uid = typeof process.getuid === "function" ? process.getuid() : Number.parseInt(process.env.UID ?? "0", 10);
   // Resolve paths but reject anything under /tmp — remote-install sessions
   // set env vars to transient tmp dirs that don't survive reboots.
@@ -400,7 +412,9 @@ export function resolveBrokerServiceConfig(): BrokerServiceConfig {
     stderrLogPath: join(logsDirectory, "stderr.log"),
     controlHome,
     runtimePackageDir: runtimePackageDir(),
-    bunExecutable: resolveBunExecutable(),
+    bunExecutable: serviceAdapter === "macos-scoutd"
+      ? resolveBunExecutable()
+      : resolveOptionalBunExecutable(),
     brokerHost,
     brokerPort,
     brokerUrl,
@@ -418,6 +432,20 @@ type ScoutdCommand = {
 type NativeServiceStatus = Record<string, unknown> & {
   health?: unknown;
 };
+
+type HeadlessBrokerHealthReader = (
+  config: BrokerServiceConfig,
+) => Promise<{
+  health: ScoutBrokerHealthPayload;
+  trace: ScoutBrokerJsonRequestTrace;
+}>;
+
+export function resolveBrokerServiceAdapter(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): RuntimeServiceAdapterKind {
+  return defaultServiceAdapterForPlatform(platform, env);
+}
 
 function executableCandidate(path: string | undefined | null): string | null {
   return isExecutablePath(path) ? path : null;
@@ -505,7 +533,6 @@ function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: strin
     ...process.env,
     OPENSCOUT_SCOUTD_BIN: scoutdPath,
     OPENSCOUT_RUNTIME_PACKAGE_DIR: config.runtimePackageDir,
-    OPENSCOUT_BUN_BIN: config.bunExecutable,
     OPENSCOUT_SUPPORT_DIRECTORY: config.supportDirectory,
     OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_HOST: config.brokerHost,
@@ -517,6 +544,9 @@ function nativeServiceEnvironment(config: BrokerServiceConfig, scoutdPath: strin
     OPENSCOUT_SERVICE_LABEL: config.label,
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
   };
+  if (config.bunExecutable) {
+    env.OPENSCOUT_BUN_BIN = config.bunExecutable;
+  }
   if (config.coreAgents.length > 0) {
     env.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");
   }
@@ -585,6 +615,7 @@ function normalizeNativeServiceStatus(input: NativeServiceStatus, config: Broker
     lastExitStatus: readNumber(input.lastExitStatus) ?? null,
     usesLaunchAgent: readBoolean(input.usesLaunchAgent) ?? (installed || loaded),
     reachable: healthReachable,
+    serviceAdapter: "macos-scoutd",
     health: {
       reachable: healthReachable,
       ok: healthOk,
@@ -802,28 +833,155 @@ function readLastLogLine(paths: string[]): string | null {
   return fallback;
 }
 
+async function readHeadlessBrokerHealth(
+  config: BrokerServiceConfig,
+): Promise<{
+  health: ScoutBrokerHealthPayload;
+  trace: ScoutBrokerJsonRequestTrace;
+}> {
+  const result = await requestScoutBrokerJsonWithTrace<ScoutBrokerHealthPayload>(
+    config.brokerUrl,
+    "/health",
+    { socketPath: config.brokerSocketPath },
+  );
+  return {
+    health: result.value,
+    trace: result.trace,
+  };
+}
+
+function headlessLifecycleError(command: BrokerServiceCommand): Error {
+  return new Error(
+    `Next step: run \`openscout-runtime broker\` in this shell or under your process manager. `
+    + `The headless service adapter leaves broker ${command} to that foreground process.`,
+  );
+}
+
+export async function runHeadlessForegroundServiceCommand(
+  command: BrokerServiceCommand,
+  config: BrokerServiceConfig,
+  readHealth: HeadlessBrokerHealthReader = readHeadlessBrokerHealth,
+): Promise<BrokerServiceStatus> {
+  if (command !== "status") {
+    throw headlessLifecycleError(command);
+  }
+
+  const checkedAt = Date.now();
+  try {
+    const { health, trace } = await readHealth(config);
+    const reachable = true;
+    return {
+      serviceAdapter: "headless-foreground",
+      label: config.label,
+      mode: config.mode,
+      launchAgentPath: config.launchAgentPath,
+      bootoutCommand: "headless-foreground does not use launchd",
+      brokerUrl: config.brokerUrl,
+      brokerSocketPath: config.brokerSocketPath,
+      supportDirectory: config.supportDirectory,
+      runtimeDirectory: config.runtimeDirectory,
+      controlHome: config.controlHome,
+      stdoutLogPath: config.stdoutLogPath,
+      stderrLogPath: config.stderrLogPath,
+      installed: false,
+      loaded: reachable,
+      pid: null,
+      launchdState: null,
+      lastExitStatus: null,
+      usesLaunchAgent: false,
+      reachable,
+      health: {
+        reachable,
+        ok: Boolean(health.ok),
+        checkedAt,
+        transport: trace.transport,
+        socketPath: trace.socketPath,
+        socketFallbackError: trace.socketFallbackError,
+        nodeId: health.nodeId ?? undefined,
+        meshId: health.meshId ?? undefined,
+        counts: health.counts ?? undefined,
+        build: health.build,
+        services: health.services,
+      },
+      lastLogLine: readLastLogLine([config.stderrLogPath, config.stdoutLogPath]),
+    };
+  } catch (error) {
+    return {
+      serviceAdapter: "headless-foreground",
+      label: config.label,
+      mode: config.mode,
+      launchAgentPath: config.launchAgentPath,
+      bootoutCommand: "headless-foreground does not use launchd",
+      brokerUrl: config.brokerUrl,
+      brokerSocketPath: config.brokerSocketPath,
+      supportDirectory: config.supportDirectory,
+      runtimeDirectory: config.runtimeDirectory,
+      controlHome: config.controlHome,
+      stdoutLogPath: config.stdoutLogPath,
+      stderrLogPath: config.stderrLogPath,
+      installed: false,
+      loaded: false,
+      pid: null,
+      launchdState: null,
+      lastExitStatus: null,
+      usesLaunchAgent: false,
+      reachable: false,
+      health: {
+        reachable: false,
+        ok: false,
+        checkedAt,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      lastLogLine: readLastLogLine([config.stderrLogPath, config.stdoutLogPath]),
+    };
+  }
+}
+
+async function runBrokerServiceCommand(
+  command: BrokerServiceCommand,
+  config: BrokerServiceConfig,
+): Promise<BrokerServiceStatus> {
+  const adapter = resolveBrokerServiceAdapter();
+  switch (adapter) {
+    case "macos-scoutd":
+      return await runScoutdServiceCommand(command, config);
+    case "headless-foreground":
+      return await runHeadlessForegroundServiceCommand(command, config);
+    case "linux-systemd-user":
+      throw new Error(
+        "The linux-systemd-user service adapter is not implemented yet. "
+        + "Use OPENSCOUT_SERVICE_ADAPTER=headless-foreground and run `openscout-runtime broker` under your process manager.",
+      );
+    case "windows-service":
+      throw new Error(
+        "The windows-service adapter is not implemented yet. "
+        + "Use OPENSCOUT_SERVICE_ADAPTER=headless-foreground and run `openscout-runtime broker` from a shell.",
+      );
+  }
+}
+
 export async function brokerServiceStatus(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("status", config);
+  return runBrokerServiceCommand("status", config);
 }
 
 export async function installBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("install", config);
+  return runBrokerServiceCommand("install", config);
 }
 
 export async function startBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("start", config);
+  return runBrokerServiceCommand("start", config);
 }
 
 export async function stopBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("stop", config);
+  return runBrokerServiceCommand("stop", config);
 }
 
 export async function restartBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("restart", config);
+  return runBrokerServiceCommand("restart", config);
 }
 
 export async function uninstallBrokerService(config: BrokerServiceConfig = resolveBrokerServiceConfig()): Promise<BrokerServiceStatus> {
-  return runScoutdServiceCommand("uninstall", config);
+  return runBrokerServiceCommand("uninstall", config);
 }
 
 async function main() {
@@ -866,6 +1024,7 @@ async function main() {
 
 function formatBrokerServiceStatus(status: BrokerServiceStatus): string {
   const lines = [
+    `service adapter: ${status.serviceAdapter ?? "unknown"}`,
     `label: ${status.label}`,
     `mode: ${status.mode}`,
     `launch agent: ${status.installed ? status.launchAgentPath : "not installed"}`,

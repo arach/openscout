@@ -88,6 +88,16 @@
       "bun": "./src/tool-resolution.ts",
       "default": "./dist/tool-resolution.js"
     },
+    "./runtime-adapters": {
+      "types": "./src/runtime-adapters.ts",
+      "bun": "./src/runtime-adapters.ts",
+      "default": "./dist/runtime-adapters.js"
+    },
+    "./sqlite-adapter": {
+      "types": "./src/sqlite-adapter.ts",
+      "bun": "./src/sqlite-adapter.ts",
+      "default": "./dist/sqlite-adapter.js"
+    },
     "./claude-stream-json": {
       "types": "./src/claude-stream-json.ts",
       "bun": "./src/claude-stream-json.ts",

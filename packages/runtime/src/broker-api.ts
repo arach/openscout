@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { request as httpRequest } from "node:http";
 
 import type {
@@ -310,6 +311,7 @@ function shouldFallbackFromUnixSocket(error: unknown): boolean {
     || code === "ECONNREFUSED"
     || code === "ENOTSOCK"
     || code === "EACCES"
+    || code === "EINVAL"
     || code === "FailedToOpenSocket";
 }
 
@@ -324,6 +326,11 @@ function requestBrokerOverUnixSocket<T>(
   options: ScoutBrokerJsonRequestOptions<T>,
 ): Promise<ScoutBrokerWireResponse> {
   return new Promise((resolve, reject) => {
+    if (!existsSync(socketPath)) {
+      reject(Object.assign(new Error(`Scout broker socket does not exist: ${socketPath}`), { code: "ENOENT" }));
+      return;
+    }
+
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     const url = new URL(path, normalizedBaseUrl);
     const body = requestBody(options);
