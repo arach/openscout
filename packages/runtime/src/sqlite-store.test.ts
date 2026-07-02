@@ -1499,11 +1499,10 @@ describe("SQLiteControlPlaneStore", () => {
 });
 
 describe("invocation flight-status shadow columns", () => {
-  // Phase 3 flight→invocation storage merge, expand phase: recordFlight
-  // dual-writes the flight's status onto the invocation row, and the
-  // invocation-status-columns migration backfills pre-existing rows. Reads
-  // still come from the flights table; these columns are the shadow copy the
-  // read-switch PR will consume.
+  // Phase 3 flight→invocation storage merge: recordFlight dual-writes the
+  // flight's status onto the invocation row (web reads project from these
+  // columns since the read switch), and the invocation-flight-status-reconcile
+  // repair entry converges any diverged shadow on every boot.
   const invocation = {
     id: "inv-status-1",
     requesterId: "operator",
@@ -1754,40 +1753,125 @@ describe("invocation flight-status shadow columns", () => {
     }
   });
 
-  test("the backfill leaves rows the dual-write already populated untouched", () => {
+  test("the reconcile converges a diverged shadow to the computed latest flight on every boot", () => {
+    // The repair layer never trusts the shadow: whatever diverged it, the
+    // shadow converges to the latest flight on the next boot. It cannot
+    // fight the dual-write: both layers order by
+    // COALESCE(completed_at, started_at) with ties to the most recent write.
     const store = createStore();
     try {
       seedInvocation(store);
       store.recordFlight({
-        id: "flight-current",
+        id: "flight-earlier",
         invocationId: "inv-status-1",
         requesterId: "operator",
         targetAgentId: "agent-1",
         state: "running",
         startedAt: 300,
       });
-      // A stale flight row that the state-guarded backfill must NOT prefer
-      // over the live dual-written status.
       store.recordFlight({
-        id: "flight-stale",
+        id: "flight-latest",
         invocationId: "inv-status-1",
         requesterId: "operator",
         targetAgentId: "agent-1",
         state: "failed",
-        error: "stale",
+        error: "boom",
         startedAt: 100,
         completedAt: 400,
+        metadata: { failureStage: "transport" },
       });
       const db = getWritableDb(store);
+      // Force the shadow onto the older sibling to simulate divergence.
       db.exec(
-        "UPDATE invocations SET flight_id = 'flight-current', state = 'running' WHERE id = 'inv-status-1'",
+        "UPDATE invocations SET flight_id = 'flight-earlier', state = 'running', flight_metadata_json = NULL WHERE id = 'inv-status-1'",
       );
 
       applyControlPlaneSchemaMigrations(db);
 
-      const row = shadowRow(db);
-      expect(row.flight_id).toBe("flight-current");
-      expect(row.state).toBe("running");
+      expect(shadowRow(db)).toEqual({
+        flight_id: "flight-latest",
+        state: "failed",
+        summary: null,
+        output: null,
+        error: "boom",
+        started_at: 100,
+        completed_at: 400,
+        flight_metadata_json: JSON.stringify({ failureStage: "transport" }),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("equal-timestamp sibling flights: the most recent write is the current status, and the reconcile agrees", () => {
+    // Equal timestamps resolve by write order: the most recent statement
+    // about an invocation's status stands. Both layers implement it — the
+    // dual-write guard accepts `>=`, and the reconcile's rowid tiebreak IS
+    // write order because INSERT OR REPLACE always assigns a fresh rowid.
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-tie-z",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "First write",
+        startedAt: 500,
+        completedAt: 520,
+      });
+      store.recordFlight({
+        id: "flight-tie-a",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        error: "Second write",
+        startedAt: 500,
+        completedAt: 520,
+      });
+
+      const db = getWritableDb(store);
+      expect(shadowRow(db).flight_id).toBe("flight-tie-a");
+      expect(shadowRow(db).state).toBe("failed");
+
+      // The boot-time reconcile computes the same winner, so a restart cannot
+      // flip the tie back.
+      applyControlPlaneSchemaMigrations(db);
+      expect(shadowRow(db).flight_id).toBe("flight-tie-a");
+      expect(shadowRow(db).state).toBe("failed");
+    } finally {
+      store.close();
+    }
+  });
+
+  test("recordFlight normalizes requester/target to the invocation's identity", () => {
+    // The invocation is the identity authority; a flight is its status. Every
+    // broker path already passes matching values — this guards the raw
+    // FlightRecord surface (/v1/flights), so divergent identity fields can
+    // never enter storage and disagree with what readers project from the
+    // invocation row.
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      seedAgent(store, "agent-2");
+      store.recordFlight({
+        id: "flight-mismatch",
+        invocationId: "inv-status-1",
+        requesterId: "agent-2",
+        targetAgentId: "agent-2",
+        state: "running",
+        startedAt: 700,
+      });
+
+      const db = getWritableDb(store);
+      const flightRow = db.query(
+        "SELECT requester_id, target_agent_id FROM flights WHERE id = 'flight-mismatch'",
+      ).get() as { requester_id: string; target_agent_id: string };
+      expect(flightRow.requester_id).toBe("operator");
+      expect(flightRow.target_agent_id).toBe("agent-1");
+      expect(shadowRow(db).flight_id).toBe("flight-mismatch");
     } finally {
       store.close();
     }

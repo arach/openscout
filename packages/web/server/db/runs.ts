@@ -11,7 +11,9 @@
  * (state/summary/output/error/started_at/completed_at/flight_id/
  * flight_metadata_json) directly — the flights table is no longer joined.
  * The FlightRecord alias is projected from the invocation row, so the
- * WebFlight/WebAgentRun shapes are unchanged.
+ * WebFlight/WebAgentRun shapes are unchanged. An invocation carries exactly
+ * ONE current status: a flight id addresses an invocation's latest flight
+ * only, and a superseded sibling id deliberately resolves nowhere.
  *
  * `queryFollowTarget` defers to `queryWorkItemById` (`./work.ts`) and
  * `querySessionById` (db-queries.ts) when the requested target is sparse;

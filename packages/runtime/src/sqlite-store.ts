@@ -2423,28 +2423,53 @@ export class SQLiteControlPlaneStore {
   }
 
   recordFlight(flight: FlightRecord): ThreadEventEnvelope[] {
+    let recorded = flight;
     // One transaction so the flight row and the invocation shadow can never
     // durably diverge — a crash between the two writes would otherwise leave
-    // a stale shadow that the state-IS-NULL-guarded backfill never repairs.
+    // a stale shadow until the next boot's self-healing reconcile.
     (this.db as SQLiteTransactionalDatabase).transaction(() => {
+      // The invocation is the identity authority: a flight is that
+      // invocation's status, so its requester/target cannot disagree with the
+      // invocation's. Every broker path already passes matching values; this
+      // normalizes the one unguarded writer (raw FlightRecord posts on
+      // /v1/flights), whose divergent identity fields readers would otherwise
+      // silently override now that they project from the invocation row.
+      const identity = this.db.query(
+        "SELECT requester_id, target_agent_id FROM invocations WHERE id = ?1",
+      ).get(flight.invocationId) as {
+        requester_id: string;
+        target_agent_id: string;
+      } | null;
+      if (
+        identity &&
+        (identity.requester_id !== flight.requesterId ||
+          identity.target_agent_id !== flight.targetAgentId)
+      ) {
+        recorded = {
+          ...flight,
+          requesterId: identity.requester_id,
+          targetAgentId: identity.target_agent_id,
+        };
+      }
+
       this.db.query(
         `INSERT OR REPLACE INTO flights (
           id, invocation_id, requester_id, target_agent_id, state, summary, output, error,
           labels_json, metadata_json, started_at, completed_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
       ).run(
-        flight.id,
-        flight.invocationId,
-        flight.requesterId,
-        flight.targetAgentId,
-        flight.state,
-        flight.summary ?? null,
-        flight.output ?? null,
-        flight.error ?? null,
-        stringify(flight.labels),
-        stringify(flight.metadata),
-        flight.startedAt ?? null,
-        flight.completedAt ?? null,
+        recorded.id,
+        recorded.invocationId,
+        recorded.requesterId,
+        recorded.targetAgentId,
+        recorded.state,
+        recorded.summary ?? null,
+        recorded.output ?? null,
+        recorded.error ?? null,
+        stringify(recorded.labels),
+        stringify(recorded.metadata),
+        recorded.startedAt ?? null,
+        recorded.completedAt ?? null,
       );
 
       // Dual-write the flight's status onto the merged invocation record
@@ -2467,20 +2492,20 @@ export class SQLiteControlPlaneStore {
              OR COALESCE(?8, ?7, 0) >= COALESCE(completed_at, started_at, 0)
            )`,
       ).run(
-        flight.invocationId,
-        flight.id,
-        flight.state,
-        flight.summary ?? null,
-        flight.output ?? null,
-        flight.error ?? null,
-        flight.startedAt ?? null,
-        flight.completedAt ?? null,
-        stringify(flight.metadata),
+        recorded.invocationId,
+        recorded.id,
+        recorded.state,
+        recorded.summary ?? null,
+        recorded.output ?? null,
+        recorded.error ?? null,
+        recorded.startedAt ?? null,
+        recorded.completedAt ?? null,
+        stringify(recorded.metadata),
       );
     })();
 
-    this.recordActivityItem(this.projectFlightActivity(flight));
-    return this.recordThreadFlightEvent(flight);
+    this.recordActivityItem(this.projectFlightActivity(recorded));
+    return this.recordThreadFlightEvent(recorded);
   }
 
   recordScoutDispatch(dispatch: ScoutDispatchRecord): void {

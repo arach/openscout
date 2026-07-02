@@ -132,6 +132,70 @@ describe("control-plane managed migrations", () => {
     expect(cols.some((c) => c.name === "markdown")).toBe(true);
   });
 
+  function seedDivergedInvocation(db: Database): void {
+    db.exec(`
+      INSERT INTO invocations (id, requester_id, requester_node_id, target_agent_id, action, task, created_at)
+        VALUES ('inv-1', 'operator', 'node-1', 'agent-1', 'consult', 'reconcile me', 100);
+      INSERT INTO flights (id, invocation_id, requester_id, target_agent_id, state, summary, output, metadata_json, started_at, completed_at)
+        VALUES ('flight-1', 'inv-1', 'operator', 'agent-1', 'completed', 'Done', 'Output', '{"model":"probe"}', 110, 120);
+      UPDATE invocations
+        SET flight_id = 'wrong-flight', state = 'running', summary = 'STALE',
+            output = NULL, error = 'STALE', started_at = 999, completed_at = NULL,
+            flight_metadata_json = NULL
+        WHERE id = 'inv-1';
+    `);
+  }
+
+  function shadowRow(db: Database): Record<string, unknown> {
+    return db
+      .query(
+        `SELECT flight_id, state, summary, output, error, started_at, completed_at, flight_metadata_json
+         FROM invocations WHERE id = 'inv-1'`,
+      )
+      .get() as Record<string, unknown>;
+  }
+
+  const healedShadow = {
+    flight_id: "flight-1",
+    state: "completed",
+    summary: "Done",
+    output: "Output",
+    error: null,
+    started_at: 110,
+    completed_at: 120,
+    flight_metadata_json: '{"model":"probe"}',
+  };
+
+  test("pre-ledger database with a diverged shadow heals: seed-all marks 0002 applied, so the imperative reconcile must repair it", () => {
+    // The #297 adversarial review's blocker scenario: a pre-ledger database
+    // seeds the whole chain as already-applied, so the checked-in 0002
+    // wholesale reconciliation never executes — the imperative
+    // invocation-flight-status-reconcile entry is the only thing standing
+    // between a stale shadow and the read switch.
+    const db = new Database(":memory:");
+    migrateControlPlaneDatabaseSchema(db);
+    seedDivergedInvocation(db);
+    db.exec('DROP TABLE "__drizzle_migrations"');
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    expect(ledgerRows(db)).toEqual(fullChainLedger);
+    expect(shadowRow(db)).toEqual(healedShadow);
+  });
+
+  test("shadow reconcile is self-healing: a diverged shadow on a fully-ledgered database converges on the next boot", () => {
+    // Covers divergence from any source after the ledgered migration already
+    // ran once — crash windows on builds before the dual-write became
+    // transactional, manual edits, raw /v1/flights posts.
+    const db = new Database(":memory:");
+    migrateControlPlaneDatabaseSchema(db);
+    seedDivergedInvocation(db);
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    expect(shadowRow(db)).toEqual(healedShadow);
+  });
+
   test("refuses to open a database stamped by a newer build", () => {
     const db = new Database(":memory:");
     migrateControlPlaneDatabaseSchema(db);

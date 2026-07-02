@@ -3,10 +3,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Database } from "bun:sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
-import { openControlPlaneDrizzle } from "./drizzle-client.js";
 import {
   CONTROL_PLANE_RUNTIME_SESSION_SQLITE_SCHEMA,
   CONTROL_PLANE_SCHEMA_VERSION,
@@ -98,7 +96,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
   {
     id: "invocation-status-columns",
     description:
-      "Adds flight status columns to invocations (flight→invocation storage merge, expand/dual-write phase) and backfills them from each invocation's latest flight.",
+      "Adds flight status columns to invocations (flight→invocation storage merge, expand/dual-write phase). Data repair lives in invocation-flight-status-reconcile below.",
     apply(database) {
       const statusColumns: Array<[string, string]> = [
         ["flight_id", "TEXT"],
@@ -117,24 +115,38 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
       database.exec(
         "CREATE INDEX IF NOT EXISTS idx_invocations_flight_id ON invocations(flight_id);",
       );
-      // One-time backfill from each invocation's latest flight (1:1 in practice;
-      // the ORDER BY mirrors the read-side "latest flight" tiebreak). Guarded by
-      // `inv.state IS NULL` so re-running the migration is a no-op once the
-      // recordFlight dual-write keeps these columns current. Skipped when the
-      // flights table is an ancient shape missing the source columns (nothing
-      // to copy there; the dual-write populates the shadow from first boot on).
-      const backfillSourceColumns = [
+    },
+  },
+  {
+    id: "invocation-flight-status-reconcile",
+    description:
+      "Adds flight_metadata_json to invocations (read-switch phase: the latest flight's metadata rides the merged record), then reconciles EVERY shadow column against each invocation's latest flight. Self-healing: runs on every boot, so shadows diverged by any path — pre-ledger databases that seeded 0002 as already-applied, crash windows on builds before the dual-write became transactional, manual edits — converge before reads (which now come from the shadow) can serve them.",
+    apply(database) {
+      if (!hasColumn(database, "invocations", "flight_metadata_json")) {
+        database.exec("ALTER TABLE invocations ADD COLUMN flight_metadata_json TEXT");
+      }
+      // The flights table has carried every source column since the schema
+      // foundation; this guard only skips shapes older than that support
+      // floor (nothing to reconcile from — the dual-write populates the
+      // shadow from first boot on).
+      const reconcileSourceColumns = [
         "invocation_id",
         "state",
         "summary",
         "output",
         "error",
+        "metadata_json",
         "started_at",
         "completed_at",
       ];
-      if (!backfillSourceColumns.every((name) => hasColumn(database, "flights", name))) {
+      if (!reconcileSourceColumns.every((name) => hasColumn(database, "flights", name))) {
         return;
       }
+      // Latest flight = newest completion/start timestamp, ties broken by
+      // most recent write (INSERT OR REPLACE always assigns a fresh rowid, so
+      // rowid order is write order) — the same ordering the recordFlight
+      // dual-write guard enforces. The IS NOT clauses make the no-divergence
+      // boot a pure read. Invocations with no flights at all are left alone.
       database.exec(`
 UPDATE invocations AS inv
 SET
@@ -144,9 +156,10 @@ SET
   output = latest.output,
   error = latest.error,
   started_at = latest.started_at,
-  completed_at = latest.completed_at
+  completed_at = latest.completed_at,
+  flight_metadata_json = latest.metadata_json
 FROM (
-  SELECT invocation_id, id, state, summary, output, error, started_at, completed_at,
+  SELECT invocation_id, id, state, summary, output, error, started_at, completed_at, metadata_json,
     ROW_NUMBER() OVER (
       PARTITION BY invocation_id
       ORDER BY COALESCE(completed_at, started_at, 0) DESC, rowid DESC
@@ -155,41 +168,16 @@ FROM (
 ) AS latest
 WHERE latest.invocation_id = inv.id
   AND latest.rn = 1
-  AND inv.state IS NULL;
-`);
-    },
-  },
-  {
-    id: "invocation-flight-metadata-column",
-    description:
-      "Adds flight_metadata_json to invocations (read-switch phase: the latest flight's metadata rides the merged record) and backfills it from the shadowed flight. The checked-in 0002 drizzle migration additionally reconciles ALL shadow columns wholesale on ledgered databases before reads switch.",
-    apply(database) {
-      if (!hasColumn(database, "invocations", "flight_metadata_json")) {
-        database.exec("ALTER TABLE invocations ADD COLUMN flight_metadata_json TEXT");
-      }
-      if (!hasColumn(database, "flights", "metadata_json")) {
-        return;
-      }
-      // Fills only rows whose metadata shadow is empty AND whose flight_id
-      // matches the computed latest flight (the invocation-status-columns
-      // entry above has already aligned flight_id on the same boot); a
-      // mismatching shadow means a dual-write is in progress and will carry
-      // its own metadata.
-      database.exec(`
-UPDATE invocations AS inv
-SET flight_metadata_json = latest.metadata_json
-FROM (
-  SELECT invocation_id, id, metadata_json,
-    ROW_NUMBER() OVER (
-      PARTITION BY invocation_id
-      ORDER BY COALESCE(completed_at, started_at, 0) DESC, rowid DESC
-    ) AS rn
-  FROM flights
-) AS latest
-WHERE latest.invocation_id = inv.id
-  AND latest.rn = 1
-  AND inv.flight_id = latest.id
-  AND inv.flight_metadata_json IS NULL;
+  AND (
+    inv.flight_id IS NOT latest.id
+    OR inv.state IS NOT latest.state
+    OR inv.summary IS NOT latest.summary
+    OR inv.output IS NOT latest.output
+    OR inv.error IS NOT latest.error
+    OR inv.started_at IS NOT latest.started_at
+    OR inv.completed_at IS NOT latest.completed_at
+    OR inv.flight_metadata_json IS NOT latest.metadata_json
+  );
 `);
     },
   },
@@ -229,13 +217,16 @@ CREATE TABLE IF NOT EXISTS "__drizzle_migrations" (
 )
 `;
 
-function seedControlPlaneDrizzleLedger(database: Database, migrationsFolder: string): void {
-  const migrations = readMigrationFiles({ migrationsFolder });
+type ControlPlaneDrizzleMigrations = ReturnType<typeof readMigrationFiles>;
+
+function seedControlPlaneDrizzleLedger(
+  database: Database,
+  migrations: ControlPlaneDrizzleMigrations,
+): void {
   if (migrations.length === 0) {
     return;
   }
 
-  database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
   // Databases that predate the managed-migration ledger were built by the raw
   // schema exec, which always renders the CURRENT full shape — so every
   // checked-in migration's effects are either already present or covered by
@@ -247,8 +238,9 @@ function seedControlPlaneDrizzleLedger(database: Database, migrationsFolder: str
   // builds. (This relies on the standing lockstep discipline: every drizzle
   // migration ships with its raw-schema + imperative-array equivalent, which
   // the parity gates enforce on the raw side.) A truly virgin database keeps
-  // an empty ledger so the migrator applies the chain for real. Single
-  // statement so concurrent boots cannot double-seed.
+  // an empty ledger so the migrator applies the chain for real. Runs under
+  // the caller's IMMEDIATE transaction; the single guarded statement is
+  // belt-and-braces on top of that.
   const params: Record<string, string | number> = {};
   const rows = migrations
     .map((migration, i) => {
@@ -288,8 +280,31 @@ export function applyControlPlaneDrizzleMigrations(database: Database): boolean 
     return false;
   }
 
-  seedControlPlaneDrizzleLedger(database, migrationsFolder);
-  migrate(openControlPlaneDrizzle(database), { migrationsFolder });
+  const migrations = readMigrationFiles({ migrationsFolder });
+  database.exec(DRIZZLE_MIGRATIONS_LEDGER_SQL);
+  seedControlPlaneDrizzleLedger(database, migrations);
+
+  // Inlined replacement for drizzle-orm's bun-sqlite `migrate()`: identical
+  // ledger contract (same table shape, same "created_at newer than the last
+  // applied row" pending check), but with no internal BEGIN, so the whole
+  // check-then-apply runs inside the caller's IMMEDIATE transaction. The
+  // upstream migrator reads the ledger BEFORE taking the write lock — two
+  // concurrent boots could both decide the same migration was pending, and
+  // the loser crashed replaying DDL the winner had already applied.
+  const lastApplied = database
+    .query('SELECT created_at FROM "__drizzle_migrations" ORDER BY created_at DESC LIMIT 1')
+    .get() as { created_at: number | string } | null;
+  const lastAppliedMillis = lastApplied === null ? null : Number(lastApplied.created_at);
+  for (const migration of migrations) {
+    if (lastAppliedMillis === null || lastAppliedMillis < migration.folderMillis) {
+      for (const statement of migration.sql) {
+        database.exec(statement);
+      }
+      database
+        .query('INSERT INTO "__drizzle_migrations" (hash, created_at) VALUES (?1, ?2)')
+        .run(migration.hash, migration.folderMillis);
+    }
+  }
   return true;
 }
 
@@ -315,17 +330,57 @@ export function stampControlPlaneSchemaVersion(database: Database): void {
   database.exec(`PRAGMA user_version = ${CONTROL_PLANE_SCHEMA_VERSION};`);
 }
 
+// How long a booting process waits for a concurrent migrator to finish before
+// giving up. Generous: real migrations complete in well under a second.
+const MIGRATION_LOCK_TIMEOUT_MS = 30_000;
+
 export function migrateControlPlaneDatabaseSchema(database: Database): void {
-  assertControlPlaneSchemaNotNewer(database);
-  // Managed migrations run first: a virgin database gets its schema from the
-  // baseline through the migrator; an existing database gets the baseline
-  // seeded as already-applied and only newer migrations execute. The raw
-  // schema exec and the imperative array then act as the idempotent repair
-  // layer, exactly as before.
-  applyControlPlaneDrizzleMigrations(database);
-  database.exec(CONTROL_PLANE_SQLITE_SCHEMA);
-  applyControlPlaneSchemaMigrations(database);
-  stampControlPlaneSchemaVersion(database);
+  // The entire pipeline runs under ONE IMMEDIATE transaction: BEGIN IMMEDIATE
+  // takes the database write lock BEFORE any pending-migration check, so
+  // concurrent boots fully serialize — the loser blocks at BEGIN (SQLite's
+  // busy handler waits), then re-reads a ledger the winner already advanced
+  // and applies nothing. Without the up-front lock, two boots in the
+  // migration window can both see the same migration as pending and the
+  // loser crashes replaying its DDL. The lock also makes the whole migration
+  // atomic: a crash mid-pipeline rolls back to the prior shape instead of
+  // leaving a half-migrated database.
+  //
+  // Two pragmas must be set OUTSIDE the transaction: busy_timeout is what
+  // makes BEGIN IMMEDIATE wait instead of failing instantly, and journal_mode
+  // cannot change into WAL from within a transaction (the raw schema string
+  // re-asserts WAL, which is only legal inside a transaction when the mode is
+  // not actually changing). Both are idempotent re-asserts of
+  // configureControlPlaneDatabase for callers that skipped it; on :memory:
+  // test databases the WAL attempt is a silent no-op.
+  database.exec(`PRAGMA busy_timeout = ${MIGRATION_LOCK_TIMEOUT_MS};`);
+  database.exec("PRAGMA journal_mode = WAL;");
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    // Checked under the lock so a newer build that migrated while we waited
+    // is seen before we touch anything.
+    assertControlPlaneSchemaNotNewer(database);
+    // Managed migrations run first: a virgin database gets its schema from the
+    // baseline through the migrator; an existing database gets the whole chain
+    // seeded as already-applied and only newer migrations execute. The raw
+    // schema exec and the imperative array then act as the idempotent repair
+    // layer, exactly as before.
+    applyControlPlaneDrizzleMigrations(database);
+    database.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+    applyControlPlaneSchemaMigrations(database);
+    stampControlPlaneSchemaVersion(database);
+    database.exec("COMMIT");
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // The transaction may already have rolled back (e.g. the connection hit
+      // a fatal error); surfacing the original failure matters more.
+    }
+    throw error;
+  } finally {
+    // Back to the standing runtime timeout configureControlPlaneDatabase sets.
+    database.exec("PRAGMA busy_timeout = 5000;");
+  }
 }
 
 export function resolveControlPlaneDatabasePath(): string {
