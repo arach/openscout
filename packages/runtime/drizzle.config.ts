@@ -1,7 +1,9 @@
 import { defineConfig } from "drizzle-kit";
 
-// Initial Drizzle spike: only the deliveries proof path is modeled in Drizzle
-// today. The full control-plane schema still lives in CONTROL_PLANE_SQLITE_SCHEMA.
+// The full control-plane schema is modeled declaratively in src/drizzle-schema.ts
+// (re-exported through src/schema.ts) and schema changes flow through
+// `bun run db:generate`. CONTROL_PLANE_SQLITE_SCHEMA remains the runtime repair
+// layer; the parity test (drizzle-schema-parity.test.ts) keeps the two in lockstep.
 export default defineConfig({
   dialect: "sqlite",
   schema: "./src/schema.ts",

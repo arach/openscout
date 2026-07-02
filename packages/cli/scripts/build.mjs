@@ -6,6 +6,7 @@ import {
   writeFileSync,
   chmodSync,
   copyFileSync,
+  cpSync,
   statSync,
   renameSync,
   existsSync,
@@ -137,6 +138,21 @@ function bundleRuntimeEntrypoints() {
 if (!bundleRuntimeEntrypoints()) {
   process.exit(1);
 }
+
+// Ship the drizzle managed-migration folder (baseline + journal) with the
+// package. resolveControlPlaneDrizzleMigrationsFolder() probes ../drizzle and
+// ./drizzle around each bundle, so this one dist/drizzle copy serves both
+// dist/main.mjs and the dist/runtime/*.mjs daemon bundles; without it the
+// packaged CLI silently skips managed migrations.
+const drizzleSourceDirectory = resolve(repoRoot, "packages", "runtime", "drizzle");
+const drizzleOutputDirectory = resolve(outputDirectory, "drizzle");
+rmSync(drizzleOutputDirectory, { recursive: true, force: true });
+cpSync(drizzleSourceDirectory, drizzleOutputDirectory, { recursive: true });
+if (!existsSync(resolve(drizzleOutputDirectory, "meta", "_journal.json"))) {
+  console.error("  ERROR: dist/drizzle copy is missing meta/_journal.json.");
+  process.exit(1);
+}
+console.log(`  copied managed migrations -> ${drizzleOutputDirectory}`);
 
 // Whether the broker service binary MUST be present when this build finishes.
 // Publishing without it silently recreates the "Unable to locate scoutd"

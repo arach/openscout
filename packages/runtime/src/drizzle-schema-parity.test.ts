@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { generateSQLiteDrizzleJson, generateSQLiteMigration } from "drizzle-kit/api";
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import { applyControlPlaneDrizzleMigrations } from "./control-plane-migrations.js";
 import {
   controlPlaneDrizzleSchema,
   DURABLE_ACTIONS_DUE_AT_INDEX_SQL,
@@ -150,7 +151,7 @@ function indexDescriptors(db: Database): string[] {
   const tables = (
     db
       .query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__drizzle_migrations'",
       )
       .all() as Array<{ name: string }>
   ).map((r) => r.name);
@@ -193,7 +194,7 @@ function objectNames(db: Database, type: "table" | "index"): string[] {
   return (
     db
       .query(
-        `SELECT name FROM sqlite_master WHERE type='${type}' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+        `SELECT name FROM sqlite_master WHERE type='${type}' AND sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name != '__drizzle_migrations' ORDER BY name`,
       )
       .all() as Array<{ name: string }>
   ).map((r) => r.name);
@@ -300,5 +301,62 @@ describe("control-plane schema parity: raw SQL vs Drizzle", () => {
     expect(rawSql).toBeDefined();
     expect(drizzleSql).toBeDefined();
     expect(normalizeSql(drizzleSql!)).toBe(normalizeSql(rawSql!));
+  });
+});
+
+// Phase 1 gate: the CHECKED-IN migrations (drizzle/, incl. the hand-fixed
+// expression index in the baseline) applied through the real production path
+// must also reproduce the raw schema. Where the Phase 0 gate proves the
+// declarative model matches, this one proves the shipped migration chain
+// matches — it fails when drizzle-schema.ts changes without a generated
+// migration, or when a generated migration is edited out of lockstep.
+describe("control-plane schema parity: raw SQL vs checked-in migrations", () => {
+  let baselineDb: Database;
+
+  beforeAll(() => {
+    baselineDb = new Database(":memory:");
+    baselineDb.exec("PRAGMA foreign_keys = ON;");
+    expect(applyControlPlaneDrizzleMigrations(baselineDb)).toBe(true);
+  });
+
+  test("same set of tables", () => {
+    expect(objectNames(baselineDb, "table")).toEqual(objectNames(rawDb, "table"));
+  });
+
+  test("every table has identical columns, defaults, PKs and foreign keys", () => {
+    const mismatches: string[] = [];
+    for (const tableName of objectNames(rawDb, "table")) {
+      const rawJson = JSON.stringify(tableFingerprint(rawDb, tableName), null, 2);
+      const baselineJson = JSON.stringify(tableFingerprint(baselineDb, tableName), null, 2);
+      if (rawJson !== baselineJson) {
+        mismatches.push(
+          `\n### ${tableName}\n--- raw ---\n${rawJson}\n--- migrations ---\n${baselineJson}`,
+        );
+      }
+    }
+    expect(mismatches.join("\n")).toBe("");
+  });
+
+  test("every raw named index exists with identical normalized SQL", () => {
+    const rawIndexes = namedIndexSql(rawDb);
+    const baselineIndexes = namedIndexSql(baselineDb);
+    const problems: string[] = [];
+    for (const [name, rawSql] of rawIndexes) {
+      const baselineSql = baselineIndexes.get(name);
+      if (baselineSql === undefined) {
+        problems.push(`\nMISSING in migrations: ${name}\n  raw: ${normalizeSql(rawSql)}`);
+        continue;
+      }
+      if (normalizeSql(rawSql) !== normalizeSql(baselineSql)) {
+        problems.push(
+          `\nDRIFT: ${name}\n  raw       : ${normalizeSql(rawSql)}\n  migrations: ${normalizeSql(baselineSql)}`,
+        );
+      }
+    }
+    expect(problems.join("\n")).toBe("");
+  });
+
+  test("structural index descriptor sets match in both directions", () => {
+    expect(indexDescriptors(baselineDb)).toEqual(indexDescriptors(rawDb));
   });
 });

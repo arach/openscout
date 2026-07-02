@@ -189,6 +189,7 @@
     "bin",
     "src",
     "dist",
+    "drizzle",
     "README.md"
   ],
   "scripts": {
