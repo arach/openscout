@@ -125,7 +125,7 @@ export async function startScoutPairingSession(input: {
   const pendingEvents: ScoutPairingStatusEvent[] = [];
   let ready = false;
   let runtime: Awaited<ReturnType<typeof startPairingRuntime>> | null = null;
-  let relay: ReturnType<typeof startManagedRelay> | null = null;
+  let relay: Awaited<ReturnType<typeof startManagedRelay>> | null = null;
 
   const emit = (event: ScoutPairingEvent) => input.onEvent(event);
   const emitOrQueue = (event: ScoutPairingStatusEvent) => {
@@ -141,10 +141,8 @@ export async function startScoutPairingSession(input: {
     : input.relayUrl?.trim() || config.relay;
 
   try {
-    const managedRelay = resolvedRelayUrl ? null : (() => {
-      relay = startManagedRelay(config.port + 1);
-      return relay;
-    })();
+    const managedRelay = resolvedRelayUrl ? null : await startManagedRelay(config.port + 1);
+    relay = managedRelay;
     const activeRelayUrl = resolvedRelayUrl ?? managedRelay?.relayUrl;
     const connectRelayUrl = resolvedRelayUrl ?? managedRelay?.connectUrl ?? managedRelay?.relayUrl;
     if (!activeRelayUrl || !connectRelayUrl) {

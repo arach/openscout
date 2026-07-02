@@ -41,6 +41,8 @@ repo-service is **subsumed, not paralleled** (per SCO-077): its scan/diff parser
 
 Socket: `$OPENSCOUT_HOME/run/scoutd-probes.sock`, mode 0600, foreground-runnable for dev (`scoutd probes serve` with no supervisor works standalone; the TS registry uses the socket if present, local backend otherwise).
 
+Framing rule for M2: start with one JSON request per UDS connection. Do not introduce a shared multiplexed stream unless the envelope grows an explicit `requestId`; otherwise concurrent probe responses cannot be correlated safely.
+
 Pull-over-UDS; the TS registry stays the cache/freshness owner per process, the daemon owns execution, pacing, and cross-process dedup (single-flight per probe key *machine-wide*, which no TS-side registry can give us).
 
 ```json
@@ -94,7 +96,7 @@ Probes cover reads. The ~30 sync imperative sites (tmux send-keys/paste/kill/new
 | # | deliverable | acceptance |
 |---|---|---|
 | M0 ✅ | SCO-077 design (codex-reviewed) + 227-site census | done 2026-07-02 |
-| M1 | TS registry + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
+| M1 | TS registry + sanctioned async, output-capped exec helper + `tailscale.status`, `git.buildInfo` probes on the local backend (the incident killers), `fresh()`/`invalidate()` sites wired | `/api/build` + attention snapshot run **zero** subprocesses per request; ≤1 tailscale exec per 30s per process |
 | M2 | `scoutd probes serve` spike: envelope + capabilities + those same two families over UDS; supervisor spawns/restarts it; doctor shows backend | kill the probe child → registry falls back visibly within one TTL, nothing user-facing breaks |
 | M3 | Family burn-down: `tmux.*`, `ps.runtime`, `net.listeners`, `sessions.*`, `cert.status` — web **and** the desktop mirror tree; imperatives → async helper; lint fence Phase A green | census highest-risk list fully migrated; allowlist contains only BOOT-OK + imperative entries |
 | M4 | repo-service subsumption: repo-watch/repo-diff route over the resident socket; spawn-per-request retired | one Rust artifact owns all git reads; `openscout-repo-service` binary retired or wrapper-only |

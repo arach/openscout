@@ -3,6 +3,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 
+import { tailscaleStatusProbe, type TailscaleStatusSummary } from "@openscout/runtime/system-probes";
+
 import { pairingLog } from "./log";
 import { startRelay, type RelayOptions } from "./relay/relay";
 
@@ -75,34 +77,24 @@ function storedCertificateLooksPubliclyTrusted(certPath: string): boolean {
   }
 }
 
-function readTailscaleStatus(): TailscaleStatusProbe | null {
-  try {
-    const output = execFileSync("tailscale", ["status", "--self=true", "--peers=false", "--json"], {
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5_000,
-    }).toString();
-    const data = JSON.parse(output) as {
-      BackendState?: string;
-      Health?: string[];
-      Self?: {
-        DNSName?: string;
-        Online?: boolean;
-      };
-    };
-
-    const dnsName = typeof data.Self?.DNSName === "string"
-      ? data.Self.DNSName.replace(/\.$/, "")
-      : "";
-
-    return {
-      backendState: typeof data.BackendState === "string" ? data.BackendState : null,
-      dnsName: dnsName || null,
-      online: data.Self?.Online !== false,
-      health: Array.isArray(data.Health) ? data.Health.filter((entry): entry is string => typeof entry === "string") : [],
-    };
-  } catch {
+function statusProbeFromSummary(summary: TailscaleStatusSummary | null): TailscaleStatusProbe | null {
+  if (!summary) {
     return null;
   }
+  const dnsName = typeof summary.self?.dnsName === "string"
+    ? summary.self.dnsName.replace(/\.$/, "")
+    : "";
+  return {
+    backendState: summary.backendState,
+    dnsName: dnsName || null,
+    online: summary.self?.online !== false,
+    health: summary.health,
+  };
+}
+
+async function readTailscaleStatus(): Promise<TailscaleStatusProbe | null> {
+  const snapshot = await tailscaleStatusProbe.fresh({ maxAgeMs: 5_000 });
+  return statusProbeFromSummary(snapshot.value);
 }
 
 export function resolveRelayEndpointForTailscaleStatus(
@@ -210,16 +202,16 @@ function resolveTls(hostname: string | null) {
   return generateTailscaleCerts(hostname);
 }
 
-function resolveRelayEndpoint(port: number) {
-  return resolveRelayEndpointForTailscaleStatus(port, readTailscaleStatus());
+async function resolveRelayEndpoint(port: number) {
+  return resolveRelayEndpointForTailscaleStatus(port, await readTailscaleStatus());
 }
 
-export function suggestedRelayUrl(port = 43131) {
-  return resolveRelayEndpoint(port).relayUrl;
+export async function suggestedRelayUrl(port = 43131) {
+  return (await resolveRelayEndpoint(port)).relayUrl;
 }
 
-export function startManagedRelay(port = 43131): StartedManagedRelay {
-  const endpoint = resolveRelayEndpoint(port);
+export async function startManagedRelay(port = 43131): Promise<StartedManagedRelay> {
+  const endpoint = await resolveRelayEndpoint(port);
   pairingLog.info("relay", "starting managed relay", {
     relay: endpoint.relayUrl,
     connectUrl: endpoint.connectUrl,
