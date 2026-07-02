@@ -1,6 +1,19 @@
 import "./terminal-screen.css";
 
-import { Eye, LogIn, MoreHorizontal, Power, RefreshCw, Square, Terminal as TerminalIcon, Zap } from "lucide-react";
+import {
+  ExternalLink,
+  Eye,
+  Grid2X2,
+  LogIn,
+  MoreHorizontal,
+  Plus,
+  Power,
+  RefreshCw,
+  Square,
+  Terminal as TerminalIcon,
+  X,
+  Zap,
+} from "lucide-react";
 import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -84,6 +97,26 @@ type TerminalSessionsState =
   | { state: "loading"; sessions: Awaited<ReturnType<typeof fetchTerminalSessions>> }
   | { state: "ready"; sessions: Awaited<ReturnType<typeof fetchTerminalSessions>> }
   | { state: "failed"; sessions: Awaited<ReturnType<typeof fetchTerminalSessions>>; error: string };
+
+type TerminalBackend = NonNullable<TerminalRoute["terminalBackend"]>;
+type TerminalAgentKind = NonNullable<TerminalRoute["terminalAgent"]>;
+
+type FreshTerminalTileModel = {
+  id: string;
+  kind: "fresh";
+  backend: TerminalBackend;
+  agent: TerminalAgentKind;
+  sessionName?: string;
+  zellijSocketDir?: string;
+};
+
+type RegisteredTerminalTileModel = {
+  id: string;
+  kind: "registered";
+  target: RegisteredTerminalTarget;
+};
+
+type TerminalWorkspaceTileModel = FreshTerminalTileModel | RegisteredTerminalTileModel;
 
 function useTerminalSessionsTarget(
   terminalSessionId: string | undefined,
@@ -652,12 +685,16 @@ function TerminalRelayCanvas({
   mode,
   navigate,
   registeredTarget,
+  embedded = false,
+  tileActions,
 }: {
   agentId?: string;
   agent: Agent | null;
   mode?: "observe" | "takeover";
   navigate: (route: Route) => void;
   registeredTarget?: RegisteredTerminalTarget;
+  embedded?: boolean;
+  tileActions?: ReactNode;
 }) {
   const showContextMenu = useContextMenu();
   const session = useTerminalRelaySession({
@@ -670,15 +707,17 @@ function TerminalRelayCanvas({
   });
 
   return (
-    <div className="s-term">
+    <div className={`s-term${embedded ? " s-term--embedded" : ""}`}>
       <div className="s-term-bar s-term-bar--takeover">
         <div className="s-term-bar-left">
-          <BackToPicker
-            slot="terminal"
-            fallback={{ view: "terminal" }}
-            navigate={navigate}
-            className="s-term-back"
-          />
+          {!embedded && (
+            <BackToPicker
+              slot="terminal"
+              fallback={{ view: "terminal" }}
+              navigate={navigate}
+              className="s-term-back"
+            />
+          )}
           {agent && (
             <div className="s-term-agent">
               <div
@@ -798,6 +837,7 @@ function TerminalRelayCanvas({
                 ? "CONNECTING"
                 : "OFFLINE"}
           </div>
+          {tileActions}
         </div>
       </div>
       <div
@@ -882,9 +922,73 @@ function RegisteredTerminalSessions({
   );
 }
 
+function createTerminalTileId(prefix: string): string {
+  const random = typeof globalThis.crypto?.randomUUID === "function"
+    ? globalThis.crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now().toString(36)}-${random}`;
+}
+
+function createFreshTerminalTile(
+  backend: TerminalBackend,
+  agent: TerminalAgentKind = "shell",
+): FreshTerminalTileModel {
+  const id = createTerminalTileId(backend);
+  return {
+    id,
+    kind: "fresh",
+    backend,
+    agent,
+    ...(backend === "pty" ? {} : { sessionName: `scout-${backend}-${id}` }),
+  };
+}
+
+function registeredTerminalTileId(target: RegisteredTerminalTarget): string {
+  return `registered:${target.session.id}:${surfaceKey(target.surface)}`;
+}
+
+function registeredTargetFromListItem(
+  item: ReturnType<typeof terminalListItems>[number],
+): RegisteredTerminalTarget {
+  return { session: item.session, surface: item.surface };
+}
+
+function freshTerminalRouteForTile(tile: FreshTerminalTileModel): TerminalRoute {
+  return {
+    view: "terminal",
+    terminalBackend: tile.backend,
+    terminalAgent: tile.agent,
+    terminalTabId: tile.id,
+    ...(tile.sessionName ? { terminalSessionName: tile.sessionName } : {}),
+    ...(tile.zellijSocketDir ? { zellijSocketDir: tile.zellijSocketDir } : {}),
+  };
+}
+
+function registeredTerminalRouteForTarget(
+  target: RegisteredTerminalTarget,
+  mode: "observe" | "takeover" = "takeover",
+): TerminalRoute {
+  return {
+    view: "terminal",
+    terminalSessionId: target.session.id,
+    terminalSurfaceKey: surfaceKey(target.surface),
+    mode,
+  };
+}
+
+function openTerminalRouteExternally(route: TerminalRoute, navigate: TerminalNavigate): void {
+  if (typeof window === "undefined") {
+    navigate(route);
+    return;
+  }
+  window.open(absoluteRouteUrl(route), "_blank", "noopener,noreferrer");
+}
+
 function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const { agents } = useScout();
   const [state, setState] = useState<TerminalSessionsState>({ state: "loading", sessions: [] });
+  const [tiles, setTiles] = useState<TerminalWorkspaceTileModel[]>([]);
+  const [workspaceReload, setWorkspaceReload] = useState(0);
 
   const loadSessions = useCallback((options: { silent?: boolean } = {}) => {
     if (!options.silent) {
@@ -921,6 +1025,10 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   }, [loadSessions]);
 
   const terminalItems = useMemo(() => terminalListItems(state.sessions), [state.sessions]);
+  const attachableItems = useMemo(
+    () => terminalItems.filter((item) => item.surface.state !== "exited"),
+    [terminalItems],
+  );
   const terminalAgents = useMemo(() => sortTerminalAgents(agents), [agents]);
   const boundAgentCount = useMemo(
     () => terminalAgents.filter((agent) => resolveAgentTerminalSurface(agent)).length,
@@ -929,34 +1037,132 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   const liveTerminalCount = terminalItems.filter((item) => item.surface.state !== "exited").length;
   const sessionError = state.state === "failed" ? state.error : null;
 
+  useEffect(() => {
+    setTiles((current) => {
+      let changed = false;
+      const next = current.map((tile) => {
+        if (tile.kind !== "registered") return tile;
+        const nextTarget = resolveRegisteredTerminalTarget(
+          state.sessions,
+          tile.target.session.id,
+          surfaceKey(tile.target.surface),
+        );
+        if (!nextTarget) return tile;
+        if (nextTarget.session === tile.target.session && nextTarget.surface === tile.target.surface) {
+          return tile;
+        }
+        changed = true;
+        return { ...tile, target: nextTarget };
+      });
+      return changed ? next : current;
+    });
+  }, [state.sessions]);
+
+  const addFreshTile = useCallback((backend: TerminalBackend, agent: TerminalAgentKind = "shell") => {
+    setTiles((current) => [...current, createFreshTerminalTile(backend, agent)]);
+  }, []);
+
+  const attachRegisteredTarget = useCallback((target: RegisteredTerminalTarget) => {
+    const id = registeredTerminalTileId(target);
+    setTiles((current) => {
+      if (current.some((tile) => tile.id === id)) return current;
+      return [...current, { id, kind: "registered", target }];
+    });
+  }, []);
+
+  const attachLiveTerminals = useCallback(() => {
+    const targets = attachableItems.map(registeredTargetFromListItem);
+    if (targets.length === 0) return;
+    setTiles((current) => {
+      const next = [...current];
+      const seen = new Set(current.map((tile) => tile.id));
+      for (const target of targets) {
+        const id = registeredTerminalTileId(target);
+        if (seen.has(id)) continue;
+        seen.add(id);
+        next.push({ id, kind: "registered", target });
+      }
+      return next;
+    });
+  }, [attachableItems]);
+
+  const closeTile = useCallback((tileId: string) => {
+    setTiles((current) => current.filter((tile) => tile.id !== tileId));
+  }, []);
+
+  const reloadWorkspace = useCallback(() => {
+    loadSessions();
+    setWorkspaceReload((current) => current + 1);
+  }, [loadSessions]);
+
   return (
-    <div className="s-term s-term--home">
-      <div className="s-term-home">
-        <header className="s-term-home-head">
-          <div className="s-term-summary-mark">
-            <TerminalIcon size={18} strokeWidth={1.7} />
-            <span>Terminals</span>
+    <div className="s-term s-term--workspace">
+      <div className="s-term-workspace">
+        <header className="s-term-workspace-head">
+          <div className="s-term-workspace-title">
+            <span className="s-term-summary-mark">
+              <Grid2X2 size={18} strokeWidth={1.7} />
+              <span>Terminals</span>
+            </span>
+            <h1>Terminal Workspace</h1>
           </div>
-          <div className="s-term-home-titleline">
-            <h1>Terminal Control</h1>
+          <div className="s-term-workspace-actions" aria-label="Terminal workspace actions">
             <button
               type="button"
-              className="s-term-home-refresh"
-              onClick={() => loadSessions()}
+              className="s-term-workspace-action s-term-workspace-action--primary"
+              onClick={() => addFreshTile("pty")}
+              title="New shell tile"
+            >
+              <Plus size={14} strokeWidth={1.9} />
+              <span>Shell</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-workspace-action"
+              onClick={() => addFreshTile("tmux")}
+              title="New tmux tile"
+            >
+              <TerminalIcon size={14} strokeWidth={1.8} />
+              <span>Tmux</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-workspace-action"
+              onClick={() => addFreshTile("zellij")}
+              title="New zellij tile"
+            >
+              <TerminalIcon size={14} strokeWidth={1.8} />
+              <span>Zellij</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-workspace-action"
+              onClick={attachLiveTerminals}
+              disabled={attachableItems.length === 0}
+              title="Attach live registered terminals"
+            >
+              <LogIn size={14} strokeWidth={1.8} />
+              <span>Attach</span>
+            </button>
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={reloadWorkspace}
               disabled={state.state === "loading"}
-              title="Refresh terminals"
-              aria-label="Refresh terminals"
+              title="Reload all terminal tiles"
+              aria-label="Reload all terminal tiles"
             >
               <RefreshCw size={14} strokeWidth={1.8} />
             </button>
           </div>
-          <div className="s-term-home-stats" aria-label="Terminal inventory">
-            <Stat label="Live" value={liveTerminalCount} />
-            <Stat label="Registered" value={terminalItems.length} />
-            <Stat label="Agents" value={terminalAgents.length} />
-            <Stat label="Bound" value={boundAgentCount} />
-          </div>
         </header>
+
+        <div className="s-term-home-stats" aria-label="Terminal inventory">
+          <Stat label="Tiles" value={tiles.length} />
+          <Stat label="Live" value={liveTerminalCount} />
+          <Stat label="Registered" value={terminalItems.length} />
+          <Stat label="Bound" value={boundAgentCount} />
+        </div>
 
         {sessionError && (
           <div className="s-term-home-error">
@@ -965,10 +1171,47 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
           </div>
         )}
 
-        <div className="s-term-home-grid">
-          <section className="s-term-home-section" aria-labelledby="terminal-home-sessions">
+        {tiles.length === 0 ? (
+          <div className="s-term-workspace-empty">
+            <Grid2X2 size={22} strokeWidth={1.55} />
+            <strong>No terminal tiles</strong>
+            <div className="s-term-workspace-empty-actions">
+              <button
+                type="button"
+                className="s-term-workspace-action s-term-workspace-action--primary"
+                onClick={() => addFreshTile("pty")}
+              >
+                <Plus size={14} strokeWidth={1.9} />
+                <span>Shell</span>
+              </button>
+              <button
+                type="button"
+                className="s-term-workspace-action"
+                onClick={attachLiveTerminals}
+                disabled={attachableItems.length === 0}
+              >
+                <LogIn size={14} strokeWidth={1.8} />
+                <span>Attach</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="s-term-workspace-grid" aria-label="Terminal tiles">
+            {tiles.map((tile) => (
+              <TerminalWorkspaceTile
+                key={`${tile.id}:${workspaceReload}`}
+                tile={tile}
+                navigate={navigate}
+                onClose={closeTile}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="s-term-workspace-dock">
+          <section className="s-term-home-section" aria-labelledby="terminal-workspace-sessions">
             <div className="s-term-home-section-head">
-              <h2 id="terminal-home-sessions">Live Sessions</h2>
+              <h2 id="terminal-workspace-sessions">Live Sessions</h2>
               <span>{state.state === "loading" ? "syncing" : `${terminalItems.length}`}</span>
             </div>
             <div className="s-term-home-list">
@@ -976,15 +1219,20 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
                 <div className="s-term-home-empty">No registered terminals</div>
               ) : (
                 terminalItems.map((item) => (
-                  <TerminalHomeSessionRow key={item.id} item={item} navigate={navigate} />
+                  <TerminalHomeSessionRow
+                    key={item.id}
+                    item={item}
+                    navigate={navigate}
+                    onAttach={attachRegisteredTarget}
+                  />
                 ))
               )}
             </div>
           </section>
 
-          <section className="s-term-home-section" aria-labelledby="terminal-home-agents">
+          <section className="s-term-home-section" aria-labelledby="terminal-workspace-agents">
             <div className="s-term-home-section-head">
-              <h2 id="terminal-home-agents">Agents</h2>
+              <h2 id="terminal-workspace-agents">Agents</h2>
               <span>{terminalAgents.length}</span>
             </div>
             <div className="s-term-home-list">
@@ -1003,12 +1251,203 @@ function TerminalHome({ navigate }: { navigate: TerminalNavigate }) {
   );
 }
 
+function TerminalWorkspaceTile({
+  tile,
+  navigate,
+  onClose,
+}: {
+  tile: TerminalWorkspaceTileModel;
+  navigate: TerminalNavigate;
+  onClose: (tileId: string) => void;
+}) {
+  if (tile.kind === "registered") {
+    return (
+      <RegisteredTerminalWorkspaceTile
+        tile={tile}
+        navigate={navigate}
+        onClose={onClose}
+      />
+    );
+  }
+  return (
+    <FreshTerminalWorkspaceTile
+      tile={tile}
+      navigate={navigate}
+      onClose={onClose}
+    />
+  );
+}
+
+function FreshTerminalWorkspaceTile({
+  tile,
+  navigate,
+  onClose,
+}: {
+  tile: FreshTerminalTileModel;
+  navigate: TerminalNavigate;
+  onClose: (tileId: string) => void;
+}) {
+  const terminalBodyRef = useRef<HTMLDivElement>(null);
+  const relayUrl = resolveScoutTerminalRelayUrl();
+  const healthUrl = resolveScoutTerminalRelayHealthUrl();
+  const label = freshTerminalLabel(tile.backend, tile.agent);
+  const route = freshTerminalRouteForTile(tile);
+  const sessionKey = [
+    "scout-terminal-workspace",
+    tile.id,
+    tile.backend,
+    tile.agent,
+    tile.sessionName ?? "pty",
+  ].join("-");
+
+  const relay = useTerminalRelay({
+    url: relayUrl,
+    healthUrl,
+    autoConnect: true,
+    sessionKey,
+    backend: tile.backend,
+    ...(tile.sessionName ? { terminalSession: tile.sessionName } : {}),
+    ...(tile.backend === "tmux" && tile.sessionName ? { tmuxSession: tile.sessionName } : {}),
+    ...(tile.backend === "zellij" && tile.sessionName ? { zellijSession: tile.sessionName } : {}),
+    ...(tile.backend === "zellij" && tile.zellijSocketDir ? { zellijSocketDir: tile.zellijSocketDir } : {}),
+    agent: tile.agent,
+  } as ScoutTerminalRelayOptions as HudsonTerminalRelayOptions);
+
+  useBrowserLayoutEffect(() => {
+    relay.resize(SCOUT_TERMINAL_INITIAL_COLS, SCOUT_TERMINAL_INITIAL_ROWS);
+  }, [relay.resize]);
+
+  const openStandalone = useCallback(() => {
+    openTerminalRouteExternally(route, navigate);
+  }, [navigate, route]);
+
+  return (
+    <section className="s-term-workspace-tile" aria-label={label.title}>
+      <div className="s-term s-term--embedded">
+        <div className="s-term-bar s-term-bar--fresh">
+          <div className="s-term-bar-left">
+            <span className="s-term-workspace-tile-mark">
+              <TerminalIcon size={14} strokeWidth={1.8} />
+            </span>
+            <span className="s-term-workspace-tile-name">{label.title}</span>
+          </div>
+          <div className="s-term-bar-meta">
+            <span className="s-term-label">{tile.backend}</span>
+            <span className="s-term-session">{label.detail}</span>
+          </div>
+          <div className="s-term-bar-actions">
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={() => relay.restart()}
+              title="Restart terminal"
+              aria-label="Restart terminal"
+            >
+              <RefreshCw size={14} strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={openStandalone}
+              title="Open terminal in a new window"
+              aria-label="Open terminal in a new window"
+            >
+              <ExternalLink size={14} strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              className="s-term-icon-button s-term-icon-button--danger"
+              onClick={() => onClose(tile.id)}
+              title="Close tile"
+              aria-label="Close tile"
+            >
+              <X size={14} strokeWidth={1.8} />
+            </button>
+          </div>
+        </div>
+        <div
+          ref={terminalBodyRef}
+          className="s-term-body"
+          onMouseDown={() => {
+            terminalBodyRef.current?.querySelector<HTMLTextAreaElement>(".xterm-helper-textarea")?.focus();
+            terminalBodyRef.current?.querySelector<HTMLElement>(".xterm")?.focus();
+          }}
+        >
+          <TerminalRelay
+            relay={relay}
+            fontSize={13}
+            quiet
+            configItems={[
+              { label: "backend", value: tile.backend },
+              { label: "agent", value: tile.agent },
+              ...(tile.sessionName ? [{ label: "session", value: tile.sessionName }] : []),
+              ...(tile.zellijSocketDir ? [{ label: "socket", value: tile.zellijSocketDir }] : []),
+              { label: "ws", value: relayUrl },
+              { label: "health", value: healthUrl },
+            ]}
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RegisteredTerminalWorkspaceTile({
+  tile,
+  navigate,
+  onClose,
+}: {
+  tile: RegisteredTerminalTileModel;
+  navigate: TerminalNavigate;
+  onClose: (tileId: string) => void;
+}) {
+  const openStandalone = useCallback(() => {
+    openTerminalRouteExternally(registeredTerminalRouteForTarget(tile.target), navigate);
+  }, [navigate, tile.target]);
+
+  return (
+    <section className="s-term-workspace-tile" aria-label={tile.target.surface.sessionName}>
+      <TerminalRelayCanvas
+        agent={null}
+        mode="takeover"
+        navigate={navigate}
+        registeredTarget={tile.target}
+        embedded
+        tileActions={(
+          <>
+            <button
+              type="button"
+              className="s-term-icon-button"
+              onClick={openStandalone}
+              title="Open terminal in a new window"
+              aria-label="Open terminal in a new window"
+            >
+              <ExternalLink size={14} strokeWidth={1.8} />
+            </button>
+            <button
+              type="button"
+              className="s-term-icon-button s-term-icon-button--danger"
+              onClick={() => onClose(tile.id)}
+              title="Close tile"
+              aria-label="Close tile"
+            >
+              <X size={14} strokeWidth={1.8} />
+            </button>
+          </>
+        )}
+      />
+    </section>
+  );
+}
+
 function TerminalHomeSessionRow({
   item,
   navigate,
+  onAttach,
 }: {
   item: ReturnType<typeof terminalListItems>[number];
   navigate: TerminalNavigate;
+  onAttach?: (target: RegisteredTerminalTarget) => void;
 }) {
   const routeBase = {
     view: "terminal" as const,
@@ -1036,6 +1475,16 @@ function TerminalHomeSessionRow({
         </span>
       </button>
       <div className="s-term-home-row-actions">
+        {onAttach && (
+          <button
+            type="button"
+            className="s-term-summary-action"
+            onClick={() => onAttach(registeredTargetFromListItem(item))}
+          >
+            <Plus size={13} strokeWidth={1.8} />
+            <span>Tile</span>
+          </button>
+        )}
         <button
           type="button"
           className="s-term-summary-action s-term-summary-action--primary"
