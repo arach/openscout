@@ -166,8 +166,6 @@ const expectedRouteInventory = [
   "GET /v1/tail/recent",
   "GET /v1/thread-watches/:id/stream",
   "GET /v1/topology/snapshot",
-  "GET /v1/unblock-requests",
-  "GET /v1/unblock-requests/events",
   "GET /v1/web/status",
   "OPTIONS /v1/web/start",
   "OPTIONS /v1/web/status",
@@ -213,8 +211,6 @@ const expectedRouteInventory = [
   "POST /v1/thread-watches/open",
   "POST /v1/thread-watches/renew",
   "POST /v1/topology/nudge",
-  "POST /v1/unblock-requests",
-  "POST /v1/unblock-requests/events",
   "POST /v1/web/start",
 ];
 

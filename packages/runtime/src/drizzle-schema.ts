@@ -439,51 +439,6 @@ export const collaborationEventsTable = sqliteTable("collaboration_events", {
   index("idx_collaboration_events_record_created_at").on(table.recordId, table.createdAt),
 ]);
 
-// -- unblock_requests --------------------------------------------------------
-export const unblockRequestsTable = sqliteTable("unblock_requests", {
-  id: text("id").primaryKey(),
-  kind: text("kind").notNull(),
-  state: text("state").notNull(),
-  source: text("source").notNull(),
-  sourceRef: text("source_ref").notNull(),
-  sourceLabel: text("source_label"),
-  title: text("title").notNull(),
-  summary: text("summary"),
-  detail: text("detail"),
-  ownerId: text("owner_id").notNull(),
-  createdById: text("created_by_id").notNull(),
-  agentId: text("agent_id"),
-  conversationId: text("conversation_id").references(() => conversationsTable.id, { onDelete: "set null" }),
-  sessionId: text("session_id"),
-  flightId: text("flight_id").references(() => flightsTable.id, { onDelete: "set null" }),
-  collaborationRecordId: text("collaboration_record_id").references(() => collaborationRecordsTable.id, { onDelete: "set null" }),
-  severity: text("severity"),
-  actionsJson: text("actions_json"),
-  metadataJson: text("metadata_json"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-  expiresAt: integer("expires_at"),
-  resolvedAt: integer("resolved_at"),
-  resolution: text("resolution"),
-}, (table) => [
-  unique().on(table.source, table.sourceRef),
-  index("idx_unblock_requests_state_owner_updated_at").on(table.state, table.ownerId, table.updatedAt),
-  index("idx_unblock_requests_source_ref").on(table.source, table.sourceRef),
-]);
-
-// -- unblock_request_events --------------------------------------------------
-export const unblockRequestEventsTable = sqliteTable("unblock_request_events", {
-  id: text("id").primaryKey(),
-  requestId: text("request_id").notNull().references(() => unblockRequestsTable.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull(),
-  actorId: text("actor_id").notNull(),
-  summary: text("summary"),
-  metadataJson: text("metadata_json"),
-  createdAt: integer("created_at").notNull(),
-}, (table) => [
-  index("idx_unblock_request_events_request_created_at").on(table.requestId, table.createdAt),
-]);
-
 // -- events ------------------------------------------------------------------
 export const eventsTable = sqliteTable("events", {
   id: text("id").primaryKey(),
@@ -714,8 +669,6 @@ export const controlPlaneDrizzleSchema = {
   durableSignals: durableSignalsTable,
   collaborationRecords: collaborationRecordsTable,
   collaborationEvents: collaborationEventsTable,
-  unblockRequests: unblockRequestsTable,
-  unblockRequestEvents: unblockRequestEventsTable,
   events: eventsTable,
   threadEvents: threadEventsTable,
   threadCursors: threadCursorsTable,
