@@ -29,6 +29,10 @@ function hasColumn(database: Database, tableName: string, columnName: string): b
   return rows.some((row) => row.name === columnName);
 }
 
+function databaseFilename(database: Database): string {
+  return (database as Database & { filename?: string }).filename ?? "unknown path";
+}
+
 export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
   {
     id: "runtime-session-mapping-read-model",
@@ -167,7 +171,7 @@ export function assertControlPlaneSchemaNotNewer(database: Database): void {
   const stampedVersion = row?.user_version ?? 0;
   if (stampedVersion > CONTROL_PLANE_SCHEMA_VERSION) {
     throw new Error(
-      `Control-plane database "${database.filename}" is stamped schema v${stampedVersion}, ` +
+      `Control-plane database "${databaseFilename(database)}" is stamped schema v${stampedVersion}, ` +
         `but this build only knows v${CONTROL_PLANE_SCHEMA_VERSION}. Refusing to open a ` +
         `database written by a newer build — upgrade OpenScout instead of downgrading.`,
     );
