@@ -801,6 +801,16 @@ interface InvocationRow {
   labels_json: string | null;
   metadata_json: string | null;
   created_at: number;
+  // Flight status columns (Phase 3 flight→invocation storage merge, expand
+  // phase). Written by the recordFlight dual-write; reads still come from the
+  // flights table for now.
+  flight_id: string | null;
+  state: FlightRecord["state"] | null;
+  summary: string | null;
+  output: string | null;
+  error: string | null;
+  started_at: number | null;
+  completed_at: number | null;
 }
 
 interface FlightRow {
@@ -2428,6 +2438,26 @@ export class SQLiteControlPlaneStore {
       flight.error ?? null,
       stringify(flight.labels),
       stringify(flight.metadata),
+      flight.startedAt ?? null,
+      flight.completedAt ?? null,
+    );
+
+    // Dual-write the flight's status onto the merged invocation record (Phase 3
+    // flight→invocation storage merge, expand phase). Reads still come from the
+    // flights table above; these columns are the shadow copy PR D will read
+    // from. No-op when the invocation row is absent.
+    this.db.query(
+      `UPDATE invocations SET
+         flight_id = ?2, state = ?3, summary = ?4, output = ?5, error = ?6,
+         started_at = ?7, completed_at = ?8
+       WHERE id = ?1`,
+    ).run(
+      flight.invocationId,
+      flight.id,
+      flight.state,
+      flight.summary ?? null,
+      flight.output ?? null,
+      flight.error ?? null,
       flight.startedAt ?? null,
       flight.completedAt ?? null,
     );

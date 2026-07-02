@@ -239,9 +239,22 @@ export const invocationsTable = sqliteTable("invocations", {
   labelsJson: text("labels_json"),
   metadataJson: text("metadata_json"),
   createdAt: integer("created_at").notNull(),
+  // Flight status columns (flight→invocation storage merge, expand/dual-write
+  // phase): mirror the latest flight so invocations can serve reads alone.
+  flightId: text("flight_id"),
+  state: text("state"),
+  summary: text("summary"),
+  output: text("output"),
+  error: text("error"),
+  startedAt: integer("started_at"),
+  completedAt: integer("completed_at"),
 }, (table) => [
   index("idx_invocations_target_created_at").on(table.targetAgentId, table.createdAt),
   index("idx_invocations_requester_created_at").on(table.requesterId, desc(table.createdAt)),
+  // idx_invocations_flight_id lives only in the imperative migration array
+  // (like idx_invocations_collaboration_record_id_created_at): the raw schema
+  // exec runs before the imperative column-adds, so an index here would crash
+  // legacy databases whose invocations table predates the flight_id column.
 ]);
 
 // -- flights -----------------------------------------------------------------
