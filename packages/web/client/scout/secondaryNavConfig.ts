@@ -20,7 +20,9 @@ export const AGENTS_SECONDARY_NAV: SecondaryNavGroup[] = [
         id: "sessions",
         label: "Sessions",
         route: { view: "sessions" },
-        active: (route) => route.view === "sessions" || route.view === "terminal",
+        active: (route) => route.view === "sessions",
+        // Lean promotes Sessions to the primary bar, so the subnav entry only
+        // renders in the full nav.
         hideInLean: true,
       },
       {

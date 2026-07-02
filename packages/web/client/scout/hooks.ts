@@ -70,11 +70,6 @@ export function useScoutCommands(): CommandOption[] {
         shortcut: "Cmd+2",
       },
       {
-        id: "nav:fleet",
-        label: "Open Home Overview",
-        action: () => navigate({ view: "fleet" }),
-      },
-      {
         id: "nav:messages",
         label: "Go to Chat",
         action: () => navigate({ view: "messages" }),
@@ -122,6 +117,11 @@ export function useScoutCommands(): CommandOption[] {
         action: () => navigate({ view: "broker" }),
       },
       {
+        id: "nav:repos",
+        label: "Open Repos",
+        action: () => navigate({ view: "repos" }),
+      },
+      {
         id: "nav:harnesses",
         label: "Open Providers",
         action: () => navigate({ view: "harnesses" }),
@@ -140,10 +140,6 @@ export function useScoutCommands(): CommandOption[] {
         id: "nav:ops-atop",
         label: "Open Runtime",
         action: () => navigate({ view: "ops", mode: "atop" }),
-      }, {
-        id: "nav:workflow-topology",
-        label: "Open Workflow Topology",
-        action: () => navigate({ view: "agents-v2" }),
       }] : []),
       {
         id: "nav:settings",

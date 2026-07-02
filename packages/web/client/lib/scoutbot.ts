@@ -311,7 +311,8 @@ function normalizeRoute(raw: unknown): Route | null {
     case "inbox":
       return { view: "inbox" };
     case "fleet":
-      return { view: "fleet" };
+      // Deprecated alias of Home — steer scoutbot navigations to the real route.
+      return { view: "inbox" };
     case "agents":
     case "agents-v2":
       return {

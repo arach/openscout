@@ -50,7 +50,7 @@ export function liveActionSummary(input: {
   return input.fallbackTask?.trim() ? summarize(input.fallbackTask, 140) : null;
 }
 
-export type HomeCardAction = "profile" | "observe" | "peek";
+export type HomeCardAction = "profile" | "observe" | "peek" | "terminal";
 
 export function homeCardRoute(agent: Agent, action: HomeCardAction): Route {
   if (isSyntheticAgentId(agent.id)) {
@@ -68,9 +68,15 @@ export function homeCardRoute(agent: Agent, action: HomeCardAction): Route {
       return { view: "agents-v2", agentId: agent.id, tab: "observe" };
     case "peek":
       return { view: "agents-v2", selectedAgentId: agent.id };
+    case "terminal":
+      return { view: "terminal", agentId: agent.id, mode: "observe" };
   }
 }
 
 export function homeCardPeekEnabled(agent: Agent): boolean {
   return Boolean(agent.terminalSurface?.backend === "tmux" || agent.harnessSessionId);
+}
+
+export function homeCardTerminalEnabled(agent: Agent): boolean {
+  return Boolean(agent.terminalSurface);
 }

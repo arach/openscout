@@ -30,19 +30,19 @@ export const TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "ops", label: "Ops", route: { view: "ops" } },
 ];
 
-// Clean / lean launch nav — mirrors the macOS core. Home · Projects · Terminals · Chat ·
-// Tail · Dispatch · Repos. Tail/Dispatch/Repos are promoted out of the Ops
-// cluster to the primary bar; Search + the rest of Ops (Control/Mesh/Runtime/
-// Plans) drop off the bar and stay reachable via the Ops subnav + ⌘K palette.
-// Gated by the `nav.clean` flag.
+// Clean / lean launch nav — the three retrieval jobs (agent/session/terminal)
+// plus Home, Tail, and Dispatch. Home · Projects · Sessions · Terminals · Chat ·
+// Tail · Dispatch. Sessions holds a primary slot because find-my-session is a
+// core job; Repos drops off the bar (⌘K palette + jump dock) along with Search
+// and the rest of Ops (Control/Mesh/Runtime/Plans). Gated by the `nav.clean` flag.
 export const CLEAN_TOP_NAV_ITEMS: TopNavItem[] = [
   { key: "home", label: "Home", route: { view: "inbox" } },
   { key: "agents", label: "Projects", route: { view: "agents-v2" } },
+  { key: "sessions", label: "Sessions", route: { view: "sessions" } },
   { key: "terminals", label: "Terminals", route: { view: "terminal" } },
   { key: "chat", label: "Chat", route: { view: "messages" } },
   { key: "tail", label: "Tail", route: { view: "ops", mode: "tail" } },
   { key: "dispatch", label: "Dispatch", route: { view: "broker" } },
-  { key: "repos", label: "Repos", route: { view: "repos" } },
 ];
 
 export const TOP_NAV_VIEW_LABELS: Record<string, string> = {
@@ -87,8 +87,11 @@ export function topNavKeyForRoute(
     case "agents-v2":
     case "agents":
     case "agent-info":
-    case "sessions":
       return "agents";
+    case "sessions":
+      // Sessions is a primary tab in the lean nav; in the full nav it lives
+      // under the Agents subnav.
+      return cleanNav ? "sessions" : "agents";
     case "terminal":
       return "terminals";
     case "conversation":
@@ -101,7 +104,7 @@ export function topNavKeyForRoute(
     case "broker":
       return cleanNav ? "dispatch" : opsEnabled ? "ops" : "home";
     case "repos":
-      return cleanNav ? "repos" : opsEnabled ? "ops" : "home";
+      return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "harnesses":
       return cleanNav ? "home" : opsEnabled ? "ops" : "home";
     case "ops":

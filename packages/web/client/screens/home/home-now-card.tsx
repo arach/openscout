@@ -9,6 +9,7 @@ import type { Agent, FleetAsk, ObserveData, Route } from "../../lib/types.ts";
 import {
   homeCardPeekEnabled,
   homeCardRoute,
+  homeCardTerminalEnabled,
   liveActionSummary,
   type HomeCardAction,
 } from "./home-live-action.ts";
@@ -233,6 +234,7 @@ export function NowCard({
     observeLive,
   });
   const peekEnabled = homeCardPeekEnabled(agent);
+  const terminalEnabled = homeCardTerminalEnabled(agent);
   const dense = layout === "dense";
   const strip = layout === "strip";
   const fileGroup = laneModel.pops.edits.rows.length > 0
@@ -398,6 +400,7 @@ export function NowCard({
       <div className="s-now-card-actions" onClick={stopCardClick}>
         <CardAction label="Profile" onClick={onAction("profile")} />
         <CardAction label="Observe" onClick={onAction("observe")} primary />
+        <CardAction label="Terminal" onClick={onAction("terminal")} disabled={!terminalEnabled} />
         <CardAction label="Peek" onClick={onAction("peek")} disabled={!peekEnabled} />
       </div>
     </article>

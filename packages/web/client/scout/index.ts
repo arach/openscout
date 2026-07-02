@@ -34,13 +34,6 @@ const intents: AppIntent[] = [
     shortcut: "Cmd+2",
   },
   {
-    commandId: "nav:fleet",
-    title: "Open Home Overview",
-    description: "Navigate to the home overview with agent status summary",
-    category: "navigation",
-    keywords: ["home", "fleet", "overview", "status"],
-  },
-  {
     commandId: "nav:messages",
     title: "Go to Chat",
     description:
@@ -95,6 +88,13 @@ const intents: AppIntent[] = [
     keywords: ["dispatch", "broker", "routing", "delivery", "messages"],
   },
   {
+    commandId: "nav:repos",
+    title: "Open Repos",
+    description: "Navigate to the repos view for branches, diffs, and working-tree state",
+    category: "navigation",
+    keywords: ["repos", "repositories", "git", "branches", "diffs"],
+  },
+  {
     commandId: "nav:harnesses",
     title: "Open Providers",
     description: "Open the central view for providers, harnesses, observed topology, and budget feeds",
@@ -115,13 +115,6 @@ const intents: AppIntent[] = [
     description: "Open the live agent/process view with observed harness families",
     category: "navigation",
     keywords: ["runtime", "services", "atop", "process", "session", "agent", "topology"],
-  },
-  {
-    commandId: "nav:workflow-topology",
-    title: "Open Workflow Topology",
-    description: "Open the observed Claude workflow hierarchy and worker topology",
-    category: "navigation",
-    keywords: ["workflow", "workflows", "topology", "subagents", "claude"],
   },
   {
     commandId: "nav:settings",

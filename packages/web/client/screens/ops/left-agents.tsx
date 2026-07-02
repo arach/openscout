@@ -92,7 +92,7 @@ export function OpsAgentsLeft() {
           name="Overview"
           meta={`${agents.length}`}
           tone="neutral"
-          onClick={() => navigate({ view: "fleet" })}
+          onClick={() => navigate({ view: "inbox" })}
         />
         <RailRow
           name="Agents"

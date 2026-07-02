@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Activity, Compass, Database, GitBranch, MessageSquare, ScrollText, Terminal } from "lucide-react";
+import { Compass, FileText, GitBranch, House, ScrollText, Search, Send, Terminal } from "lucide-react";
+import { useOptionalFlag } from "hudsonkit/flags";
 import { useScout } from "../Provider.tsx";
 import { MeshCanvasMinimap } from "./MeshCanvasMinimap.tsx";
 import type { Route } from "../../lib/types.ts";
@@ -87,21 +88,25 @@ export function GlobalJumpDock() {
   );
 }
 
-const JUMPS: { id: string; label: string; icon: ReactNode; route: Route }[] = [
-  { id: "sessions", label: "Sessions", icon: <MessageSquare size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
+const JUMPS: { id: string; label: string; icon: ReactNode; route: Route; opsGated?: boolean }[] = [
+  { id: "sessions", label: "Sessions", icon: <FileText size={13} strokeWidth={1.6} />, route: { view: "sessions" } },
   { id: "terminals", label: "Terminals", icon: <Terminal size={13} strokeWidth={1.6} />, route: { view: "terminal" } },
   { id: "repos", label: "Repos", icon: <GitBranch size={13} strokeWidth={1.6} />, route: { view: "repos" } },
-  { id: "search", label: "Search", icon: <Database size={13} strokeWidth={1.6} />, route: { view: "search" } },
+  { id: "search", label: "Search", icon: <Search size={13} strokeWidth={1.6} />, route: { view: "search" } },
   { id: "tail", label: "Tail", icon: <ScrollText size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "tail" } },
-  { id: "ops", label: "Ops", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" } },
-  { id: "home", label: "Home", icon: <Activity size={13} strokeWidth={1.6} />, route: { view: "inbox" } },
-  { id: "dispatch", label: "Dispatch", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "broker" } },
+  // Mission control bounces to Home when the ops cluster is off — only offer
+  // the jump when it actually resolves.
+  { id: "ops", label: "Ops", icon: <Compass size={13} strokeWidth={1.6} />, route: { view: "ops", mode: "mission" }, opsGated: true },
+  { id: "home", label: "Home", icon: <House size={13} strokeWidth={1.6} />, route: { view: "inbox" } },
+  { id: "dispatch", label: "Dispatch", icon: <Send size={13} strokeWidth={1.6} />, route: { view: "broker" } },
 ];
 
 function JumpPanel({ navigate }: { navigate: (route: Route) => void }) {
+  const opsEnabled = useOptionalFlag("ops.control", true);
+  const jumps = JUMPS.filter((j) => !j.opsGated || opsEnabled);
   return (
     <div className="gjd-jumps">
-      {JUMPS.map((j) => (
+      {jumps.map((j) => (
         <button
           key={j.id}
           type="button"

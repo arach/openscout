@@ -4,8 +4,16 @@ import type { Agent, ObserveData } from "../../lib/types.ts";
 import {
   homeCardPeekEnabled,
   homeCardRoute,
+  homeCardTerminalEnabled,
   liveActionSummary,
 } from "./home-live-action.ts";
+
+const tmuxSurface = {
+  backend: "tmux",
+  sessionName: "scout-1",
+  paneId: null,
+  socketDir: null,
+} as const;
 
 function agent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -74,6 +82,15 @@ describe("homeCardRoute", () => {
     });
   });
 
+  test("routes managed agents straight to their terminal in observe mode", () => {
+    const managed = agent({ id: "managed-1" });
+    expect(homeCardRoute(managed, "terminal")).toEqual({
+      view: "terminal",
+      agentId: "managed-1",
+      mode: "observe",
+    });
+  });
+
   test("routes synthetic agents to sessions when possible", () => {
     const synthetic = agent({
       id: "native:grok:019f1b71-e561-7c62-a028-c3f977c41b25",
@@ -88,12 +105,16 @@ describe("homeCardRoute", () => {
 
 describe("homeCardPeekEnabled", () => {
   test("enabled when tmux surface or harness session exists", () => {
-    expect(
-      homeCardPeekEnabled(agent({
-        terminalSurface: { backend: "tmux", sessionId: "scout-1" },
-      })),
-    ).toBe(true);
+    expect(homeCardPeekEnabled(agent({ terminalSurface: tmuxSurface }))).toBe(true);
     expect(homeCardPeekEnabled(agent({ harnessSessionId: "sess-1" }))).toBe(true);
     expect(homeCardPeekEnabled(agent())).toBe(false);
+  });
+});
+
+describe("homeCardTerminalEnabled", () => {
+  test("enabled only when the agent has a live terminal surface", () => {
+    expect(homeCardTerminalEnabled(agent({ terminalSurface: tmuxSurface }))).toBe(true);
+    expect(homeCardTerminalEnabled(agent({ terminalSurface: null }))).toBe(false);
+    expect(homeCardTerminalEnabled(agent())).toBe(false);
   });
 });
