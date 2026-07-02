@@ -11,6 +11,7 @@ import {
   queryAgents,
   queryBrokerDiagnostics,
   queryFleet,
+  queryFlightRecordById,
   queryFollowTarget,
   queryFlights,
   queryHeartrate,
@@ -175,7 +176,7 @@ function setConversationCreatedAt(conversationId: string, createdAt: number): vo
 function setSeededRunTimestamps(createdAt: number, startedAt: number): void {
   const rawDb = new Database(join(process.env.OPENSCOUT_CONTROL_HOME!, "control-plane.sqlite"));
   try {
-    rawDb.query("UPDATE invocations SET created_at = ?1 WHERE id = 'inv-1'").run(createdAt);
+    rawDb.query("UPDATE invocations SET created_at = ?1, started_at = ?2 WHERE id = 'inv-1'").run(createdAt, startedAt);
     rawDb.query("UPDATE flights SET started_at = ?1 WHERE id = 'flight-1'").run(startedAt);
     rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:invocation:inv-1'").run(createdAt);
     rawDb.query("UPDATE activity_items SET ts = ?1 WHERE id = 'activity:flight:flight-1'").run(startedAt);
@@ -367,6 +368,44 @@ describe("web db query flights", () => {
         sessionId: "codex-thread-1",
         targetAgentId: "agent-1",
       });
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a superseded sibling flight id is intentionally unaddressable — the merged record is latest-flight-only", () => {
+    // An invocation carries ONE current status. Once a later flight
+    // supersedes flight-1, lookups by the old sibling id miss — no
+    // flights-table fallback, the storage merge is the API contract. The
+    // invocation (and its current flight) remain fully addressable.
+    const store = createSeededStore();
+
+    try {
+      store.recordFlight({
+        id: "flight-1-retry",
+        invocationId: "inv-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Recovered on retry",
+        startedAt: 201,
+        completedAt: 220,
+      });
+
+      // The merged record follows the retry.
+      expect(queryFlightRecordById("flight-1-retry")).toEqual(
+        expect.objectContaining({ id: "flight-1-retry", invocationId: "inv-1", state: "completed" }),
+      );
+      expect(queryFollowTarget({ invocationId: "inv-1" })).toEqual(
+        expect.objectContaining({ flightId: "flight-1-retry", conversationId: "c.conv-1" }),
+      );
+
+      // The superseded sibling id no longer resolves anywhere.
+      expect(queryFlightRecordById("flight-1")).toBeNull();
+      expect(queryFlights({ flightId: "flight-1", activeOnly: false })).toEqual([]);
+      expect(queryFollowTarget({ flightId: "flight-1" })).toEqual(
+        expect.objectContaining({ flightId: "flight-1", invocationId: null, conversationId: null }),
+      );
     } finally {
       store.close();
     }

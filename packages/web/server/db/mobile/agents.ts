@@ -212,9 +212,9 @@ export function queryMobileAgentDetail(agentId: string): MobileAgentDetail | nul
   const flightStartedAtExpression = sqlTimestampMsExpression("started_at");
 
   const activeFlights = (db().prepare(
-    `SELECT id, state, summary, ${flightStartedAtExpression} AS started_at
-     FROM flights
-     WHERE target_agent_id = ? AND state NOT IN ('completed','failed','cancelled')
+    `SELECT flight_id AS id, state, summary, ${flightStartedAtExpression} AS started_at
+     FROM invocations
+     WHERE target_agent_id = ? AND flight_id IS NOT NULL AND state NOT IN ('completed','failed','cancelled')
      ORDER BY ${flightStartedAtExpression} DESC`,
   ).all(agentId) as Array<{
     id: string;

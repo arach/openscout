@@ -33,19 +33,19 @@ describe("queryAgentFlightPhases", () => {
   test("parameterized active-flight filter avoids row-value IN syntax", () => {
     const db = new Database(":memory:");
     db.exec(`
-      CREATE TABLE flights (
+      CREATE TABLE invocations (
         id TEXT PRIMARY KEY,
         target_agent_id TEXT NOT NULL,
-        state TEXT NOT NULL
+        state TEXT
       );
-      INSERT INTO flights (id, target_agent_id, state) VALUES
-        ('f1', 'agent-a', 'running'),
-        ('f2', 'agent-b', 'queued'),
-        ('f3', 'agent-c', 'completed');
+      INSERT INTO invocations (id, target_agent_id, state) VALUES
+        ('i1', 'agent-a', 'running'),
+        ('i2', 'agent-b', 'queued'),
+        ('i3', 'agent-c', 'completed');
     `);
 
     const rows = db.prepare(
-      `SELECT target_agent_id, state FROM flights
+      `SELECT target_agent_id, state FROM invocations
        WHERE state IN (${ACTIVE_FLIGHT_STATES.map(() => "?").join(", ")})`,
     ).all(...ACTIVE_FLIGHT_STATES) as Array<{ target_agent_id: string; state: string }>;
 
@@ -61,13 +61,13 @@ describe("queryAgentFlightPhases", () => {
     db.close();
   });
 
-  test("queryAgentFlightPhases parses against the control-plane flights table", () => {
+  test("queryAgentFlightPhases parses against the control-plane invocations table", () => {
     const db = new Database(":memory:");
     db.exec(`
-      CREATE TABLE flights (
+      CREATE TABLE invocations (
         id TEXT PRIMARY KEY,
         target_agent_id TEXT NOT NULL,
-        state TEXT NOT NULL
+        state TEXT
       );
     `);
 
