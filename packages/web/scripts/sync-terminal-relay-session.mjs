@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const packageDirectory = resolve(scriptDirectory, "..");
 const outputPath = resolve(packageDirectory, "server/terminal-relay-session.ts");
+const flowOutputPath = resolve(packageDirectory, "server/terminal-relay-flow.ts");
+const zellijOutputPath = resolve(packageDirectory, "server/terminal-relay-zellij.ts");
 const checkOnly = process.argv.includes("--check");
 
 function safeGit(args, cwd) {
@@ -25,9 +27,14 @@ function resolveHudsonRelaySource() {
   const configuredSession = process.env.HUDSON_RELAY_SESSION_PATH?.trim();
   const configuredTypes = process.env.HUDSON_RELAY_TYPES_PATH?.trim();
   if (configuredSession && configuredTypes) {
+    const sourceRoot = dirname(resolve(configuredSession));
+    const flowPath = resolve(sourceRoot, "flow.ts");
+    const zellijPath = resolve(sourceRoot, "zellij.ts");
     return {
       sessionPath: resolve(configuredSession),
       typesPath: resolve(configuredTypes),
+      flowPath: existsSync(flowPath) ? flowPath : null,
+      zellijPath: existsSync(zellijPath) ? zellijPath : null,
     };
   }
 
@@ -52,8 +59,15 @@ function resolveHudsonRelaySourceFromRoot(hudsonRoot) {
     const sourceRoot = resolve(hudsonRoot, relayRoot);
     const sessionPath = resolve(sourceRoot, "session.ts");
     const typesPath = resolve(sourceRoot, "types.ts");
+    const flowPath = resolve(sourceRoot, "flow.ts");
+    const zellijPath = resolve(sourceRoot, "zellij.ts");
     if (existsSync(sessionPath) && existsSync(typesPath)) {
-      return { sessionPath, typesPath };
+      return {
+        sessionPath,
+        typesPath,
+        flowPath: existsSync(flowPath) ? flowPath : null,
+        zellijPath: existsSync(zellijPath) ? zellijPath : null,
+      };
     }
   }
   return null;
@@ -61,7 +75,7 @@ function resolveHudsonRelaySourceFromRoot(hudsonRoot) {
 
 function stripTypeImport(source) {
   return source
-    .replace(/^import type \{ SessionInitMessage, RelaySocket \} from ['"]\.\/types['"];\n\n/m, "")
+    .replace(/^import type \{ SessionInitMessage, RelaySocket \} from ['"]\.\/types['"];\n\n?/m, "")
     .trim();
 }
 
@@ -69,9 +83,11 @@ function buildGeneratedContent(hudsonSource) {
   const typesSource = applyOpenScoutRelayTypeCompatibility(
     readFileSync(hudsonSource.typesPath, "utf8").trim(),
   );
-  const sessionSource = applyOpenScoutRelaySessionCompatibility(stripTypeImport(
-    readFileSync(hudsonSource.sessionPath, "utf8"),
-  ));
+  const sessionSource = rewriteHudsonRelayHelperImports(
+    applyOpenScoutRelaySessionCompatibility(stripTypeImport(
+      readFileSync(hudsonSource.sessionPath, "utf8"),
+    )),
+  );
 
   const banner = [
     "// Generated from Hudson relay session/types.",
@@ -80,6 +96,45 @@ function buildGeneratedContent(hudsonSource) {
   ].join("\n");
 
   return `${banner}${typesSource}\n\n${sessionSource}\n`;
+}
+
+function generatedHelperBanner(sourceName) {
+  return [
+    `// Generated from Hudson relay ${sourceName}.`,
+    "// Refresh with: node ./scripts/sync-terminal-relay-session.mjs",
+    "",
+  ].join("\n");
+}
+
+function buildGeneratedFlowContent(hudsonSource) {
+  if (!hudsonSource.flowPath) return null;
+  const source = readFileSync(hudsonSource.flowPath, "utf8")
+    .replace(
+      /^import type \{ RelaySocket \} from ['"]\.\/types['"];\n\n?/m,
+      [
+        "/** Minimal WebSocket interface used by terminal relay flow control. */",
+        "interface RelaySocket {",
+        "  readonly readyState: number;",
+        "  send(data: string | Buffer): void;",
+        "}",
+        "",
+      ].join("\n"),
+    )
+    .trim();
+  return `${generatedHelperBanner("flow")}${source}\n`;
+}
+
+function buildGeneratedZellijContent(hudsonSource) {
+  if (!hudsonSource.zellijPath) return null;
+  return `${generatedHelperBanner("zellij")}${readFileSync(hudsonSource.zellijPath, "utf8").trim()}\n`;
+}
+
+function rewriteHudsonRelayHelperImports(source) {
+  return source
+    .replaceAll("from './flow'", "from './terminal-relay-flow'")
+    .replaceAll('from "./flow"', 'from "./terminal-relay-flow"')
+    .replaceAll("from './zellij'", "from './terminal-relay-zellij'")
+    .replaceAll('from "./zellij"', 'from "./terminal-relay-zellij"');
 }
 
 function applyOpenScoutRelayTypeCompatibility(source) {
@@ -421,11 +476,21 @@ if (!hudsonSource) {
 }
 
 const nextContent = buildGeneratedContent(hudsonSource);
-const currentContent = existsSync(outputPath)
-  ? readFileSync(outputPath, "utf8")
-  : null;
+const outputs = [
+  { path: outputPath, content: nextContent },
+  ...(buildGeneratedFlowContent(hudsonSource)
+    ? [{ path: flowOutputPath, content: buildGeneratedFlowContent(hudsonSource) }]
+    : []),
+  ...(buildGeneratedZellijContent(hudsonSource)
+    ? [{ path: zellijOutputPath, content: buildGeneratedZellijContent(hudsonSource) }]
+    : []),
+];
 
-if (currentContent === nextContent) {
+const dirtyOutputs = outputs.filter((output) => (
+  (existsSync(output.path) ? readFileSync(output.path, "utf8") : null) !== output.content
+));
+
+if (dirtyOutputs.length === 0) {
   console.log(`Terminal relay session already matches ${hudsonSource.sessionPath}`);
   process.exit(0);
 }
@@ -438,5 +503,7 @@ if (checkOnly) {
   process.exit(1);
 }
 
-writeFileSync(outputPath, nextContent, "utf8");
+for (const output of outputs) {
+  writeFileSync(output.path, output.content, "utf8");
+}
 console.log(`Synced terminal relay session from ${hudsonSource.sessionPath}`);
