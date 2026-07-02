@@ -92,6 +92,49 @@ const ADOPTED_SCOUT_PREFIXES: ReadonlyArray<{ path: string; view: Route["view"] 
   { path: "settings", view: "settings" },
   { path: "settings/agents", view: "settings" },
   { path: "settings/agents/$agentId", view: "settings" },
+  // ── Round 3 — remaining deterministic top-level prefixes ──
+  // Project registry: every /projects/* shape parses to view "agents-v2".
+  { path: "projects", view: "agents-v2" },
+  { path: "projects/$projectSlug", view: "agents-v2" },
+  { path: "projects/$projectSlug/agents", view: "agents-v2" },
+  { path: "projects/$projectSlug/agents/$agentId", view: "agents-v2" },
+  { path: "projects/$projectSlug/agents/$agentId/c/$conversationId", view: "agents-v2" },
+  { path: "projects/$projectSlug/agents/$agentId/sessions/$sessionId", view: "agents-v2" },
+  { path: "projects/$projectSlug/sessions", view: "agents-v2" },
+  { path: "projects/$projectSlug/sessions/$sessionId", view: "agents-v2" },
+  // Canonical agent detail (the serialized form of an agents-v2 agent route).
+  { path: "agents", view: "agents-v2" },
+  { path: "agents/$agentId", view: "agents-v2" },
+  { path: "agents/$agentId/c/$conversationId", view: "agents-v2" },
+  { path: "agents/$agentId/sessions/$sessionId", view: "agents-v2" },
+  // Legacy /agents-v2/* input URLs (canonicalize to /agents on serialize, but
+  // the parse view is fixed at "agents-v2").
+  { path: "agents-v2", view: "agents-v2" },
+  { path: "agents-v2/$agentId", view: "agents-v2" },
+  { path: "agents-v2/sessions/$sessionId", view: "agents-v2" },
+  // Legacy /agents.deprecated/* — view is fixed per shape: the base/agent/chat
+  // shapes are the "agents" surface, but the session-resource shape is a session
+  // observe surface ("sessions"), so it registers with that view.
+  { path: "agents.deprecated", view: "agents" },
+  { path: "agents.deprecated/$agentId", view: "agents" },
+  { path: "agents.deprecated/$agentId/c/$conversationId", view: "agents" },
+  { path: "agents.deprecated/$agentId/sessions/$sessionId", view: "sessions" },
+  // Sessions surface.
+  { path: "sessions", view: "sessions" },
+  { path: "sessions/$sessionId", view: "sessions" },
+  // Messages surface (filter/sort ride query params; view is always "messages").
+  { path: "messages", view: "messages" },
+  { path: "messages/$conversationId", view: "messages" },
+  // Conversation + agent-info detail (both require the id segment).
+  { path: "c/$conversationId", view: "conversation" },
+  { path: "agent/$agentId", view: "agent-info" },
+  // Follow: every /follow parse is view "follow" (canonical form is /follow +
+  // query; the /follow/{kind}/{id} path form stays on the splat for now).
+  { path: "follow", view: "follow" },
+  // Terminal: every /terminal/* shape parses to view "terminal".
+  { path: "terminal", view: "terminal" },
+  { path: "terminal/$agentId", view: "terminal" },
+  { path: "terminal/$backend/$sessionName", view: "terminal" },
 ];
 
 const adoptedScoutRoutes = ADOPTED_SCOUT_PREFIXES.map(({ path }) =>
@@ -121,7 +164,7 @@ const scoutLegacyRoute = createRoute({
   },
 });
 
-/** Catch-all Scout URLs (/projects, /c, /sessions, /ops, …). */
+/** Catch-all Scout URLs (/ops, /repo-diff, /follow/{kind}/{id}, …). */
 const scoutSplatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "$",
