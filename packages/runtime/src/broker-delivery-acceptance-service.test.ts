@@ -302,6 +302,35 @@ describe("BrokerDeliveryAcceptanceService", () => {
     expect(harness.dispatchedInvocations).toEqual(harness.acceptedInvocations);
   });
 
+  test("preserves requested fork execution when accepting a consult", async () => {
+    const harness = createHarness({ now: 21_000 });
+
+    const result = await harness.service.accept({
+      id: "deliver-fork",
+      body: "continue from the prior run",
+      intent: "consult",
+      targetAgentId: "agent-1",
+      caller: { actorId: "operator", nodeId: "node-1" },
+      execution: {
+        harness: "codex",
+        model: "gpt-5.5",
+        reasoningEffort: "high",
+        session: "fork",
+        forkFromSessionId: "session-source-1",
+      },
+    });
+
+    expect(result.kind).toBe("delivery");
+    expect(harness.acceptedInvocations).toHaveLength(1);
+    expect(harness.acceptedInvocations[0]?.execution).toEqual({
+      harness: "codex",
+      model: "gpt-5.5",
+      reasoningEffort: "high",
+      session: "fork",
+      forkFromSessionId: "session-source-1",
+    });
+  });
+
   test("channel consult posts a canonical channel message and broker pointer DM", async () => {
     const channelConversation = testConversation({
       id: "channel.xterm-super-component",

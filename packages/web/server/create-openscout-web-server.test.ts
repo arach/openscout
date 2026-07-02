@@ -2903,7 +2903,7 @@ describe("createOpenScoutWebServer", () => {
     ]);
   });
 
-  test("routes session initiation effort through askScoutQuestion", async () => {
+  test("routes session initiation effort and fork source through askScoutQuestion", async () => {
     process.env.OPENSCOUT_OPERATOR_NAME = "operator";
     const server = await createOpenScoutWebServer({
       currentDirectory: "/tmp/openscout",
@@ -2920,10 +2920,20 @@ describe("createOpenScoutWebServer", () => {
           harness: "codex",
           model: "gpt-5.5",
           reasoningEffort: "high",
-          session: "new",
+          session: "fork",
+          forkFromSessionId: "session-source-1",
         },
         agent: { persistence: "sticky", handle: "hudson" },
-        seed: { instructions: "Start the high-effort run." },
+        seed: {
+          instructions: "Pick this up from the prior run.",
+          attachments: [
+            {
+              mediaType: "text/markdown",
+              url: "http://127.0.0.1:3200/api/blobs/blob-1",
+              fileName: "notes.md",
+            },
+          ],
+        },
       }),
     });
 
@@ -2938,16 +2948,47 @@ describe("createOpenScoutWebServer", () => {
       {
         senderId: expect.any(String),
         target: { kind: "project_path", projectPath: "/tmp/openscout" },
-        body: "Start the high-effort run.",
+        body: "Pick this up from the prior run.",
         executionHarness: "codex",
         executionModel: "gpt-5.5",
         executionReasoningEffort: "high",
-        executionSession: "new",
+        executionSession: "fork",
+        executionForkFromSessionId: "session-source-1",
+        attachments: [
+          {
+            mediaType: "text/markdown",
+            url: "http://127.0.0.1:3200/api/blobs/blob-1",
+            fileName: "notes.md",
+          },
+        ],
         projectAgent: { persistence: "sticky", handle: "hudson" },
         currentDirectory: "/tmp/openscout",
         source: "scout-session-initiation",
       },
     ]);
+  });
+
+  test("rejects session initiation fork without a source", async () => {
+    const server = await createOpenScoutWebServer({
+      currentDirectory: "/tmp/openscout",
+      assetMode: "static",
+      staticRoot: makeStaticRoot(),
+    });
+
+    const response = await server.app.request("http://localhost/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        target: { projectPath: "/tmp/openscout" },
+        execution: { session: "fork", harness: "codex" },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "session 'fork' requires execution.forkFromSessionId or execution.forkFromStateId",
+    });
+    expect(askScoutQuestionCalls).toEqual([]);
   });
 
   test("routes Scoutbot ask actions through askScoutQuestion", async () => {

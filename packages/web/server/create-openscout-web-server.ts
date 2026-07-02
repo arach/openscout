@@ -1907,14 +1907,14 @@ function optionalFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-const EXECUTION_SESSION_PREFERENCES = new Set(["new", "existing", "any"]);
+const EXECUTION_SESSION_PREFERENCES = new Set(["new", "existing", "any", "fork"]);
 
 function normalizeExecutionSession(
   value: unknown,
-): "new" | "existing" | "any" | undefined {
+): "new" | "existing" | "any" | "fork" | undefined {
   const normalized = optionalString(value)?.trim();
   return normalized && EXECUTION_SESSION_PREFERENCES.has(normalized)
-    ? (normalized as "new" | "existing" | "any")
+    ? (normalized as "new" | "existing" | "any" | "fork")
     : undefined;
 }
 
@@ -5808,8 +5808,7 @@ export async function createOpenScoutWebServer(
   // start fresh in a project, start "the same agent" fresh, continue an
   // agent's existing harness session with full context, seed a new
   // conversation from a message — by setting different fields. See docs/agent
-  // for the modality matrix; `seed.branchFrom` is accepted now and reserved
-  // for forthcoming context-forking work (currently inert).
+  // for the modality matrix.
   app.post("/api/sessions", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       target?: { agentId?: string; projectPath?: string };
@@ -5819,6 +5818,8 @@ export async function createOpenScoutWebServer(
         reasoningEffort?: string;
         session?: string;
         targetSessionId?: string;
+        forkFromSessionId?: string;
+        forkFromStateId?: string;
       };
       agent?: {
         persistence?: string;
@@ -5828,6 +5829,7 @@ export async function createOpenScoutWebServer(
         instructions?: string;
         fromMessageId?: string;
         fromConversationId?: string;
+        attachments?: OutgoingAttachmentInput[];
         branchFrom?: { sessionId?: string; messageId?: string };
       };
     };
@@ -5874,6 +5876,17 @@ export async function createOpenScoutWebServer(
         400,
       );
     }
+    const forkFromSessionId =
+      optionalString(body.execution?.forkFromSessionId)?.trim()
+      || optionalString(body.seed?.branchFrom?.sessionId)?.trim();
+    const forkFromStateId = optionalString(body.execution?.forkFromStateId)?.trim();
+    if (session === "fork" && !forkFromSessionId && !forkFromStateId) {
+      return c.json(
+        { error: "session 'fork' requires execution.forkFromSessionId or execution.forkFromStateId" },
+        400,
+      );
+    }
+
     const persistence =
       body.agent?.persistence === "one_time" ? "one_time" : "sticky";
     let agentHandle =
@@ -5898,6 +5911,9 @@ export async function createOpenScoutWebServer(
     const instructions = optionalString(body.seed?.instructions)?.trim();
     const fromMessageId = optionalString(body.seed?.fromMessageId)?.trim();
     const fromConversationId = optionalString(body.seed?.fromConversationId)?.trim();
+    const seedAttachments = Array.isArray(body.seed?.attachments)
+      ? body.seed.attachments
+      : undefined;
     const branchFrom = body.seed?.branchFrom;
 
     const result = await askScoutQuestion({
@@ -5913,6 +5929,9 @@ export async function createOpenScoutWebServer(
       ...(reasoningEffort ? { executionReasoningEffort: reasoningEffort } : {}),
       ...(session ? { executionSession: session } : {}),
       ...(targetSessionId ? { executionTargetSessionId: targetSessionId } : {}),
+      ...(forkFromSessionId ? { executionForkFromSessionId: forkFromSessionId } : {}),
+      ...(forkFromStateId ? { executionForkFromStateId: forkFromStateId } : {}),
+      ...(seedAttachments?.length ? { attachments: seedAttachments } : {}),
       projectAgent: {
         persistence,
         ...(agentHandle ? { handle: agentHandle } : {}),

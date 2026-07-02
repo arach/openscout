@@ -21,17 +21,19 @@ final class HUDRunnerState: ObservableObject {
     @Published var agentName: String = ""
     @Published var displayName: String = ""
     @Published var instructions: String = ""
+    @Published var attachments: [ScoutComposerImage] = []
     @Published var showAdvanced: Bool = false
     @Published var isLoading: Bool = false
     @Published var isSubmitting: Bool = false
     @Published var lastError: String?
-    @Published var lastResponse: HudRunnerAskResponse?
+    @Published var lastResponse: ScoutSessionStartResult?
 
     private var didApplyDefaults = false
 
     private init() {}
 
     func open(prefillInstructions: String? = nil, projectRoot: String? = nil) {
+        HUDRunnerActivationLease.shared.begin()
         isPresented = true
         lastError = nil
         if let projectRoot = projectRoot?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -51,6 +53,7 @@ final class HUDRunnerState: ObservableObject {
 
     func dismiss() {
         isPresented = false
+        HUDRunnerActivationLease.shared.end()
     }
 
     func loadOptionsIfNeeded() async {
@@ -114,6 +117,38 @@ final class HUDRunnerState: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url {
             directory = url.path
         }
+    }
+
+    func browseForAttachments() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.canCreateDirectories = false
+        panel.allowedContentTypes = ScoutMediaIntake.pickerContentTypes
+        panel.title = "Attach Files"
+        if panel.runModal() == .OK {
+            _ = stageAttachments(ScoutMediaIntake.fromFileURLs(panel.urls))
+        }
+    }
+
+    @discardableResult
+    func stageAttachments(_ incoming: [ScoutComposerImage]) -> Bool {
+        guard !incoming.isEmpty else {
+            lastError = "Use markdown, code, images, or video clips."
+            return false
+        }
+        guard !isSubmitting else {
+            lastError = "Wait for the current ask to finish before attaching files."
+            return false
+        }
+        attachments.append(contentsOf: incoming)
+        lastError = nil
+        return true
+    }
+
+    func removeAttachment(_ id: UUID) {
+        attachments.removeAll { $0.id == id }
     }
 
     var availableModels: [HudRunnerModelOption] {
@@ -287,34 +322,42 @@ final class HUDRunnerState: ObservableObject {
             lastError = "Choose a project first."
             return
         }
-        guard !trimmedInstructions.isEmpty else {
-            lastError = "Add instructions first."
+        guard !trimmedInstructions.isEmpty || !attachments.isEmpty else {
+            lastError = "Add instructions or attach a file first."
             return
         }
 
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            let response = try await HudRunnerService.ask(
-                directory: trimmedDirectory,
-                harness: selectedHarness,
-                model: selectedModel,
-                persistence: persistence,
+            let uploadedAttachments = try await ScoutAttachmentUploadService.uploadAll(attachments)
+            let draft = ScoutSessionDraft(
+                title: "Quick capture",
+                target: .project,
+                projectPath: trimmedDirectory,
+                mode: .fresh,
+                instructions: trimmedInstructions,
+                attachments: uploadedAttachments,
+                harness: selectedHarness.trimmedNonEmpty,
+                model: selectedModel.trimmedNonEmpty,
                 agentName: agentName,
                 displayName: displayName,
-                instructions: trimmedInstructions
+                agentPersistence: persistence
             )
+            let response = try await SessionInitiationService.start(draft.spec())
             lastResponse = response
             lastError = nil
-            isPresented = false
+            dismiss()
             instructions = ""
+            attachments = []
             HUDFlashState.shared.flash(
-                "asked \(response.targetAgentId ?? response.flight?.targetAgentId ?? "Scout agent")",
+                "started \(response.handle ?? response.agentId ?? response.conversationId ?? "Scout agent")",
                 kind: .success
             )
         } catch {
-            lastError = error.localizedDescription
-            HUDFlashState.shared.flash(error.localizedDescription)
+            let message = SessionInitiationService.userFacingError(error)
+            lastError = message
+            HUDFlashState.shared.flash(message)
         }
     }
 
@@ -447,6 +490,33 @@ final class HUDRunnerState: ObservableObject {
         return String(scalars)
             .split(separator: "-")
             .joined(separator: "-")
+    }
+}
+
+@MainActor
+private final class HUDRunnerActivationLease {
+    static let shared = HUDRunnerActivationLease()
+
+    private var previousPolicy: NSApplication.ActivationPolicy?
+
+    private init() {}
+
+    func begin() {
+        if previousPolicy == nil {
+            previousPolicy = NSApp.activationPolicy()
+        }
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func end() {
+        guard let previousPolicy else { return }
+        self.previousPolicy = nil
+        if NSApp.activationPolicy() != previousPolicy {
+            NSApp.setActivationPolicy(previousPolicy)
+        }
     }
 }
 
