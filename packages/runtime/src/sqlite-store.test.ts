@@ -1593,6 +1593,79 @@ describe("invocation flight-status shadow columns", () => {
     }
   });
 
+  test("an out-of-order write of an older sibling flight does not regress the shadow", () => {
+    // Reproduced by adversarial review on #295: without the freshness guard,
+    // last-writer-wins let a stale sibling flight overwrite a newer one.
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-order-new",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Newest",
+        startedAt: 250,
+        completedAt: 300,
+      });
+      store.recordFlight({
+        id: "flight-order-old",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "running",
+        startedAt: 50,
+      });
+
+      const db = getWritableDb(store);
+      const row = shadowRow(db);
+      expect(row.flight_id).toBe("flight-order-new");
+      expect(row.state).toBe("completed");
+      expect(row.completed_at).toBe(300);
+      // The sibling flight itself was still recorded.
+      expect(countRows(db, "flights", "invocation_id", "inv-status-1")).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("rewrites of the shadowed flight itself always land, even with older timestamps", () => {
+    const store = createStore();
+    try {
+      seedInvocation(store);
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "completed",
+        summary: "Done",
+        startedAt: 120,
+        completedAt: 180,
+      });
+      // Reconciliation rewriting the same flight must follow the flights row
+      // (INSERT OR REPLACE semantics), not be blocked by the freshness guard.
+      store.recordFlight({
+        id: "flight-status-1",
+        invocationId: "inv-status-1",
+        requesterId: "operator",
+        targetAgentId: "agent-1",
+        state: "failed",
+        error: "reconciled",
+        startedAt: 120,
+      });
+
+      const row = shadowRow(getWritableDb(store));
+      expect(row.flight_id).toBe("flight-status-1");
+      expect(row.state).toBe("failed");
+      expect(row.error).toBe("reconciled");
+      expect(row.completed_at).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
   test("replaying recordInvocation preserves the dual-written status", () => {
     const store = createStore();
     try {
