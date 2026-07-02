@@ -608,6 +608,76 @@ describe("loadAgentObservePayload", () => {
     expect(payload?.data.events.some((event) => event.text.includes("hello from discovered Claude history"))).toBe(true);
   });
 
+  test("does not attach most-recent Claude cwd history to multiple tmux agents in the same repo", async () => {
+    const tempRoot = makeTempDir("openscout-observe-claude-tmux-ambiguous-");
+    const claudeProjectsRoot = join(tempRoot, "claude-projects");
+    process.env.OPENSCOUT_CLAUDE_PROJECTS_ROOT = claudeProjectsRoot;
+    const projectDir = join(claudeProjectsRoot, "-Users-arach-dev-openscout");
+    mkdirSync(projectDir, { recursive: true });
+    const historyPath = join(projectDir, "unmatched-claude-session.jsonl");
+    writeClaudeHistory(historyPath, "wrong shared cwd history");
+
+    queryAgentsResult = [
+      makeAgent({
+        id: "agent-1",
+        harness: "claude",
+        transport: "tmux",
+        harnessSessionId: "relay-openscout-claude-one",
+      }),
+      makeAgent({
+        id: "agent-2",
+        name: "Agent Two",
+        handle: "agent.two",
+        harness: "claude",
+        transport: "tmux",
+        harnessSessionId: "relay-openscout-claude-two",
+      }),
+    ];
+    brokerContextResult = {
+      snapshot: {
+        endpoints: {
+          "endpoint-agent-1": {
+            id: "endpoint-agent-1",
+            agentId: "agent-1",
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "idle",
+            sessionId: "relay-openscout-claude-one",
+            cwd: "/Users/arach/dev/openscout",
+            projectRoot: "/Users/arach/dev/openscout",
+            metadata: {
+              runtimeInstanceId: "relay-openscout-claude-one",
+              tmuxSession: "relay-openscout-claude-one",
+            },
+          },
+          "endpoint-agent-2": {
+            id: "endpoint-agent-2",
+            agentId: "agent-2",
+            nodeId: "node-1",
+            harness: "claude",
+            transport: "tmux",
+            state: "idle",
+            sessionId: "relay-openscout-claude-two",
+            cwd: "/Users/arach/dev/openscout",
+            projectRoot: "/Users/arach/dev/openscout",
+            metadata: {
+              runtimeInstanceId: "relay-openscout-claude-two",
+              tmuxSession: "relay-openscout-claude-two",
+            },
+          },
+        },
+      },
+    };
+
+    const payload = await loadAgentObservePayload("agent-1");
+
+    expect(payload).not.toBeNull();
+    expect(payload?.source).toBe("unavailable");
+    expect(payload?.historyPath).toBeNull();
+    expect(payload?.data.events.some((event) => event.text.includes("wrong shared cwd history"))).toBe(false);
+  });
+
   test("does not attach cwd-discovered Codex history to direct relay sessions without a session match", async () => {
     const tempRoot = makeTempDir("openscout-observe-codex-direct-mismatch-");
     const historyPath = join(tempRoot, "wrong-codex-session.jsonl");

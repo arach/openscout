@@ -674,6 +674,7 @@ function resolveHistoryCandidate(
   agent: WebAgent,
   snapshot: SessionState | null,
   endpoint?: AgentEndpoint | null,
+  options: AgentObserveOptions = {},
 ): { path: string; adapterType: "claude-code" | "codex" | "pi" } | null {
   const snapshotAdapter = historyAdapterAlias(snapshot?.session.adapterType);
   const endpointAdapter = historyAdapterForEndpoint(endpoint);
@@ -681,6 +682,7 @@ function resolveHistoryCandidate(
   const providerMeta = snapshot ? snapshotProviderMeta(snapshot) : {};
   const endpointMeta = endpointMetadataRecord(endpoint);
   const requireSessionMatch = directRuntimeEndpointRequiresSessionMatch(endpoint);
+  const allowCwdHistoryFallback = options.allowCwdHistoryFallback !== false;
 
   const directPath = firstString(
     providerMeta.resumeSessionPath,
@@ -715,7 +717,7 @@ function resolveHistoryCandidate(
   );
   if ((snapshotAdapter ?? endpointAdapter ?? agentAdapter) === "claude-code") {
     const path = resolveClaudeHistoryPath(claudeCwd, claudeSessionId, {
-      allowMostRecentFallback: !requireSessionMatch,
+      allowMostRecentFallback: !requireSessionMatch && allowCwdHistoryFallback,
     });
     if (path) {
       return { path, adapterType: "claude-code" };
@@ -757,10 +759,42 @@ function collectAgentCwdRefs(agent: WebAgent, snapshot: SessionState | null, end
   ].filter((path): path is string => Boolean(path)));
 }
 
+function setsIntersect<T>(left: Set<T>, right: Set<T>): boolean {
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function allowsCwdHistoryFallback(agent: WebAgent, agents: WebAgent[]): boolean {
+  const adapterType = historyAdapterForAgent(agent);
+  if (!adapterType) {
+    return false;
+  }
+
+  const cwdRefs = collectAgentCwdRefs(agent, null, null);
+  if (cwdRefs.size === 0) {
+    return false;
+  }
+
+  return !agents.some((candidate) => {
+    if (candidate.id === agent.id) {
+      return false;
+    }
+    if (historyAdapterForAgent(candidate) !== adapterType) {
+      return false;
+    }
+    return setsIntersect(cwdRefs, collectAgentCwdRefs(candidate, null, null));
+  });
+}
+
 async function resolveDiscoveredHistoryCandidate(
   agent: WebAgent,
   snapshot: SessionState | null,
   endpoint?: AgentEndpoint | null,
+  options: AgentObserveOptions = {},
 ): Promise<{ path: string; adapterType: "claude-code" | "codex" | "pi" } | null> {
   const adapterType = historyAdapterAlias(snapshot?.session.adapterType)
     ?? historyAdapterForEndpoint(endpoint)
@@ -778,6 +812,7 @@ async function resolveDiscoveredHistoryCandidate(
   const cwdRefs = collectAgentCwdRefs(agent, snapshot, endpoint);
   const agentProject = normalizedComparableString(agent.project);
   const requireSessionMatch = directRuntimeEndpointRequiresSessionMatch(endpoint);
+  const allowCwdHistoryFallback = options.allowCwdHistoryFallback !== false;
   const candidates = discovery.transcripts
     .filter((transcript) => adapterTypeFromTailSource(transcript.source) === adapterType)
     .map((transcript) => {
@@ -797,7 +832,7 @@ async function resolveDiscoveredHistoryCandidate(
       };
     })
     .filter(({ sessionMatch, cwdMatch, projectMatch }) => (
-      sessionMatch || (!requireSessionMatch && (cwdMatch || projectMatch))
+      sessionMatch || (!requireSessionMatch && allowCwdHistoryFallback && (cwdMatch || projectMatch))
     ))
     .sort((left, right) => {
       const leftTuple = [
@@ -1403,6 +1438,7 @@ function isLiveSessionSnapshot(snapshot: SessionState | null | undefined): boole
 
 type AgentObserveOptions = {
   sessionId?: string | null;
+  allowCwdHistoryFallback?: boolean;
 };
 
 async function resolveSnapshotSource(
@@ -1420,10 +1456,10 @@ async function resolveSnapshotSource(
   const liveSnapshot = await readLiveSnapshot(agent, endpoint);
   const live = isLiveSessionSnapshot(liveSnapshot);
 
-  let historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint);
+  let historyCandidate = resolveHistoryCandidate(agent, liveSnapshot, endpoint, options);
   let historySnapshot = readHistorySnapshot(historyCandidate);
   if (!historySnapshot) {
-    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, liveSnapshot, endpoint);
+    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, liveSnapshot, endpoint, options);
     const discoveredSnapshot = readHistorySnapshot(discoveredCandidate);
     if (discoveredSnapshot) {
       historyCandidate = discoveredCandidate;
@@ -1453,10 +1489,10 @@ async function resolveSnapshotSource(
     };
   }
 
-  let agentHistoryCandidate = resolveHistoryCandidate(agent, null, endpoint);
+  let agentHistoryCandidate = resolveHistoryCandidate(agent, null, endpoint, options);
   let agentHistorySnapshot = readHistorySnapshot(agentHistoryCandidate);
   if (!agentHistorySnapshot) {
-    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, null, endpoint);
+    const discoveredCandidate = await resolveDiscoveredHistoryCandidate(agent, null, endpoint, options);
     const discoveredSnapshot = readHistorySnapshot(discoveredCandidate);
     if (discoveredSnapshot) {
       agentHistoryCandidate = discoveredCandidate;
@@ -1526,7 +1562,12 @@ async function loadAgentObservePayloadsInternal(
   }
 
   const broker = await loadScoutBrokerContext();
-  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker, options)));
+  return await Promise.all(filteredAgents.map((agent) => buildAgentObservePayload(agent, broker, {
+    ...options,
+    allowCwdHistoryFallback:
+      options.allowCwdHistoryFallback
+      ?? (!options.sessionId && allowsCwdHistoryFallback(agent, agents)),
+  })));
 }
 
 function summarizeAgentObservePayload(
