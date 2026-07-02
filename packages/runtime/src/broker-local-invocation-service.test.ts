@@ -234,7 +234,10 @@ function createHarness(input: {
       }
       return input.invokeResult ?? { output: "agent reply" };
     },
-    async invokeLocalAgentEndpoint() {
+    async invokeLocalAgentEndpoint(nextEndpoint, nextInvocation) {
+      if (input.invokeEndpoint) {
+        return input.invokeEndpoint(nextEndpoint, nextInvocation);
+      }
       if (input.invokeError) {
         throw input.invokeError;
       }
@@ -474,6 +477,95 @@ describe("BrokerLocalInvocationService", () => {
     expect(harness.warnings).toEqual([
       "[openscout-runtime] Agent One is still working; requester wait timed out after 5000ms.",
     ]);
+  });
+
+  test("a late transport error does not overwrite a broker-reply completion", async () => {
+    // Reproduced by adversarial review on #296: broker reply completes the
+    // invocation mid-invoke, then the transport errors. The failure path must
+    // not overwrite the terminal completed record (which would strand a
+    // `failed` state carrying the successful output).
+    const harness = createHarness({
+      endpoint: testEndpoint({ id: "endpoint-tmux", transport: "tmux" }),
+      async invokeEndpoint() {
+        harness.seedFlight(testFlight({
+          state: "completed",
+          summary: "Agent One replied.",
+          output: "broker reply body",
+          completedAt: 40_000,
+          metadata: { completedByBrokerReply: true },
+        }));
+        throw new Error("transport exploded after reply");
+      },
+      now: 41_000,
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
+
+    expect(harness.persistedFlights.map((flight) => flight.state)).toEqual(["running"]);
+    expect(harness.statusMessages).toEqual([]);
+    // Endpoint bookkeeping still records the transport failure.
+    expect(harness.persistedEndpoints.at(-1)).toEqual(expect.objectContaining({
+      state: "offline",
+      metadata: expect.objectContaining({ lastError: "transport exploded after reply" }),
+    }));
+  });
+
+  test("a late transport error does not overwrite a cancellation", async () => {
+    const harness = createHarness({
+      endpoint: testEndpoint({ id: "endpoint-tmux", transport: "tmux" }),
+      async invokeEndpoint() {
+        harness.seedFlight(testFlight({
+          state: "cancelled",
+          summary: "Cancelled by requester.",
+          completedAt: 40_000,
+          metadata: { a2aCancelledAt: 40_000 },
+        }));
+        throw new Error("transport exploded after cancel");
+      },
+      now: 41_000,
+    });
+
+    harness.seedFlight(testFlight());
+    await harness.service.execute(testInvocation());
+
+    const terminalStates = harness.persistedFlights.map((flight) => flight.state);
+    expect(terminalStates).not.toContain("failed");
+    expect(harness.statusMessages).toEqual([]);
+  });
+
+  test("re-entering running clears a prior attempt's transient failure metadata", async () => {
+    // Reproduced by adversarial review on #296: failure metadata written
+    // before the running transition leaked into the eventual success record
+    // through the key-wise metadata merge.
+    const harness = createHarness({
+      endpoint: testEndpoint(),
+      invokeResult: { output: "second attempt reply" },
+      now: 50_000,
+    });
+
+    harness.seedFlight(testFlight({
+      state: "failed",
+      error: "dispatch stalled",
+      completedAt: 45_000,
+      metadata: {
+        failureStage: "dispatch_stalled",
+        dispatchStalledSession: "scout-tmux-1",
+        dispatchStalledRetries: 2,
+        dispatchStalledPaneTail: "…",
+        keepMe: "not-transient",
+      },
+    }));
+    await harness.service.execute(testInvocation());
+
+    const completed = harness.persistedFlights.at(-1);
+    expect(completed).toEqual(expect.objectContaining({ state: "completed", output: "second attempt reply" }));
+    expect(completed?.metadata?.failureStage).toBeUndefined();
+    expect(completed?.metadata?.dispatchStalledSession).toBeUndefined();
+    expect(completed?.metadata?.dispatchStalledRetries).toBeUndefined();
+    expect(completed?.metadata?.dispatchStalledPaneTail).toBeUndefined();
+    expect(completed?.metadata?.keepMe).toBe("not-transient");
+    expect(completed?.metadata?.dispatchAck).toBeDefined();
   });
 
   test("launch deduplicates active invocation tasks", async () => {

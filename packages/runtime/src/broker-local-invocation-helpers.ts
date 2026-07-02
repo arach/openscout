@@ -66,6 +66,33 @@ export function applyInvocationStatusPatch(
   };
 }
 
+// Metadata keys that describe a single execution attempt's failure or timeout.
+// Cleared on re-entry to `running` so a fresh attempt does not carry a prior
+// attempt's failure detail into its own success record (an explicit undefined
+// value overrides in the key-wise metadata merge and is dropped by the durable
+// JSON serialization).
+const TRANSIENT_STATUS_METADATA_KEYS = [
+  "failureStage",
+  "failureSeverity",
+  "noteworthy",
+  "dispatchStalledSession",
+  "dispatchStalledRetries",
+  "dispatchStalledPaneTail",
+  "exitKind",
+  "exitSignal",
+  "exitCode",
+  "shutdownReason",
+  "requesterTimedOut",
+  "timeoutMs",
+  "timeoutScope",
+] as const;
+
+export function clearedTransientStatusMetadata(): Record<string, undefined> {
+  return Object.fromEntries(
+    TRANSIENT_STATUS_METADATA_KEYS.map((key) => [key, undefined]),
+  ) as Record<string, undefined>;
+}
+
 export function isWorkingFlightState(state: FlightRecord["state"]): boolean {
   return state === "queued" || state === "waking" || state === "running" || state === "waiting";
 }

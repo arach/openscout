@@ -16,6 +16,7 @@ import {
 } from "./a2a-http-endpoint.js";
 import { latestEndpointForAgent } from "./broker-endpoint-selection.js";
 import {
+  clearedTransientStatusMetadata,
   dispatchAckStrategyForEndpoint,
   invocationTargetSessionId,
   isTerminalFlightState,
@@ -265,6 +266,7 @@ export class BrokerLocalInvocationService {
       error: undefined,
       completedAt: undefined,
       metadata: {
+        ...clearedTransientStatusMetadata(),
         dispatchAck,
       },
     });
@@ -473,18 +475,23 @@ export class BrokerLocalInvocationService {
     }
 
     if (isDispatchStalledError(error)) {
-      const stalledFlight = await this.options.transitionInvocation(invocation.id, {
-        state: "failed",
-        summary: `${target.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
-        error: message,
-        completedAt: this.now(),
-        metadata: {
-          failureStage: "dispatch_stalled",
-          dispatchStalledSession: error.sessionName,
-          dispatchStalledRetries: error.retries,
-          dispatchStalledPaneTail: error.paneTail.slice(0, 1_000),
-        },
-      });
+      // A late transport error must not overwrite terminal truth another
+      // writer already recorded (broker-reply completion, cancellation).
+      // Endpoint bookkeeping below still records the transport failure.
+      const stalledFlight = this.currentFlightIsTerminal(invocation.id)
+        ? null
+        : await this.options.transitionInvocation(invocation.id, {
+          state: "failed",
+          summary: `${target.displayName} dispatch stalled — prompt left in composer after submit + retry.`,
+          error: message,
+          completedAt: this.now(),
+          metadata: {
+            failureStage: "dispatch_stalled",
+            dispatchStalledSession: error.sessionName,
+            dispatchStalledRetries: error.retries,
+            dispatchStalledPaneTail: error.paneTail.slice(0, 1_000),
+          },
+        });
 
       await this.options.persistEndpoint({
         ...runningEndpoint,
@@ -497,7 +504,9 @@ export class BrokerLocalInvocationService {
         },
       });
 
-      await this.options.postInvocationStatusMessage(invocation, stalledFlight);
+      if (stalledFlight) {
+        await this.options.postInvocationStatusMessage(invocation, stalledFlight);
+      }
       return;
     }
 
@@ -509,21 +518,23 @@ export class BrokerLocalInvocationService {
       const summary = error.exitKind === "proactive_shutdown"
         ? `${target.displayName} was stopped by OpenScout before it could reply.`
         : `${target.displayName} was interrupted by a local Codex app-server SIGTERM.`;
-      const interruptedFlight = await this.options.transitionInvocation(invocation.id, {
-        state: "failed",
-        summary,
-        error: undefined,
-        completedAt: interruptedAt,
-        metadata: {
-          failureStage,
-          failureSeverity: "noteworthy",
-          noteworthy: true,
-          exitKind: error.exitKind,
-          exitSignal: error.signal,
-          exitCode: error.exitCode,
-          ...(error.reason ? { shutdownReason: error.reason } : {}),
-        },
-      });
+      const interruptedFlight = this.currentFlightIsTerminal(invocation.id)
+        ? null
+        : await this.options.transitionInvocation(invocation.id, {
+          state: "failed",
+          summary,
+          error: undefined,
+          completedAt: interruptedAt,
+          metadata: {
+            failureStage,
+            failureSeverity: "noteworthy",
+            noteworthy: true,
+            exitKind: error.exitKind,
+            exitSignal: error.signal,
+            exitCode: error.exitCode,
+            ...(error.reason ? { shutdownReason: error.reason } : {}),
+          },
+        });
 
       await this.options.persistEndpoint({
         ...runningEndpoint,
@@ -536,16 +547,20 @@ export class BrokerLocalInvocationService {
         },
       });
 
-      await this.options.postInvocationStatusMessage(invocation, interruptedFlight);
+      if (interruptedFlight) {
+        await this.options.postInvocationStatusMessage(invocation, interruptedFlight);
+      }
       return;
     }
 
-    const failedFlight = await this.options.transitionInvocation(invocation.id, {
-      state: "failed",
-      summary: `${target.displayName} failed to respond.`,
-      error: message,
-      completedAt: this.now(),
-    });
+    const failedFlight = this.currentFlightIsTerminal(invocation.id)
+      ? null
+      : await this.options.transitionInvocation(invocation.id, {
+        state: "failed",
+        summary: `${target.displayName} failed to respond.`,
+        error: message,
+        completedAt: this.now(),
+      });
 
     await this.options.persistEndpoint({
       ...runningEndpoint,
@@ -557,7 +572,14 @@ export class BrokerLocalInvocationService {
       },
     });
 
-    await this.options.postInvocationStatusMessage(invocation, failedFlight);
+    if (failedFlight) {
+      await this.options.postInvocationStatusMessage(invocation, failedFlight);
+    }
+  }
+
+  private currentFlightIsTerminal(invocationId: string): boolean {
+    const current = this.options.runtime.flightForInvocation(invocationId);
+    return Boolean(current && isTerminalFlightState(current.state));
   }
 
   private now(): number {
