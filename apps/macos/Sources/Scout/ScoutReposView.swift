@@ -462,13 +462,29 @@ struct ScoutReposContent: View {
 
     // MARK: Header
 
+    /// Title + live/census chips. Mirrors `agentsPaneHeader` so the two
+    /// surfaces read as one system — the header row carries the fleet summary
+    /// instead of dead space.
     private var header: some View {
-        ScoutColumnHeader(horizontalPadding: ScoutReposMetrics.pageGutter) {
+        let liveCount = repos.projects.reduce(0) { $0 + $1.worktrees.filter { $0.state == .live }.count }
+        let repoCount = repos.projects.count
+        let worktreeCount = repos.projects.reduce(0) { $0 + $1.worktrees.count }
+        return ScoutColumnHeader(horizontalPadding: ScoutReposMetrics.pageGutter) {
             titleCluster
         } secondary: {
             EmptyView()
         } trailing: {
-            refreshButton
+            HStack(spacing: HudSpacing.md) {
+                if liveCount > 0 {
+                    HudBadge("\(liveCount) live", tint: ScoutPalette.accent, dot: true)
+                }
+                HudBadge(
+                    "\(repoCount) repo\(repoCount == 1 ? "" : "s") · \(worktreeCount) worktree\(worktreeCount == 1 ? "" : "s")",
+                    tint: ScoutPalette.muted,
+                    dot: false
+                )
+                refreshButton
+            }
         }
     }
 
@@ -610,6 +626,12 @@ struct ScoutReposTree: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(rows) { row in
+                // A breath above each repo group (except the first) so the
+                // repo→worktree chunks read at a glance — indent alone doesn't
+                // separate groups in a flat uniform-height list.
+                if row.worktreeID == nil, row.id != rows.first?.id {
+                    Color.clear.frame(height: HudSpacing.md)
+                }
                 rowView(row)
                     .id(row.id)
                     .transition(.opacity)
@@ -633,11 +655,10 @@ struct ScoutReposTree: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .leading) {
             if selected {
-                ZStack(alignment: .leading) {
-                    ScoutPalette.accent.opacity(0.10)
-                    Rectangle().fill(ScoutPalette.accent).frame(width: 2)
-                }
-                .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
+                // Selection is the fill alone — the left-edge accent bar is a
+                // banned styleguide treatment (see ScoutTailView / composer well).
+                ScoutPalette.accent.opacity(0.14)
+                    .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
             } else if hovered {
                 ScoutPalette.surface
             } else if isProject {
@@ -727,12 +748,12 @@ struct ScoutReposTree: View {
                 size: 7
             )
             Text(project.name)
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             Text(repoShortPath(project.root, segments: 3))
                 .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: HudSpacing.sm)

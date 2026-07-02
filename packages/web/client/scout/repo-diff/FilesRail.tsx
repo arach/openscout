@@ -16,6 +16,43 @@ const DEFAULT_RAIL_WIDTH = 268;
 const MIN_RAIL_WIDTH = 196;
 const MAX_RAIL_WIDTH = 520;
 
+// Middle-truncate filename while preserving extension
+function truncateFilename(filename: string, maxLength: number): string {
+  if (filename.length <= maxLength) return filename;
+
+  // Split at last dot to preserve extension
+  const lastDot = filename.lastIndexOf(".");
+  if (lastDot <= 0) {
+    // No extension found, do simple middle truncation
+    const startLen = Math.max(1, Math.floor((maxLength - 1) / 2));
+    const endLen = maxLength - startLen - 1;
+    return filename.slice(0, startLen) + "…" + filename.slice(-Math.max(1, endLen));
+  }
+
+  const stem = filename.slice(0, lastDot);
+  const ext = filename.slice(lastDot);
+  const budget = maxLength - ext.length - 1; // -1 for ellipsis
+
+  if (budget < 2) {
+    // Not enough space for meaningful stem truncation
+    const headRoom = Math.max(1, maxLength - ext.length - 1);
+    return stem.slice(0, headRoom) + "…" + ext;
+  }
+
+  const startLen = Math.max(1, Math.floor(budget / 2));
+  const endLen = Math.max(1, budget - startLen);
+  return stem.slice(0, startLen) + "…" + stem.slice(-endLen) + ext;
+}
+
+// Compute filename character budget based on rail width and tree depth.
+// The budget must stay UNDER the real pixel room (row indent 18 + depth*14,
+// status glyph, churn column, include button) so the CSS end-ellipsis backstop
+// never fires — otherwise it re-truncates the tail and eats the extension the
+// middle-truncation was preserving. Name font is 11px mono (~6.7px/char).
+function getFilenameMaxLength(railWidth: number, depth: number): number {
+  return Math.max(8, Math.floor((railWidth - 178 - depth * 14) / 6.7));
+}
+
 type FileEntry = {
   file: RepoDiffFile;
   index: number;
@@ -131,6 +168,7 @@ export function FilesRail({
       key={entry.key}
       entry={entry}
       depth={depth}
+      railWidth={width}
       selected={entry.key === selectedFileKey}
       onSelect={onSelect}
       onIncludeFile={onIncludeFile}
@@ -189,17 +227,21 @@ export function FilesRail({
 function FileRow({
   entry,
   depth,
+  railWidth,
   selected,
   onSelect,
   onIncludeFile,
 }: {
   entry: FileEntry;
   depth: number;
+  railWidth: number;
   selected: boolean;
   onSelect: (key: string) => void;
   onIncludeFile: (file: RepoDiffFile, key: string) => void;
 }) {
   const { file, key, display, name, dir, renamed } = entry;
+  const maxFileLength = getFilenameMaxLength(railWidth, depth);
+  const displayName = truncateFilename(name, maxFileLength);
   return (
     <div
       className={"rd-file-row" + (selected ? " on" : "")}
@@ -215,7 +257,7 @@ function FileRow({
           {STATUS_GLYPH[file.status]}
         </span>
         <span className="rd-file-id">
-          <span className="rd-file-name">{name}</span>
+          <span className="rd-file-name">{displayName}</span>
           <span className="rd-file-dir">
             {renamed ? `${file.oldPath} → ${dir || name}` : dir}
           </span>

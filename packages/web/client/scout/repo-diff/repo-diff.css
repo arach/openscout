@@ -21,6 +21,11 @@
   --rd-add: var(--green);
   --rd-del: var(--red);
   --rd-mod: var(--amber);
+  --rd-diff-line-mix-light: 94%;
+  --rd-diff-line-mix-dark: 92%;
+  --rd-diff-gutter-mix-light: 76%;
+  --rd-diff-gutter-mix-dark: 72%;
+  --rd-diff-spine-width: 6px;
 
   display: flex;
   flex: 1;
@@ -306,8 +311,9 @@
   background: color-mix(in srgb, var(--ink) 5%, transparent);
 }
 .rd-file-row.on {
+  /* Selection is the fill alone — the left-edge accent bar is a banned
+     styleguide treatment (matches the native Repos/Agents trees). */
   background: var(--rd-sel);
-  border-left-color: var(--accent);
 }
 .rd-file-pick {
   display: flex;
@@ -444,6 +450,8 @@
 }
 .rd-codeview {
   font-size: var(--text-xs);
+  --diffs-addition-color-override: var(--rd-add);
+  --diffs-deletion-color-override: var(--rd-del);
   /* Pierre's CodeView root IS the element it virtualizes and `scrollTo`s, so it
      must be the bounded scroll container (otherwise an ancestor scrolls and
      scroll-to-file has nothing to move). */

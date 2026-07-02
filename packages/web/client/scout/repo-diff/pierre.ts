@@ -284,6 +284,57 @@ export function parseLayerPatch(
   return runtime.parsePatchFiles(rawPatch, cacheKeyPrefix, true);
 }
 
+// Pierre paints diff lines inside each `<diffs-container>` shadow root. Keep the
+// add/delete hue signal in the gutter and leave only a faint line wash so dense
+// all-addition/all-deletion files do not drown out syntax highlighting.
+const REPO_DIFF_LINE_SIGNAL_CSS = `
+[data-line-type="change-addition"]:is(
+  :where([data-background]) [data-line],
+  :where([data-background]) [data-no-newline]
+),
+[data-line-type="change-deletion"]:is(
+  :where([data-background]) [data-line],
+  :where([data-background]) [data-no-newline]
+) {
+  --mix-light: var(--rd-diff-line-mix-light, 94%);
+  --mix-dark: var(--rd-diff-line-mix-dark, 92%);
+}
+
+[data-line-type="change-addition"]:is(
+  :where([data-background]) [data-gutter-buffer],
+  :where([data-background]) [data-column-number]
+) {
+  --mix-light: var(--rd-diff-gutter-mix-light, 76%);
+  --mix-dark: var(--rd-diff-gutter-mix-dark, 72%);
+  --diffs-diff-line-mix-target: var(--diffs-bg-addition-number-override, var(--diffs-addition-base));
+}
+
+[data-line-type="change-deletion"]:is(
+  :where([data-background]) [data-gutter-buffer],
+  :where([data-background]) [data-column-number]
+) {
+  --mix-light: var(--rd-diff-gutter-mix-light, 76%);
+  --mix-dark: var(--rd-diff-gutter-mix-dark, 72%);
+  --diffs-diff-line-mix-target: var(--diffs-bg-deletion-number-override, var(--diffs-deletion-base));
+}
+
+[data-column-number]:is(
+  [data-indicators="bars"] [data-line-type="change-addition"],
+  [data-indicators="bars"] [data-line-type="change-deletion"]
+)::before {
+  width: var(--rd-diff-spine-width, 6px);
+}
+
+[data-column-number]:is([data-indicators="bars"] [data-line-type="change-addition"])::before {
+  background-color: var(--diffs-addition-base);
+}
+
+[data-column-number]:is([data-indicators="bars"] [data-line-type="change-deletion"])::before {
+  background-color: var(--diffs-deletion-base);
+  background-image: none;
+}
+`;
+
 export type PierreDiffRenderInput = {
   items: unknown[];
   theme: string;
@@ -464,7 +515,9 @@ export function mountPierreDiff(
             options: {
               theme,
               diffStyle: layout,
+              diffIndicators: "bars",
               stickyHeaders: true,
+              unsafeCSS: REPO_DIFF_LINE_SIGNAL_CSS,
               enableGutterUtility: Boolean(onIncludeLineContext),
               enableLineSelection: Boolean(onIncludeSelectionContext),
               lineHoverHighlight: "number",

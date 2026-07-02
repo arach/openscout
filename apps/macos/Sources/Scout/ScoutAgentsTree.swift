@@ -345,6 +345,12 @@ struct ScoutAgentsTree: View {
         // realization.
         VStack(alignment: .leading, spacing: 0) {
             ForEach(rows) { row in
+                // A breath above each project group (except the first) so the
+                // project→agent chunks read at a glance — indent alone doesn't
+                // separate groups in a flat uniform-height list.
+                if case .project = row.kind, row.id != rows.first?.id {
+                    Color.clear.frame(height: HudSpacing.md)
+                }
                 rowView(row)
                     .id(row.id)
                     .transition(.opacity)
@@ -369,11 +375,10 @@ struct ScoutAgentsTree: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(alignment: .leading) {
             if selected {
-                ZStack(alignment: .leading) {
-                    ScoutPalette.accent.opacity(0.10)
-                    Rectangle().fill(ScoutPalette.accent).frame(width: 2)
-                }
-                .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
+                // Selection is the fill alone — the left-edge accent bar is a
+                // banned styleguide treatment (see ScoutTailView / composer well).
+                ScoutPalette.accent.opacity(0.14)
+                    .matchedGeometryEffect(id: Self.selectionMatchID, in: selectionNamespace)
             } else if hovered {
                 ScoutPalette.surface
             }
@@ -404,12 +409,12 @@ struct ScoutAgentsTree: View {
         if let group {
             chevron(for: .init(kind: .project(group.key), depth: 0))
             Text(group.label)
-                .font(HudFont.ui(HudTextSize.sm, weight: .semibold))
+                .font(HudFont.ui(HudTextSize.base, weight: .semibold))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             Text(group.path)
                 .font(HudFont.mono(HudTextSize.xxs))
-                .foregroundStyle(ScoutPalette.dim)
+                .foregroundStyle(ScoutPalette.muted)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: HudSpacing.sm)
@@ -439,13 +444,13 @@ struct ScoutAgentsTree: View {
             ScoutTreeStateDot(state: agent.state)
             SpriteAvatarView(agent: agent, size: 18)
             Text(agent.displayName)
-                .font(HudFont.ui(HudTextSize.sm, weight: .medium))
+                .font(HudFont.ui(HudTextSize.base, weight: .medium))
                 .foregroundStyle(ScoutPalette.ink)
                 .lineLimit(1)
             if !agent.detail.isEmpty {
                 Text(agent.detail)
                     .font(HudFont.mono(HudTextSize.xxs))
-                    .foregroundStyle(ScoutPalette.dim)
+                    .foregroundStyle(ScoutPalette.muted)
                     .lineLimit(1)
             }
             Spacer(minLength: HudSpacing.sm)
