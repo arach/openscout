@@ -54,10 +54,10 @@ function getDb() {
     _db.exec("PRAGMA journal_mode = WAL;");
     _db.exec("PRAGMA synchronous = NORMAL;");
     // SCO-037 step 3: ensure the markdown column exists on databases
-    // provisioned before schema v8. The runtime broker also runs the new
-    // CREATE TABLE on startup, but its idempotent path won't add columns to
-    // an existing table. This defensive ALTER is safe on every boot because
-    // it only runs when the column is missing.
+    // provisioned before schema v8. The runtime now owns this backfill
+    // (CONTROL_PLANE_SCHEMA_MIGRATIONS entry "briefings-markdown-column");
+    // this web-side copy stays one release as a belt while older runtimes
+    // are still in the field, then gets removed.
     ensureBriefingsMarkdownColumn(_db);
     _drizzle = openControlPlaneDrizzle(_db);
   }

@@ -68,6 +68,16 @@ export const CONTROL_PLANE_SCHEMA_MIGRATIONS: ControlPlaneSchemaMigration[] = [
     },
   },
   {
+    id: "briefings-markdown-column",
+    description:
+      "Adds briefings.markdown to databases provisioned before schema v8 (folds in the web server's defensive ALTER; SCO-037).",
+    apply(database) {
+      if (!hasColumn(database, "briefings", "markdown")) {
+        database.exec("ALTER TABLE briefings ADD COLUMN markdown TEXT");
+      }
+    },
+  },
+  {
     id: "read-model-indexes",
     description: "Creates durable read indexes used by broker and dashboard queries.",
     apply(database) {

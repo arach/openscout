@@ -80,6 +80,14 @@ CREATE INDEX IF NOT EXISTS idx_terminal_session_registry_updated
   ON terminal_session_registry (updated_at DESC);
 `;
 
+// Do not AUTHOR schema changes here. The declarative model in
+// drizzle-schema.ts is the schema authority: edit it there, run `bun run
+// db:generate`, commit the generated migration, and then mirror the change
+// into this string (see packages/runtime/drizzle/README.md). This string
+// remains the idempotent repair layer for existing databases;
+// drizzle-schema-parity.test.ts fails the moment it drifts from the model
+// or from the checked-in migration chain, so the mirror step cannot be
+// skipped or fudged.
 export const CONTROL_PLANE_SQLITE_SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

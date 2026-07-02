@@ -119,6 +119,20 @@ describe("control-plane managed migrations", () => {
     expect(ledgerRows(db)).toHaveLength(1);
   });
 
+  test("briefings-markdown backfill adds the column to pre-v8 databases", () => {
+    const db = new Database(":memory:");
+    db.exec(CONTROL_PLANE_SQLITE_SCHEMA);
+    // Simulate a database provisioned before schema v8, whose briefings table
+    // predates the markdown column (the CREATE IF NOT EXISTS repair layer
+    // cannot add columns to an existing table).
+    db.exec("ALTER TABLE briefings DROP COLUMN markdown");
+
+    migrateControlPlaneDatabaseSchema(db);
+
+    const cols = db.query("PRAGMA table_info('briefings')").all() as Array<{ name: string }>;
+    expect(cols.some((c) => c.name === "markdown")).toBe(true);
+  });
+
   test("refuses to open a database stamped by a newer build", () => {
     const db = new Database(":memory:");
     migrateControlPlaneDatabaseSchema(db);

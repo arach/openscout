@@ -225,7 +225,13 @@ No test hard-codes the path `"./db-queries.ts"` in a way that breaks if the file
 - **Other repositories** (`MessagesRepo`, `WorkRepo`, `FlightsRepo`, `FleetRepo`). Extract when each domain gets surgery. Messages is the most likely next candidate because thread UI work (SCO-029) will surface it.
 - **Read/write type enforcement** (`WriteStore` vs `ReadDb`). The store already has separate handles; lifting that into the type system is a separate SCO and risks ballooning generic-parameter noise.
 - **Projection refactor.** `sqlite-projection.ts` stays as-is.
-- **ORM/DB migration.** Drizzle stays bounded to deliveries; SQLite stays. Out of scope forever.
+- **ORM query-layer migration.** Reads and writes stay on the typed-Row raw
+  SQL pattern; SQLite stays. Out of scope. *(Revised 2026-07-01: this item
+  originally scoped Drizzle to deliveries and ruled ORM/DB migration "out of
+  scope forever." Schema and migrations are now Drizzle-managed — see
+  [SCO-075](./sco-075-drizzle-managed-migrations.md), which supersedes the
+  original clause on the migration point only; the query-layer boundary here
+  is unchanged.)*
 - **`db-queries.test.ts` split per domain.** Done in a follow-up once the source split has settled.
 
 ## 10. Sequencing with SCO-030
