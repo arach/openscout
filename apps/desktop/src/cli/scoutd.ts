@@ -94,7 +94,6 @@ function buildNativeScoutdEnvironment(
     ...env,
     OPENSCOUT_SCOUTD_BIN: scoutdPath,
     OPENSCOUT_RUNTIME_PACKAGE_DIR: config.runtimePackageDir,
-    OPENSCOUT_BUN_BIN: config.bunExecutable,
     OPENSCOUT_SUPPORT_DIRECTORY: config.supportDirectory,
     OPENSCOUT_CONTROL_HOME: config.controlHome,
     OPENSCOUT_BROKER_HOST: config.brokerHost,
@@ -107,6 +106,9 @@ function buildNativeScoutdEnvironment(
     OPENSCOUT_ADVERTISE_SCOPE: config.advertiseScope,
     ...openScoutNetworkServiceEnvironment(env),
   };
+  if (config.bunExecutable) {
+    nextEnv.OPENSCOUT_BUN_BIN = config.bunExecutable;
+  }
   if (config.coreAgents.length > 0) {
     nextEnv.OPENSCOUT_CORE_AGENTS = config.coreAgents.join(",");
   }

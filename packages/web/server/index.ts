@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureProviderTelemetryBootstrap } from "@openscout/runtime";
 import { resolveWebPort } from "@openscout/runtime/local-config";
 import { resolveOpenScoutSetupContextRoot } from "@openscout/runtime/setup";
 import { resolveOpenScoutWebRoutes } from "../shared/runtime-config.js";
@@ -19,6 +20,7 @@ import {
   startManagedTerminalRelay,
   type ManagedTerminalRelay,
 } from "./managed-terminal-relay.ts";
+import { loadServiceBudgets } from "./service-budgets.ts";
 
 process.title = "scout-web";
 
@@ -71,6 +73,23 @@ function toWebSocketUrl(httpUrl: string, pathname: string, search = ""): string 
   return target.toString();
 }
 
+async function bootstrapProviderTelemetry(): Promise<void> {
+  try {
+    const telemetry = await ensureProviderTelemetryBootstrap({ env: process.env });
+    const budgets = await loadServiceBudgets(true);
+    if (process.env.OPENSCOUT_DEBUG_SERVICE_BUDGETS === "1") {
+      console.warn("[scout] provider telemetry bootstrap", {
+        claude: telemetry.claude.status,
+        statuslineLatest: telemetry.statuslineLatest.status,
+        budgetFeeds: budgets.gauges.map((gauge) => gauge.id),
+      });
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[scout] Provider telemetry bootstrap failed: ${message}`);
+  }
+}
+
 let terminalRelay: ManagedTerminalRelay | null = null;
 let terminalRelayStart: Promise<ManagedTerminalRelay | null> | null = null;
 
@@ -113,6 +132,7 @@ async function ensureTerminalRelay(): Promise<ManagedTerminalRelay | null> {
 }
 
 void startTerminalRelay();
+await bootstrapProviderTelemetry();
 
 const web = await createOpenScoutWebServer({
   currentDirectory,

@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ensureProviderTelemetryBootstrap } from "@openscout/runtime";
 import type { ScoutCommandContext } from "../context.ts";
 import { defaultScoutContextDirectory } from "../context.ts";
 import { ScoutCliError } from "../errors.ts";
@@ -265,6 +266,18 @@ function renderActionMessage(action: ScoutMenuAction): string {
   }
 }
 
+async function ensureMenuProviderTelemetry(context: ScoutCommandContext, action: ScoutMenuAction): Promise<void> {
+  if (action === "build" || action === "dmg" || action === "quit") {
+    return;
+  }
+  try {
+    await ensureProviderTelemetryBootstrap({ env: context.env });
+  } catch {
+    // Launching the app should not fail because a provider telemetry hook could
+    // not be repaired. The web server also retries this on startup.
+  }
+}
+
 function runWithRepoHelper(
   context: ScoutCommandContext,
   helperPath: string,
@@ -357,6 +370,7 @@ export async function runMenuCommand(context: ScoutCommandContext, args: string[
   }
 
   const command = parseMenuCommand(args);
+  await ensureMenuProviderTelemetry(context, command.action);
   const helperPath = findRepoMenuHelper(defaultScoutContextDirectory(context));
   const result = helperPath
     ? runWithRepoHelper(context, helperPath, command)

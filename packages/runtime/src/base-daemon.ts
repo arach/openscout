@@ -113,6 +113,13 @@ function spawnBroker(): void {
   if (shuttingDown || brokerProcess) {
     return;
   }
+  if (!config.bunExecutable) {
+    warn("broker supervisor cannot start broker without Bun", {
+      hint: "Use the headless broker entrypoint under Node or install Bun for the macOS base supervisor.",
+    });
+    scheduleBrokerRestart();
+    return;
+  }
 
   const webTrustedHostsEnv = resolveWebTrustedHostsEnv();
   const stdout = logFile("broker.stdout.log");
