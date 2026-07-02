@@ -19,6 +19,10 @@ import type {
 } from "@openscout/protocol";
 import { BUILT_IN_AGENT_DEFINITION_IDS, epochMs, normalizeAgentSelectorSegment } from "@openscout/protocol";
 
+import {
+  teardownAgentWorkspace,
+  SCOUT_WORKSPACES_DIRNAME,
+} from "./agent-workspace.js";
 import { DispatchStalledError } from "./dispatch-stalled.js";
 import { invokeGrokAcpAgent } from "./grok-acp-invocation.js";
 
@@ -2227,6 +2231,38 @@ export async function retireLocalAgent(agentId: string): Promise<ScoutLocalAgent
     ...status,
     isOnline: false,
   };
+}
+
+/**
+ * Reclaim the isolation workspace for a local agent once it has settled.
+ *
+ * The agent's cwd is persisted in the relay-agents override (`runtime.cwd`).
+ * When that cwd is a Scout-created workspace under the project's
+ * `.scout-worktrees/`, tear it down (COW clone → rm, git worktree →
+ * `git worktree remove`). No-ops safely when the agent is unknown, wasn't
+ * isolated (ran in the project root), or the workspace is already gone.
+ *
+ * Returns whether a workspace was actually removed.
+ */
+export async function teardownLocalAgentWorkspace(agentId: string): Promise<boolean> {
+  const overrides = await readRelayAgentOverrides();
+  const override = overrides[agentId];
+  if (!override) return false;
+
+  const projectRoot = override.projectRoot
+    ? normalizeProjectPath(override.projectRoot)
+    : undefined;
+  const cwd = override.runtime?.cwd
+    ?? override.harnessProfiles?.[override.defaultHarness as ManagedAgentHarness]?.cwd;
+  if (!cwd) return false;
+
+  const workspacePath = normalizeProjectPath(cwd);
+  // Only Scout-created workspaces are eligible — the agent may run in the
+  // project root itself, which must never be torn down.
+  if (!workspacePath.includes(`/${SCOUT_WORKSPACES_DIRNAME}/`)) return false;
+  if (projectRoot && workspacePath === projectRoot) return false;
+
+  return teardownAgentWorkspace({ workspacePath, projectRoot });
 }
 
 function buildCodexAgentSessionOptions(

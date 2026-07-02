@@ -62,6 +62,14 @@ export type BrokerFlightLifecycleServiceOptions = {
   ) => Promise<void>;
   maybeForwardFlightToAuthority: (flight: FlightRecord) => Promise<void>;
   isInvocationActive: (invocationId: string) => boolean;
+  /**
+   * Tear down the Scout-created isolation workspace for a settled flight's
+   * target agent (COW clone or git worktree under `.scout-worktrees/`). Fixes
+   * the historical workspace leak. Optional; a no-op when unwired. The
+   * implementation is expected to no-op safely if the agent has no workspace
+   * or it is already gone.
+   */
+  teardownAgentWorkspace?: (agentId: string, flight: FlightRecord) => Promise<void>;
   warn?: (message: string, detail?: unknown) => void;
   now?: () => number;
 };
@@ -208,6 +216,20 @@ export class BrokerFlightLifecycleService {
       } catch (error) {
         this.options.warn?.(
           `[openscout-runtime] failed to update work item for flight ${flightToRecord.id}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+
+    // Tear down the agent's isolation workspace once the flight settles. This
+    // is independent of the invocation lookup — a leaked workspace should be
+    // reclaimed even if the originating invocation has been forgotten.
+    if (this.options.teardownAgentWorkspace && isTerminalFlightState(flightToRecord.state)) {
+      try {
+        await this.options.teardownAgentWorkspace(flightToRecord.targetAgentId, flightToRecord);
+      } catch (error) {
+        this.options.warn?.(
+          `[openscout-runtime] failed to tear down workspace for flight ${flightToRecord.id}:`,
           error instanceof Error ? error.message : String(error),
         );
       }

@@ -68,6 +68,7 @@ import {
   loadRegisteredLocalAgentBindings,
   shutdownLocalSessionEndpoint,
   shouldDisableGeneratedCodexEndpoint,
+  teardownLocalAgentWorkspace,
 } from "./local-agents.js";
 import {
   ensurePairingSessionForCodexThread,
@@ -693,6 +694,12 @@ const flightLifecycleService = new BrokerFlightLifecycleService({
   promoteInvocationFlightToWork,
   maybeForwardFlightToAuthority: (flight) => meshForwardingService.maybeForwardFlightToAuthority(flight),
   isInvocationActive: (invocationId) => localInvocationService.hasActiveInvocation(invocationId),
+  teardownAgentWorkspace: async (agentId) => {
+    const removed = await teardownLocalAgentWorkspace(agentId);
+    if (removed) {
+      console.log(`[openscout-runtime] reclaimed isolation workspace for agent ${agentId}`);
+    }
+  },
   warn: (message, detail) => {
     if (detail === undefined) {
       console.warn(message);

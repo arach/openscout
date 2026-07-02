@@ -144,6 +144,7 @@ function createHarness(input: {
   }> = [];
   const promoted: Array<{ invocation: InvocationRequest; flight: FlightRecord; output: string | undefined }> = [];
   const forwardedFlights: FlightRecord[] = [];
+  const teardowns: Array<{ agentId: string; flight: FlightRecord }> = [];
   const warnings: string[] = [];
   const activeInvocationIds = new Set(input.activeInvocationIds ?? []);
 
@@ -182,6 +183,9 @@ function createHarness(input: {
       forwardedFlights.push(flight);
     },
     isInvocationActive: (invocationId) => activeInvocationIds.has(invocationId),
+    async teardownAgentWorkspace(agentId, flight) {
+      teardowns.push({ agentId, flight });
+    },
     warn: (message) => warnings.push(message),
     now: () => input.now ?? 10_000,
   });
@@ -193,6 +197,7 @@ function createHarness(input: {
     promoted,
     service,
     snapshot,
+    teardowns,
     updatedDeliveries,
     warnings,
   };
@@ -269,6 +274,31 @@ describe("broker flight lifecycle helpers", () => {
     ]);
     expect(harness.promoted).toEqual([{ invocation, flight: completed, output: "done" }]);
     expect(harness.forwardedFlights).toEqual([completed]);
+    expect(harness.teardowns).toEqual([{ agentId: "agent-1", flight: completed }]);
+  });
+
+  test("does not tear down workspaces for non-terminal flights", async () => {
+    const running = testFlight({ state: "running" });
+    const harness = createHarness();
+
+    await harness.service.recordFlight(running);
+
+    expect(harness.teardowns).toEqual([]);
+  });
+
+  test("tears down the workspace even when the invocation is unknown", async () => {
+    const completed = testFlight({ state: "completed", completedAt: 4_000, output: "done" });
+    // No invocation is registered for this flight (empty invocations, and the
+    // harness's invocationFor returns undefined), yet a leaked workspace must
+    // still be reclaimed on terminal state.
+    const harness = createHarness({
+      snapshot: testSnapshot({ agents: { "agent-1": testAgent() }, invocations: {} }),
+    });
+
+    await harness.service.recordFlight(completed);
+
+    expect(harness.promoted).toEqual([]);
+    expect(harness.teardowns).toEqual([{ agentId: "agent-1", flight: completed }]);
   });
 
   test("turns completed consult flights without visible output into failures", async () => {
