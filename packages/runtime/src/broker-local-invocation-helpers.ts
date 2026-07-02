@@ -3,6 +3,8 @@ import type {
   AgentEndpoint,
   FlightRecord,
   InvocationRequest,
+  InvocationStatus,
+  MetadataMap,
 } from "@openscout/protocol";
 
 import type { RuntimeSnapshot } from "./scout-dispatcher.js";
@@ -35,6 +37,60 @@ export {
 function metadataStringValue(metadata: Record<string, unknown> | undefined, key: string): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * A status transition for an invocation's flight. Keys present in the patch
+ * override the current record — including keys explicitly set to `undefined`
+ * (e.g. `error: undefined` clears a prior error on re-entry to `running`).
+ * `metadata` is merged key-wise into the current metadata rather than
+ * replacing it; `flightId` is excluded because a transition never re-points
+ * the invocation at a different flight.
+ */
+export type InvocationStatusPatch = Omit<InvocationStatus, "flightId"> & {
+  metadata?: MetadataMap;
+};
+
+export function applyInvocationStatusPatch(
+  current: FlightRecord,
+  patch: InvocationStatusPatch,
+): FlightRecord {
+  const { metadata, ...status } = patch;
+  return {
+    ...current,
+    ...status,
+    state: status.state ?? current.state,
+    ...("metadata" in patch
+      ? { metadata: { ...(current.metadata ?? {}), ...(metadata ?? {}) } }
+      : {}),
+  };
+}
+
+// Metadata keys that describe a single execution attempt's failure or timeout.
+// Cleared on re-entry to `running` so a fresh attempt does not carry a prior
+// attempt's failure detail into its own success record (an explicit undefined
+// value overrides in the key-wise metadata merge and is dropped by the durable
+// JSON serialization).
+const TRANSIENT_STATUS_METADATA_KEYS = [
+  "failureStage",
+  "failureSeverity",
+  "noteworthy",
+  "dispatchStalledSession",
+  "dispatchStalledRetries",
+  "dispatchStalledPaneTail",
+  "exitKind",
+  "exitSignal",
+  "exitCode",
+  "shutdownReason",
+  "requesterTimedOut",
+  "timeoutMs",
+  "timeoutScope",
+] as const;
+
+export function clearedTransientStatusMetadata(): Record<string, undefined> {
+  return Object.fromEntries(
+    TRANSIENT_STATUS_METADATA_KEYS.map((key) => [key, undefined]),
+  ) as Record<string, undefined>;
 }
 
 export function isWorkingFlightState(state: FlightRecord["state"]): boolean {

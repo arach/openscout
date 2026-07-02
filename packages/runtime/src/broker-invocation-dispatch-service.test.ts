@@ -130,7 +130,7 @@ function createHarness(input: {
   const recordedDispatchJobs: BrokerInvocationDispatchJob[] = [];
   const recordedFlights: FlightRecord[] = [];
   const statusMessages: Array<{ invocation: InvocationRequest; flight: Partial<FlightRecord> }> = [];
-  const launched: Array<{ invocation: InvocationRequest; flight: FlightRecord }> = [];
+  const launched: Array<{ invocation: InvocationRequest }> = [];
   const peerEnqueues: Array<{ invocation: InvocationRequest; authorityNode: NodeDefinition }> = [];
   const dispatches: Array<{
     envelope: ScoutDispatchEnvelope;
@@ -227,8 +227,8 @@ function createHarness(input: {
     async enqueuePeerInvocation(nextInvocation, authorityNode) {
       peerEnqueues.push({ invocation: nextInvocation, authorityNode });
     },
-    launchLocalInvocation(nextInvocation, nextFlight) {
-      launched.push({ invocation: nextInvocation, flight: nextFlight });
+    launchLocalInvocation(nextInvocation) {
+      launched.push({ invocation: nextInvocation });
     },
     log: (message) => logs.push(message),
     warn: (message) => warnings.push(message),
@@ -298,7 +298,6 @@ describe("BrokerInvocationDispatchService", () => {
     expect(harness.launched).toEqual([
       expect.objectContaining({
         invocation: expect.objectContaining({ targetAgentId: "agent-resolved" }),
-        flight: expect.objectContaining({ invocationId: "invocation-resolved" }),
       }),
     ]);
   });

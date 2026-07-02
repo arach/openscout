@@ -9,6 +9,7 @@ import type {
 
 import { createInMemoryControlRuntime } from "./broker.js";
 import {
+  applyInvocationStatusPatch,
   compareLocalEndpointPreference,
   dispatchAckStrategyForEndpoint,
   endpointForFlight,
@@ -93,6 +94,93 @@ function testFlight(input: Partial<FlightRecord> = {}): FlightRecord {
     ...input,
   };
 }
+
+describe("applyInvocationStatusPatch", () => {
+  test("patches status fields and preserves flight identity", () => {
+    const current = testFlight({
+      state: "running",
+      summary: "working",
+      startedAt: 1_000,
+      labels: ["release:1"],
+    });
+
+    const next = applyInvocationStatusPatch(current, {
+      state: "completed",
+      summary: "done",
+      output: "the answer",
+      completedAt: 2_000,
+    });
+
+    expect(next).toEqual({
+      ...current,
+      state: "completed",
+      summary: "done",
+      output: "the answer",
+      completedAt: 2_000,
+    });
+    expect(next.id).toBe("flight-1");
+    expect(next.invocationId).toBe("invocation-1");
+    expect(next.labels).toEqual(["release:1"]);
+  });
+
+  test("keys explicitly set to undefined clear the current value", () => {
+    const current = testFlight({
+      state: "failed",
+      error: "boom",
+      completedAt: 2_000,
+    });
+
+    const next = applyInvocationStatusPatch(current, {
+      state: "running",
+      error: undefined,
+      completedAt: undefined,
+    });
+
+    expect(next.state).toBe("running");
+    expect(next.error).toBeUndefined();
+    expect(next.completedAt).toBeUndefined();
+  });
+
+  test("omitted keys keep the current value", () => {
+    const current = testFlight({
+      state: "running",
+      summary: "working",
+      output: "partial",
+      startedAt: 1_500,
+    });
+
+    const next = applyInvocationStatusPatch(current, { summary: "still working" });
+
+    expect(next.state).toBe("running");
+    expect(next.output).toBe("partial");
+    expect(next.startedAt).toBe(1_500);
+  });
+
+  test("metadata merges key-wise instead of replacing", () => {
+    const current = testFlight({
+      metadata: { dispatchAck: { strategy: "spawn" }, attempt: 1 },
+    });
+
+    const next = applyInvocationStatusPatch(current, {
+      state: "failed",
+      metadata: { failureStage: "empty_reply", attempt: 2 },
+    });
+
+    expect(next.metadata).toEqual({
+      dispatchAck: { strategy: "spawn" },
+      failureStage: "empty_reply",
+      attempt: 2,
+    });
+  });
+
+  test("a patch without metadata leaves current metadata untouched", () => {
+    const current = testFlight({ metadata: { dispatchAck: { strategy: "attach" } } });
+
+    const next = applyInvocationStatusPatch(current, { state: "completed" });
+
+    expect(next.metadata).toEqual({ dispatchAck: { strategy: "attach" } });
+  });
+});
 
 describe("broker local invocation helpers", () => {
   test("classifies flight states and timestamps", () => {

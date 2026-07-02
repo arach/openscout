@@ -83,7 +83,7 @@ export type BrokerInvocationDispatchServiceDeps = {
     unavailable: ScoutDispatchUnavailableTarget,
   ) => ScoutDispatchEnvelope;
   enqueuePeerInvocation: (invocation: InvocationRequest, authorityNode: NodeDefinition) => Promise<void>;
-  launchLocalInvocation: (invocation: InvocationRequest, flight: FlightRecord) => void;
+  launchLocalInvocation: (invocation: InvocationRequest) => void;
   log?: (message: string) => void;
   warn?: (message: string) => void;
   error?: (message: string, detail: unknown) => void;
@@ -305,7 +305,7 @@ export class BrokerInvocationDispatchService {
     if (flight.state === "failed") {
       await this.deps.postInvocationStatusMessage(invocation, flight);
     } else {
-      this.deps.launchLocalInvocation(invocation, flight);
+      this.deps.launchLocalInvocation(invocation);
     }
   };
 
