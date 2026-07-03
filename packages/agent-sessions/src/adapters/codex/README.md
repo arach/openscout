@@ -1,7 +1,7 @@
 # Codex Adapter Support Files
 
-This directory holds local support material for the Codex adapter in
-[codex.ts](../codex.ts).
+This directory holds the Codex adapter implementation and its local support
+material. The runnable adapter entrypoint is [adapter.ts](./adapter.ts).
 
 ## Tooling
 

@@ -3,8 +3,8 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { PairingEvent } from "../protocol/primitives.js";
-import { createAdapter } from "./acp.js";
+import type { PairingEvent } from "../../protocol/primitives.js";
+import { createAdapter } from "./adapter.js";
 
 const tempPaths = new Set<string>();
 

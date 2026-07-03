@@ -1,5 +1,5 @@
-import type { AdapterConfig } from "../protocol/adapter.js";
-import { AcpAdapter } from "./acp.js";
+import type { AdapterConfig } from "../../protocol/adapter.js";
+import { AcpAdapter } from "../acp/adapter.js";
 
 const DEFAULT_GROK_ARGS = ["--no-auto-update", "agent", "stdio"];
 const GROK_ACP_ADAPTER_TYPE = "grok-acp";
