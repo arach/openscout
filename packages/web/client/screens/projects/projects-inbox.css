@@ -935,52 +935,105 @@
   font-family: var(--pi-mono);
   font-size: 9.5px;
 }
-.pi-sessionGlanceBars {
+.pi-sessionGlanceTokens {
+  min-width: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  grid-template-columns: minmax(180px, 0.45fr) minmax(260px, 1fr) minmax(160px, 0.35fr);
+  align-items: stretch;
   gap: 7px;
-  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--pi-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--hud-surface) 7%, transparent);
 }
-.pi-sessionGlanceBar {
-  position: relative;
+.pi-sessionGlanceTokenHead {
   min-width: 0;
-  height: 22px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 3px;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.pi-sessionGlanceTokenHead b {
+  color: var(--pi-ink);
+  font-size: 10.5px;
+  font-weight: 680;
+}
+.pi-sessionGlanceTokenLabel {
+  flex: none;
+  color: var(--pi-dim);
+  font-size: 8.5px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pi-sessionGlanceTokenBars {
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+  border-radius: 6px;
+}
+.pi-sessionGlanceTokenSeg {
+  min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   padding: 0 7px;
-  border: 1px solid var(--pi-hairline);
-  border-radius: 6px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--hud-surface) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pi-hairline) 82%, transparent);
+  background: color-mix(in srgb, var(--pi-accent) 15%, transparent);
   color: var(--pi-muted);
   font-family: var(--pi-mono);
   font-size: 9.5px;
 }
-.pi-sessionGlanceBarFill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--bar-fr);
-  background: color-mix(in srgb, var(--pi-accent) 16%, transparent);
+.pi-sessionGlanceTokenSeg[data-kind="cache-read"] {
+  background: color-mix(in srgb, var(--pi-accent) 25%, transparent);
 }
-.pi-sessionGlanceBar[data-kind="tool"] .pi-sessionGlanceBarFill {
-  background: color-mix(in srgb, var(--pi-accent) 24%, transparent);
+.pi-sessionGlanceTokenSeg[data-kind="output"] {
+  background: color-mix(in srgb, var(--pi-ink) 11%, transparent);
 }
-.pi-sessionGlanceBarLabel,
-.pi-sessionGlanceBarCount {
-  position: relative;
-  z-index: 1;
+.pi-sessionGlanceTokenSeg[data-kind="reasoning"] {
+  background: color-mix(in srgb, var(--hud-warn) 18%, transparent);
+}
+.pi-sessionGlanceTokenSegLabel,
+.pi-sessionGlanceTokenSegValue {
   min-width: 0;
-}
-.pi-sessionGlanceBarLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pi-sessionGlanceBarCount {
+.pi-sessionGlanceTokenSegValue {
   color: var(--pi-ink);
   font-variant-numeric: tabular-nums;
+}
+.pi-sessionGlanceTokenTrend {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(70px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--pi-dim);
+  font-family: var(--pi-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pi-sessionGlanceTokenTrend svg {
+  width: 100%;
+  height: 28px;
+  display: block;
+}
+.pi-sessionGlanceTokenTrend polyline {
+  fill: none;
+  stroke: color-mix(in srgb, var(--pi-accent) 72%, var(--pi-ink));
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
 }
 .pi-sessionGlanceNearby {
   min-width: 0;
@@ -1625,6 +1678,10 @@
   }
 
   .pi-sessionGlanceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .pi-sessionGlanceTokens {
     grid-template-columns: 1fr;
   }
 

@@ -238,6 +238,7 @@ describe("buildObserveDataFromSnapshot", () => {
         serviceTier: "standard",
       },
     });
+    expect(data.contextUsage?.at(-1)).toBeCloseTo(137 / 1_000_000, 6);
   });
 });
 

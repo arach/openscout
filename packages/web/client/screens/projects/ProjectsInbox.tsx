@@ -4,7 +4,7 @@ import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { HarnessMark } from "../../components/HarnessMark.tsx";
 import { api } from "../../lib/api.ts";
 import { formatClockTimestamp, formatDurationClock, normalizeTimestampMs, timeAgo } from "../../lib/time.ts";
-import type { ObserveData, Route } from "../../lib/types.ts";
+import type { ObserveData, ObserveUsageMeta, Route } from "../../lib/types.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import { pathLeaf } from "../agents/model.ts";
 import { SessionRefScreen, type SessionRefLookup } from "../sessions/SessionRefScreen.tsx";
@@ -674,10 +674,10 @@ function SelectedSessionMain({
   );
 }
 
-type EventBucket = {
+type TokenBucket = {
   key: string;
   label: string;
-  count: number;
+  value: number;
 };
 
 function compactNumber(value: number | null | undefined): string {
@@ -693,19 +693,114 @@ function tokenLabel(value: number | null | undefined): string {
   return `${compactNumber(value)} tok`;
 }
 
-function eventBuckets(data: ObserveData | null): EventBucket[] {
-  const counts = new Map<string, number>();
-  for (const event of data?.events ?? []) {
-    const key = event.kind === "boot" ? "system" : event.kind;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+function positiveNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function contextRatio(usage: ObserveUsageMeta | null | undefined): number | null {
+  const used = positiveNumber(usage?.contextInputTokens);
+  const total = positiveNumber(usage?.contextWindowTokens);
+  if (used === null || total === null) return null;
+  return Math.max(0, Math.min(1, used / total));
+}
+
+function contextSamples(data: ObserveData | null, usage: ObserveUsageMeta | null | undefined): number[] {
+  const exact = contextRatio(usage);
+  const raw = (data?.contextUsage ?? [])
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Math.max(0, Math.min(1, value)));
+  if (raw.length > 1) {
+    const last = raw.at(-1) ?? 0;
+    if (exact !== null && last > 0) {
+      const scale = exact / last;
+      return raw.map((value) => Math.max(0, Math.min(1, value * scale)));
+    }
+    return raw;
   }
-  return [
-    { key: "message", label: "chat", count: counts.get("message") ?? 0 },
-    { key: "tool", label: "tools", count: counts.get("tool") ?? 0 },
-    { key: "think", label: "think", count: counts.get("think") ?? 0 },
-    { key: "ask", label: "asks", count: counts.get("ask") ?? 0 },
-    { key: "system", label: "system", count: counts.get("system") ?? 0 },
-  ].filter((bucket) => bucket.count > 0);
+  return exact !== null ? [Math.max(0, exact * 0.35), exact] : [];
+}
+
+function tokenBuckets(usage: ObserveUsageMeta | null | undefined): TokenBucket[] {
+  const buckets = [
+    { key: "input", label: "input", value: positiveNumber(usage?.inputTokens) ?? 0 },
+    { key: "cache-read", label: "cache rd", value: positiveNumber(usage?.cacheReadInputTokens) ?? 0 },
+    { key: "cache-write", label: "cache wr", value: positiveNumber(usage?.cacheCreationInputTokens) ?? 0 },
+    { key: "output", label: "output", value: positiveNumber(usage?.outputTokens) ?? 0 },
+    { key: "reasoning", label: "reasoning", value: positiveNumber(usage?.reasoningOutputTokens) ?? 0 },
+  ].filter((bucket) => bucket.value > 0);
+  if (buckets.length > 0) return buckets;
+  const total = positiveNumber(usage?.totalTokens);
+  return total !== null ? [{ key: "total", label: "total", value: total }] : [];
+}
+
+function sparklinePoints(samples: number[], width: number, height: number): string {
+  const maxIndex = Math.max(1, samples.length - 1);
+  return samples
+    .map((value, index) => {
+      const x = (index / maxIndex) * width;
+      const y = height - Math.max(1, Math.min(height - 1, value * height));
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+}
+
+function filesTitle(files: ObserveData["files"]): string | undefined {
+  if (files.length === 0) return undefined;
+  return files
+    .slice(0, 8)
+    .map((file) => file.path)
+    .join("\n");
+}
+
+function TokenTelemetry({
+  data,
+  usage,
+  tokenTotal,
+}: {
+  data: ObserveData | null;
+  usage: ObserveUsageMeta | null | undefined;
+  tokenTotal: string;
+}) {
+  const buckets = tokenBuckets(usage);
+  const samples = contextSamples(data, usage);
+  const bucketTotal = buckets.reduce((sum, bucket) => sum + bucket.value, 0);
+  const currentContext = contextRatio(usage) ?? samples.at(-1) ?? null;
+  if (buckets.length === 0 && samples.length < 2) return null;
+  const contextLabel = currentContext !== null ? `${Math.round(currentContext * 100)}% ctx` : null;
+
+  return (
+    <div className="pi-sessionGlanceTokens" aria-label="Token usage">
+      <div className="pi-sessionGlanceTokenHead">
+        <span className="pi-sessionGlanceTokenLabel">Tokens</span>
+        <b>{tokenTotal}</b>
+        {contextLabel ? <span>{contextLabel}</span> : null}
+      </div>
+      {buckets.length > 0 ? (
+        <div className="pi-sessionGlanceTokenBars">
+          {buckets.map((bucket) => (
+            <span
+              key={bucket.key}
+              className="pi-sessionGlanceTokenSeg"
+              data-kind={bucket.key}
+              style={{ flexGrow: bucketTotal > 0 ? Math.max(0.035, bucket.value / bucketTotal) : 1, flexBasis: 0 } as CSSProperties}
+              title={`${bucket.label}: ${tokenLabel(bucket.value)}`}
+            >
+              <span className="pi-sessionGlanceTokenSegLabel">{bucket.label}</span>
+              <span className="pi-sessionGlanceTokenSegValue">{compactNumber(bucket.value)}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {samples.length > 1 ? (
+        <div className="pi-sessionGlanceTokenTrend" title={contextLabel ?? undefined}>
+          <svg viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
+            <polyline points={sparklinePoints(samples, 120, 28)} />
+          </svg>
+          <span>context</span>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function observedStartMs(data: ObserveData | null): number | null {
@@ -805,16 +900,16 @@ function ProjectSessionGlance({
   const endMs = observedEndMs(data, fallbackLastAt);
   const turnCount = sessionMeta?.turnCount ?? usage?.assistantMessages ?? (lookup?.kind === "conversation" ? lookup.session.messageCount : null);
   const toolCount = events.filter((event) => event.kind === "tool").length;
-  const editCount = files.filter((file) => file.state === "created" || file.state === "modified").length;
-  const contextPct = usage?.contextInputTokens && usage?.contextWindowTokens
-    ? Math.round(Math.min(100, (usage.contextInputTokens / usage.contextWindowTokens) * 100))
-    : null;
+  const createdCount = files.filter((file) => file.state === "created").length;
+  const modifiedCount = files.filter((file) => file.state === "modified").length;
+  const readCount = files.filter((file) => file.state === "read").length;
+  const editCount = createdCount + modifiedCount;
+  const context = contextRatio(usage);
+  const contextPct = context !== null ? Math.round(context * 100) : null;
   const workspace = sessionMeta?.cwd ?? lookup?.session?.workspaceRoot ?? session?.projectRoot ?? null;
   const branch = sessionMeta?.gitBranch ?? lookup?.session?.currentBranch ?? session?.branch ?? null;
   const model = sessionMeta?.model ?? null;
   const topology = topologyLine(data);
-  const buckets = eventBuckets(data);
-  const totalBucketCount = Math.max(1, buckets.reduce((sum, bucket) => sum + bucket.count, 0));
   const nearby = nearbySessions(sessionRef, session, sessions, nowMs);
   const startedLabel = startMs ? formatClockTimestamp(startMs) : "—";
   const lastLabel = endMs ? timeAgo(endMs, nowMs) : session?.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "—";
@@ -826,6 +921,14 @@ function ProjectSessionGlance({
   ));
   const workspaceLabel = workspace ? shortHomePath(workspace) : "—";
   const branchLabel = branch || "branch unknown";
+  const fileStateLabel = editCount > 0
+    ? [
+        modifiedCount > 0 ? `${compactNumber(modifiedCount)} mod` : null,
+        createdCount > 0 ? `${compactNumber(createdCount)} new` : null,
+      ].filter(Boolean).join(" · ")
+    : readCount > 0 ? "read-only" : "no file trace";
+  const fileCountLabel = files.length > 0 ? `${compactNumber(files.length)} touched` : "—";
+  const fileListTitle = filesTitle(files);
   const summaryParts = [
     startMs ? `started ${startedLabel}` : null,
     duration !== "—" ? duration : null,
@@ -872,6 +975,8 @@ function ProjectSessionGlance({
             <GlanceField label="Root" value={workspaceLabel} title={workspace ?? undefined} />
             <GlanceField label="Branch" value={branchLabel} title={branch ?? undefined} />
             <GlanceField label="Context" value={contextPct !== null ? `${contextPct}%` : tokenTotal} />
+            <GlanceField label="Files" value={fileCountLabel} title={fileListTitle} />
+            <GlanceField label="State" value={fileStateLabel} title="Trace-derived file state" />
           </div>
         </div>
 
@@ -892,23 +997,7 @@ function ProjectSessionGlance({
         </div>
       </div>
 
-      {buckets.length > 0 ? (
-        <div className="pi-sessionGlanceBars" aria-label="Event distribution">
-          {buckets.map((bucket) => (
-            <span
-              key={bucket.key}
-              className="pi-sessionGlanceBar"
-              data-kind={bucket.key}
-              style={{ "--bar-fr": `${Math.max(4, (bucket.count / totalBucketCount) * 100)}%` } as CSSProperties}
-              title={`${bucket.count} ${bucket.label}`}
-            >
-              <span className="pi-sessionGlanceBarFill" />
-              <span className="pi-sessionGlanceBarLabel">{bucket.label}</span>
-              <span className="pi-sessionGlanceBarCount">{compactNumber(bucket.count)}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
+      <TokenTelemetry data={data} usage={usage} tokenTotal={tokenTotal} />
 
     </section>
   );

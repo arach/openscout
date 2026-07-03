@@ -377,9 +377,15 @@ function ProjectRailGroup({
         <button
           type="button"
           className="pi-projectPath"
-          aria-expanded={!collapsed}
+          aria-expanded={selected ? !collapsed : undefined}
           title={projectTitle(project)}
-          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
+          aria-label={
+            selected
+              ? collapsed
+                ? `Expand /${project.title}`
+                : `Collapse /${project.title}`
+              : `Open /${project.title}`
+          }
           onClick={() => {
             if (selected) onToggleCollapsed();
             else onOpenProject(project.slug);
