@@ -77,6 +77,22 @@ final class ScoutEndpointsTests: XCTestCase {
         }
     }
 
+    func testPublicOriginDoesNotOverrideExplicitWebPortForNativeClientLoads() throws {
+        let supportDirectory = try makeSupportDirectory()
+        defer { removeDirectory(supportDirectory) }
+
+        withEndpointEnvironment(
+            supportDirectory: supportDirectory,
+            values: [
+                "OPENSCOUT_WEB_PUBLIC_ORIGIN": "http://scout.local",
+                "OPENSCOUT_WEB_PORT": "44555",
+            ]
+        ) {
+            XCTAssertEqual(ScoutWeb.baseURL().host(percentEncoded: false), "127.0.0.1")
+            XCTAssertEqual(ScoutWeb.baseURL().port, 44555)
+        }
+    }
+
     func testAttachmentURLsUseLocalWebWhenPublicOriginIsConfigured() throws {
         let supportDirectory = try makeSupportDirectory()
         defer { removeDirectory(supportDirectory) }
