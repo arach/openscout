@@ -1,5 +1,5 @@
 export const GA_MEASUREMENT_ID =
-  process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim() || "G-QZN11K0EH9";
+  process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID?.trim() || "G-GSHDZPFRZG";
 
 export const GA_ALLOWED_HOSTS = (
   process.env.NEXT_PUBLIC_GA_ALLOWED_HOSTS?.split(",") || ["openscout.app", "www.openscout.app"]
