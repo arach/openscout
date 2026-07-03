@@ -56,4 +56,28 @@ describe("TextDocumentSurface", () => {
     expect(html).toContain("file_name");
     expect(html).not.toContain("<em>name</em>");
   });
+
+  test("renders markdown pipe tables in preview mode", () => {
+    const document = createTextDocument({
+      id: "proposal-md",
+      filename: "proposal.md",
+      mediaType: "text/markdown",
+      value: [
+        "| Term | Meaning | Count |",
+        "|:-----|---------|------:|",
+        "| **Harness** | Uses `codex` or `claude` | 2 |",
+      ].join("\n"),
+      kind: "markdown",
+      readOnly: true,
+    });
+
+    const html = renderToStaticMarkup(createElement(TextDocumentSurface, { document, mode: "preview" }));
+
+    expect(html).toContain("s-text-document-table");
+    expect(html).toContain("<th data-align=\"left\">Term</th>");
+    expect(html).toContain("<th data-align=\"right\">Count</th>");
+    expect(html).toContain("<strong>Harness</strong>");
+    expect(html).toContain("<code>codex</code>");
+    expect(html).not.toContain("|:-----|");
+  });
 });
