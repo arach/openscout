@@ -195,12 +195,12 @@
 }
 
 .av2-browseHead {
-  padding: 4px 8px 6px;
+  padding: 4px 7px 5px;
   font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--av2-dim);
+  color: color-mix(in srgb, var(--av2-dim) 68%, transparent);
 }
 
 .av2-browseItem {
@@ -297,8 +297,15 @@
   background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
 }
 
+.av2-browseSection--pinned {
+  flex: none;
+  max-height: 34%;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
 .av2-projectGroup {
-  margin: 12px 0 18px;
+  margin: 8px 0 12px;
 }
 
 .av2-projectGroup[data-selected] {
@@ -311,13 +318,13 @@
 .av2-projectGroupHead {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
 }
 
 .av2-projectDisclosure {
   flex: none;
-  width: 20px;
+  width: 18px;
   height: 24px;
   display: grid;
   place-items: center;
@@ -339,8 +346,8 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 6px;
+  padding: 5px 6px 5px 3px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -350,9 +357,19 @@
   cursor: pointer;
 }
 
+.av2-projectPathIcon {
+  flex: none;
+  color: var(--av2-dim);
+}
+
 .av2-projectPath:hover {
   background: color-mix(in srgb, var(--scout-chrome-hover) 70%, transparent);
   color: var(--av2-ink);
+}
+
+.av2-projectPath:hover .av2-projectPathIcon,
+.av2-projectGroup[data-selected] .av2-projectPathIcon {
+  color: var(--av2-muted);
 }
 
 .av2-projectGroup[data-selected] .av2-projectPath {
@@ -368,19 +385,11 @@
   font-weight: 600;
 }
 
-.av2-projectPathMeta {
-  flex: none;
-  margin-left: auto;
-  font-family: var(--av2-mono);
-  font-size: 9px;
-  color: var(--av2-dim);
-}
-
 .av2-projectSessionList {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  margin-top: 2px;
+  gap: 0;
+  margin-top: 1px;
 }
 
 .av2-projectSession {
@@ -390,7 +399,7 @@
   align-items: center;
   gap: 2px;
   width: 100%;
-  padding-left: 20px;
+  padding-left: 18px;
   border-radius: 8px;
   background: transparent;
   color: var(--av2-muted);
@@ -414,9 +423,9 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   max-width: 100%;
-  padding: 5px 0 5px 8px;
+  padding: 4px 0 4px 6px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -439,12 +448,23 @@
 .av2-projectSessionTitle::before {
   content: "";
   position: absolute;
-  left: -14px;
+  left: -12px;
   top: 0.58em;
   width: 4px;
   height: 4px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--av2-dim) 48%, transparent);
+}
+
+.av2-projectSessionProject {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--av2-dim);
 }
 
 .av2-projectSessionWhen {
@@ -488,27 +508,27 @@
 }
 
 .av2-projectSessionEmpty {
-  padding: 5px 8px 5px 28px;
+  padding: 5px 8px 5px 24px;
   font-size: 11px;
   color: var(--av2-dim);
 }
 
 .av2-projectShowMore {
   display: block;
-  width: calc(100% - 28px);
-  margin: 4px 0 0 28px;
-  padding: 5px 0;
+  width: calc(100% - 24px);
+  margin: 2px 0 0 24px;
+  padding: 4px 0 3px;
   border: 0;
   background: transparent;
-  color: var(--av2-dim);
+  color: color-mix(in srgb, var(--av2-dim) 72%, transparent);
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   text-align: left;
   cursor: pointer;
 }
 
 .av2-projectShowMore:hover {
-  color: var(--av2-muted);
+  color: var(--av2-dim);
 }
 
 .av2-sessionHoverCard {

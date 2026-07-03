@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Pin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Pin, Search, X } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import "./projects.css";
@@ -92,6 +92,15 @@ export function ProjectsBrowse({
     () => filterAndSortProjectGroups(projectGroups, projectQuery, projectSort),
     [projectGroups, projectQuery, projectSort],
   );
+  const visiblePinnedSessions = useMemo(
+    () =>
+      sortSessionsForProjectRail(
+        projectSessions.filter((entry) =>
+          pinnedSessions.has(entry.session.refId) && projectSessionMatchesRailQuery(entry, projectQuery)
+        ),
+      ),
+    [pinnedSessions, projectQuery, projectSessions],
+  );
 
   const openProject = (slug: string) => navigate(scopeRoute(route, { projectSlug: slug }));
   const openSession = (entry: ProjectSessionEntry) =>
@@ -141,9 +150,6 @@ export function ProjectsBrowse({
     setPreviewSession({ entry, left, top });
   };
 
-  const allSelected =
-    !route.projectSlug && !route.harness && !route.node && !route.set;
-
   return (
     <div className="s-av2-browse">
       <div className="av2-projectRailTools" role="search">
@@ -184,16 +190,28 @@ export function ProjectsBrowse({
         </div>
       </div>
 
+      {visiblePinnedSessions.length > 0 ? (
+        <div className="av2-browseSection av2-browseSection--pinned">
+          <div className="av2-browseHead">Pinned</div>
+          <div className="av2-projectSessionList av2-projectSessionList--pinned">
+            {visiblePinnedSessions.map((entry) => (
+              <ProjectSessionRailRow
+                key={`pinned:${entry.projectSlug}:${entry.session.key}`}
+                entry={entry}
+                pinned
+                showProject
+                onOpenSession={openSession}
+                onTogglePinnedSession={togglePinnedSession}
+                onPreviewSession={showSessionPreview}
+                onClearPreview={() => setPreviewSession(null)}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="av2-browseSection av2-browseSection--projects">
         <div className="av2-browseHead">Projects</div>
-        <button
-          type="button"
-          className="av2-browseItem"
-          data-selected={allSelected || undefined}
-          onClick={() => navigate(scopeRoute(route, { projectSlug: undefined, harness: undefined, node: undefined, set: undefined }))}
-        >
-          <span className="av2-browseLabel">All projects</span>
-        </button>
         {visibleGroups.map((group) => (
           <ProjectRailGroup
             key={group.project.slug}
@@ -254,13 +272,15 @@ function ProjectRailGroup({
   onClearPreview: () => void;
 }) {
   const { project, sessions } = group;
-  const orderedSessions = sortSessionsForProjectRail(sessions, pinnedSessions);
+  const orderedSessions = sortSessionsForProjectRail(
+    sessions.filter((entry) => !pinnedSessions.has(entry.session.refId)),
+  );
   const visibleSessions = collapsed
     ? []
     : expanded
       ? orderedSessions
       : orderedSessions.slice(0, PROJECT_SESSION_PREVIEW_LIMIT);
-  const hiddenCount = Math.max(0, sessions.length - visibleSessions.length);
+  const hiddenCount = Math.max(0, orderedSessions.length - visibleSessions.length);
 
   return (
     <div className="av2-projectGroup" data-selected={selected || undefined} data-collapsed={collapsed || undefined}>
@@ -286,50 +306,27 @@ function ProjectRailGroup({
           aria-label={projectBrowseTitle(project)}
           onClick={onOpenProject}
         >
+          <Folder className="av2-projectPathIcon" size={13} strokeWidth={1.6} aria-hidden />
           <span className="av2-projectPathText">/{project.title}</span>
-          <span className="av2-projectPathMeta">{projectMeta(project)}</span>
         </button>
       </div>
 
       {!collapsed && visibleSessions.length > 0 ? (
         <div className="av2-projectSessionList">
           {visibleSessions.map((entry) => (
-            <div
+            <ProjectSessionRailRow
               key={`${entry.projectSlug}:${entry.session.key}`}
-              className="av2-projectSession"
-              data-active={entry.session.status === "active" || undefined}
-              data-pinned={pinnedSessions.has(entry.session.refId) || undefined}
-              onMouseEnter={(event) => onPreviewSession(entry, event.currentTarget)}
-              onMouseLeave={onClearPreview}
-              onFocusCapture={(event) => onPreviewSession(entry, event.currentTarget)}
-              onBlurCapture={onClearPreview}
-            >
-              <button
-                type="button"
-                className="av2-projectSessionMain"
-                onClick={() => {
-                  onClearPreview();
-                  onOpenSession(entry);
-                }}
-              >
-                <span className="av2-projectSessionTitle">{projectSessionTitle(entry)}</span>
-              </button>
-              <button
-                type="button"
-                className="av2-sessionPin"
-                data-pinned={pinnedSessions.has(entry.session.refId) || undefined}
-                aria-pressed={pinnedSessions.has(entry.session.refId)}
-                aria-label={pinnedSessions.has(entry.session.refId) ? "Unpin session" : "Pin session"}
-                title={pinnedSessions.has(entry.session.refId) ? "Unpin session" : "Pin session"}
-                onClick={() => onTogglePinnedSession(entry.session.refId)}
-              >
-                <Pin size={11} strokeWidth={2} aria-hidden />
-              </button>
-              <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
-            </div>
+              entry={entry}
+              pinned={pinnedSessions.has(entry.session.refId)}
+              showProject={false}
+              onOpenSession={onOpenSession}
+              onTogglePinnedSession={onTogglePinnedSession}
+              onPreviewSession={onPreviewSession}
+              onClearPreview={onClearPreview}
+            />
           ))}
         </div>
-      ) : !collapsed ? (
+      ) : !collapsed && sessions.length === 0 ? (
         <div className="av2-projectSessionEmpty">No sessions yet</div>
       ) : null}
 
@@ -337,11 +334,68 @@ function ProjectRailGroup({
         <button type="button" className="av2-projectShowMore" onClick={onToggleExpanded}>
           Show more
         </button>
-      ) : !collapsed && expanded && sessions.length > PROJECT_SESSION_PREVIEW_LIMIT ? (
+      ) : !collapsed && expanded && orderedSessions.length > PROJECT_SESSION_PREVIEW_LIMIT ? (
         <button type="button" className="av2-projectShowMore" onClick={onToggleExpanded}>
           Show less
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function ProjectSessionRailRow({
+  entry,
+  pinned,
+  showProject,
+  onOpenSession,
+  onTogglePinnedSession,
+  onPreviewSession,
+  onClearPreview,
+}: {
+  entry: ProjectSessionEntry;
+  pinned: boolean;
+  showProject: boolean;
+  onOpenSession: (entry: ProjectSessionEntry) => void;
+  onTogglePinnedSession: (sessionId: string) => void;
+  onPreviewSession: (entry: ProjectSessionEntry, node: HTMLElement) => void;
+  onClearPreview: () => void;
+}) {
+  const title = projectSessionTitle(entry);
+
+  return (
+    <div
+      className="av2-projectSession"
+      data-active={entry.session.status === "active" || undefined}
+      data-pinned={pinned || undefined}
+      onMouseEnter={(event) => onPreviewSession(entry, event.currentTarget)}
+      onMouseLeave={onClearPreview}
+      onFocusCapture={(event) => onPreviewSession(entry, event.currentTarget)}
+      onBlurCapture={onClearPreview}
+    >
+      <button
+        type="button"
+        className="av2-projectSessionMain"
+        aria-label={showProject ? `${title} · /${entry.projectTitle}` : title}
+        onClick={() => {
+          onClearPreview();
+          onOpenSession(entry);
+        }}
+      >
+        <span className="av2-projectSessionTitle">{title}</span>
+        {showProject ? <span className="av2-projectSessionProject">/{entry.projectTitle}</span> : null}
+      </button>
+      <button
+        type="button"
+        className="av2-sessionPin"
+        data-pinned={pinned || undefined}
+        aria-pressed={pinned}
+        aria-label={pinned ? "Unpin session" : "Pin session"}
+        title={pinned ? "Unpin session" : "Pin session"}
+        onClick={() => onTogglePinnedSession(entry.session.refId)}
+      >
+        <Pin size={11} strokeWidth={2} aria-hidden />
+      </button>
+      <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
     </div>
   );
 }
@@ -411,17 +465,7 @@ function projectBrowseTitle(project: BrowseProject): string {
     `/${project.title}`,
     plural(project.agentCount, "agent"),
   ];
-  if (project.sessionCount > 0) parts.push(plural(project.sessionCount, "session"));
   if (project.needsCount > 0) parts.push(`${plural(project.needsCount, "agent")} needs attention`);
-  if (project.liveCount > 0) parts.push(`${plural(project.liveCount, "agent")} live`);
-  return parts.join(" · ");
-}
-
-function projectMeta(project: BrowseProject): string {
-  const parts = [];
-  if (project.liveCount > 0) parts.push(`${project.liveCount} live`);
-  if (project.sessionCount > 0) parts.push(plural(project.sessionCount, "session"));
-  else if (project.agentCount > 0) parts.push(plural(project.agentCount, "agent"));
   return parts.join(" · ");
 }
 
@@ -470,13 +514,8 @@ function plural(count: number, noun: string): string {
 
 function sortSessionsForProjectRail(
   sessions: ProjectSessionEntry[],
-  pinnedSessions: Set<string>,
 ): ProjectSessionEntry[] {
-  return [...sessions].sort((a, b) => {
-    const pinnedDelta = Number(pinnedSessions.has(b.session.refId)) - Number(pinnedSessions.has(a.session.refId));
-    if (pinnedDelta) return pinnedDelta;
-    return projectSessionLastAt(b) - projectSessionLastAt(a);
-  });
+  return [...sessions].sort((a, b) => projectSessionLastAt(b) - projectSessionLastAt(a));
 }
 
 function filterAndSortProjectGroups(
@@ -489,10 +528,7 @@ function filterAndSortProjectGroups(
     ? groups.filter((group) =>
         group.project.title.toLowerCase().includes(needle)
         || group.project.slug.toLowerCase().includes(needle)
-        || group.sessions.some((entry) =>
-          projectSessionTitle(entry).toLowerCase().includes(needle)
-          || projectSessionMeta(entry).toLowerCase().includes(needle)
-        )
+        || group.sessions.some((entry) => projectSessionMatchesRailQuery(entry, needle))
       )
     : groups;
   return [...filtered].sort((a, b) => {
@@ -511,6 +547,15 @@ function filterAndSortProjectGroups(
           || a.project.title.localeCompare(b.project.title);
     }
   });
+}
+
+function projectSessionMatchesRailQuery(entry: ProjectSessionEntry, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return entry.projectTitle.toLowerCase().includes(needle)
+    || entry.projectSlug.toLowerCase().includes(needle)
+    || projectSessionTitle(entry).toLowerCase().includes(needle)
+    || projectSessionMeta(entry).toLowerCase().includes(needle);
 }
 
 function readPinnedSessions(): Set<string> {

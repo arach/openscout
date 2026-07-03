@@ -592,6 +592,12 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
+function previewProjectZeroState(): boolean {
+  if (typeof window === "undefined") return false;
+  const value = new URLSearchParams(window.location.search).get("zero")?.trim().toLowerCase();
+  return value === "projects" || value === "project" || value === "1" || value === "true";
+}
+
 export function ProjectsIndex({
   route,
   navigate,
@@ -621,16 +627,26 @@ export function ProjectsIndex({
     [projectSessions, scope, nowMs],
   );
 
-  const rows = indexView === "sessions" ? sessionRows : agentRows;
+  const isProjectZeroStateScope =
+    indexView === "agents"
+    && !route.projectSlug
+    && !route.harness
+    && !route.node
+    && !route.set
+    && !route.stateFilter;
+  const projectZeroStatePreview = isProjectZeroStateScope && previewProjectZeroState();
+  const visibleAgentRows = projectZeroStatePreview ? [] : agentRows;
+  const visibleSessionRows = sessionRows;
+  const rows = indexView === "sessions" ? visibleSessionRows : visibleAgentRows;
   const projectAgentGroups = useMemo(() => {
-    if (!route.projectSlug || indexView !== "agents" || agentRows.length < 2) {
+    if (!route.projectSlug || indexView !== "agents" || visibleAgentRows.length < 2) {
       return null;
     }
-    return partitionRegistryAgents(agentRows, nowMs);
-  }, [agentRows, indexView, nowMs, route.projectSlug]);
+    return partitionRegistryAgents(visibleAgentRows, nowMs);
+  }, [indexView, nowMs, route.projectSlug, visibleAgentRows]);
   const flatAgentRows = projectAgentGroups
     ? [...projectAgentGroups.active, ...projectAgentGroups.registered]
-    : agentRows;
+    : visibleAgentRows;
   const [cursor, setCursor] = useState(-1);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
 
@@ -658,7 +674,7 @@ export function ProjectsIndex({
         const i = cursor < 0 ? 0 : cursor;
         e.preventDefault();
         if (indexView === "sessions") {
-          const entry = sessionRows[i];
+          const entry = visibleSessionRows[i];
           if (!entry) return;
           navigate(
             {
@@ -679,16 +695,16 @@ export function ProjectsIndex({
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [cursor, flatAgentRows, indexView, navigate, route, rows.length, sessionRows]);
+  }, [cursor, flatAgentRows, indexView, navigate, route, rows.length, visibleSessionRows]);
 
   useEffect(() => {
     if (cursor < 0) return;
     const key =
       indexView === "sessions"
-        ? sessionRows[cursor]?.session.refId
+        ? visibleSessionRows[cursor]?.session.refId
         : flatAgentRows[cursor]?.leadAgent.id;
     rowRefs.current.get(key ?? "")?.scrollIntoView({ block: "nearest" });
-  }, [cursor, flatAgentRows, indexView, sessionRows]);
+  }, [cursor, flatAgentRows, indexView, visibleSessionRows]);
 
   const toggleState = (id: ProjectStateFilter | "all") => {
     navigate({
@@ -711,16 +727,10 @@ export function ProjectsIndex({
     [projectSessions, route.projectSlug],
   );
   const groupedSessionRows = useMemo(
-    () => groupProjectSessionsByHarness(sessionRows),
-    [sessionRows],
+    () => groupProjectSessionsByHarness(visibleSessionRows),
+    [visibleSessionRows],
   );
-  const showProjectZeroState =
-    indexView === "agents"
-    && !route.projectSlug
-    && !route.harness
-    && !route.node
-    && !route.set
-    && !route.stateFilter;
+  const showProjectZeroState = isProjectZeroStateScope;
 
   return (
     <div className="s-av2-index" data-project={route.projectSlug || undefined}>
@@ -742,9 +752,9 @@ export function ProjectsIndex({
           <h1 className="av2-indexTitle">{scopeLabel(route)}</h1>
           <span className="av2-indexMeta">
             {indexView === "sessions"
-              ? `${sessionRows.length} sessions`
-              : scopeMetaLabel(route, agentRows.length, sessionRows.length)
-                || `${agentRows.length} agents`}
+              ? `${visibleSessionRows.length} sessions`
+              : scopeMetaLabel(route, visibleAgentRows.length, visibleSessionRows.length)
+                || `${visibleAgentRows.length} agents`}
           </span>
           <span className="av2-indexSpacer" />
           {indexViewToggle}
