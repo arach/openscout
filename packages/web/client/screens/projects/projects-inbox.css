@@ -423,7 +423,7 @@
 .pi-projectSession {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22px auto;
+  grid-template-columns: minmax(0, 1fr) 22px 22px auto;
   align-items: center;
   gap: 4px;
   min-height: 25px;
@@ -509,16 +509,35 @@
   cursor: pointer;
   transition: opacity 0.12s var(--pi-ease), background 0.12s var(--pi-ease), color 0.12s var(--pi-ease);
 }
+.pi-sessionArchive {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--pi-dim);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 0.12s var(--pi-ease), background 0.12s var(--pi-ease), color 0.12s var(--pi-ease);
+}
 .pi-projectSession:hover .pi-sessionPin,
 .pi-projectSession:focus-within .pi-sessionPin,
-.pi-projectSession[data-pinned] .pi-sessionPin {
+.pi-projectSession[data-pinned] .pi-sessionPin,
+.pi-projectSession:hover .pi-sessionArchive,
+.pi-projectSession:focus-within .pi-sessionArchive {
   opacity: 1;
   pointer-events: auto;
 }
-.pi-sessionPin:hover {
+.pi-sessionPin:hover,
+.pi-sessionArchive:hover {
   color: var(--pi-ink);
   background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
 }
+.pi-sessionArchive:hover { color: var(--scout-danger, #ef4444); }
 .pi-sessionPin[data-pinned] {
   color: var(--pi-accent);
 }

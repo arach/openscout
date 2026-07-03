@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Folder, Pin, Search, X } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Folder, Pin, Search, X } from "lucide-react";
 import type { Route } from "../../lib/types.ts";
 import { timeAgo } from "../../lib/time.ts";
 import { pathLeaf } from "../agents/model.ts";
@@ -29,6 +29,7 @@ const SMART_VIEWS: Array<{ id: SmartView; label: string }> = [
 
 const PROJECT_SESSION_PREVIEW_LIMIT = 4;
 const PINNED_SESSIONS_STORAGE_KEY = "openscout.projects.pinnedSessions";
+const ARCHIVED_SESSIONS_STORAGE_KEY = "openscout.projects.archivedSessions";
 
 type RailProjectGroup = {
   project: InboxProject;
@@ -114,6 +115,7 @@ export function ProjectsRail({
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => readPinnedSessions());
+  const [archivedSessions, setArchivedSessions] = useState<Set<string>>(() => readArchivedSessions());
   const [previewSession, setPreviewSession] = useState<SessionPreviewState | null>(null);
 
   const scoped = Boolean(route.projectSlug);
@@ -121,9 +123,13 @@ export function ProjectsRail({
   const ephemeralScope = route.showEphemeral ? { showEphemeral: true } : {};
   const initialLoading = loading && model.projects.length === 0 && model.sessions.length === 0;
 
+  const projectSessions = useMemo(
+    () => zeroPreview ? [] : model.sessions.filter((session) => !archivedSessions.has(sessionKey(session))),
+    [model.sessions, archivedSessions, zeroPreview],
+  );
   const projectGroups = useMemo(
-    () => zeroPreview ? [] : buildProjectGroups(model.projects, model.sessions),
-    [model.projects, model.sessions, zeroPreview],
+    () => zeroPreview ? [] : buildProjectGroups(model.projects, projectSessions),
+    [model.projects, projectSessions, zeroPreview],
   );
   const visibleGroups = useMemo(
     () => filterAndSortProjectGroups(projectGroups, query, sort),
@@ -141,11 +147,11 @@ export function ProjectsRail({
       zeroPreview
         ? []
         : sortSessionsForRail(
-            model.sessions.filter((session) =>
+            projectSessions.filter((session) =>
               pinnedSessions.has(sessionKey(session)) && sessionMatchesQuery(session, query)
             ),
           ),
-    [model.sessions, pinnedSessions, query, zeroPreview],
+    [projectSessions, pinnedSessions, query, zeroPreview],
   );
 
   const selectSmartView = (id: SmartView) => {
@@ -184,6 +190,34 @@ export function ProjectsRail({
       writePinnedSessions(next);
       return next;
     });
+  };
+
+  const archiveSession = (session: InboxSession) => {
+    const key = sessionKey(session);
+    setPreviewSession(null);
+    setArchivedSessions((current) => {
+      if (current.has(key)) return current;
+      const next = new Set(current);
+      next.add(key);
+      writeArchivedSessions(next);
+      return next;
+    });
+    setPinnedSessions((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      writePinnedSessions(next);
+      return next;
+    });
+    if (isSessionSelected(session, route)) {
+      navigate({
+        view: "agents-v2",
+        projectSlug: session.projectSlug,
+        indexView: "sessions",
+        ...machineScope,
+        ...ephemeralScope,
+      });
+    }
   };
 
   const showSessionPreview = (session: InboxSession, node: HTMLElement) => {
@@ -274,6 +308,7 @@ export function ProjectsRail({
                         nowMs={nowMs}
                         onOpenSession={openSession}
                         onTogglePinnedSession={togglePinnedSession}
+                        onArchiveSession={archiveSession}
                         onPreviewSession={showSessionPreview}
                         onClearPreview={() => setPreviewSession(null)}
                       />
@@ -297,6 +332,7 @@ export function ProjectsRail({
                   onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
                   onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
                   onTogglePinnedSession={togglePinnedSession}
+                  onArchiveSession={archiveSession}
                   onPreviewSession={showSessionPreview}
                   onClearPreview={() => setPreviewSession(null)}
                 />
@@ -333,6 +369,7 @@ export function ProjectsRail({
                           onToggleCollapsed={() => setCollapsedProjects((current) => toggled(current, group.project.slug))}
                           onToggleExpanded={() => setExpandedProjects((current) => toggled(current, group.project.slug))}
                           onTogglePinnedSession={togglePinnedSession}
+                          onArchiveSession={archiveSession}
                           onPreviewSession={showSessionPreview}
                           onClearPreview={() => setPreviewSession(null)}
                         />
@@ -369,6 +406,7 @@ function ProjectRailGroup({
   onToggleCollapsed,
   onToggleExpanded,
   onTogglePinnedSession,
+  onArchiveSession,
   onPreviewSession,
   onClearPreview,
 }: {
@@ -384,6 +422,7 @@ function ProjectRailGroup({
   onToggleCollapsed: () => void;
   onToggleExpanded: () => void;
   onTogglePinnedSession: (session: InboxSession) => void;
+  onArchiveSession: (session: InboxSession) => void;
   onPreviewSession: (session: InboxSession, node: HTMLElement) => void;
   onClearPreview: () => void;
 }) {
@@ -438,6 +477,7 @@ function ProjectRailGroup({
               nowMs={nowMs}
               onOpenSession={onOpenSession}
               onTogglePinnedSession={onTogglePinnedSession}
+              onArchiveSession={onArchiveSession}
               onPreviewSession={onPreviewSession}
               onClearPreview={onClearPreview}
             />
@@ -468,6 +508,7 @@ function ProjectSessionRailRow({
   nowMs,
   onOpenSession,
   onTogglePinnedSession,
+  onArchiveSession,
   onPreviewSession,
   onClearPreview,
 }: {
@@ -478,6 +519,7 @@ function ProjectSessionRailRow({
   nowMs: number;
   onOpenSession: (session: InboxSession) => void;
   onTogglePinnedSession: (session: InboxSession) => void;
+  onArchiveSession: (session: InboxSession) => void;
   onPreviewSession: (session: InboxSession, node: HTMLElement) => void;
   onClearPreview: () => void;
 }) {
@@ -516,6 +558,15 @@ function ProjectSessionRailRow({
         onClick={() => onTogglePinnedSession(session)}
       >
         <Pin size={11} strokeWidth={2} aria-hidden />
+      </button>
+      <button
+        type="button"
+        className="pi-sessionArchive"
+        aria-label="Archive session"
+        title="Archive session"
+        onClick={() => onArchiveSession(session)}
+      >
+        <Archive size={11} strokeWidth={2} aria-hidden />
       </button>
       <span className="pi-projectSessionWhen">{session.lastActivityAt ? timeAgo(session.lastActivityAt, nowMs) : "-"}</span>
     </div>
@@ -682,6 +733,26 @@ function writePinnedSessions(sessions: Set<string>): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(PINNED_SESSIONS_STORAGE_KEY, JSON.stringify([...sessions]));
+  } catch {
+    // Best-effort UI preference.
+  }
+}
+
+function readArchivedSessions(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(ARCHIVED_SESSIONS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeArchivedSessions(sessions: Set<string>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ARCHIVED_SESSIONS_STORAGE_KEY, JSON.stringify([...sessions]));
   } catch {
     // Best-effort UI preference.
   }
