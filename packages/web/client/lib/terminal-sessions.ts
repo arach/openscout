@@ -170,7 +170,7 @@ export function terminalSessionProjectLabel(session: TerminalSessionRecord, surf
   if (rootLeaf) return rootLeaf;
 
   const relayName = surface?.sessionName ?? session.sourceSessionId;
-  const relayMatch = /^relay-(.+?)-(?:claude|codex)$/iu.exec(relayName);
+  const relayMatch = /^relay-(.+?)-(?:arts-mac-mini-local-)?(?:claude|codex)$/iu.exec(relayName);
   if (relayMatch?.[1]) return relayMatch[1];
 
   return isDiscoveredTerminalSession(session) ? "backend-only" : "unscoped";
@@ -245,6 +245,7 @@ export function terminalListItems(sessions: TerminalSessionRecord[]): TerminalLi
 export function compactTerminalName(sessionName: string): string {
   return sessionName
     .replace(/^relay-/u, "")
+    .replace(/-arts-mac-mini-local-(claude|codex)$/u, "")
     .replace(/^(claude|codex|tmux)-/u, "$1 · ");
 }
 
