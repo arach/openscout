@@ -26,6 +26,7 @@ import {
 } from "fs";
 import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
+import { execSystemFile } from "@openscout/runtime/system-probes";
 import { provisionSshTerminalAccess } from "./ssh-terminal-access.ts";
 import { log } from "./log.ts";
 
@@ -37,10 +38,10 @@ export interface MobileTerminalProvisionResult {
   hostKeyFingerprint: string;
 }
 
-export function provisionMobileTerminalAccess(
+export async function provisionMobileTerminalAccess(
   sshPublicKey: string,
   deviceId: string | undefined,
-): MobileTerminalProvisionResult {
+): Promise<MobileTerminalProvisionResult> {
   const id = deviceId?.trim() || "scout-ios-device";
   const sshDir = join(homedir(), ".ssh");
   const authorizedKeysPath = join(sshDir, "authorized_keys");

@@ -158,7 +158,7 @@ describe("system probe registry", () => {
     const secondRun = deferred<number>();
     const probe = defineProbe<number>({
       id: "test.staleWhileRevalidate",
-      ttlMs: 5,
+      ttlMs: 50,
       timeoutMs: 1_000,
       maxStaleMs: 1_000,
       run: async () => {
@@ -171,7 +171,7 @@ describe("system probe registry", () => {
     });
 
     expect((await probe.fresh()).value).toBe(1);
-    await sleep(12);
+    await sleep(75);
 
     const stale = probe.read();
     expect(stale.status).toBe("stale");
@@ -183,6 +183,36 @@ describe("system probe registry", () => {
     await probe.fresh();
     expect(probe.snapshot().value).toBe(2);
     expect(probe.snapshot().status).toBe("fresh");
+  });
+
+  test("fresh reruns when an in-flight read was invalidated by a side effect", async () => {
+    let runs = 0;
+    const firstRun = deferred<number>();
+    const secondRun = deferred<number>();
+    const probe = defineProbe<number>({
+      id: "test.invalidateInFlight",
+      ttlMs: 1_000,
+      timeoutMs: 1_000,
+      run: async () => {
+        runs += 1;
+        return await (runs === 1 ? firstRun.promise : secondRun.promise);
+      },
+    });
+
+    const cold = probe.read();
+    expect(cold.status).toBe("empty");
+    await sleep(10);
+    expect(runs).toBe(1);
+
+    probe.invalidate("test.side-effect");
+    const fresh = probe.fresh({ maxAgeMs: 0 });
+    firstRun.resolve(1);
+    await sleep(10);
+
+    expect(runs).toBe(2);
+    secondRun.resolve(2);
+    expect((await fresh).value).toBe(2);
+    expect(probe.metrics().runCount).toBe(2);
   });
 
   test("marks snapshots failed after maxStaleMs", async () => {

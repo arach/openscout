@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { basename, resolve } from "node:path";
+import { readGitRepoStatusCommand } from "@openscout/runtime/system-probes";
 
 import type {
   AgentEndpoint,
@@ -120,7 +120,7 @@ export async function loadScoutAttentionReport(
   const baseSnapshot = snapshot ?? emptyScoutBrokerSnapshot();
   const currentGitRoot = options.includeGit === false
     ? null
-    : findGitRoot(options.currentDirectory);
+    : await findGitRoot(options.currentDirectory);
   const preview = buildScoutAttentionReport(baseSnapshot, {
     since: options.since,
     now: options.now,
@@ -130,7 +130,7 @@ export async function loadScoutAttentionReport(
 
   const gitStates = options.includeGit === false
     ? []
-    : collectGitStates({
+    : await collectGitStates({
       roots: collectCandidateGitRoots(preview, currentGitRoot, options.projectRoots),
       projectRoots: options.projectRoots,
     });
@@ -346,22 +346,22 @@ function sourceAgentsMatchProject(source: ProjectAccumulator, projectRoot: strin
   });
 }
 
-export function findGitRoot(cwd: string): string | null {
-  const output = runGit(cwd, ["rev-parse", "--show-toplevel"]);
+export async function findGitRoot(cwd: string): Promise<string | null> {
+  const output = await runGit(cwd, ["rev-parse", "--show-toplevel"]);
   return output ? resolve(output) : null;
 }
 
-export function readGitAttentionState(projectRoot: string): ScoutAttentionGitState {
+export async function readGitAttentionState(projectRoot: string): Promise<ScoutAttentionGitState> {
   const normalizedRoot = resolve(projectRoot);
   if (!existsSync(normalizedRoot)) {
     return emptyGitState(normalizedRoot, "path does not exist");
   }
-  const inside = runGit(normalizedRoot, ["rev-parse", "--is-inside-work-tree"]);
+  const inside = await runGit(normalizedRoot, ["rev-parse", "--is-inside-work-tree"]);
   if (inside !== "true") {
     return emptyGitState(normalizedRoot, "not a git worktree");
   }
 
-  const statusOutput = runGit(normalizedRoot, ["status", "--porcelain=v1", "--branch"]);
+  const statusOutput = await runGit(normalizedRoot, ["status", "--porcelain=v1", "--branch"]);
   if (statusOutput === null) {
     return emptyGitState(normalizedRoot, "git status failed");
   }
@@ -390,7 +390,7 @@ export function readGitAttentionState(projectRoot: string): ScoutAttentionGitSta
     }
   }
 
-  const lastCommit = runGit(normalizedRoot, ["log", "-1", "--format=%ct"]);
+  const lastCommit = await runGit(normalizedRoot, ["log", "-1", "--format=%ct"]);
   const lastCommitAt = lastCommit && /^\d+$/.test(lastCommit)
     ? Number.parseInt(lastCommit, 10) * 1000
     : null;
@@ -447,15 +447,15 @@ function collectCandidateGitRoots(
   return [...roots];
 }
 
-function collectGitStates(input: {
+async function collectGitStates(input: {
   roots: string[];
   projectRoots?: string[];
-}): ScoutAttentionGitState[] {
+}): Promise<ScoutAttentionGitState[]> {
   const projectFilters = normalizeProjectRoots(input.projectRoots ?? []);
-  return input.roots
+  return await Promise.all(input.roots
     .map((root) => resolve(root))
     .filter((root) => projectAllowed(root, projectFilters))
-    .map(readGitAttentionState);
+    .map(readGitAttentionState));
 }
 
 function normalizeProjectRoots(roots: string[]): Set<string> {
@@ -863,16 +863,8 @@ function isAncestorPath(parent: string, child: string): boolean {
     && normalizedChild.startsWith(`${normalizedParent}/`);
 }
 
-function runGit(cwd: string, args: string[]): string | null {
-  try {
-    return execFileSync("git", ["-C", cwd, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 3_000,
-    }).trim();
-  } catch {
-    return null;
-  }
+async function runGit(cwd: string, args: string[]): Promise<string | null> {
+  return (await readGitRepoStatusCommand(cwd, args, { maxStdoutBytes: 1024 * 1024 }))?.trim() ?? null;
 }
 
 function emptyGitState(projectRoot: string, error: string): ScoutAttentionGitState {

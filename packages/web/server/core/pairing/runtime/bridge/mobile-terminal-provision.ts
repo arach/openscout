@@ -13,7 +13,6 @@
 // first connection).
 
 import { createHash } from "crypto";
-import { execSync } from "child_process";
 import {
   chmodSync,
   closeSync,
@@ -27,6 +26,7 @@ import {
 } from "fs";
 import { homedir, hostname, userInfo } from "os";
 import { join } from "path";
+import { execSystemFile } from "@openscout/runtime/system-probes";
 import { provisionSshTerminalAccess } from "./ssh-terminal-access.ts";
 import { log } from "./log.ts";
 
@@ -38,10 +38,10 @@ export interface MobileTerminalProvisionResult {
   hostKeyFingerprint: string;
 }
 
-export function provisionMobileTerminalAccess(
+export async function provisionMobileTerminalAccess(
   sshPublicKey: string,
   deviceId: string | undefined,
-): MobileTerminalProvisionResult {
+): Promise<MobileTerminalProvisionResult> {
   const id = deviceId?.trim() || "scout-ios-device";
   const sshDir = join(homedir(), ".ssh");
   const authorizedKeysPath = join(sshDir, "authorized_keys");
@@ -93,7 +93,7 @@ export function provisionMobileTerminalAccess(
   // unlocked (GUI session) but a PASSWORD PROMPT over a bare SSH session. By
   // ensuring the session exists before the phone connects, every iOS connect
   // becomes a clean ATTACH (no new shell, no .zshrc, no keychain prompt).
-  ensureScoutTmuxSession();
+  await ensureScoutTmuxSession();
 
   return {
     host: resolveReachableHost(),
@@ -112,12 +112,16 @@ export function provisionMobileTerminalAccess(
  * if it fails the phone simply falls back to creating the session on connect
  * (today's behavior), so the terminal still works.
  */
-function ensureScoutTmuxSession(): void {
+async function ensureScoutTmuxSession(): Promise<void> {
   try {
-    execSync(
-      "zsh -lc 'tmux has-session -t scout 2>/dev/null || tmux new-session -d -s scout'",
-      { stdio: "ignore", timeout: 8_000 },
-    );
+    await execSystemFile("zsh", [
+      "-lc",
+      "tmux has-session -t scout 2>/dev/null || tmux new-session -d -s scout",
+    ], {
+      timeoutMs: 8_000,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+    });
     log.info("terminal", "ensured persistent `scout` tmux session (GUI session)");
   } catch (error) {
     log.warn(

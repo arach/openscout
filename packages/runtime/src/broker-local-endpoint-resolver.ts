@@ -39,6 +39,7 @@ export type BrokerLocalEndpointResolverOptions = {
   nodeId: string;
   runtime: LocalEndpointRuntime;
   isLocalAgentEndpointAlive: (endpoint: AgentEndpoint) => boolean;
+  isLocalAgentEndpointAliveAsync?: (endpoint: AgentEndpoint) => Promise<boolean>;
   ensureLocalSessionEndpointOnline: (endpoint: AgentEndpoint) => Promise<{
     externalSessionId?: string | null;
     metadata?: Record<string, unknown>;
@@ -93,7 +94,7 @@ export class BrokerLocalEndpointResolver {
     const targetSessionId = invocationTargetSessionId(invocation);
     const sessionPreference = invocation.execution?.session ?? "new";
     const shouldUseExistingSession = Boolean(targetSessionId);
-    const existing = this.activeLocalEndpointForAgent(
+    const existing = await this.activeLocalEndpointForInvocation(
       invocation.targetAgentId,
       requestedHarness,
       targetSessionId,
@@ -219,6 +220,55 @@ export class BrokerLocalEndpointResolver {
 
   private now(): number {
     return (this.options.now ?? Date.now)();
+  }
+
+  private async activeLocalEndpointForInvocation(
+    agentId: string,
+    harness?: AgentEndpoint["harness"],
+    targetSessionId?: string,
+    options: { includeWakeable?: boolean } = {},
+  ): Promise<AgentEndpoint | undefined> {
+    const candidates = this.options.runtime.endpointsForAgent(agentId, {
+      nodeId: this.options.nodeId,
+      harness,
+    }).filter((endpoint) => {
+      if (endpoint.metadata?.staleLocalRegistration === true) {
+        return false;
+      }
+      return targetSessionId ? endpointMatchesTargetSession(endpoint, targetSessionId) : true;
+    });
+    const orderedCandidates = targetSessionId
+      ? candidates
+      : [...candidates].sort(compareLocalEndpointPreference);
+
+    for (const endpoint of orderedCandidates) {
+      if (this.endpointIsLocallyUsableFromSnapshot(endpoint, options)) {
+        return endpoint;
+      }
+      const alive = this.options.isLocalAgentEndpointAliveAsync
+        ? await this.options.isLocalAgentEndpointAliveAsync(endpoint)
+        : this.options.isLocalAgentEndpointAlive(endpoint);
+      if (alive) {
+        return endpoint;
+      }
+    }
+    return undefined;
+  }
+
+  private endpointIsLocallyUsableFromSnapshot(
+    endpoint: AgentEndpoint,
+    options: { includeWakeable?: boolean } = {},
+  ): boolean {
+    if (isA2AHttpEndpoint(endpoint)) {
+      return true;
+    }
+    if (endpoint.transport === "pairing_bridge") {
+      return endpoint.state !== "offline";
+    }
+    if (options.includeWakeable && isWakeableSessionBackedEndpoint(endpoint)) {
+      return true;
+    }
+    return this.options.isLocalAgentEndpointAlive(endpoint);
   }
 }
 

@@ -200,6 +200,7 @@ describe("broker daemon invocation dispatch", () => {
       env: {
         PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
         OPENSCOUT_FAKE_TMUX_LOG: tmuxLogPath,
+        OPENSCOUT_FAKE_TMUX_SESSION: sessionId,
         OPENSCOUT_LOCAL_AGENT_SYNC_INTERVAL_MS: "0",
       },
     });

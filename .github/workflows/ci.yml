@@ -50,6 +50,9 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Sync exec fence
+        run: bun run sync-exec:fence
+
       - name: Typecheck
         run: |
           bun run --cwd packages/protocol check

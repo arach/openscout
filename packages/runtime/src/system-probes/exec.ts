@@ -5,6 +5,7 @@ import type { ProbeCtx } from "./registry.js";
 export type ExecProbeFileOptions = {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  input?: string | Buffer;
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
 };
@@ -71,7 +72,7 @@ export async function execProbeFile(
     const child = spawn(file, [...args], {
       cwd: options.cwd,
       env: options.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       windowsHide: true,
     });
 
@@ -109,6 +110,10 @@ export async function execProbeFile(
     };
 
     ctx.signal.addEventListener("abort", onAbort, { once: true });
+
+    if (options.input !== undefined) {
+      child.stdin?.end(options.input);
+    }
 
     child.stdout?.on("data", (chunk: Buffer) => {
       if (settled) {
@@ -167,4 +172,33 @@ export async function execProbeFile(
       ));
     });
   });
+}
+
+export type ExecSystemFileOptions = ExecProbeFileOptions & {
+  timeoutMs: number;
+  probeId?: string;
+};
+
+export async function execSystemFile(
+  file: string,
+  args: readonly string[],
+  options: ExecSystemFileOptions,
+): Promise<ExecProbeFileResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new ProbeCommandError(
+      `Command ${file} timed out after ${options.timeoutMs}ms`,
+      { code: "timeout" },
+    ));
+  }, options.timeoutMs);
+  try {
+    return await execProbeFile({
+      probeId: options.probeId ?? `imperative.${file}`,
+      signal: controller.signal,
+      timeoutMs: options.timeoutMs,
+      startedAt: Date.now(),
+    }, file, args, options);
+  } finally {
+    clearTimeout(timeout);
+  }
 }

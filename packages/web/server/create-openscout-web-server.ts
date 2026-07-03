@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
@@ -201,7 +201,18 @@ import {
   writeGlobalHeuristicsFile,
   writeProjectHeuristicsFile,
 } from "./material-heuristics.ts";
-import { gitBuildInfoProbe, type GitBuildInfo } from "@openscout/runtime/system-probes";
+import {
+  captureTmuxPane,
+  execSystemFile,
+  gitBuildInfoProbe,
+  readAllProcessCommandRows,
+  readAllProcessRows,
+  readGitRepoStatusCommand,
+  readProcessCwd as readProcessCwdProbe,
+  readProcessRowsForTty,
+  readTmuxPaneDetail,
+  type GitBuildInfo,
+} from "@openscout/runtime/system-probes";
 import {
   collectTrustedRoots,
   mediaTypeFor,
@@ -649,25 +660,18 @@ const REPO_DIFF_TRUNK_REFS = [
   "trunk",
 ];
 
-function runGitRaw(currentDirectory: string, args: string[]): string | null {
-  try {
-    return execFileSync("git", ["-C", currentDirectory, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2_000,
-      maxBuffer: 1024 * 1024,
-    });
-  } catch {
-    return null;
-  }
+async function runGitRaw(currentDirectory: string, args: string[], maxBuffer = 1024 * 1024): Promise<string | null> {
+  return await readGitRepoStatusCommand(currentDirectory, args, {
+    maxStdoutBytes: maxBuffer,
+  });
 }
 
-function resolveGitCommitRef(worktreePath: string, ref: string): string | null {
-  return runGitValue(worktreePath, ["rev-parse", "--verify", `${ref}^{commit}`]);
+async function resolveGitCommitRef(worktreePath: string, ref: string): Promise<string | null> {
+  return await runGitValue(worktreePath, ["rev-parse", "--verify", `${ref}^{commit}`]);
 }
 
-function preferredRepoDiffBaseRef(worktreePath: string): string | null {
-  const upstream = runGitValue(worktreePath, [
+async function preferredRepoDiffBaseRef(worktreePath: string): Promise<string | null> {
+  const upstream = await runGitValue(worktreePath, [
     "rev-parse",
     "--abbrev-ref",
     "--symbolic-full-name",
@@ -675,54 +679,54 @@ function preferredRepoDiffBaseRef(worktreePath: string): string | null {
   ]);
   for (const candidate of [...REPO_DIFF_TRUNK_REFS, upstream].filter(Boolean) as string[]) {
     if (candidate === "HEAD") continue;
-    if (resolveGitCommitRef(worktreePath, candidate)) return candidate;
+    if (await resolveGitCommitRef(worktreePath, candidate)) return candidate;
   }
   return null;
 }
 
-function resolveRepoDiffBranchRefs(input: {
+async function resolveRepoDiffBranchRefs(input: {
   worktreePath: string;
   layers: readonly RepoDiffLayerKind[];
   baseRef?: string;
   compareRef?: string;
-}): { baseRef?: string; compareRef?: string } {
+}): Promise<{ baseRef?: string; compareRef?: string }> {
   if (!input.layers.includes("branch")) {
     return { baseRef: input.baseRef, compareRef: input.compareRef };
   }
   const compareRef = input.compareRef?.trim() || "HEAD";
-  const compareOid = resolveGitCommitRef(input.worktreePath, compareRef);
+  const compareOid = await resolveGitCommitRef(input.worktreePath, compareRef);
   if (!compareOid) {
     return { baseRef: input.baseRef, compareRef: input.compareRef };
   }
-  const baseCandidate = input.baseRef?.trim() || preferredRepoDiffBaseRef(input.worktreePath);
+  const baseCandidate = input.baseRef?.trim() || await preferredRepoDiffBaseRef(input.worktreePath);
   if (!baseCandidate) {
     return { compareRef: compareOid };
   }
-  const baseOid = resolveGitCommitRef(input.worktreePath, baseCandidate);
+  const baseOid = await resolveGitCommitRef(input.worktreePath, baseCandidate);
   if (!baseOid) {
     return { baseRef: baseCandidate, compareRef: compareOid };
   }
-  const mergeBase = runGitValue(input.worktreePath, ["merge-base", baseOid, compareOid]);
+  const mergeBase = await runGitValue(input.worktreePath, ["merge-base", baseOid, compareOid]);
   return {
     baseRef: mergeBase ?? baseOid,
     compareRef: compareOid,
   };
 }
 
-function repoDiffStateKey(input: {
+async function repoDiffStateKey(input: {
   worktreePath: string;
   layers: readonly RepoDiffLayerKind[];
   baseRef?: string;
   compareRef?: string;
   paths?: readonly string[];
-}): string {
+}): Promise<string> {
   const parts: string[] = [];
   if (input.layers.includes("branch")) {
     parts.push(`branch:${input.baseRef ?? ""}..${input.compareRef ?? ""}`);
   }
   const pathArgs = input.paths?.length ? ["--", ...input.paths] : [];
   if (input.layers.includes("staged")) {
-    const staged = runGitRaw(input.worktreePath, [
+    const staged = await runGitRaw(input.worktreePath, [
       "diff",
       "--cached",
       "--raw",
@@ -732,14 +736,14 @@ function repoDiffStateKey(input: {
     parts.push(`staged:${stableHash(staged ?? "unavailable")}`);
   }
   if (input.layers.includes("unstaged")) {
-    const status = runGitRaw(input.worktreePath, [
+    const status = await runGitRaw(input.worktreePath, [
       "status",
       "--porcelain=v2",
       "-z",
       "--",
       ...(input.paths ?? []),
     ]);
-    const diff = runGitRaw(input.worktreePath, [
+    const diff = await runGitRaw(input.worktreePath, [
       "diff",
       "--numstat",
       "-z",
@@ -835,17 +839,10 @@ function repoDiffGitArgs(input: {
   }
 }
 
-function runRepoDiffGit(worktreePath: string, args: string[], maxBuffer = REPO_DIFF_GIT_MAX_BUFFER): string | null {
-  try {
-    return execFileSync("git", ["-C", worktreePath, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 5_000,
-      maxBuffer,
-    });
-  } catch {
-    return null;
-  }
+async function runRepoDiffGit(worktreePath: string, args: string[], maxBuffer = REPO_DIFF_GIT_MAX_BUFFER): Promise<string | null> {
+  return await readGitRepoStatusCommand(worktreePath, args, {
+    maxStdoutBytes: maxBuffer,
+  });
 }
 
 function repoDiffPathArgs(paths: readonly string[] | undefined): string[] {
@@ -948,15 +945,15 @@ function repoDiffDisplayPath(file: RepoDiffFile): string {
   return file.newPath ?? file.oldPath ?? "";
 }
 
-function recentBranchDiffPaths(input: {
+async function recentBranchDiffPaths(input: {
   worktreePath: string;
   baseRef?: string;
   compareRef?: string;
   paths?: readonly string[];
-}): string[] {
+}): Promise<string[]> {
   if (!input.baseRef) return [];
   const range = `${input.baseRef}..${input.compareRef || "HEAD"}`;
-  const output = runRepoDiffGit(input.worktreePath, [
+  const output = await runRepoDiffGit(input.worktreePath, [
     "log",
     "--name-only",
     "--pretty=format:",
@@ -981,7 +978,7 @@ function sortRepoDiffFilesRecentFirst(files: RepoDiffFile[], recentPaths: readon
     .map((entry) => entry.file);
 }
 
-function buildGitRepoDiffLayer(input: {
+async function buildGitRepoDiffLayer(input: {
   worktreePath: string;
   kind: RepoDiffLayerKind;
   baseRef?: string;
@@ -989,7 +986,7 @@ function buildGitRepoDiffLayer(input: {
   paths?: readonly string[];
   tier: RepoDiffTier;
   diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }>;
-}): RepoDiffLayer | null {
+}): Promise<RepoDiffLayer | null> {
   const resolved = repoDiffGitArgs(input);
   if (resolved.missing) {
     input.diagnostics.push({
@@ -1001,13 +998,13 @@ function buildGitRepoDiffLayer(input: {
     return null;
   }
   const pathArgs = repoDiffPathArgs(input.paths);
-  const raw = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--raw", "-z", ...pathArgs]) ?? "";
-  const numstat = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--numstat", "-z", ...pathArgs]) ?? "";
-  const shortstat = runRepoDiffGit(input.worktreePath, [...resolved.selector, "--shortstat", ...pathArgs])
+  const raw = await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--raw", "-z", ...pathArgs]) ?? "";
+  const numstat = await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--numstat", "-z", ...pathArgs]) ?? "";
+  const shortstat = (await runRepoDiffGit(input.worktreePath, [...resolved.selector, "--shortstat", ...pathArgs]))
     ?.trim() || null;
   let files = parseRepoDiffRawZ(raw, parseRepoDiffNumstatZ(numstat));
   if (input.kind === "branch") {
-    files = sortRepoDiffFilesRecentFirst(files, recentBranchDiffPaths(input));
+    files = sortRepoDiffFilesRecentFirst(files, await recentBranchDiffPaths(input));
   }
 
   const patchFlags = [
@@ -1024,7 +1021,7 @@ function buildGitRepoDiffLayer(input: {
   let truncated = false;
 
   if (input.tier === "patch") {
-    const patch = runRepoDiffGit(input.worktreePath, patchArgs, REPO_DIFF_GIT_MAX_BUFFER) ?? "";
+    const patch = await runRepoDiffGit(input.worktreePath, patchArgs, REPO_DIFF_GIT_MAX_BUFFER) ?? "";
     rawPatchBytes = Buffer.byteLength(patch);
     const maxPatchBytes = REPO_DIFF_VIEWER_LIMITS.maxPatchBytes ?? 2_000_000;
     if (rawPatchBytes > maxPatchBytes) {
@@ -1055,16 +1052,16 @@ function buildGitRepoDiffLayer(input: {
   };
 }
 
-function buildGitRepoDiffSnapshot(input: {
+async function buildGitRepoDiffSnapshot(input: {
   worktreePath: string;
   layers: readonly RepoDiffLayerKind[];
   baseRef?: string;
   compareRef?: string;
   tier: RepoDiffTier;
   paths?: readonly string[];
-}): ScoutRepoDiffSnapshot {
+}): Promise<ScoutRepoDiffSnapshot> {
   const diagnostics: Array<{ level: "info" | "warning"; kind: string; message: string; path: string | null }> = [];
-  const layers = input.layers
+  const layers = (await Promise.all(input.layers
     .map((kind) => buildGitRepoDiffLayer({
       worktreePath: input.worktreePath,
       kind,
@@ -1073,7 +1070,7 @@ function buildGitRepoDiffSnapshot(input: {
       paths: input.paths,
       tier: input.tier,
       diagnostics,
-    }))
+    }))))
     .filter((layer): layer is RepoDiffLayer => Boolean(layer));
 
   if (input.tier === "summary" && layers.some((layer) => layer.files.length > 100)) {
@@ -2100,111 +2097,31 @@ function parseProcessNumber(value: string | undefined): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function tmuxPaneDetail(sessionName: string): { panePid: number; paneTty: string; paneCurrentPath: string | null } | null {
-  try {
-    const output = execFileSync("tmux", [
-      "display-message",
-      "-p",
-      "-t",
-      sessionName,
-      "#{pane_pid}\t#{pane_tty}\t#{pane_current_path}",
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    const [pidRaw, ttyRaw, pathRaw] = output.split("\t");
-    const panePid = parseProcessNumber(pidRaw);
-    const paneTty = ttyRaw?.replace(/^\/dev\//u, "").trim();
-    const paneCurrentPath = pathRaw?.trim() || null;
-    return panePid && paneTty ? { panePid, paneTty, paneCurrentPath } : null;
-  } catch {
-    return null;
-  }
+async function tmuxPaneDetail(sessionName: string): Promise<{ panePid: number; paneTty: string; paneCurrentPath: string | null } | null> {
+  return await readTmuxPaneDetail(sessionName);
 }
 
-function processRowsForTty(tty: string): TmuxPaneProcess[] {
-  try {
-    const output = execFileSync("ps", [
-      "-t",
-      tty,
-      "-o",
-      "pid=,ppid=,pgid=,comm=",
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return output
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(/\s+/u);
-        const pid = parseProcessNumber(parts[0]);
-        const ppid = parseProcessNumber(parts[1]);
-        const pgid = parseProcessNumber(parts[2]);
-        const comm = parts.slice(3).join(" ");
-        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
-      })
-      .filter((row): row is TmuxPaneProcess => Boolean(row));
-  } catch {
-    return [];
-  }
+async function processRowsForTty(tty: string): Promise<TmuxPaneProcess[]> {
+  return await readProcessRowsForTty(tty);
 }
 
-function allProcessRows(): TmuxPaneProcess[] {
-  try {
-    const output = execFileSync("ps", [
-      "-axo",
-      "pid=,ppid=,pgid=,comm=",
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return output
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(/\s+/u);
-        const pid = parseProcessNumber(parts[0]);
-        const ppid = parseProcessNumber(parts[1]);
-        const pgid = parseProcessNumber(parts[2]);
-        const comm = parts.slice(3).join(" ");
-        return pid && ppid && pgid && comm ? { pid, ppid, pgid, comm } : null;
-      })
-      .filter((row): row is TmuxPaneProcess => Boolean(row));
-  } catch {
-    return [];
-  }
+async function allProcessRows(): Promise<TmuxPaneProcess[]> {
+  return await readAllProcessRows();
 }
 
-function allProcessCommandRows(): ProcessCommandRow[] {
-  try {
-    const output = execFileSync("ps", [
-      "-axo",
-      "pid=,ppid=,pgid=,command=",
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return output
-      .split(/\r?\n/u)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const parts = line.split(/\s+/u);
-        const pid = parseProcessNumber(parts[0]);
-        const ppid = parseProcessNumber(parts[1]);
-        const pgid = parseProcessNumber(parts[2]);
-        const command = parts.slice(3).join(" ");
-        const comm = command.split(/\s+/u)[0] ?? "";
-        return pid && ppid && pgid && comm && command
-          ? { pid, ppid, pgid, comm, command }
-          : null;
-      })
-      .filter((row): row is ProcessCommandRow => Boolean(row));
-  } catch {
-    return [];
-  }
+async function allProcessCommandRows(): Promise<ProcessCommandRow[]> {
+  return await readAllProcessCommandRows();
 }
 
-function processRowsForTmuxPane(detail: { panePid: number; paneTty: string }): TmuxPaneProcess[] {
+async function processRowsForTmuxPane(detail: { panePid: number; paneTty: string }): Promise<TmuxPaneProcess[]> {
   const byPid = new Map<number, TmuxPaneProcess>();
   // Keep tty-derived parentage first: macOS can report long-running tmux pane
   // children as reparented elsewhere, while the tty scan still exposes the
   // pane-to-Claude relationship we need to find no-tty shell jobs.
-  for (const row of processRowsForTty(detail.paneTty)) {
+  for (const row of await processRowsForTty(detail.paneTty)) {
     byPid.set(row.pid, row);
   }
-  for (const row of allProcessRows()) {
+  for (const row of await allProcessRows()) {
     if (!byPid.has(row.pid)) byPid.set(row.pid, row);
   }
   return [...byPid.values()];
@@ -2251,28 +2168,11 @@ function shellQuote(value: string): string {
   if (/^[A-Za-z0-9_./:+=@%-]+$/u.test(value)) {
     return value;
   }
-  return `'${value.replace(/'/gu, `'\\''`)}'`;
+  return `'${value.replace(/'/gu, `'\''`)}'`;
 }
 
-function readProcessCwd(pid: number): string | null {
-  try {
-    const output = execFileSync("lsof", [
-      "-a",
-      "-p",
-      String(pid),
-      "-d",
-      "cwd",
-      "-Fn",
-    ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    for (const line of output.split(/\r?\n/u)) {
-      if (!line.startsWith("n")) continue;
-      const value = line.slice(1).trim();
-      if (value) return value;
-    }
-  } catch {
-    return null;
-  }
-  return null;
+async function readProcessCwd(pid: number): Promise<string | null> {
+  return await readProcessCwdProbe(pid);
 }
 
 function claudeProjectDirForCwd(cwd: string): string {
@@ -2335,8 +2235,8 @@ function resumeScriptFromLaunchScript(launchScript: string, sessionId: string): 
     : rewritten;
 }
 
-function forceQuitRelayAgentProcessTree(agentId: string): boolean {
-  const rows = allProcessCommandRows();
+async function forceQuitRelayAgentProcessTree(agentId: string): Promise<boolean> {
+  const rows = await allProcessCommandRows();
   const claudeRoots = rows.filter((row) =>
     /(^|\/)claude(\s|$)/u.test(row.command) && row.command.includes(agentId)
   );
@@ -2358,12 +2258,12 @@ function forceQuitRelayAgentProcessTree(agentId: string): boolean {
   return terminateProcessesWithEscalation([...targetPids]);
 }
 
-function restartClaudeWithResumeInTmuxSurface(sessionName: string): { ok: boolean; sessionId: string | null; transcriptPath: string | null } {
+async function restartClaudeWithResumeInTmuxSurface(sessionName: string): Promise<{ ok: boolean; sessionId: string | null; transcriptPath: string | null }> {
   const runtimeState = readRelayRuntimeStateForTmuxSession(sessionName);
-  const detail = tmuxPaneDetail(sessionName);
-  const surface = detail ? claudeRowsInTmuxSurface(sessionName) : null;
+  const detail = await tmuxPaneDetail(sessionName);
+  const surface = detail ? await claudeRowsInTmuxSurface(sessionName) : null;
   const liveClaudeCwd = surface?.claudeRows[0]?.pid
-    ? readProcessCwd(surface.claudeRows[0].pid)
+    ? await readProcessCwd(surface.claudeRows[0].pid)
     : null;
   const cwd = runtimeState?.projectRoot
     ?? liveClaudeCwd
@@ -2385,13 +2285,13 @@ exec claude --resume ${shellQuote(transcript.sessionId)}
 
   try {
     if (runtimeState?.agentId) {
-      forceQuitRelayAgentProcessTree(runtimeState.agentId);
+      await forceQuitRelayAgentProcessTree(runtimeState.agentId);
     } else if (detail) {
-      forceQuitClaudeInTmuxSurface(sessionName);
+      await forceQuitClaudeInTmuxSurface(sessionName);
     }
     const command = `bash -lc ${shellQuote(resumeScript)}`;
     if (detail) {
-      execFileSync("tmux", [
+      await execSystemFile("tmux", [
         "respawn-pane",
         "-k",
         "-t",
@@ -2399,9 +2299,9 @@ exec claude --resume ${shellQuote(transcript.sessionId)}
         "-c",
         cwd,
         command,
-      ], { stdio: "ignore" });
+      ], { timeoutMs: 5_000 });
     } else {
-      execFileSync("tmux", [
+      await execSystemFile("tmux", [
         "new-session",
         "-d",
         "-s",
@@ -2409,7 +2309,7 @@ exec claude --resume ${shellQuote(transcript.sessionId)}
         "-c",
         cwd,
         command,
-      ], { stdio: "ignore" });
+      ], { timeoutMs: 5_000 });
     }
     return { ok: true, sessionId: transcript.sessionId, transcriptPath: transcript.transcriptPath };
   } catch {
@@ -2432,15 +2332,15 @@ function terminateProcessesWithEscalation(pids: number[]): boolean {
   return true;
 }
 
-function claudeRowsInTmuxSurface(sessionName: string): {
+async function claudeRowsInTmuxSurface(sessionName: string): Promise<{
   detail: { panePid: number; paneTty: string };
   rows: TmuxPaneProcess[];
   panePgid: number;
   claudeRows: TmuxPaneProcess[];
-} | null {
-  const detail = tmuxPaneDetail(sessionName);
+} | null> {
+  const detail = await tmuxPaneDetail(sessionName);
   if (!detail) return null;
-  const rows = processRowsForTmuxPane(detail);
+  const rows = await processRowsForTmuxPane(detail);
   const descendantPids = descendantsOf(detail.panePid, rows);
   const panePgid = rows.find((row) => row.pid === detail.panePid)?.pgid ?? detail.panePid;
   const claudeRows = rows.filter((row) =>
@@ -2449,8 +2349,8 @@ function claudeRowsInTmuxSurface(sessionName: string): {
   return { detail, rows, panePgid, claudeRows };
 }
 
-function stopClaudeActiveJobInTmuxSurface(sessionName: string): boolean {
-  const surface = claudeRowsInTmuxSurface(sessionName);
+async function stopClaudeActiveJobInTmuxSurface(sessionName: string): Promise<boolean> {
+  const surface = await claudeRowsInTmuxSurface(sessionName);
   if (!surface) return false;
   const targetPids = new Set<number>();
   for (const claudeRow of surface.claudeRows) {
@@ -2473,8 +2373,8 @@ function stopClaudeActiveJobInTmuxSurface(sessionName: string): boolean {
   return terminateProcessesWithEscalation([...targetPids]);
 }
 
-function forceQuitClaudeInTmuxSurface(sessionName: string): boolean {
-  const surface = claudeRowsInTmuxSurface(sessionName);
+async function forceQuitClaudeInTmuxSurface(sessionName: string): Promise<boolean> {
+  const surface = await claudeRowsInTmuxSurface(sessionName);
   if (!surface) return false;
   const targetPids = [...new Set(surface.claudeRows.flatMap((row) =>
     surface.rows
@@ -2484,26 +2384,26 @@ function forceQuitClaudeInTmuxSurface(sessionName: string): boolean {
   return terminateProcessesWithEscalation(targetPids);
 }
 
-function controlTmuxSurface(sessionName: string, action: "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit"): boolean {
+async function controlTmuxSurface(sessionName: string, action: "interrupt" | "quit" | "stop-job" | "restart-resume" | "detach" | "force-quit"): Promise<boolean> {
   try {
     if (action === "interrupt") {
-      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-c"], { stdio: "ignore" });
+      await execSystemFile("tmux", ["send-keys", "-t", sessionName, "C-c"], { timeoutMs: 2_000 });
       return true;
     }
     if (action === "quit") {
-      execFileSync("tmux", ["send-keys", "-t", sessionName, "C-d"], { stdio: "ignore" });
+      await execSystemFile("tmux", ["send-keys", "-t", sessionName, "C-d"], { timeoutMs: 2_000 });
       return true;
     }
     if (action === "stop-job") {
-      return stopClaudeActiveJobInTmuxSurface(sessionName);
+      return await stopClaudeActiveJobInTmuxSurface(sessionName);
     }
     if (action === "restart-resume") {
-      return restartClaudeWithResumeInTmuxSurface(sessionName).ok;
+      return (await restartClaudeWithResumeInTmuxSurface(sessionName)).ok;
     }
     if (action === "force-quit") {
-      return forceQuitClaudeInTmuxSurface(sessionName);
+      return await forceQuitClaudeInTmuxSurface(sessionName);
     }
-    execFileSync("tmux", ["detach-client", "-s", sessionName], { stdio: "ignore" });
+    await execSystemFile("tmux", ["detach-client", "-s", sessionName], { timeoutMs: 2_000 });
     return true;
   } catch {
     return false;
@@ -3027,28 +2927,14 @@ function resolveTmuxPeekTarget(agent: ReturnType<typeof queryAgents>[number], en
   };
 }
 
-function defaultCaptureTmuxPane(request: TmuxPanePeekRequest): TmuxPanePeekCapture | null {
-  try {
-    const body = execFileSync("tmux", [
-      "capture-pane",
-      "-p",
-      "-J",
-      "-t",
-      request.paneTarget,
-      "-S",
-      `-${Math.max(request.lines, TMUX_PEEK_CAPTURE_MIN_LINES)}`,
-      "-E",
-      "-",
-    ], {
-      encoding: "utf8",
-      maxBuffer: TMUX_PEEK_MAX_BYTES,
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1_500,
-    });
-    return { body };
-  } catch {
-    return null;
-  }
+async function defaultCaptureTmuxPane(request: TmuxPanePeekRequest): Promise<TmuxPanePeekCapture | null> {
+  const body = await captureTmuxPane(request.paneTarget, {
+    start: `-${Math.max(request.lines, TMUX_PEEK_CAPTURE_MIN_LINES)}`,
+    end: "-",
+    joinWrapped: true,
+    maxBytes: TMUX_PEEK_MAX_BYTES,
+  });
+  return body === null ? null : { body };
 }
 
 function parseScoutSpeechTimingRequest(value: unknown): ScoutSpeechTimingRequest | null | undefined {
@@ -3568,7 +3454,7 @@ function sessionTouchedResponse(payload: LoadedObservePayload, refId: string | n
   };
 }
 
-function defaultRevealLocalPath(targetPath: string): void {
+async function defaultRevealLocalPath(targetPath: string): Promise<void> {
   if (!existsSync(targetPath)) {
     throw new Error("Path does not exist.");
   }
@@ -3576,24 +3462,15 @@ function defaultRevealLocalPath(targetPath: string): void {
   const stats = statSync(targetPath);
   const directory = stats.isDirectory() ? targetPath : dirname(targetPath);
   if (process.platform === "darwin") {
-    execFileSync("open", stats.isDirectory() ? [targetPath] : ["-R", targetPath], {
-      stdio: "ignore",
-      timeout: 1500,
-    });
+    await execSystemFile("open", stats.isDirectory() ? [targetPath] : ["-R", targetPath], { timeoutMs: 1_500 });
     return;
   }
   if (process.platform === "win32") {
-    execFileSync("explorer.exe", stats.isDirectory() ? [targetPath] : [`/select,${targetPath}`], {
-      stdio: "ignore",
-      timeout: 1500,
-    });
+    await execSystemFile("explorer.exe", stats.isDirectory() ? [targetPath] : [`/select,${targetPath}`], { timeoutMs: 1_500 });
     return;
   }
 
-  execFileSync("xdg-open", [directory], {
-    stdio: "ignore",
-    timeout: 1500,
-  });
+  await execSystemFile("xdg-open", [directory], { timeoutMs: 1_500 });
 }
 
 function escapeHtml(value: string): string {
@@ -3838,17 +3715,9 @@ function readWebPackageVersion(): string | null {
   return cachedWebPackageVersion;
 }
 
-function runGitValue(currentDirectory: string, args: string[]): string | null {
-  try {
-    const value = execFileSync("git", ["-C", currentDirectory, ...args], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 1000,
-    }).trim();
-    return value.length > 0 ? value : null;
-  } catch {
-    return null;
-  }
+async function runGitValue(currentDirectory: string, args: string[]): Promise<string | null> {
+  const value = (await runGitRaw(currentDirectory, args, 1024 * 1024))?.trim() ?? "";
+  return value.length > 0 ? value : null;
 }
 
 function openScoutBuildInfoFromGit(value: GitBuildInfo | null): OpenScoutBuildInfo {
@@ -3870,7 +3739,7 @@ async function warmOpenScoutBuildInfo(currentDirectory: string): Promise<OpenSco
   return openScoutBuildInfoFromGit(snapshot.value);
 }
 
-function repoPullRequestRoot(rawPath: string): string | null {
+async function repoPullRequestRoot(rawPath: string): Promise<string | null> {
   const trimmed = rawPath.trim();
   if (!trimmed) return null;
   const candidate = resolve(trimmed);
@@ -3879,15 +3748,15 @@ function repoPullRequestRoot(rawPath: string): string | null {
   } catch {
     return null;
   }
-  return runGitValue(candidate, ["rev-parse", "--show-toplevel"]) ?? candidate;
+  return await runGitValue(candidate, ["rev-parse", "--show-toplevel"]) ?? candidate;
 }
 
-function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): string[] {
+async function normalizeRepoPullRequestPaths(rawPaths: readonly string[], fallbackPath: string): Promise<string[]> {
   const sourcePaths = rawPaths.length > 0 ? rawPaths : [fallbackPath];
   const seen = new Set<string>();
   const roots: string[] = [];
   for (const rawPath of sourcePaths) {
-    const root = repoPullRequestRoot(rawPath);
+    const root = await repoPullRequestRoot(rawPath);
     if (!root) continue;
     const key = realpathSync(root);
     if (seen.has(key)) continue;
@@ -3953,7 +3822,7 @@ async function loadRepoPullRequests(options: RepoPullRequestLoadOptions): Promis
   const paths = options.paths.slice(0, REPO_PRS_MAX_PATHS);
   const limit = Math.max(1, Math.min(50, options.limitPerRepo || REPO_PRS_DEFAULT_LIMIT));
   const results = await Promise.all(paths.map(async (path) => {
-    const remote = runGitValue(path, ["remote", "get-url", "origin"]);
+    const remote = await runGitValue(path, ["remote", "get-url", "origin"]);
     const repo = repoNameFromGitRemote(remote, path);
     try {
       const result = await execFileAsync("gh", [
@@ -5000,7 +4869,7 @@ export async function createOpenScoutWebServer(
     };
 
     if (!options.repoDiffSnapshot && shouldUseGitRepoDiffFallback(input)) {
-      const snapshot = buildGitRepoDiffSnapshot({
+      const snapshot = await buildGitRepoDiffSnapshot({
         worktreePath: input.worktreePath,
         layers: input.layers,
         baseRef: input.baseRef,
@@ -5808,7 +5677,7 @@ export async function createOpenScoutWebServer(
     c.json(await buildAgentConfigurationSnapshot(currentDirectory)),
   );
   app.get("/api/agents", async (c) => c.json(await queryAgentsIncludingBrokerCards()));
-  app.get("/api/terminal-sessions", (c) => {
+  app.get("/api/terminal-sessions", async (c) => {
     const backend = parseTerminalSessionBackend(c.req.query("backend"));
     if (c.req.query("backend") && !backend) {
       return c.json({ error: "backend must be tmux or zellij" }, 400);
@@ -5822,7 +5691,7 @@ export async function createOpenScoutWebServer(
     });
     const includeDiscovered = parseTerminalSessionDiscoveryFlag(c.req.query("includeDiscovered"));
     const discovered = includeDiscovered
-      ? queryDiscoveredTerminalSessions({
+      ? await queryDiscoveredTerminalSessions({
           ...(backend ? { backend } : {}),
           limit: Math.max(0, limit - sessions.length),
           excludeSurfaces: sessions.flatMap((session) =>
@@ -7174,10 +7043,10 @@ export async function createOpenScoutWebServer(
     let delivered = false;
     let resumeResult: { ok: boolean; sessionId: string | null; transcriptPath: string | null } | null = null;
     if (backend === "tmux" && action === "restart-resume") {
-      resumeResult = restartClaudeWithResumeInTmuxSurface(sessionName);
+      resumeResult = await restartClaudeWithResumeInTmuxSurface(sessionName);
       delivered = resumeResult.ok;
     } else if (backend === "tmux" && action !== "force-quit-bridge") {
-      delivered = controlTmuxSurface(sessionName, action);
+      delivered = await controlTmuxSurface(sessionName, action);
     } else if (action !== "force-quit-bridge") {
       return c.json({ error: `${backend} surface control is not available yet` }, 400);
     }
@@ -7188,7 +7057,7 @@ export async function createOpenScoutWebServer(
         destroyed = await options.destroyTerminalRelaySurface(backend, sessionName);
       }
       if (backend === "tmux" && action !== "restart-resume") {
-        controlTmuxSurface(sessionName, "detach");
+        await controlTmuxSurface(sessionName, "detach");
       }
     }
 
@@ -7228,7 +7097,7 @@ export async function createOpenScoutWebServer(
       tmuxSessionName = `scout-vantage-${slugifyTmuxName(harness)}-${stableHash(transcriptPath)}`;
     }
 
-    const result = requestHarnessSessionCompaction({
+    const result = await requestHarnessSessionCompaction({
       harness,
       sessionId,
       transcriptPath,
@@ -8015,7 +7884,7 @@ export async function createOpenScoutWebServer(
   });
 
   app.get("/api/repo-prs", async (c) => {
-    const paths = normalizeRepoPullRequestPaths(c.req.queries("path") ?? [], options.currentDirectory);
+    const paths = await normalizeRepoPullRequestPaths(c.req.queries("path") ?? [], options.currentDirectory);
     const limitPerRepo = parseOptionalPositiveInt(c.req.query("limit"), REPO_PRS_DEFAULT_LIMIT)
       ?? REPO_PRS_DEFAULT_LIMIT;
     if (paths.length === 0) {
@@ -8108,13 +7977,13 @@ export async function createOpenScoutWebServer(
       c.header("x-openscout-repo-diff-cache", "skip");
       return c.json(emptyRepoDiffSnapshot({ worktreePath, layers: resolvedLayers, scope }));
     }
-    const resolvedRefs = resolveRepoDiffBranchRefs({
+    const resolvedRefs = await resolveRepoDiffBranchRefs({
       worktreePath,
       layers: resolvedLayers,
       baseRef: trimmedBaseRef,
       compareRef: trimmedCompareRef,
     });
-    const stateKey = repoDiffStateKey({
+    const stateKey = await repoDiffStateKey({
       worktreePath,
       layers: resolvedLayers,
       baseRef: resolvedRefs.baseRef,
@@ -8161,13 +8030,13 @@ export async function createOpenScoutWebServer(
       worktreePath: trimmedPath,
       filteredPaths: paths,
     };
-    const resolvedRefs = resolveRepoDiffBranchRefs({
+    const resolvedRefs = await resolveRepoDiffBranchRefs({
       worktreePath: trimmedPath,
       layers: resolvedLayers,
       baseRef: trimmedBaseRef,
       compareRef: trimmedCompareRef,
     });
-    const stateKey = repoDiffStateKey({
+    const stateKey = await repoDiffStateKey({
       worktreePath: trimmedPath,
       layers: resolvedLayers,
       baseRef: resolvedRefs.baseRef,

@@ -101,9 +101,16 @@ Initial probe set + TTLs:
 | `tailscale.status` | 30s | per-call spawns in mesh service, mobile bridge, relay runtime |
 | `git.buildInfo` (family, per repo) | build metadata: process lifetime · branch/dirty: 60s | 3 sync git calls per `/api/build` |
 | `tmux.sessions` (family, per socket) | 5s | discovery scans in terminal relay/session discovery |
+| `zellij.sessions` (family, per socket dir) | 5s | zellij discovery/reaper checks; kept parallel to `tmux.sessions` because the socket namespace and state model differ |
+| `tmux.panes` (family, per pane capture/detail target) | 5s | pane detail and bounded capture reads; explicit imperatives invalidate or bypass with `maxAgeMs: 0` |
 | `ps.runtime` | 5s (10–15s for overview surfaces) | runtime/atop telemetry ps sweeps |
+| `ps.cwd` (family, per pid) | 5s | `lsof` cwd lookups used to annotate short-lived process trees |
 | `net.listeners` (family, per port) | 5s | lsof sweeps in managed-terminal-relay |
+| `git.repoStatus` (family, per repo + git argv) | 60s | repo-diff/work-material git reads; status/diff pages tolerate short-lived reuse |
 | `mesh.peers` | 30s (pull-on-demand stays the model; delivery still does live health checks) | ad-hoc peer probes |
+| `sessions.scan` (family, per home/workspace/window) | 10s | JSONL history discovery walks; repeated mobile/web polls can reuse a short-lived file inventory |
+| `sessions.search` (family, per query/window) | 10s | JSONL text search previews; interactive retries tolerate brief staleness while avoiding repeated full-file grep scans |
+| `cert.status` (family, per cert path) | 5m | stored Tailscale cert trust/expiry checks; certificates change rarely outside explicit regeneration |
 
 **Consumers that need `fresh()` or `invalidate()`** (stale is *wrong* here, not just old):
 

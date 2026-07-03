@@ -1,5 +1,8 @@
-import { execFileSync, spawnSync } from "node:child_process";
 import { resolveCodexExecutable } from "@openscout/agent-sessions/codex-executable";
+import {
+  execSystemFile,
+  readTmuxSessionExists,
+} from "@openscout/runtime/system-probes";
 
 export type SessionCompactionRequest = {
   harness?: string | null;
@@ -17,21 +20,14 @@ export type SessionCompactionResult = {
   error?: string;
 };
 
-function tmuxSessionExists(sessionName: string): boolean {
-  try {
-    execFileSync("tmux", ["has-session", "-t", sessionName], {
-      stdio: ["ignore", "ignore", "ignore"],
-    });
-    return true;
-  } catch {
-    return false;
-  }
+async function tmuxSessionExists(sessionName: string): Promise<boolean> {
+  return await readTmuxSessionExists(sessionName, { maxAgeMs: 5_000 });
 }
 
-function sendTmuxSlashCommand(sessionName: string, command: string): boolean {
+async function sendTmuxSlashCommand(sessionName: string, command: string): Promise<boolean> {
   try {
-    execFileSync("tmux", ["send-keys", "-t", sessionName, "-l", command], { stdio: "ignore" });
-    execFileSync("tmux", ["send-keys", "-t", sessionName, "Enter"], { stdio: "ignore" });
+    await execSystemFile("tmux", ["send-keys", "-t", sessionName, "-l", command], { timeoutMs: 2_000 });
+    await execSystemFile("tmux", ["send-keys", "-t", sessionName, "Enter"], { timeoutMs: 2_000 });
     return true;
   } catch {
     return false;
@@ -54,7 +50,7 @@ function parseJsonRpcLine(output: string): { result?: unknown; error?: { message
   return null;
 }
 
-export function requestCodexThreadCompaction(threadId: string): SessionCompactionResult {
+export async function requestCodexThreadCompaction(threadId: string): Promise<SessionCompactionResult> {
   const trimmed = threadId.trim();
   if (!trimmed) {
     return { ok: false, delivered: false, error: "missing codex thread id" };
@@ -77,28 +73,22 @@ export function requestCodexThreadCompaction(threadId: string): SessionCompactio
     params: { threadId: trimmed },
   })}\n`;
 
-  const result = spawnSync(codexExecutable, ["app-server", "proxy"], {
-    input: request,
-    encoding: "utf8",
-    timeout: 15_000,
-  });
-
-  if (result.error) {
+  let combined = "";
+  try {
+    const result = await execSystemFile(codexExecutable, ["app-server", "proxy"], {
+      input: request,
+      timeoutMs: 15_000,
+      maxStdoutBytes: 1024 * 1024,
+      maxStderrBytes: 1024 * 1024,
+    });
+    combined = `${result.stdout ?? ""}
+${result.stderr ?? ""}`.trim();
+  } catch (error) {
     return {
       ok: false,
       delivered: false,
       method: "codex-app-server",
-      error: result.error.message,
-    };
-  }
-
-  const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`.trim();
-  if (result.status !== 0) {
-    return {
-      ok: false,
-      delivered: false,
-      method: "codex-app-server",
-      error: combined || `codex app-server proxy exited with status ${result.status ?? "unknown"}`,
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 
@@ -119,22 +109,22 @@ export function requestCodexThreadCompaction(threadId: string): SessionCompactio
   };
 }
 
-export function requestHarnessSessionCompaction(
+export async function requestHarnessSessionCompaction(
   input: SessionCompactionRequest,
-): SessionCompactionResult {
+): Promise<SessionCompactionResult> {
   const harness = input.harness?.trim().toLowerCase() ?? "";
   const sessionId = input.sessionId?.trim() ?? "";
   const tmuxSessionName = input.tmuxSessionName?.trim() ?? "";
 
   if (harness === "codex" && sessionId) {
-    return requestCodexThreadCompaction(sessionId);
+    return await requestCodexThreadCompaction(sessionId);
   }
 
   const slashCommand = harness === "claude" || harness === "claude-code"
     ? "/compact"
     : null;
-  if (slashCommand && tmuxSessionName && tmuxSessionExists(tmuxSessionName)) {
-    const delivered = sendTmuxSlashCommand(tmuxSessionName, slashCommand);
+  if (slashCommand && tmuxSessionName && await tmuxSessionExists(tmuxSessionName)) {
+    const delivered = await sendTmuxSlashCommand(tmuxSessionName, slashCommand);
     return delivered
       ? {
           ok: true,

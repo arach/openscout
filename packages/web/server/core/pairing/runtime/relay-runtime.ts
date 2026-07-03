@@ -1,9 +1,13 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 import { homedir, networkInterfaces } from "node:os";
 import { join } from "node:path";
 
-import { tailscaleStatusProbe, type TailscaleStatusSummary } from "@openscout/runtime/system-probes";
+import {
+  certStatusProbe,
+  execSystemFile,
+  tailscaleStatusProbe,
+  type TailscaleStatusSummary,
+} from "@openscout/runtime/system-probes";
 
 import { pairingLog } from "./log";
 import { startRelay, type RelayOptions } from "./relay/relay";
@@ -41,7 +45,7 @@ export type RelayEndpointResolutionOptions = {
   tls?: TLSPair | null;
 };
 
-function findStoredTailscaleCert(hostname: string): TLSPair | null {
+async function findStoredTailscaleCert(hostname: string): Promise<TLSPair | null> {
   if (!existsSync(PAIRING_DIR)) {
     return null;
   }
@@ -52,29 +56,16 @@ function findStoredTailscaleCert(hostname: string): TLSPair | null {
     return null;
   }
 
-  if (!storedCertificateLooksPubliclyTrusted(certPath)) {
+  if (!await storedCertificateLooksPubliclyTrusted(certPath)) {
     return null;
   }
 
   return { cert: certPath, key: keyPath };
 }
 
-function storedCertificateLooksPubliclyTrusted(certPath: string): boolean {
-  try {
-    execFileSync("openssl", ["x509", "-in", certPath, "-noout", "-checkend", "86400"], {
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5_000,
-    });
-    const output = execFileSync("openssl", ["x509", "-in", certPath, "-noout", "-issuer", "-subject"], {
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 5_000,
-    }).toString();
-    const issuer = output.match(/^issuer=(.*)$/m)?.[1]?.trim();
-    const subject = output.match(/^subject=(.*)$/m)?.[1]?.trim();
-    return Boolean(issuer && subject && issuer !== subject);
-  } catch {
-    return false;
-  }
+async function storedCertificateLooksPubliclyTrusted(certPath: string): Promise<boolean> {
+  const snapshot = await certStatusProbe.for(certPath).fresh({ maxAgeMs: 5 * 60_000 });
+  return snapshot.value?.publiclyTrusted === true;
 }
 
 function statusProbeFromSummary(summary: TailscaleStatusSummary | null): TailscaleStatusProbe | null {
@@ -106,7 +97,7 @@ export function resolveRelayEndpointForTailscaleStatus(
   const hostname = tailscale?.dnsName ?? null;
   const tailscaleRunning = backendState === "running" && tailscale?.online !== false && Boolean(hostname);
   const tls = tailscaleRunning
-    ? options.tls !== undefined ? options.tls : resolveTls(hostname)
+    ? options.tls ?? null
     : null;
   const scheme = tls ? "wss" : "ws";
   const connectUrl = `${scheme}://127.0.0.1:${port}`;
@@ -165,7 +156,7 @@ export function resolveRelayEndpointForTailscaleStatus(
   };
 }
 
-function generateTailscaleCerts(hostname: string): TLSPair | null {
+async function generateTailscaleCerts(hostname: string): Promise<TLSPair | null> {
   mkdirSync(PAIRING_DIR, { recursive: true });
 
   const certPath = join(PAIRING_DIR, `${hostname}.crt`);
@@ -173,11 +164,13 @@ function generateTailscaleCerts(hostname: string): TLSPair | null {
 
   try {
     pairingLog.info("relay", "generating tailscale TLS cert", { hostname });
-    execFileSync("tailscale", ["cert", "--cert-file", certPath, "--key-file", keyPath, hostname], {
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 30_000,
+    await execSystemFile("tailscale", ["cert", "--cert-file", certPath, "--key-file", keyPath, hostname], {
+      timeoutMs: 30_000,
+      maxStdoutBytes: 512 * 1024,
+      maxStderrBytes: 512 * 1024,
     });
-    if (!storedCertificateLooksPubliclyTrusted(certPath)) {
+    certStatusProbe.invalidate(certPath, "tailscale.cert");
+    if (!await storedCertificateLooksPubliclyTrusted(certPath)) {
       pairingLog.warn("relay", "tailscale cert is not publicly trusted; using insecure websocket tailnet relay", {
         hostname,
       });
@@ -191,19 +184,24 @@ function generateTailscaleCerts(hostname: string): TLSPair | null {
   }
 }
 
-function resolveTls(hostname: string | null) {
+async function resolveTls(hostname: string | null): Promise<TLSPair | null> {
   if (!hostname) {
     return null;
   }
-  const stored = findStoredTailscaleCert(hostname);
+  const stored = await findStoredTailscaleCert(hostname);
   if (stored) {
     return stored;
   }
-  return generateTailscaleCerts(hostname);
+  return await generateTailscaleCerts(hostname);
 }
 
 async function resolveRelayEndpoint(port: number) {
-  return resolveRelayEndpointForTailscaleStatus(port, await readTailscaleStatus());
+  const tailscale = await readTailscaleStatus();
+  const backendState = tailscale?.backendState?.trim().toLowerCase() ?? "";
+  const hostname = tailscale?.dnsName ?? null;
+  const tailscaleRunning = backendState === "running" && tailscale?.online !== false && Boolean(hostname);
+  const tls = tailscaleRunning ? await resolveTls(hostname) : null;
+  return resolveRelayEndpointForTailscaleStatus(port, tailscale, { tls });
 }
 
 export async function suggestedRelayUrl(port = 43131) {
