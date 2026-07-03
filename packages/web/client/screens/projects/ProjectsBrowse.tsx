@@ -29,45 +29,6 @@ type SessionPreviewState = {
   top: number;
 };
 
-function scopeRoute(
-  base: Extract<Route, { view: "agents-v2" }>,
-  patch: Partial<Extract<Route, { view: "agents-v2" }>>,
-): Extract<Route, { view: "agents-v2" }> {
-  const next: Extract<Route, { view: "agents-v2" }> = {
-    ...base,
-    ...patch,
-    view: "agents-v2",
-    agentId: undefined,
-    selectedAgentId: undefined,
-    sessionId: undefined,
-  };
-  if ("projectSlug" in patch) {
-    delete next.harness;
-    delete next.node;
-    delete next.set;
-    if (!patch.projectSlug) delete next.projectSlug;
-  }
-  if ("harness" in patch) {
-    delete next.projectSlug;
-    delete next.node;
-    delete next.set;
-    if (!patch.harness) delete next.harness;
-  }
-  if ("node" in patch) {
-    delete next.projectSlug;
-    delete next.harness;
-    delete next.set;
-    if (!patch.node) delete next.node;
-  }
-  if ("set" in patch) {
-    delete next.projectSlug;
-    delete next.harness;
-    delete next.node;
-    if (!patch.set) delete next.set;
-  }
-  return next;
-}
-
 export function ProjectsBrowse({
   route,
   navigate,
@@ -102,7 +63,6 @@ export function ProjectsBrowse({
     [pinnedSessions, projectQuery, projectSessions],
   );
 
-  const openProject = (slug: string) => navigate(scopeRoute(route, { projectSlug: slug }));
   const openSession = (entry: ProjectSessionEntry) =>
     navigate({
       view: "agents-v2",
@@ -199,6 +159,7 @@ export function ProjectsBrowse({
                 key={`pinned:${entry.projectSlug}:${entry.session.key}`}
                 entry={entry}
                 pinned
+                selected={projectSessionMatchesRoute(entry, route.sessionId)}
                 showProject
                 onOpenSession={openSession}
                 onTogglePinnedSession={togglePinnedSession}
@@ -217,10 +178,10 @@ export function ProjectsBrowse({
             key={group.project.slug}
             group={group}
             selected={route.projectSlug === group.project.slug}
+            selectedSessionId={route.sessionId}
             collapsed={collapsedProjects.has(group.project.slug)}
             expanded={expandedProjects.has(group.project.slug)}
             pinnedSessions={pinnedSessions}
-            onOpenProject={() => openProject(group.project.slug)}
             onOpenSession={openSession}
             onToggleCollapsed={() => toggleCollapsed(group.project.slug)}
             onToggleExpanded={() => toggleExpanded(group.project.slug)}
@@ -247,10 +208,10 @@ export function ProjectsBrowse({
 function ProjectRailGroup({
   group,
   selected,
+  selectedSessionId,
   collapsed,
   expanded,
   pinnedSessions,
-  onOpenProject,
   onOpenSession,
   onToggleCollapsed,
   onToggleExpanded,
@@ -260,10 +221,10 @@ function ProjectRailGroup({
 }: {
   group: ProjectRailGroup;
   selected: boolean;
+  selectedSessionId?: string;
   collapsed: boolean;
   expanded: boolean;
   pinnedSessions: Set<string>;
-  onOpenProject: () => void;
   onOpenSession: (entry: ProjectSessionEntry) => void;
   onToggleCollapsed: () => void;
   onToggleExpanded: () => void;
@@ -287,27 +248,21 @@ function ProjectRailGroup({
       <div className="av2-projectGroupHead">
         <button
           type="button"
-          className="av2-projectDisclosure"
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
-          title={collapsed ? "Expand project" : "Collapse project"}
-          onClick={onToggleCollapsed}
-        >
-          {collapsed ? (
-            <ChevronRight size={12} strokeWidth={2} aria-hidden />
-          ) : (
-            <ChevronDown size={12} strokeWidth={2} aria-hidden />
-          )}
-        </button>
-        <button
-          type="button"
           className="av2-projectPath"
+          aria-expanded={!collapsed}
           title={projectBrowseTitle(project)}
-          aria-label={projectBrowseTitle(project)}
-          onClick={onOpenProject}
+          aria-label={collapsed ? `Expand /${project.title}` : `Collapse /${project.title}`}
+          onClick={onToggleCollapsed}
         >
           <Folder className="av2-projectPathIcon" size={13} strokeWidth={1.6} aria-hidden />
           <span className="av2-projectPathText">/{project.title}</span>
+          <span className="av2-projectPathCaret" aria-hidden>
+            {collapsed ? (
+              <ChevronRight size={12} strokeWidth={2} />
+            ) : (
+              <ChevronDown size={12} strokeWidth={2} />
+            )}
+          </span>
         </button>
       </div>
 
@@ -318,6 +273,7 @@ function ProjectRailGroup({
               key={`${entry.projectSlug}:${entry.session.key}`}
               entry={entry}
               pinned={pinnedSessions.has(entry.session.refId)}
+              selected={projectSessionMatchesRoute(entry, selectedSessionId)}
               showProject={false}
               onOpenSession={onOpenSession}
               onTogglePinnedSession={onTogglePinnedSession}
@@ -346,6 +302,7 @@ function ProjectRailGroup({
 function ProjectSessionRailRow({
   entry,
   pinned,
+  selected,
   showProject,
   onOpenSession,
   onTogglePinnedSession,
@@ -354,6 +311,7 @@ function ProjectSessionRailRow({
 }: {
   entry: ProjectSessionEntry;
   pinned: boolean;
+  selected: boolean;
   showProject: boolean;
   onOpenSession: (entry: ProjectSessionEntry) => void;
   onTogglePinnedSession: (sessionId: string) => void;
@@ -367,6 +325,7 @@ function ProjectSessionRailRow({
       className="av2-projectSession"
       data-active={entry.session.status === "active" || undefined}
       data-pinned={pinned || undefined}
+      data-selected={selected || undefined}
       onMouseEnter={(event) => onPreviewSession(entry, event.currentTarget)}
       onMouseLeave={onClearPreview}
       onFocusCapture={(event) => onPreviewSession(entry, event.currentTarget)}
@@ -556,6 +515,13 @@ function projectSessionMatchesRailQuery(entry: ProjectSessionEntry, query: strin
     || entry.projectSlug.toLowerCase().includes(needle)
     || projectSessionTitle(entry).toLowerCase().includes(needle)
     || projectSessionMeta(entry).toLowerCase().includes(needle);
+}
+
+function projectSessionMatchesRoute(entry: ProjectSessionEntry, sessionId: string | null | undefined): boolean {
+  if (!sessionId) return false;
+  return entry.session.refId === sessionId
+    || entry.session.sessionId === sessionId
+    || entry.session.key === sessionId;
 }
 
 function readPinnedSessions(): Set<string> {

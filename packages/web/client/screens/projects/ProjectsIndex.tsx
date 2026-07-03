@@ -594,6 +594,8 @@ function plural(count: number, noun: string): string {
 
 function previewProjectZeroState(): boolean {
   if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") return false;
   const value = new URLSearchParams(window.location.search).get("zero")?.trim().toLowerCase();
   return value === "projects" || value === "project" || value === "1" || value === "true";
 }
@@ -606,7 +608,8 @@ export function ProjectsIndex({
   navigate: Navigate;
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
-  const { registryAgents, projectSessions, projects, reloadData } = useProjectsData(showEphemeral);
+  const { dataReady, dataSettled, registryAgents, projectSessions, projects, reloadData } =
+    useProjectsData(showEphemeral);
   const projectContext = useProjectOverviewContext(route, registryAgents, projects, showEphemeral);
   const indexView = indexViewOf(route);
   const nowMs = Date.now();
@@ -634,7 +637,7 @@ export function ProjectsIndex({
     && !route.node
     && !route.set
     && !route.stateFilter;
-  const projectZeroStatePreview = isProjectZeroStateScope && previewProjectZeroState();
+  const projectZeroStatePreview = dataReady && isProjectZeroStateScope && previewProjectZeroState();
   const visibleAgentRows = projectZeroStatePreview ? [] : agentRows;
   const visibleSessionRows = sessionRows;
   const rows = indexView === "sessions" ? visibleSessionRows : visibleAgentRows;
@@ -914,7 +917,11 @@ export function ProjectsIndex({
         )}
 
         {rows.length === 0 ? (
-          showProjectZeroState ? (
+          !dataSettled ? (
+            <div className="av2-empty">Loading projects...</div>
+          ) : !dataReady ? (
+            <div className="av2-empty">Project inventory unavailable.</div>
+          ) : showProjectZeroState ? (
             <ProjectZeroState
               route={route}
               navigate={navigate}

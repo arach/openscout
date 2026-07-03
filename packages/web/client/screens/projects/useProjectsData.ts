@@ -25,7 +25,7 @@ import {
 } from "./model.ts";
 
 export function useProjectsData(showEphemeral: boolean) {
-  const { agents, route } = useScout();
+  const { agents, apiConnection, route } = useScout();
   const machineId = routeMachineId(route);
   const scopedAgents = useMemo(
     () => filterAgentsByMachineScope(agents, machineId),
@@ -35,6 +35,7 @@ export function useProjectsData(showEphemeral: boolean) {
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [fleet, setFleet] = useState<FleetState | null>(null);
   const [discovery, setDiscovery] = useState<TailDiscoverySnapshot | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
     const [sessionsResult, fleetResult, discoveryResult] = await Promise.allSettled([
@@ -45,6 +46,7 @@ export function useProjectsData(showEphemeral: boolean) {
     if (sessionsResult.status === "fulfilled") setSessions(sessionsResult.value);
     if (fleetResult.status === "fulfilled") setFleet(fleetResult.value);
     if (discoveryResult.status === "fulfilled") setDiscovery(discoveryResult.value);
+    setLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -122,6 +124,8 @@ export function useProjectsData(showEphemeral: boolean) {
   return {
     agents: scopedAgents,
     agentsById,
+    dataReady: loaded && apiConnection.status === "online",
+    dataSettled: loaded && apiConnection.status !== "checking",
     projects,
     sessions,
     sessionsByAgentId,
@@ -139,6 +143,8 @@ export function useProjectsData(showEphemeral: boolean) {
 export type ProjectsData = {
   agents: Agent[];
   agentsById: Map<string, Agent>;
+  dataReady: boolean;
+  dataSettled: boolean;
   registryAgents: RegistryAgentEntry[];
   registrySessions: RegistrySessionEntry[];
   projectSessions: ProjectSessionEntry[];

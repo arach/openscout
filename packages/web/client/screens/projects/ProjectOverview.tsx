@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Rocket, Users } from "lucide-react";
+import { FileText, MessageSquareText, Rocket, Users } from "lucide-react";
 import { AgentAvatar } from "../../components/AgentAvatar.tsx";
 import { api } from "../../lib/api.ts";
 import type { LocalAgentConfigState, Route } from "../../lib/types.ts";
+import { timeAgo } from "../../lib/time.ts";
 import { useScout } from "../../scout/Provider.tsx";
 import type { RepoWatchSnapshot, RepoWatchWorktree } from "../../scout/repo-watch/types.ts";
 import { dirProjectHarnesses } from "../agents/model.ts";
@@ -18,7 +19,14 @@ import {
   type ProjectOverviewPayload,
 } from "./project-overview-helpers.ts";
 import { ProjectRepoFrame } from "./project-repo-frame.tsx";
-import { harnessOf, registryAgentsForProject } from "./model.ts";
+import {
+  displayProjectSessionPreview,
+  harnessOf,
+  projectSessionLastAt,
+  projectSessionMeta,
+  registryAgentsForProject,
+  shortSessionRef,
+} from "./model.ts";
 import type { ProjectSessionEntry, RegistryAgentEntry } from "./model.ts";
 import type { ReactNode } from "react";
 
@@ -122,6 +130,65 @@ function WorktreeRow({
         </button>
         <button type="button" className="av2-embedLaunch" onClick={() => onReveal(wt.path)}>
           reveal
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProjectSelectedSessionFacet({
+  entry,
+  route,
+  navigate,
+}: {
+  entry: ProjectSessionEntry;
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+}) {
+  const when = projectSessionLastAt(entry);
+  const agent = entry.mappedAgent;
+  const process = entry.session.process?.command?.trim() || null;
+  const openSession = () => navigate({ view: "sessions", sessionId: entry.session.refId });
+  const clearSession = () => navigate({ ...route, sessionId: undefined });
+  const selectAgent = agent
+    ? () => navigate({ ...route, selectedAgentId: agent.agentId, sessionId: undefined })
+    : null;
+
+  return (
+    <div className="av2-selectedSession">
+      <div className="av2-selectedSessionMain">
+        <div className="av2-selectedSessionIcon" aria-hidden>
+          <MessageSquareText size={15} strokeWidth={1.8} />
+        </div>
+        <div className="av2-selectedSessionCopy">
+          <span className="av2-selectedSessionTitle" title={entry.session.transcriptPath ?? entry.session.refId}>
+            {displayProjectSessionPreview(entry)}
+          </span>
+          <span className="av2-selectedSessionSub">
+            {projectSessionMeta(entry)}
+            {when ? ` · ${timeAgo(when)}` : ""}
+          </span>
+        </div>
+      </div>
+      <div className="av2-selectedSessionFacts">
+        <FacetMono title={entry.session.refId}>{shortSessionRef(entry.session.refId)}</FacetMono>
+        {entry.session.cwd ? <FacetMono title={entry.session.cwd}>{shortHomePath(entry.session.cwd)}</FacetMono> : null}
+        {entry.session.transcriptPath ? (
+          <FacetMono title={entry.session.transcriptPath}>{shortHomePath(entry.session.transcriptPath)}</FacetMono>
+        ) : null}
+        {process ? <FacetMono title={process}>{process}</FacetMono> : null}
+      </div>
+      <div className="av2-selectedSessionActions">
+        <button type="button" className="av2-facetJump" data-primary onClick={openSession}>
+          open session
+        </button>
+        {selectAgent ? (
+          <button type="button" className="av2-facetJump" onClick={selectAgent}>
+            @{(agent?.handle ?? agent?.name ?? "agent").replace(/^@+/, "")}
+          </button>
+        ) : null}
+        <button type="button" className="av2-facetJump" onClick={clearSession}>
+          clear
         </button>
       </div>
     </div>
@@ -241,6 +308,16 @@ export function ProjectOverview({
     ? [...new Set(dirProject.agents.map((n) => n.row.branch).filter((b) => b && b !== "—"))]
     : [...new Set(agentEntries.flatMap((e) => e.group.branches))];
   const agentRows = agentOverviewRows(agentEntries, configs, projectSessions, Date.now());
+  const selectedProjectSession = route.sessionId
+    ? projectSessions.find((entry) =>
+      entry.projectSlug === route.projectSlug
+      && (
+        entry.session.refId === route.sessionId
+        || entry.session.sessionId === route.sessionId
+        || entry.session.key === route.sessionId
+      )
+    ) ?? null
+    : null;
 
   const repoArtifacts = useMemo(
     () => overview?.artifacts.filter((a) => a.kind !== "package" || a.relativePath === "package.json") ?? [],
@@ -323,83 +400,97 @@ export function ProjectOverview({
         </div>
       </div>
 
-      {initialLoading ? (
-        <div className="av2-projectOverviewLoading">Loading repo facets…</div>
-      ) : (
-        <div className="av2-facetGrid">
-          <FacetSection label="New agent">
-            <div className="av2-newAgentFacet">
-              <button
-                type="button"
-                className="av2-newAgentBtn"
-                disabled={!displayRoot}
-                onClick={() => setNewAgentOpen(true)}
-              >
-                <Rocket size={13} strokeWidth={2} aria-hidden />
-                New agent
-              </button>
-              <p className="av2-newAgentHint">
-                {displayRoot
-                  ? "A harnessed identity with an addressable handle for this project."
-                  : "No project root resolved yet — cannot create an agent."}
-              </p>
-            </div>
+      <div className="av2-facetGrid">
+        {selectedProjectSession ? (
+          <FacetSection label="Selected session" wide>
+            <ProjectSelectedSessionFacet
+              entry={selectedProjectSession}
+              route={route}
+              navigate={navigate}
+            />
           </FacetSection>
+        ) : null}
 
-          <FacetSection label="Git & worktrees">
-            {!repoProject ? (
-              <span className="av2-facetEmpty">No repo-watch match for this root.</span>
-            ) : (
-              <div className="av2-worktreeStack">
-                {mainWt ? (
-                  <WorktreeRow
-                    wt={mainWt}
-                    primary
-                    onReveal={(path) => void revealPath(path)}
-                    onDiff={openDiff}
-                  />
-                ) : null}
-                {repoProject.worktrees
-                  .filter((wt) => wt.id !== mainWt?.id)
-                  .slice(0, 6)
-                  .map((wt) => (
+        {initialLoading ? (
+          <FacetSection label="Project facets" wide>
+            <span className="av2-projectOverviewLoading">Loading repo facets…</span>
+          </FacetSection>
+        ) : (
+          <>
+            <FacetSection label="New agent">
+              <div className="av2-newAgentFacet">
+                <button
+                  type="button"
+                  className="av2-newAgentBtn"
+                  disabled={!displayRoot}
+                  onClick={() => setNewAgentOpen(true)}
+                >
+                  <Rocket size={13} strokeWidth={2} aria-hidden />
+                  New agent
+                </button>
+                <p className="av2-newAgentHint">
+                  {displayRoot
+                    ? "A harnessed identity with an addressable handle for this project."
+                    : "No project root resolved yet — cannot create an agent."}
+                </p>
+              </div>
+            </FacetSection>
+
+            <FacetSection label="Git & worktrees">
+              {!repoProject ? (
+                <span className="av2-facetEmpty">No repo-watch match for this root.</span>
+              ) : (
+                <div className="av2-worktreeStack">
+                  {mainWt ? (
                     <WorktreeRow
-                      key={wt.id}
-                      wt={wt}
+                      wt={mainWt}
+                      primary
                       onReveal={(path) => void revealPath(path)}
                       onDiff={openDiff}
                     />
-                  ))}
-              </div>
-            )}
-          </FacetSection>
-
-          <FacetSection
-            label="Workspace"
-            wide
-            actions={
-              <ProjectWorkspaceToggle
-                value={workspaceView}
-                fileCount={repoArtifacts.length}
-                agentCount={agentRows.length}
-                onChange={setWorkspaceView}
-              />
-            }
-          >
-            <div className="av2-projectWorkspace" data-view={workspaceView}>
-              {workspaceView === "files" ? (
-                <ProjectRepoFrame
-                  artifacts={repoArtifacts}
-                  onOpen={openFilePreview}
-                  onReveal={(path) => void revealPath(path)}
-                />
-              ) : (
-                <ProjectAgentsFrame rows={agentRows} route={route} navigate={navigate} />
+                  ) : null}
+                  {repoProject.worktrees
+                    .filter((wt) => wt.id !== mainWt?.id)
+                    .slice(0, 6)
+                    .map((wt) => (
+                      <WorktreeRow
+                        key={wt.id}
+                        wt={wt}
+                        onReveal={(path) => void revealPath(path)}
+                        onDiff={openDiff}
+                      />
+                    ))}
+                </div>
               )}
-            </div>
-          </FacetSection>
-        </div>
-      )}
+            </FacetSection>
+
+            <FacetSection
+              label="Workspace"
+              wide
+              actions={
+                <ProjectWorkspaceToggle
+                  value={workspaceView}
+                  fileCount={repoArtifacts.length}
+                  agentCount={agentRows.length}
+                  onChange={setWorkspaceView}
+                />
+              }
+            >
+              <div className="av2-projectWorkspace" data-view={workspaceView}>
+                {workspaceView === "files" ? (
+                  <ProjectRepoFrame
+                    artifacts={repoArtifacts}
+                    onOpen={openFilePreview}
+                    onReveal={(path) => void revealPath(path)}
+                  />
+                ) : (
+                  <ProjectAgentsFrame rows={agentRows} route={route} navigate={navigate} />
+                )}
+              </div>
+            </FacetSection>
+          </>
+        )}
+      </div>
 
       <NewAgentModal
         open={newAgentOpen}
