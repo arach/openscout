@@ -384,7 +384,9 @@
 }
 
 .av2-projectSession {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22px auto;
   align-items: center;
   gap: 2px;
   width: 100%;
@@ -414,7 +416,7 @@
   align-items: center;
   gap: 8px;
   max-width: 100%;
-  padding: 5px 2px 5px 8px;
+  padding: 5px 0 5px 8px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -446,14 +448,13 @@
 }
 
 .av2-projectSessionWhen {
-  flex: none;
+  padding-right: 5px;
   font-family: var(--av2-mono);
   font-size: 9px;
   color: var(--av2-dim);
 }
 
 .av2-sessionPin {
-  flex: none;
   width: 22px;
   height: 22px;
   display: grid;
@@ -464,6 +465,16 @@
   background: transparent;
   color: color-mix(in srgb, var(--av2-dim) 70%, transparent);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--av2-ease), background 0.12s var(--av2-ease), color 0.12s var(--av2-ease);
+}
+
+.av2-projectSession:hover .av2-sessionPin,
+.av2-projectSession:focus-within .av2-sessionPin,
+.av2-projectSession[data-pinned] .av2-sessionPin {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .av2-sessionPin:hover,
@@ -498,6 +509,108 @@
 
 .av2-projectShowMore:hover {
   color: var(--av2-muted);
+}
+
+.av2-sessionHoverCard {
+  position: fixed;
+  z-index: 120;
+  width: 300px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--av2-accent) 20%, var(--av2-hairline));
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--hud-surface) 88%, black 12%), color-mix(in srgb, var(--hud-bg) 92%, black 8%));
+  color: var(--av2-ink);
+  box-shadow:
+    0 18px 42px -24px color-mix(in srgb, black 82%, transparent),
+    0 0 0 1px color-mix(in srgb, white 3%, transparent) inset;
+  pointer-events: none;
+}
+
+.av2-sessionHoverCard::before {
+  content: "";
+  position: absolute;
+  left: -5px;
+  top: 34px;
+  width: 9px;
+  height: 9px;
+  border-left: 1px solid color-mix(in srgb, var(--av2-accent) 20%, var(--av2-hairline));
+  border-bottom: 1px solid color-mix(in srgb, var(--av2-accent) 20%, var(--av2-hairline));
+  background: color-mix(in srgb, var(--hud-surface) 88%, black 12%);
+  transform: rotate(45deg);
+}
+
+.av2-sessionHoverKicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--av2-dim);
+}
+
+.av2-sessionHoverKicker span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.av2-sessionHoverTitle {
+  margin-top: 7px;
+  font-size: 13px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  color: var(--av2-ink);
+}
+
+.av2-sessionHoverContext {
+  margin-top: 7px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--av2-muted);
+}
+
+.av2-sessionHoverFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.av2-sessionHoverFacts span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hud-ink) 6%, transparent);
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  color: var(--av2-muted);
+}
+
+.av2-sessionHoverRef {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--av2-hairline);
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  color: var(--av2-dim);
+}
+
+.av2-sessionHoverRef span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .av2-browseFoot {
@@ -2232,6 +2345,322 @@
   line-height: 1.55;
   color: var(--av2-dim);
   background: radial-gradient(480px 160px at 50% 0%, color-mix(in srgb, var(--av2-accent) 4%, transparent), transparent 70%);
+}
+
+.av2-projectZero {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 34px 22px 42px;
+  background: color-mix(in srgb, var(--hud-surface) 12%, transparent);
+}
+
+.av2-projectZeroInner {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.av2-projectZeroHead {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.av2-projectZeroKicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  font-family: var(--av2-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--av2-muted);
+}
+
+.av2-projectZeroKicker svg {
+  color: var(--av2-accent);
+}
+
+.av2-projectZeroHead h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: var(--av2-ink);
+}
+
+.av2-projectZeroHead p {
+  max-width: 420px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--av2-muted);
+}
+
+.av2-projectZeroComposer {
+  overflow: hidden;
+  border: 1px solid var(--av2-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hud-surface) 64%, var(--av2-bg));
+  box-shadow: var(--av2-shadow-soft), var(--av2-inset-highlight);
+}
+
+.av2-projectZeroBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border-bottom: 1px solid var(--av2-hairline);
+}
+
+.av2-projectZeroSelect {
+  flex: 1 1 260px;
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 1px solid var(--av2-hairline);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--av2-bg) 58%, transparent);
+  color: var(--av2-muted);
+}
+
+.av2-projectZeroSelect svg {
+  flex: none;
+  color: var(--av2-dim);
+}
+
+.av2-projectZeroSelect select {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--av2-ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.av2-projectZeroHarness {
+  flex: none;
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--av2-hairline);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--av2-bg) 56%, transparent);
+}
+
+.av2-projectZeroHarness button {
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--av2-dim);
+  font-family: var(--av2-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.av2-projectZeroHarness button:hover {
+  color: var(--av2-muted);
+  background: color-mix(in srgb, var(--av2-ink) 4%, transparent);
+}
+
+.av2-projectZeroHarness button[data-on] {
+  color: var(--av2-ink);
+  background: color-mix(in srgb, var(--av2-accent) 12%, transparent);
+}
+
+.av2-projectZeroInputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+}
+
+.av2-projectZeroInputRow textarea {
+  min-height: 58px;
+  max-height: 128px;
+  resize: none;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--av2-hairline);
+  border-radius: 7px;
+  outline: none;
+  background: color-mix(in srgb, var(--av2-bg) 72%, transparent);
+  color: var(--av2-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.av2-projectZeroInputRow textarea:focus {
+  border-color: color-mix(in srgb, var(--av2-accent) 44%, var(--av2-hairline));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--av2-accent) 24%, transparent);
+}
+
+.av2-projectZeroInputRow textarea::placeholder {
+  color: var(--av2-dim);
+}
+
+.av2-projectZeroSend {
+  min-width: 126px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--av2-accent) 44%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--av2-accent) 12%, transparent);
+  color: var(--av2-ink);
+  font-family: var(--av2-mono);
+  font-size: 10px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.av2-projectZeroSend:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--av2-accent) 18%, transparent);
+}
+
+.av2-projectZeroSend:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.av2-projectZeroMatches {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 10px 10px;
+}
+
+.av2-projectZeroMatch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-top: 1px solid var(--av2-hairline);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.av2-projectZeroMatch:first-child {
+  border-top-color: transparent;
+}
+
+.av2-projectZeroMatch:hover,
+.av2-projectZeroMatch[data-selected] {
+  background: color-mix(in srgb, var(--av2-accent) 7%, transparent);
+}
+
+.av2-projectZeroMatchMain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.av2-projectZeroMatchTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--av2-ink);
+}
+
+.av2-projectZeroMatchRoot {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--av2-mono);
+  font-size: 10px;
+  color: var(--av2-dim);
+}
+
+.av2-projectZeroMatchMeta {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--av2-mono);
+  font-size: 10px;
+  color: var(--av2-dim);
+}
+
+.av2-projectZeroEmpty,
+.av2-projectZeroError,
+.av2-projectZeroStatus {
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.av2-projectZeroEmpty,
+.av2-projectZeroStatus {
+  color: var(--av2-muted);
+  background: color-mix(in srgb, var(--av2-ink) 4%, transparent);
+}
+
+.av2-projectZeroError {
+  color: color-mix(in srgb, var(--hud-status-error, #ff6b6b) 86%, var(--av2-ink));
+  background: color-mix(in srgb, var(--hud-status-error, #ff6b6b) 10%, transparent);
+}
+
+@media (max-width: 760px) {
+  .av2-projectZero {
+    padding: 24px 14px 32px;
+    place-items: start stretch;
+  }
+
+  .av2-projectZeroBar {
+    flex-wrap: wrap;
+  }
+
+  .av2-projectZeroSelect,
+  .av2-projectZeroHarness {
+    flex: 1 1 100%;
+  }
+
+  .av2-projectZeroHarness {
+    justify-content: stretch;
+  }
+
+  .av2-projectZeroHarness button {
+    flex: 1;
+  }
+
+  .av2-projectZeroInputRow,
+  .av2-projectZeroMatch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .av2-projectZeroSend {
+    width: 100%;
+  }
+
+  .av2-projectZeroMatchMeta {
+    max-width: none;
+  }
 }
 
 .s-av2-detail {

@@ -1,8 +1,12 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject } from "react";
+import { ArrowRight, FolderPlus, Search } from "lucide-react";
 
+import { api } from "../../lib/api.ts";
 import { routePath } from "../../lib/router.ts";
 import { timeAgo } from "../../lib/time.ts";
 import type { ProjectStateFilter, Route } from "../../lib/types.ts";
+import { useScout } from "../../scout/Provider.tsx";
+import { pathLeaf, type DirProject } from "../agents/model.ts";
 import "./projects.css";
 import {
   agentPrecedence,
@@ -24,11 +28,22 @@ import {
 } from "./model.ts";
 import type { ProjectSessionEntry } from "./model.ts";
 import { ProjectOverview, useProjectOverviewContext } from "./ProjectOverview.tsx";
+import { shortHomePath } from "./project-overview-helpers.ts";
 import { useProjectsData } from "./useProjectsData.ts";
 
 type Navigate = (route: Route) => void;
 
 type AgentRowEntry = ReturnType<typeof filterRegistryAgents>[number];
+type DefaultHarness = "claude" | "codex";
+
+type ProjectPickOption = {
+  slug: string;
+  title: string;
+  root: string | null;
+  agentCount: number;
+  sessionCount: number;
+  lastActivityAt: number;
+};
 
 function ProjectSessionIndexRow({
   entry,
@@ -221,6 +236,362 @@ function IndexViewToggle({
   );
 }
 
+function ProjectZeroState({
+  route,
+  navigate,
+  projects,
+  projectSessions,
+  reloadData,
+}: {
+  route: Extract<Route, { view: "agents-v2" }>;
+  navigate: Navigate;
+  projects: DirProject[];
+  projectSessions: ProjectSessionEntry[];
+  reloadData: () => Promise<void>;
+}) {
+  const { onboarding, refreshOnboarding, reload: reloadAgents } = useScout();
+  const currentDefaultHarness = defaultHarnessOf(onboarding?.defaultHarness);
+  const [draft, setDraft] = useState("");
+  const [selectedSlug, setSelectedSlug] = useState("");
+  const [harness, setHarness] = useState<DefaultHarness>(currentDefaultHarness);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [createdRoot, setCreatedRoot] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHarness(currentDefaultHarness);
+  }, [currentDefaultHarness]);
+
+  const options = useMemo(
+    () => buildProjectPickOptions(projects, projectSessions),
+    [projectSessions, projects],
+  );
+  const matches = useMemo(
+    () => filterProjectPickOptions(options, draft),
+    [draft, options],
+  );
+  const selectedOption = useMemo(
+    () => options.find((option) => option.slug === selectedSlug) ?? exactProjectOption(options, draft),
+    [draft, options, selectedSlug],
+  );
+  const trimmedDraft = draft.trim();
+  const canCreateProject = isProjectPathLike(trimmedDraft) && !exactProjectOption(options, trimmedDraft);
+  const activeOption = selectedOption ?? (!canCreateProject && trimmedDraft ? matches[0] ?? null : null);
+  const primaryLabel = activeOption ? "Open project" : canCreateProject ? "Create project" : "Find project";
+  const canSubmit = Boolean(activeOption || canCreateProject || trimmedDraft);
+
+  useEffect(() => {
+    if (!selectedSlug) return;
+    if (!options.some((option) => option.slug === selectedSlug)) setSelectedSlug("");
+  }, [options, selectedSlug]);
+
+  useEffect(() => {
+    if (!createdRoot) return;
+    const created = options.find((option) => projectOptionMatchesRoot(option, createdRoot));
+    if (!created) return;
+    setCreatedRoot(null);
+    navigate(projectRoute(route, created.slug));
+  }, [createdRoot, navigate, options, route]);
+
+  const chooseProject = (option: ProjectPickOption) => {
+    setSelectedSlug(option.slug);
+    setDraft(option.title);
+    setError(null);
+    setStatus(null);
+  };
+
+  const openProject = (option: ProjectPickOption) => {
+    navigate(projectRoute(route, option.slug));
+  };
+
+  const createProject = async (projectRoot: string) => {
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      await api("/api/onboarding/project", {
+        method: "POST",
+        body: JSON.stringify({
+          contextRoot: projectRoot,
+          sourceRoots: [projectRoot],
+          defaultHarness: harness,
+        }),
+      });
+      setCreatedRoot(projectRoot);
+      setStatus("Project created. Refreshing inventory.");
+      setSelectedSlug("");
+      setDraft("");
+      await Promise.all([refreshOnboarding(), reloadAgents(), reloadData()]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not create project.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    if (activeOption) {
+      openProject(activeOption);
+      return;
+    }
+    if (canCreateProject) {
+      void createProject(trimmedDraft);
+      return;
+    }
+    if (trimmedDraft) {
+      setError("No project matches that search. Paste a repo path to create one.");
+      return;
+    }
+    setError("Choose a project or paste a repo path.");
+  };
+
+  return (
+    <div className="av2-projectZero">
+      <div className="av2-projectZeroInner">
+        <div className="av2-projectZeroHead">
+          <span className="av2-projectZeroKicker">
+            <FolderPlus size={13} strokeWidth={1.9} aria-hidden />
+            Projects
+          </span>
+          <h2>Pick a project to start.</h2>
+          <p>Open an existing project or add a repo root.</p>
+        </div>
+
+        <form className="av2-projectZeroComposer" onSubmit={submit}>
+          <div className="av2-projectZeroBar">
+            <label className="av2-projectZeroSelect">
+              <Search size={13} strokeWidth={1.8} aria-hidden />
+              <select
+                value={selectedSlug}
+                aria-label="Choose project"
+                onChange={(event) => {
+                  const option = options.find((candidate) => candidate.slug === event.currentTarget.value);
+                  if (option) chooseProject(option);
+                  else setSelectedSlug("");
+                }}
+              >
+                <option value="">Choose project</option>
+                {options.slice(0, 80).map((option) => (
+                  <option key={option.slug} value={option.slug}>
+                    {option.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="av2-projectZeroHarness" role="group" aria-label="Default harness">
+              {(["claude", "codex"] as const).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  data-on={harness === item || undefined}
+                  onClick={() => setHarness(item)}
+                >
+                  {item === "claude" ? "Claude" : "Codex"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="av2-projectZeroInputRow">
+            <textarea
+              value={draft}
+              rows={2}
+              placeholder="Find project or paste /path/to/repo"
+              aria-label="Find or create project"
+              onChange={(event) => {
+                setDraft(event.currentTarget.value);
+                setSelectedSlug("");
+                setError(null);
+                setStatus(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <button
+              type="submit"
+              className="av2-projectZeroSend"
+              disabled={busy || !canSubmit}
+              title={primaryLabel}
+            >
+              <ArrowRight size={15} strokeWidth={2} aria-hidden />
+              <span>{busy ? "Working" : primaryLabel}</span>
+            </button>
+          </div>
+
+          {matches.length > 0 ? (
+            <div className="av2-projectZeroMatches" aria-label="Matching projects">
+              {matches.map((option) => (
+                <button
+                  key={option.slug}
+                  type="button"
+                  className="av2-projectZeroMatch"
+                  data-selected={selectedOption?.slug === option.slug || undefined}
+                  onClick={() => chooseProject(option)}
+                  onDoubleClick={() => openProject(option)}
+                >
+                  <span className="av2-projectZeroMatchMain">
+                    <span className="av2-projectZeroMatchTitle">/{option.title}</span>
+                    <span className="av2-projectZeroMatchRoot" title={option.root ?? undefined}>
+                      {option.root ? shortHomePath(option.root) : option.slug}
+                    </span>
+                  </span>
+                  <span className="av2-projectZeroMatchMeta">{projectOptionMeta(option)}</span>
+                </button>
+              ))}
+            </div>
+          ) : trimmedDraft ? (
+            <div className="av2-projectZeroEmpty">No project matches.</div>
+          ) : null}
+
+          {error ? <div className="av2-projectZeroError">{error}</div> : null}
+          {status ? <div className="av2-projectZeroStatus">{status}</div> : null}
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function defaultHarnessOf(value: string | null | undefined): DefaultHarness {
+  return value === "codex" ? "codex" : "claude";
+}
+
+function projectRoute(
+  route: Extract<Route, { view: "agents-v2" }>,
+  projectSlug: string,
+): Extract<Route, { view: "agents-v2" }> {
+  return {
+    view: "agents-v2",
+    projectSlug,
+    ...(route.showEphemeral ? { showEphemeral: true } : {}),
+    ...("machineId" in route && route.machineId ? { machineId: route.machineId } : {}),
+  };
+}
+
+function buildProjectPickOptions(
+  projects: DirProject[],
+  projectSessions: ProjectSessionEntry[],
+): ProjectPickOption[] {
+  const sessionCounts = new Map<string, number>();
+  const sessionLastAt = new Map<string, number>();
+  for (const entry of projectSessions) {
+    sessionCounts.set(entry.projectSlug, (sessionCounts.get(entry.projectSlug) ?? 0) + 1);
+    sessionLastAt.set(
+      entry.projectSlug,
+      Math.max(sessionLastAt.get(entry.projectSlug) ?? 0, projectSessionLastAt(entry)),
+    );
+  }
+
+  return projects
+    .map((project) => {
+      const slug = project.slice.slug;
+      return {
+        slug,
+        title: project.slice.title,
+        root: project.slice.root,
+        agentCount: project.agents.length,
+        sessionCount: Math.max(project.slice.nativeSessions.length, sessionCounts.get(slug) ?? 0),
+        lastActivityAt: Math.max(
+          project.lastActivityAt ?? 0,
+          project.slice.lastActivityAt ?? 0,
+          sessionLastAt.get(slug) ?? 0,
+        ),
+      };
+    })
+    .sort((left, right) =>
+      right.lastActivityAt - left.lastActivityAt
+      || right.agentCount - left.agentCount
+      || right.sessionCount - left.sessionCount
+      || left.title.localeCompare(right.title),
+    );
+}
+
+function filterProjectPickOptions(options: ProjectPickOption[], draft: string): ProjectPickOption[] {
+  const query = normalizeProjectQuery(draft);
+  if (!query) return options.slice(0, 6);
+  return options
+    .map((option) => ({ option, score: projectPickScore(option, query) }))
+    .filter((entry): entry is { option: ProjectPickOption; score: number } => entry.score !== null)
+    .sort((left, right) =>
+      left.score - right.score
+      || right.option.lastActivityAt - left.option.lastActivityAt
+      || left.option.title.localeCompare(right.option.title),
+    )
+    .slice(0, 6)
+    .map((entry) => entry.option);
+}
+
+function exactProjectOption(options: ProjectPickOption[], draft: string): ProjectPickOption | null {
+  const query = normalizeProjectQuery(draft);
+  if (!query) return null;
+  return options.find((option) => {
+    const root = normalizeProjectQuery(option.root ?? "");
+    const rootLeaf = normalizeProjectQuery(option.root ? pathLeaf(option.root) ?? "" : "");
+    return normalizeProjectQuery(option.title) === query
+      || normalizeProjectQuery(option.slug) === query
+      || root === query
+      || rootLeaf === query
+      || normalizeProjectQuery(shortHomePath(option.root) ?? "") === query;
+  }) ?? null;
+}
+
+function projectPickScore(option: ProjectPickOption, query: string): number | null {
+  const title = normalizeProjectQuery(option.title);
+  const slug = normalizeProjectQuery(option.slug);
+  const root = normalizeProjectQuery(option.root ?? "");
+  const rootLeaf = normalizeProjectQuery(option.root ? pathLeaf(option.root) ?? "" : "");
+  if (title === query || slug === query || root === query || rootLeaf === query) return 0;
+  if (title.startsWith(query) || slug.startsWith(query) || rootLeaf.startsWith(query)) return 1;
+  if (title.includes(query) || slug.includes(query) || rootLeaf.includes(query)) return 2;
+  if (root.includes(query)) return 3;
+  return null;
+}
+
+function normalizeProjectQuery(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^~(?=\/)/u, "")
+    .replace(/\s+/g, " ");
+}
+
+function isProjectPathLike(value: string): boolean {
+  const trimmed = value.trim();
+  return /^(~\/|\/|\.{1,2}\/)/u.test(trimmed) || trimmed.includes("/");
+}
+
+function projectOptionMatchesRoot(option: ProjectPickOption, value: string): boolean {
+  const query = normalizeProjectQuery(value);
+  if (!query) return false;
+  const candidates = [
+    option.root ?? "",
+    shortHomePath(option.root) ?? "",
+    option.root ? pathLeaf(option.root) ?? "" : "",
+    option.slug,
+    option.title,
+  ].map(normalizeProjectQuery);
+  return candidates.some((candidate) => candidate === query || candidate.endsWith(query));
+}
+
+function projectOptionMeta(option: ProjectPickOption): string {
+  const parts = [
+    plural(option.agentCount, "agent"),
+    plural(option.sessionCount, "session"),
+    option.lastActivityAt ? timeAgo(option.lastActivityAt) : null,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
 export function ProjectsIndex({
   route,
   navigate,
@@ -229,7 +600,7 @@ export function ProjectsIndex({
   navigate: Navigate;
 }) {
   const showEphemeral = Boolean(route.showEphemeral);
-  const { registryAgents, projectSessions, projects } = useProjectsData(showEphemeral);
+  const { registryAgents, projectSessions, projects, reloadData } = useProjectsData(showEphemeral);
   const projectContext = useProjectOverviewContext(route, registryAgents, projects, showEphemeral);
   const indexView = indexViewOf(route);
   const nowMs = Date.now();
@@ -343,6 +714,13 @@ export function ProjectsIndex({
     () => groupProjectSessionsByHarness(sessionRows),
     [sessionRows],
   );
+  const showProjectZeroState =
+    indexView === "agents"
+    && !route.projectSlug
+    && !route.harness
+    && !route.node
+    && !route.set
+    && !route.stateFilter;
 
   return (
     <div className="s-av2-index" data-project={route.projectSlug || undefined}>
@@ -526,11 +904,21 @@ export function ProjectsIndex({
         )}
 
         {rows.length === 0 ? (
-          <div className="av2-empty">
-            {indexView === "sessions"
-              ? "No sessions in this scope."
-              : "No agents in this scope."}
-          </div>
+          showProjectZeroState ? (
+            <ProjectZeroState
+              route={route}
+              navigate={navigate}
+              projects={projects}
+              projectSessions={projectSessions}
+              reloadData={reloadData}
+            />
+          ) : (
+            <div className="av2-empty">
+              {indexView === "sessions"
+                ? "No sessions in this scope."
+                : "No agents in this scope."}
+            </div>
+          )
         ) : null}
       </div>
     </div>

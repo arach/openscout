@@ -5,7 +5,6 @@ import { timeAgo } from "../../lib/time.ts";
 import "./projects.css";
 import { pathLeaf } from "../agents/model.ts";
 import {
-  displayProjectSessionPreview,
   projectSessionLastAt,
   projectSessionMeta,
 } from "./model.ts";
@@ -22,6 +21,12 @@ type ProjectRailGroup = {
   project: BrowseProject;
   sessions: ProjectSessionEntry[];
   lastActivityAt: number;
+};
+
+type SessionPreviewState = {
+  entry: ProjectSessionEntry;
+  left: number;
+  top: number;
 };
 
 function scopeRoute(
@@ -76,6 +81,7 @@ export function ProjectsBrowse({
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(() => readPinnedSessions());
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(() => new Set());
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set());
+  const [previewSession, setPreviewSession] = useState<SessionPreviewState | null>(null);
 
   const projectGroups = useMemo(
     () => buildProjectRailGroups(browseProjects, projectSessions),
@@ -124,6 +130,15 @@ export function ProjectsBrowse({
       else next.add(slug);
       return next;
     });
+  };
+
+  const showSessionPreview = (entry: ProjectSessionEntry, node: HTMLElement) => {
+    const rect = node.getBoundingClientRect();
+    const width = 300;
+    const height = 188;
+    const left = Math.min(window.innerWidth - width - 12, rect.right + 10);
+    const top = Math.max(12, Math.min(window.innerHeight - height - 12, rect.top - 22));
+    setPreviewSession({ entry, left, top });
   };
 
   const allSelected =
@@ -192,6 +207,8 @@ export function ProjectsBrowse({
             onToggleCollapsed={() => toggleCollapsed(group.project.slug)}
             onToggleExpanded={() => toggleExpanded(group.project.slug)}
             onTogglePinnedSession={togglePinnedSession}
+            onPreviewSession={showSessionPreview}
+            onClearPreview={() => setPreviewSession(null)}
           />
         ))}
         {visibleGroups.length === 0 ? (
@@ -204,6 +221,7 @@ export function ProjectsBrowse({
           Search agents & sessions →
         </button>
       </div>
+      {previewSession ? <ProjectSessionHoverCard preview={previewSession} /> : null}
     </div>
   );
 }
@@ -219,6 +237,8 @@ function ProjectRailGroup({
   onToggleCollapsed,
   onToggleExpanded,
   onTogglePinnedSession,
+  onPreviewSession,
+  onClearPreview,
 }: {
   group: ProjectRailGroup;
   selected: boolean;
@@ -230,6 +250,8 @@ function ProjectRailGroup({
   onToggleCollapsed: () => void;
   onToggleExpanded: () => void;
   onTogglePinnedSession: (sessionId: string) => void;
+  onPreviewSession: (entry: ProjectSessionEntry, node: HTMLElement) => void;
+  onClearPreview: () => void;
 }) {
   const { project, sessions } = group;
   const orderedSessions = sortSessionsForProjectRail(sessions, pinnedSessions);
@@ -277,15 +299,20 @@ function ProjectRailGroup({
               className="av2-projectSession"
               data-active={entry.session.status === "active" || undefined}
               data-pinned={pinnedSessions.has(entry.session.refId) || undefined}
+              onMouseEnter={(event) => onPreviewSession(entry, event.currentTarget)}
+              onMouseLeave={onClearPreview}
+              onFocusCapture={(event) => onPreviewSession(entry, event.currentTarget)}
+              onBlurCapture={onClearPreview}
             >
               <button
                 type="button"
                 className="av2-projectSessionMain"
-                title={projectSessionTooltip(entry)}
-                onClick={() => onOpenSession(entry)}
+                onClick={() => {
+                  onClearPreview();
+                  onOpenSession(entry);
+                }}
               >
                 <span className="av2-projectSessionTitle">{projectSessionTitle(entry)}</span>
-                <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
               </button>
               <button
                 type="button"
@@ -298,6 +325,7 @@ function ProjectRailGroup({
               >
                 <Pin size={11} strokeWidth={2} aria-hidden />
               </button>
+              <span className="av2-projectSessionWhen">{projectSessionWhen(entry)}</span>
             </div>
           ))}
         </div>
@@ -314,6 +342,45 @@ function ProjectRailGroup({
           Show less
         </button>
       ) : null}
+    </div>
+  );
+}
+
+function ProjectSessionHoverCard({
+  preview,
+}: {
+  preview: SessionPreviewState;
+}) {
+  const { entry, left, top } = preview;
+  const agent = entry.mappedAgent?.handle?.trim() || entry.mappedAgent?.name || null;
+  const workspace = entry.session.cwd ? pathLeaf(entry.session.cwd) : entry.projectTitle;
+  const transcript = entry.session.transcriptPath ? pathLeaf(entry.session.transcriptPath) : entry.session.refId;
+  const process = entry.session.process?.command?.trim() || null;
+
+  return (
+    <div
+      className="av2-sessionHoverCard"
+      role="tooltip"
+      style={{ left, top }}
+    >
+      <div className="av2-sessionHoverKicker">
+        <span>/{entry.projectTitle}</span>
+        <span>{projectSessionWhen(entry)}</span>
+      </div>
+      <div className="av2-sessionHoverTitle">{projectSessionTitle(entry)}</div>
+      <div className="av2-sessionHoverContext">
+        {sessionContextLine(entry)}
+      </div>
+      <div className="av2-sessionHoverFacts">
+        <span>{entry.harness}</span>
+        <span>{entry.session.status}</span>
+        <span>{workspace}</span>
+        {agent ? <span>@{agent.replace(/^@+/, "")}</span> : null}
+      </div>
+      <div className="av2-sessionHoverRef">
+        <span>{transcript}</span>
+        {process ? <span>{process}</span> : null}
+      </div>
     </div>
   );
 }
@@ -363,17 +430,18 @@ function projectSessionTitle(entry: ProjectSessionEntry): string {
     entry.session.transcriptPath
       ? pathLeaf(entry.session.transcriptPath)
       : entry.session.sessionId || entry.session.refId;
-  return compactSessionLabel(raw)
+  return compactSessionLabel(raw, entry)
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function compactSessionLabel(raw: string): string {
+function compactSessionLabel(raw: string, entry: ProjectSessionEntry): string {
+  const harness = sentenceCase(entry.harness);
   const stem = raw.replace(/\.jsonl$/iu, "");
   const rollout = stem.match(/^rollout-(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})/u);
-  if (rollout) return `rollout ${rollout[1]}-${rollout[2]}-${rollout[3]} ${rollout[4]}:${rollout[5]}`;
+  if (rollout) return `${harness} rollout ${rollout[4]}:${rollout[5]}`;
   const uuid = stem.match(/^([0-9a-f]{8})-[0-9a-f-]{27,}$/iu);
-  if (uuid) return `session ${uuid[1]}`;
+  if (uuid) return `${harness} session ${uuid[1]}`;
   return stem.length > 42 ? `${stem.slice(0, 39).trim()}...` : stem;
 }
 
@@ -382,11 +450,18 @@ function projectSessionWhen(entry: ProjectSessionEntry): string {
   return at ? timeAgo(at) : "—";
 }
 
-function projectSessionTooltip(entry: ProjectSessionEntry): string {
-  return [
-    entry.session.transcriptPath ?? displayProjectSessionPreview(entry),
-    projectSessionMeta(entry),
-  ].filter(Boolean).join("\n");
+function sessionContextLine(entry: ProjectSessionEntry): string {
+  const owner = entry.mappedAgent?.handle?.trim() || entry.mappedAgent?.name || null;
+  const action = entry.session.status === "active" ? "Working" : "Last touched";
+  const where = entry.session.cwd ? pathLeaf(entry.session.cwd) : entry.projectTitle;
+  const who = owner ? ` by @${owner.replace(/^@+/, "")}` : "";
+  return `${action}${who} in ${where}.`;
+}
+
+function sentenceCase(value: string): string {
+  const clean = value.trim();
+  if (!clean) return "Session";
+  return clean.charAt(0).toUpperCase() + clean.slice(1).toLowerCase();
 }
 
 function plural(count: number, noun: string): string {

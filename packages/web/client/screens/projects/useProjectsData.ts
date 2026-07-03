@@ -132,6 +132,7 @@ export function useProjectsData(showEphemeral: boolean) {
     browseHarnesses,
     browseNodes,
     browseSets,
+    reloadData: load,
   };
 }
 
