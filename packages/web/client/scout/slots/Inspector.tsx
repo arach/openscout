@@ -74,39 +74,44 @@ export function ScoutInspector() {
   );
 
   let content: ReactNode = null;
+  const scoutbotAsInspector = scoutbotEnabled && route.view === "ops" && route.mode === "lanes";
 
-  switch (route.view) {
-    case "channels":
-      content = (
-        <ChatChannelsRight
-          channelId={route.channelId}
-          agents={agents}
-          navigate={navigate}
-          returnRoute={route}
-        />
-      );
-      break;
-    case "ops":
-      content = (
-        <OpsRight
-          mode={route.mode ?? "mission"}
-          agents={agents}
-          navigate={navigate}
-          returnRoute={route}
-        />
-      );
-      break;
-    case "broker":
-      content = (
-        <BrokerRight
-          selectedAttempt={selectedBrokerAttempt}
-          navigate={navigate}
-          onClose={clearBrokerAttempt}
-        />
-      );
-      break;
-    default:
-      content = resolveRightPane(route, navigate);
+  if (scoutbotAsInspector) {
+    content = <ScoutbotPanel forceExpanded fill />;
+  } else {
+    switch (route.view) {
+      case "channels":
+        content = (
+          <ChatChannelsRight
+            channelId={route.channelId}
+            agents={agents}
+            navigate={navigate}
+            returnRoute={route}
+          />
+        );
+        break;
+      case "ops":
+        content = (
+          <OpsRight
+            mode={route.mode ?? "mission"}
+            agents={agents}
+            navigate={navigate}
+            returnRoute={route}
+          />
+        );
+        break;
+      case "broker":
+        content = (
+          <BrokerRight
+            selectedAttempt={selectedBrokerAttempt}
+            navigate={navigate}
+            onClose={clearBrokerAttempt}
+          />
+        );
+        break;
+      default:
+        content = resolveRightPane(route, navigate);
+    }
   }
 
   const clampedScoutbotHeight = inspectorHeight > 0
@@ -118,8 +123,8 @@ export function ScoutInspector() {
       <div className="min-h-0 flex-1 overflow-hidden">
         {content}
       </div>
-      {scoutbotEnabled && !scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
-      {scoutbotEnabled && <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />}
+      {scoutbotEnabled && !scoutbotAsInspector && !scoutbotCollapsed && <VerticalResizeHandle onResizeStart={handleResizeStart} />}
+      {scoutbotEnabled && !scoutbotAsInspector && <ScoutbotPanel height={scoutbotCollapsed ? undefined : clampedScoutbotHeight} />}
     </div>
   );
 }

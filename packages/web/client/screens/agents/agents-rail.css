@@ -138,6 +138,12 @@
   box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.6);
 }
 
+.s-newchat-panel--starting {
+  box-shadow:
+    0 24px 60px -28px rgba(0, 0, 0, 0.6),
+    0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
 .s-newchat-head {
   display: flex;
   align-items: center;
@@ -163,6 +169,11 @@
 
 .s-newchat-close:hover {
   color: var(--ink);
+}
+
+.s-newchat-close:disabled {
+  cursor: default;
+  opacity: 0.35;
 }
 
 .s-newchat-body {
@@ -197,6 +208,12 @@
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--text-sm);
+}
+
+.s-newchat-select:disabled,
+.s-newchat-well:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .s-newchat-target {
@@ -243,6 +260,57 @@
   color: var(--red);
 }
 
+.s-newchat-progress {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--ink);
+}
+
+.s-newchat-progress-spinner,
+.s-newchat-start-spinner {
+  flex: 0 0 auto;
+  animation: s-spin 0.9s linear infinite;
+}
+
+.s-newchat-progress-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-2xs);
+}
+
+.s-newchat-progress-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-lg);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.s-newchat-progress-detail,
+.s-newchat-progress-message {
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+}
+
+.s-newchat-progress-detail {
+  color: var(--muted);
+}
+
+.s-newchat-progress-message {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .s-newchat-foot {
   display: flex;
   align-items: center;
@@ -256,6 +324,10 @@
 }
 
 .s-newchat-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2xs);
   margin-left: auto;
   padding: var(--space-xs) var(--space-lg);
   border: none;
@@ -271,6 +343,12 @@
 .s-newchat-start:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+@keyframes s-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* ── project navigator (the left lane) ────────────────────────────────── */

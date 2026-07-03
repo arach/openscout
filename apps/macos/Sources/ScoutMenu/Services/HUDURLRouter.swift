@@ -10,12 +10,12 @@ import ScoutAppCore
 ///   scout://hud/show          — present the panel
 ///   scout://hud/hide          — dismiss
 ///   scout://hud/toggle        — flip current state
-///   scout://hud/tail[/size]   — compatibility alias for Tail mode
-///   scout://hud/tab/<name>    — agents | activity | sessions | assistant
+///   scout://hud/tail[/size]   — select the embedded HUD Tail tab
+///   scout://hud/tab/<name>    — agents | activity | tail | sessions | assistant
 ///   scout://hud/size/<name>   — compact | medium | large  (also accepts s | m | l)
 ///
 /// Supported paths (host = `tail`):
-///   scout://tail/show[/size]  — present Tail mode
+///   scout://tail/show[/size]  — present standalone Tail mode
 ///   scout://tail/hide         — dismiss Tail mode
 ///   scout://tail/toggle       — flip Tail mode
 ///   scout://tail/attach       — attach Tail mode to the nearest screen edge

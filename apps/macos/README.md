@@ -120,6 +120,13 @@ The release artifacts are:
 - `apps/macos/dist/OpenScout-<version>.dmg`
 - `apps/macos/dist/OpenScout.dmg`
 
+The build script mounts and verifies the DMG before it returns. You can rerun
+the same structural and signing checks against an existing artifact with:
+
+```bash
+npm run macos:verify-dmg -- apps/macos/dist/OpenScout.dmg
+```
+
 Build, notarize, and attach the DMG to an existing GitHub tag with:
 
 ```bash

@@ -111,10 +111,13 @@ struct ScoutPendingConversation: Identifiable, Equatable {
     let conversationId: String?
     let sessionId: String?
     let flightId: String?
+    let messageId: String?
     let title: String
     let subtitle: String
     let draft: ScoutSessionDraft
     var state: State
+    var flightState: String?
+    var flightSummary: String?
 
     var selectionReferences: [String] {
         [conversationId, sessionId, flightId, id].compactMap { $0?.nilIfEmpty }
@@ -128,20 +131,49 @@ struct ScoutPendingConversation: Identifiable, Equatable {
 
 struct ScoutPendingFlightStatus: Decodable, Sendable {
     let id: String
+    let invocationId: String?
+    let agentId: String?
+    let agentName: String?
+    let conversationId: String?
     let state: String
     let summary: String?
+    let startedAt: TimeInterval?
+    let completedAt: TimeInterval?
     let removePendingRow: Bool
 
     enum CodingKeys: String, CodingKey {
         case id
+        case invocationId
+        case agentId
+        case agentName
+        case conversationId
         case state
         case summary
+        case startedAt
+        case completedAt
     }
 
-    init(id: String, state: String, summary: String?, removePendingRow: Bool = false) {
+    init(
+        id: String,
+        invocationId: String? = nil,
+        agentId: String? = nil,
+        agentName: String? = nil,
+        conversationId: String? = nil,
+        state: String,
+        summary: String?,
+        startedAt: TimeInterval? = nil,
+        completedAt: TimeInterval? = nil,
+        removePendingRow: Bool = false
+    ) {
         self.id = id
+        self.invocationId = invocationId
+        self.agentId = agentId
+        self.agentName = agentName
+        self.conversationId = conversationId
         self.state = state
         self.summary = summary
+        self.startedAt = ScoutTimestamp.epochMilliseconds(startedAt)
+        self.completedAt = ScoutTimestamp.epochMilliseconds(completedAt)
         self.removePendingRow = removePendingRow
     }
 
@@ -149,8 +181,14 @@ struct ScoutPendingFlightStatus: Decodable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             id: try c.decode(String.self, forKey: .id),
+            invocationId: try c.decodeIfPresent(String.self, forKey: .invocationId),
+            agentId: try c.decodeIfPresent(String.self, forKey: .agentId),
+            agentName: try c.decodeIfPresent(String.self, forKey: .agentName),
+            conversationId: try c.decodeIfPresent(String.self, forKey: .conversationId),
             state: try c.decode(String.self, forKey: .state),
-            summary: try c.decodeIfPresent(String.self, forKey: .summary)
+            summary: try c.decodeIfPresent(String.self, forKey: .summary),
+            startedAt: try c.decodeIfPresent(TimeInterval.self, forKey: .startedAt),
+            completedAt: try c.decodeIfPresent(TimeInterval.self, forKey: .completedAt)
         )
     }
 
@@ -165,7 +203,7 @@ struct ScoutPendingFlightStatus: Decodable, Sendable {
 
     var isTerminal: Bool {
         switch state.lowercased() {
-        case "completed", "failed", "cancelled":
+        case "completed", "failed", "cancelled", "expired":
             return true
         default:
             return false
@@ -770,7 +808,8 @@ struct ScoutPendingConversationRow: View {
 
     private var statusLabel: String {
         switch pending.state {
-        case .starting: return "Starting"
+        case .starting:
+            return pending.flightState.flatMap(Self.progressLabel) ?? "Starting"
         case .failed: return "Failed"
         }
     }
@@ -785,9 +824,22 @@ struct ScoutPendingConversationRow: View {
     private var detailText: String {
         switch pending.state {
         case .starting:
-            return pending.subtitle
+            return pending.flightSummary?.nilIfEmpty ?? pending.subtitle
         case .failed(let message):
             return message
+        }
+    }
+
+    private static func progressLabel(_ state: String) -> String {
+        switch state.lowercased() {
+        case "queued": return "Queued"
+        case "waking": return "Starting"
+        case "running": return "Working"
+        case "waiting": return "Waiting"
+        default:
+            let first = state.prefix(1).uppercased()
+            let rest = state.dropFirst()
+            return "\(first)\(rest)"
         }
     }
 
@@ -1167,6 +1219,9 @@ struct ScoutMessageRow: View {
     var readReceipts: [ScoutReadReceipt] = []
     /// Workspace root for resolving relative file paths this message quotes.
     let baseDirectory: String?
+    /// The latest saved message is always shown in full so the operator can read
+    /// a fresh reply without an extra click.
+    let isLatestMessage: Bool
     let previewAgent: (ScoutAgent) -> Void
     let onNewFromMessage: () -> Void
 
@@ -1242,7 +1297,7 @@ struct ScoutMessageRow: View {
     /// dissolves into the bubble fill, not the canvas, so the clip reads clean.
     @ViewBuilder
     private var messageBody: some View {
-        if isLongTurn {
+        if isLongTurn && !isLatestMessage {
             VStack(alignment: .leading, spacing: ScoutCommsMetrics.turnHeadBodyGap) {
                 bubble {
                     messageContent

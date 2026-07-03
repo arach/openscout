@@ -108,6 +108,7 @@ export default defineConfig({
       "hudsonkit/flags": hudsonKitAlias("flags/index.ts", "hudsonkit/flags"),
       "@hudsonkit/styles": hudsonKitAlias("styles/bundle.css", "hudsonkit/styles"),
       "@hudsonkit": hudsonKitAlias("index.ts", "hudsonkit"),
+      "@openscout/agent-sessions/client": resolve(__dirname, "../agent-sessions/src/client.ts"),
       "@xterm/addon-fit": resolveHudsonKitModule("@xterm/addon-fit"),
       "@xterm/addon-webgl": resolveHudsonKitModule("@xterm/addon-webgl"),
       "@xterm/xterm/css/xterm.css": resolveHudsonKitModule("@xterm/xterm/css/xterm.css"),

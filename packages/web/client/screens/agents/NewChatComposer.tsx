@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useFocusTrap } from "../../lib/keyboard-nav.ts";
 import {
   isRoutableMediaFile,
@@ -15,6 +16,7 @@ import type { Agent, Route } from "../../lib/types.ts";
 import "./agents-rail.css";
 
 type Navigate = (route: Route) => void;
+type SubmitPhase = "idle" | "uploading" | "starting";
 
 function previewUrl(file: File): string {
   return URL.createObjectURL(file);
@@ -97,6 +99,7 @@ export function NewChatComposer({
     return "new-session";
   });
   const [state, setState] = useState<"idle" | "starting">("idle");
+  const [phase, setPhase] = useState<SubmitPhase>("idle");
   const [error, setError] = useState<string | null>(null);
   const { ref, onKeyDown } = useFocusTrap<HTMLDivElement>(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -104,19 +107,31 @@ export function NewChatComposer({
 
   const agent = sorted.find((candidate) => candidate.id === agentId) ?? null;
   const hasAttachments = files.length > 0;
+  const isStarting = state === "starting";
   const canUseExistingChat = Boolean(agent?.conversationId || initialConversationId || routeContext.conversationId);
-  const title = hasAttachments ? "Route capture" : "New session";
+  const title = hasAttachments ? "Route capture" : "New chat";
+  const phaseLabel = phase === "uploading"
+    ? "Uploading capture"
+    : hasAttachments
+      ? "Routing capture"
+      : "Starting chat";
+  const committedMessage = message.trim();
+
+  const requestClose = useCallback(() => {
+    if (isStarting) return;
+    onClose();
+  }, [isStarting, onClose]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        requestClose();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [requestClose]);
 
   useEffect(() => {
     textRef.current?.focus();
@@ -129,23 +144,24 @@ export function NewChatComposer({
   };
 
   const start = async () => {
-    if (!agent || state === "starting") return;
+    if (!agent || isStarting) return;
     setState("starting");
+    setPhase(files.length > 0 ? "uploading" : "starting");
     setError(null);
     try {
       let attachments: OutgoingAttachment[] = [];
       if (files.length > 0) {
         attachments = await uploadMediaFiles(files);
+        setPhase("starting");
       }
 
-      const trimmed = message.trim();
       if (hasAttachments) {
         const resolvedMode = mode === "existing-chat" && canUseExistingChat
           ? "existing-chat"
           : "new-session";
         const result = await routeCaptureToAgent(agent, {
           mode: resolvedMode,
-          message: trimmed,
+          message: committedMessage,
           attachments,
         });
         navigate({
@@ -158,7 +174,7 @@ export function NewChatComposer({
         return;
       }
 
-      const result = await startAgentSession(agent, trimmed ? { instructions: trimmed } : undefined);
+      const result = await startAgentSession(agent, committedMessage ? { instructions: committedMessage } : undefined);
       const conversationId = result.conversationId?.trim();
       if (!conversationId) {
         throw new Error("Session started, but no conversation was returned.");
@@ -173,14 +189,15 @@ export function NewChatComposer({
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not start session.");
       setState("idle");
+      setPhase("idle");
     }
   };
 
   return (
-    <div className="s-newchat-backdrop" onClick={onClose} role="presentation">
+    <div className="s-newchat-backdrop" onClick={requestClose} role="presentation">
       <div
         ref={ref}
-        className="s-newchat-panel"
+        className={`s-newchat-panel${isStarting ? " s-newchat-panel--starting" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
@@ -193,7 +210,8 @@ export function NewChatComposer({
           <button
             type="button"
             className="s-newchat-close"
-            onClick={onClose}
+            onClick={requestClose}
+            disabled={isStarting}
             aria-label="Close (Esc)"
           >
             ✕
@@ -206,6 +224,7 @@ export function NewChatComposer({
             <select
               className="s-newchat-select"
               value={agentId}
+              disabled={isStarting}
               onChange={(event) => setAgentId(event.target.value)}
             >
               {sorted.length === 0 ? (
@@ -234,6 +253,7 @@ export function NewChatComposer({
               <button
                 type="button"
                 className={`s-newchat-mode-btn${mode === "existing-chat" ? " s-newchat-mode-btn--on" : ""}`}
+                disabled={isStarting}
                 onClick={() => setMode("existing-chat")}
               >
                 Existing chat
@@ -241,9 +261,10 @@ export function NewChatComposer({
               <button
                 type="button"
                 className={`s-newchat-mode-btn${mode === "new-session" ? " s-newchat-mode-btn--on" : ""}`}
+                disabled={isStarting}
                 onClick={() => setMode("new-session")}
               >
-                New session
+                New chat
               </button>
             </div>
           ) : null}
@@ -266,6 +287,7 @@ export function NewChatComposer({
             accept="image/*,video/*"
             multiple
             hidden
+            disabled={isStarting}
             onChange={(event) => {
               addFiles([...(event.target.files ?? [])]);
               event.target.value = "";
@@ -274,6 +296,7 @@ export function NewChatComposer({
           <button
             type="button"
             className="s-newchat-attach-btn"
+            disabled={isStarting}
             onClick={() => fileInputRef.current?.click()}
           >
             Attach image or video
@@ -284,6 +307,7 @@ export function NewChatComposer({
             className="s-newchat-well"
             placeholder={hasAttachments ? "What should the agent do with this?" : "First message…"}
             value={message}
+            disabled={isStarting}
             onChange={(event) => setMessage(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
@@ -294,22 +318,39 @@ export function NewChatComposer({
           />
 
           {error && <div className="s-newchat-error">{error}</div>}
+          {isStarting && (
+            <div className="s-newchat-progress" role="status" aria-live="polite">
+              <Loader2 size={14} className="s-newchat-progress-spinner" aria-hidden="true" />
+              <div className="s-newchat-progress-copy">
+                <span className="s-newchat-progress-title">{phaseLabel}</span>
+                <span className="s-newchat-progress-detail">Submitted. Opening the chat when the broker returns it.</span>
+                {committedMessage && (
+                  <span className="s-newchat-progress-message">{committedMessage}</span>
+                )}
+              </div>
+            </div>
+          )}
 
           <div className="s-newchat-foot">
             <span className="s-newchat-hint">
-              {hasAttachments ? "⌘↵ to route" : "⌘↵ to start"} · paste or drop captures anywhere
+              {hasAttachments ? "⌘↵ to route" : "⌘↵ to start chat"} · paste or drop captures anywhere
             </span>
             <button
               type="button"
               className="s-newchat-start"
-              disabled={!agent || state === "starting"}
+              disabled={!agent || isStarting}
               onClick={() => void start()}
             >
-              {state === "starting"
-                ? "Sending…"
-                : hasAttachments
-                  ? "Route"
-                  : "Start"}
+              {isStarting ? (
+                <>
+                  <Loader2 size={14} className="s-newchat-start-spinner" aria-hidden="true" />
+                  {phase === "uploading" ? "Uploading..." : "Starting..."}
+                </>
+              ) : hasAttachments ? (
+                "Route"
+              ) : (
+                "Start chat"
+              )}
             </button>
           </div>
         </div>

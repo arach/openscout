@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             modifiers: CarbonModifier.hyper
         ) {
             Task { @MainActor in
-                OpenScoutAppController.shared.openComms()
+                ScoutAppBridge.openScout()
             }
         }
 
@@ -147,12 +147,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func buildContextMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let commsItem = NSMenuItem(title: "Open Scout", action: #selector(openComms), keyEquivalent: "c")
+        let commsItem = NSMenuItem(title: "Open Scout App", action: #selector(openComms), keyEquivalent: "c")
         commsItem.target = self
         commsItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(commsItem)
 
-        let openItem = NSMenuItem(title: "Open OpenScout", action: #selector(openWebApp), keyEquivalent: "")
+        let openItem = NSMenuItem(title: "Open Web App", action: #selector(openWebApp), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
 
@@ -170,7 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         menu.addItem(.separator())
 
-        let hudItem = NSMenuItem(title: "Show HUD", action: #selector(toggleHUD), keyEquivalent: "h")
+        let hudItem = NSMenuItem(title: "Toggle HUD Overlay", action: #selector(toggleHUD), keyEquivalent: "h")
         hudItem.target = self
         hudItem.keyEquivalentModifierMask = [.command, .control, .option, .shift]
         menu.addItem(hudItem)
@@ -202,6 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
         button.toolTip = tooltip
+        button.setAccessibilityLabel("OpenScout menu")
+        button.setAccessibilityHelp("Click to choose Scout, HUD, or Tail. Right-click for quick actions.")
     }
 
     private func menuBarImage(fallbackSymbolName _: String) -> NSImage? {
@@ -261,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     @objc
     private func openComms() {
-        controller.openComms()
+        ScoutAppBridge.openScout()
     }
 
     @objc
