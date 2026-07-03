@@ -297,6 +297,184 @@
   background: color-mix(in srgb, var(--av2-accent) 14%, transparent);
 }
 
+.av2-projectGroup {
+  margin: 12px 0 18px;
+}
+
+.av2-projectGroup[data-selected] {
+  padding: 3px;
+  margin-inline: -3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--hud-ink) 4%, transparent);
+}
+
+.av2-projectGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.av2-projectPath {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--av2-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.av2-projectPath:hover {
+  background: color-mix(in srgb, var(--scout-chrome-hover) 70%, transparent);
+  color: var(--av2-ink);
+}
+
+.av2-projectGroup[data-selected] .av2-projectPath {
+  color: var(--av2-ink);
+}
+
+.av2-projectPathText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.av2-projectPathMeta {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  color: var(--av2-dim);
+}
+
+.av2-projectPin {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--av2-dim) 76%, transparent);
+  cursor: pointer;
+}
+
+.av2-projectPin:hover,
+.av2-projectPin[data-pinned] {
+  background: color-mix(in srgb, var(--av2-accent) 10%, transparent);
+  color: var(--av2-accent);
+}
+
+.av2-projectPin[data-pinned] svg {
+  fill: currentColor;
+}
+
+.av2-projectSessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+}
+
+.av2-projectSession {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 5px 8px 5px 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--av2-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.av2-projectSession:hover {
+  background: color-mix(in srgb, var(--scout-chrome-hover) 64%, transparent);
+  color: var(--av2-ink);
+}
+
+.av2-projectSession[data-active] .av2-projectSessionTitle::before {
+  background: var(--av2-accent);
+}
+
+.av2-projectSessionTitle {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.av2-projectSessionTitle::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 0.58em;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--av2-dim) 48%, transparent);
+}
+
+.av2-projectSessionWhen {
+  grid-column: 2;
+  grid-row: 1;
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  color: var(--av2-dim);
+}
+
+.av2-projectSessionMeta {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--av2-mono);
+  font-size: 9px;
+  color: var(--av2-dim);
+}
+
+.av2-projectSessionEmpty {
+  padding: 5px 8px 5px 28px;
+  font-size: 11px;
+  color: var(--av2-dim);
+}
+
+.av2-projectShowMore {
+  display: block;
+  width: calc(100% - 28px);
+  margin: 4px 0 0 28px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--av2-dim);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.av2-projectShowMore:hover {
+  color: var(--av2-muted);
+}
+
 .av2-browseFoot {
   margin-top: auto;
   padding: 10px 10px 0;

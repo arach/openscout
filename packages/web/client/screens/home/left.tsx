@@ -17,7 +17,6 @@ import { RailRow } from "../../scout/slots/RailRow.tsx";
 import type {
   Agent,
   FleetActivity,
-  FleetAttentionItem,
   FleetState,
   Route,
 } from "../../lib/types.ts";
@@ -31,7 +30,6 @@ const FLEET_REFRESH_EVENTS = new Set([
 
 const RECENT_AGENTS_LIMIT = 4;
 const RECENT_ACTIVITY_LIMIT = 4;
-const NEEDS_ATTENTION_LIMIT = 3;
 
 type HomeLeftProps = {
   prepend?: ReactNode;
@@ -74,10 +72,6 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
     () => (scopedFleet?.activity ?? []).slice(0, RECENT_ACTIVITY_LIMIT),
     [scopedFleet],
   );
-  const needsAttention = useMemo(
-    () => (scopedFleet?.needsAttention ?? []).slice(0, NEEDS_ATTENTION_LIMIT),
-    [scopedFleet],
-  );
 
   return (
     <div className="ctx-panel base-rail">
@@ -95,17 +89,6 @@ export function HomeLeft({ prepend }: HomeLeftProps) {
         items={recentActivity}
         onSelect={(item) => navigate(routeForActivity(item))}
         onSeeAll={() => navigate({ view: "activity" })}
-      />
-
-      <NeedsAttentionSection
-        items={needsAttention}
-        onSelect={(item) =>
-          navigate(
-            item.conversationId
-              ? { view: "conversation", conversationId: item.conversationId }
-              : { view: "ops", mode: "mission" },
-          )
-        }
       />
     </div>
   );
@@ -186,41 +169,6 @@ function RecentActivitySection({
               meta={item.ts ? timeAgo(item.ts) : undefined}
               tone="neutral"
               title={`${label} · ${activityKindLabel(item.kind)}`}
-              onClick={() => onSelect(item)}
-            />
-          );
-        })
-      )}
-    </section>
-  );
-}
-
-function NeedsAttentionSection({
-  items,
-  onSelect,
-}: {
-  items: FleetAttentionItem[];
-  onSelect: (item: FleetAttentionItem) => void;
-}) {
-  return (
-    <section className="ctx-panel-section base-rail-section">
-      <SectionLabel
-        title="Operator cues"
-        meta={items.length > 0 ? `${items.length}` : undefined}
-      />
-      {items.length === 0 ? (
-        <div className="ctx-panel-empty">Quiet</div>
-      ) : (
-        items.map((item) => {
-          const label = item.agentName ?? item.agentId ?? "operator";
-          return (
-            <RailRow
-              key={item.recordId}
-              name={item.title}
-              meta={timeAgo(item.updatedAt)}
-              tone="in_turn"
-              unread
-              title={`${label} · ${item.kind}`}
               onClick={() => onSelect(item)}
             />
           );
