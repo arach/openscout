@@ -1,6 +1,8 @@
 #[cfg(not(unix))]
 compile_error!("scoutd first slice requires a Unix-like platform.");
 
+mod probes;
+
 use std::collections::HashSet;
 use std::env;
 use std::fs::{self, OpenOptions};
@@ -51,6 +53,7 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_NODE_QUALIFIER",
     "OPENSCOUT_TAILSCALE_BIN",
     "OPENSCOUT_TAILSCALE_STATUS_JSON",
+    "OPENSCOUT_GIT_BIN",
     "OPENSCOUT_SSE_KEEPALIVE_MS",
     "OPENSCOUT_WEB_EDGE_SCHEME",
     "OPENSCOUT_WEB_PUBLIC_ORIGIN",
@@ -73,6 +76,8 @@ const OPTIONAL_LAUNCH_ENV_KEYS: &[&str] = &[
     "OPENSCOUT_REPO_WATCH_CACHE_TTL_MS",
     "OPENSCOUT_REPO_WATCH_REHYDRATE_AFTER_MS",
     "OPENSCOUT_REPO_SERVICE_BIN",
+    "OPENSCOUT_HOME",
+    "OPENSCOUT_PROBES_SOCKET",
 ];
 
 unsafe extern "C" {
@@ -113,12 +118,18 @@ fn run() -> Result<(), String> {
     let json = args.iter().any(|arg| arg == "--json");
     let fix = args.iter().any(|arg| arg == "--fix");
     let yes = args.iter().any(|arg| arg == "--yes");
-    let command = args
+    let command_args: Vec<&str> = args
         .iter()
-        .find(|arg| !arg.starts_with("--"))
+        .filter(|arg| !arg.starts_with("--"))
         .map(String::as_str)
-        .unwrap_or("status");
+        .collect();
+    let command = command_args.first().copied().unwrap_or("status");
     let config = Config::resolve()?;
+
+    if command_args.as_slice() == ["probes", "serve"] {
+        let options = probes::ProbeServerOptions::from_env(config.probes_socket_path.clone());
+        return probes::serve(options);
+    }
 
     match command {
         "status" => {
@@ -170,10 +181,14 @@ struct Config {
     service_target: String,
     launch_agent_path: PathBuf,
     support_directory: PathBuf,
+    open_scout_home: PathBuf,
     runtime_directory: PathBuf,
     logs_directory: PathBuf,
+    probe_logs_directory: PathBuf,
     stdout_log_path: PathBuf,
     stderr_log_path: PathBuf,
+    probe_stdout_log_path: PathBuf,
+    probe_stderr_log_path: PathBuf,
     control_home: PathBuf,
     runtime_package_dir: PathBuf,
     daemon_executable: PathBuf,
@@ -184,6 +199,7 @@ struct Config {
     broker_port: u16,
     broker_url: String,
     broker_socket_path: PathBuf,
+    probes_socket_path: PathBuf,
     repo_watch_interval: Option<Duration>,
 }
 
@@ -214,8 +230,12 @@ impl Config {
                 .map(PathBuf::from),
             default_support_directory,
         );
+        let open_scout_home = env_nonempty("OPENSCOUT_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".openscout"));
         let runtime_directory = support_directory.join("runtime");
         let logs_directory = support_directory.join("logs/broker");
+        let probe_logs_directory = support_directory.join("logs/probes");
         let control_home = non_tmp_path_or_default(
             env_nonempty("OPENSCOUT_CONTROL_HOME").map(PathBuf::from),
             home.join(".openscout/control-plane"),
@@ -266,6 +286,13 @@ impl Config {
                     .to_string()
             }),
         );
+        let probes_socket_path =
+            PathBuf::from(env_nonempty("OPENSCOUT_PROBES_SOCKET").unwrap_or_else(|| {
+                open_scout_home
+                    .join("run/scoutd-probes.sock")
+                    .to_string_lossy()
+                    .to_string()
+            }));
         let daemon_state_path = runtime_directory.join("scoutd-state.json");
         let host_info_path = support_directory.join(".host-info");
         let repo_watch_interval = repo_watch_interval_from_env();
@@ -277,10 +304,14 @@ impl Config {
             service_target: format!("gui/{uid}/{label}"),
             launch_agent_path: home.join(format!("Library/LaunchAgents/{label}.plist")),
             support_directory,
+            open_scout_home,
             runtime_directory,
             logs_directory: logs_directory.clone(),
+            probe_logs_directory: probe_logs_directory.clone(),
             stdout_log_path: logs_directory.join("stdout.log"),
             stderr_log_path: logs_directory.join("stderr.log"),
+            probe_stdout_log_path: probe_logs_directory.join("stdout.log"),
+            probe_stderr_log_path: probe_logs_directory.join("stderr.log"),
             control_home,
             runtime_package_dir,
             daemon_executable,
@@ -291,6 +322,7 @@ impl Config {
             broker_port,
             broker_url,
             broker_socket_path,
+            probes_socket_path,
             repo_watch_interval,
         })
     }
@@ -326,6 +358,7 @@ struct ServiceStatus {
     effective_broker_url: Option<String>,
     effective_web_url: Option<String>,
     daemon_state: Option<String>,
+    probes: probes::ProbeServerStatus,
 }
 
 #[derive(Clone, Debug)]
@@ -344,6 +377,12 @@ struct DaemonStateTelemetry {
     last_child_exit_description: Option<String>,
     last_child_exit_code: Option<i32>,
     last_child_exit_signal: Option<i32>,
+    probe_state: Option<String>,
+    probe_restart_count: Option<u32>,
+    probe_restart_backoff_ms: Option<u64>,
+    last_probe_child_exit_description: Option<String>,
+    last_probe_child_exit_code: Option<i32>,
+    last_probe_child_exit_signal: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -435,6 +474,31 @@ fn supervise_service(config: &Config) -> Result<(), String> {
     let mut restart_delay = RESTART_MIN_DELAY;
     let mut last_child_exit: Option<ChildExitTelemetry> = None;
     let mut child = spawn_base_process(config)?;
+
+    let mut probe_restart_count = 0_u32;
+    let mut probe_restart_delay = RESTART_MIN_DELAY;
+    let mut last_probe_exit: Option<ChildExitTelemetry> = None;
+    let mut probe_state: String;
+    let mut next_probe_restart_at: Option<Instant> = None;
+    let mut probe_child = match spawn_probe_process(config) {
+        Ok(child) => {
+            eprintln!(
+                "[scoutd] probe server started: pid {} socket {}",
+                child.id(),
+                config.probes_socket_path.display()
+            );
+            probe_state = "running".to_string();
+            Some(child)
+        }
+        Err(error) => {
+            eprintln!("[scoutd] probe server failed to start: {error}");
+            probe_state = "failed".to_string();
+            next_probe_restart_at = Some(Instant::now() + probe_restart_delay);
+            probe_restart_delay = doubled_delay(probe_restart_delay);
+            None
+        }
+    };
+
     let _repo_watch_warmer = start_repo_watch_warmer(config.clone());
     write_daemon_state(
         config,
@@ -444,10 +508,67 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         restart_count,
         Some(restart_delay),
         last_child_exit.as_ref(),
+        probe_child.as_ref().map(Child::id),
+        &probe_state,
+        probe_restart_count,
+        Some(probe_restart_delay),
+        last_probe_exit.as_ref(),
     )?;
     let mut next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
 
     while !SHUTDOWN_REQUESTED.load(Ordering::SeqCst) {
+        if let Some(probe) = probe_child.as_mut() {
+            if let Some(status) = probe.try_wait().map_err(|error| error.to_string())? {
+                last_probe_exit = Some(child_exit_telemetry(&status));
+                eprintln!("[scoutd] probe server exited: {status}");
+                probe_child = None;
+                probe_state = "exited".to_string();
+                probe_restart_count = probe_restart_count.saturating_add(1);
+                next_probe_restart_at = Some(Instant::now() + probe_restart_delay);
+                write_daemon_state(
+                    config,
+                    started_at_ms,
+                    Some(child.id()),
+                    "running",
+                    restart_count,
+                    Some(restart_delay),
+                    last_child_exit.as_ref(),
+                    None,
+                    &probe_state,
+                    probe_restart_count,
+                    Some(probe_restart_delay),
+                    last_probe_exit.as_ref(),
+                )?;
+                probe_restart_delay = doubled_delay(probe_restart_delay);
+            }
+        }
+        if probe_child.is_none() {
+            if let Some(deadline) = next_probe_restart_at {
+                if Instant::now() >= deadline {
+                    match spawn_probe_process(config) {
+                        Ok(child) => {
+                            eprintln!(
+                                "[scoutd] probe server restarted: pid {} socket {}",
+                                child.id(),
+                                config.probes_socket_path.display()
+                            );
+                            probe_state = "running".to_string();
+                            probe_child = Some(child);
+                            next_probe_restart_at = None;
+                        }
+                        Err(error) => {
+                            eprintln!("[scoutd] probe server restart failed: {error}");
+                            probe_state = "failed".to_string();
+                            probe_restart_count = probe_restart_count.saturating_add(1);
+                            next_probe_restart_at = Some(Instant::now() + probe_restart_delay);
+                            probe_restart_delay = doubled_delay(probe_restart_delay);
+                        }
+                    }
+                    next_state_write = Instant::now();
+                }
+            }
+        }
+
         match child.try_wait().map_err(|error| error.to_string())? {
             Some(status) => {
                 last_child_exit = Some(child_exit_telemetry(&status));
@@ -459,6 +580,11 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                     restart_count,
                     Some(restart_delay),
                     last_child_exit.as_ref(),
+                    probe_child.as_ref().map(Child::id),
+                    &probe_state,
+                    probe_restart_count,
+                    Some(probe_restart_delay),
+                    last_probe_exit.as_ref(),
                 )?;
                 eprintln!("[scoutd] Bun base exited: {status}");
                 restart_count = restart_count.saturating_add(1);
@@ -476,6 +602,11 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                     restart_count,
                     Some(restart_delay),
                     last_child_exit.as_ref(),
+                    probe_child.as_ref().map(Child::id),
+                    &probe_state,
+                    probe_restart_count,
+                    Some(probe_restart_delay),
+                    last_probe_exit.as_ref(),
                 )?;
                 next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
             }
@@ -489,6 +620,11 @@ fn supervise_service(config: &Config) -> Result<(), String> {
                         restart_count,
                         Some(restart_delay),
                         last_child_exit.as_ref(),
+                        probe_child.as_ref().map(Child::id),
+                        &probe_state,
+                        probe_restart_count,
+                        Some(probe_restart_delay),
+                        last_probe_exit.as_ref(),
                     )?;
                     next_state_write = Instant::now() + STATE_WRITE_INTERVAL;
                 }
@@ -505,7 +641,15 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         restart_count,
         Some(restart_delay),
         last_child_exit.as_ref(),
+        probe_child.as_ref().map(Child::id),
+        "stopping",
+        probe_restart_count,
+        Some(probe_restart_delay),
+        last_probe_exit.as_ref(),
     )?;
+    if let Some(mut probe) = probe_child {
+        terminate_child(&mut probe, "probe server", CHILD_SHUTDOWN_TIMEOUT)?;
+    }
     terminate_child(&mut child, "Bun base", CHILD_SHUTDOWN_TIMEOUT)?;
     write_daemon_state(
         config,
@@ -515,6 +659,11 @@ fn supervise_service(config: &Config) -> Result<(), String> {
         restart_count,
         Some(restart_delay),
         last_child_exit.as_ref(),
+        None,
+        "stopped",
+        probe_restart_count,
+        Some(probe_restart_delay),
+        last_probe_exit.as_ref(),
     )?;
     Ok(())
 }
@@ -576,9 +725,53 @@ fn spawn_base_process(config: &Config) -> Result<Child, String> {
         .map_err(|error| format!("failed to start Bun base: {error}"))
 }
 
+fn spawn_probe_process(config: &Config) -> Result<Child, String> {
+    prepare_probe_logs_for_spawn(config)?;
+    let stdout_log = open_child_log(&config.probe_stdout_log_path)?;
+    let stderr_log = open_child_log(&config.probe_stderr_log_path)?;
+    let mut command = Command::new(&config.daemon_executable);
+    command
+        .arg("probes")
+        .arg("serve")
+        .env("OPENSCOUT_PARENT_PID", std::process::id().to_string())
+        .env(
+            "OPENSCOUT_HOME",
+            config.open_scout_home.to_string_lossy().to_string(),
+        )
+        .env(
+            "OPENSCOUT_PROBES_SOCKET",
+            config.probes_socket_path.to_string_lossy().to_string(),
+        )
+        .env(
+            "OPENSCOUT_SUPPORT_DIRECTORY",
+            config.support_directory.to_string_lossy().to_string(),
+        )
+        .env(
+            "OPENSCOUT_RUNTIME_PACKAGE_DIR",
+            config.runtime_package_dir.to_string_lossy().to_string(),
+        )
+        .stdout(Stdio::from(stdout_log))
+        .stderr(Stdio::from(stderr_log));
+
+    for &key in OPTIONAL_LAUNCH_ENV_KEYS {
+        if let Some(value) = env_nonempty(key) {
+            command.env(key, value);
+        }
+    }
+
+    command
+        .spawn()
+        .map_err(|error| format!("failed to start probe server: {error}"))
+}
+
 fn prepare_child_logs_for_spawn(config: &Config) -> Result<(), String> {
     rotate_child_log_if_needed(&config.stdout_log_path, &config.logs_directory)?;
     rotate_child_log_if_needed(&config.stderr_log_path, &config.logs_directory)
+}
+
+fn prepare_probe_logs_for_spawn(config: &Config) -> Result<(), String> {
+    rotate_child_log_if_needed(&config.probe_stdout_log_path, &config.probe_logs_directory)?;
+    rotate_child_log_if_needed(&config.probe_stderr_log_path, &config.probe_logs_directory)
 }
 
 fn open_child_log(path: &Path) -> Result<fs::File, String> {
@@ -821,6 +1014,7 @@ fn broker_service_status(config: &Config) -> ServiceStatus {
         effective_broker_url,
         effective_web_url,
         daemon_state: read_daemon_state_json(config),
+        probes: probes::probe_server_status(&config.probes_socket_path),
     }
 }
 
@@ -1055,6 +1249,12 @@ fn doctor_report(config: &Config, options: DoctorOptions) -> DoctorReport {
     if let Some(raw_state) = status.daemon_state.as_deref() {
         warnings.extend(restart_telemetry_warnings(raw_state));
     }
+    if status.probes.socket_exists && !status.probes.reachable {
+        warnings.push(format!(
+            "probe server socket exists but capabilities are unreachable: {}",
+            status.probes.socket_path,
+        ));
+    }
 
     let daemon_processes: Vec<&ProcessInfo> = processes
         .iter()
@@ -1227,17 +1427,53 @@ fn restart_telemetry_warnings(raw_state: &str) -> Vec<String> {
         warnings.push(details);
     }
 
+    let probe_restart_count = telemetry.probe_restart_count.unwrap_or(0);
+    let last_probe_child_exit = telemetry.last_probe_child_exit_description.as_deref();
+    if probe_restart_count > 0 || last_probe_child_exit.is_some() {
+        let mut details =
+            format!("probe-server restart telemetry: restartCount={probe_restart_count}");
+        if let Some(probe_state) = telemetry.probe_state.as_deref() {
+            details.push_str(&format!(", probeState={probe_state}"));
+        }
+        if let Some(backoff_ms) = telemetry.probe_restart_backoff_ms {
+            details.push_str(&format!(", restartBackoffMs={backoff_ms}"));
+        }
+        if let Some(description) = last_probe_child_exit {
+            details.push_str(&format!(", lastChildExit={description}"));
+        }
+        if let Some(code) = telemetry.last_probe_child_exit_code {
+            details.push_str(&format!(", exitCode={code}"));
+        }
+        if let Some(signal) = telemetry.last_probe_child_exit_signal {
+            details.push_str(&format!(", signal={signal}"));
+        }
+        warnings.push(details);
+    }
+
     warnings
 }
 
 fn parse_daemon_state_telemetry(raw_state: &str) -> DaemonStateTelemetry {
+    let last_child_exit = json_field_object(raw_state, "lastChildExit");
+    let last_probe_child_exit = json_field_object(raw_state, "lastProbeChildExit");
     DaemonStateTelemetry {
         base_state: parse_json_string_field(raw_state, "baseState"),
         restart_count: parse_json_u32_field(raw_state, "restartCount"),
         restart_backoff_ms: parse_json_u64_field(raw_state, "restartBackoffMs"),
-        last_child_exit_description: parse_json_string_field(raw_state, "description"),
-        last_child_exit_code: parse_json_i32_field(raw_state, "code"),
-        last_child_exit_signal: parse_json_i32_field(raw_state, "signal"),
+        last_child_exit_description: last_child_exit
+            .and_then(|value| parse_json_string_field(value, "description")),
+        last_child_exit_code: last_child_exit.and_then(|value| parse_json_i32_field(value, "code")),
+        last_child_exit_signal: last_child_exit
+            .and_then(|value| parse_json_i32_field(value, "signal")),
+        probe_state: parse_json_string_field(raw_state, "probeState"),
+        probe_restart_count: parse_json_u32_field(raw_state, "probeRestartCount"),
+        probe_restart_backoff_ms: parse_json_u64_field(raw_state, "probeRestartBackoffMs"),
+        last_probe_child_exit_description: last_probe_child_exit
+            .and_then(|value| parse_json_string_field(value, "description")),
+        last_probe_child_exit_code: last_probe_child_exit
+            .and_then(|value| parse_json_i32_field(value, "code")),
+        last_probe_child_exit_signal: last_probe_child_exit
+            .and_then(|value| parse_json_i32_field(value, "signal")),
     }
 }
 
@@ -1372,6 +1608,8 @@ fn ensure_daemon_directories(config: &Config) -> Result<(), String> {
     fs::create_dir_all(&config.support_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.logs_directory).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&config.probe_logs_directory).map_err(|error| error.to_string())?;
+    fs::create_dir_all(&config.open_scout_home).map_err(|error| error.to_string())?;
     fs::create_dir_all(&config.control_home).map_err(|error| error.to_string())?;
     if let Some(parent) = config.launch_agent_path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -1397,6 +1635,14 @@ fn render_launch_agent_plist(config: &Config) -> String {
         (
             "OPENSCOUT_CONTROL_HOME",
             config.control_home.to_string_lossy().to_string(),
+        ),
+        (
+            "OPENSCOUT_HOME",
+            config.open_scout_home.to_string_lossy().to_string(),
+        ),
+        (
+            "OPENSCOUT_PROBES_SOCKET",
+            config.probes_socket_path.to_string_lossy().to_string(),
         ),
         ("OPENSCOUT_BROKER_SERVICE_MODE", config.service_mode.clone()),
         ("OPENSCOUT_BROKER_SERVICE_LABEL", config.label.clone()),
@@ -1495,6 +1741,11 @@ fn write_daemon_state(
     restart_count: u32,
     restart_backoff: Option<Duration>,
     last_child_exit: Option<&ChildExitTelemetry>,
+    probe_pid: Option<u32>,
+    probe_state: &str,
+    probe_restart_count: u32,
+    probe_restart_backoff: Option<Duration>,
+    last_probe_child_exit: Option<&ChildExitTelemetry>,
 ) -> Result<(), String> {
     fs::create_dir_all(&config.runtime_directory).map_err(|error| error.to_string())?;
     let payload = format!(
@@ -1510,6 +1761,12 @@ fn write_daemon_state(
 \"restartCount\":{},\
 \"restartBackoffMs\":{},\
 \"lastChildExit\":{},\
+\"probePid\":{},\
+\"probeState\":{},\
+\"probeRestartCount\":{},\
+\"probeRestartBackoffMs\":{},\
+\"lastProbeChildExit\":{},\
+\"probeSocketPath\":{},\
 \"updatedAtMs\":{}\
 }}\n",
         json_string(BUILD_VERSION),
@@ -1521,6 +1778,12 @@ fn write_daemon_state(
         restart_count,
         json_opt_u64(restart_backoff.map(duration_millis)),
         child_exit_json(last_child_exit),
+        json_opt_u32(probe_pid),
+        json_string(probe_state),
+        probe_restart_count,
+        json_opt_u64(probe_restart_backoff.map(duration_millis)),
+        child_exit_json(last_probe_child_exit),
+        json_string(&config.probes_socket_path.to_string_lossy()),
         epoch_ms(),
     );
     let temporary_path = config.daemon_state_path.with_extension("json.tmp");
@@ -1656,6 +1919,41 @@ fn json_field_after_colon<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
     let (_, after_key) = raw.split_once(&needle)?;
     let (_, after_colon) = after_key.split_once(':')?;
     Some(after_colon)
+}
+
+fn json_field_object<'a>(raw: &'a str, key: &str) -> Option<&'a str> {
+    let after_colon = json_field_after_colon(raw, key)?;
+    let trimmed = after_colon.trim_start();
+    if !trimmed.starts_with('{') {
+        return None;
+    }
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, character) in trimmed.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match character {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&trimmed[..=index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 fn parse_json_string_value(raw: &str) -> Option<String> {
@@ -1930,7 +2228,7 @@ fn print_version() {
 
 fn print_help() {
     println!(
-        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise|version> [--json] [--fix] [--yes]\n\n\
+        "scoutd <status|install|start|stop|restart|uninstall|doctor|supervise|probes serve|version> [--json] [--fix] [--yes]\n\n\
          Native daemon for the OpenScout local control plane."
     );
 }
@@ -1973,6 +2271,15 @@ fn print_status(status: &ServiceStatus, json: bool) {
             "broker socket: {}",
             status.config.broker_socket_path.display()
         );
+        println!("probe socket: {}", status.probes.socket_path);
+        println!(
+            "probe server: {}",
+            if status.probes.reachable {
+                "ok"
+            } else {
+                "unreachable"
+            }
+        );
         println!(
             "web url: {}",
             status.effective_web_url.as_deref().unwrap_or("-")
@@ -1990,6 +2297,26 @@ fn print_doctor(report: &DoctorReport, json: bool) {
         println!("{}", doctor_json(report));
     } else {
         print_status(&report.status, false);
+        println!("probes:");
+        println!("- socket: {}", report.status.probes.socket_path);
+        println!("- reachable: {}", yes_no(report.status.probes.reachable));
+        if let Some(version) = report.status.probes.daemon_version.as_deref() {
+            println!("- daemon version: {version}");
+        }
+        if report.status.probes.families.is_empty() {
+            println!("- families: none");
+        } else {
+            println!("- families:");
+            for family in &report.status.probes.families {
+                println!(
+                    "  - {} (schema v{}, ttl {}ms)",
+                    family.probe_id, family.schema_version, family.ttl_ms,
+                );
+            }
+        }
+        if let Some(error) = report.status.probes.error.as_deref() {
+            println!("- error: {error}");
+        }
         if report.warnings.is_empty() {
             println!("warnings: none");
         } else {
@@ -2068,7 +2395,8 @@ fn status_json(status: &ServiceStatus) -> String {
 \"scoutdBuild\":{},\
 \"hostInfoPath\":{},\
 \"scoutdStatePath\":{},\
-\"scoutdState\":{}\
+\"scoutdState\":{},\
+\"probes\":{}\
 }}",
         json_string(&status.config.label),
         json_string(&status.config.service_mode),
@@ -2101,6 +2429,7 @@ fn status_json(status: &ServiceStatus) -> String {
         json_string(&status.config.host_info_path.to_string_lossy()),
         json_string(&status.config.daemon_state_path.to_string_lossy()),
         status.daemon_state.as_deref().unwrap_or("null"),
+        serde_json::to_string(&status.probes).unwrap_or_else(|_| "null".to_string()),
     )
 }
 
@@ -2384,17 +2713,27 @@ mod tests {
                 "/Users/test/Library/LaunchAgents/dev.openscout.plist",
             ),
             support_directory: PathBuf::from("/Users/test/Library/Application Support/OpenScout"),
+            open_scout_home: PathBuf::from("/Users/test/.openscout"),
             runtime_directory: PathBuf::from(
                 "/Users/test/Library/Application Support/OpenScout/runtime",
             ),
             logs_directory: PathBuf::from(
                 "/Users/test/Library/Application Support/OpenScout/logs/broker",
             ),
+            probe_logs_directory: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/probes",
+            ),
             stdout_log_path: PathBuf::from(
                 "/Users/test/Library/Application Support/OpenScout/logs/broker/stdout.log",
             ),
             stderr_log_path: PathBuf::from(
                 "/Users/test/Library/Application Support/OpenScout/logs/broker/stderr.log",
+            ),
+            probe_stdout_log_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/probes/stdout.log",
+            ),
+            probe_stderr_log_path: PathBuf::from(
+                "/Users/test/Library/Application Support/OpenScout/logs/probes/stderr.log",
             ),
             control_home: PathBuf::from("/Users/test/.openscout/control-plane"),
             runtime_package_dir: PathBuf::from("/repo/packages/runtime"),
@@ -2412,6 +2751,7 @@ mod tests {
             broker_socket_path: PathBuf::from(
                 "/Users/test/Library/Application Support/OpenScout/runtime/broker.sock",
             ),
+            probes_socket_path: PathBuf::from("/Users/test/.openscout/run/scoutd-probes.sock"),
             repo_watch_interval: None,
         };
 

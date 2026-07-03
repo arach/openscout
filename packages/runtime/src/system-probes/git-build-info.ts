@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import { defineProbeFamily, type ProbeCtx } from "./registry.js";
 import { execProbeFile, ProbeCommandError } from "./exec.js";
+import { runWithScoutdFallback } from "./scoutd-client.js";
 
 export type GitBuildInfo = {
   repoRoot: string;
@@ -101,20 +102,25 @@ export const gitBuildInfoProbe = defineProbeFamily<string, GitBuildInfo>({
   idleKeyTtlMs: 10 * 60_000,
   maxConcurrentKeys: 2,
   normalizeKey: canonicalRepoRoot,
-  run: async (repoRoot, ctx) => {
-    const metadata = await loadStaticMetadata(repoRoot, ctx);
-    const [branch, dirtyStatus] = await Promise.all([
-      gitValue(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], ctx),
-      gitOutput(repoRoot, ["status", "--porcelain"], ctx),
-    ]);
-    return {
-      repoRoot,
-      commit: metadata.commit,
-      bootBranch: metadata.bootBranch,
-      branch: branch ?? metadata.bootBranch,
-      dirty: dirtyStatus === null ? null : dirtyStatus.trim().length > 0,
-      metadataAt: metadata.metadataAt,
-      statusAt: Date.now(),
-    };
-  },
+  run: async (repoRoot, ctx) => runWithScoutdFallback({
+    probeId: "git.buildInfo",
+    key: repoRoot,
+    ctx,
+    local: async () => {
+      const metadata = await loadStaticMetadata(repoRoot, ctx);
+      const [branch, dirtyStatus] = await Promise.all([
+        gitValue(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], ctx),
+        gitOutput(repoRoot, ["status", "--porcelain"], ctx),
+      ]);
+      return {
+        repoRoot,
+        commit: metadata.commit,
+        bootBranch: metadata.bootBranch,
+        branch: branch ?? metadata.bootBranch,
+        dirty: dirtyStatus === null ? null : dirtyStatus.trim().length > 0,
+        metadataAt: metadata.metadataAt,
+        statusAt: Date.now(),
+      };
+    },
+  }),
 });

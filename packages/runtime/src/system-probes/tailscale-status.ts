@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { defineProbe, type ProbeCtx } from "./registry.js";
 import { execProbeFile, ProbeCommandError } from "./exec.js";
+import { runWithScoutdFallback } from "./scoutd-client.js";
 
 const DEFAULT_TAILSCALE_STATUS_TIMEOUT_MS = 1_500;
 
@@ -194,5 +195,9 @@ export const tailscaleStatusProbe = defineProbe<TailscaleStatusSummary | null>({
   id: "tailscale.status",
   ttlMs: 30_000,
   timeoutMs: statusTimeoutMs(process.env),
-  run: (ctx) => readTailscaleStatusSummaryLocal(ctx),
+  run: (ctx) => runWithScoutdFallback({
+    probeId: "tailscale.status",
+    ctx,
+    local: () => readTailscaleStatusSummaryLocal(ctx),
+  }),
 });

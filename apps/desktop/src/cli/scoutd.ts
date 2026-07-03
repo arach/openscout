@@ -51,6 +51,14 @@ export type NativeScoutdDoctorReport = {
     scoutdStatePath: string | null;
   } | null;
   warnings: string[];
+  probes: {
+    socketPath: string | null;
+    socketExists: boolean | null;
+    reachable: boolean | null;
+    daemonVersion: string | null;
+    families: Array<{ probeId: string; schemaVersion: number | null; ttlMs: number | null }>;
+    error: string | null;
+  } | null;
   processes: NativeScoutdProcess[];
   fix: {
     supported: boolean;
@@ -427,6 +435,37 @@ function readStatus(raw: unknown): NativeScoutdDoctorReport["status"] {
   };
 }
 
+function readProbeStatus(raw: unknown): NativeScoutdDoctorReport["probes"] {
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const status = isRecord(raw.status) ? raw.status : raw;
+  const probes = isRecord(status.probes) ? status.probes : isRecord(raw.probes) ? raw.probes : null;
+  if (!probes) {
+    return null;
+  }
+  const families = Array.isArray(probes.families)
+    ? probes.families.flatMap((entry) => {
+        if (!isRecord(entry)) return [];
+        const probeId = readString(entry.probeId);
+        if (!probeId) return [];
+        return [{
+          probeId,
+          schemaVersion: readNumber(entry.schemaVersion),
+          ttlMs: readNumber(entry.ttlMs),
+        }];
+      })
+    : [];
+  return {
+    socketPath: readString(probes.socketPath),
+    socketExists: readBoolean(probes.socketExists),
+    reachable: readBoolean(probes.reachable),
+    daemonVersion: readString(probes.daemonVersion),
+    families,
+    error: readString(probes.error),
+  };
+}
+
 export function normalizeNativeScoutdDoctorReport(input: {
   raw: unknown;
   scoutdPath: string | null;
@@ -449,6 +488,7 @@ export function normalizeNativeScoutdDoctorReport(input: {
     buildIdentity: extractBuildIdentityFromScoutdPayload(raw),
     status: readStatus(raw),
     warnings: readWarnings(record.warnings),
+    probes: readProbeStatus(raw),
     processes: readProcesses(record.processes),
     fix: readFixReport(raw),
     raw,
@@ -566,6 +606,23 @@ export function renderNativeScoutdDoctorSection(report: NativeScoutdDoctorReport
     }
     if (status.scoutdStatePath) {
       lines.push(`  State file: ${status.scoutdStatePath}`);
+    }
+  }
+
+  if (report.probes) {
+    lines.push(
+      "  Probes:",
+      `    Socket: ${report.probes.socketPath ?? "-"}`,
+      `    Reachable: ${yesNo(report.probes.reachable)}`,
+      `    Daemon version: ${report.probes.daemonVersion ?? "-"}`,
+    );
+    if (report.probes.families.length > 0) {
+      lines.push(`    Families: ${report.probes.families.map((family) => family.probeId).join(", ")}`);
+    } else {
+      lines.push("    Families: none");
+    }
+    if (report.probes.error) {
+      lines.push(`    Error: ${report.probes.error}`);
     }
   }
 
