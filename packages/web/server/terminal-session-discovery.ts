@@ -1,7 +1,10 @@
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  tmuxSessionsProbe,
+  zellijSessionsProbe,
+} from "@openscout/runtime/system-probes";
 
 import type {
   TerminalBackend,
@@ -33,34 +36,26 @@ type ZellijSessionInfo = {
   raw: string;
 };
 
-export function queryDiscoveredTerminalSessions(options: DiscoveryOptions = {}): TerminalSessionRecord[] {
+export async function queryDiscoveredTerminalSessions(options: DiscoveryOptions = {}): Promise<TerminalSessionRecord[]> {
   const env = options.env ?? process.env;
   const excluded = new Set(options.excludeSurfaces ?? []);
   const limit = normalizedDiscoveryLimit(options.limit);
   const sessions: TerminalSessionRecord[] = [];
 
   if (!options.backend || options.backend === "tmux") {
-    sessions.push(...discoverTmuxSessions({ env, excluded }));
+    sessions.push(...await discoverTmuxSessions({ env, excluded }));
   }
 
   if (!options.backend || options.backend === "zellij") {
-    sessions.push(...discoverZellijSessions({ env, excluded }));
+    sessions.push(...await discoverZellijSessions({ env, excluded }));
   }
 
   return sessions.slice(0, limit);
 }
 
-function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): DiscoveredTerminalSession[] {
-  const result = spawnSync("tmux", ["list-sessions", "-F", "#{session_name}|#{session_windows}|#{session_attached}"], {
-    env: input.env,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
-    return [];
-  }
-
-  return parseTmuxSessionList(result.stdout)
+async function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): Promise<DiscoveredTerminalSession[]> {
+  const snapshot = await tmuxSessionsProbe.for({ env: input.env }).fresh();
+  return (snapshot.value ?? [])
     .filter((session) => !input.excluded.has(terminalSurfaceKey("tmux", session.name)))
     .map((session) => discoveredRecordFromSurface({
       backend: "tmux",
@@ -88,18 +83,10 @@ function discoverTmuxSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<str
     }));
 }
 
-function discoverZellijSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): DiscoveredTerminalSession[] {
+async function discoverZellijSessions(input: { env: NodeJS.ProcessEnv; excluded: Set<string> }): Promise<DiscoveredTerminalSession[]> {
   const socketDir = resolveZellijSocketDir(input.env);
-  const result = spawnSync("zellij", ["list-sessions"], {
-    env: { ...input.env, ZELLIJ_SOCKET_DIR: socketDir },
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
-    return [];
-  }
-
-  return parseZellijSessionList(result.stdout)
+  const snapshot = await zellijSessionsProbe.for({ env: input.env, socketDir }).fresh();
+  return (snapshot.value ?? [])
     .filter((session) => !input.excluded.has(terminalSurfaceKey("zellij", session.name)))
     .map((session) => discoveredRecordFromSurface({
       backend: "zellij",

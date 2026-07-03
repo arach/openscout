@@ -416,6 +416,7 @@ wss.on("connection", (ws: any) => {
   const relaySocket = new FlowControlledRelaySocket(ws);
 
   ws.on("message", (raw: Buffer | string) => {
+    void (async () => {
     const msg = parseMessage(raw.toString());
     if (!msg) {
       return;
@@ -430,7 +431,7 @@ wss.on("connection", (ws: any) => {
             detachSession(previous);
           }
         }
-        const session = createSession(
+        const session = await createSession(
           relaySocket,
           disableGeneratedSessionFlowControl(pending?.cwd ? { ...msg, cwd: pending.cwd, agent: "shell" } : msg),
         );
@@ -455,7 +456,7 @@ wss.on("connection", (ws: any) => {
               detachSession(previous);
             }
           }
-          const session = createSession(relaySocket, {
+          const session = await createSession(relaySocket, {
             type: "session:init",
             cols: msg.cols ?? 80,
             rows: msg.rows ?? 24,
@@ -529,6 +530,9 @@ wss.on("connection", (ws: any) => {
         break;
       }
     }
+    })().catch((error) => {
+      console.error("[relay] message handler failed:", error);
+    });
   });
 
   ws.on("close", () => {

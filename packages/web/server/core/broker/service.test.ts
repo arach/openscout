@@ -30,6 +30,7 @@ const originalControlHome = process.env.OPENSCOUT_CONTROL_HOME;
 const originalRelayHub = process.env.OPENSCOUT_RELAY_HUB;
 const originalBrokerUrl = process.env.OPENSCOUT_BROKER_URL;
 const originalBrokerInternalUrl = process.env.OPENSCOUT_BROKER_INTERNAL_URL;
+const originalBrokerSocketPath = process.env.OPENSCOUT_BROKER_SOCKET_PATH;
 const originalSkipUserProjectHints = process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
 const originalFetch = globalThis.fetch;
 const testDirectories = new Set<string>();
@@ -61,6 +62,11 @@ afterEach(() => {
   } else {
     process.env.OPENSCOUT_BROKER_INTERNAL_URL = originalBrokerInternalUrl;
   }
+  if (originalBrokerSocketPath === undefined) {
+    delete process.env.OPENSCOUT_BROKER_SOCKET_PATH;
+  } else {
+    process.env.OPENSCOUT_BROKER_SOCKET_PATH = originalBrokerSocketPath;
+  }
   if (originalSkipUserProjectHints === undefined) {
     delete process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS;
   } else {
@@ -81,6 +87,7 @@ function useIsolatedOpenScoutHome(): string {
   process.env.OPENSCOUT_CONTROL_HOME = join(home, ".openscout", "control-plane");
   process.env.OPENSCOUT_RELAY_HUB = join(home, ".openscout", "relay");
   process.env.OPENSCOUT_BROKER_URL = "http://broker.test";
+  process.env.OPENSCOUT_BROKER_SOCKET_PATH = join(home, "broker.sock");
   process.env.OPENSCOUT_SKIP_USER_PROJECT_HINTS = "1";
   return home;
 }

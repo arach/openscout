@@ -13,9 +13,12 @@
 
 import { log } from "./log.ts";
 import { readdirSync, readFileSync, realpathSync, statSync } from "fs";
-import { execSync } from "child_process";
 import { basename, isAbsolute, join, relative } from "path";
 import { homedir } from "os";
+import {
+  readSessionFileScan,
+  readSessionSearch,
+} from "@openscout/runtime/system-probes";
 import {
   isSessionRegistryError,
   type ActionBlock,
@@ -833,7 +836,7 @@ async function handleRPCInner(
         }
         return {
           id: req.id,
-          result: provisionMobileTerminalAccess(p.sshPublicKey, rpcContext.deviceId),
+          result: await provisionMobileTerminalAccess(p.sshPublicKey, rpcContext.deviceId),
         };
       }
 
@@ -859,42 +862,20 @@ async function handleRPCInner(
         const maxAge = p.maxAge ?? 14;
         const limit = p.limit ?? 50;
 
-        // Search across all discovered JSONL files using grep
         const candidateLimit = Math.max(limit * 10, 1000);
-        const sessions = await discoverSessionFiles(maxAge, candidateLimit);
-        const matches: Array<{
-          path: string;
-          project: string;
-          agent: string;
-          matchCount: number;
-          preview: string[];
-        }> = [];
+        const config = resolveConfig();
+        const workspaceRoot = config.workspace?.root
+          ? resolveWorkspaceRoot(config.workspace.root)
+          : null;
+        const matches = await readSessionSearch({
+          home: homedir(),
+          workspaceRoot,
+          maxAgeDays: maxAge,
+          limit,
+          query: p.query,
+          candidateLimit,
+        });
 
-        for (const session of sessions) {
-          try {
-            const cmd = `grep -i -c "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-            const countStr = execSync(cmd, { encoding: "utf-8", timeout: 2000 }).trim();
-            const count = parseInt(countStr, 10);
-            if (count > 0) {
-              // Get a few matching lines for preview
-              const previewCmd = `grep -i -m 3 "${p.query.replace(/"/g, '\\"')}" "${session.path}" 2>/dev/null`;
-              const previewLines = execSync(previewCmd, { encoding: "utf-8", timeout: 2000 })
-                .trim()
-                .split("\n")
-                .slice(0, 3);
-
-              matches.push({
-                path: session.path,
-                project: session.project,
-                agent: session.agent,
-                matchCount: count,
-                preview: previewLines,
-              });
-            }
-          } catch {}
-        }
-
-        matches.sort((a, b) => b.matchCount - a.matchCount);
         return { id: req.id, result: { query: p.query, matches: matches.slice(0, limit) } };
       }
 
@@ -1155,89 +1136,20 @@ interface DiscoveredSession {
  * Uses fast POSIX commands (find + stat) — no deep parsing.
  */
 async function discoverSessionFiles(maxAgeDays: number, limit: number): Promise<DiscoveredSession[]> {
-  const home = homedir();
-  const results: DiscoveredSession[] = [];
-
-  // Known locations for agent session logs
-  const searchPaths = [
-    // Claude Code: ~/.claude/projects/*/*.jsonl
-    { pattern: `${home}/.claude/projects`, agent: "claude-code" },
-    // Codex: check common locations
-    { pattern: `${home}/.codex`, agent: "codex" },
-    { pattern: `${home}/.openai-codex`, agent: "codex" },
-  ];
-
-  for (const { pattern, agent } of searchPaths) {
-    try {
-      statSync(pattern); // Check dir exists
-    } catch {
-      continue;
-    }
-
-    try {
-      // Find .jsonl files, skip subagent dirs, batch stat in one exec
-      const cmd = `find "${pattern}" -name subagents -prune -o -name "*.jsonl" -mtime -${maxAgeDays} -type f -print0 2>/dev/null | xargs -0 stat -f "%m %z %N" 2>/dev/null | sort -rn | head -${limit}`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 5000 }).trim();
-      if (!output) continue;
-
-      for (const line of output.split("\n")) {
-        if (!line.trim()) continue;
-        const firstSpace = line.indexOf(" ");
-        const secondSpace = line.indexOf(" ", firstSpace + 1);
-        if (firstSpace === -1 || secondSpace === -1) continue;
-
-        const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
-        const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
-        const filePath = line.slice(secondSpace + 1);
-
-        results.push({
-          path: filePath,
-          project: extractProjectName(filePath),
-          agent,
-          modifiedAt,
-          sizeBytes,
-          lineCount: 0,
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  // Also scan workspace root for any .jsonl files in project dirs
   const config = resolveConfig();
-  if (config.workspace?.root) {
-    const existingPaths = new Set(results.map(r => r.path));
-    try {
-      const root = resolveWorkspaceRoot(config.workspace.root);
-      const cmd = `find "${root}" -maxdepth 4 -name "*.jsonl" -mtime -${maxAgeDays} -type f -exec stat -f "%m %z %N" {} + 2>/dev/null`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 10000 }).trim();
-      if (output) {
-        for (const line of output.split("\n")) {
-          if (!line.trim()) continue;
-          const firstSpace = line.indexOf(" ");
-          const secondSpace = line.indexOf(" ", firstSpace + 1);
-          if (firstSpace === -1 || secondSpace === -1) continue;
-          const modifiedAt = parseInt(line.slice(0, firstSpace), 10) * 1000;
-          const sizeBytes = parseInt(line.slice(firstSpace + 1, secondSpace), 10);
-          const filePath = line.slice(secondSpace + 1);
-          if (existingPaths.has(filePath)) continue;
-          results.push({
-            path: filePath,
-            project: extractProjectName(filePath),
-            agent: detectAgent(filePath),
-            modifiedAt,
-            sizeBytes,
-            lineCount: 0,
-          });
-        }
-      }
-    } catch {}
-  }
-
-  // Sort by most recently modified, limit
-  results.sort((a, b) => b.modifiedAt - a.modifiedAt);
-  return results.slice(0, limit);
+  const workspaceRoot = config.workspace?.root
+    ? resolveWorkspaceRoot(config.workspace.root)
+    : null;
+  const sessions = await readSessionFileScan({
+    home: homedir(),
+    workspaceRoot,
+    maxAgeDays,
+    limit,
+  });
+  return sessions.map((session) => ({
+    ...session,
+    lineCount: 0,
+  }));
 }
 
 function extractProjectName(filePath: string): string {
@@ -1250,11 +1162,5 @@ function extractProjectName(filePath: string): string {
   return parts[parts.length - 2] || "unknown";
 }
 
-function detectAgent(filePath: string): string {
-  if (filePath.includes(".claude")) return "claude-code";
-  if (filePath.includes(".codex") || filePath.includes("codex")) return "codex";
-  if (filePath.includes(".aider") || filePath.includes("aider")) return "aider";
-  return "unknown";
-}
 
 // HTTP file serving has moved to fileserver.ts — independent start/stop lifecycle.

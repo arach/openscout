@@ -1,5 +1,6 @@
 // Generated from Hudson relay session/types.
 // Refresh with: node ./scripts/sync-terminal-relay-session.mjs
+// OpenScout local overlay: SCO-078 probe/async discipline; do not regenerate blindly.
 /** Minimal WebSocket interface — satisfied by both `ws` and Bun's ServerWebSocket. */
 export interface RelaySocket {
   readonly readyState: number;
@@ -74,7 +75,13 @@ export type ClientMessage =
   | TerminalAckMessage;
 
 import { createRequire } from 'module';
-import { execFileSync } from 'child_process';
+import {
+  execSystemFile,
+  invalidateTmuxSessions,
+  invalidateZellijSessions,
+  readTmuxSessionExists,
+  readZellijSessionExists,
+} from '@openscout/runtime/system-probes';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { dirname as pathDirname, resolve as pathResolve, sep as pathSep } from 'path';
@@ -285,7 +292,7 @@ export function resizeSession(session: Session, cols: number, rows: number): boo
   try {
     session.pty.resize(cols, rows);
     if (session.backend === 'tmux' && session.tmuxSession) {
-      resizeTmuxWindow(session.tmuxSession, cols, rows);
+      void resizeTmuxWindow(session.tmuxSession, cols, rows);
     }
     session.cols = cols;
     session.rows = rows;
@@ -379,50 +386,50 @@ function resolveCwd(raw?: string): string {
 // ---------------------------------------------------------------------------
 
 /** Locate a binary by name, returning null if not found. */
-function findBin(name: string, envOverride?: string): string | null {
-  if (envOverride && process.env[envOverride]) return process.env[envOverride];
+async function findBin(name: string, envOverride?: string): Promise<string | null> {
+  if (envOverride && process.env[envOverride]) return process.env[envOverride] ?? null;
   try {
-    return execFileSync('which', [name], { encoding: 'utf8' }).trim() || null;
+    const result = await execSystemFile('which', [name], {
+      timeoutMs: 1_500,
+      maxStdoutBytes: 64 * 1024,
+      maxStderrBytes: 64 * 1024,
+    });
+    return result.stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
 /** Locate the claude binary, returning null if not found. */
-function findClaudeBin(): string | null {
+async function findClaudeBin(): Promise<string | null> {
   return findBin('claude', 'CLAUDE_BIN');
 }
 
 /** Locate the pi binary, returning null if not found. */
-function findPiBin(): string | null {
+async function findPiBin(): Promise<string | null> {
   return findBin('pi', 'PI_BIN');
 }
 
 /** Locate the user's shell, falling back to common POSIX shells. */
-function findShellBin(): string | null {
+async function findShellBin(): Promise<string | null> {
   const configured = process.env.SHELL;
   if (configured && existsSync(configured)) return configured;
-  return findBin('zsh') ?? findBin('bash') ?? findBin('sh') ?? (existsSync('/bin/sh') ? '/bin/sh' : null);
+  return await findBin('zsh') ?? await findBin('bash') ?? await findBin('sh') ?? (existsSync('/bin/sh') ? '/bin/sh' : null);
 }
 
 /** Locate the zellij binary, returning null if not found. */
-function findZellijBin(): string | null {
+async function findZellijBin(): Promise<string | null> {
   return findBin('zellij', 'ZELLIJ_BIN');
 }
 
 /** Check if a zellij session exists (only queried when the mux reaper is enabled). */
-function zellijSessionExists(zellijBin: string, name: string, env: Record<string, string | undefined>): boolean {
-  try {
-    const out = execFileSync(zellijBin, ['list-sessions', '-s'], {
-      encoding: 'utf8',
-      env: env as NodeJS.ProcessEnv,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    return out.split('\n').some((line) => line.trim() === name);
-  } catch {
-    // zellij exits non-zero when there are no sessions at all.
-    return false;
-  }
+async function zellijSessionExists(_zellijBin: string, name: string, env: Record<string, string | undefined>): Promise<boolean> {
+  return await readZellijSessionExists(name, { env: env as NodeJS.ProcessEnv, maxAgeMs: 5_000 });
+}
+
+/** Check if a tmux session exists. */
+async function tmuxSessionExists(name: string): Promise<boolean> {
+  return await readTmuxSessionExists(name, { maxAgeMs: 5_000 });
 }
 
 /** Map Hudson-facing provider ids to the exact provider names accepted by the Pi CLI. */
@@ -432,25 +439,15 @@ function normalizePiProviderForCli(provider?: string): string | undefined {
   return provider;
 }
 
-/** Check if a tmux session exists. */
-function tmuxSessionExists(name: string): boolean {
-  try {
-    execFileSync('tmux', ['has-session', '-t', name], { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Quote a string for POSIX sh (tmux runs the session command through a shell). */
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 /** Resize the tmux window behind an attached bridge PTY. */
-function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
+async function resizeTmuxWindow(name: string, cols: number, rows: number): Promise<boolean> {
   try {
-    execFileSync('tmux', [
+    await execSystemFile('tmux', [
       'resize-window',
       '-t',
       name,
@@ -458,7 +455,7 @@ function resizeTmuxWindow(name: string, cols: number, rows: number): boolean {
       String(cols),
       '-y',
       String(rows),
-    ], { stdio: 'ignore' });
+    ], { timeoutMs: 2_000 });
     return true;
   } catch {
     return false;
@@ -495,7 +492,7 @@ function bootstrapFiles(cwd: string, files: Record<string, string>, sessionId: s
 }
 
 /** Spawn a PTY that attaches to a tmux session (creating it if needed). */
-function spawnTmuxSession(
+async function spawnTmuxSession(
   tmuxName: string,
   cols: number,
   rows: number,
@@ -503,27 +500,28 @@ function spawnTmuxSession(
   commandBin: string,
   commandArgs: string[],
   env: Record<string, string | undefined>,
-): IPty {
-  const exists = tmuxSessionExists(tmuxName);
+): Promise<IPty> {
+  const exists = await tmuxSessionExists(tmuxName);
 
   if (!exists) {
     // Create the tmux session detached, running the requested command inside it.
     // tmux runs the trailing command through a shell, so quote every word;
     // everything else is passed as discrete argv entries (no shell involved).
     const shellCmd = [commandBin, ...commandArgs].map(shellQuote).join(' ');
-    execFileSync('tmux', [
+    await execSystemFile('tmux', [
       'new-session', '-d',
       '-s', tmuxName,
       '-x', String(cols),
       '-y', String(rows),
       '-c', cwd,
       shellCmd,
-    ], { env: env as NodeJS.ProcessEnv, stdio: 'ignore' });
+    ], { env: env as NodeJS.ProcessEnv, timeoutMs: 5_000 });
+    invalidateTmuxSessions({ env: env as NodeJS.ProcessEnv, reason: 'terminal-relay.new-session' });
     console.log(`[relay] Created tmux session: ${tmuxName}`);
     if (muxTtlMs() > 0) trackCreatedMuxSession('tmux', tmuxName);
   } else {
     // Resize existing session to match client
-    resizeTmuxWindow(tmuxName, cols, rows);
+    await resizeTmuxWindow(tmuxName, cols, rows);
     console.log(`[relay] Attaching to existing tmux session: ${tmuxName}`);
     markMuxSessionInUse('tmux', tmuxName);
   }
@@ -573,7 +571,7 @@ function spawnZellijSession(
   };
 }
 
-export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session | null {
+export async function createSession(ws: RelaySocket, msg: SessionInitMessage): Promise<Session | null> {
   const id = generateId();
   const cols = Math.max(msg.cols || 80, 20);
   const rows = Math.max(msg.rows || 24, 4);
@@ -595,7 +593,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   // ---- Pre-flight: locate command binary ----
   let agentBin: string | null;
   if (agent === 'shell') {
-    agentBin = findShellBin();
+    agentBin = await findShellBin();
     if (!agentBin) {
       const reason = 'No login shell found. Set SHELL or install zsh, bash, or sh.';
       console.error(`[relay] Session ${id} failed: ${reason}`);
@@ -603,7 +601,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
       return null;
     }
   } else if (agent === 'pi') {
-    agentBin = findPiBin();
+    agentBin = await findPiBin();
     if (!agentBin) {
       const reason = 'pi CLI not found. Install it with: npm install -g @mariozechner/pi-coding-agent';
       console.error(`[relay] Session ${id} failed: ${reason}`);
@@ -611,7 +609,7 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
       return null;
     }
   } else {
-    agentBin = findClaudeBin();
+    agentBin = await findClaudeBin();
     if (!agentBin) {
       const reason = 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code';
       console.error(`[relay] Session ${id} failed: ${reason}`);
@@ -628,14 +626,14 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   }
 
   // ---- Pre-flight: tmux backend requires tmux ----
-  if (backend === 'tmux' && !findBin('tmux')) {
+  if (backend === 'tmux' && !(await findBin('tmux'))) {
     const reason = 'tmux not found. Install it with: brew install tmux';
     console.error(`[relay] Session ${id} failed: ${reason}`);
     send(ws, { type: 'session:error', error: reason });
     return null;
   }
 
-  const zellijBin = backend === 'zellij' ? findZellijBin() : null;
+  const zellijBin = backend === 'zellij' ? await findZellijBin() : null;
   if (backend === 'zellij' && !zellijBin) {
     const reason = 'zellij not found. Install it with: brew install zellij';
     console.error(`[relay] Session ${id} failed: ${reason}`);
@@ -683,13 +681,13 @@ export function createSession(ws: RelaySocket, msg: SessionInitMessage): Session
   try {
     if (backend === 'tmux') {
       console.log(`[relay] Session ${id}: tmux backend (session: ${tmuxName}) in ${cwd} [agent: ${agent}]`);
-      ptyProcess = spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env);
+      ptyProcess = await spawnTmuxSession(tmuxName, cols, rows, cwd, agentBin, agentArgs, env);
     } else if (backend === 'zellij') {
       console.log(`[relay] Session ${id}: zellij backend (session: ${zellijName}, mode: ${controlMode}) in ${cwd} [agent: ${agent}]`);
       // Only pay for the existence check when the mux reaper is on; 'observe'
       // never creates a session, so it never tracks one either.
       const trackZellij = muxTtlMs() > 0 && controlMode !== 'observe'
-        && !zellijSessionExists(zellijBin!, zellijName, env);
+        && !(await zellijSessionExists(zellijBin!, zellijName, env));
       const spawned = spawnZellijSession(zellijBin!, zellijName, cols, rows, cwd, agentBin, agentArgs, env, controlMode);
       ptyProcess = spawned.ptyProcess;
       zellijLayoutPath = spawned.layoutPath;
@@ -919,22 +917,24 @@ function muxSessionInUse(record: TrackedMuxSession): boolean {
   return false;
 }
 
-function killMuxSession(record: Pick<TrackedMuxSession, 'backend' | 'name'>) {
+async function killMuxSession(record: Pick<TrackedMuxSession, 'backend' | 'name'>): Promise<void> {
   if (record.backend === 'tmux') {
-    execFileSync('tmux', ['kill-session', '-t', record.name], { stdio: 'ignore' });
+    await execSystemFile('tmux', ['kill-session', '-t', record.name], { timeoutMs: 2_000 });
+    invalidateTmuxSessions({ reason: 'terminal-relay.kill-session' });
   } else {
-    const zellijBin = findZellijBin();
+    const zellijBin = await findZellijBin();
     if (!zellijBin) throw new Error('zellij binary not found');
-    execFileSync(zellijBin, ['delete-session', '--force', record.name], { stdio: 'ignore' });
+    await execSystemFile(zellijBin, ['delete-session', '--force', record.name], { timeoutMs: 2_000 });
+    invalidateZellijSessions({ reason: 'terminal-relay.delete-session' });
   }
 }
 
 /** Reap tracked mux sessions detached longer than ttlMs. Returns reaped names. */
-export function reapExpiredMuxSessions(
+export async function reapExpiredMuxSessions(
   ttlMs: number,
   now = Date.now(),
-  kill: (record: TrackedMuxSession) => void = killMuxSession,
-): string[] {
+  kill: (record: TrackedMuxSession) => Promise<void> = killMuxSession,
+): Promise<string[]> {
   const reaped: string[] = [];
   for (const [key, record] of trackedMuxSessions) {
     if (record.detachedAt === null || now - record.detachedAt < ttlMs) continue;
@@ -944,7 +944,7 @@ export function reapExpiredMuxSessions(
       continue;
     }
     try {
-      kill(record);
+      await kill(record);
       console.log(`[relay] Reaped orphaned ${record.backend} session '${record.name}' (detached > ${ttlMs}ms)`);
       reaped.push(record.name);
     } catch (err) {
@@ -965,7 +965,7 @@ export function maybeStartMuxReaper(): boolean {
   if (ttl <= 0) return false;
   if (muxReaperTimer) return true;
   const sweepInterval = Math.min(Math.max(Math.floor(ttl / 2), 5_000), 60_000);
-  muxReaperTimer = setInterval(() => reapExpiredMuxSessions(muxTtlMs()), sweepInterval);
+  muxReaperTimer = setInterval(() => { void reapExpiredMuxSessions(muxTtlMs()); }, sweepInterval);
   muxReaperTimer.unref?.();
   console.log(`[relay] Mux session reaper enabled: TTL ${ttl}ms, sweeping every ${Math.round(sweepInterval / 1000)}s`);
   return true;

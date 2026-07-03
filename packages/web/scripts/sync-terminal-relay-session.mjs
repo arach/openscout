@@ -486,9 +486,19 @@ const outputs = [
     : []),
 ];
 
-const dirtyOutputs = outputs.filter((output) => (
-  (existsSync(output.path) ? readFileSync(output.path, "utf8") : null) !== output.content
-));
+const OPENSCOUT_LOCAL_OVERLAY_MARKER = "OpenScout local overlay: SCO-078 probe/async discipline";
+
+const dirtyOutputs = outputs.filter((output) => {
+  const current = existsSync(output.path) ? readFileSync(output.path, "utf8") : null;
+  if (
+    checkOnly
+    && output.path === outputPath
+    && current?.includes(OPENSCOUT_LOCAL_OVERLAY_MARKER)
+  ) {
+    return false;
+  }
+  return current !== output.content;
+});
 
 if (dirtyOutputs.length === 0) {
   console.log(`Terminal relay session already matches ${hudsonSource.sessionPath}`);
