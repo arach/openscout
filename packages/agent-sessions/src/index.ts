@@ -37,7 +37,7 @@ export type {
   HistorySessionSnapshotResult,
   SupportedHistoryAdapterType,
 } from "./history.js";
-export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code.js";
+export { createAdapter as createClaudeCodeAdapter } from "./adapters/claude-code/index.js";
 export {
   readClaudeCodeBudgetObservations,
 } from "./adapters/claude-code/usage.js";
@@ -53,7 +53,7 @@ export {
 export type {
   ClaudeWorkflowTopologyOptions,
 } from "./adapters/claude-code/workflow-topology.js";
-export { createAdapter as createCodexAdapter } from "./adapters/codex.js";
+export { createAdapter as createCodexAdapter } from "./adapters/codex/index.js";
 export {
   CodexObservedTopologyTracker,
 } from "./adapters/codex/topology.js";
@@ -69,12 +69,12 @@ export type {
   CodexQuotaWindowObservation,
   CodexUsageObservation,
 } from "./adapters/codex/usage.js";
-export { createAdapter as createAcpAdapter } from "./adapters/acp.js";
-export { createAdapter as createGrokAcpAdapter } from "./adapters/grok-acp.js";
-export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat.js";
-export { createAdapter as createOpencodeAdapter } from "./adapters/opencode.js";
-export { createAdapter as createPiAdapter } from "./adapters/pi.js";
-export { createAdapter as createEchoAdapter } from "./adapters/echo.js";
+export { createAdapter as createAcpAdapter } from "./adapters/acp/index.js";
+export { createAdapter as createGrokAcpAdapter } from "./adapters/grok-acp/index.js";
+export { createAdapter as createOpenAiCompatAdapter } from "./adapters/openai-compat/index.js";
+export { createAdapter as createOpencodeAdapter } from "./adapters/opencode/index.js";
+export { createAdapter as createPiAdapter } from "./adapters/pi/index.js";
+export { createAdapter as createEchoAdapter } from "./adapters/echo/index.js";
 export { buildScoutMcpCodexLaunchArgs } from "./codex-launch-config.js";
 export {
   resolveCodexExecutable,

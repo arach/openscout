@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { BaseAdapter, type AdapterConfig } from "../protocol/adapter.js";
+import { BaseAdapter, type AdapterConfig } from "../../protocol/adapter.js";
 import type {
   Action,
   Block,
@@ -12,7 +12,7 @@ import type {
   SessionStatus,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.js";
+} from "../../protocol/primitives.js";
 
 type JsonRpcId = string | number | null;
 

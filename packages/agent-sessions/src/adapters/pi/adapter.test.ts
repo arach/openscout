@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { StateTracker } from "../state.ts";
-import { buildPiProcessEnv, PiAdapter } from "./pi.ts";
+import { StateTracker } from "../../state.ts";
+import { buildPiProcessEnv, PiAdapter } from "./adapter.ts";
 
 describe("buildPiProcessEnv", () => {
   test("passes only MiniMax API key credentials for the MiniMax provider", () => {

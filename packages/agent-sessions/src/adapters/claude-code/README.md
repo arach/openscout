@@ -1,7 +1,7 @@
 # Claude Code Adapter Support Files
 
-This directory holds support material for the Claude Code adapter in
-[claude-code.ts](../claude-code.ts).
+This directory holds the Claude Code adapter implementation and its local support
+material. The runnable adapter entrypoint is [adapter.ts](./adapter.ts).
 
 ## Formal Spec
 

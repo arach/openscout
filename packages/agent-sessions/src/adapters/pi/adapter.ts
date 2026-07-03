@@ -19,8 +19,8 @@
 // does not inherit the full environment; it forwards only runtime basics and
 // credentials for the selected provider.
 
-import { BaseAdapter } from "../protocol/adapter.js";
-import type { AdapterConfig } from "../protocol/adapter.js";
+import { BaseAdapter } from "../../protocol/adapter.js";
+import type { AdapterConfig } from "../../protocol/adapter.js";
 import type {
   Action,
   Block,
@@ -28,7 +28,7 @@ import type {
   Prompt,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.js";
+} from "../../protocol/primitives.js";
 import type { Subprocess } from "bun";
 
 const BASE_PROCESS_ENV_KEYS = [

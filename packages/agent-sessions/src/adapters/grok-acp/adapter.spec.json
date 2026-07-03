@@ -5,7 +5,7 @@
   "displayName": "Grok ACP",
   "implementation": {
     "package": "@openscout/agent-sessions",
-    "entrypoint": "src/adapters/grok-acp.ts",
+    "entrypoint": "src/adapters/grok-acp/adapter.ts",
     "factoryExport": "createAdapter"
   },
   "upstream": {
@@ -27,11 +27,11 @@
       },
       {
         "kind": "file",
-        "ref": "src/adapters/grok-acp.ts"
+        "ref": "src/adapters/grok-acp/adapter.ts"
       },
       {
         "kind": "file",
-        "ref": "src/adapters/acp.ts"
+        "ref": "src/adapters/acp/adapter.ts"
       }
     ]
   },

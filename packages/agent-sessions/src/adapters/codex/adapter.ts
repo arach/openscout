@@ -3,11 +3,11 @@ import { appendFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-import { buildScoutMcpCodexLaunchArgs } from "../codex-launch-config.js";
-import { resolveCodexExecutable } from "../codex-executable.js";
-import { BaseAdapter } from "../protocol/adapter.js";
-import type { AdapterConfig } from "../protocol/adapter.js";
-import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../protocol/primitives.js";
+import { buildScoutMcpCodexLaunchArgs } from "../../codex-launch-config.js";
+import { resolveCodexExecutable } from "../../codex-executable.js";
+import { BaseAdapter } from "../../protocol/adapter.js";
+import type { AdapterConfig } from "../../protocol/adapter.js";
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../../protocol/primitives.js";
 import type {
   Action,
   ActionBlock,
@@ -17,8 +17,8 @@ import type {
   SessionStatus,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.js";
-import { CodexObservedTopologyTracker } from "./codex/topology.js";
+} from "../../protocol/primitives.js";
+import { CodexObservedTopologyTracker } from "./topology.js";
 
 type CodexRequest = {
   id: string | number;

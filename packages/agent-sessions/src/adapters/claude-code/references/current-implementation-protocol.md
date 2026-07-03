@@ -1,7 +1,7 @@
 # Claude Code Current Implementation Protocol Notes
 
 This reference captures the protocol assumptions encoded by the current
-[claude-code.ts](../../claude-code.ts) adapter.
+[adapter.ts](../adapter.ts) adapter.
 
 ## Process Model
 

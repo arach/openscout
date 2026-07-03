@@ -5,7 +5,7 @@
   "displayName": "Codex",
   "implementation": {
     "package": "@openscout/agent-sessions",
-    "entrypoint": "src/adapters/codex.ts",
+    "entrypoint": "src/adapters/codex/adapter.ts",
     "factoryExport": "createAdapter",
     "className": "CodexAdapter"
   },
@@ -24,7 +24,7 @@
       },
       {
         "kind": "file",
-        "ref": "src/adapters/codex.ts"
+        "ref": "src/adapters/codex/adapter.ts"
       },
       {
         "kind": "file",

@@ -25,9 +25,9 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
-import { BaseAdapter } from "../protocol/adapter.js";
-import type { AdapterConfig } from "../protocol/adapter.js";
-import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../protocol/primitives.js";
+import { BaseAdapter } from "../../protocol/adapter.js";
+import type { AdapterConfig } from "../../protocol/adapter.js";
+import { OBSERVED_HARNESS_TOPOLOGY_META_KEY } from "../../protocol/primitives.js";
 import type {
   Action,
   Block,
@@ -36,12 +36,12 @@ import type {
   QuestionAnswer,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.js";
+} from "../../protocol/primitives.js";
 import {
   isClaudeCodeQuotaEvent,
   readClaudeCodeQuotaObservation,
-} from "./claude-code/quota.js";
-import { readClaudeAgentTeamTopology } from "./claude-code/team-topology.js";
+} from "./quota.js";
+import { readClaudeAgentTeamTopology } from "./team-topology.js";
 import type { Subprocess } from "bun";
 
 type TextualBlock = Extract<Block, { type: "text" | "reasoning" }>;

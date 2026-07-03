@@ -6,8 +6,8 @@
 // Credentials stay local — apiKey lives in the adapter config, never
 // leaves the bridge process.
 
-import { BaseAdapter } from "../protocol/adapter.js";
-import type { AdapterConfig } from "../protocol/adapter.js";
+import { BaseAdapter } from "../../protocol/adapter.js";
+import type { AdapterConfig } from "../../protocol/adapter.js";
 import type {
   Action,
   Block,
@@ -15,7 +15,7 @@ import type {
   Prompt,
   Turn,
   TurnStatus,
-} from "../protocol/primitives.js";
+} from "../../protocol/primitives.js";
 
 // ---------------------------------------------------------------------------
 // OpenAI streaming types — minimal surface for what we actually read
@@ -489,7 +489,7 @@ export class OpenAICompatAdapter extends BaseAdapter {
   }
 
   // ---------------------------------------------------------------------------
-  // Block helpers — mirrors claude-code.ts patterns
+  // Block helpers — mirrors the Claude Code adapter patterns.
   // ---------------------------------------------------------------------------
 
   private startBlock(

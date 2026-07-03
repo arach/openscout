@@ -5,7 +5,7 @@
   "displayName": "Agent Client Protocol",
   "implementation": {
     "package": "@openscout/agent-sessions",
-    "entrypoint": "src/adapters/acp.ts",
+    "entrypoint": "src/adapters/acp/adapter.ts",
     "factoryExport": "createAdapter",
     "className": "AcpAdapter"
   },
@@ -28,7 +28,7 @@
       },
       {
         "kind": "file",
-        "ref": "src/adapters/acp.ts"
+        "ref": "src/adapters/acp/adapter.ts"
       }
     ]
   },
