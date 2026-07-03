@@ -272,9 +272,9 @@ import {
 import { relayAgentLogsDirectory, relayAgentRuntimeDirectory, resolveOpenScoutSupportPaths } from "@openscout/runtime/support-paths";
 import { readSessionCatalogSync } from "@openscout/runtime/claude-stream-json";
 import {
-  invokeCodexAppServerAgent,
+  invokeCodexAppServerLocalAgent,
   normalizeCodexAppServerLaunchArgs,
-} from "@openscout/runtime/codex-app-server";
+} from "@openscout/agent-sessions/local";
 import { requestHarnessSessionCompaction } from "./session-compaction.ts";
 
 function parseConversationKinds(value: string | undefined): ConversationKind[] | undefined {
@@ -4584,10 +4584,20 @@ async function resolveScoutbotCredentialState(
   };
 }
 
+function buildScoutbotCodexProcessEnv(currentDirectory: string): NodeJS.ProcessEnv {
+  const cwd = currentDirectory.trim();
+  return {
+    ...process.env,
+    OPENSCOUT_AGENT: "scoutbot-assistant",
+    OPENSCOUT_SETUP_CWD: cwd,
+    OPENSCOUT_MANAGED_AGENT: "1",
+  };
+}
+
 function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCodexAssistantInvoker {
   return async (input) => {
     const runtimeName = `scoutbot-assistant-${sanitizeSupportPathSegment(input.sessionId)}`;
-    const result = await invokeCodexAppServerAgent({
+    const result = await invokeCodexAppServerLocalAgent({
       agentName: "scoutbot-assistant",
       sessionId: input.sessionId,
       cwd: currentDirectory,
@@ -4595,6 +4605,7 @@ function createDefaultScoutbotCodexInvoker(currentDirectory: string): ScoutbotCo
       runtimeDirectory: relayAgentRuntimeDirectory(runtimeName),
       logsDirectory: relayAgentLogsDirectory(runtimeName),
       launchArgs: buildScoutbotAssistantCodexLaunchArgs(process.env),
+      processEnv: buildScoutbotCodexProcessEnv(currentDirectory),
       ...(input.threadId ? { threadId: input.threadId } : {}),
       prompt: input.prompt,
       timeoutMs: input.timeoutMs,
