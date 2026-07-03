@@ -17,6 +17,7 @@ export function ProjectsScreen({
   const isProfile = isProjectAgentProfileRoute(route);
   const stageKey = isProfile ? `profile:${route.agentId}` : "index";
   const asideEngaged = Boolean(route.selectedAgentId && !route.sessionId);
+  const zeroPreview = !isProfile && projectsZeroPreviewEnabled();
 
   return (
     <div className="s-av2" data-view={isProfile ? "profile" : "index"}>
@@ -25,12 +26,20 @@ export function ProjectsScreen({
           <ProjectAgentProfile route={route} navigate={navigate} />
         ) : (
           <div className="pi-shell" data-aside={asideEngaged || undefined}>
-            <ProjectsRail route={route} navigate={navigate} />
-            <ProjectsInbox route={route} navigate={navigate} />
+            <ProjectsRail route={route} navigate={navigate} zeroPreview={zeroPreview} />
+            <ProjectsInbox route={route} navigate={navigate} zeroPreview={zeroPreview} />
             {asideEngaged ? <ProjectsThreadAside route={route} navigate={navigate} /> : null}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function projectsZeroPreviewEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname.toLowerCase();
+  if (host !== "localhost" && host !== "127.0.0.1" && host !== "::1") return false;
+  const value = new URLSearchParams(window.location.search).get("zero")?.trim().toLowerCase();
+  return value === "projects" || value === "project" || value === "1" || value === "true";
 }

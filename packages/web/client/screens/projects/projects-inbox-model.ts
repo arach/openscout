@@ -231,6 +231,10 @@ function sessionRouteId(route: Route | null): string | null {
   return null;
 }
 
+function canOpenProjectSessionNode(node: ProjectTreeSessionNode): boolean {
+  return Boolean(sessionRouteId(node.route));
+}
+
 function projectSession(
   project: DirProject,
   node: ProjectTreeSessionNode,
@@ -268,6 +272,7 @@ function projectSessions(project: DirProject, nowMs: number): InboxSession[] {
   const sessions: InboxSession[] = [];
   for (const agentNode of project.agents) {
     for (const node of agentNode.sessions) {
+      if (!canOpenProjectSessionNode(node)) continue;
       sessions.push(
         projectSession(
           project,
@@ -280,6 +285,7 @@ function projectSessions(project: DirProject, nowMs: number): InboxSession[] {
     }
   }
   for (const node of project.unassigned) {
+    if (!canOpenProjectSessionNode(node)) continue;
     sessions.push(projectSession(project, node, nowMs));
   }
   return sessions.sort((a, b) => b.lastActivityAt - a.lastActivityAt || a.agentName.localeCompare(b.agentName));
@@ -511,6 +517,7 @@ export function sessionSelectRoute(
   route: Extract<Route, { view: "agents-v2" }>,
 ): Extract<Route, { view: "agents-v2" }> {
   const sessionId = sessionRouteRef(session);
+  if (!sessionId) return scopeBase(route);
   return {
     ...scopeBase(route),
     indexView: "sessions",
@@ -525,14 +532,10 @@ export function isSessionSelected(session: InboxSession, route: Extract<Route, {
   return false;
 }
 
-export function sessionRouteRef(session: InboxSession): string {
+export function sessionRouteRef(session: InboxSession): string | null {
   if (session.sessionId) return session.sessionId;
   if (session.conversationId) return session.conversationId;
-  const marker = ":session:";
-  const markerIndex = session.id.indexOf(marker);
-  return markerIndex >= 0
-    ? session.id.slice(markerIndex + marker.length)
-    : session.id;
+  return null;
 }
 
 export function sessionOpenRoute(session: InboxSession, route: Extract<Route, { view: "agents-v2" }>): Route {
