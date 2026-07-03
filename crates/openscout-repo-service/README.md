@@ -1,18 +1,20 @@
 # openscout-repo-service
 
-Native Repo Watch scanner prototype.
+Thin compatibility wrapper for the Scout repo scan/diff implementation now owned
+by the `scoutd` crate.
 
-This crate is the first slice of the "Rust observes, TypeScript interprets"
-boundary for Repo Watch. It accepts path hints and scan limits, runs bounded Git
-commands, and returns raw repository/worktree state plus scan coverage
-diagnostics. It does not know Scout agents, sessions, work items, or attention
-rules.
+The public one-shot contract remains buildable for existing invokers and release
+packaging (`OPENSCOUT_REPO_SERVICE_BIN`, `openscout-repo-service scan`, and
+`openscout-repo-service diff`), but the parsing and Git execution code lives in
+`crates/scoutd/src/repo_service.rs` and is also served over the resident
+`scoutd probes serve` socket.
 
 ```bash
 cargo run --manifest-path crates/openscout-repo-service/Cargo.toml -- scan < request.json
+cargo run --manifest-path crates/openscout-repo-service/Cargo.toml -- diff < request.json
 ```
 
-Input:
+Scan input:
 
 ```json
 {
